@@ -28,25 +28,25 @@ package struct RepositoryActivityTopology: Equatable, Sendable {
 }
 
 package struct RepositoryActivityClassificationInput: Equatable, Sendable {
-    package let hydrationDisposition: ApplicationEntityRecencyHydrationDisposition
     package let repositories: [RepositoryActivityTopology]
     package let openWorktreeIDs: Set<UUID>
-    package let recency: [ApplicationEntityRecency]
+    package let localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition
+    package let repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity]
     package let referenceDate: Date
     package let inactivityHorizon: TimeInterval
 
     package init(
-        hydrationDisposition: ApplicationEntityRecencyHydrationDisposition,
         repositories: [RepositoryActivityTopology],
         openWorktreeIDs: Set<UUID>,
-        recency: [ApplicationEntityRecency],
+        localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition = .pending,
+        repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity] = [:],
         referenceDate: Date,
         inactivityHorizon: TimeInterval
     ) {
-        self.hydrationDisposition = hydrationDisposition
         self.repositories = repositories
         self.openWorktreeIDs = openWorktreeIDs
-        self.recency = recency
+        self.localActivityHydrationDisposition = localActivityHydrationDisposition
+        self.repositoryLocalActivityByStableKey = repositoryLocalActivityByStableKey
         self.referenceDate = referenceDate
         self.inactivityHorizon = inactivityHorizon
     }
@@ -65,23 +65,6 @@ package enum RepositoryActivityClassifier {
     package static func classify(
         _ input: RepositoryActivityClassificationInput
     ) -> RepositoryActivityClassification {
-        guard input.hydrationDisposition == .authoritative else {
-            return RepositoryActivityClassification(
-                dispositionByRepositoryID: Dictionary(
-                    uniqueKeysWithValues: input.repositories.map { ($0.repositoryID, .unclassified) }
-                ),
-                warmRepositoryIDs: [],
-                locallyInactiveRepositoryIDs: [],
-                warmWorktreeIDs: [],
-                locallyInactiveWorktreeIDs: [],
-                nextTransitionAt: nil
-            )
-        }
-
-        let recencyByEntity = Dictionary(
-            input.recency.map { ($0.entity, $0.lastInteractedAt) },
-            uniquingKeysWith: max
-        )
         var dispositionByRepositoryID: [UUID: RepositoryActivityDisposition] = [:]
         var warmRepositoryIDs = Set<UUID>()
         var locallyInactiveRepositoryIDs = Set<UUID>()
@@ -98,22 +81,24 @@ package enum RepositoryActivityClassifier {
                 continue
             }
 
-            let repositoryRecency = recencyByEntity[
-                .repository(repositoryStableKey: repository.repositoryStableKey)
-            ]
-            let latestWorktreeRecency = repository.worktreeStableKeysByID.values.compactMap { stableKey in
-                recencyByEntity[.worktree(worktreeStableKey: stableKey)]
-            }.max()
-            let latestRecency = [repositoryRecency, latestWorktreeRecency].compactMap { $0 }.max()
-
-            guard let latestRecency else {
-                dispositionByRepositoryID[repository.repositoryID] = .locallyInactive
-                locallyInactiveRepositoryIDs.insert(repository.repositoryID)
-                locallyInactiveWorktreeIDs.formUnion(worktreeIDs)
+            guard input.localActivityHydrationDisposition == .authoritative,
+                let activity = input.repositoryLocalActivityByStableKey[repository.repositoryStableKey],
+                !activity.ownedPromotionUnsettled,
+                activity.continuousCoverageStartedAt <= input.referenceDate,
+                activity.updatedAt <= input.referenceDate,
+                activity.lastQualifyingActivityAt.map({ $0 <= input.referenceDate }) ?? true
+            else {
+                dispositionByRepositoryID[repository.repositoryID] = .unclassified
+                warmRepositoryIDs.insert(repository.repositoryID)
+                warmWorktreeIDs.formUnion(worktreeIDs)
                 continue
             }
 
-            let expiration = latestRecency.addingTimeInterval(input.inactivityHorizon)
+            let latestProofBoundary = max(
+                activity.continuousCoverageStartedAt,
+                activity.lastQualifyingActivityAt ?? activity.continuousCoverageStartedAt
+            )
+            let expiration = latestProofBoundary.addingTimeInterval(input.inactivityHorizon)
             if input.referenceDate <= expiration {
                 dispositionByRepositoryID[repository.repositoryID] = .warm
                 warmRepositoryIDs.insert(repository.repositoryID)

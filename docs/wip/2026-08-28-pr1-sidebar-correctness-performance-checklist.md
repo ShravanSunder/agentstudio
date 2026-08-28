@@ -1,0 +1,72 @@
+# PR1 Sidebar Correctness And Performance Checklist
+
+Date: 2026-08-28
+Branch: `fix/demand-admission-regression`
+Current checkpoint: `95289e288`
+Status: not PR-ready
+
+## Product Contract
+
+Every applicable worktree row retains and displays the latest accepted facts:
+
+- actual checked-out branch, or `detached HEAD` when that is the accepted fact;
+- file-change chip facts, including tracked and untracked changes;
+- ahead, behind, or diverged sync facts;
+- accepted PR/check facts;
+- the refresh control.
+
+`Locally inactive` is a repository-level freshness annotation. It may suppress repeated automatic local, remote-reference, and Forge work. It must not erase or replace cached branch or chip facts. Cached facts stay visible while refresh is running. Loading is visible only for a real active request and terminates when that request settles.
+
+When an attended sidebar worktree has no accepted local-Git baseline, one bounded local status read is required to make the sidebar useful. After that baseline settles, locally inactive worktrees receive no recurring automatic local deadline. Search, grouping, scrolling, and rendering never create source demand. Application-open recency is not repository-local activity and has no authority to classify or suppress repository facts.
+
+PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It does not add replay. Persisted activity may be loaded for recovery, but a new process does not treat pre-restart continuous coverage as current authority until the existing live checkpoint restarts coverage. Until then the repository is unknown and follows ordinary bounded correctness admission. PR2 may later recover downtime history through FSEvents replay.
+
+## Hard Priority Queue
+
+- [x] Add red classifier/store tests proving application-open recency has no authority, restored coverage is unknown until the first live checkpoint, trustworthy local activity inside sixty days is warm, and trustworthy continuous negative coverage beyond sixty days is locally inactive.
+- [x] Add a red integration test for an unknown attended repository with no cached baseline; it must receive bounded correctness facts instead of being falsely suppressed.
+- [x] Prove the baseline publishes the actual branch plus dirty/file and ahead/behind facts into `RepoCacheAtom`.
+- [x] Add a red Repo Explorer materialization test proving locally inactive rows retain cached branch, file, ahead/behind, and PR chips with no empty replacement row.
+- [x] Cut demand and Repo Explorer classification over from application-open recency to the existing repository-local activity atom without adding replay machinery.
+- [x] Fix local-Git admission so unknown/missing attended baselines remain bounded correctness work while truly inactive recurring deadlines remain suppressed.
+- [x] Remove locally-inactive presentation suppression from worktree and pane/tab projections while preserving the repository memorychip annotation.
+- [ ] Prove cached facts remain visible throughout explicit refresh and loading terminates.
+- [ ] Rerun focused Git-demand, cache-convergence, projection, materialization, row-height, and mounted-row tests.
+- [ ] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
+- [ ] Capture PID-bound visual proof for By Repo, By Pane, and By Tab showing real branches and cached chips; prove search and scrolling do not collapse, clip, overlap, or move rows.
+- [ ] Populate or verify the complete `open-source` and `project-dev` roots with exactly five tabs, twenty pane models, and zero debug-owned PTYs.
+- [ ] Run exact-`lbim` process CPU populations: settled idle p99 below 10%; search/clear, grouping, hide/show, and tab switching p95 below 20% (release ceiling below 25% only where the owner explicitly accepts it).
+- [ ] Diagnose and fix only marker-correlated PR1 hotspots; do not resume PR2 FSEvents replay work.
+- [ ] Run `mise run format`, `mise run lint`, `mise run test`, `git diff --check`, fresh native proof, independent implementation review, and PR checks.
+
+## Current Evidence
+
+- Live PID-bound `lbim` proof showed widespread missing branch lines and missing cached chips.
+- `RepoExplorerProjectionWorker` and `RepositoryFactDemandCoordinator` currently classify from application-open recency; missing rows are falsely treated as confirmed local inactivity.
+- Materialization sets `showsRepositoryFactStatus` false for locally inactive worktree rows, contradicting the confirmed cached-facts UX.
+- `GitWorkingDirectoryProjector.setRepositoryFactAttention` installs `warmAutomaticWorktreeIds` as the automatic-eligibility set before visibility admission; cold attended worktrees are filtered out even when no accepted baseline exists.
+- Existing demand integration coverage proves warm facts survive later inactivity. It does not prove a cold, locally inactive, attended worktree receives its first baseline.
+- Existing presentation tests explicitly encode cold status suppression; those expectations conflict with the confirmed product contract and must be replaced, not preserved.
+- `95289e288` correctly stops treating absent PR facts as permanent loading and removes fabricated `Unknown branch`, but it exposed the missing-baseline defect and is not sufficient by itself.
+
+## Non-Goals
+
+- Do not restore `Unknown branch`.
+- Do not hide facts to make inactive rows compact.
+- Do not trigger Git from search, grouping, scrolling, viewport changes, or rendering.
+- Do not resume the PR2 restart-safe FSEvents replay design on this branch.
+- Do not reset the `lbim` database or touch beta/production.
+- Do not weaken CPU, observability, test, lint, or native proof gates.
+
+## PR1 Release Wrap-Up
+
+PR1 is ready to open or update only after every hard-priority row above is complete and the following release packet exists:
+
+- [ ] One final requirements-to-proof matrix covers branch visibility, cached chips, inactive annotation, refresh behavior, all three grouping modes, search, scrolling, focus, row geometry, demand invariance, and CPU targets.
+- [ ] `mise run format`, `mise run lint`, and `mise run test` pass on the exact final HEAD with exit code 0.
+- [ ] The preserved `lbim` app is rebuilt from that exact HEAD and PID-bound captures prove By Repo, By Pane, and By Tab with real branches and cached file/ahead/behind chips.
+- [ ] The exact debug PID passes the agreed settled-idle and ordinary-action CPU populations with complete watched roots, five tabs, twenty pane models, and zero PTYs.
+- [ ] Fresh marker-scoped Victoria evidence agrees with the exact PID samples and shows no admission, debounce, projection, Forge, Git, filesystem, row-height, focus, or rendering loop.
+- [ ] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
+- [ ] The branch is pushed, the PR description contains the proof matrix and exact commands, and GitHub checks, comments, review threads, and mergeability are all green.
+- [ ] A beta release is proposed only from merged `main` through the repository tag-driven release flow; PR1 work never tags or releases directly from this branch.

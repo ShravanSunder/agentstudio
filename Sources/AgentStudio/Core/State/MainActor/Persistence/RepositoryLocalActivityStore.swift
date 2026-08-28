@@ -16,8 +16,12 @@ package final class RepositoryLocalActivityStore {
     package func restoreAsync() async {
         guard !isHydrated else { return }
         switch await sqliteDatastore.loadRepositoryLocalActivity() {
-        case .loaded(let snapshot):
-            atom.publishAuthoritative(snapshot)
+        case .loaded:
+            // Persisted activity survives restart, but PR1 does not replay the
+            // FSEvents gap. Keep classification unknown until the first live
+            // activity checkpoint restarts coverage and commits a current
+            // authoritative snapshot.
+            atom.publishUnavailable()
         case .unavailable:
             atom.publishUnavailable()
         }

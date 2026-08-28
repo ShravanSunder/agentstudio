@@ -142,20 +142,26 @@ struct RepoExplorerViewProjectionHelperTests {
             trigger: .startupDiagnostic
         )
         let baselineKey = RepoExplorerView.projectionRequestKey(for: baseline)
-        let recency = try ApplicationEntityRecency(
-            entity: .repository(repositoryStableKey: "0123456789abcdef"),
-            interaction: .opened,
-            lastInteractedAt: referenceDate
+        let activity = try RepositoryLocalActivity(
+            repositoryStableKey: "0123456789abcdef",
+            lastQualifyingActivityAt: referenceDate,
+            continuousCoverageStartedAt: referenceDate,
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
         )
 
         #expect(
             RepoExplorerView.projectionRequestKey(
-                for: baseline.replacing(activityHydrationDisposition: .authoritative)
+                for: baseline.replacing(localActivityHydrationDisposition: .authoritative)
             ) != baselineKey
         )
         #expect(
             RepoExplorerView.projectionRequestKey(
-                for: baseline.replacing(applicationRecency: [recency])
+                for: baseline.replacing(
+                    repositoryLocalActivityByStableKey: [activity.repositoryStableKey: activity]
+                )
             ) != baselineKey
         )
         #expect(

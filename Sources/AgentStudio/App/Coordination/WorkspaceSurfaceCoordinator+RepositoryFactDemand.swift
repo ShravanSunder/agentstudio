@@ -46,7 +46,7 @@ extension WorkspaceSurfaceCoordinator {
     private func captureRepositoryFactDemandInput() -> RepositoryFactDemandInput {
         let paneGraph = store.paneAtom.graphAtom
         let topology = store.repositoryTopologyAtom
-        let applicationRecency = atom(\.applicationEntityRecency)
+        let repositoryLocalActivity = atom(\.repositoryLocalActivity)
         let associationByPaneId = Dictionary(
             uniqueKeysWithValues: paneGraph.repositoryAssociationPaneIds.compactMap { paneId in
                 paneGraph.repositoryAssociation(for: paneId).map { (paneId, $0) }
@@ -75,6 +75,13 @@ extension WorkspaceSurfaceCoordinator {
                 )
             )
         }
+        let repositoryLocalActivityByStableKey = Dictionary(
+            uniqueKeysWithValues: activityTopology.compactMap { repository in
+                repositoryLocalActivity.activity(for: repository.repositoryStableKey).map {
+                    (repository.repositoryStableKey, $0)
+                }
+            }
+        )
 
         return RepositoryFactDemandInput(
             activePaneWorktreeId: activePaneWorktreeId,
@@ -86,8 +93,8 @@ extension WorkspaceSurfaceCoordinator {
             openWorktreeIds: Set(associationByPaneId.values.compactMap(\.worktreeId)),
             repositoryIdByWorktreeId: repositoryIdByWorktreeId,
             activityTopology: activityTopology,
-            recencyHydrationDisposition: applicationRecency.hydrationDisposition,
-            applicationRecency: applicationRecency.recentEntities
+            localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey
         )
     }
 

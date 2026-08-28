@@ -6,11 +6,107 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct FilesystemGitPipelineDemandIntegrationTests {
+    @Test("unknown attended repository publishes its first complete sidebar baseline")
+    func unknownAttendedRepositoryPublishesCompleteSidebarBaseline() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let expectedStatus = GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(
+                changed: 2,
+                staged: 1,
+                untracked: 3,
+                linesAdded: 69,
+                linesDeleted: 19,
+                aheadCount: 2,
+                behindCount: 1,
+                hasUpstream: true
+            ),
+            branch: "feature/sidebar-admission",
+            origin: "git@github.com:askluna/agent-studio.git"
+        )
+        let gitProvider = DemandIntegrationGitStatusProvider(status: expectedStatus)
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            registrationDiscoveryProvider: DemandIntegrationRegistrationDiscoveryProvider(),
+            gitWorkingTreeProvider: gitProvider,
+            remoteReferenceRefreshProvider: DemandIntegrationRemoteReferenceProvider(),
+            forgeStatusProvider: DemandIntegrationForgeProvider(
+                expectedBranch: "feature/sidebar-admission"
+            ),
+            fseventStreamClient: DemandIntegrationSilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero
+        )
+        let rootPath = demandIntegrationFixtureRootPath()
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let workspaceStore = WorkspaceStore()
+        let repository = workspaceStore.addRepo(at: rootPath)
+        let worktree = try #require(repository.worktrees.first)
+        let repoCache = RepoCacheAtom()
+        let cacheCoordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+        let demandCoordinator = RepositoryFactDemandCoordinator { snapshot in
+            await pipeline.setRepositoryFactDemand(snapshot)
+        }
+        let activityTopology = try demandIntegrationActivityTopology(
+            repository: repository,
+            worktreeId: worktree.id
+        )
+
+        await cacheCoordinator.startConsuming()
+        await pipeline.start()
+        demandCoordinator.accept(
+            RepositoryFactDemandInput(
+                activePaneWorktreeId: nil,
+                sidebarAttendedWorktreeIds: [worktree.id],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [],
+                repositoryIdByWorktreeId: [worktree.id: repository.id],
+                activityTopology: [activityTopology],
+                localActivityHydrationDisposition: .pending,
+                repositoryLocalActivityByStableKey: [:]
+            )
+        )
+        await demandCoordinator.waitUntilIdle()
+        await pipeline.register(
+            worktreeId: worktree.id,
+            repoId: repository.id,
+            rootPath: rootPath
+        )
+
+        let baselinePublished = await eventually("unknown attended baseline should reach RepoCache") {
+            repoCache.worktreeEnrichment(for: worktree.id)?.snapshot?.summary
+                == expectedStatus.summary
+        }
+        #expect(baselinePublished)
+        let enrichment = try #require(repoCache.worktreeEnrichment(for: worktree.id))
+        #expect(enrichment.branch == "feature/sidebar-admission")
+
+        try expectCompleteSidebarBaseline(
+            repoCache: repoCache,
+            repository: repository,
+            worktree: worktree
+        )
+
+        await shutdown(
+            demandCoordinator: demandCoordinator,
+            pipeline: pipeline,
+            cacheCoordinator: cacheCoordinator
+        )
+    }
+
     @Test("changed attention reuses fresh local remote and Forge facts")
     func changedAttentionReusesFreshRepositoryFacts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -50,20 +146,13 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             repository: repository,
             worktreeId: worktreeId
         )
-        let recentRepositoryOpen = try ApplicationEntityRecency(
-            entity: .repository(repositoryStableKey: repository.stableKey),
-            interaction: .opened,
-            lastInteractedAt: Date()
-        )
         let initialDemand = RepositoryFactDemandInput(
             activePaneWorktreeId: worktreeId,
             sidebarAttendedWorktreeIds: [worktreeId],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [worktreeId],
             repositoryIdByWorktreeId: [worktreeId: repository.id],
-            activityTopology: [activityTopology],
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: [recentRepositoryOpen]
+            activityTopology: [activityTopology]
         )
 
         await cacheCoordinator.startConsuming()
@@ -98,12 +187,11 @@ struct FilesystemGitPipelineDemandIntegrationTests {
                 repoCache: repoCache,
                 repositoryId: repository.id,
                 worktreeId: worktreeId,
-                activityTopology: activityTopology,
-                recentRepositoryOpen: recentRepositoryOpen
+                activityTopology: activityTopology
             )
         )
 
-        await proveInactiveDemandAndColdMutation(
+        try await proveInactiveDemandAndColdMutation(
             ColdDemandProofContext(
                 pipeline: pipeline,
                 demandCoordinator: demandCoordinator,
@@ -151,9 +239,7 @@ struct FilesystemGitPipelineDemandIntegrationTests {
                 visibleActiveTabWorktreeIds: [context.worktreeId],
                 openWorktreeIds: [context.worktreeId],
                 repositoryIdByWorktreeId: [context.worktreeId: context.repositoryId],
-                activityTopology: [context.activityTopology],
-                recencyHydrationDisposition: .authoritative,
-                applicationRecency: [context.recentRepositoryOpen]
+                activityTopology: [context.activityTopology]
             )
         )
         await context.demandCoordinator.waitUntilIdle()
@@ -173,7 +259,63 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         return sourceCallsAfterAttentionChange
     }
 
-    private func proveInactiveDemandAndColdMutation(_ context: ColdDemandProofContext) async {
+    private func expectCompleteSidebarBaseline(
+        repoCache: RepoCacheAtom,
+        repository: Repo,
+        worktree: Worktree
+    ) throws {
+        let presentationRepo = RepoPresentationItem(
+            repo: repository,
+            stableKey: repository.stableKey,
+            worktreeStableKeysByID: [worktree.id: worktree.stableKey]
+        )
+        let projection = try RepoExplorerProjectionWorker.project(
+            RepoExplorerProjectionRequest(
+                generation: 1,
+                snapshot: RepoExplorerSnapshot(
+                    repos: [presentationRepo],
+                    repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+                    groupingMode: .repo,
+                    query: ""
+                ),
+                collapsedGroupIds: [],
+                isFiltering: false,
+                trigger: .dataRefresh,
+                worktreeEnrichmentSnapshot: repoCache.worktreeEnrichmentByWorktreeId,
+                pullRequestFactsSnapshot: repoCache.pullRequestFactsByBranch,
+                localActivityHydrationDisposition: .pending
+            )
+        )
+        let worktreePresentations: [RepoExplorerMaterializedWorktreePresentation] =
+            projection.materializationSnapshot.rows.compactMap { row in
+                guard case .worktree(let presentation) = row.presentation else { return nil }
+                return presentation
+            }
+        let worktreePresentation = try #require(worktreePresentations.first)
+        #expect(worktreePresentation.branchName == "feature/sidebar-admission")
+        #expect(worktreePresentation.branchStatus.isDirty)
+        #expect(
+            worktreePresentation.branchStatus.syncState
+                == GitBranchStatus.SyncState.diverged(ahead: 2, behind: 1)
+        )
+        #expect(worktreePresentation.branchStatus.linesAdded == 69)
+        #expect(worktreePresentation.branchStatus.linesDeleted == 19)
+        #expect(worktreePresentation.branchStatus.untrackedFileCount == 3)
+    }
+
+    private func proveInactiveDemandAndColdMutation(_ context: ColdDemandProofContext) async throws {
+        let referenceDate = Date()
+        let inactiveActivity = try RepositoryLocalActivity(
+            repositoryStableKey: context.activityTopology.repositoryStableKey,
+            lastQualifyingActivityAt: nil,
+            continuousCoverageStartedAt: referenceDate.addingTimeInterval(
+                -AppPolicies.EntityRecency.applicationActivityHorizon - 1
+            ),
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
+        )
         let inactiveDemand = RepositoryFactDemandInput(
             activePaneWorktreeId: nil,
             sidebarAttendedWorktreeIds: [context.worktreeId],
@@ -181,8 +323,10 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             openWorktreeIds: [],
             repositoryIdByWorktreeId: [context.worktreeId: context.repositoryId],
             activityTopology: [context.activityTopology],
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: []
+            localActivityHydrationDisposition: .authoritative,
+            repositoryLocalActivityByStableKey: [
+                inactiveActivity.repositoryStableKey: inactiveActivity
+            ]
         )
         context.demandCoordinator.accept(inactiveDemand)
         await context.demandCoordinator.waitUntilIdle()
@@ -314,7 +458,6 @@ private struct WarmAttentionProofContext {
     let repositoryId: UUID
     let worktreeId: UUID
     let activityTopology: RepositoryActivityTopology
-    let recentRepositoryOpen: ApplicationEntityRecency
 }
 
 private func demandIntegrationFixtureRootPath() -> URL {
@@ -359,9 +502,20 @@ private struct DemandIntegrationRemoteCallCounts: Equatable {
 }
 
 private actor DemandIntegrationGitStatusProvider: GitWorkingTreeStatusProvider {
+    private let status: GitWorkingTreeStatus
     private(set) var statusCallCount = 0
     private(set) var lineDetailCallCount = 0
     private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
+
+    init(
+        status: GitWorkingTreeStatus = GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+            branch: "main",
+            origin: "git@github.com:askluna/agent-studio.git"
+        )
+    ) {
+        self.status = status
+    }
 
     func statusResult(
         for rootPath: URL,
@@ -390,11 +544,6 @@ private actor DemandIntegrationGitStatusProvider: GitWorkingTreeStatusProvider {
 
     private func recordStatus(for rootPath: URL) -> GitWorkingTreeStatus {
         statusCallCount += 1
-        let status = GitWorkingTreeStatus(
-            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
-            branch: "main",
-            origin: "git@github.com:askluna/agent-studio.git"
-        )
         lineDetailByRootPath[rootPath.standardizedFileURL] = GitWorkingTreeLineDetail(status: status)
         return status
     }
@@ -466,19 +615,24 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
 }
 
 private actor DemandIntegrationForgeProvider: ForgeStatusProvider {
+    private let expectedBranch: String
     private(set) var callCount = 0
+
+    init(expectedBranch: String = "main") {
+        self.expectedBranch = expectedBranch
+    }
 
     func pullRequests(
         origin _: String,
         demandedBranches: Set<String>
     ) async -> ForgePullRequestQueryOutcome {
         callCount += 1
-        guard demandedBranches == ["main"] else {
+        guard demandedBranches == [expectedBranch] else {
             return .failed(message: "unexpected demanded branch scope")
         }
         return .complete([
             ForgePullRequest(
-                headRefName: "main",
+                headRefName: expectedBranch,
                 url: URL(string: "https://github.com/askluna/agent-studio/pull/1")!
             )
         ])

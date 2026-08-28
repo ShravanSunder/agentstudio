@@ -625,8 +625,17 @@ import Observation
                     paneGraph.repositoryAssociation(for: $0)?.worktreeId
                 }
             )
+            let repositoryLocalActivity = atomStore.core.repositoryLocalActivity
+            let repositoryLocalActivityByStableKey = Dictionary(
+                uniqueKeysWithValues: topology.repositoryIdsInOrder.compactMap { repositoryID in
+                    topology.repo(repositoryID).flatMap { repository in
+                        repositoryLocalActivity.activity(for: repository.stableKey).map {
+                            (repository.stableKey, $0)
+                        }
+                    }
+                }
+            )
             let input = RepositoryActivityClassificationInput(
-                hydrationDisposition: atomStore.core.applicationEntityRecency.hydrationDisposition,
                 repositories: topology.repositoryIdsInOrder.compactMap { repositoryID in
                     topology.repo(repositoryID).map { repository in
                         RepositoryActivityTopology(
@@ -641,7 +650,8 @@ import Observation
                     }
                 },
                 openWorktreeIDs: openWorktreeIDs,
-                recency: atomStore.core.applicationEntityRecency.recentEntities,
+                localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
+                repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
                 referenceDate: Date(),
                 inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
             )

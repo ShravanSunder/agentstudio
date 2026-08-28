@@ -71,6 +71,14 @@ final class RepoExplorerProjectionInputCapture {
         )
         let groupingMode = preferences.groupingMode
         let repositoryIDs = Set(repos.map(\.id))
+        let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
+        let repositoryLocalActivityByStableKey = Dictionary(
+            uniqueKeysWithValues: repos.compactMap { repository in
+                repositoryLocalActivity.activity(for: repository.stableKey).map {
+                    (repository.stableKey, $0)
+                }
+            }
+        )
         let snapshot = makeSidebarSnapshot(
             repos: repos,
             repoEnrichmentByRepoId: Dictionary(
@@ -103,8 +111,8 @@ final class RepoExplorerProjectionInputCapture {
             loadingPullRequestRepoIds: repositoryIDs.filter {
                 repoCache.isPullRequestLoading(forRepository: $0)
             },
-            activityHydrationDisposition: coreAtoms.applicationEntityRecency.hydrationDisposition,
-            applicationRecency: coreAtoms.applicationEntityRecency.recentEntities,
+            localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
             repositoryFactUpdateProgressByRepoId: Dictionary(
                 uniqueKeysWithValues: repos.compactMap { repository in
                     repoCache.repositoryFactUpdateProgress(for: repository.id).map {

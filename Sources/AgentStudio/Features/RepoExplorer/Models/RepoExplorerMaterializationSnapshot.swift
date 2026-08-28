@@ -482,8 +482,7 @@ extension RepoExplorerMaterializationSnapshot {
                     bridgeCommandResolution: inputs.bridgeCommandResolutionByWorktreeID[worktreeID]
                         ?? .create,
                     paneDestinations: inputs.projection.paneDestinationsByWorktreeId[worktreeID] ?? [],
-                    showsRepositoryFactStatus:
-                        inputs.repositoryActivityDispositionByRepoID[repoID] != .locallyInactive
+                    showsRepositoryFactStatus: true
                 )
             )
         case .resolvedPaneRow(let groupID, let identity, let rowID):

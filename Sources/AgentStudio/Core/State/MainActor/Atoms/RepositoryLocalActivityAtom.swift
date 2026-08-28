@@ -1,12 +1,6 @@
 import AgentStudioInfrastructure
 import Observation
 
-package enum RepositoryLocalActivityHydrationDisposition: Equatable, Sendable {
-    case pending
-    case authoritative
-    case unavailable
-}
-
 @MainActor
 @Observable
 package final class RepositoryLocalActivityAtom {

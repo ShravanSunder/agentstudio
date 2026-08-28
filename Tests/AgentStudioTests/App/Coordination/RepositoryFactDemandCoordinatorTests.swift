@@ -11,8 +11,8 @@ import Testing
 struct RepositoryFactDemandCoordinatorTests {
     private let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
 
-    @Test("activity classification preserves membership while suppressing inactive automatic demand")
-    func activityClassificationPrecedesAutomaticDemand() async throws {
+    @Test("missing local activity evidence retains bounded correctness eligibility")
+    func missingLocalActivityEvidenceRetainsCorrectnessEligibility() async throws {
         let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
         let warmRepositoryID = seededUUID(1)
         let warmWorktreeID = seededUUID(2)
@@ -45,14 +45,6 @@ struct RepositoryFactDemandCoordinatorTests {
                     repositoryStableKey: "3333333333333333",
                     worktreeStableKeysByID: [inactiveWorktreeID: "4444444444444444"]
                 ),
-            ],
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: [
-                try ApplicationEntityRecency(
-                    entity: .repository(repositoryStableKey: "1111111111111111"),
-                    interaction: .opened,
-                    lastInteractedAt: referenceDate
-                )
             ]
         )
 
@@ -61,15 +53,15 @@ struct RepositoryFactDemandCoordinatorTests {
 
         let snapshot = try #require(await receiver.receivedSnapshots().last)
         #expect(snapshot.sidebarAttendedWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
-        #expect(snapshot.warmRepositoryIds == [warmRepositoryID])
-        #expect(snapshot.locallyInactiveRepositoryIds == [inactiveRepositoryID])
-        #expect(snapshot.warmAutomaticWorktreeIds == [warmWorktreeID])
-        #expect(snapshot.forgeDemandedWorktreeIds == [warmWorktreeID])
-        #expect(snapshot.demandedRepositoryIds == [warmRepositoryID])
+        #expect(snapshot.warmRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
+        #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
+        #expect(snapshot.warmAutomaticWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
+        #expect(snapshot.forgeDemandedWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
+        #expect(snapshot.demandedRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
     }
 
-    @Test("pre-hydration input produces no automatic source eligibility")
-    func preHydrationInputHasNoAutomaticEligibility() async throws {
+    @Test("pre-hydration activity remains unknown with bounded correctness eligibility")
+    func preHydrationActivityRetainsCorrectnessEligibility() async throws {
         let receiver = RepositoryFactDemandReceiverProbe()
         let coordinator = RepositoryFactDemandCoordinator(
             wallClockNow: RepositoryFactDemandWallClock(referenceDate).read,
@@ -84,9 +76,7 @@ struct RepositoryFactDemandCoordinatorTests {
             visibleActiveTabWorktreeIds: input.visibleActiveTabWorktreeIds,
             openWorktreeIds: input.openWorktreeIds,
             repositoryIdByWorktreeId: input.repositoryIdByWorktreeId,
-            activityTopology: input.activityTopology,
-            recencyHydrationDisposition: .pending,
-            applicationRecency: []
+            activityTopology: input.activityTopology
         )
 
         coordinator.accept(input)
@@ -94,15 +84,18 @@ struct RepositoryFactDemandCoordinatorTests {
 
         let snapshot = try #require(await receiver.receivedSnapshots().last)
         #expect(snapshot.sidebarAttendedWorktreeIds == input.sidebarAttendedWorktreeIds)
-        #expect(snapshot.warmRepositoryIds.isEmpty)
+        #expect(snapshot.warmRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
-        #expect(snapshot.warmAutomaticWorktreeIds.isEmpty)
-        #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
-        #expect(snapshot.demandedRepositoryIds.isEmpty)
+        #expect(snapshot.warmAutomaticWorktreeIds == Set(input.repositoryIdByWorktreeId.keys))
+        #expect(
+            snapshot.forgeDemandedWorktreeIds
+                == input.sidebarAttendedWorktreeIds.union(input.visibleActiveTabWorktreeIds)
+        )
+        #expect(snapshot.demandedRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
     }
 
-    @Test("current inactivity boundary reclassifies without polling")
-    func inactivityBoundaryReclassifiesLatestInput() async throws {
+    @Test("open-pane changes reactivate a locally inactive repository")
+    func openPaneChangesReactivateLocallyInactiveRepository() async throws {
         let clock = TestPushClock()
         let wallClock = RepositoryFactDemandWallClock(referenceDate)
         let receiver = RepositoryFactDemandReceiverProbe()
@@ -115,55 +108,17 @@ struct RepositoryFactDemandCoordinatorTests {
         )
         let baseInput = try makeDemandInput(seed: 1)
         let repositoryStableKey = try #require(baseInput.activityTopology.first?.repositoryStableKey)
-        let input = RepositoryFactDemandInput(
-            activePaneWorktreeId: nil,
-            sidebarAttendedWorktreeIds: baseInput.sidebarAttendedWorktreeIds,
-            visibleActiveTabWorktreeIds: [],
-            openWorktreeIds: [],
-            repositoryIdByWorktreeId: baseInput.repositoryIdByWorktreeId,
-            activityTopology: baseInput.activityTopology,
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: [
-                try ApplicationEntityRecency(
-                    entity: .repository(repositoryStableKey: repositoryStableKey),
-                    interaction: .opened,
-                    lastInteractedAt: referenceDate.addingTimeInterval(
-                        -AppPolicies.EntityRecency.applicationActivityHorizon + 10
-                    )
-                )
-            ]
+        let inactiveActivity = try RepositoryLocalActivity(
+            repositoryStableKey: repositoryStableKey,
+            lastQualifyingActivityAt: nil,
+            continuousCoverageStartedAt: referenceDate.addingTimeInterval(
+                -AppPolicies.EntityRecency.applicationActivityHorizon - 1
+            ),
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
         )
-
-        coordinator.accept(input)
-        await coordinator.waitUntilIdle()
-        #expect(await receiver.receivedSnapshots().last?.warmRepositoryIds.isEmpty == false)
-        await clock.waitForPendingSleepCount(atLeast: 1)
-
-        wallClock.set(referenceDate.addingTimeInterval(11))
-        clock.advance(by: .seconds(11))
-        await receiver.waitUntilDeliveryStarts(ordinal: 2)
-        await coordinator.waitUntilIdle()
-
-        let snapshot = try #require(await receiver.receivedSnapshots().last)
-        #expect(snapshot.warmRepositoryIds.isEmpty)
-        #expect(!snapshot.locallyInactiveRepositoryIds.isEmpty)
-        #expect(clock.pendingSleepCount == 0)
-    }
-
-    @Test("superseded inactivity boundary has no publication authority")
-    func staleInactivityBoundaryIsCancelled() async throws {
-        let clock = TestPushClock()
-        let wallClock = RepositoryFactDemandWallClock(referenceDate)
-        let receiver = RepositoryFactDemandReceiverProbe()
-        let coordinator = RepositoryFactDemandCoordinator(
-            wallClockNow: wallClock.read,
-            sleepClock: clock,
-            delivery: { snapshot in
-                await receiver.receive(snapshot)
-            }
-        )
-        let baseInput = try makeDemandInput(seed: 1)
-        let repositoryStableKey = try #require(baseInput.activityTopology.first?.repositoryStableKey)
         let closedInput = RepositoryFactDemandInput(
             activePaneWorktreeId: nil,
             sidebarAttendedWorktreeIds: baseInput.sidebarAttendedWorktreeIds,
@@ -171,20 +126,12 @@ struct RepositoryFactDemandCoordinatorTests {
             openWorktreeIds: [],
             repositoryIdByWorktreeId: baseInput.repositoryIdByWorktreeId,
             activityTopology: baseInput.activityTopology,
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: [
-                try ApplicationEntityRecency(
-                    entity: .repository(repositoryStableKey: repositoryStableKey),
-                    interaction: .opened,
-                    lastInteractedAt: referenceDate.addingTimeInterval(
-                        -AppPolicies.EntityRecency.applicationActivityHorizon + 10
-                    )
-                )
-            ]
+            localActivityHydrationDisposition: .authoritative,
+            repositoryLocalActivityByStableKey: [repositoryStableKey: inactiveActivity]
         )
         coordinator.accept(closedInput)
         await coordinator.waitUntilIdle()
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        #expect(clock.pendingSleepCount == 0)
 
         let openInput = RepositoryFactDemandInput(
             activePaneWorktreeId: closedInput.sidebarAttendedWorktreeIds.first,
@@ -193,18 +140,12 @@ struct RepositoryFactDemandCoordinatorTests {
             openWorktreeIds: closedInput.sidebarAttendedWorktreeIds,
             repositoryIdByWorktreeId: closedInput.repositoryIdByWorktreeId,
             activityTopology: closedInput.activityTopology,
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: closedInput.applicationRecency
+            localActivityHydrationDisposition: closedInput.localActivityHydrationDisposition,
+            repositoryLocalActivityByStableKey: closedInput.repositoryLocalActivityByStableKey
         )
         coordinator.accept(openInput)
         await coordinator.waitUntilIdle()
         #expect(clock.pendingSleepCount == 0)
-
-        wallClock.set(referenceDate.addingTimeInterval(11))
-        clock.advance(by: .seconds(11))
-        for _ in 0..<100 {
-            await Task.yield()
-        }
 
         let snapshots = await receiver.receivedSnapshots()
         #expect(snapshots.count == 2)
@@ -240,6 +181,7 @@ struct RepositoryFactDemandCoordinatorTests {
                         delivered: 1,
                         cleared: 0,
                         rejectedAfterShutdown: 0,
+                        hydrationUnclassifiedCurrent: 1,
                         warmRepositoryCurrent: 1,
                         warmWorktreeCurrent: 4
                     )
@@ -364,14 +306,6 @@ struct RepositoryFactDemandCoordinatorTests {
                     repositoryID: repositoryID,
                     repositoryStableKey: repositoryStableKey,
                     worktreeStableKeysByID: stableKeysByWorktreeID
-                )
-            ],
-            recencyHydrationDisposition: .authoritative,
-            applicationRecency: [
-                try ApplicationEntityRecency(
-                    entity: .repository(repositoryStableKey: repositoryStableKey),
-                    interaction: .opened,
-                    lastInteractedAt: referenceDate
                 )
             ]
         )

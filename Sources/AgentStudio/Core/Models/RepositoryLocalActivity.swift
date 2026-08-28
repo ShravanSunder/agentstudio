@@ -1,5 +1,11 @@
 import Foundation
 
+package enum RepositoryLocalActivityHydrationDisposition: Equatable, Sendable {
+    case pending
+    case authoritative
+    case unavailable
+}
+
 package enum RepositoryLocalActivityValidationError: Error, Equatable {
     case invalidRepositoryStableKey
     case invalidVolumeIdentifier

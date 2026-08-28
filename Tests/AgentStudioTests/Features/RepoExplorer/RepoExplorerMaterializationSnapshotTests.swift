@@ -8,42 +8,58 @@ import Testing
 
 @Suite("RepoExplorerMaterializationSnapshotTests")
 struct RepoExplorerMaterializationSnapshotTests {
-    @Test("cold status suppression preserves worktree geometry and identity")
-    func coldStatusSuppressionPreservesWorktreeGeometryAndIdentity() throws {
+    @Test("locally inactive rows retain cached branch and status facts")
+    func locallyInactiveRowsRetainCachedBranchAndStatusFacts() throws {
         let repoID = UUIDv7.generate()
         let worktreeID = UUIDv7.generate()
         let base = try RepoExplorerProjectionWorker.project(
             makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
         )
-        let warmPresentation = try #require(
-            base.materializationSnapshot.rows.compactMap { row -> RepoExplorerMaterializedWorktreePresentation? in
+        let cachedStatus = GitBranchStatus(
+            isDirty: true,
+            syncState: .diverged(ahead: 159, behind: 1),
+            prCount: 2,
+            linesAdded: 69,
+            linesDeleted: 19,
+            untrackedFileCount: 3
+        )
+        let inactiveMaterialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: base.rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: base.snapshot,
+                projection: base.projection,
+                branchStatusByWorktreeID: [worktreeID: cachedStatus],
+                branchNameByWorktreeID: [worktreeID: "feature/luna"],
+                bridgeCommandResolutionByWorktreeID: base.bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: base.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: [repoID: .locallyInactive]
+            )
+        )
+        let inactiveRow = try #require(
+            inactiveMaterialization.rows.first { $0.representedWorktreeID == worktreeID }
+        )
+        let inactivePresentation = try #require(
+            inactiveMaterialization.rows.compactMap { row -> RepoExplorerMaterializedWorktreePresentation? in
                 guard case .worktree(let worktree) = row.presentation else { return nil }
                 return worktree
             }.first
         )
-        let coldPresentation = RepoExplorerMaterializedWorktreePresentation(
-            rowID: warmPresentation.rowID,
-            groupID: warmPresentation.groupID,
-            repo: warmPresentation.repo,
-            worktree: warmPresentation.worktree,
-            checkoutTitle: warmPresentation.checkoutTitle,
-            isMainCheckout: warmPresentation.isMainCheckout,
-            checkoutColorHex: warmPresentation.checkoutColorHex,
-            placementText: warmPresentation.placementText,
-            branchStatus: warmPresentation.branchStatus,
-            branchName: warmPresentation.branchName,
-            bridgeCommandResolution: warmPresentation.bridgeCommandResolution,
-            paneDestinations: warmPresentation.paneDestinations,
-            showsRepositoryFactStatus: false
-        )
 
-        #expect(warmPresentation.showsRepositoryFactStatus)
-        #expect(!coldPresentation.showsRepositoryFactStatus)
+        #expect(inactivePresentation.showsRepositoryFactStatus)
+        #expect(inactivePresentation.branchName == "feature/luna")
+        #expect(inactivePresentation.branchStatus == cachedStatus)
+        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(cachedStatus))
         #expect(
-            RepoExplorerRowLayout.make(for: .worktree(warmPresentation))
-                == RepoExplorerRowLayout.make(for: .worktree(coldPresentation))
+            inactiveRow.layout.metrics.fallbackHeight
+                == expectedWorktreeHeight(
+                    reservesStatusLine: true,
+                    metrics: inactiveRow.layout.metrics
+                )
         )
     }
+}
+
+extension RepoExplorerMaterializationSnapshotTests {
     @Test("worker stores ordered rows with O(1) identity and occurrence indexes")
     func workerStoresOrderedRowsAndOccurrenceIndexes() throws {
         let repoID = UUIDv7.generate()

@@ -189,6 +189,61 @@ struct RepositoryLocalActivityPersistenceTests {
 @MainActor
 @Suite("Repository local activity store", .serialized)
 struct RepositoryLocalActivityStoreTests {
+    @Test("restart keeps persisted activity unknown until a live coverage checkpoint")
+    func restartKeepsPersistedActivityUnknownUntilLiveCheckpoint() async throws {
+        // Arrange
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: UUIDv7.generate())
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let stableKey = "cccccccccccccccc"
+        let seedingStore = RepositoryLocalActivityStore(
+            atom: RepositoryLocalActivityAtom(),
+            sqliteDatastore: datastore
+        )
+        _ = try await seedingStore.commitAsync(
+            try RepositoryLocalActivityCommit(
+                repositoryUpdates: [
+                    .init(
+                        repositoryStableKey: stableKey,
+                        qualifyingActivityAt: Date(timeIntervalSince1970: 120),
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 100))
+                    )
+                ],
+                updatedAt: Date(timeIntervalSince1970: 130)
+            )
+        )
+        let restartedAtom = RepositoryLocalActivityAtom()
+        let restartedStore = RepositoryLocalActivityStore(
+            atom: restartedAtom,
+            sqliteDatastore: datastore
+        )
+
+        // Act
+        await restartedStore.restoreAsync()
+
+        // Assert
+        #expect(restartedStore.isHydrated)
+        #expect(restartedAtom.hydrationDisposition == .unavailable)
+        #expect(restartedAtom.activity(for: stableKey) == nil)
+
+        // A live checkpoint restarts coverage and returns authoritative facts.
+        _ = try await restartedStore.commitAsync(
+            try RepositoryLocalActivityCommit(
+                repositoryUpdates: [
+                    .init(
+                        repositoryStableKey: stableKey,
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 200))
+                    )
+                ],
+                updatedAt: Date(timeIntervalSince1970: 210)
+            )
+        )
+        #expect(restartedAtom.hydrationDisposition == .authoritative)
+        #expect(
+            restartedAtom.activity(for: stableKey)?.continuousCoverageStartedAt
+                == Date(timeIntervalSince1970: 200)
+        )
+    }
+
     @Test("publishes only the snapshot acknowledged by SQLite")
     func publishesOnlySnapshotAcknowledgedBySQLite() async throws {
         // Arrange

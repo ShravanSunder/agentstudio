@@ -9,8 +9,28 @@ struct RepositoryFactDemandInput: Equatable, Sendable {
     let openWorktreeIds: Set<UUID>
     let repositoryIdByWorktreeId: [UUID: UUID]
     let activityTopology: [RepositoryActivityTopology]
-    let recencyHydrationDisposition: ApplicationEntityRecencyHydrationDisposition
-    let applicationRecency: [ApplicationEntityRecency]
+    let localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition
+    let repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity]
+
+    init(
+        activePaneWorktreeId: UUID?,
+        sidebarAttendedWorktreeIds: Set<UUID>,
+        visibleActiveTabWorktreeIds: Set<UUID>,
+        openWorktreeIds: Set<UUID>,
+        repositoryIdByWorktreeId: [UUID: UUID],
+        activityTopology: [RepositoryActivityTopology],
+        localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition = .pending,
+        repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity] = [:]
+    ) {
+        self.activePaneWorktreeId = activePaneWorktreeId
+        self.sidebarAttendedWorktreeIds = sidebarAttendedWorktreeIds
+        self.visibleActiveTabWorktreeIds = visibleActiveTabWorktreeIds
+        self.openWorktreeIds = openWorktreeIds
+        self.repositoryIdByWorktreeId = repositoryIdByWorktreeId
+        self.activityTopology = activityTopology
+        self.localActivityHydrationDisposition = localActivityHydrationDisposition
+        self.repositoryLocalActivityByStableKey = repositoryLocalActivityByStableKey
+    }
 
     static let empty = Self(
         activePaneWorktreeId: nil,
@@ -19,8 +39,8 @@ struct RepositoryFactDemandInput: Equatable, Sendable {
         openWorktreeIds: [],
         repositoryIdByWorktreeId: [:],
         activityTopology: [],
-        recencyHydrationDisposition: .pending,
-        applicationRecency: []
+        localActivityHydrationDisposition: .pending,
+        repositoryLocalActivityByStableKey: [:]
     )
 }
 
@@ -232,10 +252,10 @@ final class RepositoryFactDemandCoordinator {
     ) async -> (snapshot: RepositoryFactDemandSnapshot, nextTransitionAt: Date?) {
         let activity = RepositoryActivityClassifier.classify(
             RepositoryActivityClassificationInput(
-                hydrationDisposition: input.recencyHydrationDisposition,
                 repositories: input.activityTopology,
                 openWorktreeIDs: input.openWorktreeIds,
-                recency: input.applicationRecency,
+                localActivityHydrationDisposition: input.localActivityHydrationDisposition,
+                repositoryLocalActivityByStableKey: input.repositoryLocalActivityByStableKey,
                 referenceDate: referenceDate,
                 inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
             )
@@ -324,7 +344,7 @@ final class RepositoryFactDemandCoordinator {
         previousSnapshot: RepositoryFactDemandSnapshot?
     ) {
         performanceSnapshot.hydrationUnclassifiedCurrent =
-            input.recencyHydrationDisposition == .pending ? 1 : 0
+            input.localActivityHydrationDisposition == .authoritative ? 0 : 1
         performanceSnapshot.warmRepositoryCurrent = UInt64(snapshot.warmRepositoryIds.count)
         performanceSnapshot.inactiveRepositoryCurrent = UInt64(
             snapshot.locallyInactiveRepositoryIds.count)
@@ -348,7 +368,9 @@ final class RepositoryFactDemandCoordinator {
         guard !reactivatedRepositories.isEmpty else { return }
         if input.openWorktreeIds != previousInput.openWorktreeIds {
             increment(\.paneReactivated)
-        } else if input.applicationRecency != previousInput.applicationRecency {
+        } else if input.repositoryLocalActivityByStableKey
+            != previousInput.repositoryLocalActivityByStableKey
+        {
             increment(\.recencyReactivated)
         }
     }
