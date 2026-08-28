@@ -80,7 +80,16 @@ export function WorktreeAnnotationThread(
 	const firstMessage = visibleMessages[0];
 	const latestMessage = visibleMessages.at(-1);
 	const sessionId = firstMessage?.sessionId ?? null;
-	const threadRevision = firstMessage?.threadRevision ?? 0;
+	const acknowledgedThreadRevision = projection.commandOutcomes.reduce(
+		(newestRevision, outcome): number => {
+			const receipt = outcome.status.kind === 'committed' ? outcome.receipt : undefined;
+			return receipt?.kind === 'message' && receipt.threadId === threadId
+				? Math.max(newestRevision, receipt.threadRevision)
+				: newestRevision;
+		},
+		0,
+	);
+	const threadRevision = Math.max(firstMessage?.threadRevision ?? 0, acknowledgedThreadRevision);
 	useWorktreeAnnotationSessionDemand(sessionId);
 	if (firstMessage === undefined || latestMessage === undefined || sessionId === null) return null;
 

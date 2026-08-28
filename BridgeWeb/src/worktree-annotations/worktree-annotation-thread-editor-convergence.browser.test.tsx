@@ -11,6 +11,7 @@ import {
 	annotationSessionSummary,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
+import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationActiveEditTokens,
 	useWorktreeAnnotationEditSurfaceToken,
@@ -27,7 +28,10 @@ import {
 	secondRootMessageId,
 	settleBrowserCondition,
 } from './worktree-annotation-thread.browser.test-support.js';
-import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-thread.js';
+import {
+	WorktreeAnnotationNewMessageComposer,
+	WorktreeAnnotationThread,
+} from './worktree-annotation-thread.js';
 
 describe('worktree annotation editor convergence', () => {
 	test('keeps foreground annotation metadata stable during projection refresh', async () => {
@@ -463,6 +467,57 @@ describe('worktree annotation editor convergence', () => {
 			await Promise.resolve();
 		});
 		await expect.element(secondReplyComposer).toBeVisible();
+	});
+
+	test('uses the exact command receipt revision when a stable thread render lags', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rootMessage = makeSavedMessage({ body: 'Root body.', messageId: rootMessageId });
+		const stableThread: WorktreeAnnotationThreadProjection = {
+			context: locatedContext,
+			messages: [rootMessage],
+		};
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<WorktreeAnnotationThread thread={stableThread} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await publishThreadMessages(surface, [rootMessage]);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				commandOutcomes: [
+					{
+						receipt: {
+							draftRevision: null,
+							kind: 'message',
+							messageId: secondRootMessageId,
+							messageRevision: 1,
+							savedRevision: 1,
+							sessionRevision: 4,
+							threadId: annotationHeadThreadId,
+							threadRevision: 2,
+						},
+						requestId: 'product-reply-one',
+						sessionId: annotationSessionId,
+						status: { kind: 'committed' },
+						surface: 'file',
+					},
+				],
+				expectedThreadCount: 1,
+				revision: 4,
+				sessions: [annotationSessionSummary({ revision: 4, sessionId: annotationSessionId })],
+			});
+			await Promise.resolve();
+			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
+			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Reply two');
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected Reply two to create its durable draft.',
+		);
+		const secondReplyCreate = surface.sentOperations.find(
+			(operation) => operation.kind === 'reply.create',
+		);
+		expect(secondReplyCreate).toMatchObject({ expectedThreadRevision: 2 });
 	});
 
 	test('keeps an edit token active until every overlapping composer unregisters', async () => {
