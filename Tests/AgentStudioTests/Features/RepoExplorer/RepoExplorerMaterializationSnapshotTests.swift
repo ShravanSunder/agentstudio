@@ -60,6 +60,64 @@ struct RepoExplorerMaterializationSnapshotTests {
 }
 
 extension RepoExplorerMaterializationSnapshotTests {
+    @Test("inactive refresh preserves cached facts through captured, loading, and settled phases")
+    func inactiveRefreshPreservesCachedFactsAcrossProgress() throws {
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let base = try RepoExplorerProjectionWorker.project(
+            makeRepoRequest(repoID: repoID, worktreeID: worktreeID)
+        )
+        let cachedStatus = GitBranchStatus(
+            isDirty: true,
+            syncState: .ahead(4),
+            prCount: 2,
+            linesAdded: 21,
+            linesDeleted: 8,
+            untrackedFileCount: 1
+        )
+        let attemptID = UUIDv7.generate()
+        let captured = RepositoryFactUpdateProgress.captured(repoId: repoID, attemptId: attemptID)
+        let loading = RepositoryFactUpdateProgress.admitted(
+            repoId: repoID,
+            attemptId: attemptID,
+            applicableSources: [.localGit],
+            terminalResultsBySource: [:]
+        )
+        let settled = loading.settled([.localGit: .failed])
+
+        for progress in [captured, loading, settled] {
+            let materialization = RepoExplorerMaterializationSnapshot.build(
+                rowIndex: base.rowIndex,
+                inputs: RepoExplorerMaterializationInputs(
+                    snapshot: base.snapshot,
+                    projection: base.projection,
+                    branchStatusByWorktreeID: [worktreeID: cachedStatus],
+                    branchNameByWorktreeID: [worktreeID: "feature/cached"],
+                    bridgeCommandResolutionByWorktreeID: base.bridgeCommandResolutionByWorktreeId,
+                    paneRowFactsByPaneID: base.paneRowFactsByPaneId,
+                    repositoryActivityDispositionByRepoID: [repoID: .locallyInactive],
+                    repositoryFactUpdateProgressByRepoID: [repoID: progress]
+                )
+            )
+            let presentation = try #require(
+                materialization.rows.compactMap { row -> RepoExplorerMaterializedWorktreePresentation? in
+                    guard case .worktree(let worktree) = row.presentation else { return nil }
+                    return worktree
+                }.first
+            )
+            let header = try #require(materialization.groupHeader(repoID: repoID))
+
+            #expect(presentation.branchName == "feature/cached")
+            #expect(presentation.branchStatus == cachedStatus)
+            #expect(presentation.showsRepositoryFactStatus)
+            #expect(header.repositoryFactUpdateProgress == progress)
+        }
+
+        #expect(captured.isLoading == false)
+        #expect(loading.isLoading)
+        #expect(settled.isLoading == false)
+    }
+
     @Test("worker stores ordered rows with O(1) identity and occurrence indexes")
     func workerStoresOrderedRowsAndOccurrenceIndexes() throws {
         let repoID = UUIDv7.generate()

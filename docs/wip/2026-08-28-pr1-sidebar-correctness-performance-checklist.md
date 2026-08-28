@@ -30,7 +30,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Cut demand and Repo Explorer classification over from application-open recency to the existing repository-local activity atom without adding replay machinery.
 - [x] Fix local-Git admission so unknown/missing attended baselines remain bounded correctness work while truly inactive recurring deadlines remain suppressed.
 - [x] Remove locally-inactive presentation suppression from worktree and pane/tab projections while preserving the repository memorychip annotation.
-- [ ] Prove cached facts remain visible throughout explicit refresh and loading terminates.
+- [x] Prove cached facts remain visible throughout explicit refresh and loading terminates.
 - [ ] Rerun focused Git-demand, cache-convergence, projection, materialization, row-height, and mounted-row tests.
 - [ ] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
 - [ ] Capture PID-bound visual proof for By Repo, By Pane, and By Tab showing real branches and cached chips; prove search and scrolling do not collapse, clip, overlap, or move rows.
