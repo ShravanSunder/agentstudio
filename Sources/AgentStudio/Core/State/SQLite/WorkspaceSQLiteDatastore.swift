@@ -612,6 +612,22 @@ package actor WorkspaceSQLiteDatastore {
         try repository.replaceApplicationEntityRecency(recentEntities)
     }
 
+    func loadRepositoryLocalActivity() async -> RepositoryLocalActivityLoadResult {
+        do {
+            let repository = try preparedApplicationLocalRepository()
+            return .loaded(try repository.fetchRepositoryLocalActivitySnapshot())
+        } catch {
+            return .unavailable(.init(error))
+        }
+    }
+
+    func commitRepositoryLocalActivity(
+        _ commit: RepositoryLocalActivityCommit
+    ) async throws -> RepositoryLocalActivitySnapshot {
+        let repository = try preparedApplicationLocalRepository()
+        return try repository.commitRepositoryLocalActivity(commit)
+    }
+
     func loadWorkspaceEntityRecency(workspaceId: UUID) async -> WorkspaceEntityRecencyLoadResult {
         do {
             let repository = try preparedLocalRepository(workspaceId: workspaceId)

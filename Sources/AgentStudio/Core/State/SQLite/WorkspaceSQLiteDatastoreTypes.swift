@@ -103,6 +103,11 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
+    enum RepositoryLocalActivityLoadResult: Equatable, Sendable {
+        case loaded(RepositoryLocalActivitySnapshot)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
+    }
+
     enum WorkspaceEntityRecencyLoadResult: Equatable, Sendable {
         case loaded([WorkspaceEntityRecency])
         case unavailable(WorkspaceSQLiteDatastoreFailure)

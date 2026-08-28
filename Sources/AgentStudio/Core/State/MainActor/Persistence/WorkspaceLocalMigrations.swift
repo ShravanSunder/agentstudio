@@ -135,6 +135,31 @@ package enum WorkspaceLocalMigrations {
                 )
             }
         }
+        migrator.registerMigration("006_add_repository_local_activity_facts") { database in
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_repository_activity (
+                        repository_stable_key TEXT PRIMARY KEY,
+                        last_qualifying_activity_at REAL,
+                        continuous_coverage_started_at REAL NOT NULL,
+                        updated_at REAL NOT NULL,
+                        owned_promotion_attempt_id TEXT,
+                        owned_promotion_started_at REAL,
+                        owned_promotion_unsettled INTEGER NOT NULL
+                            CHECK (owned_promotion_unsettled IN (0, 1))
+                    )
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_repository_activity_cursor (
+                        volume_identifier TEXT PRIMARY KEY,
+                        last_event_id INTEGER NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+            )
+        }
         return migrator
     }
 
