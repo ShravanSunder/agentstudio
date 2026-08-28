@@ -453,6 +453,56 @@ struct DarwinSharedExactItemObserverTests {
             DarwinFSEventStreamConfiguration.continuityFlags
                 & FSEventStreamCreateFlags(kFSEventStreamCreateFlagWatchRoot) != 0
         )
+        #expect(
+            DarwinFSEventStreamConfiguration.continuityFlags
+                & FSEventStreamCreateFlags(kFSEventStreamCreateFlagMarkSelf) != 0
+        )
+    }
+
+    @Test("shared exact callback metadata reaches activity ingress")
+    func sharedExactCallbackMetadataReachesActivityIngress() throws {
+        // Arrange
+        let fixture = makeSharedExactItemFixture()
+        let parentKey = makeSharedParentKey("activity-metadata")
+        let worktreeId = UUIDv7.generate()
+        let exactPath = "\(parentKey.parentPath)/config"
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: worktreeId,
+                parentKey: parentKey,
+                itemName: "config"
+            )
+        )
+        let streamGeneration = try #require(
+            fixture.registry.snapshot().generationByParent[parentKey]
+        )
+        let flags = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagOwnEvent
+        )
+
+        // Act
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: streamGeneration,
+            path: exactPath,
+            eventId: 51,
+            flags: flags
+        )
+
+        // Assert
+        #expect(
+            fixture.effectRecorder.observationsByWorktreeId[worktreeId]
+                == [
+                    FSEventObservation(
+                        path: exactPath,
+                        eventID: 51,
+                        flags: UInt32(flags)
+                    )
+                ]
+        )
+        fixture.registry.shutdown()
     }
 
     @Test("stable shared-dependent preparation mints and renews composite authority")
@@ -565,6 +615,7 @@ struct DarwinSharedExactItemObserverTests {
             recordRawEvents: effectRecorder.recordRawEvents,
             markUncertain: effectRecorder.markUncertain,
             yieldFullGitRefresh: effectRecorder.yieldFullGitRefresh,
+            yieldObservations: effectRecorder.recordObservations,
             performanceAccumulator: performanceAccumulator
         )
     }
@@ -652,6 +703,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedActions: [SharedExactItemRecordedAction] = []
     private var recordedFullGitRefreshSources: [DarwinFSEventIngressSource] = []
+    private var recordedObservationsByWorktreeId: [UUID: [FSEventObservation]] = [:]
 
     var actions: [SharedExactItemRecordedAction] {
         lock.withLock { recordedActions }
@@ -673,6 +725,10 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
 
     var fullGitRefreshSources: [DarwinFSEventIngressSource] {
         lock.withLock { recordedFullGitRefreshSources }
+    }
+
+    var observationsByWorktreeId: [UUID: [FSEventObservation]] {
+        lock.withLock { recordedObservationsByWorktreeId }
     }
 
     func recordRawEvents(
@@ -703,10 +759,17 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         }
     }
 
+    func recordObservations(worktreeId: UUID, observations: [FSEventObservation]) {
+        lock.withLock {
+            recordedObservationsByWorktreeId[worktreeId, default: []].append(contentsOf: observations)
+        }
+    }
+
     func reset() {
         lock.withLock {
             recordedActions.removeAll(keepingCapacity: true)
             recordedFullGitRefreshSources.removeAll(keepingCapacity: true)
+            recordedObservationsByWorktreeId.removeAll(keepingCapacity: true)
         }
     }
 }

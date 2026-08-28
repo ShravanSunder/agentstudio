@@ -9,6 +9,56 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
+    @Test("local callback metadata survives bounded ingress")
+    func localCallbackMetadataSurvivesBoundedIngress() async throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevent-metadata-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let client = DarwinFSEventStreamClient()
+        defer { client.shutdown() }
+        let worktreeId = UUIDv7.generate()
+        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
+        let changedPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixtureRoot)
+            .appending(path: "Changed.swift").path
+        let expectedFlags = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagOwnEvent
+        )
+        let batchTask = Task<FSEventBatch?, Never> {
+            for await batch in client.events()
+            where
+                batch.worktreeId == worktreeId
+                && batch.observations.contains(where: { $0.eventID == 42 })
+            {
+                return batch
+            }
+            return nil
+        }
+
+        // Act
+        client.receiveLocalRawEvents(
+            worktreeId: worktreeId,
+            rawEvents: [(path: changedPath, eventId: 42, flags: expectedFlags)]
+        )
+
+        // Assert
+        let batch = try #require(await firstCompletedValue(from: batchTask, timeout: .seconds(5)))
+        #expect(batch.paths == [changedPath])
+        #expect(
+            batch.observations
+                == [
+                    FSEventObservation(
+                        path: changedPath,
+                        eventID: 42,
+                        flags: UInt32(expectedFlags)
+                    )
+                ]
+        )
+    }
+
     @Test("real stream delivers events from a temporary-directory root")
     func realStreamDeliversTemporaryDirectoryEvents() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(

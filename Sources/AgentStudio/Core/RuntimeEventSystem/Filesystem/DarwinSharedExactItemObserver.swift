@@ -8,6 +8,7 @@ package enum DarwinFSEventStreamConfiguration {
             | kFSEventStreamCreateFlagNoDefer
             | kFSEventStreamCreateFlagUseCFTypes
             | kFSEventStreamCreateFlagWatchRoot
+            | kFSEventStreamCreateFlagMarkSelf
     )
 }
 
@@ -18,9 +19,22 @@ package struct DarwinSharedExactItemRawEvent: Sendable {
 }
 
 package struct DarwinFSEventClassifiedRawEvent: Sendable {
+    package let path: String
     package let eventId: FSEventStreamEventId
     package let flags: FSEventStreamEventFlags
     package let hasRelevantMutation: Bool
+
+    package init(
+        eventId: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags,
+        hasRelevantMutation: Bool,
+        path: String = ""
+    ) {
+        self.path = path
+        self.eventId = eventId
+        self.flags = flags
+        self.hasRelevantMutation = hasRelevantMutation
+    }
 }
 
 package struct DarwinFSEventClassification: Sendable {
@@ -71,7 +85,8 @@ package enum DarwinFSEventPathClassifier {
             return DarwinFSEventClassifiedRawEvent(
                 eventId: event.eventId,
                 flags: event.flags,
-                hasRelevantMutation: hasRelevantMutation
+                hasRelevantMutation: hasRelevantMutation,
+                path: event.path
             )
         }
         let ordinaryWorktreePaths = ordinaryPaths.filter { path in
@@ -191,6 +206,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         @Sendable (GitCleanContinuityAuthority, UInt64) -> GitCleanContinuityAuthorityValidation
     let markUncertain: @Sendable (UUID) -> Void
     let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
+    let yieldObservations: @Sendable (UUID, [FSEventObservation]) -> Void
     let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     let fingerprintReader: DarwinSharedExactItemFingerprintReader
     private var nextStreamGeneration: UInt64 = 0
@@ -225,6 +241,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             },
         markUncertain: @escaping @Sendable (UUID) -> Void,
         yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
+        yieldObservations: @escaping @Sendable (UUID, [FSEventObservation]) -> Void,
         performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator,
         fingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
     ) {
@@ -236,6 +253,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         self.resolveAncestorAmbiguity = resolveAncestorAmbiguity
         self.markUncertain = markUncertain
         self.yieldFullGitRefresh = yieldFullGitRefresh
+        self.yieldObservations = yieldObservations
         self.performanceAccumulator = performanceAccumulator
         self.fingerprintReader = fingerprintReader
     }
@@ -559,7 +577,8 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                     DarwinFSEventClassifiedRawEvent(
                         eventId: rawEvent.eventId,
                         flags: rawEvent.flags,
-                        hasRelevantMutation: true
+                        hasRelevantMutation: true,
+                        path: rawEvent.path
                     )
                 )
             }

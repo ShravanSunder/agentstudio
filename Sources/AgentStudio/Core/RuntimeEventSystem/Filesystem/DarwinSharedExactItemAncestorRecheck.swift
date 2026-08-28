@@ -50,6 +50,16 @@ extension DarwinSharedExactItemObserverRegistry {
         )
         for worktreeId in effects.mutationEventsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let events = effects.mutationEventsByWorktreeId[worktreeId] else { continue }
+            yieldObservations(
+                worktreeId,
+                events.map { event in
+                    FSEventObservation(
+                        path: event.path,
+                        eventID: UInt64(event.eventId),
+                        flags: UInt32(event.flags)
+                    )
+                }
+            )
             recordRawEvents(worktreeId, events)
         }
         for worktreeId in effects.uncertainWorktreeIds.sorted(by: Self.sortWorktreeIds) {
