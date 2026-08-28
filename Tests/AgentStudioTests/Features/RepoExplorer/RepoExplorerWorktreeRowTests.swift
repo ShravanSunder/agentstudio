@@ -291,16 +291,16 @@ struct RepoExplorerWorktreeRowTests {
 
         // Detached HEAD is a local, synchronous fact of the enrichment itself
         // (no branch to key a forge query on) and must resolve to terminal
-        // no-data without ever waiting on a forge query, unlike an ordinary
-        // branched worktree that is still genuinely pending its first query.
+        // no-data without ever waiting on a forge query. A branched worktree
+        // with no active request is unresolved but not visibly loading.
         #expect(detachedStatus.pullRequestDataUnavailable)
         #expect(detachedStatus.prCount == nil)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: detachedStatus))
 
         #expect(!branchedIdleStatus.pullRequestDataUnavailable)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedIdleStatus))
-        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchedIdleStatus))
-        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(branchedIdleStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchedIdleStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(branchedIdleStatus))
     }
 
     @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
@@ -336,7 +336,8 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: idleWithoutFacts))
-        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(idleWithoutFacts))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(idleWithoutFacts))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(idleWithoutFacts))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: activeRequest))
         #expect(SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: activeRequest))
         // Resolved-unavailable (no remote, or repeated failures past the

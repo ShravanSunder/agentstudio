@@ -251,6 +251,8 @@ struct RepoExplorerMaterializationSnapshotTests {
         let worktreeRow = try #require(
             result.materializationSnapshot.rows.first { $0.layout.rowClass == .worktree }
         )
+        let worktreePresentation = try requiredWorktreePresentation(worktreeRow)
+        #expect(worktreePresentation.branchName.isEmpty)
         let groupHeaderRow = try #require(
             result.materializationSnapshot.rows.first { $0.layout.rowClass == .groupHeader }
         )
@@ -265,7 +267,8 @@ struct RepoExplorerMaterializationSnapshotTests {
         #expect(
             worktreeRow.layout.metrics.fallbackHeight
                 == expectedWorktreeHeight(
-                    reservesStatusLine: true,
+                    reservesStatusLine: false,
+                    metadataLineCount: 0,
                     metrics: worktreeRow.layout.metrics
                 )
         )
@@ -335,9 +338,9 @@ struct RepoExplorerMaterializationSnapshotTests {
         #expect(faultMaterialization.rows.allSatisfy { $0.layout.requiresVisibleWidthMeasurement })
     }
 
-    @Test("pending and resolved worktree status reserve one stable chip line")
+    @Test("unresolved idle status reserves no loading or empty chip line")
     func pendingAndResolvedWorktreeStatusReserveStableChipLine() {
-        let pendingStatus = GitBranchStatus(
+        let unresolvedIdleStatus = GitBranchStatus(
             isDirty: false,
             syncState: .unknown,
             prCount: nil,
@@ -364,8 +367,8 @@ struct RepoExplorerMaterializationSnapshotTests {
             untrackedFileCount: 0
         )
 
-        let pendingLayout = RepoExplorerRowLayout.make(
-            for: worktreePresentation(branchStatus: pendingStatus)
+        let unresolvedIdleLayout = RepoExplorerRowLayout.make(
+            for: worktreePresentation(branchStatus: unresolvedIdleStatus)
         )
         let resolvedLayout = RepoExplorerRowLayout.make(
             for: worktreePresentation(branchStatus: resolvedStatus)
@@ -374,17 +377,12 @@ struct RepoExplorerMaterializationSnapshotTests {
             for: worktreePresentation(branchStatus: confirmedEmptyStatus)
         )
 
-        #expect(RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(pendingStatus))
-        #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(pendingStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(unresolvedIdleStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(unresolvedIdleStatus))
         #expect(RepoExplorerWorktreeStatusPresentation.reservesStatusLine(resolvedStatus))
         #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(confirmedEmptyStatus))
-        #expect(pendingLayout.metrics.fallbackHeight == resolvedLayout.metrics.fallbackHeight)
-        #expect(
-            pendingLayout.metrics.fallbackHeight
-                == confirmedEmptyLayout.metrics.fallbackHeight
-                + pendingLayout.metrics.chipLineHeight
-                + pendingLayout.metrics.contentSpacing
-        )
+        #expect(unresolvedIdleLayout.metrics.fallbackHeight == confirmedEmptyLayout.metrics.fallbackHeight)
+        #expect(resolvedLayout.metrics.fallbackHeight > unresolvedIdleLayout.metrics.fallbackHeight)
     }
 
     @Test("refreshing confirmed-empty status preserves compact worktree layout")
@@ -700,9 +698,10 @@ struct RepoExplorerMaterializationSnapshotTests {
 
     private func expectedWorktreeHeight(
         reservesStatusLine: Bool,
+        metadataLineCount: CGFloat = 1,
         metrics: RepoExplorerRowLayoutMetrics
     ) -> CGFloat {
-        expectedMetadataHeight(metadataLineCount: 1, metrics: metrics)
+        expectedMetadataHeight(metadataLineCount: metadataLineCount, metrics: metrics)
             + (reservesStatusLine ? metrics.chipLineHeight + metrics.contentSpacing : 0)
     }
 
@@ -837,4 +836,14 @@ struct RepoExplorerMaterializationSnapshotTests {
             )
         }
     }
+}
+
+private func requiredWorktreePresentation(
+    _ row: RepoExplorerMaterializedRow
+) throws -> RepoExplorerMaterializedWorktreePresentation {
+    var worktreePresentation: RepoExplorerMaterializedWorktreePresentation?
+    if case .worktree(let presentation) = row.presentation {
+        worktreePresentation = presentation
+    }
+    return try #require(worktreePresentation)
 }

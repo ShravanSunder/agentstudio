@@ -100,12 +100,12 @@ struct RepoExplorerRowContentRevision: Equatable, Sendable {
 
 enum RepoExplorerWorktreeStatusPresentation {
     static func showsPendingIndicator(_ branchStatus: GitBranchStatus) -> Bool {
-        !branchStatus.pullRequestDataUnavailable
-            && (branchStatus.pullRequestIsLoading || branchStatus.prCount == nil)
+        branchStatus.pullRequestIsLoading && !branchStatus.pullRequestDataUnavailable
     }
 
     static func reservesStatusLine(_ branchStatus: GitBranchStatus) -> Bool {
-        branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable
+        branchStatus.pullRequestIsLoading && branchStatus.prCount == nil
+            && !branchStatus.pullRequestDataUnavailable
             || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
             || SidebarGitStatusChips.diffDetail(branchStatus: branchStatus) != nil
             || SidebarGitStatusChips.showsSync(branchStatus: branchStatus)
@@ -215,7 +215,9 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
                     : AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
             )
             facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-            facts.metadataLineCount = worktree.placementText.isEmpty ? 1 : 2
+            facts.metadataLineCount =
+                (worktree.branchName.isEmpty ? 0 : 1)
+                + (worktree.placementText.isEmpty ? 0 : 1)
             facts.chipLineCount =
                 RepoExplorerWorktreeStatusPresentation.reservesStatusLine(
                     worktree.branchStatus
@@ -476,7 +478,7 @@ extension RepoExplorerMaterializationSnapshot {
                     checkoutColorHex: context.checkoutColorHex,
                     placementText: context.placementContext?.displayText ?? "",
                     branchStatus: inputs.branchStatusByWorktreeID[worktreeID] ?? .unknown,
-                    branchName: inputs.branchNameByWorktreeID[worktreeID] ?? "detached HEAD",
+                    branchName: inputs.branchNameByWorktreeID[worktreeID] ?? "",
                     bridgeCommandResolution: inputs.bridgeCommandResolutionByWorktreeID[worktreeID]
                         ?? .create,
                     paneDestinations: inputs.projection.paneDestinationsByWorktreeId[worktreeID] ?? [],

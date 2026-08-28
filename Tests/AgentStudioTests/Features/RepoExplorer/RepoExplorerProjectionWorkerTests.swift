@@ -320,7 +320,7 @@ extension RepoExplorerProjectionWorkerTests {
         #expect(result.rowIndex.entries.count == 3)
         let visibleWorktreeIds = result.projection.resolvedGroups.first?.repos.first?.worktrees.map { $0.id }
         #expect(visibleWorktreeIds == [matchingWorktree.id])
-        #expect(result.branchNameByWorktreeId[matchingWorktree.id] == "Unknown branch")
+        #expect(result.branchNameByWorktreeId[matchingWorktree.id]?.isEmpty == true)
     }
 
     @Test("worker preserves favorites-first section ordering off caller isolation")
@@ -392,7 +392,7 @@ extension RepoExplorerProjectionWorkerTests {
                     worktreeID: repo.worktrees[0].id
                 ),
             ])
-        #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
+        #expect(result.branchNameByWorktreeId[repo.worktrees[0].id]?.isEmpty == true)
     }
 
     @Test("generated requests preserve pane and tab presentation facts")
