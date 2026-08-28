@@ -111,11 +111,13 @@ export function createBridgeMainRenderDispositionAdmission(
 	}): void => {
 		recordBridgeRenderDispositionAdmissionTelemetry({
 			duplicateCount: recordProps.duplicateCount ?? 0,
+			inFlightReceiptCount: inFlightBatch?.receiptCount ?? 0,
 			oldestPendingAgeMilliseconds: oldestPendingAgeMilliseconds(),
 			pendingHighWaterMark: pendingReceiptHighWaterMark,
 			pendingReceiptCount: pendingReceipts.length,
 			phase: recordProps.phase,
 			producedCount: producedReceiptCount,
+			retainedReceiptCount: retainedReceiptCount(),
 			surface: props.surface,
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			...(recordProps.acknowledgementDurationMilliseconds === undefined

@@ -730,10 +730,12 @@ extension BridgeTelemetryWireSchema {
     ) -> Bool {
         let commonNumericKeys: Set<String> = [
             "agentstudio.bridge.render_disposition.duplicate_count",
+            "agentstudio.bridge.render_disposition.in_flight_count",
             "agentstudio.bridge.render_disposition.oldest_pending_age_ms",
             "agentstudio.bridge.render_disposition.pending_count",
             "agentstudio.bridge.render_disposition.pending_high_water_mark",
             "agentstudio.bridge.render_disposition.produced_count",
+            "agentstudio.bridge.render_disposition.retained_count",
         ]
         let commonStringKeys: Set<String> = [
             "agentstudio.bridge.result",

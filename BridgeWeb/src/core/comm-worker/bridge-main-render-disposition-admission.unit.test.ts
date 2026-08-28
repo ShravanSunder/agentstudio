@@ -152,13 +152,17 @@ describe('Bridge main render disposition admission', () => {
 		]);
 		expect(telemetrySamples[0]?.numericAttributes).toMatchObject({
 			'agentstudio.bridge.render_disposition.batch_receipt_count': 1,
+			'agentstudio.bridge.render_disposition.in_flight_count': 1,
 			'agentstudio.bridge.render_disposition.pending_count': 0,
 			'agentstudio.bridge.render_disposition.pending_high_water_mark': 1,
+			'agentstudio.bridge.render_disposition.retained_count': 1,
 		});
 		expect(telemetrySamples[1]).toMatchObject({
 			durationMilliseconds: expect.any(Number),
 			numericAttributes: expect.objectContaining({
 				'agentstudio.bridge.render_disposition.duplicate_count': 1,
+				'agentstudio.bridge.render_disposition.in_flight_count': 0,
+				'agentstudio.bridge.render_disposition.retained_count': 0,
 			}),
 		});
 		expect(JSON.stringify(telemetrySamples)).not.toContain('item-1');

@@ -23,11 +23,13 @@ struct BridgeRenderDispositionOTLPMetricsTests {
                 "agentstudio.bridge.priority": .string("warm"),
                 "agentstudio.bridge.render_disposition.batch_receipt_count": .int(64),
                 "agentstudio.bridge.render_disposition.duplicate_count": .int(1),
+                "agentstudio.bridge.render_disposition.in_flight_count": .int(64),
                 "agentstudio.bridge.render_disposition.oldest_pending_age_ms": .double(2),
                 "agentstudio.bridge.render_disposition.outcome": .string("acked"),
                 "agentstudio.bridge.render_disposition.pending_count": .int(3),
                 "agentstudio.bridge.render_disposition.pending_high_water_mark": .int(65),
                 "agentstudio.bridge.render_disposition.produced_count": .int(66),
+                "agentstudio.bridge.render_disposition.retained_count": .int(67),
                 "agentstudio.bridge.slice": .string("command_acks"),
                 "agentstudio.bridge.viewer": .string("review"),
             ]
@@ -42,10 +44,12 @@ struct BridgeRenderDispositionOTLPMetricsTests {
             metricEvent.samples.map(\.label) == [
                 "agentstudio_bridge_render_disposition_batch_receipt_count",
                 "agentstudio_bridge_render_disposition_duplicate_count",
+                "agentstudio_bridge_render_disposition_in_flight_count",
                 "agentstudio_bridge_render_disposition_oldest_pending_age_ms",
                 "agentstudio_bridge_render_disposition_pending_count",
                 "agentstudio_bridge_render_disposition_pending_high_water_mark",
                 "agentstudio_bridge_render_disposition_produced_count",
+                "agentstudio_bridge_render_disposition_retained_count",
             ]
         )
     }

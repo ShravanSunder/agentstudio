@@ -886,12 +886,16 @@ function backpressureTelemetryObservation(props: {
 		latestAdmission,
 		'agentstudio.bridge.render_disposition.produced_count',
 	);
+	const receiptRetainedCount = numberAttribute(
+		latestAdmission,
+		'agentstudio.bridge.render_disposition.retained_count',
+	);
 	const currentCount = numberAttribute(
 		latestPublication,
 		'agentstudio.bridge.render_publication.current_count',
 	);
 	if (
-		receiptPendingCount !== 0 ||
+		receiptRetainedCount !== 0 ||
 		(props.expectedReceiptProducedCount === null
 			? receiptProducedCount === 0
 			: receiptProducedCount !== props.expectedReceiptProducedCount) ||

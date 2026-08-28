@@ -77,12 +77,14 @@ export function recordBridgeRenderDispositionAdmissionTelemetry(props: {
 	readonly acknowledgementDurationMilliseconds?: number;
 	readonly batchReceiptCount?: number;
 	readonly duplicateCount: number;
+	readonly inFlightReceiptCount: number;
 	readonly oldestPendingAgeMilliseconds: number;
 	readonly outcome?: BridgeRenderDispositionTerminalOutcome;
 	readonly pendingHighWaterMark: number;
 	readonly pendingReceiptCount: number;
 	readonly phase: BridgeRenderDispositionAdmissionPhase;
 	readonly producedCount: number;
+	readonly retainedReceiptCount: number;
 	readonly surface: BridgePaneSurface;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }): void {
@@ -105,6 +107,7 @@ export function recordBridgeRenderDispositionAdmissionTelemetry(props: {
 		},
 		numericAttributes: {
 			'agentstudio.bridge.render_disposition.duplicate_count': props.duplicateCount,
+			'agentstudio.bridge.render_disposition.in_flight_count': props.inFlightReceiptCount,
 			'agentstudio.bridge.render_disposition.oldest_pending_age_ms': Math.max(
 				0,
 				props.oldestPendingAgeMilliseconds,
@@ -112,6 +115,7 @@ export function recordBridgeRenderDispositionAdmissionTelemetry(props: {
 			'agentstudio.bridge.render_disposition.pending_count': props.pendingReceiptCount,
 			'agentstudio.bridge.render_disposition.pending_high_water_mark': props.pendingHighWaterMark,
 			'agentstudio.bridge.render_disposition.produced_count': props.producedCount,
+			'agentstudio.bridge.render_disposition.retained_count': props.retainedReceiptCount,
 			...(props.batchReceiptCount === undefined
 				? {}
 				: {

@@ -181,10 +181,12 @@ struct BridgeTelemetryWireSchemaTests {
         let numericAttributes = [
             "agentstudio.bridge.render_disposition.batch_receipt_count": 64.0,
             "agentstudio.bridge.render_disposition.duplicate_count": 1.0,
+            "agentstudio.bridge.render_disposition.in_flight_count": 64.0,
             "agentstudio.bridge.render_disposition.oldest_pending_age_ms": 2.0,
             "agentstudio.bridge.render_disposition.pending_count": 3.0,
             "agentstudio.bridge.render_disposition.pending_high_water_mark": 65.0,
             "agentstudio.bridge.render_disposition.produced_count": 66.0,
+            "agentstudio.bridge.render_disposition.retained_count": 67.0,
         ]
 
         let accepted = BridgeTelemetryWireSchema.dropReason(
