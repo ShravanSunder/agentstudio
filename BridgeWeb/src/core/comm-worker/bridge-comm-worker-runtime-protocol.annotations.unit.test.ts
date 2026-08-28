@@ -259,7 +259,9 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		});
 
 		// Act
-		fileAnnotationEvents.push(annotationProjectionEvent(0, 'file.annotations'));
+		for (const catalogFrame of annotationCatalogFrames(1, 'file.annotations')) {
+			fileAnnotationEvents.push(catalogFrame);
+		}
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
 				epoch: 1,

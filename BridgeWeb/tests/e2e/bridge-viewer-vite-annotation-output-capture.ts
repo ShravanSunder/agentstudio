@@ -12,9 +12,18 @@ interface AnnotationOutputCaptureJourneyProps {
 	readonly worktreeRoot: string;
 }
 
+export interface AnnotationOutputIdentityCapture {
+	readonly messageId: string;
+	readonly placement: unknown;
+	readonly sessionId: string;
+	readonly sessionLifecycle: unknown;
+	readonly sourceRelationship: unknown;
+	readonly threadId: string;
+}
+
 export async function verifyAnnotationOutputCaptures(
 	props: AnnotationOutputCaptureJourneyProps,
-): Promise<void> {
+): Promise<AnnotationOutputIdentityCapture> {
 	const outputDirectory = join(props.dataRootPath, 'annotation-output-captures');
 	const markdownNamesBefore = await outputCaptureNames(outputDirectory, '.md');
 
@@ -73,8 +82,14 @@ export async function verifyAnnotationOutputCaptures(
 	expect(entries.length).toBeGreaterThan(0);
 	const messageIds: string[] = [];
 	const bodies: string[] = [];
+	let matchingIdentity: AnnotationOutputIdentityCapture | null = null;
 	for (const [entryIndex, entry] of entries.entries()) {
-		if (!isRecord(entry) || !isRecord(entry['message']) || !isRecord(entry['message']['author'])) {
+		if (
+			!isRecord(entry) ||
+			!isRecord(entry['message']) ||
+			!isRecord(entry['message']['author']) ||
+			!isRecord(entry['thread'])
+		) {
 			throw new Error(`Annotation JSON entry ${entryIndex} was malformed.`);
 		}
 		expect(entry['batchOrdinal']).toBe(entryIndex);
@@ -86,9 +101,15 @@ export async function verifyAnnotationOutputCaptures(
 		}
 		messageIds.push(messageId);
 		bodies.push(body);
+		if (body === props.savedBody) {
+			matchingIdentity = outputIdentityCapture(document, entry);
+		}
 	}
 	expect(new Set(messageIds).size).toBe(messageIds.length);
 	expect(bodies).toContain(props.savedBody);
+	if (matchingIdentity === null) {
+		throw new Error('Annotation JSON capture omitted the saved message identity.');
+	}
 
 	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
@@ -101,6 +122,43 @@ export async function verifyAnnotationOutputCaptures(
 		.first()
 		.press('Enter');
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
+	return matchingIdentity;
+}
+
+function outputIdentityCapture(
+	document: Readonly<Record<string, unknown>>,
+	entry: Readonly<Record<string, unknown>>,
+): AnnotationOutputIdentityCapture {
+	const session = document['session'];
+	const thread = entry['thread'];
+	const message = entry['message'];
+	if (!isRecord(session) || !isRecord(thread) || !isRecord(message)) {
+		throw new Error('Annotation JSON capture omitted durable identity context.');
+	}
+	const sessionId = session['sessionId'];
+	const sessionLifecycle = session['lifecycle'];
+	const sourceRelationship = session['sourceRelationship'];
+	const threadId = thread['threadId'];
+	const placement = thread['placement'];
+	const messageId = message['messageId'];
+	if (
+		typeof sessionId !== 'string' ||
+		sessionLifecycle === undefined ||
+		sourceRelationship === undefined ||
+		typeof threadId !== 'string' ||
+		placement === undefined ||
+		typeof messageId !== 'string'
+	) {
+		throw new Error('Annotation JSON capture contained malformed durable identity context.');
+	}
+	return {
+		messageId,
+		placement,
+		sessionId,
+		sessionLifecycle,
+		sourceRelationship,
+		threadId,
+	};
 }
 
 async function outputCaptureNames(

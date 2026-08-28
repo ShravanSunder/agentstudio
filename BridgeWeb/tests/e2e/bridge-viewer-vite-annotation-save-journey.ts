@@ -6,7 +6,10 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
-import { verifyAnnotationOutputCaptures } from './bridge-viewer-vite-annotation-output-capture.ts';
+import {
+	type AnnotationOutputIdentityCapture,
+	verifyAnnotationOutputCaptures,
+} from './bridge-viewer-vite-annotation-output-capture.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
@@ -45,6 +48,7 @@ export interface AnnotationSaveJourneyObservations {
 	readonly reloadedSavedMessageCount: number;
 	readonly savingControlCountAfterCommit: number;
 	readonly committedBodyCountWhileProjectionGated: number;
+	readonly outputIdentity: AnnotationOutputIdentityCapture;
 }
 
 interface ReleasedDraftReloadJourneyObservations {
@@ -288,7 +292,7 @@ export async function runAnnotationSaveJourney(props: {
 			state: 'visible',
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
-		await verifyAnnotationOutputCaptures({
+		const outputIdentity = await verifyAnnotationOutputCaptures({
 			dataRootPath: props.oracle.dataRootPath,
 			page,
 			savedBody,
@@ -300,6 +304,7 @@ export async function runAnnotationSaveJourney(props: {
 			committedBodyCountWhileProjectionGated,
 			correlatedLifecycleStageCount,
 			gatedProjectionRequestCount,
+			outputIdentity,
 			projectedSavedMessageCount,
 			reloadedSavedMessageCount: await reloadedSavedThreadBody.count(),
 			savingControlCountAfterCommit,

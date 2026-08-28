@@ -2,6 +2,7 @@ import { chromium, type Browser, type Page, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import { verifyAnnotationOutputCaptures } from './bridge-viewer-vite-annotation-output-capture.ts';
 import {
 	runAnnotationSaveJourney,
 	selectReviewFile,
@@ -37,8 +38,12 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 		let primaryFailure: { readonly error: unknown } | null = null;
 		try {
 			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-			await runAnnotationSaveJourney({ oracle: fixture.oracle, server: serverA, surface: 'file' });
-			await runAnnotationSaveJourney({
+			const fileBeforeRestart = await runAnnotationSaveJourney({
+				oracle: fixture.oracle,
+				server: serverA,
+				surface: 'file',
+			});
+			const reviewBeforeRestart = await runAnnotationSaveJourney({
 				oracle: fixture.oracle,
 				server: serverA,
 				surface: 'review',
@@ -61,6 +66,14 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('File Save must settle from its exact command receipt.', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationRestartJourneyTimeoutMilliseconds });
+			const fileAfterRestart = await verifyAnnotationOutputCaptures({
+				dataRootPath: fixture.oracle.dataRootPath,
+				page,
+				savedBody: 'File Save must settle from its exact command receipt.',
+				timeoutMilliseconds: annotationComposedConvergenceTimeoutMilliseconds,
+				worktreeRoot: fixture.oracle.worktreeRoot,
+			});
+			expect(fileAfterRestart).toEqual(fileBeforeRestart.outputIdentity);
 
 			await page.goto(bridgeViewerViteProductReviewUrl(serverB.origin), {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
@@ -75,6 +88,14 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Review Save must settle from its exact command receipt.', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
+			const reviewAfterRestart = await verifyAnnotationOutputCaptures({
+				dataRootPath: fixture.oracle.dataRootPath,
+				page,
+				savedBody: 'Review Save must settle from its exact command receipt.',
+				timeoutMilliseconds: annotationComposedConvergenceTimeoutMilliseconds,
+				worktreeRoot: fixture.oracle.worktreeRoot,
+			});
+			expect(reviewAfterRestart).toEqual(reviewBeforeRestart.outputIdentity);
 
 			await page.goto(bridgeViewerViteProductFileUrl(serverB.origin, reviewOriginFile.path), {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,

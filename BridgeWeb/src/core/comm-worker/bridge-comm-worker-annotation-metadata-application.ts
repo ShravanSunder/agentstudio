@@ -18,6 +18,7 @@ type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorkt
 export class BridgeCommWorkerAnnotationMetadataApplication {
 	#catalogApplicator: BridgeCommWorkerAnnotationCatalogApplicator | null = null;
 	#catalogAuthority: BridgeCommWorkerAnnotationCatalogAuthority | null = null;
+	#catalogAuthorityCurrent = false;
 	readonly #requiredSemanticRevisionBySessionId = new Map<string, number>();
 
 	accept(
@@ -25,21 +26,25 @@ export class BridgeCommWorkerAnnotationMetadataApplication {
 		demandedSessionIds: readonly string[],
 	): BridgeCommWorkerAnnotationMetadataAction {
 		const event = frame.data;
-		this.#admitCatalogAuthority({
+		const authority = {
 			subscriptionId: frame.subscriptionId,
 			workerDerivationEpoch: frame.workerDerivationEpoch,
 			worktreeId: event.authority.worktreeId,
-		});
+		} satisfies BridgeCommWorkerAnnotationCatalogAuthority;
+		if (!this.#admitCatalogEventAuthority(event.kind, authority)) return { kind: 'none' };
 		switch (event.kind) {
 			case 'annotation.catalog': {
 				const result = this.#catalogApplicator?.accept(event);
 				if (result?.status !== 'completed') return { kind: 'none' };
+				this.#catalogAuthorityCurrent = true;
 				this.#reconcileCatalogSessionRevisions(result.catalog);
 				return { catalog: result.catalog, kind: 'catalog' };
 			}
 			case 'annotation.controlChanged':
+				if (!this.#catalogAuthorityCurrent) return { kind: 'none' };
 				return { kind: 'control' };
 			case 'annotation.sessionChanged': {
+				if (!this.#catalogAuthorityCurrent) return { kind: 'none' };
 				const requiredRevision = this.#requiredSemanticRevisionBySessionId.get(event.sessionId);
 				if (requiredRevision !== undefined && event.semanticRevision <= requiredRevision) {
 					return { kind: 'none' };
@@ -50,6 +55,7 @@ export class BridgeCommWorkerAnnotationMetadataApplication {
 					: { kind: 'none' };
 			}
 		}
+		return { kind: 'none' };
 	}
 
 	projectionMeetsCurrentness(
@@ -74,23 +80,35 @@ export class BridgeCommWorkerAnnotationMetadataApplication {
 		this.#catalogApplicator?.retireExpectedAuthority();
 		this.#catalogApplicator = null;
 		this.#catalogAuthority = null;
+		this.#catalogAuthorityCurrent = false;
 	}
 
-	#admitCatalogAuthority(authority: BridgeCommWorkerAnnotationCatalogAuthority): void {
+	#admitCatalogEventAuthority(
+		eventKind: BridgeProductWorktreeAnnotationEvent['kind'],
+		authority: BridgeCommWorkerAnnotationCatalogAuthority,
+	): boolean {
 		if (this.#catalogAuthority === null) {
+			if (eventKind !== 'annotation.catalog') return false;
 			this.#catalogAuthority = authority;
 			this.#catalogApplicator = new BridgeCommWorkerAnnotationCatalogApplicator(authority);
-			return;
+			this.#catalogAuthorityCurrent = false;
+			return true;
 		}
 		if (
 			this.#catalogAuthority.subscriptionId === authority.subscriptionId &&
 			this.#catalogAuthority.workerDerivationEpoch === authority.workerDerivationEpoch &&
 			this.#catalogAuthority.worktreeId === authority.worktreeId
 		) {
-			return;
+			return true;
 		}
+		const sameLifecycle =
+			this.#catalogAuthority.subscriptionId === authority.subscriptionId &&
+			this.#catalogAuthority.workerDerivationEpoch === authority.workerDerivationEpoch;
+		if (sameLifecycle || eventKind !== 'annotation.catalog') return false;
 		this.#catalogAuthority = authority;
 		this.#catalogApplicator?.replaceExpectedAuthority(authority);
+		this.#catalogAuthorityCurrent = false;
+		return true;
 	}
 
 	#reconcileCatalogSessionRevisions(catalog: BridgeCommWorkerAnnotationCatalog): void {
