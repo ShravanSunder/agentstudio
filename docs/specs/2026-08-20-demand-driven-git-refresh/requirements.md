@@ -6,11 +6,11 @@ These requirements capture the product owner's settled performance and correctne
 
 The affected people are developers using Agent Studio alongside coding agents. Agent Studio must leave CPU, process, network, and GitHub API capacity available for those agents while keeping the repository facts a user can see trustworthy and responsive.
 
-The permitted change surface is Agent Studio's repository-fact caches, demand projection, local Git refresh, demanded remote-reference refresh, GitHub PR/check/review refresh, source-side execution in `agentstudio-git`, changed-only materialization, and debug proof path. `agentstudio-git` is owner-controlled and may change through a deliberate hard contract cutover.
+The permitted change surface is Agent Studio's repository-fact caches, repository-local-activity evidence and application-local persistence, demand projection, local Git refresh, demanded remote-reference refresh, GitHub PR/check/review refresh, source-side execution in `agentstudio-git`, changed-only materialization, and debug proof path. `agentstudio-git` is owner-controlled and may change through a deliberate hard contract cutover.
 
 The existing [Repository-Branch Pull Request Facts](../2026-08-10-repo-branch-pr-facts/requirements.md) requirements remain authoritative for repository-branch identity, exact URL behavior, unknown versus confirmed-empty presentation, and toolbar/sidebar agreement. This artifact owns the holistic cache, source-selection, efficiency, capacity, freshness, and performance contract around those facts.
 
-Stable and beta applications are protected. Security/authentication expansion, the separate By Tab membership defect, persistence schema changes, general Bridge review/diff workloads, repository topology ownership, watched-folder discovery semantics, and terminal-agent workload are outside this boundary.
+Stable and beta applications are protected. Security/authentication expansion, the separate By Tab membership defect, persistence outside the dedicated application-local activity/coverage records, general Bridge review/diff workloads, repository topology ownership, watched-folder discovery semantics, and terminal-agent workload are outside this boundary.
 
 All rows below are priority P0, assigned by the product owner in the active performance goal.
 
@@ -38,11 +38,11 @@ Every warm registered, available worktree must retain an eventual local Git back
 
 ### U-GIT-COLD-1 — Long-unused repositories consume no scheduled source work
 
-A repository whose worktrees have not been opened in Agent Studio for sixty days and that has no associated open pane must become locally inactive without leaving canonical watched-folder or sidebar membership. While locally inactive, it must run no periodic local Git, remote-reference, or GitHub refresh. Its repository header must replace ordinary Git and PR chips with one compact inline clock icon plus `Locally inactive` text and a separate icon-only update chip. Activating that chip must warm and update the complete repository through the normal local Git, remote-reference, and GitHub admission, capacity, failure, and currentness rules. Missing recency counts as locally inactive; search, grouping, scrolling, disclosure, and row materialization never change this classification.
+A repository may become locally inactive only when it has no associated open pane and continuously covered local evidence proves that neither the repository nor any current worktree had qualifying local activity during the preceding sixty days. Qualifying activity includes non-ignored worktree mutations and external local Git operations; activity in any worktree warms the canonical repository. Agent Studio's own automatic fetch, cache/persistence writes, search, grouping, scrolling, disclosure, viewport choice, and rendering do not advance local activity. Missing, pending, gapped, unavailable, or failed evidence is unknown and must never be presented or admitted as confirmed inactivity. While confirmed locally inactive, the repository remains in canonical watched-folder/sidebar membership but contributes no periodic local Git, automatic remote-reference, or automatic GitHub work. Its repository header exposes one compact memorychip status; clicking it temporarily reveals a compact `Refresh` control. Refresh performs one canonical-repository remote fetch, never pull/merge/checkout/fast-forward, then recomputes represented-worktree local ref facts without moving checked-out `HEAD`.
 
 ### U-GIT-FOREGROUND-1 — Current work outranks background inventory
 
-The active pane, sidebar-attended warm worktrees, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. While the sidebar is attended, its complete worktree membership is captured before search, grouping, scrolling, or row materialization; those presentation operations do not add or remove membership or demand. Repository recency and open-pane state then admit or suppress source work independently of presentation. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
+The active pane, sidebar-attended warm worktrees, visible panes in the active tab, and explicit refreshes must retain priority over background correctness work. While the sidebar is attended, its complete worktree membership is captured before search, grouping, scrolling, or row materialization; those presentation operations do not add or remove membership or demand. Repository-local-activity evidence and open-pane state then admit or suppress source work independently of presentation. A slow or unhealthy background worktree, remote fetch, or GitHub request must not block the repository facts the user is actively inspecting.
 
 ### U-GIT-ADMISSION-1 — Debounce contracts bursts; admission decides usefulness
 
@@ -86,18 +86,19 @@ Performance acceptance must exercise both complete watched roots through product
 - O6: physical work is paced and bounded across all consumers of the same source class.
 - O7: no stale, partial, cross-origin, or lost publication is introduced.
 - O8: exact-marker telemetry and exact-debug identity make the verdict reproducible.
-- O9: a sixty-day locally inactive repository remains in canonical membership, performs no scheduled Git or GitHub work, and exposes one compact truthful update affordance.
+- O9: a repository proven locally inactive by sixty days of continuous qualifying-activity evidence remains in canonical membership, performs no scheduled Git or GitHub work, and exposes one compact truthful fetch-only update affordance.
 
 ## Explicit non-goals
 
 - Do not disable enrichment, remove watched roots, or reduce supported topology to satisfy CPU targets.
 - Do not make every hidden repository server-current through background fetch or GitHub polling.
 - Do not move cost into beta, production, unrelated host processes, or unmeasured helper processes.
-- Do not add persistence, a generic scheduler framework, a remote service, or a second owner for an existing fact.
+- Do not add persistence beyond the dedicated repository-local-activity and FSEvents-coverage facts, a generic scheduler framework, a remote service, or a second owner for an existing fact.
 - Do not broaden the shared physical status budget into general Bridge review/tree/content/diff policy without evidence from those lanes.
 - Do not make zero future eligibility or zero aggregate Git debt the definition of settled idle.
 - Do not scan repository trees or rely on repository-root modification time to classify inactivity.
 - Do not add persisted local-status or PR/check snapshots merely to populate locally inactive rows after restart.
+- Do not encode application activity/coverage enums as database strings or magic integer variants. SQLite stores factual timestamps/identities/cursors only; multi-state interpretation remains typed application logic.
 
 ## Open evidence, not owner decisions
 
