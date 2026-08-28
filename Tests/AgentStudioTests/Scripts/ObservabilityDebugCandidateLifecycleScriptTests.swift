@@ -37,6 +37,17 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         #expect(!source.contains("actual_data_dir=\"$expected_debug_root\""))
     }
 
+    @Test("production candidate keeps the zmx binary inside the launch data root")
+    func productionCandidateKeepsZmxBinaryInsideLaunchDataRoot() throws {
+        let source = try String(
+            contentsOfFile: "scripts/run-debug-observability.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("launch_zmx_bin_dir=\"$launch_data_root/bin\""))
+        #expect(!source.contains("launch_zmx_bin_dir=\"$debug_root/bin\""))
+    }
+
     @Test("candidate retirement treats an absent process as already retired")
     func candidateRetirementDoesNotSignalAbsentProcess() throws {
         let outcome = try runCandidateRetirementContract(

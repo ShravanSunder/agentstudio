@@ -13,6 +13,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent",
         "agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent",
         "agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.metrics_export_interval_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor",
         "agentstudio.startup_diagnostic.sidebar_proof.action_count_floor",
         "agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor",

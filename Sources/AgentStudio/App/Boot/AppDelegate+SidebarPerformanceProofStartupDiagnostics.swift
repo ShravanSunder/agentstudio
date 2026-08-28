@@ -125,6 +125,9 @@ import Observation
                     policy.actionProcessCPUP95MaximumPercent),
                 "agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: policy.sampleInterval)),
+                "agentstudio.startup_diagnostic.sidebar_proof.metrics_export_interval_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.metricsExportInterval)),
                 "agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor": .int(
                     policy.requiredIdleUsableSampleCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.action_count_floor": .int(

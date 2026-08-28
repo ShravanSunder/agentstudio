@@ -542,7 +542,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_boundary_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_start_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.metrics_export_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_boundary_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_start_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -594,6 +594,7 @@ mapping = {
     "STRICT_POLICY_IDLE_P99": "idle_p99_max_percent",
     "STRICT_POLICY_ACTION_P95": "action_p95_max_percent",
     "STRICT_POLICY_SAMPLE_INTERVAL_MS": "sample_interval_ms",
+    "STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS": "metrics_export_interval_ms",
     "STRICT_POLICY_IDLE_SAMPLE_FLOOR": "idle_sample_floor",
     "STRICT_POLICY_ACTION_COUNT_FLOOR": "action_count_floor",
     "STRICT_POLICY_ACTION_SAMPLE_FLOOR": "action_sample_floor",
@@ -1309,12 +1310,13 @@ strict_quiescence_transition() {
     return 1
   fi
   /usr/bin/python3 - "$prior_signature" "$prior_unchanged" "$baseline_time" "$last_time" \
-    "$signature" "$vector_json" "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" <<'PY'
+    "$signature" "$vector_json" "$STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS" \
+    "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" <<'PY'
 import json
 import math
 import sys
 
-prior_signature, raw_unchanged, raw_baseline, raw_last, signature, vector_json, raw_maximum_age = (
+prior_signature, raw_unchanged, raw_baseline, raw_last, signature, vector_json, raw_export_interval, raw_maximum_age = (
     sys.argv[1:]
 )
 vector = json.loads(vector_json)
@@ -1332,7 +1334,7 @@ if not all(
     for value in (observation_time, export_sample_time, remote_sample_time, forge_sample_time)
 ):
     raise SystemExit("quiescence vector has nonfinite observation time")
-maximum_export_age = float(raw_maximum_age) / 1000
+maximum_export_age = (float(raw_export_interval) + float(raw_maximum_age)) / 1000
 export_sample_age = observation_time - export_sample_time
 if export_sample_age < -0.001 or export_sample_age > maximum_export_age:
     raise SystemExit("quiescence export backlog sample is stale")
@@ -1349,8 +1351,10 @@ if prior_signature == signature and raw_baseline:
     baseline = float(raw_baseline)
 else:
     unchanged = 0
-    baseline = observation_time
-elapsed_ms = max(0, int((observation_time - baseline) * 1000))
+    baseline = export_sample_time
+if export_sample_time < baseline - 0.001:
+    raise SystemExit("quiescence export sample time moved backwards")
+elapsed_ms = max(0, int((export_sample_time - baseline) * 1000))
 print(f"{signature}|{unchanged}|{baseline:.6f}|{observation_time:.6f}|{elapsed_ms}")
 PY
 }

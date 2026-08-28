@@ -8,10 +8,11 @@ struct SidebarPerformancePolicyParserScriptTests {
         let prefix = "agentstudio.startup_diagnostic.sidebar_proof."
         let record: [String: Any] = [
             prefix + "policy_id": "strict-sidebar-cpu",
-            prefix + "policy_version": 5,
+            prefix + "policy_version": 6,
             prefix + "idle_p99_max_percent": 10.0,
             prefix + "action_p95_max_percent": 20.0,
             prefix + "sample_interval_ms": "1000.0",
+            prefix + "metrics_export_interval_ms": "60000.0",
             prefix + "idle_sample_floor": 1000,
             prefix + "action_count_floor": 100,
             prefix + "action_sample_floor": 200,
@@ -50,6 +51,7 @@ struct SidebarPerformancePolicyParserScriptTests {
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("STRICT_POLICY_SAMPLE_INTERVAL_MS=1000\n"))
+        #expect(result.stdout.contains("STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS=60000\n"))
         #expect(result.stdout.contains("STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS=300000\n"))
         #expect(result.stdout.contains("STRICT_POLICY_REMOTE_REFERENCE_PHYSICAL_LIMIT=1\n"))
         #expect(result.stdout.contains("STRICT_POLICY_FORGE_PHYSICAL_LIMIT=2\n"))

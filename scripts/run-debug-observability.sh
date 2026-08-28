@@ -1117,7 +1117,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
 fi
 launch_zmx_dir="$launch_data_root/z"
 launch_ipc_socket_dir="${AGENTSTUDIO_IPC_SOCKET_DIR:-$debug_root/ipc-socket}"
-launch_zmx_bin_dir="$debug_root/bin"
+launch_zmx_bin_dir="$launch_data_root/bin"
 launch_zmx_path="$launch_zmx_bin_dir/zmx"
 otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf

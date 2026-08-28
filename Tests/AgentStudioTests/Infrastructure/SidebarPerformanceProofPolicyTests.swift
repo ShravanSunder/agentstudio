@@ -34,7 +34,7 @@ struct SidebarPerformanceProofPolicyTests {
             encoding: .utf8
         )
 
-        #expect(policySource.contains("package static let policyVersion: Int = 5"))
+        #expect(policySource.contains("package static let policyVersion: Int = 6"))
         #expect(
             policySource.contains(
                 "URL(fileURLWithPath: \"/Users/shravansunder/Documents/dev/open-source\""
@@ -55,6 +55,7 @@ struct SidebarPerformanceProofPolicyTests {
         #expect(AppPolicies.SidebarPerformanceProof.idleProcessCPUP99MaximumPercent == 10)
         #expect(AppPolicies.SidebarPerformanceProof.actionProcessCPUP95MaximumPercent == 20)
         #expect(AppPolicies.SidebarPerformanceProof.sampleInterval == .seconds(1))
+        #expect(AppPolicies.SidebarPerformanceProof.metricsExportInterval == .seconds(60))
         #expect(AppPolicies.SidebarPerformanceProof.requiredIdleUsableSampleCount == 1000)
         #expect(AppPolicies.SidebarPerformanceProof.requiredSuccessfulActionCount == 100)
         #expect(AppPolicies.SidebarPerformanceProof.requiredActionBearingSampleCount == 200)

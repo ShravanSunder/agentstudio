@@ -846,6 +846,7 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
             #expect(source.contains("agentstudio.startup_diagnostic.sidebar_proof.\(attribute)"))
         }
         for policyAttribute in [
+            "metrics_export_interval_ms",
             "git_status_physical_limit", "remote_reference_physical_limit",
             "forge_physical_limit", "git_maximum_settlement_ms",
         ] {

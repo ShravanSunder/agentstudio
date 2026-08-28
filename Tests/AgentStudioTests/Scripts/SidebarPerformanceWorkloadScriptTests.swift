@@ -6,6 +6,8 @@ import Testing
 
 @Suite
 struct SidebarPerformanceWorkloadScriptTests {
+    private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
+
     @Test("strict sidebar driver consumes projected policy and rejects false green populations")
     func strictSidebarDriverConsumesProjectedPolicyAndRejectsFalseGreenPopulations() throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -154,7 +156,9 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(sampler.contains("$APP_PID"))
         #expect(!sampler.contains("/usr/bin/top"))
     }
+}
 
+extension SidebarPerformanceWorkloadScriptTests {
     @Test("strict quiescence rejects missing and empty stage vectors")
     func strictQuiescenceRejectsMissingAndEmptyStageVectors() async throws {
         let missingObservations = (0...5).map { timestamp in
@@ -251,7 +255,7 @@ struct SidebarPerformanceWorkloadScriptTests {
 
     @Test("strict quiescence rejects a stale export backlog sample")
     func strictQuiescenceRejectsStaleExportBacklogSample() async throws {
-        let observations = (0...5).map { timestamp in
+        let observations = (60...65).map { timestamp in
             """
             {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":0}
             """
@@ -321,6 +325,26 @@ struct SidebarPerformanceWorkloadScriptTests {
             {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
             """
         }
+        let result = try await runQuiescenceContract(
+            sequence: "[" + observations.joined(separator: ",") + "]"
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("positive_quiescence=test_contract_passed"))
+    }
+
+    @Test("strict quiescence advances only across exported metric snapshots")
+    func strictQuiescenceAdvancesAcrossExportedMetricSnapshots() async throws {
+        let observations =
+            (60...65).map { observationTime in
+                """
+                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":\(observationTime),"export_sample_time":60}
+                """
+            } + [
+                """
+                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":120,"export_sample_time":120}
+                """
+            ]
         let result = try await runQuiescenceContract(
             sequence: "[" + observations.joined(separator: ",") + "]"
         )
@@ -805,7 +829,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("refuses AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"))
     }
 
-    private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
     private var settledGitVectorFields: String {
         """
         "cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
@@ -825,6 +848,7 @@ struct SidebarPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
                 "AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE": sequence,
                 "STRICT_POLICY_QUIESCENCE_MS": "5000",
+                "STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS": "60000",
                 "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
                 "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
             ]
