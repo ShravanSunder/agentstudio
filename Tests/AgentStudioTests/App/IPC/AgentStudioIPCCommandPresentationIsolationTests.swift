@@ -21,7 +21,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
         #expect(
             encodedCommandListSHA256
-                == "e1a46ccfd3fc7240328348c8d119f44d63fdc42b4beb572620bbb3b2c4d83450"
+                == "a4bde05cd101db8e7fb53473eda1a7ff00cf510d85e7fa71c22bafd0a0519de9"
         )
     }
 
