@@ -383,6 +383,9 @@ package struct RepoExplorerView: View {
                 "agentstudio.performance.sidebar.readback.represented_row_count": .int(
                     readback.representedRowCount
                 ),
+                "agentstudio.performance.sidebar.readback.materialization_fingerprint": .int(
+                    Int(bitPattern: UInt(readback.materializationFingerprint))
+                ),
                 "agentstudio.performance.sidebar.readback.grouping_mode": .string(
                     readback.groupingMode.rawValue
                 ),

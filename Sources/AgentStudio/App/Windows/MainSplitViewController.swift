@@ -452,6 +452,9 @@ class MainSplitViewController: NSSplitViewController {
             nativeSelectedGroupingMode: nativeSelectedGroupingMode,
             nativeSidebarAccessibilityIsReady: nativeSidebarAccessibilityIsReady,
             nativePresentedRowCount: tableView?.numberOfRows,
+            nativeVisibleProjection: tableView.flatMap {
+                RepoExplorerNativeVisibleProjectionReadback.capture(in: $0)
+            },
             tab: paneTabViewController.sidebarPerformanceProofTabReadback(window: window)
         )
     }

@@ -107,11 +107,23 @@ final class RepoExplorerProjectionAdapter {
         guard let semanticBaselineResult, let materializationHost,
             let visibleBaseline = acknowledgedMaterializationBaseline ?? materializationHost.acceptedBaseline
         else { return nil }
+        let proofSummary =
+            visibleBaseline.presentation.contentSnapshot?
+            .performanceProofPresentationSummary
+            ?? RepoExplorerPerformanceProofPresentationSummary(
+                inactiveRepositoryHeaderCount: 0,
+                suppressedRepositoryFactRowCount: 0,
+                updatingRepositoryHeaderCount: 0
+            )
         return RepoExplorerPerformanceProofReadback(
             semanticGeneration: semanticBaselineResult.generation,
             acknowledgedRevision: visibleBaseline.revision,
             visibleGeneration: visibleBaseline.visibleGeneration,
             representedRowCount: visibleBaseline.rowCount,
+            materializationFingerprint: visibleBaseline.fingerprint.rawValue,
+            inactiveRepositoryHeaderCount: proofSummary.inactiveRepositoryHeaderCount,
+            suppressedRepositoryFactRowCount: proofSummary.suppressedRepositoryFactRowCount,
+            updatingRepositoryHeaderCount: proofSummary.updatingRepositoryHeaderCount,
             groupingMode: semanticBaselineResult.snapshot.groupingMode,
             query: semanticBaselineResult.snapshot.query,
             isDemanded: isDemanded,

@@ -19,6 +19,11 @@ extension WorkspaceSurfaceCoordinator {
         await filesystemSource.waitForRepositoryFactDemandAdmission()
     }
 
+    func gitLogicalDebtSnapshotForPerformanceProof() async -> GitLogicalDebtSnapshot? {
+        guard let pipeline = filesystemSource as? FilesystemGitPipeline else { return nil }
+        return await pipeline.gitLogicalDebtSnapshot()
+    }
+
     private func restartRepositoryFactDemandObservation() {
         repositoryFactDemandObservationGeneration &+= 1
         observeRepositoryFactDemand(generation: repositoryFactDemandObservationGeneration)

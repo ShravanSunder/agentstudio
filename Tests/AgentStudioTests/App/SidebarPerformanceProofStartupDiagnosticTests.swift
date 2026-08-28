@@ -10,6 +10,25 @@ import Testing
 @MainActor
 @Suite("Sidebar performance proof startup diagnostics", .serialized)
 struct SidebarPerformanceProofStartupDiagnosticTests {
+    @Test("performance readback consumes precomputed materialization summary in O(1)")
+    func performanceReadbackDoesNotScanMaterializedRowsOnMainActor() throws {
+        let adapterSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter.swift",
+            encoding: .utf8
+        )
+        let snapshotSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
+            encoding: .utf8
+        )
+        #expect(adapterSource.contains("performanceProofPresentationSummary"))
+        #expect(!adapterSource.contains("visibleRows.count"))
+        #expect(snapshotSource.contains("for (index, row) in rows.enumerated()"))
+        #expect(snapshotSource.contains("inactiveRepositoryHeaderCount += 1"))
+        #expect(snapshotSource.contains("suppressedRepositoryFactRowCount += 1"))
+    }
+
     @Test("idle proof permanently latches a synchronous attendance lapse and recovery")
     func idleProofLatchesSynchronousAttendanceLapseBeforeObservationReregistration() async throws {
         let appLifecycleStore = AppLifecycleAtom()
@@ -172,6 +191,30 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         )
     }
 
+    @Test("cold mutation proof rejects nil or clean initial enrichment")
+    func coldMutationProofRequiresChangedStatusContent() {
+        #expect(!AppDelegate.strictColdLocalCompletionObserved(nil))
+        let worktreeID = UUIDv7.generate()
+        let repoID = UUIDv7.generate()
+        let clean = WorktreeEnrichment(
+            worktreeId: worktreeID,
+            repoId: repoID,
+            branch: "main",
+            snapshot: GitWorkingTreeSnapshot(
+                worktreeId: worktreeID,
+                repoId: repoID,
+                rootPath: URL(fileURLWithPath: "/tmp/strict-cold-proof"),
+                summary: GitWorkingTreeSummary(
+                    changed: 0, staged: 0, untracked: 0,
+                    linesAdded: 0, linesDeleted: 0,
+                    aheadCount: 0, behindCount: 0, hasUpstream: false
+                ),
+                branch: "main"
+            )
+        )
+        #expect(!AppDelegate.strictColdLocalCompletionObserved(clean))
+    }
+
     @Test("visible sidebar settlement requires complete proof window attendance")
     func visibleSidebarSettlementRequiresProofWindowAttendance() {
         let attendedReadback = makeReadback(
@@ -273,6 +316,91 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         #expect(tracker.outstandingAction == nil)
     }
 
+    @Test("action settlement rejects same-count native rows with stale generation, order, or membership")
+    func actionSettlementRequiresGenerationMatchedNativeVisibleProjection() throws {
+        let baseline = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            materializationFingerprint: 101,
+            nativeVisibleProjection: .matching(
+                materializationGeneration: 13,
+                materializationFingerprint: 101,
+                visibleFingerprint: 201,
+                visibleRowCount: 24
+            )
+        )
+        var tracker = SidebarPerformanceProofActionTracker()
+        let startedAction = tracker.begin(
+            sequence: 1,
+            baseline: baseline,
+            expectedOutcome: .grouping(.pane)
+        )
+        let action = try #require(startedAction)
+
+        for mismatchedNativeProjection in [
+            RepoExplorerNativeVisibleProjectionReadback.matching(
+                materializationGeneration: 12,
+                materializationFingerprint: 101,
+                visibleFingerprint: 201,
+                visibleRowCount: 24
+            ),
+            RepoExplorerNativeVisibleProjectionReadback(
+                materializationGeneration: 14,
+                materializationFingerprint: 102,
+                expectedVisibleFingerprint: 201,
+                actualVisibleFingerprint: 201,
+                visibleRowCount: 24,
+                actualBoundRowCount: 24
+            ),
+            RepoExplorerNativeVisibleProjectionReadback(
+                materializationGeneration: 14,
+                materializationFingerprint: 101,
+                expectedVisibleFingerprint: 201,
+                actualVisibleFingerprint: 202,
+                visibleRowCount: 24,
+                actualBoundRowCount: 24
+            ),
+            RepoExplorerNativeVisibleProjectionReadback(
+                materializationGeneration: 14,
+                materializationFingerprint: UInt64.max,
+                expectedVisibleFingerprint: 201,
+                actualVisibleFingerprint: 201,
+                visibleRowCount: 24,
+                actualBoundRowCount: 24
+            ),
+        ] {
+            let candidate = makeReadback(
+                semanticGeneration: 8,
+                acknowledgedRevision: 12,
+                visibleGeneration: 14,
+                groupingMode: .pane,
+                nativeGroupingMode: .pane,
+                materializationFingerprint: 101,
+                nativeVisibleProjection: mismatchedNativeProjection
+            )
+            #expect(!SidebarPerformanceProofActionTracker.matches(candidate, action: action))
+        }
+
+        let settled = makeReadback(
+            semanticGeneration: 8,
+            acknowledgedRevision: 12,
+            visibleGeneration: 14,
+            groupingMode: .pane,
+            nativeGroupingMode: .pane,
+            materializationFingerprint: 101,
+            nativeVisibleProjection: .matching(
+                materializationGeneration: 14,
+                materializationFingerprint: 101,
+                visibleFingerprint: 201,
+                visibleRowCount: 24
+            )
+        )
+        #expect(SidebarPerformanceProofActionTracker.matches(settled, action: action))
+    }
+
     @Test("visibility settlement does not require an unrelated Repo Explorer revision")
     func visibilitySettlementAllowsAnEqualProjectionBaseline() throws {
         let baseline = makeReadback(
@@ -305,6 +433,45 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         )
 
         #expect(SidebarPerformanceProofActionTracker.matches(hidden, action: action))
+    }
+
+    @Test("expanded visibility settlement rejects a same-count stale native fingerprint")
+    func visibilityExpansionRequiresCurrentNativeVisibleProjection() throws {
+        let collapsed = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: nil,
+            isDemanded: false,
+            presentationIsReady: false,
+            accessibilityDisposition: .unavailable,
+            sidebarIsCollapsed: true,
+            nativeSidebarGeometryIsVisible: false,
+            nativeSidebarAccessibilityIsReady: false,
+            nativePresentedRowCount: nil
+        )
+        var tracker = SidebarPerformanceProofActionTracker()
+        let startedAction = tracker.begin(
+            sequence: 1,
+            baseline: collapsed,
+            expectedOutcome: .sidebarCollapsed(false)
+        )
+        let action = try #require(startedAction)
+        let stale = makeReadback(
+            semanticGeneration: 7,
+            acknowledgedRevision: 11,
+            visibleGeneration: 13,
+            groupingMode: .repo,
+            nativeGroupingMode: .repo,
+            nativeVisibleProjection: .matching(
+                materializationGeneration: 12,
+                materializationFingerprint: 101,
+                visibleFingerprint: 201,
+                visibleRowCount: 24
+            )
+        )
+        #expect(!SidebarPerformanceProofActionTracker.matches(stale, action: action))
     }
 
     @Test("search must settle filtered presentation before clearing")
@@ -442,7 +609,9 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             ) === tableView
         )
     }
+}
 
+extension SidebarPerformanceProofStartupDiagnosticTests {
     @Test("strict CPU populations use fixed debug selectors and population-specific readback")
     func strictCPUPopulationsUseFixedDebugSelectorsAndOneCorrelatedAction() throws {
         let actionSource = try String(
@@ -706,6 +875,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         nativeFilterValue: String? = nil,
         nativeSidebarAccessibilityIsReady: Bool = true,
         nativePresentedRowCount: Int? = 24,
+        materializationFingerprint: UInt64 = 101,
+        nativeVisibleProjection: RepoExplorerNativeVisibleProjectionReadback? = nil,
         orderedTabIDs: [UUID] = [],
         activeTabID: UUID? = nil,
         activePaneID: UUID? = nil,
@@ -719,6 +890,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 acknowledgedRevision: acknowledgedRevision,
                 visibleGeneration: visibleGeneration,
                 representedRowCount: 24,
+                materializationFingerprint: materializationFingerprint,
                 groupingMode: groupingMode,
                 query: query,
                 isDemanded: isDemanded,
@@ -734,6 +906,13 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 nativeSelectedGroupingMode: nativeGroupingMode,
                 nativeSidebarAccessibilityIsReady: nativeSidebarAccessibilityIsReady,
                 nativePresentedRowCount: nativePresentedRowCount,
+                nativeVisibleProjection: nativeVisibleProjection
+                    ?? .matching(
+                        materializationGeneration: visibleGeneration,
+                        materializationFingerprint: materializationFingerprint,
+                        visibleFingerprint: 201,
+                        visibleRowCount: nativePresentedRowCount ?? 0
+                    ),
                 tab: SidebarPerformanceProofTabReadback(
                     orderedTabIDs: orderedTabIDs,
                     activeTabID: activeTabID,

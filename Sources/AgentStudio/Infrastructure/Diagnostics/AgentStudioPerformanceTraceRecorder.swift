@@ -231,6 +231,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case repoExplorerStageSnapshot = "performance.repo_explorer.stage_snapshot"
         case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repositoryFactDemand = "performance.repository_fact_demand"
+        case repositoryFactUpdate = "performance.repository_fact_update"
         case remoteReferenceRefresh = "performance.remote_reference.refresh"
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"

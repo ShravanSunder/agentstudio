@@ -24,6 +24,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
     let nativeSelectedGroupingMode: RepoExplorerGroupingMode?
     let nativeSidebarAccessibilityIsReady: Bool
     let nativePresentedRowCount: Int?
+    let nativeVisibleProjection: RepoExplorerNativeVisibleProjectionReadback?
     let tab: SidebarPerformanceProofTabReadback
 }
 
@@ -113,6 +114,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                     && repoExplorer.presentationIsReady == !isCollapsed
                     && shell.nativeSidebarAccessibilityIsReady == !isCollapsed
                     && (isCollapsed || shell.nativePresentedRowCount == repoExplorer.representedRowCount)
+                    && (isCollapsed || nativeVisibleProjectionMatches(readback))
                     && shell.tab.nativeActivePaneHasFocus
                     && readback.windowAttendance.isAttended
             case .tabSelection(let tabID, let paneID):
@@ -134,6 +136,15 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 && candidate.visibleGeneration > baseline.visibleGeneration
         }
 
+        private nonisolated static func nativeVisibleProjectionMatches(
+            _ readback: SidebarPerformanceProofReadback
+        ) -> Bool {
+            readback.shell.nativeVisibleProjection?.matches(
+                materializationGeneration: readback.repoExplorer.visibleGeneration,
+                materializationFingerprint: readback.repoExplorer.materializationFingerprint
+            ) == true
+        }
+
         nonisolated static func visibleSidebarIsSettled(
             _ readback: SidebarPerformanceProofReadback
         ) -> Bool {
@@ -147,13 +158,13 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 && shell.nativeSidebarGeometryIsVisible
                 && shell.nativeSidebarAccessibilityIsReady
                 && shell.nativePresentedRowCount == repoExplorer.representedRowCount
+                && nativeVisibleProjectionMatches(readback)
                 && readback.windowAttendance.isAttended
         }
     }
 
     enum SidebarPerformanceProofPopulation: String, Sendable {
         case zeroPTYIdle = "zero_pty_idle"
-        case quiescentPTYIdle = "quiescent_pty_idle"
         case searchClear = "search_clear"
         case grouping
         case hideShow = "hide_show"
@@ -162,7 +173,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
         init?(kind: AgentStudioStartupDiagnosticAction.Kind) {
             switch kind {
             case .sidebarCPUZeroPTYIdle: self = .zeroPTYIdle
-            case .sidebarCPUQuiescentPTYIdle: self = .quiescentPTYIdle
+            case .sidebarCPUQuiescentPTYIdle: return nil
             case .sidebarCPUSearchClear: self = .searchClear
             case .sidebarCPUGrouping: self = .grouping
             case .sidebarCPUHideShow: self = .hideShow
@@ -171,7 +182,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             }
         }
 
-        var isIdle: Bool { self == .zeroPTYIdle || self == .quiescentPTYIdle }
+        var isIdle: Bool { self == .zeroPTYIdle }
     }
 
     @MainActor
@@ -343,7 +354,12 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 record("performance.sidebar.proof_action.failed", sequence: sequence, outcome: "overlap")
                 return false
             }
-            record("performance.sidebar.proof_action.started", sequence: sequence, outcome: "started")
+            record(
+                "performance.sidebar.proof_action.started",
+                sequence: sequence,
+                outcome: "started",
+                additionalAttributes: proofReadbackAttributes(outstandingAction.baseline)
+            )
 
             let settled: Bool
             if population == .searchClear {
@@ -364,7 +380,8 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             record(
                 settled ? "performance.sidebar.proof_action.settled" : "performance.sidebar.proof_action.failed",
                 sequence: sequence,
-                outcome: settled ? "settled" : "readback_timeout"
+                outcome: settled ? "settled" : "readback_timeout",
+                additionalAttributes: latestReadback.map(proofReadbackAttributes) ?? [:]
             )
             return settled
         }
@@ -409,7 +426,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 let tabID = baseline.shell.tab.orderedTabIDs[targetIndex]
                 guard let paneID = baseline.shell.tab.activePaneIDByTabID[tabID] else { return nil }
                 return .tabSelection(tabID: tabID, paneID: paneID)
-            case .zeroPTYIdle, .quiescentPTYIdle:
+            case .zeroPTYIdle:
                 return nil
             }
         }
@@ -658,6 +675,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             if remainder > 0 {
                 try? await delay.wait(.nanoseconds(Int64(interval - remainder)))
             }
+            try? await delay.wait(AppPolicies.SidebarPerformanceProof.actionSampleStartOffset)
         }
 
         private func record(
@@ -690,6 +708,46 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
                 terminalInputKey: .int(Int(snapshot.terminalInputCount)),
                 terminalOutputKey: .int(Int(snapshot.terminalOutputAdvancementCount)),
                 orderedCommandKey: .int(Int(snapshot.orderedCommandCount)),
+            ]
+        }
+
+        private func proofReadbackAttributes(
+            _ readback: SidebarPerformanceProofReadback
+        ) -> [String: AgentStudioTraceValue] {
+            let nativeProjection = readback.shell.nativeVisibleProjection
+            let nativeProjectionRequired =
+                readback.shell.nativeSidebarGeometryIsVisible
+                && readback.repoExplorer.presentationIsReady
+            let nativeProjectionMatches =
+                nativeProjection?.matches(
+                    materializationGeneration: readback.repoExplorer.visibleGeneration,
+                    materializationFingerprint: readback.repoExplorer.materializationFingerprint
+                ) == true
+            return [
+                "agentstudio.performance.sidebar.proof.readback.semantic_generation": .int(
+                    readback.repoExplorer.semanticGeneration),
+                "agentstudio.performance.sidebar.proof.readback.acknowledged_revision": .int(
+                    Int(clamping: readback.repoExplorer.acknowledgedRevision)),
+                "agentstudio.performance.sidebar.proof.readback.visible_generation": .int(
+                    Int(clamping: readback.repoExplorer.visibleGeneration)),
+                "agentstudio.performance.sidebar.proof.readback.materialization_fingerprint": .int(
+                    Int(bitPattern: UInt(readback.repoExplorer.materializationFingerprint))),
+                "agentstudio.performance.sidebar.proof.readback.native_materialization_generation": .int(
+                    Int(clamping: nativeProjection?.materializationGeneration ?? 0)),
+                "agentstudio.performance.sidebar.proof.readback.native_materialization_fingerprint": .int(
+                    Int(bitPattern: UInt(nativeProjection?.materializationFingerprint ?? 0))),
+                "agentstudio.performance.sidebar.proof.readback.native_projection_required": .bool(
+                    nativeProjectionRequired),
+                "agentstudio.performance.sidebar.proof.readback.native_projection_matches": .bool(
+                    nativeProjectionMatches),
+                "agentstudio.performance.sidebar.proof.readback.inactive_repository_header.count": .int(
+                    readback.repoExplorer.inactiveRepositoryHeaderCount),
+                "agentstudio.performance.sidebar.proof.readback.suppressed_repository_fact_row.count": .int(
+                    readback.repoExplorer.suppressedRepositoryFactRowCount),
+                "agentstudio.performance.sidebar.proof.readback.updating_repository_header.count": .int(
+                    readback.repoExplorer.updatingRepositoryHeaderCount),
+                "agentstudio.performance.sidebar.proof.readback.grouping_mode": .string(
+                    readback.repoExplorer.groupingMode.rawValue),
             ]
         }
 

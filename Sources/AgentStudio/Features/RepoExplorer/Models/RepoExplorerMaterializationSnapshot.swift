@@ -3,6 +3,12 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import Foundation
 
+struct RepoExplorerPerformanceProofPresentationSummary: Equatable, Sendable {
+    let inactiveRepositoryHeaderCount: Int
+    let suppressedRepositoryFactRowCount: Int
+    let updatingRepositoryHeaderCount: Int
+}
+
 struct RepoExplorerMaterializedGroupHeaderPresentation: Equatable, Sendable {
     let groupID: String
     let icon: AppEntityIcon
@@ -327,6 +333,7 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
     let rowIndexByID: [RepoExplorerRowID: Int]
     let rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]]
     let rowIDsByRepoID: [UUID: [RepoExplorerRowID]]
+    let performanceProofPresentationSummary: RepoExplorerPerformanceProofPresentationSummary
 
     static let empty = Self(rows: [])
 
@@ -334,6 +341,9 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         var rowIndexByID: [RepoExplorerRowID: Int] = [:]
         var rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]] = [:]
         var rowIDsByRepoID: [UUID: [RepoExplorerRowID]] = [:]
+        var inactiveRepositoryHeaderCount = 0
+        var suppressedRepositoryFactRowCount = 0
+        var updatingRepositoryHeaderCount = 0
         rowIndexByID.reserveCapacity(rows.count)
 
         for (index, row) in rows.enumerated() {
@@ -348,6 +358,19 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
                 for repoID in group.repoIDs {
                     rowIDsByRepoID[repoID, default: []].append(row.id)
                 }
+                if group.presentsRepositoryActivity,
+                    group.repositoryActivityDisposition == .locallyInactive
+                {
+                    inactiveRepositoryHeaderCount += 1
+                }
+                if group.repositoryFactUpdateProgress?.isLoading == true {
+                    updatingRepositoryHeaderCount += 1
+                }
+            }
+            if case .worktree(let worktree) = row.presentation,
+                !worktree.showsRepositoryFactStatus
+            {
+                suppressedRepositoryFactRowCount += 1
             }
         }
 
@@ -358,6 +381,11 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         self.rowIndexByID = rowIndexByID
         self.rowIDsByWorktreeID = rowIDsByWorktreeID
         self.rowIDsByRepoID = rowIDsByRepoID
+        performanceProofPresentationSummary = RepoExplorerPerformanceProofPresentationSummary(
+            inactiveRepositoryHeaderCount: inactiveRepositoryHeaderCount,
+            suppressedRepositoryFactRowCount: suppressedRepositoryFactRowCount,
+            updatingRepositoryHeaderCount: updatingRepositoryHeaderCount
+        )
     }
 
     func row(id: RepoExplorerRowID) -> RepoExplorerMaterializedRow? {

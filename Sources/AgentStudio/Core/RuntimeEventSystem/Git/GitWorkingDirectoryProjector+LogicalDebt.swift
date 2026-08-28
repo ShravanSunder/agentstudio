@@ -12,6 +12,8 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
     package let activeFollowUpCount: Int
     package let unclassifiedPendingCount: Int
     package let overdueDeadlineCount: Int
+    package let inactiveAutomaticDeadlineCount: Int
+    package let inactiveAutomaticSourceStartCount: UInt64
     package let oldestPreparationTimestamp: ContinuousClock.Instant?
     package let nextDeadline: Duration?
     package let oldestPreparationMilliseconds: Double
@@ -28,6 +30,8 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
             && lhs.activeFollowUpCount == rhs.activeFollowUpCount
             && lhs.unclassifiedPendingCount == rhs.unclassifiedPendingCount
             && lhs.overdueDeadlineCount == rhs.overdueDeadlineCount
+            && lhs.inactiveAutomaticDeadlineCount == rhs.inactiveAutomaticDeadlineCount
+            && lhs.inactiveAutomaticSourceStartCount == rhs.inactiveAutomaticSourceStartCount
             && lhs.oldestPreparationTimestamp == rhs.oldestPreparationTimestamp
             && lhs.nextDeadline == rhs.nextDeadline
     }
@@ -53,6 +57,10 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
             "agentstudio.performance.git.active_follow_up.count": .int(activeFollowUpCount),
             "agentstudio.performance.git.unclassified_pending.count": .int(unclassifiedPendingCount),
             "agentstudio.performance.git.overdue_deadline.count": .int(overdueDeadlineCount),
+            "agentstudio.performance.git.inactive_automatic_deadline.count": .int(
+                inactiveAutomaticDeadlineCount),
+            "agentstudio.performance.git.inactive_automatic_source_start.count": .int(
+                Int(clamping: inactiveAutomaticSourceStartCount)),
             "agentstudio.performance.git.oldest_preparation_ms": .double(oldestPreparationMilliseconds),
             "agentstudio.performance.git.next_deadline_ms": .double(nextDeadlineMilliseconds),
         ]
@@ -76,6 +84,9 @@ extension GitWorkingDirectoryProjector {
             capacityFallbackDeadlineByWorktreeId,
         ].reduce(into: 0) { count, deadlines in
             count += deadlines.values.count { $0 <= deadlineNow }
+        }
+        let inactiveAutomaticDeadlineCount = automaticRefreshDeadlineByWorktreeId.keys.count {
+            !isAutomaticEligible(worktreeId: $0)
         }
 
         var readyPendingCount = 0
@@ -122,6 +133,8 @@ extension GitWorkingDirectoryProjector {
             activeFollowUpCount: activeFollowUpCount,
             unclassifiedPendingCount: unclassifiedPendingCount,
             overdueDeadlineCount: overdueDeadlineCount,
+            inactiveAutomaticDeadlineCount: inactiveAutomaticDeadlineCount,
+            inactiveAutomaticSourceStartCount: inactiveAutomaticSourceStartCount,
             oldestPreparationTimestamp: oldestPreparationTimestamp,
             nextDeadline: nextDeadline,
             oldestPreparationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(

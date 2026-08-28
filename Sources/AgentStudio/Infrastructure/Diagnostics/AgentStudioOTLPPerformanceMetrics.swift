@@ -436,6 +436,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         switch record.body {
         case "performance.filesystem.stage_outcome": prefix = "filesystem"
         case "performance.forge.refresh": prefix = "forge"
+        case "performance.repository_fact_update": prefix = "repository_update"
         default: return
         }
         for name in ["stage", "outcome"] {
@@ -611,6 +612,10 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 && label.hasSuffix("_count"))
             || (label.hasPrefix("agentstudio_performance_forge_") && label.hasSuffix("_count"))
             || (label.hasPrefix("agentstudio_performance_git_aggregate_") && label.hasSuffix("_count"))
+            || (label.hasPrefix("agentstudio_performance_repository_fact_demand_")
+                && label.hasSuffix("_count"))
+            || (label.hasPrefix("agentstudio_performance_remote_reference_")
+                && label.hasSuffix("_count"))
     }
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {

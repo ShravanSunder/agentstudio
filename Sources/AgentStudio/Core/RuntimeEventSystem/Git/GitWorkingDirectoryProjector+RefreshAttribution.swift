@@ -78,6 +78,7 @@ extension GitWorkingDirectoryProjector {
             settlement: settlement,
             requiredIntentGenerationByWorktreeId: requiredIntentGenerationByWorktreeId
         )
+        recordExplicitUpdateAdmissionTelemetry()
         return .accepted(settlement.lease)
     }
 
@@ -98,9 +99,10 @@ extension GitWorkingDirectoryProjector {
                 continue
             }
             explicitRepositoryUpdateAttemptsById.removeValue(forKey: attemptId)
-            attempt.settlement.resolve(
-                Self.compositeExplicitRepositoryUpdateOutcome(attempt.outcomesByWorktreeId.values)
-            )
+            let compositeOutcome = Self.compositeExplicitRepositoryUpdateOutcome(
+                attempt.outcomesByWorktreeId.values)
+            attempt.settlement.resolve(compositeOutcome)
+            recordExplicitUpdateSettlementTelemetry(compositeOutcome)
         }
     }
 
@@ -121,6 +123,7 @@ extension GitWorkingDirectoryProjector {
         explicitRepositoryUpdateAttemptsById.removeAll(keepingCapacity: false)
         for attempt in attempts {
             attempt.settlement.resolve(outcome)
+            recordExplicitUpdateSettlementTelemetry(outcome)
         }
     }
 

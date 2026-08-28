@@ -102,7 +102,8 @@ struct ForgeActorExplicitUpdateTests {
 
     @Test("cold explicit repository update uses represented branches and waits for provider settlement")
     func coldUpdateUsesRepresentedBranches() async throws {
-        let fixture = await ForgeActorFixture.make()
+        let performanceRecorder = ForgePerformanceSnapshotRecorderSpy()
+        let fixture = await ForgeActorFixture.make(performanceTraceRecorder: performanceRecorder)
         let repoID = UUIDv7.generate()
         let worktreeID = UUIDv7.generate()
         await fixture.register(repoId: repoID, worktrees: [(worktreeID, "feature/cold")])
@@ -114,8 +115,20 @@ struct ForgeActorExplicitUpdateTests {
         )
         #expect(await fixture.provider.waitForCallCount(1))
         #expect(await fixture.provider.demandedBranchSets == [["feature/cold"]])
+        let admissionSnapshots = performanceRecorder.snapshots
+        #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.explicitAdmitted } == 1)
+        #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.explicitSettledCompleted } == 0)
+        #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.automaticWithoutDemandStarted } == 0)
         await fixture.provider.resolve(callAt: 0, with: .complete([]))
         #expect(await lease.settlement() == .completed)
+        for _ in 0..<1000
+        where performanceRecorder.snapshots.reduce(0, { $0 + $1.execution.explicitSettledCompleted }) == 0 {
+            await Task.yield()
+        }
+        let settlementSnapshots = performanceRecorder.snapshots
+        #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.explicitAdmitted } == 1)
+        #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.explicitSettledCompleted } == 1)
+        #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.automaticWithoutDemandStarted } == 0)
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }

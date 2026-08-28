@@ -18,6 +18,12 @@ package struct RemoteReferencePerformanceSnapshot: Equatable, Sendable {
     package var admissionAdmitted: UInt64 = 0
     package var admissionCapacityDeferred: UInt64 = 0
     package var stagingStarted: UInt64 = 0
+    package var automaticWithoutDemandStarted: UInt64 = 0
+    package var explicitAdmitted: UInt64 = 0
+    package var explicitSettledCompleted: UInt64 = 0
+    package var explicitSettledFailed: UInt64 = 0
+    package var explicitSettledObsolete: UInt64 = 0
+    package var explicitSettledCancelled: UInt64 = 0
     package var stagingCompleted: UInt64 = 0
     package var promotionStarted: UInt64 = 0
     package var promotionCompleted: UInt64 = 0
@@ -59,6 +65,21 @@ package struct RemoteReferencePerformanceAccumulator: Sendable {
         defer { snapshot = RemoteReferencePerformanceSnapshot() }
         return snapshot
     }
+
+    package mutating func recordExplicitSettlement(
+        _ outcome: RepositoryFactSourceUpdateOutcome,
+        count: Int
+    ) {
+        guard count > 0 else { return }
+        let keyPath: WritableKeyPath<RemoteReferencePerformanceSnapshot, UInt64> =
+            switch outcome {
+            case .completed: \.explicitSettledCompleted
+            case .failed: \.explicitSettledFailed
+            case .obsolete: \.explicitSettledObsolete
+            case .cancelled: \.explicitSettledCancelled
+            }
+        for _ in 0..<count { increment(keyPath) }
+    }
 }
 
 package protocol RemoteReferencePerformanceRecording: Sendable {
@@ -79,6 +100,18 @@ extension AgentStudioPerformanceTraceRecorder: RemoteReferencePerformanceRecordi
                 Self.remoteReferenceTraceInteger(snapshot.admissionCapacityDeferred),
             "agentstudio.performance.remote_reference.execution.staging_started.count":
                 Self.remoteReferenceTraceInteger(snapshot.stagingStarted),
+            "agentstudio.performance.remote_reference.execution.automatic_without_demand_started.count":
+                Self.remoteReferenceTraceInteger(snapshot.automaticWithoutDemandStarted),
+            "agentstudio.performance.remote_reference.explicit.admitted.count":
+                Self.remoteReferenceTraceInteger(snapshot.explicitAdmitted),
+            "agentstudio.performance.remote_reference.explicit.settled_completed.count":
+                Self.remoteReferenceTraceInteger(snapshot.explicitSettledCompleted),
+            "agentstudio.performance.remote_reference.explicit.settled_failed.count":
+                Self.remoteReferenceTraceInteger(snapshot.explicitSettledFailed),
+            "agentstudio.performance.remote_reference.explicit.settled_obsolete.count":
+                Self.remoteReferenceTraceInteger(snapshot.explicitSettledObsolete),
+            "agentstudio.performance.remote_reference.explicit.settled_cancelled.count":
+                Self.remoteReferenceTraceInteger(snapshot.explicitSettledCancelled),
             "agentstudio.performance.remote_reference.execution.staging_completed.count":
                 Self.remoteReferenceTraceInteger(snapshot.stagingCompleted),
             "agentstudio.performance.remote_reference.execution.promotion_started.count":

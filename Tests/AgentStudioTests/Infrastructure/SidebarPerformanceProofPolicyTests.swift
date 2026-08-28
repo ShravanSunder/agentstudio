@@ -34,7 +34,7 @@ struct SidebarPerformanceProofPolicyTests {
             encoding: .utf8
         )
 
-        #expect(policySource.contains("package static let policyVersion: Int = 4"))
+        #expect(policySource.contains("package static let policyVersion: Int = 5"))
         #expect(
             policySource.contains(
                 "URL(fileURLWithPath: \"/Users/shravansunder/Documents/dev/open-source\""
@@ -48,7 +48,7 @@ struct SidebarPerformanceProofPolicyTests {
         #expect(policySource.contains("package static let strictTabCount: Int = 5"))
         #expect(policySource.contains("package static let strictPaneModelCount: Int = 20"))
         #expect(policySource.contains("package static let zeroPTYExpectedSessionCount: Int = 0"))
-        #expect(policySource.contains("package static let mountedPTYExpectedSessionCount: Int = 1"))
+        #expect(!policySource.contains("mountedPTYExpectedSessionCount"))
         #expect(policySource.contains("package static let zmxInventoryInterval: Duration"))
         #expect(policySource.contains("package static let fixturePreparationTimeout: Duration = .seconds(300)"))
         #expect(AppPolicies.SidebarPerformanceProof.fixtureQuery == "worktree")
@@ -63,6 +63,8 @@ struct SidebarPerformanceProofPolicyTests {
         #expect(AppPolicies.SidebarPerformanceProof.quiescenceInterval == .seconds(5))
         #expect(AppPolicies.SidebarPerformanceProof.actionReadbackTimeout == .seconds(5))
         #expect(AppPolicies.SidebarPerformanceProof.maximumSamplerGap == .milliseconds(1250))
+        #expect(AppPolicies.SidebarPerformanceProof.maximumActionSampleBoundaryOffset == .milliseconds(50))
+        #expect(AppPolicies.SidebarPerformanceProof.actionSampleStartOffset == .milliseconds(20))
         #expect(AppPolicies.SidebarPerformanceProof.maximumDiagnosticCPUP95DeltaPercentagePoints == 5)
         #expect(AppPolicies.SidebarPerformanceProof.maximumDiagnosticInteractionP95GrowthPercent == 10)
         #expect(AppPolicies.SidebarPerformanceProof.gitStatusPhysicalLimit == 4)
@@ -71,7 +73,7 @@ struct SidebarPerformanceProofPolicyTests {
             AppPolicies.SidebarPerformanceProof.standardTraceTags
                 == ["performance", "app.startup", "terminal.startup"]
         )
-        #expect(AppPolicies.SidebarPerformanceProof.idlePopulationNames.count == 2)
+        #expect(AppPolicies.SidebarPerformanceProof.idlePopulationNames == ["zero_pty_idle"])
         #expect(AppPolicies.SidebarPerformanceProof.actionPopulationNames.count == 4)
     }
 }

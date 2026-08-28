@@ -12,6 +12,12 @@ package struct GitWorkingDirectoryPerformanceSnapshot: Equatable, Sendable {
     package var suppressedInput: UInt64 = 0
     package var inactiveAutomaticIntentRemoved: UInt64 = 0
     package var inactiveRequiredIntentRetained: UInt64 = 0
+    package var inactiveAutomaticSourceStarted: UInt64 = 0
+    package var explicitAdmitted: UInt64 = 0
+    package var explicitSettledCompleted: UInt64 = 0
+    package var explicitSettledFailed: UInt64 = 0
+    package var explicitSettledObsolete: UInt64 = 0
+    package var explicitSettledCancelled: UInt64 = 0
     package var exactCleanBaselinePrepared: UInt64 = 0
     package var exactCleanBaselineAccepted: UInt64 = 0
     package var exactCleanBaselineRejected: UInt64 = 0
@@ -38,6 +44,9 @@ package struct GitWorkingDirectoryPerformanceSnapshot: Equatable, Sendable {
         visibilityBatched + visibilityTierDeferred + visibilitySuperseded
             + visibilityAdmittedUncovered + admitted + eventPosted + snapshotEqual + suppressedInput
             + inactiveAutomaticIntentRemoved + inactiveRequiredIntentRetained
+            + inactiveAutomaticSourceStarted
+            + explicitAdmitted + explicitSettledCompleted + explicitSettledFailed
+            + explicitSettledObsolete + explicitSettledCancelled
             + exactCleanBaselinePrepared + exactCleanBaselineAccepted + exactCleanBaselineRejected
             + exactCleanContinuityRenewed + exactCleanMutationInvalidated
             + continuityUncertaintyUnsupportedObservation + continuityUncertaintyRegistrationMissing
@@ -80,6 +89,23 @@ package struct GitWorkingDirectoryPerformanceAccumulator: Sendable {
         }
         if requiredRetained {
             increment(\.inactiveRequiredIntentRetained)
+        }
+    }
+
+    package mutating func recordInactiveAutomaticSourceStart() {
+        increment(\.inactiveAutomaticSourceStarted)
+    }
+
+    package mutating func recordExplicitAdmission() {
+        increment(\.explicitAdmitted)
+    }
+
+    package mutating func recordExplicitSettlement(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        switch outcome {
+        case .completed: increment(\.explicitSettledCompleted)
+        case .failed: increment(\.explicitSettledFailed)
+        case .obsolete: increment(\.explicitSettledObsolete)
+        case .cancelled: increment(\.explicitSettledCancelled)
         }
     }
 
@@ -187,6 +213,18 @@ extension AgentStudioPerformanceTraceRecorder {
                     Int(clamping: snapshot.inactiveAutomaticIntentRemoved)),
                 "agentstudio.performance.git.aggregate.inactive.required_intent_retained.count": .int(
                     Int(clamping: snapshot.inactiveRequiredIntentRetained)),
+                "agentstudio.performance.git.aggregate.inactive.automatic_source_started.count": .int(
+                    Int(clamping: snapshot.inactiveAutomaticSourceStarted)),
+                "agentstudio.performance.git.aggregate.explicit.admitted.count": .int(
+                    Int(clamping: snapshot.explicitAdmitted)),
+                "agentstudio.performance.git.aggregate.explicit.settled_completed.count": .int(
+                    Int(clamping: snapshot.explicitSettledCompleted)),
+                "agentstudio.performance.git.aggregate.explicit.settled_failed.count": .int(
+                    Int(clamping: snapshot.explicitSettledFailed)),
+                "agentstudio.performance.git.aggregate.explicit.settled_obsolete.count": .int(
+                    Int(clamping: snapshot.explicitSettledObsolete)),
+                "agentstudio.performance.git.aggregate.explicit.settled_cancelled.count": .int(
+                    Int(clamping: snapshot.explicitSettledCancelled)),
                 "agentstudio.performance.git.aggregate.continuity.baseline.prepared.count": .int(
                     Int(clamping: snapshot.exactCleanBaselinePrepared)),
                 "agentstudio.performance.git.aggregate.continuity.baseline.accepted.count": .int(

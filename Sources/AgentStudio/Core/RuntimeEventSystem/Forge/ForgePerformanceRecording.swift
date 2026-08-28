@@ -63,6 +63,12 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
 
     package struct Execution: Equatable, Sendable {
         package let started: UInt64
+        package let automaticWithoutDemandStarted: UInt64
+        package let explicitAdmitted: UInt64
+        package let explicitSettledCompleted: UInt64
+        package let explicitSettledFailed: UInt64
+        package let explicitSettledObsolete: UInt64
+        package let explicitSettledCancelled: UInt64
         package let completed: UInt64
         package let failed: UInt64
         package let cancelled: UInt64
@@ -144,7 +150,11 @@ package struct ForgePerformanceSnapshot: Equatable, Sendable {
             freshnessDeferred: 0,
             backoffDeferred: 0
         ),
-        execution: Execution(started: 0, completed: 0, failed: 0, cancelled: 0, superseded: 0),
+        execution: Execution(
+            started: 0, automaticWithoutDemandStarted: 0, explicitAdmitted: 0,
+            explicitSettledCompleted: 0, explicitSettledFailed: 0,
+            explicitSettledObsolete: 0, explicitSettledCancelled: 0, completed: 0,
+            failed: 0, cancelled: 0, superseded: 0),
         validation: Validation(current: 0, staleGeneration: 0, staleOrigin: 0, staleScope: 0),
         publication: Publication(published: 0, equal: 0, invalidated: 0),
         deadline: Deadline(scheduled: 0, rescheduled: 0, fired: 0, cancelled: 0),
@@ -168,6 +178,12 @@ package struct ForgePerformanceAccumulator: Sendable {
     private var admissionFreshnessDeferred: UInt64 = 0
     private var admissionBackoffDeferred: UInt64 = 0
     private var executionStarted: UInt64 = 0
+    private var executionAutomaticWithoutDemandStarted: UInt64 = 0
+    private var executionExplicitAdmitted: UInt64 = 0
+    private var executionExplicitSettledCompleted: UInt64 = 0
+    private var executionExplicitSettledFailed: UInt64 = 0
+    private var executionExplicitSettledObsolete: UInt64 = 0
+    private var executionExplicitSettledCancelled: UInt64 = 0
     private var executionCompleted: UInt64 = 0
     private var executionFailed: UInt64 = 0
     private var executionCancelled: UInt64 = 0
@@ -223,6 +239,29 @@ package struct ForgePerformanceAccumulator: Sendable {
         case .failed: Self.increment(&executionFailed)
         case .cancelled: Self.increment(&executionCancelled)
         case .superseded: Self.increment(&executionSuperseded)
+        }
+    }
+
+    package mutating func recordAutomaticWithoutDemandStart() {
+        Self.increment(&executionAutomaticWithoutDemandStarted)
+    }
+
+    package mutating func recordExplicitAdmission() {
+        Self.increment(&executionExplicitAdmitted)
+    }
+
+    package mutating func recordExplicitSettlement(
+        _ outcome: RepositoryFactSourceUpdateOutcome,
+        count: Int = 1
+    ) {
+        guard count > 0 else { return }
+        for _ in 0..<count {
+            switch outcome {
+            case .completed: Self.increment(&executionExplicitSettledCompleted)
+            case .failed: Self.increment(&executionExplicitSettledFailed)
+            case .obsolete: Self.increment(&executionExplicitSettledObsolete)
+            case .cancelled: Self.increment(&executionExplicitSettledCancelled)
+            }
         }
     }
 
@@ -299,6 +338,12 @@ package struct ForgePerformanceAccumulator: Sendable {
             ),
             execution: .init(
                 started: executionStarted,
+                automaticWithoutDemandStarted: executionAutomaticWithoutDemandStarted,
+                explicitAdmitted: executionExplicitAdmitted,
+                explicitSettledCompleted: executionExplicitSettledCompleted,
+                explicitSettledFailed: executionExplicitSettledFailed,
+                explicitSettledObsolete: executionExplicitSettledObsolete,
+                explicitSettledCancelled: executionExplicitSettledCancelled,
                 completed: executionCompleted,
                 failed: executionFailed,
                 cancelled: executionCancelled,
@@ -381,6 +426,18 @@ extension AgentStudioPerformanceTraceRecorder: ForgePerformanceRecording {
                 snapshot.admission.backoffDeferred),
             "agentstudio.performance.forge.execution.started.count": Self.forgeTraceInteger(
                 snapshot.execution.started),
+            "agentstudio.performance.forge.execution.automatic_without_demand_started.count":
+                Self.forgeTraceInteger(snapshot.execution.automaticWithoutDemandStarted),
+            "agentstudio.performance.forge.explicit.admitted.count": Self.forgeTraceInteger(
+                snapshot.execution.explicitAdmitted),
+            "agentstudio.performance.forge.explicit.settled_completed.count": Self.forgeTraceInteger(
+                snapshot.execution.explicitSettledCompleted),
+            "agentstudio.performance.forge.explicit.settled_failed.count": Self.forgeTraceInteger(
+                snapshot.execution.explicitSettledFailed),
+            "agentstudio.performance.forge.explicit.settled_obsolete.count": Self.forgeTraceInteger(
+                snapshot.execution.explicitSettledObsolete),
+            "agentstudio.performance.forge.explicit.settled_cancelled.count": Self.forgeTraceInteger(
+                snapshot.execution.explicitSettledCancelled),
             "agentstudio.performance.forge.execution.completed.count": Self.forgeTraceInteger(
                 snapshot.execution.completed),
             "agentstudio.performance.forge.execution.failed.count": Self.forgeTraceInteger(snapshot.execution.failed),

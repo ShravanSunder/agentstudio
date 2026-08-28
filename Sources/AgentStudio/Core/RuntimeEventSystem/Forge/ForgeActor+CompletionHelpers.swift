@@ -50,6 +50,7 @@ extension ForgeActor {
             return attemptId
         }
         let candidateAttemptIds = request.explicitAttemptIds.union(matchingCurrentAttemptIds)
+        var settledCount = 0
         for attemptId in candidateAttemptIds {
             guard let attempt = explicitUpdateAttemptsById[attemptId] else { continue }
             if requiresMatchingScope,
@@ -61,24 +62,34 @@ extension ForgeActor {
             }
             explicitUpdateAttemptsById.removeValue(forKey: attemptId)
             attempt.settlement.resolve(outcome)
+            settledCount += 1
         }
+        performanceAccumulator.recordExplicitSettlement(outcome, count: settledCount)
+        flushPerformanceSnapshot()
     }
 
     func settleAllExplicitUpdateAttempts(_ outcome: RepositoryFactSourceUpdateOutcome) {
         let attempts = explicitUpdateAttemptsById.values
+        let settledCount = attempts.count
         explicitUpdateAttemptsById.removeAll(keepingCapacity: false)
         for attempt in attempts {
             attempt.settlement.resolve(outcome)
         }
+        performanceAccumulator.recordExplicitSettlement(outcome, count: settledCount)
+        flushPerformanceSnapshot()
     }
 
     func settleExplicitUpdateAttemptsAfterLogicalInvalidation(repoId: UUID) {
         guard !providerRepoIdByRequestId.values.contains(repoId) else { return }
+        var settledCount = 0
         for attemptId in explicitUpdateAttemptsById.keys {
             guard let attempt = explicitUpdateAttemptsById[attemptId], attempt.repoId == repoId else { continue }
             explicitUpdateAttemptsById.removeValue(forKey: attemptId)
             attempt.settlement.resolve(.obsolete)
+            settledCount += 1
         }
+        performanceAccumulator.recordExplicitSettlement(.obsolete, count: settledCount)
+        flushPerformanceSnapshot()
     }
 
     func captureFollowUpDecision(

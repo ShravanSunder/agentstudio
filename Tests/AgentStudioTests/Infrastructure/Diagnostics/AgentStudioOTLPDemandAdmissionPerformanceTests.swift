@@ -70,6 +70,12 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             "agentstudio.performance.forge.admission.freshness_deferred.count",
             "agentstudio.performance.forge.admission.backoff_deferred.count",
             "agentstudio.performance.forge.execution.started.count",
+            "agentstudio.performance.forge.execution.automatic_without_demand_started.count",
+            "agentstudio.performance.forge.explicit.admitted.count",
+            "agentstudio.performance.forge.explicit.settled_completed.count",
+            "agentstudio.performance.forge.explicit.settled_failed.count",
+            "agentstudio.performance.forge.explicit.settled_obsolete.count",
+            "agentstudio.performance.forge.explicit.settled_cancelled.count",
             "agentstudio.performance.forge.execution.completed.count",
             "agentstudio.performance.forge.execution.failed.count",
             "agentstudio.performance.forge.execution.cancelled.count",
@@ -126,6 +132,69 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
     }
 
     @Test
+    func coldActivityAndExplicitSourceMetricsStayBoundedAndTyped() throws {
+        let attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.repository_fact_demand.activity.boundary_reclassified.count": .int(1),
+            "agentstudio.performance.repository_fact_demand.activity.warm_repository.current": .int(2),
+            "agentstudio.performance.repository_fact_demand.activity.inactive_repository.current": .int(119),
+            "agentstudio.performance.repository_fact_demand.inactive.remote_suppressed.current": .int(118),
+        ]
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 321,
+                severityText: .info,
+                body: "performance.repository_fact_demand",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: attributes
+            )
+        )
+        let event = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+        #expect(event.measurements.count == attributes.count)
+        #expect(
+            event.measurements.contains { measurement in
+                guard case .counter(let sample) = measurement else { return false }
+                return sample.label
+                    == "agentstudio_performance_repository_fact_demand_activity_boundary_reclassified_count"
+            })
+        #expect(
+            event.measurements.filter { measurement in
+                guard case .gauge = measurement else { return false }
+                return true
+            }.count == 3)
+    }
+
+    @Test
+    func compositeUpdateProjectsOnlyBoundedPartialSettlementTaxonomy() throws {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 322,
+            severityText: .info,
+            body: "performance.repository_fact_update",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repository_update.stage": .string("settled"),
+                "agentstudio.performance.repository_update.outcome": .string("partial_failure"),
+                "agentstudio.performance.repository_update.applicable_source.count": .int(2),
+                "agentstudio.performance.repository_update.terminal_source.count": .int(3),
+                "agentstudio.performance.repository_update.private_repo_name": .string("secret"),
+            ]
+        )
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let event = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+
+        #expect(event.dimensionTuples.contains { $0 == ("stage", "settled") })
+        #expect(event.dimensionTuples.contains { $0 == ("outcome", "partial_failure") })
+        #expect(projection.attributes["agentstudio.performance.repository_update.private_repo_name"] == nil)
+    }
+
+    @Test
     func repositoryDemandRemoteReferenceAndGitAggregatesProjectAsBoundedMetrics() throws {
         let events: [(String, [String: AgentStudioTraceValue], Int)] = [
             (
@@ -143,8 +212,10 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
                     "agentstudio.performance.remote_reference.admission.admitted.count": .int(2),
                     "agentstudio.performance.remote_reference.publication.promoted.count": .int(2),
                     "agentstudio.performance.remote_reference.validation.obsolete.count": .int(1),
+                    "agentstudio.performance.remote_reference.explicit.admitted.count": .int(1),
+                    "agentstudio.performance.remote_reference.explicit.settled_completed.count": .int(1),
                 ],
-                3
+                5
             ),
             (
                 "performance.git.aggregate",
@@ -198,6 +269,11 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             "agentstudio.performance.git.aggregate.continuity.fallback.coalesced.count": .int(15),
             "agentstudio.performance.git.aggregate.continuity.physical.fact_read_avoided.count": .int(16),
             "agentstudio.performance.git.aggregate.continuity.physical.detail_read_avoided.count": .int(17),
+            "agentstudio.performance.git.aggregate.explicit.admitted.count": .int(18),
+            "agentstudio.performance.git.aggregate.explicit.settled_completed.count": .int(19),
+            "agentstudio.performance.git.aggregate.explicit.settled_failed.count": .int(20),
+            "agentstudio.performance.git.aggregate.explicit.settled_obsolete.count": .int(21),
+            "agentstudio.performance.git.aggregate.explicit.settled_cancelled.count": .int(22),
         ]
         let gaugeAttributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.git.aggregate.continuity.authority.current": .int(18),

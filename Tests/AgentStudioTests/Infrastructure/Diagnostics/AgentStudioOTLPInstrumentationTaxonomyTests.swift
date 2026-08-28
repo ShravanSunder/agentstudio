@@ -25,7 +25,7 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
                         "performance,atoms,app.startup,terminal.startup"
                     ),
                     "agentstudio.startup_diagnostic.sidebar_proof.idle_populations": .string(
-                        "zero_pty_idle,quiescent_pty_idle"
+                        "zero_pty_idle"
                     ),
                     "agentstudio.startup_diagnostic.sidebar_proof.action_populations": .string(
                         "search_clear,grouping,hide_show,tab_switch"
@@ -47,7 +47,7 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
         #expect(
             projection.attributes[
                 "agentstudio.startup_diagnostic.sidebar_proof.idle_populations"
-            ] == .string("zero_pty_idle,quiescent_pty_idle")
+            ] == .string("zero_pty_idle")
         )
         #expect(
             projection.attributes[

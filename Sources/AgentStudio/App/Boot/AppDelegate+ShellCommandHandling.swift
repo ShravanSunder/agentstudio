@@ -284,6 +284,10 @@ extension AppDelegate: ShellCommandHandling {
         repoCache.setRepositoryFactUpdateProgress(
             .captured(repoId: repoId, attemptId: attemptId)
         )
+        recordRepositoryFactUpdateProgress(
+            .captured(repoId: repoId, attemptId: attemptId),
+            stage: "captured"
+        )
         repositoryFactUpdateTasksByRepoId[repoId] = Task { @MainActor [weak self, repositoryFactUpdateSource] in
             let admission = await repositoryFactUpdateSource.startRepositoryFactUpdate(
                 repoId: repoId,
@@ -304,18 +308,63 @@ extension AppDelegate: ShellCommandHandling {
             if !admission.acceptedSources.isEmpty {
                 self?.repoCache.setRepositoryFactUpdateProgress(admittedProgress)
             }
+            self?.recordRepositoryFactUpdateProgress(admittedProgress, stage: "admitted")
             let outcomesBySource = await admission.settlement()
             guard let self else { return }
             if self.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) {
                 self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
-                self.repoCache.setRepositoryFactUpdateProgress(
-                    admittedProgress.settled(outcomesBySource)
-                )
+                let settledProgress = admittedProgress.settled(outcomesBySource)
+                self.repoCache.setRepositoryFactUpdateProgress(settledProgress)
+                self.recordRepositoryFactUpdateProgress(settledProgress, stage: "settled")
                 return
             }
             self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
         }
         return true
+    }
+
+    private func recordRepositoryFactUpdateProgress(
+        _ progress: RepositoryFactUpdateProgress,
+        stage: String
+    ) {
+        let outcome: String
+        switch progress.phase {
+        case .captured: outcome = "captured"
+        case .inProgress: outcome = "loading"
+        case .settled: outcome = Self.repositoryFactUpdateSettlementOutcome(progress)
+        }
+        performanceTraceRecorder?.record(
+            .repositoryFactUpdate,
+            attributes: [
+                "agentstudio.performance.repository_update.stage": .string(stage),
+                "agentstudio.performance.repository_update.outcome": .string(outcome),
+                "agentstudio.performance.repository_update.applicable_source.count": .int(
+                    progress.applicableSources.count),
+                "agentstudio.performance.repository_update.unsettled_source.count": .int(
+                    progress.unsettledSources.count),
+                "agentstudio.performance.repository_update.terminal_source.count": .int(
+                    progress.settledResultsBySource.count),
+            ]
+        )
+    }
+
+    static func repositoryFactUpdateSettlementOutcome(
+        _ progress: RepositoryFactUpdateProgress
+    ) -> String {
+        guard !progress.applicableSources.isEmpty else { return "no_applicable" }
+        let applicableResults = progress.applicableSources.compactMap {
+            progress.settledResultsBySource[$0]
+        }
+        guard applicableResults.count == progress.applicableSources.count else {
+            return "incomplete"
+        }
+        let completedCount = applicableResults.count { $0 == .completed }
+        if completedCount == applicableResults.count { return "complete" }
+        if completedCount > 0 { return "partial_failure" }
+        if applicableResults.contains(.failed) { return "failed" }
+        if applicableResults.allSatisfy({ $0 == .cancelled }) { return "cancelled" }
+        if applicableResults.allSatisfy({ $0 == .obsolete }) { return "obsolete" }
+        return "mixed_terminal"
     }
 
     private func isCurrentRepositoryFactUpdate(repoId: UUID, attemptId: UUID) -> Bool {

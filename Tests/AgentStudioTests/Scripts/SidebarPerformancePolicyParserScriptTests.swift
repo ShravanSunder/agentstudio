@@ -8,7 +8,7 @@ struct SidebarPerformancePolicyParserScriptTests {
         let prefix = "agentstudio.startup_diagnostic.sidebar_proof."
         let record: [String: Any] = [
             prefix + "policy_id": "strict-sidebar-cpu",
-            prefix + "policy_version": 4,
+            prefix + "policy_version": 5,
             prefix + "idle_p99_max_percent": 10.0,
             prefix + "action_p95_max_percent": 20.0,
             prefix + "sample_interval_ms": "1000.0",
@@ -20,11 +20,12 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "fixture_tab_count": 5,
             prefix + "fixture_pane_model_count": 20,
             prefix + "zero_pty_expected_session_count": 0,
-            prefix + "mounted_pty_expected_session_count": 1,
             prefix + "zmx_inventory_interval_ms": 5000.0,
             prefix + "quiescence_interval_ms": 5000.0,
             prefix + "readback_timeout_ms": 5000.0,
             prefix + "sampler_gap_max_ms": 1250.0,
+            prefix + "action_sample_boundary_offset_ms": 50.0,
+            prefix + "action_sample_start_offset_ms": 20.0,
             prefix + "diagnostic_cpu_delta_max_points": 5.0,
             prefix + "diagnostic_interaction_growth_max_percent": 10.0,
             prefix + "git_status_physical_limit": 4,
@@ -33,7 +34,7 @@ struct SidebarPerformancePolicyParserScriptTests {
             prefix + "git_maximum_settlement_ms": "960000.0",
             prefix + "standard_trace_tags": "performance,app.startup,terminal.startup",
             prefix + "diagnostic_trace_tags": "performance,atoms,app.startup,terminal.startup",
-            prefix + "idle_populations": "zero_pty_idle,quiescent_pty_idle",
+            prefix + "idle_populations": "zero_pty_idle",
             prefix + "action_populations": "search_clear,grouping,hide_show,tab_switch",
         ]
         let recordData = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])

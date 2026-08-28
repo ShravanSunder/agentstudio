@@ -21,10 +21,23 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count",
         "agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count",
         "agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count",
-        "agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count",
         "agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count",
         "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.unclassified_repository_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count",
+        "agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count",
         "agentstudio.startup_diagnostic.sidebar_proof.tab_count",
         "agentstudio.startup_diagnostic.sidebar_proof.pane_model_count",
         "agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant",
@@ -33,6 +46,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_sample_boundary_offset_ms",
+        "agentstudio.startup_diagnostic.sidebar_proof.action_sample_start_offset_ms",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent",
         "agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit",
@@ -43,6 +58,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.acknowledged_revision",
         "agentstudio.performance.sidebar.readback.visible_generation",
         "agentstudio.performance.sidebar.readback.represented_row_count",
+        "agentstudio.performance.sidebar.readback.materialization_fingerprint",
         "agentstudio.performance.sidebar.proof.action.sequence",
         "agentstudio.performance.sidebar.proof.monotonic_ns",
         "agentstudio.performance.sidebar.proof.terminal_input_baseline",
@@ -56,6 +72,15 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.proof.terminal_input.count",
         "agentstudio.performance.sidebar.proof.terminal_output.count",
         "agentstudio.performance.sidebar.proof.ordered_command.count",
+        "agentstudio.performance.sidebar.proof.readback.semantic_generation",
+        "agentstudio.performance.sidebar.proof.readback.acknowledged_revision",
+        "agentstudio.performance.sidebar.proof.readback.visible_generation",
+        "agentstudio.performance.sidebar.proof.readback.materialization_fingerprint",
+        "agentstudio.performance.sidebar.proof.readback.native_materialization_generation",
+        "agentstudio.performance.sidebar.proof.readback.native_materialization_fingerprint",
+        "agentstudio.performance.sidebar.proof.readback.inactive_repository_header.count",
+        "agentstudio.performance.sidebar.proof.readback.suppressed_repository_fact_row.count",
+        "agentstudio.performance.sidebar.proof.readback.updating_repository_header.count",
         "agentstudio.performance.terminal.output_advancement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_measurement.count",
         "agentstudio.performance.repo_explorer.native_table_pilot.baseline_p95_ms",
@@ -100,6 +125,12 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.forge.admission.freshness_deferred.count",
         "agentstudio.performance.forge.admission.backoff_deferred.count",
         "agentstudio.performance.forge.execution.started.count",
+        "agentstudio.performance.forge.execution.automatic_without_demand_started.count",
+        "agentstudio.performance.forge.explicit.admitted.count",
+        "agentstudio.performance.forge.explicit.settled_completed.count",
+        "agentstudio.performance.forge.explicit.settled_failed.count",
+        "agentstudio.performance.forge.explicit.settled_obsolete.count",
+        "agentstudio.performance.forge.explicit.settled_cancelled.count",
         "agentstudio.performance.forge.execution.completed.count",
         "agentstudio.performance.forge.execution.failed.count",
         "agentstudio.performance.forge.execution.cancelled.count",
@@ -139,11 +170,30 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.repository_fact_demand.delivered.count",
         "agentstudio.performance.repository_fact_demand.cleared.count",
         "agentstudio.performance.repository_fact_demand.rejected_after_shutdown.count",
+        "agentstudio.performance.repository_fact_demand.activity.boundary_reclassified.count",
+        "agentstudio.performance.repository_fact_demand.activity.recency_reactivated.count",
+        "agentstudio.performance.repository_fact_demand.activity.pane_reactivated.count",
+        "agentstudio.performance.repository_fact_demand.activity.hydration_unclassified.current",
+        "agentstudio.performance.repository_fact_demand.activity.warm_repository.current",
+        "agentstudio.performance.repository_fact_demand.activity.inactive_repository.current",
+        "agentstudio.performance.repository_fact_demand.activity.warm_worktree.current",
+        "agentstudio.performance.repository_fact_demand.activity.inactive_worktree.current",
+        "agentstudio.performance.repository_fact_demand.inactive.remote_suppressed.current",
+        "agentstudio.performance.repository_fact_demand.inactive.forge_suppressed.current",
+        "agentstudio.performance.repository_update.applicable_source.count",
+        "agentstudio.performance.repository_update.unsettled_source.count",
+        "agentstudio.performance.repository_update.terminal_source.count",
         "agentstudio.performance.remote_reference.demand.changed.count",
         "agentstudio.performance.remote_reference.demand.cleared.count",
         "agentstudio.performance.remote_reference.admission.admitted.count",
         "agentstudio.performance.remote_reference.admission.capacity_deferred.count",
         "agentstudio.performance.remote_reference.execution.staging_started.count",
+        "agentstudio.performance.remote_reference.execution.automatic_without_demand_started.count",
+        "agentstudio.performance.remote_reference.explicit.admitted.count",
+        "agentstudio.performance.remote_reference.explicit.settled_completed.count",
+        "agentstudio.performance.remote_reference.explicit.settled_failed.count",
+        "agentstudio.performance.remote_reference.explicit.settled_obsolete.count",
+        "agentstudio.performance.remote_reference.explicit.settled_cancelled.count",
         "agentstudio.performance.remote_reference.execution.staging_completed.count",
         "agentstudio.performance.remote_reference.execution.promotion_started.count",
         "agentstudio.performance.remote_reference.execution.promotion_completed.count",
@@ -176,6 +226,12 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.git.aggregate.suppressed_input.count",
         "agentstudio.performance.git.aggregate.pending.maximum",
         "agentstudio.performance.git.aggregate.running.maximum",
+        "agentstudio.performance.git.aggregate.inactive.automatic_source_started.count",
+        "agentstudio.performance.git.aggregate.explicit.admitted.count",
+        "agentstudio.performance.git.aggregate.explicit.settled_completed.count",
+        "agentstudio.performance.git.aggregate.explicit.settled_failed.count",
+        "agentstudio.performance.git.aggregate.explicit.settled_obsolete.count",
+        "agentstudio.performance.git.aggregate.explicit.settled_cancelled.count",
         "agentstudio.performance.git.aggregate.continuity.baseline.prepared.count",
         "agentstudio.performance.git.aggregate.continuity.baseline.accepted.count",
         "agentstudio.performance.git.aggregate.continuity.baseline.rejected.count",
@@ -195,6 +251,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.git.aggregate.continuity.physical.detail_read_avoided.count",
         "agentstudio.performance.git.aggregate.continuity.authority.current",
         "agentstudio.performance.git.aggregate.continuity.authority.oldest_checkpoint_age_ms",
+        "agentstudio.performance.git.inactive_automatic_deadline.count",
+        "agentstudio.performance.git.inactive_automatic_source_start.count",
         "agentstudio.performance.filesystem.ingress.local_raw_callback.batch.count",
         "agentstudio.performance.filesystem.ingress.local_raw_callback.event.count",
         "agentstudio.performance.filesystem.ingress.shared_raw_callback.batch.count",
@@ -237,6 +295,7 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.readback.accessibility_disposition",
         "agentstudio.performance.sidebar.proof.population",
         "agentstudio.performance.sidebar.proof.workload.kind",
+        "agentstudio.performance.sidebar.proof.readback.grouping_mode",
         "agentstudio.performance.sidebar.proof.initial_readback.repo_accessibility",
         "agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags",
         "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags",
@@ -263,6 +322,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.filesystem.outcome",
         "agentstudio.performance.forge.stage",
         "agentstudio.performance.forge.outcome",
+        "agentstudio.performance.repository_update.stage",
+        "agentstudio.performance.repository_update.outcome",
     ]
 
     static let booleanAttributeKeys: Set<String> = [
@@ -273,6 +334,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.sidebar.proof.initial_readback.native_collapsed",
         "agentstudio.performance.sidebar.proof.initial_readback.native_geometry_visible",
         "agentstudio.performance.sidebar.proof.initial_readback.native_accessibility_ready",
+        "agentstudio.performance.sidebar.proof.readback.native_projection_required",
+        "agentstudio.performance.sidebar.proof.readback.native_projection_matches",
         "agentstudio.performance.sidebar.proof.initial_readback.app_hidden",
         "agentstudio.performance.sidebar.proof.initial_readback.app_active",
         "agentstudio.performance.sidebar.proof.initial_readback.window_visible",
@@ -362,6 +425,13 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
             ["follow_up", "facts_publication"].contains(value)
         case "agentstudio.performance.forge.outcome":
             ["admitted", "deferred", "equal"].contains(value)
+        case "agentstudio.performance.repository_update.stage":
+            ["captured", "admitted", "settled"].contains(value)
+        case "agentstudio.performance.repository_update.outcome":
+            [
+                "captured", "loading", "no_applicable", "complete", "partial_failure",
+                "failed", "cancelled", "obsolete", "mixed_terminal", "incomplete",
+            ].contains(value)
         default:
             nil
         }
@@ -376,15 +446,17 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         case "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags":
             value == "performance,atoms,app.startup,terminal.startup"
         case "agentstudio.startup_diagnostic.sidebar_proof.idle_populations":
-            value == "zero_pty_idle,quiescent_pty_idle"
+            value == "zero_pty_idle"
         case "agentstudio.startup_diagnostic.sidebar_proof.action_populations":
             value == "search_clear,grouping,hide_show,tab_switch"
         case "agentstudio.performance.sidebar.proof.population":
-            ["zero_pty_idle", "quiescent_pty_idle", "search_clear", "grouping", "hide_show", "tab_switch"]
+            ["zero_pty_idle", "search_clear", "grouping", "hide_show", "tab_switch"]
                 .contains(value)
         case "agentstudio.performance.sidebar.proof.workload.kind":
             ["terminal_input", "terminal_output", "ordered_command"].contains(value)
         case "agentstudio.performance.sidebar.readback.grouping_mode":
+            ["repo", "pane", "tab"].contains(value)
+        case "agentstudio.performance.sidebar.proof.readback.grouping_mode":
             ["repo", "pane", "tab"].contains(value)
         case "agentstudio.performance.sidebar.readback.query_state":
             ["empty", "non_empty"].contains(value)

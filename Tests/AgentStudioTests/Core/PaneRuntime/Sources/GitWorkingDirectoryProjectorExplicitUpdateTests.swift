@@ -7,6 +7,31 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector explicit updates")
 struct GitWorkingDirectoryProjectorExplicitUpdateTests {
+    @Test("one explicit transition flushes owner telemetry without aggregate traffic")
+    func explicitTransitionFlushesOwnerTelemetryImmediately() async throws {
+        let recorder = ExplicitUpdateGitPerformanceRecorder()
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/explicit-local-telemetry-\(worktreeID)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in Self.cleanStatus },
+            coalescingWindow: .zero,
+            performanceTraceRecorder: recorder,
+            pathExistenceProbe: { _ in true }
+        )
+        await register(actor: actor, repositoryID: repositoryID, worktreeID: worktreeID, rootPath: rootPath)
+
+        let lease = try #require(
+            await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+                .acceptedLease
+        )
+        #expect(recorder.snapshots.contains { $0.explicitAdmitted == 1 })
+        #expect(await lease.settlement() == .completed)
+        #expect(recorder.snapshots.contains { $0.explicitSettledCompleted == 1 })
+        await actor.shutdown()
+    }
+
     @Test("explicit repository update joins sufficient active local work without a follower")
     func explicitRepositoryUpdateJoinsSufficientActiveWork() async throws {
         let statusGate = ExplicitUpdateStatusGate()
@@ -240,6 +265,31 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
                 ]
             )
         )
+    }
+}
+
+private final class ExplicitUpdateGitPerformanceRecorder: GitProjectorPerformanceRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedSnapshots: [GitWorkingDirectoryPerformanceSnapshot] = []
+
+    var isEnabled: Bool { true }
+    var snapshots: [GitWorkingDirectoryPerformanceSnapshot] { lock.withLock { recordedSnapshots } }
+
+    func record(
+        _: AgentStudioPerformanceTraceRecorder.Event,
+        attributes _: @autoclosure () -> [String: AgentStudioTraceValue]
+    ) {}
+
+    func recordDuration(
+        _: AgentStudioPerformanceTraceRecorder.Event,
+        duration _: Duration,
+        attributes _: @autoclosure () -> [String: AgentStudioTraceValue]
+    ) {}
+
+    func recordGitWorkingDirectoryPerformanceSnapshot(
+        _ snapshot: GitWorkingDirectoryPerformanceSnapshot
+    ) {
+        lock.withLock { recordedSnapshots.append(snapshot) }
     }
 }
 

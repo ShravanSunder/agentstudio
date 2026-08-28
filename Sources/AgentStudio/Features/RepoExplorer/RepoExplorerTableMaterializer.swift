@@ -631,6 +631,13 @@ final class RepoExplorerTableMaterializer: NSObject,
             clearViewportDemand()
             return
         }
+        if let visibleGeneration {
+            RepoExplorerNativeVisibleProjectionReadback.stampExpectedVisibleProjection(
+                in: tableView,
+                snapshot: snapshot,
+                materializationGeneration: visibleGeneration
+            )
+        }
         let worktreeIDs = Set(
             representedRowIndexes().compactMap { rowIndex in
                 snapshot.rows[safe: rowIndex]?.representedWorktreeID
@@ -742,6 +749,11 @@ final class RepoExplorerTableMaterializer: NSObject,
                 commandPresentationSnapshot: acceptedCommandPresentationSnapshot
             )
         }
+        RepoExplorerNativeVisibleProjectionReadback.stampExpectedVisibleProjection(
+            in: tableView,
+            snapshot: snapshot,
+            materializationGeneration: visibleGeneration
+        )
     }
 
     private func clearRepresentedCellsForReuse() {

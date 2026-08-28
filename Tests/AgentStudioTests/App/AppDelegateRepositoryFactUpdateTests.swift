@@ -9,6 +9,18 @@ import Testing
 @MainActor
 @Suite("AppDelegate repository fact update", .serialized)
 struct AppDelegateRepositoryFactUpdateTests {
+    @Test("composite telemetry never reports incomplete source coverage as complete")
+    func compositeTelemetryRejectsIncompleteSourceCoverage() {
+        let progress = RepositoryFactUpdateProgress.admitted(
+            repoId: UUIDv7.generate(),
+            attemptId: UUIDv7.generate(),
+            applicableSources: [.localGit],
+            terminalResultsBySource: [:]
+        ).settled([:])
+
+        #expect(AppDelegate.repositoryFactUpdateSettlementOutcome(progress) == "incomplete")
+    }
+
     @Test("real dispatcher drives targeted capability and App-owned update join")
     func dispatcherDrivesTargetedRepositoryFactUpdate() async throws {
         let admissionGate = AppDelegateRepositoryFactUpdateGate()

@@ -141,6 +141,24 @@ extension GitWorkingDirectoryProjector {
         flushAggregatePerformanceSnapshotIfNeeded()
     }
 
+    func recordInactiveAutomaticSourceStartTelemetry() {
+        if inactiveAutomaticSourceStartCount < .max {
+            inactiveAutomaticSourceStartCount += 1
+        }
+        aggregatePerformance.recordInactiveAutomaticSourceStart()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExplicitUpdateAdmissionTelemetry() {
+        aggregatePerformance.recordExplicitAdmission()
+        flushAggregatePerformanceSnapshot()
+    }
+
+    func recordExplicitUpdateSettlementTelemetry(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        aggregatePerformance.recordExplicitSettlement(outcome)
+        flushAggregatePerformanceSnapshot()
+    }
+
     func flushAggregatePerformanceSnapshotIfNeeded() {
         guard aggregatePerformance.eventCount >= AppPolicies.GitRefresh.telemetryFlushEventCount else { return }
         flushAggregatePerformanceSnapshot()

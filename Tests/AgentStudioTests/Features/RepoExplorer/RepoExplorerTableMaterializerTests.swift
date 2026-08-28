@@ -8,6 +8,54 @@ import Testing
 @MainActor
 @Suite("Repo Explorer table materializer", .serialized)
 struct RepoExplorerTableMaterializerTests {
+    @Test("native proof fingerprint detects same-count stale bindings and restamps after scroll")
+    func nativeVisibleProjectionFingerprintTracksBoundRows() async throws {
+        let snapshot = nativePlanSnapshot(["A", "B", "C", "D", "E", "F", "G", "H"])
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer, height: 40)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1
+            )
+        ) { _ in }
+        let tableView = try #require((materializer.view as? NSScrollView)?.documentView as? NSTableView)
+        materializeVisibleCells(in: tableView, visibleRect: tableView.visibleRect)
+        await materializer.drainViewportPublication()
+        let matching = try #require(RepoExplorerNativeVisibleProjectionReadback.capture(in: tableView))
+        #expect(
+            matching.matches(
+                materializationGeneration: 1,
+                materializationFingerprint: RepoExplorerMaterializationFingerprint.make(snapshot: snapshot).rawValue
+            )
+        )
+
+        let firstVisibleRow = tableView.rows(in: tableView.visibleRect).location
+        let firstCell = try #require(
+            tableView.view(atColumn: 0, row: firstVisibleRow, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        _ = firstCell.bind(row: snapshot.rows[firstVisibleRow + 1], visibleGeneration: 1)
+        let staleBinding = try #require(RepoExplorerNativeVisibleProjectionReadback.capture(in: tableView))
+        #expect(staleBinding.visibleRowCount == matching.visibleRowCount)
+        #expect(staleBinding.actualVisibleFingerprint != staleBinding.expectedVisibleFingerprint)
+
+        materializer.scroll(to: RepoExplorerRowID.group(groupID: "H"), offset: 0)
+        materializeVisibleCells(in: tableView, visibleRect: tableView.visibleRect)
+        await materializer.drainViewportPublication()
+        let scrolled = try #require(RepoExplorerNativeVisibleProjectionReadback.capture(in: tableView))
+        #expect(scrolled.expectedVisibleFingerprint != matching.expectedVisibleFingerprint)
+        #expect(scrolled.actualVisibleFingerprint == scrolled.expectedVisibleFingerprint)
+    }
+
     @Test("represented By Repo settlement publishes exact receipt without moving its anchor")
     func representedByRepoSettlementPublishesExactReceiptWithoutMovingAnchor() async throws {
         let repoID = UUIDv7.generate()
@@ -417,7 +465,9 @@ struct RepoExplorerTableMaterializerTests {
         #expect(baselineHostCount <= 8)
         #expect(materializer.hostedCellCreationCount <= baselineHostCount + 2)
     }
+}
 
+extension RepoExplorerTableMaterializerTests {
     @Test("command deltas reject stale lifetime and rebind represented occurrences only")
     func commandDeltaRejectsStaleLifetimeAndRebindsRepresentedOnly() async throws {
         let hostLifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())

@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AppKit
+import Observation
 
 #if DEBUG
     struct SidebarPerformanceProofWindowAttendance: Equatable, Sendable {
@@ -42,12 +43,66 @@ import AppKit
         case cancelled
     }
 
+    @MainActor
+    private final class StrictRepositoryUpdateProgressObserver {
+        let stream: AsyncStream<RepositoryFactUpdateProgress?>
+
+        private weak var repoCache: RepoCacheAtom?
+        private let repositoryID: UUID
+        private let continuation: AsyncStream<RepositoryFactUpdateProgress?>.Continuation
+        private var isObserving = true
+
+        init(repoCache: RepoCacheAtom?, repositoryID: UUID) {
+            self.repoCache = repoCache
+            self.repositoryID = repositoryID
+            (stream, continuation) = AsyncStream.makeStream(
+                of: RepositoryFactUpdateProgress?.self,
+                bufferingPolicy: .bufferingOldest(16)
+            )
+            observe()
+        }
+
+        deinit {
+            continuation.finish()
+        }
+
+        private func observe() {
+            guard isObserving else { return }
+            let progress = withObservationTracking {
+                repoCache?.repositoryFactUpdateProgress(for: repositoryID)
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.observe()
+                }
+            }
+            continuation.yield(progress)
+            if progress?.phase == .settled {
+                isObserving = false
+                continuation.finish()
+            }
+        }
+    }
+
     private struct StrictSidebarPerformanceFixtureEvidence {
         let repositoryCount: Int
         let worktreeCount: Int
         let topologyFingerprint: String
         let expectedSessionCount: Int
         let controlRootPresent: Bool
+        let warmRepositoryCount: Int
+        let inactiveRepositoryCount: Int
+        let warmWorktreeCount: Int
+        let inactiveWorktreeCount: Int
+        let unclassifiedRepositoryCount: Int
+        let coldAutomaticDeadlineCount: Int
+        let coldLocalAutomaticSourceStartCount: UInt64
+        let coldFSEventLocalCompletionCount: Int
+        let explicitSourceAdmittedCount: Int
+        let explicitSourceTerminalCount: Int
+        let explicitProgressSettledCount: Int
+        let explicitLocalAdmittedCount: Int
+        let explicitRemoteAdmittedCount: Int
+        let explicitForgeAdmittedCount: Int
     }
 
     extension AppDelegate {
@@ -88,8 +143,6 @@ import AppKit
                     policy.strictPaneModelCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count": .int(
                     policy.zeroPTYExpectedSessionCount),
-                "agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count": .int(
-                    policy.mountedPTYExpectedSessionCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(
                         from: policy.zmxInventoryInterval)),
@@ -103,6 +156,12 @@ import AppKit
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: policy.actionReadbackTimeout)),
                 "agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: policy.maximumSamplerGap)),
+                "agentstudio.startup_diagnostic.sidebar_proof.action_sample_boundary_offset_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.maximumActionSampleBoundaryOffset)),
+                "agentstudio.startup_diagnostic.sidebar_proof.action_sample_start_offset_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: policy.actionSampleStartOffset)),
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points": .double(
                     policy.maximumDiagnosticCPUP95DeltaPercentagePoints),
                 "agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent": .double(
@@ -174,24 +233,9 @@ import AppKit
                 "app.startup_diagnostic.sidebar_proof.fixture_ready",
                 phase: "startup_diagnostic_action",
                 outcome: "ready",
-                attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                    "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
-                    "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
-                    "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(
-                        fixtureEvidence.controlRootPresent),
-                    "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count": .int(
-                        fixtureEvidence.repositoryCount),
-                    "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count": .int(
-                        fixtureEvidence.worktreeCount),
-                    "agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint": .string(
-                        fixtureEvidence.topologyFingerprint),
-                    "agentstudio.startup_diagnostic.sidebar_proof.tab_count": .int(
-                        AppPolicies.SidebarPerformanceProof.strictTabCount),
-                    "agentstudio.startup_diagnostic.sidebar_proof.pane_model_count": .int(
-                        AppPolicies.SidebarPerformanceProof.strictPaneModelCount),
-                    "agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant": .int(
-                        fixtureEvidence.expectedSessionCount),
-                ]) { _, newValue in newValue }
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    strictSidebarFixtureReadyAttributes(fixtureEvidence)
+                ) { _, newValue in newValue }
             )
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
@@ -220,6 +264,57 @@ import AppKit
                 action: action,
                 outcome: succeeded ? "succeeded" : "failed"
             )
+        }
+
+        private func strictSidebarFixtureReadyAttributes(
+            _ fixtureEvidence: StrictSidebarPerformanceFixtureEvidence
+        ) -> [String: AgentStudioTraceValue] {
+            [
+                "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(
+                    fixtureEvidence.controlRootPresent),
+                "agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count": .int(
+                    fixtureEvidence.repositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count": .int(
+                    fixtureEvidence.worktreeCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint": .string(
+                    fixtureEvidence.topologyFingerprint),
+                "agentstudio.startup_diagnostic.sidebar_proof.tab_count": .int(
+                    AppPolicies.SidebarPerformanceProof.strictTabCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.pane_model_count": .int(
+                    AppPolicies.SidebarPerformanceProof.strictPaneModelCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant": .int(
+                    fixtureEvidence.expectedSessionCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count": .int(
+                    fixtureEvidence.warmRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count": .int(
+                    fixtureEvidence.inactiveRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count": .int(
+                    fixtureEvidence.warmWorktreeCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count": .int(
+                    fixtureEvidence.inactiveWorktreeCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.unclassified_repository_count": .int(
+                    fixtureEvidence.unclassifiedRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count": .int(
+                    fixtureEvidence.coldAutomaticDeadlineCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count": .int(
+                    Int(clamping: fixtureEvidence.coldLocalAutomaticSourceStartCount)),
+                "agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count": .int(
+                    fixtureEvidence.coldFSEventLocalCompletionCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count": .int(
+                    fixtureEvidence.explicitSourceAdmittedCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count": .int(
+                    fixtureEvidence.explicitSourceTerminalCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count": .int(
+                    fixtureEvidence.explicitProgressSettledCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count": .int(
+                    fixtureEvidence.explicitLocalAdmittedCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count": .int(
+                    fixtureEvidence.explicitRemoteAdmittedCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count": .int(
+                    fixtureEvidence.explicitForgeAdmittedCount),
+            ]
         }
 
         private func readStrictSidebarWindowAttendance(
@@ -298,23 +393,6 @@ import AppKit
                 return nil
             }
 
-            let terminalPane: Pane?
-            if population == .zeroPTYIdle {
-                terminalPane = nil
-            } else {
-                terminalPane = workspaceSurfaceCoordinator.openFloatingTerminal(
-                    launchDirectory: rootURLs[1],
-                    title: "Sidebar Performance Terminal"
-                )
-                guard terminalPane?.metadata.contentType == .terminal else {
-                    recordBlockedSidebarPerformanceProofDiagnostic(
-                        action: action,
-                        reason: "terminal_fixture_failed"
-                    )
-                    return nil
-                }
-            }
-
             guard
                 SidebarPerformanceProofFixture.populateStrictPaneFleet(
                     store: store,
@@ -330,25 +408,29 @@ import AppKit
             atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
             mainWindowController?.expandSidebar()
 
-            if let terminalPane {
-                workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
-                    terminalPane.id,
-                    forceWhenBoundsExist: true
+            guard let coldProof = await proveStrictColdRepositoryControl(controlRootURL) else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "cold_repository_control_failed"
                 )
-                await Task.yield()
-                mainWindowController?.syncVisibleTerminalGeometry(
-                    reason: "sidebarPerformanceProof"
+                return nil
+            }
+            await workspaceSurfaceCoordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
+            let activity = await strictSidebarRepositoryActivityClassification()
+            let unclassifiedRepositoryCount = activity.dispositionByRepositoryID.values.count {
+                $0 == .unclassified
+            }
+            guard !activity.warmRepositoryIDs.isEmpty,
+                !activity.locallyInactiveRepositoryIDs.isEmpty,
+                unclassifiedRepositoryCount == 0,
+                let gitDebt = await workspaceSurfaceCoordinator?
+                    .gitLogicalDebtSnapshotForPerformanceProof()
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "warm_cold_activity_fixture_incomplete"
                 )
-                let terminalRenderProof = await waitForIPCTerminalSmokeRenderProof(
-                    for: terminalPane.id
-                )
-                guard terminalRenderProof.succeeded else {
-                    recordBlockedSidebarPerformanceProofDiagnostic(
-                        action: action,
-                        reason: "terminal_render_failed"
-                    )
-                    return nil
-                }
+                return nil
             }
 
             let repositoryCount = rootURLs.reduce(into: 0) { count, rootURL in
@@ -361,11 +443,212 @@ import AppKit
                 repositoryCount: repositoryCount,
                 worktreeCount: repositoryCount + linkedWorktreeCount,
                 topologyFingerprint: topologyFingerprint,
-                expectedSessionCount: population == .zeroPTYIdle
-                    ? AppPolicies.SidebarPerformanceProof.zeroPTYExpectedSessionCount
-                    : AppPolicies.SidebarPerformanceProof.mountedPTYExpectedSessionCount,
-                controlRootPresent: true
+                expectedSessionCount: AppPolicies.SidebarPerformanceProof.zeroPTYExpectedSessionCount,
+                controlRootPresent: true,
+                warmRepositoryCount: activity.warmRepositoryIDs.count,
+                inactiveRepositoryCount: activity.locallyInactiveRepositoryIDs.count,
+                warmWorktreeCount: activity.warmWorktreeIDs.count,
+                inactiveWorktreeCount: activity.locallyInactiveWorktreeIDs.count,
+                unclassifiedRepositoryCount: unclassifiedRepositoryCount,
+                coldAutomaticDeadlineCount: gitDebt.inactiveAutomaticDeadlineCount,
+                coldLocalAutomaticSourceStartCount: gitDebt.inactiveAutomaticSourceStartCount,
+                coldFSEventLocalCompletionCount: coldProof.localCompletionCount,
+                explicitSourceAdmittedCount: coldProof.admittedSourceCount,
+                explicitSourceTerminalCount: coldProof.terminalSourceCount,
+                explicitProgressSettledCount: coldProof.progressSettledCount,
+                explicitLocalAdmittedCount: coldProof.localAdmittedCount,
+                explicitRemoteAdmittedCount: coldProof.remoteAdmittedCount,
+                explicitForgeAdmittedCount: coldProof.forgeAdmittedCount
             )
+        }
+
+        private struct StrictColdRepositoryProof {
+            let localCompletionCount: Int
+            let admittedSourceCount: Int
+            let terminalSourceCount: Int
+            let progressSettledCount: Int
+            let localAdmittedCount: Int
+            let remoteAdmittedCount: Int
+            let forgeAdmittedCount: Int
+        }
+
+        private func proveStrictColdRepositoryControl(
+            _ controlRootURL: URL
+        ) async -> StrictColdRepositoryProof? {
+            let topology = store.repositoryTopologyAtom
+            guard
+                let repository = topology.repositoryIdsInOrder.lazy.compactMap({ topology.repo($0) })
+                    .first(where: { $0.repoPath.standardizedFileURL == controlRootURL.standardizedFileURL }),
+                let worktree = repository.worktrees.first(where: \.isMainWorktree)
+            else { return nil }
+            let beforeActivity = await strictSidebarRepositoryActivityClassification()
+            guard beforeActivity.locallyInactiveRepositoryIDs.contains(repository.id) else { return nil }
+            let coldMutationURL = controlRootURL.appendingPathComponent(
+                "sidebar-cold-proof-change.txt")
+            guard await Self.writeStrictColdMutation(at: coldMutationURL) else { return nil }
+            guard
+                await waitForStrictColdLocalCompletion(
+                    worktreeID: worktree.id
+                )
+            else { return nil }
+            guard await Self.removeStrictColdMutation(at: coldMutationURL) else { return nil }
+            let progressObserver = StrictRepositoryUpdateProgressObserver(
+                repoCache: repoCache,
+                repositoryID: repository.id
+            )
+            guard
+                let coldDebt = await workspaceSurfaceCoordinator?
+                    .gitLogicalDebtSnapshotForPerformanceProof(),
+                coldDebt.inactiveAutomaticDeadlineCount == 0,
+                coldDebt.inactiveAutomaticSourceStartCount == 0,
+                AppCommandDispatcher.shared.dispatch(
+                    .updateRepositoryFacts,
+                    target: repository.id,
+                    targetType: .repo,
+                    executionContext: .interactive
+                )
+            else { return nil }
+            guard repoCache?.repositoryFactUpdateProgress(for: repository.id)?.phase == .captured,
+                let settledProgress = await waitForStrictRepositoryUpdateSettlement(
+                    progressStream: progressObserver.stream
+                )
+            else { return nil }
+            let afterActivity = await strictSidebarRepositoryActivityClassification()
+            guard afterActivity.warmRepositoryIDs.contains(repository.id),
+                settledProgress.phase == .settled,
+                settledProgress.unsettledSources.isEmpty,
+                settledProgress.settledResultsBySource.count == RepositoryFactSource.allCases.count
+            else { return nil }
+            return StrictColdRepositoryProof(
+                localCompletionCount: 1,
+                admittedSourceCount: settledProgress.applicableSources.count,
+                terminalSourceCount: settledProgress.settledResultsBySource.count,
+                progressSettledCount: 1,
+                localAdmittedCount: settledProgress.applicableSources.contains(.localGit) ? 1 : 0,
+                remoteAdmittedCount: settledProgress.applicableSources.contains(.remoteReferences) ? 1 : 0,
+                forgeAdmittedCount: settledProgress.applicableSources.contains(.forge) ? 1 : 0
+            )
+        }
+
+        private func waitForStrictColdLocalCompletion(
+            worktreeID: UUID
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now + AppPolicies.SidebarPerformanceProof.fixturePreparationTimeout
+            while clock.now < deadline {
+                if Self.strictColdLocalCompletionObserved(
+                    repoCache?.worktreeEnrichment(for: worktreeID)
+                ) {
+                    return true
+                }
+                do {
+                    try await AsyncDelay.taskSleep.wait(
+                        AppPolicies.SidebarPerformanceProof.fixtureStateObservationInterval)
+                } catch { return false }
+            }
+            return false
+        }
+
+        @concurrent nonisolated private static func writeStrictColdMutation(
+            at mutationURL: URL
+        ) async -> Bool {
+            do {
+                try Data("cold repository local correctness".utf8).write(
+                    to: mutationURL,
+                    options: .atomic
+                )
+                return true
+            } catch { return false }
+        }
+
+        @concurrent nonisolated private static func removeStrictColdMutation(
+            at mutationURL: URL
+        ) async -> Bool {
+            do {
+                try FileManager.default.removeItem(at: mutationURL)
+                return true
+            } catch { return false }
+        }
+
+        static func strictColdLocalCompletionObserved(
+            _ enrichment: WorktreeEnrichment?
+        ) -> Bool {
+            GitBranchStatus.status(
+                enrichment: enrichment,
+                pullRequestFacts: nil
+            ).untrackedFileCount > 0
+        }
+
+        private func waitForStrictRepositoryUpdateSettlement(
+            progressStream: AsyncStream<RepositoryFactUpdateProgress?>
+        ) async -> RepositoryFactUpdateProgress? {
+            await withTaskGroup(of: RepositoryFactUpdateProgress?.self) { group in
+                group.addTask {
+                    var observedLoading = false
+                    for await progress in progressStream {
+                        guard let progress else { continue }
+                        switch progress.phase {
+                        case .captured:
+                            continue
+                        case .inProgress:
+                            observedLoading = progress.isLoading
+                        case .settled:
+                            return observedLoading ? progress : nil
+                        }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    do {
+                        try await AsyncDelay.taskSleep.wait(
+                            AppPolicies.SidebarPerformanceProof.fixturePreparationTimeout)
+                    } catch {}
+                    return nil
+                }
+                let result = await group.next()
+                group.cancelAll()
+                guard let result else { return nil }
+                return result
+            }
+        }
+
+        private func strictSidebarRepositoryActivityClassification() async
+            -> RepositoryActivityClassification
+        {
+            let topology = store.repositoryTopologyAtom
+            let paneGraph = store.paneAtom.graphAtom
+            let openWorktreeIDs = Set(
+                paneGraph.repositoryAssociationPaneIds.compactMap {
+                    paneGraph.repositoryAssociation(for: $0)?.worktreeId
+                }
+            )
+            let input = RepositoryActivityClassificationInput(
+                hydrationDisposition: atomStore.core.applicationEntityRecency.hydrationDisposition,
+                repositories: topology.repositoryIdsInOrder.compactMap { repositoryID in
+                    topology.repo(repositoryID).map { repository in
+                        RepositoryActivityTopology(
+                            repositoryID: repositoryID,
+                            repositoryStableKey: repository.stableKey,
+                            worktreeStableKeysByID: Dictionary(
+                                uniqueKeysWithValues: repository.worktrees.map {
+                                    ($0.id, $0.stableKey)
+                                }
+                            )
+                        )
+                    }
+                },
+                openWorktreeIDs: openWorktreeIDs,
+                recency: atomStore.core.applicationEntityRecency.recentEntities,
+                referenceDate: Date(),
+                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+            return await Self.classifyStrictSidebarRepositoryActivity(input)
+        }
+
+        @concurrent nonisolated private static func classifyStrictSidebarRepositoryActivity(
+            _ input: RepositoryActivityClassificationInput
+        ) async -> RepositoryActivityClassification {
+            RepositoryActivityClassifier.classify(input)
         }
 
         private func strictSidebarWatchedFixtureInputs(

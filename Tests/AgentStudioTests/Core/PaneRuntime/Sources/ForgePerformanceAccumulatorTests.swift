@@ -20,6 +20,12 @@ struct ForgePerformanceAccumulatorTests {
         accumulator.recordAdmission(.capacityLimited)
         accumulator.recordExecution(.started)
         accumulator.recordExecution(.completed)
+        accumulator.recordExplicitAdmission()
+        accumulator.recordExplicitSettlement(.completed)
+        accumulator.recordExplicitSettlement(.failed)
+        accumulator.recordExplicitSettlement(.obsolete)
+        accumulator.recordExplicitSettlement(.cancelled)
+        accumulator.recordExplicitSettlement(.failed, count: 0)
         accumulator.recordValidation(.current)
         accumulator.recordPublication(.published)
         accumulator.recordDeadline(.scheduled)
@@ -59,6 +65,11 @@ struct ForgePerformanceAccumulatorTests {
         #expect(snapshot.admission.capacityLimited == 1)
         #expect(snapshot.execution.started == 1)
         #expect(snapshot.execution.completed == 1)
+        #expect(snapshot.execution.explicitAdmitted == 1)
+        #expect(snapshot.execution.explicitSettledCompleted == 1)
+        #expect(snapshot.execution.explicitSettledFailed == 1)
+        #expect(snapshot.execution.explicitSettledObsolete == 1)
+        #expect(snapshot.execution.explicitSettledCancelled == 1)
         #expect(snapshot.validation.current == 1)
         #expect(snapshot.publication.published == 1)
         #expect(snapshot.deadline.scheduled == 1)
@@ -139,7 +150,7 @@ struct ForgePerformanceAccumulatorTests {
     }
 }
 
-private final class ForgePerformanceSnapshotRecorderSpy: ForgePerformanceRecording, @unchecked Sendable {
+final class ForgePerformanceSnapshotRecorderSpy: ForgePerformanceRecording, @unchecked Sendable {
     private let lock = NSLock()
     private var recordedSnapshots: [ForgePerformanceSnapshot] = []
 

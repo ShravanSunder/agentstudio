@@ -43,7 +43,7 @@ package enum AppPolicies {
 
     package enum SidebarPerformanceProof {
         package static let policyID = "strict-sidebar-cpu"
-        package static let policyVersion: Int = 4
+        package static let policyVersion: Int = 5
         package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
         package static let nativeTablePilotPolicyVersion: Int = 1
         package static let repositoryCount: Int = 150
@@ -59,7 +59,6 @@ package enum AppPolicies {
         package static let strictTabCount: Int = 5
         package static let strictPaneModelCount: Int = 20
         package static let zeroPTYExpectedSessionCount: Int = 0
-        package static let mountedPTYExpectedSessionCount: Int = 1
         package static let zmxInventoryInterval: Duration = .seconds(5)
         package static let fixturePreparationTimeout: Duration = .seconds(300)
         package static let fixtureStateObservationInterval: Duration = .milliseconds(10)
@@ -84,6 +83,8 @@ package enum AppPolicies {
         package static let quiescenceInterval: Duration = .seconds(5)
         package static let actionReadbackTimeout: Duration = .seconds(5)
         package static let maximumSamplerGap: Duration = .milliseconds(1250)
+        package static let maximumActionSampleBoundaryOffset: Duration = .milliseconds(50)
+        package static let actionSampleStartOffset: Duration = .milliseconds(20)
         package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
         package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
         package static let gitStatusPhysicalLimit = GitRefresh.defaultDetachedStatusReadLimit
@@ -95,7 +96,7 @@ package enum AppPolicies {
         package static let diagnosticTraceTags = [
             "performance", "atoms", "app.startup", "terminal.startup",
         ]
-        package static let idlePopulationNames = ["zero_pty_idle", "quiescent_pty_idle"]
+        package static let idlePopulationNames = ["zero_pty_idle"]
         package static let actionPopulationNames = ["search_clear", "grouping", "hide_show", "tab_switch"]
     }
 

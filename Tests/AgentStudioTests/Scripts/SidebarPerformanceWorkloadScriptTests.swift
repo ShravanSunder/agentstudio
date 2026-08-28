@@ -13,7 +13,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("strict_sidebar_policy_query"))
         #expect(source.contains("load_strict_sidebar_policy"))
         #expect(source.contains("zero_pty_idle"))
-        #expect(source.contains("quiescent_pty_idle"))
+        #expect(!source.contains("quiescent_pty_idle"))
         #expect(source.contains("search_clear"))
         #expect(source.contains("grouping"))
         #expect(source.contains("hide_show"))
@@ -49,9 +49,20 @@ struct SidebarPerformanceWorkloadScriptTests {
         ] { #expect(source.contains(owner)) }
         #expect(source.contains("STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS"))
         #expect(source.contains("validate_strict_sampler_gaps"))
-        #expect(source.contains("record_strict_cpu_sample"))
+        #expect(source.contains("sample_strict_process_cpu"))
         #expect(source.contains("cpu.raw.samples"))
         #expect(source.contains("classify_strict_action_samples"))
+        #expect(source.contains("STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS"))
+        #expect(source.contains("action_sample_start_offset_ms"))
+        #expect(source.contains("action sample boundary offset"))
+        #expect(
+            source.contains(
+                "grouping_mode\"] == \"repo\" and settled_readback[\"inactive_headers\"] <= 0"
+            )
+        )
+        #expect(!source.contains("inactive_headers\"] <= 0 or settled_readback[\"suppressed_rows\"]"))
+        #expect(source.contains("isinstance(raw, int)"))
+        #expect(!source.contains("int(float(record.get(\"agentstudio.performance.sidebar.proof"))
         #expect(source.contains("query_strict_action_records"))
         #expect(source.contains("/usr/bin/pgrep -P \"$APP_PID\""))
         #expect(!source.contains("/bin/ps -axo"))
@@ -105,13 +116,31 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("refusing to reset a non-idle debug root"))
     }
 
+    @Test("strict action classification rejects arbitrary overlap outside the shared sampler phase")
+    func strictActionClassificationRejectsBoundaryOffset() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_ACTION_SAMPLES": "1000000000 2000000000 1.0",
+                "AGENTSTUDIO_SIDEBAR_TEST_ACTION_RECORDS":
+                    "1100000000:performance.sidebar.proof_action.started,1500000000:performance.sidebar.proof_action.settled",
+                "STRICT_POLICY_ACTION_SAMPLE_FLOOR": "1",
+                "STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS": "50",
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("action sample boundary offset"))
+    }
+
     @Test("strict CPU samples use exact process time deltas at the projected interval")
     func strictCPUSamplesUseExactProcessTimeDeltas() throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
         let samplerStart = try #require(source.range(of: "sample_strict_process_cpu() {"))
         let samplerEnd = try #require(
             source.range(
-                of: "record_strict_cpu_sample() {",
+                of: "validate_strict_sampler_gaps() {",
                 range: samplerStart.upperBound..<source.endIndex
             )
         )
@@ -241,7 +270,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         let readyGitDebt = try await runQuiescenceContract(
             sequence: """
                 [
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":1,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":1,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"export_backlog":0,"proof_failure_count":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":1,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"export_backlog":0,"proof_failure_count":0,"observation_time":0,"export_sample_time":0},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":1,"export_sample_time":1},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":2,"export_sample_time":2},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":3,"export_sample_time":3},
@@ -774,7 +803,7 @@ struct SidebarPerformanceWorkloadScriptTests {
     private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
     private var settledGitVectorFields: String {
         """
-        "git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
+        "cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
         """
     }
 

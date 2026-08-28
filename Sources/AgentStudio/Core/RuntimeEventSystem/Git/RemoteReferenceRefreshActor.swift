@@ -389,6 +389,9 @@ package actor RemoteReferenceRefreshActor {
             }
             activeOperationsByRepoId[repoId] = .staging(attempt, task)
             performanceAccumulator.increment(\.admissionAdmitted)
+            if !demandedRepositoryIds.contains(repoId), !explicitRepositoryIds.contains(repoId) {
+                performanceAccumulator.increment(\.automaticWithoutDemandStarted)
+            }
             performanceAccumulator.increment(\.stagingStarted)
             Task { [weak self] in
                 let outcome = await task.value
@@ -656,7 +659,9 @@ package actor RemoteReferenceRefreshActor {
             )
         )
     }
+}
 
+extension RemoteReferenceRefreshActor {
     package func flushPerformanceSnapshot() {
         let settlementSnapshot = currentSettlementSnapshot()
         let changedSettlementSnapshot =
@@ -834,6 +839,7 @@ package actor RemoteReferenceRefreshActor {
         matching physicalAttempt: RemoteReferenceAttempt,
         outcome: RepositoryFactSourceUpdateOutcome
     ) {
+        var settledCount = 0
         for attemptId in explicitUpdateAttemptsById.keys {
             guard let attempt = explicitUpdateAttemptsById[attemptId],
                 attempt.repoId == physicalAttempt.repoId,
@@ -842,7 +848,10 @@ package actor RemoteReferenceRefreshActor {
             else { continue }
             explicitUpdateAttemptsById.removeValue(forKey: attemptId)
             attempt.settlement.resolve(outcome)
+            settledCount += 1
         }
+        performanceAccumulator.recordExplicitSettlement(outcome, count: settledCount)
+        flushPerformanceSnapshot()
         contractExplicitInterest(repoId: physicalAttempt.repoId)
     }
 
@@ -850,21 +859,28 @@ package actor RemoteReferenceRefreshActor {
         repoId: UUID,
         outcome: RepositoryFactSourceUpdateOutcome
     ) {
+        var settledCount = 0
         for attemptId in explicitUpdateAttemptsById.keys {
             guard let attempt = explicitUpdateAttemptsById[attemptId], attempt.repoId == repoId else { continue }
             explicitUpdateAttemptsById.removeValue(forKey: attemptId)
             attempt.settlement.resolve(outcome)
+            settledCount += 1
         }
+        performanceAccumulator.recordExplicitSettlement(outcome, count: settledCount)
+        flushPerformanceSnapshot()
         contractExplicitInterest(repoId: repoId)
     }
 
     private func settleAllExplicitUpdateAttempts(_ outcome: RepositoryFactSourceUpdateOutcome) {
         let attempts = explicitUpdateAttemptsById.values
+        let settledCount = attempts.count
         explicitUpdateAttemptsById.removeAll(keepingCapacity: false)
         explicitRepositoryIds.removeAll(keepingCapacity: false)
         for attempt in attempts {
             attempt.settlement.resolve(outcome)
         }
+        performanceAccumulator.recordExplicitSettlement(outcome, count: settledCount)
+        flushPerformanceSnapshot()
     }
 
     private func contractExplicitInterest(repoId: UUID) {
@@ -912,6 +928,7 @@ extension RemoteReferenceRefreshActor {
             expectedOrigin: expectedOrigin,
             settlement: settlement
         )
+        performanceAccumulator.increment(\.explicitAdmitted)
         explicitRepositoryIds.insert(repoId)
         if activeOperationsByRepoId[repoId] == nil {
             pendingRepositoryIds.insert(repoId)

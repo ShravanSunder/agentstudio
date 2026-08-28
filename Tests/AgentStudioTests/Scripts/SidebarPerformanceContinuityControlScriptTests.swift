@@ -21,7 +21,7 @@ struct SidebarPerformanceContinuityControlScriptTests {
         let mutation = try #require(
             idleSource.range(of: "inject_strict_git_continuity_uncertainty")
         )
-        let firstSample = try #require(idleSource.range(of: "record_strict_cpu_sample"))
+        let firstSample = try #require(idleSource.range(of: "start_strict_action_sampler"))
 
         #expect(authorityBaseline.lowerBound < mutation.lowerBound)
         #expect(mutation.lowerBound < firstSample.lowerBound)

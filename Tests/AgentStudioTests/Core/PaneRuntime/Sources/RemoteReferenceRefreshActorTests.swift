@@ -8,6 +8,25 @@ import Testing
 
 @Suite("RemoteReferenceRefreshActor")
 struct RemoteReferenceRefreshActorTests {
+    @Test("explicit performance outcomes count each terminal attempt and suppress zero")
+    func explicitPerformanceOutcomesAreBounded() {
+        var accumulator = RemoteReferencePerformanceAccumulator()
+        accumulator.increment(\.explicitAdmitted)
+        accumulator.increment(\.explicitAdmitted)
+        accumulator.recordExplicitSettlement(.completed, count: 2)
+        accumulator.recordExplicitSettlement(.failed, count: 1)
+        accumulator.recordExplicitSettlement(.obsolete, count: 1)
+        accumulator.recordExplicitSettlement(.cancelled, count: 1)
+        accumulator.recordExplicitSettlement(.failed, count: 0)
+
+        let snapshot = accumulator.takeSnapshot()
+        #expect(snapshot.explicitAdmitted == 2)
+        #expect(snapshot.explicitSettledCompleted == 2)
+        #expect(snapshot.explicitSettledFailed == 1)
+        #expect(snapshot.explicitSettledObsolete == 1)
+        #expect(snapshot.explicitSettledCancelled == 1)
+    }
+
     @Test("explicit repository update reports a genuine promotion failure")
     func explicitRepositoryUpdateReportsPromotionFailure() async throws {
         let fixture = RemoteReferenceRefreshFixture(promotionFailuresRemaining: 1)
@@ -84,7 +103,11 @@ struct RemoteReferenceRefreshActorTests {
     @Test("cold explicit repository update remains admitted through remote child settlement")
     func coldExplicitRepositoryUpdateWaitsForPhysicalSettlement() async throws {
         let fixture = RemoteReferenceRefreshFixture(suspendStaging: true)
-        let actor = RemoteReferenceRefreshActor(provider: fixture.provider)
+        let performanceRecorder = RemoteReferencePerformanceRecorderSpy()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            performanceRecorder: performanceRecorder
+        )
         await actor.register(
             repoId: fixture.repoId,
             worktreeId: fixture.worktreeId,
@@ -99,10 +122,19 @@ struct RemoteReferenceRefreshActorTests {
         )
         let lease = try #require(admission.acceptedLease)
         await fixture.provider.waitUntilStageSuspended()
+        let admissionPerformance = performanceRecorder.combinedSnapshot
+        #expect(admissionPerformance.explicitAdmitted == 1)
+        #expect(admissionPerformance.explicitSettledCompleted == 0)
+        #expect(admissionPerformance.automaticWithoutDemandStarted == 0)
 
         await fixture.provider.releaseStage()
         #expect(await lease.settlement() == .completed)
+        await actor.waitUntilIdle()
         #expect(await fixture.provider.promoteCount == 1)
+        let settlementPerformance = performanceRecorder.combinedSnapshot
+        #expect(settlementPerformance.explicitAdmitted == 1)
+        #expect(settlementPerformance.explicitSettledCompleted == 1)
+        #expect(settlementPerformance.automaticWithoutDemandStarted == 0)
 
         await actor.shutdown()
     }
@@ -628,6 +660,12 @@ private final class RemoteReferencePerformanceRecorderSpy:
                 result.admissionAdmitted += snapshot.admissionAdmitted
                 result.admissionCapacityDeferred += snapshot.admissionCapacityDeferred
                 result.stagingStarted += snapshot.stagingStarted
+                result.automaticWithoutDemandStarted += snapshot.automaticWithoutDemandStarted
+                result.explicitAdmitted += snapshot.explicitAdmitted
+                result.explicitSettledCompleted += snapshot.explicitSettledCompleted
+                result.explicitSettledFailed += snapshot.explicitSettledFailed
+                result.explicitSettledObsolete += snapshot.explicitSettledObsolete
+                result.explicitSettledCancelled += snapshot.explicitSettledCancelled
                 result.stagingCompleted += snapshot.stagingCompleted
                 result.promotionStarted += snapshot.promotionStarted
                 result.promotionCompleted += snapshot.promotionCompleted

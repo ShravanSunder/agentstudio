@@ -20,7 +20,7 @@ REQUIRED_WORKTREE_COUNT=180
 REQUIRED_TAB_COUNT=12
 REQUIRED_PANE_COUNT=36
 REQUIRED_ACTIVE_PTY_COUNT=1
-STRICT_SIDEBAR_IDLE_POPULATIONS="zero_pty_idle quiescent_pty_idle"
+STRICT_SIDEBAR_IDLE_POPULATIONS="zero_pty_idle"
 STRICT_SIDEBAR_ACTION_POPULATIONS="search_clear grouping hide_show tab_switch"
 STRICT_SIDEBAR_READBACK_FIELDS="semantic_generation acknowledged_revision visible_generation focus_disposition accessibility_disposition"
 STRICT_SIDEBAR_FALSE_GREEN_OUTCOMES="population_invalidated sampler_gap"
@@ -307,6 +307,23 @@ print("debug_owned_helper_contract=passed")
 PY
 }
 
+validate_strict_descendant_poll_sequence() {
+  local records_json="${1:?missing descendant poll sequence}"
+  /usr/bin/python3 - "$records_json" <<'PY'
+import json
+import sys
+records = json.loads(sys.argv[1])
+if not isinstance(records, list) or not records:
+    raise SystemExit("invalid descendant poll sequence")
+for record in records:
+    if not isinstance(record, dict) or not isinstance(record.get("descendant_count"), int):
+        raise SystemExit("invalid descendant poll record")
+    if record["descendant_count"] != 0:
+        raise SystemExit("transient debug-owned descendant invalidated population")
+print("descendant_poll_contract=passed")
+PY
+}
+
 record_debug_owned_process_inventory() {
   local receipt_file="${1:?missing inventory receipt file}"
   local phase="${2:?missing inventory phase}"
@@ -510,7 +527,7 @@ query_victoria_metrics() {
 }
 
 strict_sidebar_policy_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.mounted_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.policy_projected agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.policy_id,agentstudio.startup_diagnostic.sidebar_proof.policy_version,agentstudio.startup_diagnostic.sidebar_proof.standard_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_trace_tags,agentstudio.startup_diagnostic.sidebar_proof.idle_populations,agentstudio.startup_diagnostic.sidebar_proof.action_populations,agentstudio.startup_diagnostic.sidebar_proof.idle_p99_max_percent,agentstudio.startup_diagnostic.sidebar_proof.action_p95_max_percent,agentstudio.startup_diagnostic.sidebar_proof.sample_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.idle_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.action_count_floor,agentstudio.startup_diagnostic.sidebar_proof.action_sample_floor,agentstudio.startup_diagnostic.sidebar_proof.fixture_preparation_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_state_observation_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.fixture_tab_count,agentstudio.startup_diagnostic.sidebar_proof.fixture_pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.zero_pty_expected_session_count,agentstudio.startup_diagnostic.sidebar_proof.zmx_inventory_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.search_character_count,agentstudio.startup_diagnostic.sidebar_proof.search_character_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.quiescence_interval_ms,agentstudio.startup_diagnostic.sidebar_proof.readback_timeout_ms,agentstudio.startup_diagnostic.sidebar_proof.sampler_gap_max_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_boundary_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.action_sample_start_offset_ms,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_cpu_delta_max_points,agentstudio.startup_diagnostic.sidebar_proof.diagnostic_interaction_growth_max_percent,agentstudio.startup_diagnostic.sidebar_proof.git_status_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.remote_reference_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.forge_physical_limit,agentstudio.startup_diagnostic.sidebar_proof.git_maximum_settlement_ms | limit 1'
 }
 
 load_strict_sidebar_policy() {
@@ -570,11 +587,12 @@ mapping = {
     "STRICT_POLICY_FIXTURE_TAB_COUNT": "fixture_tab_count",
     "STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT": "fixture_pane_model_count",
     "STRICT_POLICY_ZERO_PTY_SESSION_COUNT": "zero_pty_expected_session_count",
-    "STRICT_POLICY_MOUNTED_PTY_SESSION_COUNT": "mounted_pty_expected_session_count",
     "STRICT_POLICY_ZMX_INVENTORY_INTERVAL_MS": "zmx_inventory_interval_ms",
     "STRICT_POLICY_QUIESCENCE_MS": "quiescence_interval_ms",
     "STRICT_POLICY_READBACK_TIMEOUT_MS": "readback_timeout_ms",
     "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "sampler_gap_max_ms",
+    "STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS": "action_sample_boundary_offset_ms",
+    "STRICT_POLICY_ACTION_SAMPLE_START_OFFSET_MS": "action_sample_start_offset_ms",
     "STRICT_POLICY_DIAGNOSTIC_CPU_DELTA_MAX": "diagnostic_cpu_delta_max_points",
     "STRICT_POLICY_DIAGNOSTIC_INTERACTION_GROWTH_MAX": "diagnostic_interaction_growth_max_percent",
     "STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT": "git_status_physical_limit",
@@ -609,7 +627,7 @@ PY
 }
 
 strict_sidebar_fixture_ready_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count,agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.unclassified_repository_count,agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count,agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count,agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
 }
 
 load_strict_sidebar_fixture_ready() {
@@ -636,13 +654,13 @@ validate_and_bind_strict_sidebar_fixture() {
   local fixture_environment="${3:?missing fixture environment}"
   /usr/bin/python3 - "$fixture_file" "$population" "$STRICT_POLICY_FIXTURE_TAB_COUNT" \
     "$STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT" "$STRICT_POLICY_ZERO_PTY_SESSION_COUNT" \
-    "$STRICT_POLICY_MOUNTED_PTY_SESSION_COUNT" "$fixture_environment" <<'PY'
+    "$fixture_environment" <<'PY'
 import json
 import pathlib
 import shlex
 import sys
 
-path, population, raw_tabs, raw_panes, raw_zero, raw_mounted, output = sys.argv[1:]
+path, population, raw_tabs, raw_panes, raw_zero, output = sys.argv[1:]
 records = [json.loads(line) for line in pathlib.Path(path).read_text().splitlines() if line.strip()]
 if len(records) != 1:
     raise SystemExit(f"strict fixture requires exactly one record, got {len(records)}")
@@ -668,15 +686,45 @@ def exact_int(name):
     return value
 repository_count = exact_int("discovered_repository_count")
 worktree_count = exact_int("discovered_worktree_count")
+warm_repository_count = exact_int("warm_repository_count")
+inactive_repository_count = exact_int("inactive_repository_count")
+warm_worktree_count = exact_int("warm_worktree_count")
+inactive_worktree_count = exact_int("inactive_worktree_count")
+unclassified_repository_count = exact_int("unclassified_repository_count")
+cold_automatic_deadline_count = exact_int("cold_automatic_deadline_count")
+cold_local_automatic_source_start_count = exact_int("cold_local_automatic_source_start_count")
+cold_fsevent_local_completion_count = exact_int("cold_fsevent_local_completion_count")
+explicit_source_admitted_count = exact_int("explicit_source_admitted_count")
+explicit_source_terminal_count = exact_int("explicit_source_terminal_count")
+explicit_progress_settled_count = exact_int("explicit_progress_settled_count")
+explicit_local_admitted_count = exact_int("explicit_local_admitted_count")
+explicit_remote_admitted_count = exact_int("explicit_remote_admitted_count")
+explicit_forge_admitted_count = exact_int("explicit_forge_admitted_count")
 tab_count = exact_int("tab_count")
 pane_count = exact_int("pane_model_count")
 session_variant = exact_int("expected_session_variant")
 fingerprint = record.get(prefix + "topology_fingerprint")
 if repository_count <= 0 or worktree_count <= 0:
     raise SystemExit("strict fixture discovery counts must be positive")
+if warm_repository_count <= 0 or inactive_repository_count <= 0:
+    raise SystemExit("strict fixture requires positive warm and inactive repository counts")
+if warm_worktree_count <= 0 or inactive_worktree_count <= 0:
+    raise SystemExit("strict fixture requires positive warm and inactive worktree counts")
+if unclassified_repository_count != 0:
+    raise SystemExit("strict fixture retains unclassified repositories")
+if cold_automatic_deadline_count != 0 or cold_local_automatic_source_start_count != 0:
+    raise SystemExit("strict fixture contains cold automatic work")
+if cold_fsevent_local_completion_count != 1:
+    raise SystemExit("strict fixture did not prove one cold FSEvent local completion")
+if explicit_source_admitted_count <= 0 or explicit_source_terminal_count != 3:
+    raise SystemExit("strict fixture did not prove complete explicit source admission and settlement")
+if explicit_progress_settled_count != 1:
+    raise SystemExit("strict fixture did not prove one settled composite progress lifetime")
+if sum((explicit_local_admitted_count, explicit_remote_admitted_count, explicit_forge_admitted_count)) != explicit_source_admitted_count:
+    raise SystemExit("strict fixture explicit source admission accounting is inconsistent")
 if tab_count != int(float(raw_tabs)) or pane_count != int(float(raw_panes)):
     raise SystemExit(f"strict fixture expected 5/20-compatible policy counts, got {tab_count}/{pane_count}")
-expected_sessions = int(float(raw_zero if population == "zero_pty_idle" else raw_mounted))
+expected_sessions = int(float(raw_zero))
 if session_variant != expected_sessions:
     raise SystemExit("strict fixture session variant mismatch")
 if not isinstance(fingerprint, str) or len(fingerprint) != 64:
@@ -684,11 +732,16 @@ if not isinstance(fingerprint, str) or len(fingerprint) != 64:
 values = {
     "STRICT_FIXTURE_REPOSITORY_COUNT": repository_count,
     "STRICT_FIXTURE_WORKTREE_COUNT": worktree_count,
+    "STRICT_FIXTURE_WARM_REPOSITORY_COUNT": warm_repository_count,
+    "STRICT_FIXTURE_INACTIVE_REPOSITORY_COUNT": inactive_repository_count,
+    "STRICT_FIXTURE_WARM_WORKTREE_COUNT": warm_worktree_count,
+    "STRICT_FIXTURE_INACTIVE_WORKTREE_COUNT": inactive_worktree_count,
     "STRICT_FIXTURE_TAB_COUNT": tab_count,
     "STRICT_FIXTURE_PANE_COUNT": pane_count,
     "STRICT_FIXTURE_EXPECTED_SESSION_COUNT": expected_sessions,
     "STRICT_FIXTURE_TOPOLOGY_FINGERPRINT": fingerprint,
 }
+
 pathlib.Path(output).write_text(
     "".join(f"{key}={shlex.quote(str(value))}\n" for key, value in values.items())
 )
@@ -705,6 +758,39 @@ PY
     echo "strict fixture topology drifted across populations" >&2
     return 1
   fi
+}
+
+validate_strict_repository_update_telemetry() {
+  local output="${1:?missing repository update telemetry output}"
+  local query response
+  query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$TRACE_MARKER"'" _msg:performance.repository_fact_update | fields agentstudio.performance.repository_update.stage,agentstudio.performance.repository_update.outcome,agentstudio.performance.repository_update.applicable_source.count,agentstudio.performance.repository_update.unsettled_source.count,agentstudio.performance.repository_update.terminal_source.count | limit 20'
+  for _ in $(seq 1 30); do
+    response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
+    if printf '%s\n' "$response" | grep -q 'partial_failure\|complete'; then
+      printf '%s\n' "$response" >"$output"
+      break
+    fi
+    /bin/sleep 1
+  done
+  /usr/bin/python3 - "$output" <<'PY'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+if not path.exists():
+    raise SystemExit("repository update telemetry did not become queryable")
+records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+prefix = "agentstudio.performance.repository_update."
+by_stage = {record.get(prefix + "stage"): record for record in records}
+if set(by_stage) != {"captured", "admitted", "settled"}:
+    raise SystemExit("repository update telemetry stage sequence is incomplete")
+if by_stage["admitted"].get(prefix + "outcome") != "loading":
+    raise SystemExit("repository update telemetry lacks admitted loading lifetime")
+if by_stage["settled"].get(prefix + "outcome") not in {
+    "complete", "partial_failure", "failed", "cancelled", "obsolete", "mixed_terminal"
+}:
+    raise SystemExit("repository update telemetry lacks bounded terminal outcome")
+PY
 }
 
 load_and_bind_strict_sidebar_policy() {
@@ -854,12 +940,16 @@ stop_strict_zmx_monitor() {
 }
 
 sample_strict_process_cpu() {
+  local samples="${1:?missing CPU samples file}"
+  local stop_file="${2:?missing CPU sampler stop file}"
   local sample_interval_seconds
   sample_interval_seconds="$(/usr/bin/python3 -c 'import sys; print(float(sys.argv[1])/1000)' \
     "$STRICT_POLICY_SAMPLE_INTERVAL_MS")"
-  /usr/bin/python3 - "$APP_PID" "$sample_interval_seconds" <<'PY'
+  /usr/bin/python3 - "$APP_PID" "$sample_interval_seconds" "$stop_file" \
+    "$STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS" >>"$samples" <<'PY'
 import ctypes
 import math
+import subprocess
 import sys
 import time
 
@@ -889,6 +979,8 @@ class ProcTaskInfo(ctypes.Structure):
 
 pid = int(sys.argv[1])
 interval_seconds = float(sys.argv[2])
+stop_file = sys.argv[3]
+maximum_phase_offset_ns = float(sys.argv[4]) * 1_000_000
 if pid <= 0 or not math.isfinite(interval_seconds) or interval_seconds <= 0:
     raise SystemExit("invalid exact-process CPU sample input")
 
@@ -902,51 +994,93 @@ libproc.proc_pidinfo.argtypes = [
 ]
 libproc.proc_pidinfo.restype = ctypes.c_int
 
-def total_process_cpu_nanoseconds():
+def total_process_cpu_nanoseconds(process_id, required=False):
     info = ProcTaskInfo()
     size = ctypes.sizeof(info)
-    result = libproc.proc_pidinfo(pid, PROC_PIDTASKINFO, 0, ctypes.byref(info), size)
+    result = libproc.proc_pidinfo(process_id, PROC_PIDTASKINFO, 0, ctypes.byref(info), size)
     if result != size:
-        raise SystemExit("exact debug process task info is unavailable")
+        if required:
+            raise SystemExit("exact debug process task info is unavailable")
+        return None
     return int(info.pti_total_user + info.pti_total_system)
 
-started_ns = time.monotonic_ns()
-before_cpu_ns = total_process_cpu_nanoseconds()
-time.sleep(interval_seconds)
-after_cpu_ns = total_process_cpu_nanoseconds()
-ended_ns = time.monotonic_ns()
-wall_delta_ns = ended_ns - started_ns
-cpu_delta_ns = after_cpu_ns - before_cpu_ns
-if wall_delta_ns <= 0 or cpu_delta_ns < 0:
-    raise SystemExit("invalid exact-process CPU time delta")
-cpu_percent = cpu_delta_ns / wall_delta_ns * 100.0
-print(f"{started_ns} {ended_ns} {cpu_percent:.6f}")
-PY
-}
+def debug_owned_process_ids():
+    owned = {pid}
+    pending = [pid]
+    while pending:
+        parent = pending.pop()
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "-P", str(parent)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode not in (0, 1):
+            raise SystemExit("debug-owned PID lineage is unavailable")
+        for raw_child in result.stdout.split():
+            child = int(raw_child)
+            if child > 0 and child not in owned:
+                owned.add(child)
+                pending.append(child)
+    return owned
 
-record_strict_cpu_sample() {
-  local samples="${1:?missing samples file}"
-  local inventory_receipts="$samples.owned-processes.jsonl"
-  local sample
-  validate_current_candidate
-  record_debug_owned_process_inventory "$inventory_receipts" "before"
-  sample="$(sample_strict_process_cpu)"
-  [ -n "$sample" ] || return 1
-  record_debug_owned_process_inventory "$inventory_receipts" "after"
-  validate_current_candidate
-  printf '%s\n' "$sample" >>"$samples"
+interval_ns = int(interval_seconds * 1_000_000_000)
+now_ns = time.monotonic_ns()
+next_phase_ns = ((now_ns // interval_ns) + 1) * interval_ns
+time.sleep(max(0, next_phase_ns - now_ns) / 1_000_000_000)
+while not __import__("os").path.exists(stop_file):
+    now_ns = time.monotonic_ns()
+    time.sleep(max(0, next_phase_ns - now_ns) / 1_000_000_000)
+    started_ns = time.monotonic_ns()
+    if started_ns - next_phase_ns > maximum_phase_offset_ns:
+        raise SystemExit("continuous sampler missed absolute phase envelope")
+    before_cpu_by_pid = {
+        process_id: total_process_cpu_nanoseconds(process_id, required=process_id == pid)
+        for process_id in debug_owned_process_ids()
+    }
+    deadline_ns = next_phase_ns + interval_ns
+    while time.monotonic_ns() < deadline_ns:
+        descendants = debug_owned_process_ids() - {pid}
+        if descendants:
+            raise SystemExit("transient debug-owned descendant invalidated population")
+        remaining_seconds = max(0, deadline_ns - time.monotonic_ns()) / 1_000_000_000
+        time.sleep(min(0.05, remaining_seconds))
+    after_cpu_by_pid = {
+        process_id: total_process_cpu_nanoseconds(process_id, required=process_id == pid)
+        for process_id in debug_owned_process_ids()
+    }
+    ended_ns = time.monotonic_ns()
+    wall_delta_ns = ended_ns - started_ns
+    cpu_delta_ns = 0
+    for process_id, after_cpu_ns in after_cpu_by_pid.items():
+        if after_cpu_ns is None:
+            continue
+        before_cpu_ns = before_cpu_by_pid.get(process_id)
+        cpu_delta_ns += after_cpu_ns if before_cpu_ns is None else max(0, after_cpu_ns - before_cpu_ns)
+    if wall_delta_ns <= 0 or cpu_delta_ns < 0:
+        raise SystemExit("invalid exact-process CPU time delta")
+    cpu_percent = cpu_delta_ns / wall_delta_ns * 100.0
+    print(f"{started_ns} {ended_ns} {cpu_percent:.6f}", flush=True)
+    next_phase_ns += interval_ns
+PY
 }
 
 validate_strict_sampler_gaps() {
   local samples="${1:?missing samples file}"
-  /usr/bin/python3 - "$samples" "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" <<'PY'
+  /usr/bin/python3 - "$samples" "$STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS" \
+    "$STRICT_POLICY_SAMPLE_INTERVAL_MS" "$STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS" <<'PY'
 import pathlib, sys
 
 timestamps = [int(line.split()[0]) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 maximum_gap_ns = float(sys.argv[2]) * 1_000_000
+sample_interval_ns = float(sys.argv[3]) * 1_000_000
+maximum_phase_offset_ns = float(sys.argv[4]) * 1_000_000
 for prior, current in zip(timestamps, timestamps[1:]):
     if current <= prior or current - prior > maximum_gap_ns:
         raise SystemExit(f"sampler_gap={current - prior}")
+for timestamp in timestamps:
+    if timestamp % sample_interval_ns > maximum_phase_offset_ns:
+        raise SystemExit("continuous sampler drifted outside absolute phase envelope")
 PY
 }
 
@@ -957,11 +1091,7 @@ start_strict_action_sampler() {
   local stop_file="$population_artifact/stop-sampler"
   : >"$raw_samples"
   /bin/rm -f -- "$stop_file"
-  (
-    while [ ! -f "$stop_file" ]; do
-      record_strict_cpu_sample "$raw_samples"
-    done
-  ) &
+  sample_strict_process_cpu "$raw_samples" "$stop_file" &
   CPU_SAMPLER_PID=$!
 }
 
@@ -999,6 +1129,7 @@ import sys
 
 required = (
     "capture", "execution", "publication", "binding", "visible_update",
+    "cold_automatic_deadline_count", "cold_automatic_source_start_count",
     "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
     "git_ready_pending_count", "git_capacity_pending_count",
     "git_active_follow_up_count", "git_unclassified_pending_count",
@@ -1050,6 +1181,10 @@ if float(vector["git_overdue_deadline_count"]) != 0:
     raise SystemExit("quiescence Git deadline is overdue")
 if float(vector["proof_failure_count"]) != 0:
     raise SystemExit("quiescence native proof has failed")
+if float(vector["cold_automatic_deadline_count"]) != 0:
+    raise SystemExit("quiescence cold automatic deadline remains")
+if float(vector["cold_automatic_source_start_count"]) != 0:
+    raise SystemExit("quiescence cold automatic source start was observed")
 if float(vector["git_ready_pending_count"]) != 0:
     raise SystemExit("quiescence Git ready work remains pending")
 if float(vector["git_capacity_pending_count"]) != 0:
@@ -1335,6 +1470,7 @@ strict_sidebar_quiescence_vector_json() {
   local marker="${1:?missing marker}"
   local observation_time="${2:?missing observation time}"
   local marker_selector capture execution publication binding visible_update proof_failure_count
+  local cold_automatic_deadline_count cold_automatic_source_start_count
   local git_logical_debt
   local git_future_automatic_count git_future_failure_count git_ready_pending_count
   local git_capacity_pending_count git_active_follow_up_count git_unclassified_pending_count
@@ -1365,6 +1501,12 @@ strict_sidebar_quiescence_vector_json() {
     "$observation_time")"
   proof_failure_count="$(metric_value_at_observation \
     "sum(agentstudio_performance_events_total{agent.proof.marker=\"$marker_selector\",event=\"performance.sidebar.proof_action.failed\"}) or vector(0)" \
+    "$observation_time")"
+  cold_automatic_deadline_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_inactive_automatic_deadline_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  cold_automatic_source_start_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_inactive_automatic_source_start_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"}) + (sum(agentstudio_performance_remote_reference_execution_automatic_without_demand_started_count{agent.proof.marker=\"$marker_selector\",event=\"performance.remote_reference.refresh\"}) or vector(0)) + (sum(agentstudio_performance_forge_execution_automatic_without_demand_started_count{agent.proof.marker=\"$marker_selector\",event=\"performance.forge.refresh\"}) or vector(0))" \
     "$observation_time")"
   git_logical_debt="$(metric_value_at_observation \
     "max(agentstudio_performance_git_logical_debt_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
@@ -1449,6 +1591,7 @@ strict_sidebar_quiescence_vector_json() {
     "max(timestamp($export_metric_selector))" \
     "$observation_time")"
   /usr/bin/python3 - "$capture" "$execution" "$publication" "$binding" "$visible_update" \
+    "$cold_automatic_deadline_count" "$cold_automatic_source_start_count" \
     "$git_logical_debt" "$git_future_automatic_count" "$git_future_failure_count" \
     "$git_ready_pending_count" "$git_capacity_pending_count" "$git_active_follow_up_count" \
     "$git_unclassified_pending_count" "$git_overdue_deadline_count" "$git_running_count" \
@@ -1468,6 +1611,7 @@ import sys
 
 names = (
     "capture", "execution", "publication", "binding", "visible_update",
+    "cold_automatic_deadline_count", "cold_automatic_source_start_count",
     "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
     "git_ready_pending_count", "git_capacity_pending_count", "git_active_follow_up_count",
     "git_unclassified_pending_count", "git_overdue_deadline_count", "git_running_count",
@@ -1689,6 +1833,8 @@ begin_strict_population() {
   load_strict_sidebar_fixture_ready "$population_artifact/fixture-ready.jsonl"
   validate_and_bind_strict_sidebar_fixture \
     "$population_artifact/fixture-ready.jsonl" "$population" "$fixture_environment"
+  validate_strict_repository_update_telemetry \
+    "$population_artifact/repository-update-telemetry.jsonl"
   echo "$TRACE_MARKER" >"$population_artifact/marker.txt"
   echo "$APP_PID" >"$population_artifact/pid.txt"
   if printf '%s\n' "$STRICT_POLICY_ACTION_POPULATIONS" | grep -qw "$population" \
@@ -1703,6 +1849,7 @@ begin_strict_population() {
 
 sample_strict_idle_population() {
   local population="${1:?missing population}"
+  local raw_samples="$ARTIFACT/populations/$population/cpu.raw.samples"
   local samples="$ARTIFACT/populations/$population/cpu.samples"
   local marker_selector periodic_query periodic_completion_baseline periodic_completion_final
   local continuity_baseline="$ARTIFACT/populations/$population/continuity-baseline.env"
@@ -1721,10 +1868,16 @@ PY
     capture_strict_git_continuity_baseline "$continuity_baseline"
     inject_strict_git_continuity_uncertainty "$STRICT_CONTROL_ROOT"
   fi
-  : >"$samples"
-  while [ "$(wc -l <"$samples")" -lt "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" ]; do
-    record_strict_cpu_sample "$samples"
+  start_strict_action_sampler "$population"
+  while [ "$(wc -l <"$raw_samples")" -lt "$STRICT_POLICY_IDLE_SAMPLE_FLOOR" ]; do
+    kill -0 "$CPU_SAMPLER_PID" || return 1
+    /bin/sleep 0.1
   done
+  : >"$ARTIFACT/populations/$population/stop-sampler"
+  wait "$CPU_SAMPLER_PID"
+  CPU_SAMPLER_PID=""
+  validate_current_candidate
+  cp "$raw_samples" "$samples"
   validate_strict_sampler_gaps "$samples"
   wait_for_strict_git_physical_settlement "$TRACE_MARKER"
   wait_for_positive_quiescence "$TRACE_MARKER"
@@ -1756,7 +1909,7 @@ drive_strict_action_population() {
   : >"$population_artifact/stop-sampler"
   wait "$CPU_SAMPLER_PID"
   CPU_SAMPLER_PID=""
-  query_strict_action_records "$marker" "$records"
+  query_strict_action_records "$marker" "$records" "$population"
   classify_strict_action_samples "$raw_samples" "$records" "$samples"
   validate_strict_sampler_gaps "$raw_samples"
   finish_strict_population "$population"
@@ -1847,21 +2000,34 @@ PY
 query_strict_action_records() {
   local marker="${1:?missing marker}"
   local output="${2:?missing output file}"
-  local query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" (_msg:performance.sidebar.proof_action.started OR _msg:performance.sidebar.proof_action.settled OR _msg:performance.sidebar.proof_action.failed OR _msg:performance.sidebar.proof_population.completed) | fields _msg,agentstudio.performance.sidebar.proof.action.sequence,agentstudio.performance.sidebar.proof.monotonic_ns | limit 1000'
+  local population="${3:?missing population}"
+  local query='{service.name="AgentStudio",dev.runtime.flavor="debug"} agent.proof.marker:"'"$marker"'" (_msg:performance.sidebar.proof_action.started OR _msg:performance.sidebar.proof_action.settled OR _msg:performance.sidebar.proof_action.failed OR _msg:performance.sidebar.proof_population.completed) | fields _msg,agentstudio.performance.sidebar.proof.action.sequence,agentstudio.performance.sidebar.proof.monotonic_ns,agentstudio.performance.sidebar.proof.readback.semantic_generation,agentstudio.performance.sidebar.proof.readback.acknowledged_revision,agentstudio.performance.sidebar.proof.readback.visible_generation,agentstudio.performance.sidebar.proof.readback.materialization_fingerprint,agentstudio.performance.sidebar.proof.readback.native_materialization_generation,agentstudio.performance.sidebar.proof.readback.native_materialization_fingerprint,agentstudio.performance.sidebar.proof.readback.native_projection_required,agentstudio.performance.sidebar.proof.readback.native_projection_matches,agentstudio.performance.sidebar.proof.readback.grouping_mode,agentstudio.performance.sidebar.proof.readback.inactive_repository_header.count,agentstudio.performance.sidebar.proof.readback.suppressed_repository_fact_row.count,agentstudio.performance.sidebar.proof.readback.updating_repository_header.count | limit 1000'
   curl --fail --silent --show-error --max-time 10 "$LOGS_QUERY_URL" \
     --data-urlencode "query=$query" >"$output"
   /usr/bin/python3 - "$output" "$STRICT_POLICY_ACTION_COUNT_FLOOR" \
-    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" <<'PY'
+    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" "$population" <<'PY'
 import json, pathlib, sys
 
 path = pathlib.Path(sys.argv[1])
 required = max(int(float(sys.argv[2])), int(float(sys.argv[3])))
+population = sys.argv[4]
 records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 by_sequence = {}
 completed = []
 for record in records:
     message = record.get("_msg")
-    sequence = int(float(record.get("agentstudio.performance.sidebar.proof.action.sequence", 0)))
+    def exact_integer(raw, name):
+        if isinstance(raw, bool):
+            raise SystemExit(f"action record invalid integer {name}")
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, str):
+            try: return int(raw)
+            except ValueError:
+                raise SystemExit(f"action record invalid integer {name}") from None
+        raise SystemExit(f"action record invalid integer {name}")
+    sequence = exact_integer(
+        record.get("agentstudio.performance.sidebar.proof.action.sequence"), "sequence")
     if message == "performance.sidebar.proof_population.completed":
         completed.append(sequence)
         continue
@@ -1872,11 +2038,36 @@ for record in records:
         "performance.sidebar.proof_action.settled",
     }:
         continue
-    timestamp = int(float(record.get("agentstudio.performance.sidebar.proof.monotonic_ns", 0)))
+    timestamp = exact_integer(
+        record.get("agentstudio.performance.sidebar.proof.monotonic_ns"), "monotonic_ns")
+    prefix = "agentstudio.performance.sidebar.proof.readback."
+    def exact_int(name):
+        raw = record.get(prefix + name)
+        return exact_integer(raw, f"readback {name}")
+    readback = {
+        "semantic": exact_int("semantic_generation"),
+        "acknowledged": exact_int("acknowledged_revision"),
+        "visible": exact_int("visible_generation"),
+        "fingerprint": exact_int("materialization_fingerprint"),
+        "native_generation": exact_int("native_materialization_generation"),
+        "native_fingerprint": exact_int("native_materialization_fingerprint"),
+        "native_required": record.get(prefix + "native_projection_required") in (True, "true"),
+        "native_matches": record.get(prefix + "native_projection_matches") in (True, "true"),
+        "grouping_mode": record.get(prefix + "grouping_mode"),
+        "inactive_headers": exact_int("inactive_repository_header.count"),
+        "suppressed_rows": exact_int("suppressed_repository_fact_row.count"),
+        "updating_headers": exact_int("updating_repository_header.count"),
+    }
+    if readback["native_required"] and (
+        not readback["native_matches"]
+        or readback["native_generation"] != readback["visible"]
+        or readback["native_fingerprint"] != readback["fingerprint"]
+    ):
+        raise SystemExit("action record native readback identity mismatch")
     events = by_sequence.setdefault(sequence, {})
     if message in events:
         raise SystemExit(f"duplicate action record {sequence} {message}")
-    events[message] = timestamp
+    events[message] = (timestamp, readback)
 if completed != [required]:
     raise SystemExit(f"action population terminal did not satisfy both floors: {completed}")
 if sorted(by_sequence) != list(range(1, required + 1)):
@@ -1889,10 +2080,22 @@ for sequence in range(1, required + 1):
         "performance.sidebar.proof_action.settled",
     }:
         raise SystemExit(f"action sequence {sequence} lacks a complete pair")
-    started = events["performance.sidebar.proof_action.started"]
-    settled = events["performance.sidebar.proof_action.settled"]
+    started, started_readback = events["performance.sidebar.proof_action.started"]
+    settled, settled_readback = events["performance.sidebar.proof_action.settled"]
     if started <= prior_settlement or settled <= started:
         raise SystemExit(f"action sequence {sequence} overlaps or is non-monotonic")
+    if population in {"search_clear", "grouping", "grouping_diagnostic"} and not (
+        settled_readback["semantic"] > started_readback["semantic"]
+        and settled_readback["acknowledged"] > started_readback["acknowledged"]
+        and settled_readback["visible"] > started_readback["visible"]
+    ):
+        raise SystemExit("action settled readback identity did not advance")
+    if settled_readback["grouping_mode"] == "repo" and settled_readback["inactive_headers"] <= 0:
+        raise SystemExit("By Repo settled readback lacks inactive repository presentation")
+    if settled_readback["grouping_mode"] in {"pane", "tab"} and (
+        settled_readback["inactive_headers"] != 0 or settled_readback["updating_headers"] != 0
+    ):
+        raise SystemExit("By Pane/Tab settled readback repeats repository activity controls")
     prior_settlement = settled
 PY
 }
@@ -1902,11 +2105,12 @@ classify_strict_action_samples() {
   local records="${2:?missing action records}"
   local samples="${3:?missing classified samples}"
   /usr/bin/python3 - "$raw_samples" "$records" "$samples" \
-    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" <<'PY'
+    "$STRICT_POLICY_ACTION_SAMPLE_FLOOR" "$STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS" <<'PY'
 import json, pathlib, sys
 
-raw_path, records_path, output_path, minimum = sys.argv[1:]
+raw_path, records_path, output_path, minimum, maximum_boundary_offset_ms = sys.argv[1:]
 minimum = int(float(minimum))
+maximum_boundary_offset_ns = float(maximum_boundary_offset_ms) * 1_000_000
 actions = {}
 for line in pathlib.Path(records_path).read_text().splitlines():
     if not line.strip():
@@ -1926,9 +2130,18 @@ intervals = [
     (events["performance.sidebar.proof_action.started"], events["performance.sidebar.proof_action.settled"])
     for _, events in sorted(actions.items())
 ]
+raw_samples = [line for line in pathlib.Path(raw_path).read_text().splitlines() if line.strip()]
+parsed_samples = [tuple(map(float, line.split())) for line in raw_samples]
+for action_start, _ in intervals:
+    candidates = [sample for sample in parsed_samples if sample[0] <= action_start < sample[1]]
+    if len(candidates) != 1:
+        raise SystemExit("action sample boundary phase is missing or ambiguous")
+    boundary_offset_ns = action_start - candidates[0][0]
+    if boundary_offset_ns < 0 or boundary_offset_ns > maximum_boundary_offset_ns:
+        raise SystemExit(f"action sample boundary offset {boundary_offset_ns:g}ns exceeds policy")
 retained = []
 covered_actions = set()
-for line in pathlib.Path(raw_path).read_text().splitlines():
+for line in raw_samples:
     if not line.strip():
         continue
     fields = line.split()
@@ -2021,7 +2234,7 @@ PY
 
 run_strict_sidebar_cpu_populations() {
   local specifications=(
-    "zero_pty_idle:sidebar-cpu-zero-pty-idle" "quiescent_pty_idle:sidebar-cpu-quiescent-pty-idle"
+    "zero_pty_idle:sidebar-cpu-zero-pty-idle"
     "search_clear:sidebar-cpu-search-clear" "grouping:sidebar-cpu-grouping"
     "hide_show:sidebar-cpu-hide-show" "tab_switch:sidebar-cpu-tab-switch"
   )
@@ -2862,6 +3075,50 @@ if [ "$mode" = "prepare-only" ]; then
       exit 2
     }
     validate_strict_test_quiescence_sequence "$AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_ACTION_SAMPLES:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "action sample test requires canned test-response authorization" >&2
+      exit 2
+    }
+    action_samples_file="$ARTIFACT/test-action.samples"
+    action_records_file="$ARTIFACT/test-action-records.jsonl"
+    action_output_file="$ARTIFACT/test-action-classified.samples"
+    printf '%s\n' "$AGENTSTUDIO_SIDEBAR_TEST_ACTION_SAMPLES" >"$action_samples_file"
+    /usr/bin/python3 - "$AGENTSTUDIO_SIDEBAR_TEST_ACTION_RECORDS" "$action_records_file" <<'PY'
+import json
+import pathlib
+import sys
+records = []
+for item in sys.argv[1].split(","):
+    timestamp, message = item.split(":", 1)
+    records.append({
+        "_msg": message,
+        "agentstudio.performance.sidebar.proof.action.sequence": 1,
+        "agentstudio.performance.sidebar.proof.monotonic_ns": int(timestamp),
+    })
+pathlib.Path(sys.argv[2]).write_text("".join(json.dumps(record) + "\n" for record in records))
+PY
+    classify_strict_action_samples "$action_samples_file" "$action_records_file" "$action_output_file"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_DESCENDANT_POLL_SEQUENCE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "descendant poll test requires canned test-response authorization" >&2
+      exit 2
+    }
+    validate_strict_descendant_poll_sequence "$AGENTSTUDIO_SIDEBAR_TEST_DESCENDANT_POLL_SEQUENCE"
+    exit 0
+  fi
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_SAMPLER_SEQUENCE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "sampler sequence test requires canned test-response authorization" >&2
+      exit 2
+    }
+    sampler_sequence_file="$ARTIFACT/test-sampler-sequence.samples"
+    printf '%s\n' "$AGENTSTUDIO_SIDEBAR_TEST_SAMPLER_SEQUENCE" >"$sampler_sequence_file"
+    validate_strict_sampler_gaps "$sampler_sequence_file"
     exit 0
   fi
   metrics_response="$(query_victoria_metrics "$sidebar_metric_query")"

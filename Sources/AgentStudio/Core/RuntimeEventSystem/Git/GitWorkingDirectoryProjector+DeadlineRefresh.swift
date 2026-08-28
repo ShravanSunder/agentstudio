@@ -467,6 +467,13 @@ extension GitWorkingDirectoryProjector {
     func recordAutomaticAdmission(worktreeId: UUID, isExplicit: Bool) {
         automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         guard !isExplicit else { return }
+        let trigger = refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId]
+        if !isAutomaticEligible(worktreeId: worktreeId),
+            trigger == .registration || trigger == .periodic || trigger == .visibilityChange
+                || trigger == .retry
+        {
+            recordInactiveAutomaticSourceStartTelemetry()
+        }
         let start = deadlineClock.now
         lastAutomaticStartAtByWorktreeId[worktreeId] = start
         if requiresAutomaticStartPacing(worktreeId: worktreeId, isExplicit: false) {

@@ -26,6 +26,7 @@ extension ForgeActor {
         repoId: UUID,
         attemptId: UUID
     ) async -> RepositoryFactSourceUpdateAdmission {
+        defer { flushPerformanceSnapshot() }
         guard !isShuttingDown else { return .obsolete }
         guard let state = refreshStateByRepoId[repoId], let origin = state.origin else {
             return .notApplicable
@@ -41,6 +42,7 @@ extension ForgeActor {
             branches: branches,
             settlement: settlement
         )
+        performanceAccumulator.recordExplicitAdmission()
         let requestedSignature = ProviderRequestSignature(origin: origin, demandedBranches: branches)
         if state.activeRequestSignature != requestedSignature {
             await requestRefreshIfDemanded(repoId: repoId, trigger: .manual, correlationId: nil)

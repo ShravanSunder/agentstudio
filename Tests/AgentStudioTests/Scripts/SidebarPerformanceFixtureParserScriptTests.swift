@@ -13,6 +13,20 @@ struct SidebarPerformanceFixtureParserScriptTests {
             prefix + "control_root_present": "true",
             prefix + "discovered_repository_count": "121",
             prefix + "discovered_worktree_count": "147",
+            prefix + "warm_repository_count": "1",
+            prefix + "inactive_repository_count": "120",
+            prefix + "warm_worktree_count": "1",
+            prefix + "inactive_worktree_count": "146",
+            prefix + "unclassified_repository_count": "0",
+            prefix + "cold_automatic_deadline_count": "0",
+            prefix + "cold_local_automatic_source_start_count": "0",
+            prefix + "cold_fsevent_local_completion_count": "1",
+            prefix + "explicit_source_admitted_count": "1",
+            prefix + "explicit_source_terminal_count": "3",
+            prefix + "explicit_progress_settled_count": "1",
+            prefix + "explicit_local_admitted_count": "1",
+            prefix + "explicit_remote_admitted_count": "0",
+            prefix + "explicit_forge_admitted_count": "0",
             prefix + "topology_fingerprint": String(repeating: "a", count: 64),
             prefix + "tab_count": "5",
             prefix + "pane_model_count": "20",
@@ -25,6 +39,8 @@ struct SidebarPerformanceFixtureParserScriptTests {
         #expect(accepted.exitCode == 0, "stdout: \(accepted.stdout)\nstderr: \(accepted.stderr)")
         #expect(accepted.stdout.contains("STRICT_FIXTURE_REPOSITORY_COUNT=121"))
         #expect(accepted.stdout.contains("STRICT_FIXTURE_PANE_COUNT=20"))
+        #expect(accepted.stdout.contains("STRICT_FIXTURE_WARM_REPOSITORY_COUNT=1"))
+        #expect(accepted.stdout.contains("STRICT_FIXTURE_INACTIVE_REPOSITORY_COUNT=120"))
 
         var rejectedRecord = record
         rejectedRecord[prefix + "open_source_root_present"] = "false"
@@ -44,7 +60,6 @@ struct SidebarPerformanceFixtureParserScriptTests {
         environment["STRICT_POLICY_FIXTURE_TAB_COUNT"] = "5"
         environment["STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT"] = "20"
         environment["STRICT_POLICY_ZERO_PTY_SESSION_COUNT"] = "0"
-        environment["STRICT_POLICY_MOUNTED_PTY_SESSION_COUNT"] = "1"
         return try await DefaultProcessExecutor(timeout: 10).execute(
             command: "/bin/bash",
             args: ["scripts/verify-sidebar-performance-workload.sh", "--prepare-only"],

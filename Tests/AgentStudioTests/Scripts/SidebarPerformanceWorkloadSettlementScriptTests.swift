@@ -19,6 +19,25 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         #expect(result.stdout.contains("positive_quiescence=test_contract_passed"))
     }
 
+    @Test("strict quiescence rejects any cold automatic deadline or source start")
+    func strictQuiescenceRejectsColdAutomaticWork() async throws {
+        let deadlineSequence = reasonedGitSettlementSequence().replacingOccurrences(
+            of: "\"cold_automatic_deadline_count\":0",
+            with: "\"cold_automatic_deadline_count\":1"
+        )
+        let deadlineResult = try await runQuiescenceContract(sequence: deadlineSequence)
+        #expect(deadlineResult.exitCode == 1)
+        #expect(deadlineResult.stderr.contains("cold automatic deadline"))
+
+        let startSequence = reasonedGitSettlementSequence().replacingOccurrences(
+            of: "\"cold_automatic_source_start_count\":0",
+            with: "\"cold_automatic_source_start_count\":1"
+        )
+        let startResult = try await runQuiescenceContract(sequence: startSequence)
+        #expect(startResult.exitCode == 1)
+        #expect(startResult.stderr.contains("cold automatic source start"))
+    }
+
     @Test("strict quiescence rejects overdue Git deadlines")
     func strictQuiescenceRejectsOverdueGitDeadlines() async throws {
         let result = try await runQuiescenceContract(
@@ -159,11 +178,39 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         #expect(accepted.stdout.contains("debug_owned_helper_contract=passed"))
     }
 
+    @Test("continuous sampler rejects a transient descendant between interval endpoints")
+    func continuousSamplerRejectsTransientDescendant() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_DESCENDANT_POLL_SEQUENCE":
+                    "[{\"offset_ms\":0,\"descendant_count\":0},{\"offset_ms\":50,\"descendant_count\":1},{\"offset_ms\":1000,\"descendant_count\":0}]",
+            ]
+        )
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("transient debug-owned descendant"))
+    }
+
+    @Test("continuous sampler preserves one absolute phase across multiple intervals")
+    func continuousSamplerRejectsMultiIntervalDrift() async throws {
+        let accepted = try await runSamplerSequenceContract(
+            "20000000 1020000000 1.0\n1020000000 2020000000 1.0\n2020000000 3020000000 1.0"
+        )
+        #expect(accepted.exitCode == 0, Comment(rawValue: accepted.stderr))
+
+        let drifted = try await runSamplerSequenceContract(
+            "20000000 1020000000 1.0\n1040000000 2040000000 1.0\n2080000000 3080000000 1.0"
+        )
+        #expect(drifted.exitCode == 1)
+        #expect(drifted.stderr.contains("absolute phase envelope"))
+    }
+
     @Test("strict quiescence rejects missing reasoned Git settlement fields")
     func strictQuiescenceRejectsMissingReasonedGitSettlementFields() async throws {
         let observations = (0...5).map { timestamp in
             """
-            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+            {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_logical_debt":0,"export_backlog":0,"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
             """
         }
         let result = try await runQuiescenceContract(
@@ -212,7 +259,7 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 ? nextDeadlineMilliseconds - (timestamp * 1000)
                 : 0
             return """
-                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(observedNextDeadlineMilliseconds),"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"proof_failure_count":\(proofFailureCount),"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(observedNextDeadlineMilliseconds),"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"proof_failure_count":\(proofFailureCount),"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
                 """
         }
         return "[" + observations.joined(separator: ",") + "]"
@@ -264,6 +311,19 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
                 "AGENTSTUDIO_SIDEBAR_TEST_DEBUG_PROCESS_RECORDS": records,
                 "AGENTSTUDIO_SIDEBAR_TEST_DEBUG_APP_PID": "700",
+            ]
+        )
+    }
+
+    private func runSamplerSequenceContract(_ sequence: String) async throws -> ProcessResult {
+        try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_SAMPLER_SEQUENCE": sequence,
+                "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
+                "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
+                "STRICT_POLICY_ACTION_SAMPLE_BOUNDARY_OFFSET_MS": "50",
             ]
         )
     }

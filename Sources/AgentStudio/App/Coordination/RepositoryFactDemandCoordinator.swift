@@ -194,6 +194,13 @@ final class RepositoryFactDemandCoordinator {
                 self.inFlightInput = nil
                 guard self.pendingInput == nil else { continue }
 
+                self.recordActivityPerformance(
+                    classified.snapshot,
+                    input: nextInput,
+                    previousInput: self.lastClassifiedInput,
+                    previousSnapshot: self.lastDeliveredSnapshot
+                )
+
                 if !mustDeliver, classified.snapshot == self.lastDeliveredSnapshot {
                     self.lastClassifiedInput = nextInput
                     self.rescheduleDeadline(at: classified.nextTransitionAt)
@@ -281,6 +288,7 @@ final class RepositoryFactDemandCoordinator {
             acceptsInputs,
             let lastClassifiedInput
         else { return }
+        increment(\.boundaryReclassified)
         deadlineTask = nil
         pendingInput = lastClassifiedInput
         pendingInputMustDeliver = false
@@ -306,6 +314,42 @@ final class RepositoryFactDemandCoordinator {
     private func increment(_ keyPath: WritableKeyPath<RepositoryFactDemandPerformanceSnapshot, UInt64>) {
         if performanceSnapshot[keyPath: keyPath] < .max {
             performanceSnapshot[keyPath: keyPath] += 1
+        }
+    }
+
+    private func recordActivityPerformance(
+        _ snapshot: RepositoryFactDemandSnapshot,
+        input: RepositoryFactDemandInput,
+        previousInput: RepositoryFactDemandInput?,
+        previousSnapshot: RepositoryFactDemandSnapshot?
+    ) {
+        performanceSnapshot.hydrationUnclassifiedCurrent =
+            input.recencyHydrationDisposition == .pending ? 1 : 0
+        performanceSnapshot.warmRepositoryCurrent = UInt64(snapshot.warmRepositoryIds.count)
+        performanceSnapshot.inactiveRepositoryCurrent = UInt64(
+            snapshot.locallyInactiveRepositoryIds.count)
+        performanceSnapshot.warmWorktreeCurrent = UInt64(snapshot.warmAutomaticWorktreeIds.count)
+        performanceSnapshot.inactiveWorktreeCurrent = UInt64(
+            snapshot.locallyInactiveWorktreeIds.count)
+        performanceSnapshot.inactiveRemoteSuppressedCurrent = UInt64(
+            Set(
+                snapshot.sidebarAttendedWorktreeIds.compactMap {
+                    snapshot.repositoryIdByWorktreeId[$0]
+                }
+            ).intersection(snapshot.locallyInactiveRepositoryIds).count
+        )
+        performanceSnapshot.inactiveForgeSuppressedCurrent = UInt64(
+            snapshot.sidebarAttendedWorktreeIds.union(snapshot.visibleActiveTabWorktreeIds)
+                .intersection(snapshot.locallyInactiveWorktreeIds).count
+        )
+        guard let previousInput, let previousSnapshot else { return }
+        let reactivatedRepositories = previousSnapshot.locallyInactiveRepositoryIds
+            .intersection(snapshot.warmRepositoryIds)
+        guard !reactivatedRepositories.isEmpty else { return }
+        if input.openWorktreeIds != previousInput.openWorktreeIds {
+            increment(\.paneReactivated)
+        } else if input.applicationRecency != previousInput.applicationRecency {
+            increment(\.recencyReactivated)
         }
     }
 

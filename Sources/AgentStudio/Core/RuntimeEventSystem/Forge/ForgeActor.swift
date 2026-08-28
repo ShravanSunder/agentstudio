@@ -494,7 +494,9 @@ package actor ForgeActor {
             )
         }
     }
+}
 
+extension ForgeActor {
     func requestRefreshIfDemanded(
         repoId: UUID,
         trigger: RefreshTrigger,
@@ -594,8 +596,7 @@ package actor ForgeActor {
         else { return }
 
         let statusProvider = self.statusProvider
-        performanceAccumulator.recordExecution(.started)
-        recordQueryPlan(for: request)
+        recordProviderStartPerformance(for: request)
         providerRepoIdByRequestId[request.id] = request.repoId
         providerTasksByRequestId[request.id] = Task { [weak self, statusProvider] in
             guard let self else { return }
@@ -607,6 +608,14 @@ package actor ForgeActor {
         }
         recordPhysicalPerformanceState()
         flushPerformanceSnapshot()
+    }
+
+    private func recordProviderStartPerformance(for request: ProviderRequest) {
+        if !demandedRepoIds().contains(request.repoId), request.explicitAttemptIds.isEmpty {
+            performanceAccumulator.recordAutomaticWithoutDemandStart()
+        }
+        performanceAccumulator.recordExecution(.started)
+        recordQueryPlan(for: request)
     }
 
     private func applyOutcome(
