@@ -89,7 +89,7 @@ package enum DarwinFSEventBindingPlanner {
         return volumeNumbers.count == paths.count && Set(volumeNumbers).count == 1
     }
 
-    private static func volumeSystemNumber(for path: String) -> UInt64? {
+    package static func volumeSystemNumber(for path: String) -> UInt64? {
         var candidate = URL(fileURLWithPath: path)
         while candidate.path != "/", !FileManager.default.fileExists(atPath: candidate.path) {
             candidate.deleteLastPathComponent()

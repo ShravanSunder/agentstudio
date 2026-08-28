@@ -17,6 +17,7 @@ private final class CallbackContext {
 
 private struct StreamRegistration: @unchecked Sendable {
     let lifecycleGeneration: UInt64
+    let participant: FSEventParticipant
     let rootPath: URL
     let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
     let observationScopes: [AgentStudioGit.GitStatusObservationScope]
@@ -29,6 +30,13 @@ private struct StreamRegistration: @unchecked Sendable {
 private struct CompositeStreamRetention {
     let registration: StreamRegistration
     let sharedBindingLease: DarwinSharedExactItemBindingLease?
+}
+
+private struct LocalEventClassificationInput {
+    let rootPath: String
+    let participant: FSEventParticipant
+    let observesContinuity: Bool
+    let scopes: [AgentStudioGit.GitStatusObservationScope]
 }
 
 /// Production filesystem event client wiring point.
@@ -70,6 +78,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     private var hasShutdown = false
     private var nextLifecycleGeneration: UInt64 = 0
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
+    private var latestEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
     private let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
     private let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
@@ -133,11 +142,12 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     source: source
                 )
             },
-            yieldObservations: { worktreeId, observations in
+            yieldObservations: { worktreeId, participant, observations in
                 ingressBuffer.yield(
                     FSEventBatch(
                         worktreeId: worktreeId,
                         paths: [],
+                        participant: participant,
                         observations: observations
                     ),
                     source: .sharedExact
@@ -179,6 +189,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 return
             }
             streamByWorktreeId.removeValue(forKey: worktreeId)
+            latestEventIDByParticipant.removeValue(forKey: existing.participant)
             registrationToTearDown = existing
         }
         lifecycleLock.unlock()
@@ -224,6 +235,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         let registration: StreamRegistration?
         lifecycleLock.lock()
         registration = streamByWorktreeId.removeValue(forKey: worktreeId)
+        if let registration {
+            latestEventIDByParticipant.removeValue(forKey: registration.participant)
+        }
         lifecycleLock.unlock()
 
         sharedExactItemObserverRegistry.unbind(
@@ -246,6 +260,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         hasShutdown = true
         registrations = Array(streamByWorktreeId.values)
         streamByWorktreeId.removeAll(keepingCapacity: false)
+        latestEventIDByParticipant.removeAll(keepingCapacity: false)
         lifecycleLock.unlock()
 
         for registration in registrations {
@@ -534,6 +549,14 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         )
         let watchPaths = watchedPaths.map { $0 as NSString } as CFArray
         guard
+            let volumeSystemNumber = watchedPaths.first.flatMap(
+                DarwinFSEventBindingPlanner.volumeSystemNumber(for:)
+            )
+        else {
+            Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
+            return nil
+        }
+        guard
             let stream = FSEventStreamCreate(
                 kCFAllocatorDefault,
                 Self.callback,
@@ -566,6 +589,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
         return StreamRegistration(
             lifecycleGeneration: lifecycleGeneration,
+            participant: FSEventParticipant(
+                scopeKey: "local:\(worktreeId.uuidString)",
+                generation: lifecycleGeneration,
+                volumeIdentifier: String(volumeSystemNumber)
+            ),
             rootPath: rootPath,
             observationIdentity: observationIdentity,
             observationScopes: observationScopes,
@@ -599,16 +627,21 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         var registrationWasReplaced = false
         let classificationInput = lifecycleLock.withLock {
             guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else {
-                return Optional<
-                    (rootPath: String, observesContinuity: Bool, scopes: [AgentStudioGit.GitStatusObservationScope])
-                >.none
+                return Optional<LocalEventClassificationInput>.none
             }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
                 registrationWasReplaced = true
                 return nil
             }
-            return (
+            if let latestEventID = rawEvents.map(\.eventId).max() {
+                latestEventIDByParticipant[registration.participant] = max(
+                    latestEventIDByParticipant[registration.participant] ?? 0,
+                    UInt64(latestEventID)
+                )
+            }
+            return LocalEventClassificationInput(
                 rootPath: registration.rootPath.path,
+                participant: registration.participant,
                 observesContinuity: registration.observationIdentity != nil,
                 scopes: registration.observationScopes
             )
@@ -643,6 +676,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     FSEventBatch(
                         worktreeId: worktreeId,
                         paths: classification.ordinaryPaths,
+                        participant: classificationInput.participant,
                         observations: Self.observations(
                             rawEvents: rawEvents,
                             admittedPaths: classification.ordinaryPaths
@@ -830,6 +864,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             FSEventBatch(
                 worktreeId: worktreeId,
                 paths: classification.ordinaryPaths,
+                participant: retiredRegistration.participant,
                 observations: Self.observations(
                     rawEvents: rawEvents,
                     admittedPaths: classification.ordinaryPaths
@@ -846,7 +881,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return nextLifecycleGeneration
         }
     }
+}
 
+extension DarwinFSEventStreamClient {
     private static func observations(
         rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)],
         admittedPaths: [String]
@@ -874,5 +911,71 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         registration.queue.async {
             teardown(registration)
         }
+    }
+}
+
+extension DarwinFSEventStreamClient {
+    @concurrent
+    nonisolated package func captureActivityBarrier() async -> FSEventActivityBarrier? {
+        let registrations = lifecycleLock.withLock { () -> [(UUID, StreamRegistration)]? in
+            guard !hasShutdown else { return nil }
+            let registrations = streamByWorktreeId.sorted { $0.key.uuidString < $1.key.uuidString }
+            for (_, registration) in registrations {
+                FSEventStreamRetain(registration.stream)
+            }
+            return registrations
+        }
+        guard let registrations else { return nil }
+        defer {
+            for (_, registration) in registrations {
+                FSEventStreamRelease(registration.stream)
+            }
+        }
+
+        for (_, registration) in registrations {
+            FSEventStreamFlushSync(registration.stream)
+        }
+        guard let sharedBarrier = sharedExactItemObserverRegistry.captureActivityBarrier() else {
+            return nil
+        }
+
+        let localBarrier = lifecycleLock.withLock { () -> FSEventActivityBarrier? in
+            guard !hasShutdown else { return nil }
+            var bindings: [FSEventParticipantBinding] = []
+            var deliveredEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
+            for (worktreeId, retainedRegistration) in registrations {
+                guard
+                    let currentRegistration = streamByWorktreeId[worktreeId],
+                    currentRegistration.lifecycleGeneration == retainedRegistration.lifecycleGeneration
+                else { return nil }
+                let deliveredEventID =
+                    latestEventIDByParticipant[retainedRegistration.participant]
+                    ?? UInt64(FSEventStreamGetLatestEventId(retainedRegistration.stream))
+                bindings.append(
+                    FSEventParticipantBinding(
+                        worktreeId: worktreeId,
+                        participant: retainedRegistration.participant
+                    )
+                )
+                deliveredEventIDByParticipant[retainedRegistration.participant] = deliveredEventID
+            }
+            return FSEventActivityBarrier(
+                bindings: bindings,
+                deliveredEventIDByParticipant: deliveredEventIDByParticipant
+            )
+        }
+        guard let localBarrier else { return nil }
+        return FSEventActivityBarrier(
+            bindings: (localBarrier.bindings + sharedBarrier.bindings).sorted {
+                if $0.participant.scopeKey != $1.participant.scopeKey {
+                    return $0.participant.scopeKey < $1.participant.scopeKey
+                }
+                return $0.worktreeId.uuidString < $1.worktreeId.uuidString
+            },
+            deliveredEventIDByParticipant: localBarrier.deliveredEventIDByParticipant.merging(
+                sharedBarrier.deliveredEventIDByParticipant,
+                uniquingKeysWith: max
+            )
+        )
     }
 }

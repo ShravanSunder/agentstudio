@@ -6,7 +6,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite("DarwinSharedExactItemObserver")
+@Suite("DarwinSharedExactItemObserver", .serialized)
 struct DarwinSharedExactItemObserverTests {
     @Test("shared exact observer routes hits selectively after unrelated misses")
     func sharedExactObserverRoutesOnlyExactSubscribers() throws {
@@ -502,6 +502,21 @@ struct DarwinSharedExactItemObserverTests {
                     )
                 ]
         )
+        #expect(
+            fixture.effectRecorder.participantByWorktreeId[worktreeId]
+                == FSEventParticipant(
+                    scopeKey: "shared:1:\(parentKey.parentPath)",
+                    generation: streamGeneration,
+                    volumeIdentifier: "1"
+                )
+        )
+        let barrier = try #require(fixture.registry.captureActivityBarrier())
+        let participant = try #require(fixture.effectRecorder.participantByWorktreeId[worktreeId])
+        #expect(barrier.deliveredEventIDByParticipant[participant] == 51)
+        #expect(
+            barrier.bindings
+                == [FSEventParticipantBinding(worktreeId: worktreeId, participant: participant)]
+        )
         fixture.registry.shutdown()
     }
 
@@ -704,6 +719,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     private var recordedActions: [SharedExactItemRecordedAction] = []
     private var recordedFullGitRefreshSources: [DarwinFSEventIngressSource] = []
     private var recordedObservationsByWorktreeId: [UUID: [FSEventObservation]] = [:]
+    private var recordedParticipantByWorktreeId: [UUID: FSEventParticipant] = [:]
 
     var actions: [SharedExactItemRecordedAction] {
         lock.withLock { recordedActions }
@@ -729,6 +745,10 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
 
     var observationsByWorktreeId: [UUID: [FSEventObservation]] {
         lock.withLock { recordedObservationsByWorktreeId }
+    }
+
+    var participantByWorktreeId: [UUID: FSEventParticipant] {
+        lock.withLock { recordedParticipantByWorktreeId }
     }
 
     func recordRawEvents(
@@ -759,8 +779,13 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
         }
     }
 
-    func recordObservations(worktreeId: UUID, observations: [FSEventObservation]) {
+    func recordObservations(
+        worktreeId: UUID,
+        participant: FSEventParticipant,
+        observations: [FSEventObservation]
+    ) {
         lock.withLock {
+            recordedParticipantByWorktreeId[worktreeId] = participant
             recordedObservationsByWorktreeId[worktreeId, default: []].append(contentsOf: observations)
         }
     }
@@ -770,6 +795,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
             recordedActions.removeAll(keepingCapacity: true)
             recordedFullGitRefreshSources.removeAll(keepingCapacity: true)
             recordedObservationsByWorktreeId.removeAll(keepingCapacity: true)
+            recordedParticipantByWorktreeId.removeAll(keepingCapacity: true)
         }
     }
 }

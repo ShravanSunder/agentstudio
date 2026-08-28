@@ -33,6 +33,7 @@ struct DarwinSharedExactItemAncestorRecheckSnapshot: Equatable, Sendable {
 }
 
 struct DarwinSharedExactItemReceiveEffects {
+    let participant: FSEventParticipant
     let mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]]
     let uncertainWorktreeIds: Set<UUID>
     let exactSubscriberWorktreeIds: Set<UUID>
@@ -52,6 +53,7 @@ extension DarwinSharedExactItemObserverRegistry {
             guard let events = effects.mutationEventsByWorktreeId[worktreeId] else { continue }
             yieldObservations(
                 worktreeId,
+                effects.participant,
                 events.map { event in
                     FSEventObservation(
                         path: event.path,

@@ -206,7 +206,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         @Sendable (GitCleanContinuityAuthority, UInt64) -> GitCleanContinuityAuthorityValidation
     let markUncertain: @Sendable (UUID) -> Void
     let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
-    let yieldObservations: @Sendable (UUID, [FSEventObservation]) -> Void
+    let yieldObservations: @Sendable (UUID, FSEventParticipant, [FSEventObservation]) -> Void
     let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     let fingerprintReader: DarwinSharedExactItemFingerprintReader
     private var nextStreamGeneration: UInt64 = 0
@@ -241,7 +241,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             },
         markUncertain: @escaping @Sendable (UUID) -> Void,
         yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
-        yieldObservations: @escaping @Sendable (UUID, [FSEventObservation]) -> Void,
+        yieldObservations: @escaping @Sendable (UUID, FSEventParticipant, [FSEventObservation]) -> Void,
         performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator,
         fingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
     ) {
@@ -628,6 +628,11 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         lifecycleCondition.unlock()
         emitReceiveEffects(
             DarwinSharedExactItemReceiveEffects(
+                participant: FSEventParticipant(
+                    scopeKey: "shared:\(parentKey.volumeSystemNumber):\(parentKey.parentPath)",
+                    generation: streamGeneration,
+                    volumeIdentifier: String(parentKey.volumeSystemNumber)
+                ),
                 mutationEventsByWorktreeId: mutationEventsByWorktreeId,
                 uncertainWorktreeIds: uncertainWorktreeIds,
                 exactSubscriberWorktreeIds: exactSubscriberWorktreeIds,

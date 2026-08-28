@@ -47,6 +47,9 @@ struct DarwinFSEventStreamClientTests {
         // Assert
         let batch = try #require(await firstCompletedValue(from: batchTask, timeout: .seconds(5)))
         #expect(batch.paths == [changedPath])
+        #expect(batch.participant?.scopeKey == "local:\(worktreeId.uuidString)")
+        #expect(batch.participant?.generation ?? 0 > 0)
+        #expect(batch.participant?.volumeIdentifier.isEmpty == false)
         #expect(
             batch.observations
                 == [
@@ -56,6 +59,14 @@ struct DarwinFSEventStreamClientTests {
                         flags: UInt32(expectedFlags)
                     )
                 ]
+        )
+        let barrier = try #require(await client.captureActivityBarrier())
+        let participant = try #require(batch.participant)
+        #expect(barrier.deliveredEventIDByParticipant[participant] ?? 0 >= 42)
+        #expect(
+            barrier.bindings.contains(
+                FSEventParticipantBinding(worktreeId: worktreeId, participant: participant)
+            )
         )
     }
 
