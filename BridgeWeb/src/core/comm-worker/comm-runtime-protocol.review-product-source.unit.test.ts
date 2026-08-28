@@ -236,7 +236,9 @@ describe('Bridge comm worker Review product source projection', () => {
 
 		// Act
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'annotation-metadata-source');
-		reviewAnnotationEvents.push(annotationControlChangedFrame(0));
+		for (const catalogFrame of annotationCatalogFrames(0)) {
+			reviewAnnotationEvents.push(catalogFrame);
+		}
 		reviewMetadataEvents.push(reviewMetadataFrame(reviewSnapshotEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(reviewProjectionSourceGenerations).toEqual([]);
@@ -538,25 +540,57 @@ function messageCount(
 	return postedMessages.filter(({ message }): boolean => message.kind === kind).length;
 }
 
-function annotationControlChangedFrame(sourceGeneration: number): WorktreeAnnotationMetadataFrame {
-	return {
-		data: {
-			authority: {
-				applicationSourceGeneration: sourceGeneration,
-				worktreeId: 'worktree-1',
-			},
-			kind: 'annotation.controlChanged',
-			reason: 'discovery',
-		},
-		metadataStreamId: 'review-annotation-metadata-stream',
-		operationCorrelationId: 'a'.repeat(64),
-		sourceGeneration,
-		streamSequence: 1,
-		subscriptionId: 'review-annotation-subscription',
-		subscriptionKind: 'review.annotations',
-		subscriptionSequence: 1,
-		workerDerivationEpoch: 1,
+function annotationCatalogFrames(
+	sourceGeneration: number,
+): readonly WorktreeAnnotationMetadataFrame[] {
+	const authority = {
+		applicationSourceGeneration: sourceGeneration,
+		worktreeId: 'worktree-1',
 	};
+	const transferId = 'review-annotation-catalog-transfer';
+	return [
+		{
+			data: {
+				authority,
+				kind: 'annotation.catalog',
+				transfer: {
+					catalogRevision: sourceGeneration,
+					expectedEntryCount: 0,
+					kind: 'catalog.begin',
+					transferId,
+				},
+			},
+			metadataStreamId: 'review-annotation-metadata-stream',
+			operationCorrelationId: 'a'.repeat(64),
+			sourceGeneration,
+			streamSequence: 1,
+			subscriptionId: 'review-annotation-subscription',
+			subscriptionKind: 'review.annotations',
+			subscriptionSequence: 1,
+			workerDerivationEpoch: 1,
+		},
+		{
+			data: {
+				authority,
+				kind: 'annotation.catalog',
+				transfer: {
+					catalogRevision: sourceGeneration,
+					entryCount: 0,
+					kind: 'catalog.commit',
+					transferId,
+					windowCount: 0,
+				},
+			},
+			metadataStreamId: 'review-annotation-metadata-stream',
+			operationCorrelationId: 'a'.repeat(64),
+			sourceGeneration,
+			streamSequence: 2,
+			subscriptionId: 'review-annotation-subscription',
+			subscriptionKind: 'review.annotations',
+			subscriptionSequence: 2,
+			workerDerivationEpoch: 1,
+		},
+	];
 }
 
 function reviewMetadataFrame(event: ReviewMetadataEvent): ReviewMetadataFrame {
