@@ -119,10 +119,16 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let filesystemActorIngressSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor+Ingress.swift"
+            ),
+            encoding: .utf8
+        )
         let ingressBody = try #require(
-            filesystemActorSource.slice(
-                from: "private func ingestRawPaths(",
-                to: "private func rebuildRootOwnership()"
+            filesystemActorIngressSource.slice(
+                from: "func ingestRawPaths(",
+                to: "private func recordRequiredFullGitRefresh("
             )
         )
         let rebuildRootOwnershipBody = try #require(
