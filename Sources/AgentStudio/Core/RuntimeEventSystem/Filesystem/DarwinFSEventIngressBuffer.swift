@@ -2,13 +2,20 @@ import AgentStudioInfrastructure
 import Foundation
 
 package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
+    private struct PendingActivityProcessingFence {
+        let id: FSEventActivityProcessingFenceID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let lock = NSLock()
-    private let eventsStream: AsyncStream<FSEventBatch>
-    private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
+    private let eventsStream: AsyncStream<FSEventIngressItem>
+    private let eventsContinuation: AsyncStream<FSEventIngressItem>.Continuation
     private let maximumRetainedOverflowPathsPerRegistration: Int
     private let overflowHandler: @Sendable (UUID) -> Void
     private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
+    private var nextActivityProcessingFenceID: UInt64 = 0
+    private var pendingActivityProcessingFence: PendingActivityProcessingFence?
 
     package init(
         capacity: Int,
@@ -21,7 +28,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         precondition(capacity > 0)
         precondition(maximumRetainedOverflowPathsPerRegistration > 0)
         let (stream, continuation) = AsyncStream.makeStream(
-            of: FSEventBatch.self,
+            of: FSEventIngressItem.self,
             bufferingPolicy: .bufferingOldest(capacity)
         )
         eventsStream = stream
@@ -32,7 +39,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         self.overflowHandler = overflowHandler
     }
 
-    package func events() -> AsyncStream<FSEventBatch> {
+    package func events() -> AsyncStream<FSEventIngressItem> {
         eventsStream
     }
 
@@ -41,14 +48,14 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         source: DarwinFSEventIngressSource = .local
     ) {
         lock.withLock {
-            switch eventsContinuation.yield(batch) {
+            switch eventsContinuation.yield(.batch(batch)) {
             case .enqueued:
                 performanceAccumulator.recordIngress(
                     source: source,
                     disposition: .accepted,
                     pathCount: batch.paths.count
                 )
-            case .dropped(let droppedBatch):
+            case .dropped(.batch(let droppedBatch)):
                 performanceAccumulator.recordIngress(
                     source: source,
                     disposition: .dropped,
@@ -56,6 +63,8 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 )
                 retainOverflowRecovery(droppedBatch)
                 overflowHandler(droppedBatch.worktreeId)
+            case .dropped(.activityProcessingFence):
+                preconditionFailure("batch yield cannot drop a previously buffered fence")
             case .terminated:
                 performanceAccumulator.recordIngress(
                     source: source,
@@ -72,6 +81,50 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 overflowHandler(batch.worktreeId)
             }
         }
+    }
+
+    package func enqueueActivityProcessingFence() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let shouldResumeRejected = lock.withLock { () -> Bool in
+                guard pendingActivityProcessingFence == nil else { return true }
+                nextActivityProcessingFenceID &+= 1
+                let fenceID = FSEventActivityProcessingFenceID(
+                    rawValue: nextActivityProcessingFenceID
+                )
+                switch eventsContinuation.yield(.activityProcessingFence(fenceID)) {
+                case .enqueued:
+                    pendingActivityProcessingFence = PendingActivityProcessingFence(
+                        id: fenceID,
+                        continuation: continuation
+                    )
+                    return false
+                case .dropped(.activityProcessingFence):
+                    return true
+                case .dropped(.batch(let droppedBatch)):
+                    retainOverflowRecovery(droppedBatch)
+                    overflowHandler(droppedBatch.worktreeId)
+                    return true
+                case .terminated:
+                    return true
+                @unknown default:
+                    return true
+                }
+            }
+            if shouldResumeRejected {
+                continuation.resume(returning: false)
+            }
+        }
+    }
+
+    package func acknowledgeActivityProcessingFence(
+        _ fenceID: FSEventActivityProcessingFenceID
+    ) {
+        let continuation = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+            guard pendingActivityProcessingFence?.id == fenceID else { return nil }
+            defer { pendingActivityProcessingFence = nil }
+            return pendingActivityProcessingFence?.continuation
+        }
+        continuation?.resume(returning: true)
     }
 
     package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
@@ -137,6 +190,11 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
     }
 
     package func finish() {
-        eventsContinuation.finish()
+        let continuation = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+            eventsContinuation.finish()
+            defer { pendingActivityProcessingFence = nil }
+            return pendingActivityProcessingFence?.continuation
+        }
+        continuation?.resume(returning: false)
     }
 }

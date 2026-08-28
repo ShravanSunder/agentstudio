@@ -162,12 +162,18 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         shutdown()
     }
 
-    package func events() -> AsyncStream<FSEventBatch> {
+    package func events() -> AsyncStream<FSEventIngressItem> {
         ingressBuffer.events()
     }
 
     package func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         ingressBuffer.consumeOverflowRecoveries()
+    }
+
+    package func acknowledgeActivityProcessingFence(
+        _ fenceID: FSEventActivityProcessingFenceID
+    ) {
+        ingressBuffer.acknowledgeActivityProcessingFence(fenceID)
     }
 
     package func snapshotAndResetIngressPerformance() -> DarwinFSEventIngressPerformanceSnapshot {
@@ -965,7 +971,7 @@ extension DarwinFSEventStreamClient {
             )
         }
         guard let localBarrier else { return nil }
-        return FSEventActivityBarrier(
+        let barrier = FSEventActivityBarrier(
             bindings: (localBarrier.bindings + sharedBarrier.bindings).sorted {
                 if $0.participant.scopeKey != $1.participant.scopeKey {
                     return $0.participant.scopeKey < $1.participant.scopeKey
@@ -977,5 +983,7 @@ extension DarwinFSEventStreamClient {
                 uniquingKeysWith: max
             )
         )
+        guard await ingressBuffer.enqueueActivityProcessingFence() else { return nil }
+        return barrier
     }
 }

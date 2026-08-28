@@ -102,7 +102,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         let streamClient = streamClient
         return Task {
             var batchByWorktreeId: [UUID: FSEventBatch] = [:]
-            for await batch in streamClient.events() {
+            for await ingressItem in streamClient.events() {
+                if case .activityProcessingFence(let fenceID) = ingressItem {
+                    streamClient.acknowledgeActivityProcessingFence(fenceID)
+                    continue
+                }
+                guard case .batch(let batch) = ingressItem else { continue }
                 guard expectedWorktreeIds.contains(batch.worktreeId) else { continue }
                 guard batch.requiresFullGitRefresh else { continue }
                 batchByWorktreeId[batch.worktreeId] = batch
@@ -352,7 +357,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         let streamClient = streamClient
         return Task {
             var observedWorktreeIds: Set<UUID> = []
-            for await batch in streamClient.events() {
+            for await ingressItem in streamClient.events() {
+                if case .activityProcessingFence(let fenceID) = ingressItem {
+                    streamClient.acknowledgeActivityProcessingFence(fenceID)
+                    continue
+                }
+                guard case .batch(let batch) = ingressItem else { continue }
                 guard let expectedPath = expectedPathByWorktreeId[batch.worktreeId] else {
                     continue
                 }

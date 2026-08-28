@@ -848,16 +848,16 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
 }
 
 private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
-    private let stream: AsyncStream<FSEventBatch>
-    private let continuation: AsyncStream<FSEventBatch>.Continuation
+    private let stream: AsyncStream<FSEventIngressItem>
+    private let continuation: AsyncStream<FSEventIngressItem>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: FSEventIngressItem.self)
         self.stream = stream
         self.continuation = continuation
     }
 
-    func events() -> AsyncStream<FSEventBatch> {
+    func events() -> AsyncStream<FSEventIngressItem> {
         stream
     }
 

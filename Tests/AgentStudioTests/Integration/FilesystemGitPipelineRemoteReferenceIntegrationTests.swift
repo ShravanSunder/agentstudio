@@ -273,14 +273,14 @@ private struct PipelineAcceptingRegistrationDiscoveryProvider: RepoScanner.GitRe
 }
 
 private final class PipelineSilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
-    private let stream: AsyncStream<FSEventBatch>
-    private let continuation: AsyncStream<FSEventBatch>.Continuation
+    private let stream: AsyncStream<FSEventIngressItem>
+    private let continuation: AsyncStream<FSEventIngressItem>.Continuation
 
     init() {
-        (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
+        (stream, continuation) = AsyncStream.makeStream(of: FSEventIngressItem.self)
     }
 
-    func events() -> AsyncStream<FSEventBatch> { stream }
+    func events() -> AsyncStream<FSEventIngressItem> { stream }
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
     func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
     func unregister(worktreeId _: UUID) {}

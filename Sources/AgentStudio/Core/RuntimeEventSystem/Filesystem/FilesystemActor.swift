@@ -374,9 +374,15 @@ package actor FilesystemActor {
         guard ingressTask == nil else { return }
         let stream = fseventStreamClient.events()
         ingressTask = Task { [weak self] in
-            for await batch in stream {
+            for await ingressItem in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
+                guard case .batch(let batch) = ingressItem else {
+                    if case .activityProcessingFence(let fenceID) = ingressItem {
+                        self.fseventStreamClient.acknowledgeActivityProcessingFence(fenceID)
+                    }
+                    continue
+                }
                 if await self.isWatchedFolderBatch(batch.worktreeId) {
                     await self.handleWatchedFolderFSEvent(batch)
                 } else {

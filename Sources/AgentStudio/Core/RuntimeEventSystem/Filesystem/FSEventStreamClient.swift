@@ -35,6 +35,19 @@ package struct FSEventActivityBarrier: Equatable, Sendable {
     }
 }
 
+package struct FSEventActivityProcessingFenceID: Equatable, Hashable, Sendable {
+    package let rawValue: UInt64
+
+    package init(rawValue: UInt64) {
+        self.rawValue = rawValue
+    }
+}
+
+package enum FSEventIngressItem: Sendable {
+    case batch(FSEventBatch)
+    case activityProcessingFence(FSEventActivityProcessingFenceID)
+}
+
 package struct FSEventObservation: Equatable, Sendable {
     package let path: String
     package let eventID: UInt64
@@ -89,15 +102,18 @@ package struct FSEventOverflowRecovery: Equatable, Sendable {
 }
 
 package protocol FSEventStreamClient: Sendable {
-    func events() -> AsyncStream<FSEventBatch>
+    func events() -> AsyncStream<FSEventIngressItem>
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery]
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL)
     func unregister(worktreeId: UUID)
     func shutdown()
+    func acknowledgeActivityProcessingFence(_ fenceID: FSEventActivityProcessingFenceID)
     func captureActivityBarrier() async -> FSEventActivityBarrier?
 }
 
 extension FSEventStreamClient {
+    package func acknowledgeActivityProcessingFence(_: FSEventActivityProcessingFenceID) {}
+
     package func captureActivityBarrier() async -> FSEventActivityBarrier? {
         nil
     }

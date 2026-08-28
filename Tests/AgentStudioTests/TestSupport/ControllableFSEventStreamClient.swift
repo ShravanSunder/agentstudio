@@ -7,12 +7,12 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private let lock = NSLock()
     private var registeredIds: [UUID] = []
     private var unregisteredIds: [UUID] = []
-    private var continuation: AsyncStream<FSEventBatch>.Continuation?
-    private var stream: AsyncStream<FSEventBatch>?
+    private var continuation: AsyncStream<FSEventIngressItem>.Continuation?
+    private var stream: AsyncStream<FSEventIngressItem>?
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
 
     package init() {
-        let (stream, continuation) = AsyncStream<FSEventBatch>.makeStream(
+        let (stream, continuation) = AsyncStream<FSEventIngressItem>.makeStream(
             bufferingPolicy: .bufferingNewest(64)
         )
         self.stream = stream
@@ -27,7 +27,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         lock.withLock { unregisteredIds }
     }
 
-    package func events() -> AsyncStream<FSEventBatch> {
+    package func events() -> AsyncStream<FSEventIngressItem> {
         lock.withLock { stream! }
     }
 
@@ -75,6 +75,6 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     }
 
     package func send(_ batch: FSEventBatch) {
-        continuation?.yield(batch)
+        continuation?.yield(.batch(batch))
     }
 }

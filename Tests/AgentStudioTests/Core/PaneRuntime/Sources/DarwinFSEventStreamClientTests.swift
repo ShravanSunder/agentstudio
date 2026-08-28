@@ -28,12 +28,13 @@ struct DarwinFSEventStreamClientTests {
             kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagOwnEvent
         )
         let batchTask = Task<FSEventBatch?, Never> {
-            for await batch in client.events()
-            where
-                batch.worktreeId == worktreeId
-                && batch.observations.contains(where: { $0.eventID == 42 })
-            {
-                return batch
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
+                if batch.worktreeId == worktreeId,
+                    batch.observations.contains(where: { $0.eventID == 42 })
+                {
+                    return batch
+                }
             }
             return nil
         }
@@ -60,7 +61,15 @@ struct DarwinFSEventStreamClientTests {
                     )
                 ]
         )
+        let fenceConsumer = Task {
+            for await ingressItem in client.events() {
+                guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
+                client.acknowledgeActivityProcessingFence(fenceID)
+                return
+            }
+        }
         let barrier = try #require(await client.captureActivityBarrier())
+        await fenceConsumer.value
         let participant = try #require(batch.participant)
         #expect(barrier.deliveredEventIDByParticipant[participant] ?? 0 >= 42)
         #expect(
@@ -86,7 +95,8 @@ struct DarwinFSEventStreamClientTests {
         client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
 
         let batchTask = Task<FSEventBatch?, Never> {
-            for await batch in client.events() {
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
                 if batch.worktreeId == worktreeId,
                     batch.paths.contains(where: { URL(fileURLWithPath: $0).lastPathComponent == "created.txt" })
                 {
@@ -392,12 +402,61 @@ struct DarwinFSEventStreamClientTests {
         ingressBuffer.finish()
 
         var retainedBatches: [FSEventBatch] = []
-        for await batch in ingressBuffer.events() {
+        for await ingressItem in ingressBuffer.events() {
+            guard case .batch(let batch) = ingressItem else { continue }
             retainedBatches.append(batch)
         }
 
         #expect(retainedBatches.count <= 2)
         #expect(ingressBuffer.consumeOverflowRecoveries().map(\.worktreeId) == [worktreeId])
+    }
+
+    @Test("activity processing fence follows every previously accepted batch")
+    func activityProcessingFencePreservesIngressOrder() async throws {
+        // Arrange
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 2)
+        let worktreeId = UUIDv7.generate()
+        let batch = FSEventBatch(worktreeId: worktreeId, paths: ["Sources/Changed.swift"])
+        ingressBuffer.yield(batch)
+        let fenceTask = Task { await ingressBuffer.enqueueActivityProcessingFence() }
+        var iterator = ingressBuffer.events().makeAsyncIterator()
+
+        // Act / Assert
+        guard case .batch(let receivedBatch) = try #require(await iterator.next()) else {
+            Issue.record("activity fence overtook its preceding filesystem batch")
+            return
+        }
+        #expect(receivedBatch.worktreeId == worktreeId)
+        guard case .activityProcessingFence(let fenceID) = try #require(await iterator.next()) else {
+            Issue.record("activity processing fence was not delivered after its batch")
+            return
+        }
+        ingressBuffer.acknowledgeActivityProcessingFence(fenceID)
+        #expect(await fenceTask.value)
+        ingressBuffer.finish()
+    }
+
+    @Test("activity processing fence fails closed when bounded ingress is full")
+    func activityProcessingFenceRejectsFullIngress() async {
+        // Arrange
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
+        let worktreeId = UUIDv7.generate()
+        ingressBuffer.yield(
+            FSEventBatch(worktreeId: worktreeId, paths: ["Sources/Retained.swift"])
+        )
+
+        // Act
+        let didCrossProcessedIngress = await ingressBuffer.enqueueActivityProcessingFence()
+
+        // Assert
+        #expect(!didCrossProcessedIngress)
+        var iterator = ingressBuffer.events().makeAsyncIterator()
+        guard case .batch(let retainedBatch) = await iterator.next() else {
+            Issue.record("full ingress displaced the earlier filesystem batch")
+            return
+        }
+        #expect(retainedBatch.worktreeId == worktreeId)
+        ingressBuffer.finish()
     }
 
     @Test("overflow debt coalesces per affected worktree and stays isolated")
@@ -677,7 +736,8 @@ struct DarwinFSEventStreamClientTests {
             readinessSentinelPath
         ).path
         let readinessBatchTask = Task<FSEventBatch?, Never> {
-            for await batch in client.events() {
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
                 if batch.worktreeId == worktreeId,
                     batch.paths.contains(canonicalReadinessSentinelPath)
                 {
@@ -705,8 +765,11 @@ struct DarwinFSEventStreamClientTests {
             )
         )
         let eventTask = Task<FSEventBatch?, Never> {
-            for await batch in client.events() where batch.requiresFullGitRefresh {
-                return batch
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
+                if batch.requiresFullGitRefresh {
+                    return batch
+                }
             }
             return nil
         }
