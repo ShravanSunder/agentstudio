@@ -255,12 +255,21 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
         let probe = BridgeDevelopmentObservationProbe()
+        let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentRealDeletionObservation")
         let host = try await BridgeDevelopmentProductHost(
             source: source,
             contributionTargetCommit: { _ in .unchanged(source.paneState) }
         )
         let observation = BridgeDevelopmentSeededWorktreeObservation(
             source: source,
+            dependencies: .init(
+                bus: bus,
+                fseventStreamClient: DarwinFSEventStreamClient(),
+                gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(),
+                filesystemDebounceWindow: .milliseconds(10),
+                filesystemMaximumFlushLatency: .milliseconds(25),
+                gitCoalescingWindow: .milliseconds(10)
+            ),
             invalidationSink: { invalidation in
                 await probe.record(invalidation)
                 await host.handleObservedWorktreeInvalidation(invalidation)
