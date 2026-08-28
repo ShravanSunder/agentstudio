@@ -109,7 +109,7 @@ export function bridgeFileViewerOpenStateForSelection(props: {
 		fileId: props.selection.fileId,
 		path: props.selection.path,
 	} as const;
-	if (props.status?.state === 'stale' || props.contentAvailability?.state === 'stale') {
+	if (props.contentAvailability?.state === 'stale') {
 		return { ...selected, status: 'stale' };
 	}
 	if (
