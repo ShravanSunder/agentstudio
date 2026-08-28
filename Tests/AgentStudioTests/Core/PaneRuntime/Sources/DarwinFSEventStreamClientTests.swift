@@ -285,6 +285,33 @@ struct DarwinFSEventStreamClientTests {
         #expect(ledger.renew(authority) == .requiresExact(.identityChanged))
     }
 
+    @Test("continuity ledger resolves only the ambiguity epoch captured by the exact scan")
+    func continuityLedgerResolvesOnlyCapturedAncestorAmbiguity() throws {
+        let ledger = GitCleanContinuityLedger()
+        let registrationId = UUIDv7.generate()
+        let identity = AgentStudioGit.GitStatusObservationIdentity(rawValue: "identity-ancestor")
+        ledger.register(registrationId: registrationId, identity: identity)
+        let staleBarrier = try #require(
+            ledger.beginBarrier(registrationId: registrationId, identity: identity)
+        )
+
+        #expect(ledger.recordAncestorAmbiguity(registrationId: registrationId) == 1)
+        #expect(ledger.commitBarrier(staleBarrier) == .requiresExact(.eventStreamUncertain))
+
+        let currentBarrier = try #require(
+            ledger.beginBarrier(registrationId: registrationId, identity: identity)
+        )
+        guard case .authoritative(let authority) = ledger.commitBarrier(currentBarrier) else {
+            Issue.record("current ancestor ambiguity barrier did not mint authority")
+            return
+        }
+        #expect(authority.resolvedAncestorAmbiguityEpoch == 1)
+        #expect(ledger.renew(authority) == .authoritative(authority))
+
+        #expect(ledger.recordAncestorAmbiguity(registrationId: registrationId) == 2)
+        #expect(ledger.renew(authority) == .requiresExact(.eventStreamUncertain))
+    }
+
     @Test("filesystem ingress does not retain more fine batches than its configured capacity")
     func ingressRetainsAtMostConfiguredFineBatchCapacity() async throws {
         let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 2)

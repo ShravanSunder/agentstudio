@@ -9,6 +9,45 @@ import Testing
 
 @Suite("DarwinCompositeFSEventContinuity")
 struct DarwinCompositeFSEventContinuityTests {
+    @Test("stable shared fingerprint baseline renews with its resolved ambiguity epoch")
+    func stableSharedFingerprintBaselineRenews() async throws {
+        let fixture = try CompositeContinuityFixture()
+
+        let authority = try #require(await fixture.prepareAuthority())
+        let renewal = await fixture.client.renew(authority)
+
+        #expect(authority.resolvedAncestorAmbiguityEpoch == 0)
+        #expect(renewal == .authoritative(authority))
+    }
+
+    @Test("pre-prepare ancestor ambiguity is superseded by the exact scan")
+    func prePrepareAncestorAmbiguityIsSuperseded() async throws {
+        let fixture = try CompositeContinuityFixture()
+        _ = try #require(await fixture.prepare())
+        fixture.streamFactory.send(path: fixture.ancestorEventPath, eventId: 290)
+
+        let authority = try #require(await fixture.prepareAuthority())
+
+        #expect(authority.resolvedAncestorAmbiguityEpoch == 1)
+        #expect(await fixture.client.renew(authority) == .authoritative(authority))
+    }
+
+    @Test("shared item replacement during fingerprinting rejects commit")
+    func sharedItemReplacementDuringFingerprintingRejectsCommit() async throws {
+        let fingerprintGate = CompositeFingerprintGate()
+        let fixture = try CompositeContinuityFixture(
+            regularFileOpened: fingerprintGate.regularFileOpened
+        )
+        let barrier = try #require(await fixture.prepare())
+        let commitTask = Task { await fixture.client.commit(barrier) }
+
+        await fingerprintGate.waitUntilOpened()
+        try Data("changed".utf8).write(to: fixture.configurationPath)
+        fingerprintGate.allowRead()
+
+        #expect((await commitTask.value).requiresExact)
+    }
+
     @Test(
         "shared mutation during each composite flush window rejects continuity",
         arguments: CompositeFlushWindow.allCases
@@ -25,7 +64,7 @@ struct DarwinCompositeFSEventContinuityTests {
             operationTask = Task {
                 await fixture.prepare() == nil
             }
-        case .commit:
+        case .commitBeforeFingerprint, .commitAfterFingerprint:
             let barrier = try #require(await fixture.prepare())
             operationTask = Task {
                 (await fixture.client.commit(barrier)).requiresExact
@@ -94,11 +133,15 @@ struct DarwinCompositeFSEventContinuityTests {
 
 enum CompositeFlushWindow: Int, CaseIterable, Sendable {
     case prepare = 1
-    case commit = 2
-    case renew = 3
+    case commitBeforeFingerprint = 2
+    case commitAfterFingerprint = 3
+    case renew = 4
 
     var flushNumber: Int { rawValue }
 }
+
+private typealias CompositeRegularFileOpened =
+    DarwinSharedExactItemFingerprintReader.RegularFileOpened
 
 private final class CompositeContinuityFixture: @unchecked Sendable {
     let client: DarwinFSEventStreamClient
@@ -107,11 +150,15 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     let worktreeRoot: URL
     let configurationPath: URL
     let configurationEventPath: String
+    let ancestorEventPath: String
     let observationPlan: AgentStudioGit.GitStatusObservationPlan
 
     private let fixtureRoot: URL
 
-    init(blockedFlushNumber: Int) throws {
+    init(
+        blockedFlushNumber: Int = .max,
+        regularFileOpened: @escaping CompositeRegularFileOpened = { _ in }
+    ) throws {
         fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-composite-continuity-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -131,10 +178,22 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
                 return String(cString: resolvedPointer)
             }
         )
+        ancestorEventPath = try #require(
+            externalParent.withUnsafeFileSystemRepresentation { pathPointer -> String? in
+                guard let pathPointer, let resolvedPointer = Darwin.realpath(pathPointer, nil) else {
+                    return nil
+                }
+                defer { free(resolvedPointer) }
+                return String(cString: resolvedPointer)
+            }
+        )
 
         streamFactory = CompositeFlushStreamFactory(blockedFlushNumber: blockedFlushNumber)
         client = DarwinFSEventStreamClient(
-            sharedExactItemStreamFactory: streamFactory.makeStream
+            sharedExactItemStreamFactory: streamFactory.makeStream,
+            sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader(
+                regularFileOpened: regularFileOpened
+            )
         )
         observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "composite-continuity"),
@@ -164,6 +223,45 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     func prepareAuthority() async -> GitCleanContinuityAuthority? {
         guard let barrier = await prepare() else { return nil }
         return await client.commit(barrier).authority
+    }
+}
+
+private final class CompositeFingerprintGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private let openedEvents: AsyncStream<Void>
+    private let openedContinuation: AsyncStream<Void>.Continuation
+    private var mayRead = false
+
+    init() {
+        (openedEvents, openedContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+    }
+
+    var regularFileOpened: DarwinSharedExactItemFingerprintReader.RegularFileOpened {
+        { [weak self] _ in
+            guard let self else { return }
+            condition.lock()
+            openedContinuation.yield()
+            while !mayRead {
+                condition.wait()
+            }
+            condition.unlock()
+        }
+    }
+
+    func waitUntilOpened() async {
+        for await _ in openedEvents {
+            return
+        }
+    }
+
+    func allowRead() {
+        condition.withLock {
+            mayRead = true
+            condition.broadcast()
+        }
     }
 }
 

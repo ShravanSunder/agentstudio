@@ -213,12 +213,14 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     private let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
     private let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
+    private let sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader
     private let ingressPerformanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
 
     package init(
         bufferedFineBatchCapacity: Int = AppPolicies.FilesystemIngress.bufferedFineBatchCapacity,
         sharedExactItemStreamFactory: @escaping DarwinSharedExactItemStreamFactory =
-            DarwinSharedExactItemNativeStream.start
+            DarwinSharedExactItemNativeStream.start,
+        sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
     ) {
         let continuityLedger = GitCleanContinuityLedger()
         let ingressPerformanceAccumulator = DarwinFSEventIngressPerformanceAccumulator()
@@ -232,6 +234,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         self.continuityLedger = continuityLedger
         self.ingressBuffer = ingressBuffer
         self.ingressPerformanceAccumulator = ingressPerformanceAccumulator
+        self.sharedExactItemFingerprintReader = sharedExactItemFingerprintReader
         sharedExactItemObserverRegistry = DarwinSharedExactItemObserverRegistry(
             streamFactory: sharedExactItemStreamFactory,
             recordRawEvents: { worktreeId, events in
@@ -239,6 +242,9 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     registrationId: worktreeId,
                     events: events
                 )
+            },
+            recordAncestorAmbiguity: { worktreeId in
+                _ = continuityLedger.recordAncestorAmbiguity(registrationId: worktreeId)
             },
             markUncertain: { worktreeId in
                 continuityLedger.markUncertain(registrationId: worktreeId)
@@ -382,7 +388,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         guard let currentRegistration, currentRegistration.rootPath == canonicalRootPath else { return nil }
         defer { FSEventStreamRelease(currentRegistration.stream) }
 
-        continuityLedger.unregister(registrationId: worktreeId)
         let registration: StreamRegistration
         if currentRegistration.observationIdentity == observationIdentity,
             currentRegistration.watchedPaths == binding.localWatchedPaths,
@@ -391,9 +396,14 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 binding.localScopes
             )
         {
-            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
+            continuityLedger.register(
+                registrationId: worktreeId,
+                identity: observationIdentity,
+                preserveAncestorAmbiguity: true
+            )
             registration = currentRegistration
         } else {
+            continuityLedger.unregister(registrationId: worktreeId)
             guard
                 let replacement = makeRegistration(
                     worktreeId: worktreeId,
@@ -482,14 +492,66 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
         defer { FSEventStreamRelease(streamRetention.registration.stream) }
         guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
-        let validation = continuityLedger.commitBarrier(barrier)
-        guard case .authoritative = validation else { return validation }
         guard
+            continuityLedger.barrierIsCurrent(barrier) == nil,
             compositeStreamsAreCurrent(
                 worktreeId: barrier.registrationId,
                 streamRetention: streamRetention
             )
         else {
+            return .requiresExact(
+                continuityLedger.barrierIsCurrent(barrier) ?? .registrationReplaced
+            )
+        }
+
+        guard let sharedBindingLease = streamRetention.sharedBindingLease else {
+            return continuityLedger.commitBarrier(barrier)
+        }
+        let canonicalItemPaths = Array(
+            Set(sharedBindingLease.exactItemsByParent.values.flatMap { $0 })
+        ).sorted()
+        let fingerprintOutcome = await sharedExactItemFingerprintReader.read(
+            canonicalItemPaths: canonicalItemPaths
+        )
+        guard let fingerprintSnapshot = fingerprintOutcome.snapshot else {
+            return .requiresExact(.eventStreamUncertain)
+        }
+        guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
+        guard
+            continuityLedger.barrierIsCurrent(barrier) == nil,
+            compositeStreamsAreCurrent(
+                worktreeId: barrier.registrationId,
+                streamRetention: streamRetention
+            )
+        else {
+            return .requiresExact(
+                continuityLedger.barrierIsCurrent(barrier) ?? .registrationReplaced
+            )
+        }
+
+        let validation = continuityLedger.commitBarrier(barrier)
+        guard case .authoritative(let authority) = validation else { return validation }
+        guard
+            sharedExactItemObserverRegistry.installAuthorityBaseline(
+                worktreeId: barrier.registrationId,
+                authority: authority,
+                lease: sharedBindingLease,
+                snapshot: fingerprintSnapshot
+            ),
+            compositeStreamsAreCurrent(
+                worktreeId: barrier.registrationId,
+                streamRetention: streamRetention
+            ),
+            continuityLedger.renew(authority) == .authoritative(authority),
+            sharedExactItemObserverRegistry.authorityBaselineIsCurrent(
+                worktreeId: barrier.registrationId,
+                authority: authority,
+                lease: sharedBindingLease
+            )
+        else {
+            sharedExactItemObserverRegistry.clearAuthorityBaseline(
+                worktreeId: barrier.registrationId
+            )
             return .requiresExact(.registrationReplaced)
         }
         return validation
@@ -510,8 +572,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
         defer { FSEventStreamRelease(streamRetention.registration.stream) }
         guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
-        let validation = continuityLedger.renew(authority)
-        guard case .authoritative = validation else { return validation }
         guard
             compositeStreamsAreCurrent(
                 worktreeId: authority.registrationId,
@@ -519,6 +579,19 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             )
         else {
             return .requiresExact(.registrationReplaced)
+        }
+        let validation = continuityLedger.renew(authority)
+        guard case .authoritative(let renewedAuthority) = validation else { return validation }
+        if let sharedBindingLease = streamRetention.sharedBindingLease {
+            guard
+                sharedExactItemObserverRegistry.authorityBaselineIsCurrent(
+                    worktreeId: authority.registrationId,
+                    authority: renewedAuthority,
+                    lease: sharedBindingLease
+                )
+            else {
+                return .requiresExact(.eventStreamUncertain)
+            }
         }
         return validation
     }
@@ -529,6 +602,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             streamByWorktreeId[worktreeId]?.rootPath == canonicalRootPath
         }
         if matches {
+            sharedExactItemObserverRegistry.clearAuthorityBaseline(worktreeId: worktreeId)
             continuityLedger.unregister(registrationId: worktreeId)
         }
     }
@@ -747,6 +821,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             sharedExactItemObserverRegistry.bind(
                 worktreeId: worktreeId,
                 bindingGeneration: lifecycleGeneration,
+                observationIdentity: registration.observationIdentity,
                 exactItemsByParent: exactItemsByParent,
                 bindingIsCurrent: { [weak self] in
                     self?.registrationIsCurrent(

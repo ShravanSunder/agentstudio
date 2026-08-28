@@ -3,17 +3,17 @@ import CryptoKit
 import Darwin
 import Foundation
 
-enum DarwinSharedExactItemFingerprintAlgorithm: String, Equatable, Sendable {
+package enum DarwinSharedExactItemFingerprintAlgorithm: String, Equatable, Sendable {
     case sha256V1 = "sha256-v1"
 }
 
-enum DarwinSharedExactItemFingerprintKind: Equatable, Sendable {
+package enum DarwinSharedExactItemFingerprintKind: Equatable, Sendable {
     case missing
     case regularFile
     case symbolicLink
 }
 
-struct DarwinSharedExactItemFingerprint: Equatable, Sendable {
+package struct DarwinSharedExactItemFingerprint: Equatable, Sendable {
     let canonicalPath: String
     let kind: DarwinSharedExactItemFingerprintKind
     let algorithm: DarwinSharedExactItemFingerprintAlgorithm
@@ -21,7 +21,7 @@ struct DarwinSharedExactItemFingerprint: Equatable, Sendable {
     let identity: DarwinSharedExactItemIdentity?
 }
 
-struct DarwinSharedExactItemIdentity: Equatable, Sendable {
+package struct DarwinSharedExactItemIdentity: Equatable, Sendable {
     let device: dev_t
     let inode: ino_t
     let mode: mode_t
@@ -49,13 +49,13 @@ struct DarwinSharedExactItemIdentity: Equatable, Sendable {
     }
 }
 
-struct DarwinSharedExactItemFingerprintSnapshot: Equatable, Sendable {
+package struct DarwinSharedExactItemFingerprintSnapshot: Equatable, Sendable {
     let fingerprintsByCanonicalPath: [String: DarwinSharedExactItemFingerprint]
     let uniqueItemCount: Int
     let bytesRead: Int
 }
 
-enum DarwinSharedExactItemFingerprintFailure: Equatable, Sendable {
+package enum DarwinSharedExactItemFingerprintFailure: Equatable, Sendable {
     case itemByteLimitExceeded
     case itemCountLimitExceeded
     case transactionByteLimitExceeded
@@ -64,7 +64,7 @@ enum DarwinSharedExactItemFingerprintFailure: Equatable, Sendable {
     case unstableItem
 }
 
-struct DarwinSharedExactItemFingerprintOutcome: Equatable, Sendable {
+package struct DarwinSharedExactItemFingerprintOutcome: Equatable, Sendable {
     let snapshot: DarwinSharedExactItemFingerprintSnapshot?
     let failure: DarwinSharedExactItemFingerprintFailure?
     let bytesRead: Int
@@ -89,7 +89,7 @@ struct DarwinSharedExactItemFingerprintOutcome: Equatable, Sendable {
     }
 }
 
-struct DarwinSharedExactItemFingerprintPolicy: Equatable, Sendable {
+package struct DarwinSharedExactItemFingerprintPolicy: Equatable, Sendable {
     let maximumItemBytes: Int
     let maximumUniqueItems: Int
     let maximumTransactionBytes: Int
@@ -106,7 +106,7 @@ struct DarwinSharedExactItemFingerprintPolicy: Equatable, Sendable {
     }
 }
 
-struct DarwinSharedExactItemFingerprintReader: Sendable {
+package struct DarwinSharedExactItemFingerprintReader: Sendable {
     typealias RegularFileOpened = @Sendable (String) -> Void
 
     private static let regularFileReadChunkByteCount = 64 * 1024

@@ -19,6 +19,23 @@ package struct GitCleanContinuityBarrier: Sendable, Equatable {
     package let registrationGeneration: UInt64
     package let mutationEpoch: UInt64
     package let uncertaintyEpoch: UInt64
+    package let observedAncestorAmbiguityEpoch: UInt64
+
+    package init(
+        registrationId: UUID,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity,
+        registrationGeneration: UInt64,
+        mutationEpoch: UInt64,
+        uncertaintyEpoch: UInt64,
+        observedAncestorAmbiguityEpoch: UInt64 = 0
+    ) {
+        self.registrationId = registrationId
+        self.observationIdentity = observationIdentity
+        self.registrationGeneration = registrationGeneration
+        self.mutationEpoch = mutationEpoch
+        self.uncertaintyEpoch = uncertaintyEpoch
+        self.observedAncestorAmbiguityEpoch = observedAncestorAmbiguityEpoch
+    }
 }
 
 package struct GitCleanContinuityAuthority: Sendable, Equatable {
@@ -27,6 +44,23 @@ package struct GitCleanContinuityAuthority: Sendable, Equatable {
     package let registrationGeneration: UInt64
     package let mutationEpoch: UInt64
     package let uncertaintyEpoch: UInt64
+    package let resolvedAncestorAmbiguityEpoch: UInt64
+
+    package init(
+        registrationId: UUID,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity,
+        registrationGeneration: UInt64,
+        mutationEpoch: UInt64,
+        uncertaintyEpoch: UInt64,
+        resolvedAncestorAmbiguityEpoch: UInt64 = 0
+    ) {
+        self.registrationId = registrationId
+        self.observationIdentity = observationIdentity
+        self.registrationGeneration = registrationGeneration
+        self.mutationEpoch = mutationEpoch
+        self.uncertaintyEpoch = uncertaintyEpoch
+        self.resolvedAncestorAmbiguityEpoch = resolvedAncestorAmbiguityEpoch
+    }
 }
 
 package enum GitCleanContinuityAuthorityValidation: Sendable, Equatable {
@@ -44,6 +78,8 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
         let generation: UInt64
         var mutationEpoch: UInt64
         var uncertaintyEpoch: UInt64
+        var observedAncestorAmbiguityEpoch: UInt64
+        var resolvedAncestorAmbiguityEpoch: UInt64
         var latestEventId: FSEventStreamEventId?
     }
 
@@ -66,16 +102,27 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
 
     package func register(
         registrationId: UUID,
-        identity: AgentStudioGit.GitStatusObservationIdentity
+        identity: AgentStudioGit.GitStatusObservationIdentity,
+        preserveAncestorAmbiguity: Bool = false
     ) {
         lock.withLock {
             guard !hasShutdown else { return }
+            let previousRegistration = registrationById[registrationId]
+            let preservesPreviousAmbiguity =
+                preserveAncestorAmbiguity
+                && previousRegistration?.identity == identity
             nextRegistrationGeneration &+= 1
             registrationById[registrationId] = RegistrationState(
                 identity: identity,
                 generation: nextRegistrationGeneration,
                 mutationEpoch: 0,
                 uncertaintyEpoch: 0,
+                observedAncestorAmbiguityEpoch: preservesPreviousAmbiguity
+                    ? previousRegistration?.observedAncestorAmbiguityEpoch ?? 0
+                    : 0,
+                resolvedAncestorAmbiguityEpoch: preservesPreviousAmbiguity
+                    ? previousRegistration?.resolvedAncestorAmbiguityEpoch ?? 0
+                    : 0,
                 latestEventId: nil
             )
         }
@@ -103,8 +150,17 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
                 observationIdentity: identity,
                 registrationGeneration: registration.generation,
                 mutationEpoch: registration.mutationEpoch,
-                uncertaintyEpoch: registration.uncertaintyEpoch
+                uncertaintyEpoch: registration.uncertaintyEpoch,
+                observedAncestorAmbiguityEpoch: registration.observedAncestorAmbiguityEpoch
             )
+        }
+    }
+
+    package func barrierIsCurrent(
+        _ barrier: GitCleanContinuityBarrier
+    ) -> GitCleanContinuityFailureReason? {
+        lock.withLock {
+            barrierFailureReason(barrier)
         }
     }
 
@@ -112,29 +168,23 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
         _ barrier: GitCleanContinuityBarrier
     ) -> GitCleanContinuityAuthorityValidation {
         lock.withLock {
-            guard !hasShutdown else { return .requiresExact(.shutdown) }
-            guard let registration = registrationById[barrier.registrationId] else {
+            if let failureReason = barrierFailureReason(barrier) {
+                return .requiresExact(failureReason)
+            }
+            guard var registration = registrationById[barrier.registrationId] else {
                 return .requiresExact(.registrationMissing)
             }
-            guard registration.identity == barrier.observationIdentity else {
-                return .requiresExact(.identityChanged)
-            }
-            guard registration.generation == barrier.registrationGeneration else {
-                return .requiresExact(.registrationReplaced)
-            }
-            guard registration.mutationEpoch == barrier.mutationEpoch else {
-                return .requiresExact(.mutationObserved)
-            }
-            guard registration.uncertaintyEpoch == barrier.uncertaintyEpoch else {
-                return .requiresExact(.eventStreamUncertain)
-            }
+            registration.resolvedAncestorAmbiguityEpoch =
+                barrier.observedAncestorAmbiguityEpoch
+            registrationById[barrier.registrationId] = registration
             return .authoritative(
                 GitCleanContinuityAuthority(
                     registrationId: barrier.registrationId,
                     observationIdentity: barrier.observationIdentity,
                     registrationGeneration: barrier.registrationGeneration,
                     mutationEpoch: barrier.mutationEpoch,
-                    uncertaintyEpoch: barrier.uncertaintyEpoch
+                    uncertaintyEpoch: barrier.uncertaintyEpoch,
+                    resolvedAncestorAmbiguityEpoch: barrier.observedAncestorAmbiguityEpoch
                 )
             )
         }
@@ -160,7 +210,36 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
             guard registration.uncertaintyEpoch == authority.uncertaintyEpoch else {
                 return .requiresExact(.eventStreamUncertain)
             }
-            return .authoritative(authority)
+            guard
+                registration.observedAncestorAmbiguityEpoch
+                    == registration.resolvedAncestorAmbiguityEpoch,
+                authority.resolvedAncestorAmbiguityEpoch
+                    == registration.resolvedAncestorAmbiguityEpoch
+            else {
+                return .requiresExact(.eventStreamUncertain)
+            }
+            return .authoritative(
+                GitCleanContinuityAuthority(
+                    registrationId: authority.registrationId,
+                    observationIdentity: authority.observationIdentity,
+                    registrationGeneration: authority.registrationGeneration,
+                    mutationEpoch: authority.mutationEpoch,
+                    uncertaintyEpoch: authority.uncertaintyEpoch,
+                    resolvedAncestorAmbiguityEpoch: registration.resolvedAncestorAmbiguityEpoch
+                )
+            )
+        }
+    }
+
+    @discardableResult
+    package func recordAncestorAmbiguity(registrationId: UUID) -> UInt64? {
+        lock.withLock {
+            guard !hasShutdown, var registration = registrationById[registrationId] else {
+                return nil
+            }
+            registration.observedAncestorAmbiguityEpoch &+= 1
+            registrationById[registrationId] = registration
+            return registration.observedAncestorAmbiguityEpoch
         }
     }
 
@@ -226,6 +305,34 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
             hasShutdown = true
             registrationById.removeAll(keepingCapacity: false)
         }
+    }
+
+    private func barrierFailureReason(
+        _ barrier: GitCleanContinuityBarrier
+    ) -> GitCleanContinuityFailureReason? {
+        guard !hasShutdown else { return .shutdown }
+        guard let registration = registrationById[barrier.registrationId] else {
+            return .registrationMissing
+        }
+        guard registration.identity == barrier.observationIdentity else {
+            return .identityChanged
+        }
+        guard registration.generation == barrier.registrationGeneration else {
+            return .registrationReplaced
+        }
+        guard registration.mutationEpoch == barrier.mutationEpoch else {
+            return .mutationObserved
+        }
+        guard registration.uncertaintyEpoch == barrier.uncertaintyEpoch else {
+            return .eventStreamUncertain
+        }
+        guard
+            registration.observedAncestorAmbiguityEpoch
+                == barrier.observedAncestorAmbiguityEpoch
+        else {
+            return .eventStreamUncertain
+        }
+        return nil
     }
 
     private static func applyRawEvent(

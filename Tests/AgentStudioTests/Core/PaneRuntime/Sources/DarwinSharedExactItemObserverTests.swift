@@ -500,7 +500,8 @@ struct DarwinSharedExactItemObserverTests {
 
         #expect(renewal == .authoritative(authority))
         #expect(streamFactory.startCount == 1)
-        #expect(streamFactory.flushCount == 3)
+        // Prepare, pre-fingerprint commit, post-fingerprint commit, and renewal.
+        #expect(streamFactory.flushCount == 4)
         client.unregister(worktreeId: worktreeId)
         #expect(streamFactory.retirementCount == 1)
     }

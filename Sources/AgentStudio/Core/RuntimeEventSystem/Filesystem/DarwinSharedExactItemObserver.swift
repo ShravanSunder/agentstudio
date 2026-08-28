@@ -150,6 +150,7 @@ package enum DarwinSharedExactItemBindingRetention: Sendable {
 package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private struct BindingValidation: Sendable {
         let generation: UInt64
+        let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
         let isCurrent: @Sendable () -> Bool
     }
 
@@ -179,6 +180,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private let lifecycleCondition = NSCondition()
     private let streamFactory: DarwinSharedExactItemStreamFactory
     private let recordRawEvents: @Sendable (UUID, [DarwinFSEventClassifiedRawEvent]) -> Void
+    private let recordAncestorAmbiguity: @Sendable (UUID) -> Void
     private let markUncertain: @Sendable (UUID) -> Void
     private let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
     private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
@@ -188,6 +190,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private var bindingValidationByWorktreeId: [UUID: BindingValidation] = [:]
     private var sharedDependentWorktreeIds: Set<UUID> = []
     private var fullRefreshDeliveryOutstandingWorktreeIds: Set<UUID> = []
+    private var authorityBaselines = DarwinSharedExactItemAuthorityBaselines()
     private var startingParentKeys: Set<DarwinSharedExactItemParentKey> = []
     private var hasShutdown = false
 
@@ -198,12 +201,14 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 UUID,
                 [DarwinFSEventClassifiedRawEvent]
             ) -> Void,
+        recordAncestorAmbiguity: @escaping @Sendable (UUID) -> Void = { _ in },
         markUncertain: @escaping @Sendable (UUID) -> Void,
         yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
         performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
     ) {
         self.streamFactory = streamFactory
         self.recordRawEvents = recordRawEvents
+        self.recordAncestorAmbiguity = recordAncestorAmbiguity
         self.markUncertain = markUncertain
         self.yieldFullGitRefresh = yieldFullGitRefresh
         self.performanceAccumulator = performanceAccumulator
@@ -212,6 +217,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     package func bind(
         worktreeId: UUID,
         bindingGeneration: UInt64,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity? = nil,
         exactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>],
         bindingIsCurrent: @escaping @Sendable () -> Bool
     ) -> Bool {
@@ -246,6 +252,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 let retiredStreamLifetimes = replaceBindingLocked(
                     worktreeId: worktreeId,
                     bindingGeneration: bindingGeneration,
+                    observationIdentity: observationIdentity,
                     bindingIsCurrent: bindingIsCurrent,
                     desiredExactItemsByParent: desiredExactItemsByParent
                 )
@@ -312,6 +319,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             let retiredStreamLifetimes = replaceBindingLocked(
                 worktreeId: worktreeId,
                 bindingGeneration: bindingGeneration,
+                observationIdentity: observationIdentity,
                 bindingIsCurrent: bindingIsCurrent,
                 desiredExactItemsByParent: desiredExactItemsByParent
             )
@@ -333,6 +341,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         let retiredStreamLifetimes = replaceBindingLocked(
             worktreeId: worktreeId,
             bindingGeneration: nil,
+            observationIdentity: nil,
             bindingIsCurrent: nil,
             desiredExactItemsByParent: [:]
         )
@@ -392,20 +401,50 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         lease: DarwinSharedExactItemBindingLease
     ) -> Bool {
         lifecycleCondition.withLock {
-            guard !hasShutdown,
-                sharedDependentWorktreeIds.contains(worktreeId),
-                let bindingValidation = bindingValidationByWorktreeId[worktreeId],
-                bindingValidation.generation == lease.bindingGeneration,
-                bindingValidation.isCurrent(),
-                exactItemsByParentByWorktreeId[worktreeId] == lease.exactItemsByParent
+            bindingIsCurrentLocked(worktreeId: worktreeId, lease: lease)
+        }
+    }
+
+    package func installAuthorityBaseline(
+        worktreeId: UUID,
+        authority: GitCleanContinuityAuthority,
+        lease: DarwinSharedExactItemBindingLease,
+        snapshot: DarwinSharedExactItemFingerprintSnapshot
+    ) -> Bool {
+        lifecycleCondition.withLock {
+            guard bindingIsCurrentLocked(worktreeId: worktreeId, lease: lease),
+                bindingValidationByWorktreeId[worktreeId]?.observationIdentity
+                    == authority.observationIdentity
             else {
                 return false
             }
-            return lease.streamGenerationByParent.allSatisfy { parentKey, generation in
-                observerByParent[parentKey]?.generation == generation
-                    && observerByParent[parentKey]?.exactPathsByWorktreeId[worktreeId]
-                        == lease.exactItemsByParent[parentKey]
-            }
+            return authorityBaselines.install(
+                worktreeId: worktreeId,
+                authority: authority,
+                lease: lease,
+                snapshot: snapshot
+            ) != nil
+        }
+    }
+
+    package func authorityBaselineIsCurrent(
+        worktreeId: UUID,
+        authority: GitCleanContinuityAuthority,
+        lease: DarwinSharedExactItemBindingLease
+    ) -> Bool {
+        lifecycleCondition.withLock {
+            bindingIsCurrentLocked(worktreeId: worktreeId, lease: lease)
+                && authorityBaselines.baseline(
+                    worktreeId: worktreeId,
+                    authority: authority,
+                    lease: lease
+                ) != nil
+        }
+    }
+
+    package func clearAuthorityBaseline(worktreeId: UUID) {
+        lifecycleCondition.withLock {
+            authorityBaselines.remove(worktreeId: worktreeId)
         }
     }
 
@@ -447,6 +486,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
 
         var mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]] = [:]
         var uncertainWorktreeIds: Set<UUID> = []
+        var ancestorAmbiguityWorktreeIds: Set<UUID> = []
         var exactSubscriberWorktreeIds: Set<UUID> = []
         var shouldRetireObserver = false
         let dependentWorktreeIds = Set(
@@ -477,6 +517,16 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             let hasUncertainFlags = rawEvent.flags & Self.uncertaintyFlags != 0
             let hasAmbiguousAncestorCoverage = observer.worktreeIdsByExactPath.keys.contains { exactPath in
                 exactPath.hasPrefix(normalizedPath + "/")
+            }
+            if hasAmbiguousAncestorCoverage {
+                for (exactPath, worktreeIds) in observer.worktreeIdsByExactPath
+                where exactPath.hasPrefix(normalizedPath + "/") {
+                    ancestorAmbiguityWorktreeIds.formUnion(
+                        worktreeIds.filter {
+                            bindingValidationByWorktreeId[$0]?.isCurrent() == true
+                        }
+                    )
+                }
             }
             if hasUncertainFlags || cursorRegressed || hasAmbiguousAncestorCoverage {
                 uncertainWorktreeIds.formUnion(dependentWorktreeIds)
@@ -512,6 +562,9 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             guard let events = mutationEventsByWorktreeId[worktreeId] else { continue }
             recordRawEvents(worktreeId, events)
         }
+        for worktreeId in ancestorAmbiguityWorktreeIds.sorted(by: Self.sortWorktreeIds) {
+            recordAncestorAmbiguity(worktreeId)
+        }
         for worktreeId in uncertainWorktreeIds.sorted(by: Self.sortWorktreeIds) {
             markUncertain(worktreeId)
         }
@@ -539,6 +592,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         bindingValidationByWorktreeId.removeAll(keepingCapacity: false)
         sharedDependentWorktreeIds.removeAll(keepingCapacity: false)
         fullRefreshDeliveryOutstandingWorktreeIds.removeAll(keepingCapacity: false)
+        authorityBaselines.removeAll()
         lifecycleCondition.broadcast()
         lifecycleCondition.unlock()
         retire(streamLifetimes)
@@ -547,10 +601,12 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private func replaceBindingLocked(
         worktreeId: UUID,
         bindingGeneration: UInt64?,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity?,
         bindingIsCurrent: (@Sendable () -> Bool)?,
         desiredExactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>]
     ) -> [any DarwinSharedExactItemStreamLifetime] {
         fullRefreshDeliveryOutstandingWorktreeIds.remove(worktreeId)
+        authorityBaselines.remove(worktreeId: worktreeId)
         let previousExactItemsByParent = exactItemsByParentByWorktreeId[worktreeId] ?? [:]
         let allParentKeys = Set(previousExactItemsByParent.keys)
             .union(desiredExactItemsByParent.keys)
@@ -595,6 +651,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             exactItemsByParentByWorktreeId[worktreeId] = desiredExactItemsByParent
             bindingValidationByWorktreeId[worktreeId] = BindingValidation(
                 generation: bindingGeneration,
+                observationIdentity: observationIdentity,
                 isCurrent: bindingIsCurrent
             )
             sharedDependentWorktreeIds.insert(worktreeId)
@@ -607,12 +664,33 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     ) -> (any DarwinSharedExactItemStreamLifetime)? {
         guard let observer = observerByParent.removeValue(forKey: parentKey) else { return nil }
         for worktreeId in observer.exactPathsByWorktreeId.keys {
+            authorityBaselines.remove(worktreeId: worktreeId)
             exactItemsByParentByWorktreeId[worktreeId]?.removeValue(forKey: parentKey)
             if exactItemsByParentByWorktreeId[worktreeId]?.isEmpty == true {
                 exactItemsByParentByWorktreeId.removeValue(forKey: worktreeId)
             }
         }
         return observer.streamLifetime
+    }
+
+    private func bindingIsCurrentLocked(
+        worktreeId: UUID,
+        lease: DarwinSharedExactItemBindingLease
+    ) -> Bool {
+        guard !hasShutdown,
+            sharedDependentWorktreeIds.contains(worktreeId),
+            let bindingValidation = bindingValidationByWorktreeId[worktreeId],
+            bindingValidation.generation == lease.bindingGeneration,
+            bindingValidation.isCurrent(),
+            exactItemsByParentByWorktreeId[worktreeId] == lease.exactItemsByParent
+        else {
+            return false
+        }
+        return lease.streamGenerationByParent.allSatisfy { parentKey, generation in
+            observerByParent[parentKey]?.generation == generation
+                && observerByParent[parentKey]?.exactPathsByWorktreeId[worktreeId]
+                    == lease.exactItemsByParent[parentKey]
+        }
     }
 
     private func retire(_ streamLifetimes: [any DarwinSharedExactItemStreamLifetime]) {
