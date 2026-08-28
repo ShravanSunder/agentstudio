@@ -262,8 +262,8 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         let observation = BridgeDevelopmentSeededWorktreeObservation(
             source: source,
             invalidationSink: { invalidation in
-                await host.handleObservedWorktreeInvalidation(invalidation)
                 await probe.record(invalidation)
+                await host.handleObservedWorktreeInvalidation(invalidation)
             }
         )
         do {
