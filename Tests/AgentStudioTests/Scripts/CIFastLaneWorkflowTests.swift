@@ -508,6 +508,13 @@ struct CIFastLaneWorkflowTests {
             "TerminalPaneMountViewExitBehaviorTests",
             "TerminalActivityProjectorTests",
             "GitWorkingDirectoryProjectorTests",
+            "DarwinCompositeFSEventContinuityTests",
+            "AgentStudioAppIPCServiceTests",
+            "AgentStudioAppIPCServiceAuthModeTests",
+            "AgentStudioAppIPCServiceCommandTests",
+            "AgentStudioAppIPCServiceContributionTests",
+            "AgentStudioIPCBridgeServiceTests",
+            "AgentStudioAppIPCCommandExecuteContractTests",
             "WorkspaceStoreTests",
             "WorkspaceComparisonIntentProcessRestartTests",
         ] {

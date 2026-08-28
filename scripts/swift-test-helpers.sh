@@ -25,11 +25,6 @@ large_non_webkit_filter_pattern() {
     TerminalActivityAgentSettledHeuristicTests
     MainWindowControllerInboxToolbarButtonTests
     ProcessExecutorTests
-    AgentStudioAppIPCServiceAuthModeTests
-    AgentStudioAppIPCServiceCommandTests
-    AgentStudioAppIPCServiceContributionTests
-    AgentStudioIPCBridgeServiceTests
-    AgentStudioAppIPCCommandExecuteContractTests
   )
   local IFS="|"
   echo "${patterns[*]}"
@@ -105,6 +100,27 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift' \
       'GitWorkingDirectoryProjectorTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift' \
+      'DarwinCompositeFSEventContinuityTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift' \
+      'AgentStudioAppIPCServiceTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceAuthModeTests.swift' \
+      'AgentStudioAppIPCServiceAuthModeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceCommandTests.swift' \
+      'AgentStudioAppIPCServiceCommandTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceContributionTests.swift' \
+      'AgentStudioAppIPCServiceContributionTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeServiceTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
+      'AgentStudioAppIPCCommandExecuteContractTests'
   } | while IFS=: read -r source_file suite_name; do
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;

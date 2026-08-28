@@ -272,6 +272,7 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
                 "AGENTSTUDIO_SIDEBAR_TEST_QUIESCENCE_SEQUENCE": sequence,
                 "STRICT_POLICY_QUIESCENCE_MS": "5000",
+                "STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS": "60000",
                 "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
                 "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
             ]
