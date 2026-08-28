@@ -2,6 +2,139 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension GitWorkingDirectoryProjector {
+    func isAutomaticEligible(worktreeId: UUID) -> Bool {
+        automaticEligibleWorktreeIds?.contains(worktreeId) ?? true
+    }
+
+    func setAutomaticEligibleWorktrees(_ nextEligibleWorktreeIds: Set<UUID>) {
+        let previousEligibleWorktreeIds =
+            automaticEligibleWorktreeIds ?? Set(rootPathByWorktreeId.keys)
+        guard automaticEligibleWorktreeIds != nextEligibleWorktreeIds else { return }
+        automaticEligibleWorktreeIds = nextEligibleWorktreeIds
+
+        let newlyInactiveWorktreeIds = previousEligibleWorktreeIds.subtracting(nextEligibleWorktreeIds)
+        for worktreeId in newlyInactiveWorktreeIds {
+            contractInactiveAutomaticState(
+                worktreeId: worktreeId,
+                preservesRequiredIntent: hasRequiredIntent(worktreeId: worktreeId)
+            )
+        }
+
+        let newlyEligibleWorktreeIds = nextEligibleWorktreeIds.subtracting(previousEligibleWorktreeIds)
+        for worktreeId in newlyEligibleWorktreeIds where registeredContext(for: worktreeId) != nil {
+            scheduleAutomaticRefresh(
+                worktreeId: worktreeId,
+                missingBaseline: lastAcceptedStatusAtByWorktreeId[worktreeId] == nil,
+                allowsPromptMissingBaseline: demandTier(for: worktreeId) != .background
+            )
+        }
+        admitPendingWorktrees()
+        rescheduleDeadlineTask()
+    }
+
+    func contractInactiveAutomaticState(
+        worktreeId: UUID,
+        preservesRequiredIntent: Bool
+    ) {
+        let hadAutomaticIntent =
+            automaticRefreshDeadlineByWorktreeId[worktreeId] != nil
+            || pendingVisibilityDeltaWorktreeIds.contains(worktreeId)
+            || pendingByWorktreeId[worktreeId] != nil
+            || tierEligibleWorktreeIds.contains(worktreeId)
+            || capacityRetryWorktreeIds.contains(worktreeId)
+            || openStatusBackoffWorktreeIds.contains(worktreeId)
+        automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
+        lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
+        if preservesRequiredIntent {
+            tierEligibleWorktreeIds.insert(worktreeId)
+            recordInactiveContractionTelemetry(automaticRemoved: false, requiredRetained: true)
+            return
+        }
+        pendingByWorktreeId.removeValue(forKey: worktreeId)
+        clearImmediateRefreshIntent(worktreeId: worktreeId)
+        tierEligibleWorktreeIds.remove(worktreeId)
+        _ = clearCapacityRetryState(worktreeId: worktreeId)
+        clearStatusBackoffState(worktreeId: worktreeId)
+        refreshAttribution.triggerSourceByWorktreeId.removeValue(forKey: worktreeId)
+        recordInactiveContractionTelemetry(
+            automaticRemoved: hadAutomaticIntent,
+            requiredRetained: false
+        )
+    }
+
+    package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
+        if isActiveInApp {
+            activeWorktreeIds.insert(worktreeId)
+            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+        } else {
+            activeWorktreeIds.remove(worktreeId)
+            if activePaneWorktreeId != worktreeId, !sidebarVisibleWorktreeIds.contains(worktreeId) {
+                tierEligibleWorktreeIds.remove(worktreeId)
+            }
+        }
+    }
+
+    package func setActivePaneWorktree(worktreeId: UUID?) {
+        let previousActivePaneWorktreeId = activePaneWorktreeId
+        activePaneWorktreeId = worktreeId
+        if let previousActivePaneWorktreeId,
+            previousActivePaneWorktreeId != worktreeId,
+            !sidebarVisibleWorktreeIds.contains(previousActivePaneWorktreeId),
+            !activeWorktreeIds.contains(previousActivePaneWorktreeId)
+        {
+            tierEligibleWorktreeIds.remove(previousActivePaneWorktreeId)
+        }
+        guard let worktreeId else { return }
+        scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+    }
+
+    package func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
+        guard worktreeIds != sidebarVisibleWorktreeIds else { return }
+        let noLongerVisibleWorktreeIds = sidebarVisibleWorktreeIds.subtracting(worktreeIds)
+        sidebarVisibleWorktreeIds = worktreeIds
+        for worktreeId in noLongerVisibleWorktreeIds
+        where activePaneWorktreeId != worktreeId && !activeWorktreeIds.contains(worktreeId) {
+            tierEligibleWorktreeIds.remove(worktreeId)
+        }
+        scheduleCoalescedVisibilityAdmission()
+    }
+
+    package func setRepositoryFactAttention(
+        activePaneWorktreeId: UUID?,
+        sidebarAttendedWorktreeIds: Set<UUID>,
+        visibleActiveTabWorktreeIds: Set<UUID>,
+        openWorktreeIds: Set<UUID>,
+        warmAutomaticWorktreeIds: Set<UUID>? = nil
+    ) {
+        if let warmAutomaticWorktreeIds {
+            setAutomaticEligibleWorktrees(warmAutomaticWorktreeIds)
+        }
+        let previousAttentionWorktreeIds =
+            activeWorktreeIds
+            .union(sidebarVisibleWorktreeIds)
+            .union(self.activePaneWorktreeId.map { [$0] } ?? [])
+        let nextOpenWorktreeIds = openWorktreeIds.union(visibleActiveTabWorktreeIds)
+        let nextAttentionWorktreeIds =
+            nextOpenWorktreeIds
+            .union(sidebarAttendedWorktreeIds)
+            .union(activePaneWorktreeId.map { [$0] } ?? [])
+        let newlyAttendedWorktreeIds = nextAttentionWorktreeIds.subtracting(previousAttentionWorktreeIds)
+        let noLongerAttendedWorktreeIds = previousAttentionWorktreeIds.subtracting(nextAttentionWorktreeIds)
+
+        self.activePaneWorktreeId = activePaneWorktreeId
+        activeWorktreeIds = nextOpenWorktreeIds
+        sidebarVisibleWorktreeIds = sidebarAttendedWorktreeIds
+
+        for worktreeId in noLongerAttendedWorktreeIds {
+            tierEligibleWorktreeIds.remove(worktreeId)
+        }
+        for worktreeId in newlyAttendedWorktreeIds {
+            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+        }
+        scheduleCoalescedVisibilityAdmission()
+    }
+
     private enum ExactCleanRenewalDisposition {
         case renewed
         case requiresExact(GitCleanContinuityFailureReason?)
@@ -25,6 +158,7 @@ extension GitWorkingDirectoryProjector {
         pendingVisibilityDeltaWorktreeIds =
             sidebarVisibleWorktreeIds
             .subtracting(lastProcessedSidebarVisibleWorktreeIds)
+            .filter(isAutomaticEligible(worktreeId:))
 
         let delay = self.delay
         let coalescingWindow = AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
@@ -49,6 +183,7 @@ extension GitWorkingDirectoryProjector {
         let newlyVisibleWorktreeIds =
             sidebarVisibleWorktreeIds
             .subtracting(lastProcessedSidebarVisibleWorktreeIds)
+            .filter(isAutomaticEligible(worktreeId:))
         lastProcessedSidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
         pendingVisibilityDeltaWorktreeIds.removeAll(keepingCapacity: false)
 
@@ -81,12 +216,12 @@ extension GitWorkingDirectoryProjector {
             outcome: .admittedUncovered
         )
         recordVisibilityAdmissionTelemetry(
-            worktreeIds: newlyVisibleWorktreeIds.subtracting(promptlyScheduledWorktreeIds),
+            worktreeIds: Set(newlyVisibleWorktreeIds).subtracting(promptlyScheduledWorktreeIds),
             outcome: .tierDeferred
         )
         if !newlyVisibleWorktreeIds.isEmpty {
             recordVisibilityAdmissionTelemetry(
-                worktreeIds: newlyVisibleWorktreeIds,
+                worktreeIds: Set(newlyVisibleWorktreeIds),
                 outcome: .batched
             )
         }
@@ -242,6 +377,7 @@ extension GitWorkingDirectoryProjector {
 
     @discardableResult
     private func prepareAutomaticRefreshIfCurrent(worktreeId: UUID) -> Bool {
+        guard isAutomaticEligible(worktreeId: worktreeId) else { return false }
         guard !suppressedWorktreeIds.contains(worktreeId) else { return false }
         guard !quarantinedWorktreeIds.contains(worktreeId) else { return false }
         guard !openStatusBackoffWorktreeIds.contains(worktreeId) else { return false }
@@ -273,6 +409,11 @@ extension GitWorkingDirectoryProjector {
         allowsPromptMissingBaseline: Bool = false
     ) {
         guard registeredContext(for: worktreeId) != nil else { return }
+        guard isAutomaticEligible(worktreeId: worktreeId) else {
+            automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            rescheduleDeadlineTask()
+            return
+        }
         if missingBaseline || lastAcceptedStatusAtByWorktreeId[worktreeId] == nil,
             allowsPromptMissingBaseline
         {

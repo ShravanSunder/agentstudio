@@ -1,23 +1,23 @@
 import AgentStudioInfrastructure
 import Foundation
 
-struct GitLogicalDebtSnapshot: Equatable, Sendable {
-    let queuedChangesetCount: Int
-    let retryPendingCount: Int
-    let logicalRunningCount: Int
-    let futureAutomaticCount: Int
-    let futureFailureCount: Int
-    let readyPendingCount: Int
-    let capacityPendingCount: Int
-    let activeFollowUpCount: Int
-    let unclassifiedPendingCount: Int
-    let overdueDeadlineCount: Int
-    let oldestPreparationTimestamp: ContinuousClock.Instant?
-    let nextDeadline: Duration?
-    let oldestPreparationMilliseconds: Double
-    let nextDeadlineMilliseconds: Double
+package struct GitLogicalDebtSnapshot: Equatable, Sendable {
+    package let queuedChangesetCount: Int
+    package let retryPendingCount: Int
+    package let logicalRunningCount: Int
+    package let futureAutomaticCount: Int
+    package let futureFailureCount: Int
+    package let readyPendingCount: Int
+    package let capacityPendingCount: Int
+    package let activeFollowUpCount: Int
+    package let unclassifiedPendingCount: Int
+    package let overdueDeadlineCount: Int
+    package let oldestPreparationTimestamp: ContinuousClock.Instant?
+    package let nextDeadline: Duration?
+    package let oldestPreparationMilliseconds: Double
+    package let nextDeadlineMilliseconds: Double
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.queuedChangesetCount == rhs.queuedChangesetCount
             && lhs.retryPendingCount == rhs.retryPendingCount
             && lhs.logicalRunningCount == rhs.logicalRunningCount
@@ -60,7 +60,7 @@ struct GitLogicalDebtSnapshot: Equatable, Sendable {
 }
 
 extension GitWorkingDirectoryProjector {
-    func logicalDebtSnapshot() -> GitLogicalDebtSnapshot {
+    package func logicalDebtSnapshot() -> GitLogicalDebtSnapshot {
         let deadlineNow = deadlineClock.now
         let futureAutomaticWorktreeIds = Set(
             automaticRefreshDeadlineByWorktreeId.compactMap { worktreeId, deadline in

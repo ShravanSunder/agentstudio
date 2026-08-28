@@ -14,7 +14,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func settleRepositoryFactDemandAdmissionForPerformanceProof() async {
-        repositoryFactDemandCoordinator.accept(captureRepositoryFactDemandSnapshot())
+        repositoryFactDemandCoordinator.accept(captureRepositoryFactDemandInput())
         await repositoryFactDemandCoordinator.waitUntilIdle()
         await filesystemSource.waitForRepositoryFactDemandAdmission()
     }
@@ -25,8 +25,8 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func observeRepositoryFactDemand(generation: UInt64) {
-        let snapshot = withObservationTracking {
-            captureRepositoryFactDemandSnapshot()
+        let input = withObservationTracking {
+            captureRepositoryFactDemandInput()
         } onChange: {
             Task { @MainActor [weak self] in
                 guard let self,
@@ -35,12 +35,13 @@ extension WorkspaceSurfaceCoordinator {
                 self.observeRepositoryFactDemand(generation: generation)
             }
         }
-        repositoryFactDemandCoordinator.accept(snapshot)
+        repositoryFactDemandCoordinator.accept(input)
     }
 
-    private func captureRepositoryFactDemandSnapshot() -> RepositoryFactDemandSnapshot {
+    private func captureRepositoryFactDemandInput() -> RepositoryFactDemandInput {
         let paneGraph = store.paneAtom.graphAtom
         let topology = store.repositoryTopologyAtom
+        let applicationRecency = atom(\.applicationEntityRecency)
         let associationByPaneId = Dictionary(
             uniqueKeysWithValues: paneGraph.repositoryAssociationPaneIds.compactMap { paneId in
                 paneGraph.repositoryAssociation(for: paneId).map { (paneId, $0) }
@@ -58,8 +59,19 @@ extension WorkspaceSurfaceCoordinator {
             && !atom(\.workspaceSidebarState).sidebarCollapsed
         let activePaneWorktreeId = store.tabLayoutAtom.activeTab?.activePaneId
             .flatMap { associationByPaneId[$0]?.worktreeId }
+        let repositoryIDs = topology.repositoryIdsInOrder
+        let activityTopology: [RepositoryActivityTopology] = repositoryIDs.compactMap { repositoryID in
+            guard let repository = topology.repo(repositoryID) else { return nil }
+            return RepositoryActivityTopology(
+                repositoryID: repositoryID,
+                repositoryStableKey: repository.stableKey,
+                worktreeStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: repository.worktrees.map { ($0.id, $0.stableKey) }
+                )
+            )
+        }
 
-        return RepositoryFactDemandSnapshot(
+        return RepositoryFactDemandInput(
             activePaneWorktreeId: activePaneWorktreeId,
             sidebarAttendedWorktreeIds: sidebarIsAttended ? membershipWorktreeIds : [],
             visibleActiveTabWorktreeIds: visibleActiveTabWorktreeIds(
@@ -67,7 +79,10 @@ extension WorkspaceSurfaceCoordinator {
                 associationByPaneId: associationByPaneId
             ),
             openWorktreeIds: Set(associationByPaneId.values.compactMap(\.worktreeId)),
-            repositoryIdByWorktreeId: repositoryIdByWorktreeId
+            repositoryIdByWorktreeId: repositoryIdByWorktreeId,
+            activityTopology: activityTopology,
+            recencyHydrationDisposition: applicationRecency.hydrationDisposition,
+            applicationRecency: applicationRecency.recentEntities
         )
     }
 

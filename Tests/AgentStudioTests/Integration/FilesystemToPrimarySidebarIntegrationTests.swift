@@ -241,7 +241,11 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                 sidebarAttendedWorktreeIds: demandedWorktreeIds,
                 visibleActiveTabWorktreeIds: [],
                 openWorktreeIds: demandedWorktreeIds,
-                repositoryIdByWorktreeId: repositoryIdByWorktreeId
+                repositoryIdByWorktreeId: repositoryIdByWorktreeId,
+                warmRepositoryIds: Set(repositoryIdByWorktreeId.values),
+                locallyInactiveRepositoryIds: [],
+                warmAutomaticWorktreeIds: Set(repositoryIdByWorktreeId.keys),
+                locallyInactiveWorktreeIds: []
             )
         )
     }

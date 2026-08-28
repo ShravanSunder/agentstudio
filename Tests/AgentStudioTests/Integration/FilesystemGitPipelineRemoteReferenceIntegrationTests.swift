@@ -54,7 +54,11 @@ struct FilesystemGitRemoteReferenceTests {
                 sidebarAttendedWorktreeIds: [worktreeId],
                 visibleActiveTabWorktreeIds: [worktreeId],
                 openWorktreeIds: [worktreeId],
-                repositoryIdByWorktreeId: [worktreeId: repoId]
+                repositoryIdByWorktreeId: [worktreeId: repoId],
+                warmRepositoryIds: [repoId],
+                locallyInactiveRepositoryIds: [],
+                warmAutomaticWorktreeIds: [worktreeId],
+                locallyInactiveWorktreeIds: []
             )
         )
         await remoteProvider.waitForStageCount(1)

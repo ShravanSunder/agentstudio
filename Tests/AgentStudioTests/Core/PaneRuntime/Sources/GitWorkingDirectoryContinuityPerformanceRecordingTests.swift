@@ -17,6 +17,8 @@ struct GitContinuityPerformanceRecordingTests {
         accumulator.recordExactFallbackCoalesced()
         accumulator.recordAvoidedPhysicalFactsRead()
         accumulator.recordAvoidedPhysicalDetailRead()
+        accumulator.recordInactiveContraction(automaticRemoved: true, requiredRetained: false)
+        accumulator.recordInactiveContraction(automaticRemoved: false, requiredRetained: true)
         let uncertaintyReasons: [GitCleanContinuityFailureReason] = [
             .unsupportedObservation,
             .registrationMissing,
@@ -45,6 +47,8 @@ struct GitContinuityPerformanceRecordingTests {
         #expect(snapshot.exactFallbackCoalesced == 1)
         #expect(snapshot.avoidedPhysicalFactsRead == 1)
         #expect(snapshot.avoidedPhysicalDetailRead == 1)
+        #expect(snapshot.inactiveAutomaticIntentRemoved == 1)
+        #expect(snapshot.inactiveRequiredIntentRetained == 1)
         #expect(snapshot.continuityUncertaintyUnsupportedObservation == 1)
         #expect(snapshot.continuityUncertaintyRegistrationMissing == 1)
         #expect(snapshot.continuityUncertaintyRegistrationReplaced == 1)

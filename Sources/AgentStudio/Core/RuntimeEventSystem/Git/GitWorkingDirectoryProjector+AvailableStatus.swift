@@ -65,10 +65,8 @@ extension GitWorkingDirectoryProjector {
         let snapshotChanged = previousSnapshot != nextSnapshot
         if completeStatusChanged {
             resetAdaptiveCadence(worktreeId: changeset.worktreeId)
-        } else {
-            if pendingByWorktreeId[changeset.worktreeId] == nil {
-                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
-            }
+        } else if pendingByWorktreeId[changeset.worktreeId] == nil {
+            unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
         }
         if snapshotChanged {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
@@ -76,6 +74,7 @@ extension GitWorkingDirectoryProjector {
             aggregatePerformance.increment(\.snapshotEqual)
             flushAggregatePerformanceSnapshotIfNeeded()
         }
+        completeAdmittedRequiredIntent(worktreeId: changeset.worktreeId)
         recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
 
         await emitGitWorkingDirectoryEvent(

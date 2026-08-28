@@ -48,6 +48,11 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(coordinatorSource.contains("repositoryAssociation(for:"))
         #expect(coordinatorSource.contains("repositoryMembershipWorktreeIds"))
         #expect(coordinatorSource.contains("repositoryId(containing:"))
+        #expect(coordinatorSource.contains("repositoryIdsInOrder"))
+        #expect(coordinatorSource.contains("repositoryStableKey:"))
+        #expect(coordinatorSource.contains("worktreeStableKeysByID:"))
+        #expect(coordinatorSource.contains("applicationRecency.hydrationDisposition"))
+        #expect(coordinatorSource.contains("applicationRecency.recentEntities"))
         #expect(!coordinatorSource.contains("SidebarVisibleWorktreesRuntimeAtom"))
         #expect(!coordinatorSource.contains("sidebarVisibleWorktreesRuntime"))
         #expect(!coordinatorSource.contains("RepoExplorerTableMaterializer"))
@@ -79,6 +84,12 @@ struct RepositoryFactDemandArchitectureTests {
             ),
             encoding: .utf8
         )
+        let demandCoordinatorSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/RepositoryFactDemandCoordinator.swift"
+            ),
+            encoding: .utf8
+        )
         let retiredPartialDemandMethods = [
             "func setActivity(",
             "func setActivePaneWorktree(",
@@ -89,8 +100,11 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(pipelineSource.contains("func setRepositoryFactDemand(_ snapshot:"))
         #expect(pipelineSource.contains("filesystemActor.setRepositoryFactAttention("))
         #expect(pipelineSource.contains("gitWorkingDirectoryProjector.setRepositoryFactAttention("))
+        #expect(pipelineSource.contains("warmAutomaticWorktreeIds: snapshot.warmAutomaticWorktreeIds"))
         #expect(pipelineSource.contains("forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)"))
-        #expect(workspaceDemandSource.contains("repositoryFactDemandCoordinator.accept(snapshot)"))
+        #expect(workspaceDemandSource.contains("repositoryFactDemandCoordinator.accept(input)"))
+        #expect(demandCoordinatorSource.contains("@concurrent nonisolated private static func classify("))
+        #expect(demandCoordinatorSource.contains("RepositoryActivityClassifier.classify("))
         #expect(!workspaceDemandSource.contains("setActivity("))
         #expect(!workspaceDemandSource.contains("setActivePaneWorktree("))
         #expect(!workspaceDemandSource.contains("setSidebarVisibleWorktrees("))

@@ -184,7 +184,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             activePaneWorktreeId: snapshot.activePaneWorktreeId,
             sidebarAttendedWorktreeIds: snapshot.sidebarAttendedWorktreeIds,
             visibleActiveTabWorktreeIds: snapshot.visibleActiveTabWorktreeIds,
-            openWorktreeIds: snapshot.openWorktreeIds
+            openWorktreeIds: snapshot.openWorktreeIds,
+            warmAutomaticWorktreeIds: snapshot.warmAutomaticWorktreeIds
         )
         await remoteReferenceRefreshActor.setDemand(repositoryIds: snapshot.demandedRepositoryIds)
         await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)
@@ -210,6 +211,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func filesystemLogicalDebtCount() async -> Int {
         await filesystemActor.logicalDebtCount()
+    }
+
+    func gitLogicalDebtSnapshot() async -> GitLogicalDebtSnapshot {
+        await gitWorkingDirectoryProjector.logicalDebtSnapshot()
     }
 
     func refreshRegisteredWorktreesAndWatchedFolders(

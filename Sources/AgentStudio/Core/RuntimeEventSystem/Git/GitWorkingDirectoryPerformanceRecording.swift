@@ -10,6 +10,8 @@ package struct GitWorkingDirectoryPerformanceSnapshot: Equatable, Sendable {
     package var droppedSubscriber: UInt64 = 0
     package var snapshotEqual: UInt64 = 0
     package var suppressedInput: UInt64 = 0
+    package var inactiveAutomaticIntentRemoved: UInt64 = 0
+    package var inactiveRequiredIntentRetained: UInt64 = 0
     package var exactCleanBaselinePrepared: UInt64 = 0
     package var exactCleanBaselineAccepted: UInt64 = 0
     package var exactCleanBaselineRejected: UInt64 = 0
@@ -35,6 +37,7 @@ package struct GitWorkingDirectoryPerformanceSnapshot: Equatable, Sendable {
     package var eventCount: UInt64 {
         visibilityBatched + visibilityTierDeferred + visibilitySuperseded
             + visibilityAdmittedUncovered + admitted + eventPosted + snapshotEqual + suppressedInput
+            + inactiveAutomaticIntentRemoved + inactiveRequiredIntentRetained
             + exactCleanBaselinePrepared + exactCleanBaselineAccepted + exactCleanBaselineRejected
             + exactCleanContinuityRenewed + exactCleanMutationInvalidated
             + continuityUncertaintyUnsupportedObservation + continuityUncertaintyRegistrationMissing
@@ -66,6 +69,18 @@ package struct GitWorkingDirectoryPerformanceAccumulator: Sendable {
     package mutating func recordPhysicalState(pending: Int, running: Int) {
         snapshot.pendingMaximum = max(snapshot.pendingMaximum, UInt64(clamping: pending))
         snapshot.runningMaximum = max(snapshot.runningMaximum, UInt64(clamping: running))
+    }
+
+    package mutating func recordInactiveContraction(
+        automaticRemoved: Bool,
+        requiredRetained: Bool
+    ) {
+        if automaticRemoved {
+            increment(\.inactiveAutomaticIntentRemoved)
+        }
+        if requiredRetained {
+            increment(\.inactiveRequiredIntentRetained)
+        }
     }
 
     package mutating func recordExactCleanBaselinePrepared() {
@@ -168,6 +183,10 @@ extension AgentStudioPerformanceTraceRecorder {
                     Int(clamping: snapshot.snapshotEqual)),
                 "agentstudio.performance.git.aggregate.suppressed_input.count": .int(
                     Int(clamping: snapshot.suppressedInput)),
+                "agentstudio.performance.git.aggregate.inactive.automatic_intent_removed.count": .int(
+                    Int(clamping: snapshot.inactiveAutomaticIntentRemoved)),
+                "agentstudio.performance.git.aggregate.inactive.required_intent_retained.count": .int(
+                    Int(clamping: snapshot.inactiveRequiredIntentRetained)),
                 "agentstudio.performance.git.aggregate.continuity.baseline.prepared.count": .int(
                     Int(clamping: snapshot.exactCleanBaselinePrepared)),
                 "agentstudio.performance.git.aggregate.continuity.baseline.accepted.count": .int(

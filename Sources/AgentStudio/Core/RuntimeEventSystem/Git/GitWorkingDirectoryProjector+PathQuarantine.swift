@@ -49,6 +49,7 @@ extension GitWorkingDirectoryProjector {
         clearValidatedRootPath(worktreeId: worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         clearImmediateRefreshIntent(worktreeId: worktreeId)
+        clearRequiredIntent(worktreeId: worktreeId)
         scheduleQuarantineRecheck(worktreeId: worktreeId)
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
         rescheduleDeadlineTask()
@@ -97,6 +98,10 @@ extension GitWorkingDirectoryProjector {
     }
 
     private func scheduleQuarantineRecheck(worktreeId: UUID) {
+        guard isAutomaticEligible(worktreeId: worktreeId) else {
+            automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            return
+        }
         setRefreshDeadline(
             deadlineClock.now + refreshPolicy.backgroundCadence,
             kind: .automatic,

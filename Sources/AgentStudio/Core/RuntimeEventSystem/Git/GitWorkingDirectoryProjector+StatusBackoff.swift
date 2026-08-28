@@ -36,6 +36,9 @@ extension GitWorkingDirectoryProjector {
     ) {
         guard !isShuttingDown else { return }
         let worktreeId = changeset.worktreeId
+        guard isAutomaticEligible(worktreeId: worktreeId) || hasRequiredIntent(worktreeId: worktreeId) else {
+            return
+        }
 
         let failureCount = (statusBackoffFailureCountByWorktreeId[worktreeId] ?? 0) + 1
         statusBackoffFailureCountByWorktreeId[worktreeId] = failureCount
@@ -107,6 +110,9 @@ extension GitWorkingDirectoryProjector {
         guard !isShuttingDown else { return }
         guard reason == .readCapacityExceeded || reason == .readAlreadyInFlight else { return }
         let worktreeId = changeset.worktreeId
+        guard isAutomaticEligible(worktreeId: worktreeId) || hasRequiredIntent(worktreeId: worktreeId) else {
+            return
+        }
         capacityRetryWorktreeIds.insert(worktreeId)
         capacityRetryReasonByWorktreeId[worktreeId] = reason
         capacityRearmedWorktreeIds.insert(worktreeId)

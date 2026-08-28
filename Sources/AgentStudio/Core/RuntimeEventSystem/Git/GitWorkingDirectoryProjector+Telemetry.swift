@@ -130,6 +130,17 @@ extension GitWorkingDirectoryProjector {
         flushAggregatePerformanceSnapshotIfNeeded()
     }
 
+    func recordInactiveContractionTelemetry(
+        automaticRemoved: Bool,
+        requiredRetained: Bool
+    ) {
+        aggregatePerformance.recordInactiveContraction(
+            automaticRemoved: automaticRemoved,
+            requiredRetained: requiredRetained
+        )
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
     func flushAggregatePerformanceSnapshotIfNeeded() {
         guard aggregatePerformance.eventCount >= AppPolicies.GitRefresh.telemetryFlushEventCount else { return }
         flushAggregatePerformanceSnapshot()

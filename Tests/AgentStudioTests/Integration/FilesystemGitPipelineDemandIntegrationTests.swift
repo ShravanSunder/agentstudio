@@ -17,19 +17,19 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         let gitProvider = DemandIntegrationGitStatusProvider()
         let remoteReferenceProvider = DemandIntegrationRemoteReferenceProvider()
         let forgeProvider = DemandIntegrationForgeProvider()
+        let fseventStreamClient = DemandIntegrationSilentFSEventStreamClient()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: DemandIntegrationRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: gitProvider,
             remoteReferenceRefreshProvider: remoteReferenceProvider,
             forgeStatusProvider: forgeProvider,
-            fseventStreamClient: DemandIntegrationSilentFSEventStreamClient(),
+            fseventStreamClient: fseventStreamClient,
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero
         )
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "pipeline-demand-cache-\(UUIDv7.generate().uuidString)")
+        let rootPath = demandIntegrationFixtureRootPath()
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
@@ -46,12 +46,24 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         let demandCoordinator = RepositoryFactDemandCoordinator { snapshot in
             await pipeline.setRepositoryFactDemand(snapshot)
         }
-        let initialDemand = RepositoryFactDemandSnapshot(
+        let activityTopology = try demandIntegrationActivityTopology(
+            repository: repository,
+            worktreeId: worktreeId
+        )
+        let recentRepositoryOpen = try ApplicationEntityRecency(
+            entity: .repository(repositoryStableKey: repository.stableKey),
+            interaction: .opened,
+            lastInteractedAt: Date()
+        )
+        let initialDemand = RepositoryFactDemandInput(
             activePaneWorktreeId: worktreeId,
             sidebarAttendedWorktreeIds: [worktreeId],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [worktreeId],
-            repositoryIdByWorktreeId: [worktreeId: repository.id]
+            repositoryIdByWorktreeId: [worktreeId: repository.id],
+            activityTopology: [activityTopology],
+            recencyHydrationDisposition: .authoritative,
+            applicationRecency: [recentRepositoryOpen]
         )
 
         await cacheCoordinator.startConsuming()
@@ -76,50 +88,131 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             forgeProvider: forgeProvider
         )
 
-        let sourceCallsBeforeAttentionChange = await sourceCallCounts(
-            gitProvider: gitProvider,
-            remoteReferenceProvider: remoteReferenceProvider,
-            forgeProvider: forgeProvider
+        let sourceCallsAfterAttentionChange = try await proveChangedAttentionReusesFacts(
+            WarmAttentionProofContext(
+                pipeline: pipeline,
+                demandCoordinator: demandCoordinator,
+                gitProvider: gitProvider,
+                remoteReferenceProvider: remoteReferenceProvider,
+                forgeProvider: forgeProvider,
+                repoCache: repoCache,
+                repositoryId: repository.id,
+                worktreeId: worktreeId,
+                activityTopology: activityTopology,
+                recentRepositoryOpen: recentRepositoryOpen
+            )
         )
-        let cacheRevisionBeforeAttentionChange = repoCache.cacheRevision
+
+        await proveInactiveDemandAndColdMutation(
+            ColdDemandProofContext(
+                pipeline: pipeline,
+                demandCoordinator: demandCoordinator,
+                fseventStreamClient: fseventStreamClient,
+                gitProvider: gitProvider,
+                remoteReferenceProvider: remoteReferenceProvider,
+                forgeProvider: forgeProvider,
+                repoCache: repoCache,
+                repositoryId: repository.id,
+                worktreeId: worktreeId,
+                activityTopology: activityTopology,
+                sourceCallsBeforeInactivity: sourceCallsAfterAttentionChange
+            )
+        )
+
+        await shutdown(demandCoordinator: demandCoordinator, pipeline: pipeline, cacheCoordinator: cacheCoordinator)
+    }
+
+    private func proveChangedAttentionReusesFacts(
+        _ context: WarmAttentionProofContext
+    ) async throws -> DemandIntegrationSourceCallCounts {
+        let sourceCallsBeforeAttentionChange = await sourceCallCounts(
+            gitProvider: context.gitProvider,
+            remoteReferenceProvider: context.remoteReferenceProvider,
+            forgeProvider: context.forgeProvider
+        )
+        let cacheRevisionBeforeAttentionChange = context.repoCache.cacheRevision
         let worktreeInvalidationCounter = DemandIntegrationInvalidationCounter()
         let pullRequestInvalidationCounter = DemandIntegrationInvalidationCounter()
-        let branchKey = try #require(RepoBranchKey(repoId: repository.id, branch: "main"))
+        let branchKey = try #require(RepoBranchKey(repoId: context.repositoryId, branch: "main"))
         withObservationTracking {
-            _ = repoCache.worktreeEnrichment(for: worktreeId)
+            _ = context.repoCache.worktreeEnrichment(for: context.worktreeId)
         } onChange: {
             worktreeInvalidationCounter.record()
         }
         withObservationTracking {
-            _ = repoCache.pullRequestFacts(for: branchKey)
+            _ = context.repoCache.pullRequestFacts(for: branchKey)
         } onChange: {
             pullRequestInvalidationCounter.record()
         }
-        let changedAttentionWithEqualMembership = RepositoryFactDemandSnapshot(
-            activePaneWorktreeId: worktreeId,
-            sidebarAttendedWorktreeIds: [],
-            visibleActiveTabWorktreeIds: [worktreeId],
-            openWorktreeIds: [worktreeId],
-            repositoryIdByWorktreeId: [worktreeId: repository.id]
+        context.demandCoordinator.accept(
+            RepositoryFactDemandInput(
+                activePaneWorktreeId: context.worktreeId,
+                sidebarAttendedWorktreeIds: [],
+                visibleActiveTabWorktreeIds: [context.worktreeId],
+                openWorktreeIds: [context.worktreeId],
+                repositoryIdByWorktreeId: [context.worktreeId: context.repositoryId],
+                activityTopology: [context.activityTopology],
+                recencyHydrationDisposition: .authoritative,
+                applicationRecency: [context.recentRepositoryOpen]
+            )
         )
-
-        demandCoordinator.accept(changedAttentionWithEqualMembership)
-        await demandCoordinator.waitUntilIdle()
-        await pipeline.waitForRepositoryFactDemandAdmission()
+        await context.demandCoordinator.waitUntilIdle()
+        await context.pipeline.waitForRepositoryFactDemandAdmission()
 
         let sourceCallsAfterAttentionChange = await sourceCallCounts(
-            gitProvider: gitProvider,
-            remoteReferenceProvider: remoteReferenceProvider,
-            forgeProvider: forgeProvider
+            gitProvider: context.gitProvider,
+            remoteReferenceProvider: context.remoteReferenceProvider,
+            forgeProvider: context.forgeProvider
         )
         #expect(sourceCallsAfterAttentionChange == sourceCallsBeforeAttentionChange)
-        #expect(repoCache.cacheRevision == cacheRevisionBeforeAttentionChange)
+        #expect(context.repoCache.cacheRevision == cacheRevisionBeforeAttentionChange)
         #expect(!worktreeInvalidationCounter.didFire)
         #expect(!pullRequestInvalidationCounter.didFire)
-        #expect(repoCache.worktreeEnrichment(for: worktreeId)?.branch == "main")
-        #expect(repoCache.pullRequestFactsForTest(worktreeId: worktreeId)?.openCount == 1)
+        #expect(context.repoCache.worktreeEnrichment(for: context.worktreeId)?.branch == "main")
+        #expect(context.repoCache.pullRequestFactsForTest(worktreeId: context.worktreeId)?.openCount == 1)
+        return sourceCallsAfterAttentionChange
+    }
 
-        await shutdown(demandCoordinator: demandCoordinator, pipeline: pipeline, cacheCoordinator: cacheCoordinator)
+    private func proveInactiveDemandAndColdMutation(_ context: ColdDemandProofContext) async {
+        let inactiveDemand = RepositoryFactDemandInput(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [context.worktreeId],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            repositoryIdByWorktreeId: [context.worktreeId: context.repositoryId],
+            activityTopology: [context.activityTopology],
+            recencyHydrationDisposition: .authoritative,
+            applicationRecency: []
+        )
+        context.demandCoordinator.accept(inactiveDemand)
+        await context.demandCoordinator.waitUntilIdle()
+        await context.pipeline.waitForRepositoryFactDemandAdmission()
+
+        let sourceCallsAfterInactivity = await sourceCallCounts(
+            gitProvider: context.gitProvider,
+            remoteReferenceProvider: context.remoteReferenceProvider,
+            forgeProvider: context.forgeProvider
+        )
+        #expect(sourceCallsAfterInactivity == context.sourceCallsBeforeInactivity)
+        #expect(context.repoCache.worktreeEnrichment(for: context.worktreeId)?.branch == "main")
+        #expect(context.repoCache.pullRequestFactsForTest(worktreeId: context.worktreeId)?.openCount == 1)
+        #expect(await context.pipeline.gitLogicalDebtSnapshot().futureAutomaticCount == 0)
+
+        context.fseventStreamClient.send(
+            FSEventBatch(worktreeId: context.worktreeId, paths: ["Sources/ColdMutation.swift"])
+        )
+        let coldMutationSettled = await eventually("cold mutation should run local Git only") {
+            let sourceCalls = await sourceCallCounts(
+                gitProvider: context.gitProvider,
+                remoteReferenceProvider: context.remoteReferenceProvider,
+                forgeProvider: context.forgeProvider
+            )
+            return sourceCalls.gitStatus == sourceCallsAfterInactivity.gitStatus + 1
+                && sourceCalls.remoteFetch == sourceCallsAfterInactivity.remoteFetch
+                && sourceCalls.forge == sourceCallsAfterInactivity.forge
+        }
+        #expect(coldMutationSettled)
+        #expect(await context.pipeline.gitLogicalDebtSnapshot().futureAutomaticCount == 0)
     }
 
     private func eventually(
@@ -195,6 +288,49 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         await pipeline.shutdown()
         await cacheCoordinator.shutdown()
     }
+}
+
+private struct ColdDemandProofContext {
+    let pipeline: FilesystemGitPipeline
+    let demandCoordinator: RepositoryFactDemandCoordinator
+    let fseventStreamClient: DemandIntegrationSilentFSEventStreamClient
+    let gitProvider: DemandIntegrationGitStatusProvider
+    let remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider
+    let forgeProvider: DemandIntegrationForgeProvider
+    let repoCache: RepoCacheAtom
+    let repositoryId: UUID
+    let worktreeId: UUID
+    let activityTopology: RepositoryActivityTopology
+    let sourceCallsBeforeInactivity: DemandIntegrationSourceCallCounts
+}
+
+private struct WarmAttentionProofContext {
+    let pipeline: FilesystemGitPipeline
+    let demandCoordinator: RepositoryFactDemandCoordinator
+    let gitProvider: DemandIntegrationGitStatusProvider
+    let remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider
+    let forgeProvider: DemandIntegrationForgeProvider
+    let repoCache: RepoCacheAtom
+    let repositoryId: UUID
+    let worktreeId: UUID
+    let activityTopology: RepositoryActivityTopology
+    let recentRepositoryOpen: ApplicationEntityRecency
+}
+
+private func demandIntegrationFixtureRootPath() -> URL {
+    FileManager.default.temporaryDirectory
+        .appending(path: "pipeline-demand-cache-\(UUIDv7.generate().uuidString)")
+}
+
+private func demandIntegrationActivityTopology(
+    repository: Repo,
+    worktreeId: UUID
+) throws -> RepositoryActivityTopology {
+    RepositoryActivityTopology(
+        repositoryID: repository.id,
+        repositoryStableKey: repository.stableKey,
+        worktreeStableKeysByID: [worktreeId: try #require(repository.worktrees.first?.stableKey)]
+    )
 }
 
 private final class DemandIntegrationInvalidationCounter: @unchecked Sendable {
@@ -363,6 +499,7 @@ private final class DemandIntegrationSilentFSEventStreamClient: FSEventStreamCli
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
     func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
     func unregister(worktreeId _: UUID) {}
+    func send(_ batch: FSEventBatch) { continuation.yield(batch) }
     func shutdown() { continuation.finish() }
 }
 

@@ -7,6 +7,68 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector automatic pacing")
 struct GitWorkingDirectoryProjectorAutomaticPacingTests {
+    @Test("inactive registration owns no automatic work and warm transition rearms")
+    func inactiveRegistrationHasNoAutomaticDeadline() async {
+        let worktreeID = UUIDv7.generate()
+        let repositoryID = UUIDv7.generate()
+        let rootPath = URL(filePath: "/tmp/inactive-registration-\(worktreeID)")
+        let providerCallCount = AutomaticPacingCallCounter()
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in
+                await providerCallCount.increment()
+                return GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            },
+            coalescingWindow: .zero
+        )
+
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeID],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: []
+        )
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeID: WorktreeFilesystemContext(repoId: repositoryID, rootPath: rootPath)
+                ]
+            )
+        )
+
+        #expect(await providerCallCount.value == 0)
+        #expect(await actor.pendingByWorktreeId[worktreeID] == nil)
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] == nil)
+
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeID],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: [worktreeID]
+        )
+        #expect(await automaticPacingWaitUntil { await providerCallCount.value == 1 })
+        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks.isEmpty })
+
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeID],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: []
+        )
+
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] == nil)
+        #expect(await actor.logicalDebtSnapshot().futureAutomaticCount == 0)
+        await actor.shutdown()
+    }
+
     @Test(
         "active-pane invalidation bypasses automatic pacing",
         arguments: [false, true]
@@ -153,6 +215,14 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         #expect(await automaticPacingWaitUntil { await gate.waitingCount == 2 })
         await gate.releaseAll()
         await actor.shutdown()
+    }
+}
+
+private actor AutomaticPacingCallCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
     }
 }
 

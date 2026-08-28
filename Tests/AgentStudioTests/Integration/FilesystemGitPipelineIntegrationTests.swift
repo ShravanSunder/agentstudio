@@ -504,7 +504,11 @@ struct FilesystemGitPipelineIntegrationTests {
             sidebarAttendedWorktreeIds: sidebarAttendedWorktreeIds,
             visibleActiveTabWorktreeIds: visibleActiveTabWorktreeIds,
             openWorktreeIds: openWorktreeIds,
-            repositoryIdByWorktreeId: repositoryIdByWorktreeId
+            repositoryIdByWorktreeId: repositoryIdByWorktreeId,
+            warmRepositoryIds: Set(repositoryIdByWorktreeId.values),
+            locallyInactiveRepositoryIds: [],
+            warmAutomaticWorktreeIds: Set(repositoryIdByWorktreeId.keys),
+            locallyInactiveWorktreeIds: []
         )
     }
 

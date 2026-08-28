@@ -196,9 +196,14 @@ extension GitWorkingDirectoryProjector {
     }
 
     func isDemandEligible(worktreeId: UUID) -> Bool {
-        registeredContext(for: worktreeId) == nil
+        if registeredContext(for: worktreeId) == nil
             || explicitRefreshWorktreeIds.contains(worktreeId)
-            || activePaneWorktreeId == worktreeId
+            || hasRequiredIntent(worktreeId: worktreeId)
+        {
+            return true
+        }
+        guard isAutomaticEligible(worktreeId: worktreeId) else { return false }
+        return activePaneWorktreeId == worktreeId
             || activeWorktreeIds.contains(worktreeId)
             || tierEligibleWorktreeIds.contains(worktreeId)
     }

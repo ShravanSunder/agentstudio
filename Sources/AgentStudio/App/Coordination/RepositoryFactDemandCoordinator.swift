@@ -1,5 +1,28 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
+
+struct RepositoryFactDemandInput: Equatable, Sendable {
+    let activePaneWorktreeId: UUID?
+    let sidebarAttendedWorktreeIds: Set<UUID>
+    let visibleActiveTabWorktreeIds: Set<UUID>
+    let openWorktreeIds: Set<UUID>
+    let repositoryIdByWorktreeId: [UUID: UUID]
+    let activityTopology: [RepositoryActivityTopology]
+    let recencyHydrationDisposition: ApplicationEntityRecencyHydrationDisposition
+    let applicationRecency: [ApplicationEntityRecency]
+
+    static let empty = Self(
+        activePaneWorktreeId: nil,
+        sidebarAttendedWorktreeIds: [],
+        visibleActiveTabWorktreeIds: [],
+        openWorktreeIds: [],
+        repositoryIdByWorktreeId: [:],
+        activityTopology: [],
+        recencyHydrationDisposition: .pending,
+        applicationRecency: []
+    )
+}
 
 struct RepositoryFactDemandSnapshot: Equatable, Sendable {
     let activePaneWorktreeId: UUID?
@@ -7,21 +30,32 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
     let visibleActiveTabWorktreeIds: Set<UUID>
     let openWorktreeIds: Set<UUID>
     let repositoryIdByWorktreeId: [UUID: UUID]
+    let warmRepositoryIds: Set<UUID>
+    let locallyInactiveRepositoryIds: Set<UUID>
+    let warmAutomaticWorktreeIds: Set<UUID>
+    let locallyInactiveWorktreeIds: Set<UUID>
 
     static let empty = Self(
         activePaneWorktreeId: nil,
         sidebarAttendedWorktreeIds: [],
         visibleActiveTabWorktreeIds: [],
         openWorktreeIds: [],
-        repositoryIdByWorktreeId: [:]
+        repositoryIdByWorktreeId: [:],
+        warmRepositoryIds: [],
+        locallyInactiveRepositoryIds: [],
+        warmAutomaticWorktreeIds: [],
+        locallyInactiveWorktreeIds: []
     )
 
     var forgeDemandedWorktreeIds: Set<UUID> {
-        sidebarAttendedWorktreeIds.union(visibleActiveTabWorktreeIds)
+        sidebarAttendedWorktreeIds
+            .union(visibleActiveTabWorktreeIds)
+            .intersection(warmAutomaticWorktreeIds)
     }
 
     var demandedRepositoryIds: Set<UUID> {
         Set(forgeDemandedWorktreeIds.compactMap { repositoryIdByWorktreeId[$0] })
+            .intersection(warmRepositoryIds)
     }
 
     var localGitAttentionWorktreeIds: Set<UUID> {
@@ -31,7 +65,31 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
         if let activePaneWorktreeId {
             worktreeIds.insert(activePaneWorktreeId)
         }
-        return worktreeIds
+        return worktreeIds.intersection(warmAutomaticWorktreeIds)
+    }
+}
+
+private struct RepositoryFactDemandDeadlineClock: Sendable {
+    private let nowValue: @Sendable () -> Duration
+    private let sleepUntilValue: @Sendable (Duration) async throws -> Void
+
+    init<SourceClock: Clock & Sendable>(_ sourceClock: SourceClock)
+    where SourceClock.Duration == Duration {
+        let origin = sourceClock.now
+        nowValue = {
+            origin.duration(to: sourceClock.now)
+        }
+        sleepUntilValue = { deadline in
+            try await sourceClock.sleep(until: origin.advanced(by: deadline), tolerance: nil)
+        }
+    }
+
+    var now: Duration {
+        nowValue()
+    }
+
+    func sleep(until deadline: Duration) async throws {
+        try await sleepUntilValue(deadline)
     }
 }
 
@@ -41,48 +99,58 @@ final class RepositoryFactDemandCoordinator {
 
     private let delivery: Delivery
     private let performanceRecorder: (any RepositoryFactDemandPerformanceRecording)?
+    private let wallClockNow: @MainActor @Sendable () -> Date
+    private let deadlineClock: RepositoryFactDemandDeadlineClock
     private var performanceSnapshot = RepositoryFactDemandPerformanceSnapshot()
-    private var pendingSnapshot: RepositoryFactDemandSnapshot?
-    private var pendingSnapshotMustDeliver = false
-    private var inFlightSnapshot: RepositoryFactDemandSnapshot?
+    private var pendingInput: RepositoryFactDemandInput?
+    private var pendingInputMustDeliver = false
+    private var inFlightInput: RepositoryFactDemandInput?
+    private var lastClassifiedInput: RepositoryFactDemandInput?
     private var lastDeliveredSnapshot: RepositoryFactDemandSnapshot?
     private var deliveryTask: Task<Void, Never>?
+    private var deadlineTask: Task<Void, Never>?
+    private var deadlineGeneration: UInt64 = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
-    private var acceptsSnapshots = true
+    private var acceptsInputs = true
     private var didStartShutdown = false
 
     init(
         performanceRecorder: (any RepositoryFactDemandPerformanceRecording)? = nil,
+        wallClockNow: @escaping @MainActor @Sendable () -> Date = Date.init,
+        sleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
         delivery: @escaping Delivery
     ) {
         self.performanceRecorder = performanceRecorder
+        self.wallClockNow = wallClockNow
+        deadlineClock = RepositoryFactDemandDeadlineClock(sleepClock)
         self.delivery = delivery
     }
 
-    func accept(_ snapshot: RepositoryFactDemandSnapshot) {
-        guard acceptsSnapshots else {
+    func accept(_ input: RepositoryFactDemandInput) {
+        guard acceptsInputs else {
             increment(\.rejectedAfterShutdown)
             flushPerformanceSnapshotIfNeeded()
             return
         }
         increment(\.projected)
-        guard pendingSnapshot != snapshot else {
+        guard pendingInput != input else {
             increment(\.contentEqual)
             flushPerformanceSnapshotIfNeeded()
             return
         }
-        if pendingSnapshot == nil, inFlightSnapshot == snapshot {
+        if pendingInput == nil, inFlightInput == input {
             increment(\.contentEqual)
             flushPerformanceSnapshotIfNeeded()
             return
         }
-        if deliveryTask == nil, lastDeliveredSnapshot == snapshot {
+        if deliveryTask == nil, lastClassifiedInput == input {
             increment(\.contentEqual)
             flushPerformanceSnapshotIfNeeded()
             return
         }
-        pendingSnapshot = snapshot
-        pendingSnapshotMustDeliver = false
+        cancelDeadlineTask()
+        pendingInput = input
+        pendingInputMustDeliver = false
         startDeliveryTaskIfNeeded()
     }
 
@@ -102,9 +170,10 @@ final class RepositoryFactDemandCoordinator {
             return
         }
         didStartShutdown = true
-        acceptsSnapshots = false
-        pendingSnapshot = .empty
-        pendingSnapshotMustDeliver = true
+        acceptsInputs = false
+        cancelDeadlineTask()
+        pendingInput = .empty
+        pendingInputMustDeliver = true
         startDeliveryTaskIfNeeded()
         await waitUntilIdle()
     }
@@ -113,29 +182,115 @@ final class RepositoryFactDemandCoordinator {
         guard deliveryTask == nil else { return }
         deliveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            while let nextSnapshot = self.pendingSnapshot {
-                let mustDeliver = self.pendingSnapshotMustDeliver
-                self.pendingSnapshot = nil
-                self.pendingSnapshotMustDeliver = false
-                if !mustDeliver, nextSnapshot == self.lastDeliveredSnapshot {
+            while let nextInput = self.pendingInput {
+                let mustDeliver = self.pendingInputMustDeliver
+                self.pendingInput = nil
+                self.pendingInputMustDeliver = false
+                self.inFlightInput = nextInput
+                let classified = await Self.classify(
+                    nextInput,
+                    referenceDate: self.wallClockNow()
+                )
+                self.inFlightInput = nil
+                guard self.pendingInput == nil else { continue }
+
+                if !mustDeliver, classified.snapshot == self.lastDeliveredSnapshot {
+                    self.lastClassifiedInput = nextInput
+                    self.rescheduleDeadline(at: classified.nextTransitionAt)
                     continue
                 }
 
-                self.inFlightSnapshot = nextSnapshot
-                await self.delivery(nextSnapshot)
+                await self.delivery(classified.snapshot)
                 self.increment(\.delivered)
-                if nextSnapshot == .empty {
+                if classified.snapshot == .empty {
                     self.increment(\.cleared)
                 }
-                self.inFlightSnapshot = nil
                 guard !Task.isCancelled else {
                     self.finishDeliveryTask()
                     return
                 }
-                self.lastDeliveredSnapshot = nextSnapshot
+                self.lastClassifiedInput = nextInput
+                self.lastDeliveredSnapshot = classified.snapshot
+                if self.pendingInput == nil {
+                    self.rescheduleDeadline(at: classified.nextTransitionAt)
+                }
             }
             self.finishDeliveryTask()
         }
+    }
+
+    @concurrent nonisolated private static func classify(
+        _ input: RepositoryFactDemandInput,
+        referenceDate: Date
+    ) async -> (snapshot: RepositoryFactDemandSnapshot, nextTransitionAt: Date?) {
+        let activity = RepositoryActivityClassifier.classify(
+            RepositoryActivityClassificationInput(
+                hydrationDisposition: input.recencyHydrationDisposition,
+                repositories: input.activityTopology,
+                openWorktreeIDs: input.openWorktreeIds,
+                recency: input.applicationRecency,
+                referenceDate: referenceDate,
+                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+        )
+        return (
+            RepositoryFactDemandSnapshot(
+                activePaneWorktreeId: input.activePaneWorktreeId,
+                sidebarAttendedWorktreeIds: input.sidebarAttendedWorktreeIds,
+                visibleActiveTabWorktreeIds: input.visibleActiveTabWorktreeIds,
+                openWorktreeIds: input.openWorktreeIds,
+                repositoryIdByWorktreeId: input.repositoryIdByWorktreeId,
+                warmRepositoryIds: activity.warmRepositoryIDs,
+                locallyInactiveRepositoryIds: activity.locallyInactiveRepositoryIDs,
+                warmAutomaticWorktreeIds: activity.warmWorktreeIDs,
+                locallyInactiveWorktreeIds: activity.locallyInactiveWorktreeIDs
+            ),
+            activity.nextTransitionAt
+        )
+    }
+
+    private func rescheduleDeadline(at transitionDate: Date?) {
+        cancelDeadlineTask()
+        guard acceptsInputs, let transitionDate else { return }
+        let delaySeconds = max(0, transitionDate.timeIntervalSince(wallClockNow()))
+        let deadline = deadlineClock.now + .seconds(delaySeconds)
+        let generation = deadlineGeneration
+        let deadlineClock = self.deadlineClock
+        deadlineTask = Task { @MainActor [weak self, deadlineClock] in
+            do {
+                try await Self.waitForDeadline(deadline, clock: deadlineClock)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.handleDeadlineWake(generation: generation)
+        }
+    }
+
+    @concurrent nonisolated private static func waitForDeadline(
+        _ deadline: Duration,
+        clock: RepositoryFactDemandDeadlineClock
+    ) async throws {
+        try await clock.sleep(until: deadline)
+    }
+
+    private func handleDeadlineWake(generation: UInt64) {
+        guard generation == deadlineGeneration,
+            acceptsInputs,
+            let lastClassifiedInput
+        else { return }
+        deadlineTask = nil
+        pendingInput = lastClassifiedInput
+        pendingInputMustDeliver = false
+        startDeliveryTaskIfNeeded()
+    }
+
+    private func cancelDeadlineTask() {
+        deadlineGeneration &+= 1
+        deadlineTask?.cancel()
+        deadlineTask = nil
     }
 
     private func finishDeliveryTask() {

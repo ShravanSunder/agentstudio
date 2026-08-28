@@ -501,6 +501,156 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         await actor.shutdown()
     }
 
+    @Test("inactive contraction preserves filesystem scope after visibility attribution")
+    func inactiveContractionPreservesFilesystemScopeAfterVisibilityAttribution() async {
+        let statusGate = FirstStatusCallGate()
+        let blockingWorktreeId = UUIDv7.generate()
+        let targetWorktreeId = UUIDv7.generate()
+        let blockingRootPath = URL(fileURLWithPath: "/tmp/admission-required-blocker-\(blockingWorktreeId)")
+        let targetRootPath = URL(fileURLWithPath: "/tmp/admission-required-intent-\(targetWorktreeId)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { rootPath in
+                await statusGate.recordAndWaitIfFirst(rootPath)
+                return GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            },
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                maxConcurrentStatusComputes: 1,
+                backgroundMaxConcurrent: 1,
+                minimumAutomaticStartInterval: .zero
+            ),
+            pathExistenceProbe: { _ in true }
+        )
+
+        await actor.assertTopology(
+            admissionTopologyAssertion(
+                generation: 1,
+                rootPathsByWorktreeId: [
+                    blockingWorktreeId: blockingRootPath,
+                    targetWorktreeId: targetRootPath,
+                ]
+            )
+        )
+        await actor.setAutomaticEligibleWorktrees([blockingWorktreeId, targetWorktreeId])
+        await actor.enqueueImmediateRefresh(
+            admissionFilesystemChangeset(
+                worktreeId: blockingWorktreeId,
+                rootPath: blockingRootPath,
+                batchSeq: 1
+            ),
+            triggerSource: .filesystemChange
+        )
+        #expect(await admissionWaitUntil { await statusGate.callCount == 1 })
+
+        await actor.enqueueImmediateRefresh(
+            admissionFilesystemChangeset(
+                worktreeId: targetWorktreeId,
+                rootPath: targetRootPath,
+                batchSeq: 41
+            ),
+            triggerSource: .filesystemChange
+        )
+        await actor.enqueueImmediateRefreshIfRegistered(
+            worktreeId: targetWorktreeId,
+            triggerSource: .visibilityChange
+        )
+
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths == ["tracked-41.txt"])
+        #expect(
+            await actor.refreshAttribution.triggerSourceByWorktreeId[targetWorktreeId]
+                == .visibilityChange
+        )
+        #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
+
+        await actor.setAutomaticEligibleWorktrees([blockingWorktreeId])
+
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths == ["tracked-41.txt"])
+        #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
+
+        await statusGate.releaseFirst()
+        #expect(await admissionWaitUntil { await statusGate.callCount == 2 })
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId] == nil)
+        #expect(await !actor.hasRequiredIntent(worktreeId: targetWorktreeId))
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
+
+        await actor.shutdown()
+    }
+
+    @Test("inactive contraction drops an automatic follower after required work settles")
+    func inactiveContractionDropsAutomaticFollowerAfterRequiredWorkSettles() async {
+        let statusGate = FirstStatusCallGate()
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/admission-required-active-\(worktreeId)")
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { rootPath in
+                await statusGate.recordAndWaitIfFirst(rootPath)
+                return GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            },
+            coalescingWindow: .zero,
+            pathExistenceProbe: { _ in true }
+        )
+
+        await actor.assertTopology(
+            admissionTopologyAssertion(
+                generation: 1,
+                rootPathsByWorktreeId: [worktreeId: rootPath]
+            )
+        )
+        await actor.setAutomaticEligibleWorktrees([worktreeId])
+        await actor.enqueueImmediateRefresh(
+            admissionFilesystemChangeset(
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 99
+            ),
+            triggerSource: .filesystemChange
+        )
+        #expect(await admissionWaitUntil { await statusGate.callCount == 1 })
+        #expect(
+            await actor.refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[worktreeId]
+                != nil
+        )
+
+        await actor.enqueueImmediateRefreshIfRegistered(
+            worktreeId: worktreeId,
+            triggerSource: .visibilityChange
+        )
+        #expect(await actor.pendingByWorktreeId[worktreeId] != nil)
+        #expect(
+            await actor.refreshAttribution.pendingRequiredIntentGenerationByWorktreeId[worktreeId]
+                == nil
+        )
+
+        await actor.setAutomaticEligibleWorktrees([])
+        #expect(await actor.pendingByWorktreeId[worktreeId] != nil)
+
+        await statusGate.releaseFirst()
+        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        let debt = await actor.logicalDebtSnapshot()
+        #expect(await statusGate.callCount == 1)
+        #expect(await actor.pendingByWorktreeId[worktreeId] == nil)
+        #expect(await !actor.hasRequiredIntent(worktreeId: worktreeId))
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId] == nil)
+        #expect(await actor.statusFailureDeadlineByWorktreeId[worktreeId] == nil)
+        #expect(await actor.capacityFallbackDeadlineByWorktreeId[worktreeId] == nil)
+        #expect(debt.logicalDebtCount == 0)
+        #expect(debt.unclassifiedPendingCount == 0)
+
+        await actor.shutdown()
+    }
+
     @Test("missing selected root is quarantined without consuming the admission slot")
     func missingSelectedRootDoesNotConsumeAdmissionSlot() async {
         let bus = EventBus<RuntimeEnvelope>()

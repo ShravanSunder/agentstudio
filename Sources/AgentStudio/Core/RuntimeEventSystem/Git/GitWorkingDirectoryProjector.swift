@@ -66,6 +66,7 @@ package actor GitWorkingDirectoryProjector {
     var activeWorktreeIds: Set<UUID> = []
     var activePaneWorktreeId: UUID?
     var sidebarVisibleWorktreeIds: Set<UUID> = []
+    var automaticEligibleWorktreeIds: Set<UUID>?
     var repoIdByWorktreeId: [UUID: UUID] = [:]
     var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
@@ -260,6 +261,7 @@ package actor GitWorkingDirectoryProjector {
         activeWorktreeIds.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
         sidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
+        automaticEligibleWorktreeIds = nil
         repoIdByWorktreeId.removeAll(keepingCapacity: false)
         lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
         originResolutionByRepoId.removeAll(keepingCapacity: false)
@@ -311,8 +313,16 @@ package actor GitWorkingDirectoryProjector {
             }
             guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
-            guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
-            guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
+            if openStatusBackoffWorktreeIds.contains(worktreeId) {
+                recordRequiredIntent(changeset: changeset, triggerSource: .filesystemChange)
+                _ = deferChangesetIfStatusBackoffOpen(changeset)
+                return
+            }
+            if capacityRetryWorktreeIds.contains(worktreeId) {
+                recordRequiredIntent(changeset: changeset, triggerSource: .filesystemChange)
+                _ = deferChangesetIfCapacityRetryPending(changeset)
+                return
+            }
             // A queued immediate full refresh covers changes observed before
             // it starts. Once its task is running, retain one merged pending
             // invalidation so later mutations cannot disappear behind it.
@@ -323,7 +333,13 @@ package actor GitWorkingDirectoryProjector {
                     pendingByWorktreeId[worktreeId],
                     with: changeset
                 )
+                recordRequiredIntent(changeset: changeset, triggerSource: .filesystemChange)
                 refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .filesystemChange
+            } else if let coveringChangeset = pendingByWorktreeId[worktreeId] {
+                recordRequiredIntent(
+                    changeset: coveringChangeset,
+                    triggerSource: .filesystemChange
+                )
             }
             grantDemandEligibility(worktreeId: worktreeId)
             admitPendingWorktrees()
@@ -357,74 +373,6 @@ package actor GitWorkingDirectoryProjector {
                 timestamp: envelopeClock.now
             )
         }
-    }
-
-    package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
-        if isActiveInApp {
-            activeWorktreeIds.insert(worktreeId)
-            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
-        } else {
-            activeWorktreeIds.remove(worktreeId)
-            if activePaneWorktreeId != worktreeId, !sidebarVisibleWorktreeIds.contains(worktreeId) {
-                tierEligibleWorktreeIds.remove(worktreeId)
-            }
-        }
-    }
-
-    package func setActivePaneWorktree(worktreeId: UUID?) {
-        let previousActivePaneWorktreeId = activePaneWorktreeId
-        activePaneWorktreeId = worktreeId
-        if let previousActivePaneWorktreeId,
-            previousActivePaneWorktreeId != worktreeId,
-            !sidebarVisibleWorktreeIds.contains(previousActivePaneWorktreeId),
-            !activeWorktreeIds.contains(previousActivePaneWorktreeId)
-        {
-            tierEligibleWorktreeIds.remove(previousActivePaneWorktreeId)
-        }
-        guard let worktreeId else { return }
-        scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
-    }
-
-    package func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
-        guard worktreeIds != sidebarVisibleWorktreeIds else { return }
-        let noLongerVisibleWorktreeIds = sidebarVisibleWorktreeIds.subtracting(worktreeIds)
-        sidebarVisibleWorktreeIds = worktreeIds
-        for worktreeId in noLongerVisibleWorktreeIds
-        where activePaneWorktreeId != worktreeId && !activeWorktreeIds.contains(worktreeId) {
-            tierEligibleWorktreeIds.remove(worktreeId)
-        }
-        scheduleCoalescedVisibilityAdmission()
-    }
-
-    package func setRepositoryFactAttention(
-        activePaneWorktreeId: UUID?,
-        sidebarAttendedWorktreeIds: Set<UUID>,
-        visibleActiveTabWorktreeIds: Set<UUID>,
-        openWorktreeIds: Set<UUID>
-    ) {
-        let previousAttentionWorktreeIds =
-            activeWorktreeIds
-            .union(sidebarVisibleWorktreeIds)
-            .union(self.activePaneWorktreeId.map { [$0] } ?? [])
-        let nextOpenWorktreeIds = openWorktreeIds.union(visibleActiveTabWorktreeIds)
-        let nextAttentionWorktreeIds =
-            nextOpenWorktreeIds
-            .union(sidebarAttendedWorktreeIds)
-            .union(activePaneWorktreeId.map { [$0] } ?? [])
-        let newlyAttendedWorktreeIds = nextAttentionWorktreeIds.subtracting(previousAttentionWorktreeIds)
-        let noLongerAttendedWorktreeIds = previousAttentionWorktreeIds.subtracting(nextAttentionWorktreeIds)
-
-        self.activePaneWorktreeId = activePaneWorktreeId
-        activeWorktreeIds = nextOpenWorktreeIds
-        sidebarVisibleWorktreeIds = sidebarAttendedWorktreeIds
-
-        for worktreeId in noLongerAttendedWorktreeIds {
-            tierEligibleWorktreeIds.remove(worktreeId)
-        }
-        for worktreeId in newlyAttendedWorktreeIds {
-            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
-        }
-        scheduleCoalescedVisibilityAdmission()
     }
 
     package func refreshRegisteredWorktreesImmediately() {
@@ -534,6 +482,7 @@ package actor GitWorkingDirectoryProjector {
             clearQuarantineState(worktreeId: worktreeId)
             clearValidatedRootPath(worktreeId: worktreeId)
             resetAdaptiveCadence(worktreeId: worktreeId)
+            clearRequiredIntent(worktreeId: worktreeId)
             immediateRefreshWorktreeIds.remove(worktreeId)
             coalescingWorktreeIds.remove(worktreeId)
         }
@@ -551,13 +500,15 @@ package actor GitWorkingDirectoryProjector {
             timestamp: timestamp,
             batchSeq: 0
         )
-        pendingByWorktreeId[worktreeId] = registrationChangeset
-        refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .registration
-        scheduleAutomaticRefresh(
-            worktreeId: worktreeId,
-            missingBaseline: true,
-            allowsPromptMissingBaseline: demandTier(for: worktreeId) != .background
-        )
+        if isAutomaticEligible(worktreeId: worktreeId) {
+            pendingByWorktreeId[worktreeId] = registrationChangeset
+            refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .registration
+            scheduleAutomaticRefresh(
+                worktreeId: worktreeId,
+                missingBaseline: true,
+                allowsPromptMissingBaseline: demandTier(for: worktreeId) != .background
+            )
+        }
         if endedGlobalCapacityPause {
             admitPendingWorktrees()
         }
@@ -580,6 +531,7 @@ package actor GitWorkingDirectoryProjector {
         coalescingWorktreeIds.remove(worktreeId)
         activeWorktreeIds.remove(worktreeId)
         sidebarVisibleWorktreeIds.remove(worktreeId)
+        automaticEligibleWorktreeIds?.remove(worktreeId)
         lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
         pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -603,6 +555,7 @@ package actor GitWorkingDirectoryProjector {
         clearQuarantineState(worktreeId: worktreeId)
         clearValidatedRootPath(worktreeId: worktreeId)
         resetAdaptiveCadence(worktreeId: worktreeId)
+        clearRequiredIntent(worktreeId: worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
@@ -659,6 +612,7 @@ package actor GitWorkingDirectoryProjector {
         guard var nextChangeset = pendingByWorktreeId.removeValue(forKey: worktreeId) else {
             return
         }
+        admitPendingRequiredIntent(worktreeId: worktreeId)
         recordLogicalDebtSnapshotIfChanged()
         let shouldCoalesce = immediateRefreshWorktreeIds.remove(worktreeId) == nil && coalescingWindow > .zero
         if shouldCoalesce {
@@ -678,6 +632,7 @@ package actor GitWorkingDirectoryProjector {
             coalescingWorktreeIds.remove(worktreeId)
             guard !Task.isCancelled else { return }
             if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
+                admitPendingRequiredIntent(worktreeId: worktreeId)
                 recordLogicalDebtSnapshotIfChanged()
                 nextChangeset = Self.mergeChangesets(nextChangeset, with: newer)
                 _ = immediateRefreshWorktreeIds.remove(worktreeId)
