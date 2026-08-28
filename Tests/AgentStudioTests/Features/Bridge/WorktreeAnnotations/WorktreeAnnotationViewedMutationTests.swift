@@ -234,12 +234,13 @@ private func addSavedRootSession(
     editToken: String,
     now: TimeInterval
 ) throws -> WorktreeAnnotationSessionDetail {
+    let otherWorktreeID = "worktree-2"
     let draftDetail = try repository.createRootDraft(
         .init(
             admission: .newSession,
             repositoryID: "repo-1",
-            worktreeID: "worktree-1",
-            sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
+            worktreeID: otherWorktreeID,
+            sourceFingerprint: makeSourceFingerprint(worktreeID: otherWorktreeID),
             origin: .session,
             body: body,
             editToken: editToken,

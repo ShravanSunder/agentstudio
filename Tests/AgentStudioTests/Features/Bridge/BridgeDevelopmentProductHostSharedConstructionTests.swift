@@ -255,19 +255,11 @@ struct BridgeDevHostSharedConstructionTests {
             await host.handleObservedWorktreeInvalidation(
                 developmentFileInvalidation(source: source, batchSequence: 10)
             )
-            guard await waitForStartedComparisonCount(1, gate: comparisonGate) else {
-                Issue.record("Expected source invalidation 10 to start Review preparation")
-                await comparisonGate.releaseAll()
-                return
-            }
+            await comparisonGate.waitForStartedComparisonCount(1)
             await host.handleObservedWorktreeInvalidation(
                 developmentFileInvalidation(source: source, batchSequence: 11)
             )
-            guard await waitForStartedComparisonCount(2, gate: comparisonGate) else {
-                Issue.record("Expected source invalidation 11 to supersede Review preparation 10")
-                await comparisonGate.releaseAll()
-                return
-            }
+            await comparisonGate.waitForStartedComparisonCount(2)
             await comparisonGate.releaseAll()
             let reviewTask = await host.activeReviewComparisonTask
             await reviewTask?.value
@@ -556,27 +548,14 @@ private func developmentFileInvalidation(
     )
 }
 
-private func waitForStartedComparisonCount(
-    _ expectedCount: Int,
-    gate: BridgeComparisonGate,
-    maximumTurns: Int = 20_000
-) async -> Bool {
-    for _ in 0..<maximumTurns {
-        if await gate.startedComparisonCountSnapshot() >= expectedCount { return true }
-        await Task.yield()
-    }
-    return false
-}
-
 private func waitForRetiringReviewTasksToDrain(
-    _ host: BridgeDevelopmentProductHost,
-    maximumTurns: Int = 20_000
+    _ host: BridgeDevelopmentProductHost
 ) async -> Bool {
-    for _ in 0..<maximumTurns {
-        if await host.retiringReviewComparisonTasks.isEmpty { return true }
-        await Task.yield()
+    let retiringTasks = await Array(host.retiringReviewComparisonTasks.values)
+    for task in retiringTasks {
+        await task.value
     }
-    return false
+    return await host.retiringReviewComparisonTasks.isEmpty
 }
 
 private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
