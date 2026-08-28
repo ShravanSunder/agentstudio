@@ -22,9 +22,7 @@ private struct StreamRegistration: @unchecked Sendable {
     let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
     let observationScopes: [AgentStudioGit.GitStatusObservationScope]
     let watchedPaths: [String]
-    let stream: FSEventStreamRef
-    let queue: DispatchQueue
-    let callbackContextPtr: UnsafeMutableRawPointer
+    let streamLifetime: DarwinFSEventNativeStreamLifetime
 }
 
 private struct CompositeStreamRetention {
@@ -279,7 +277,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
         let currentRegistration = retainedRegistration(worktreeId: worktreeId)
         guard let currentRegistration, currentRegistration.rootPath == canonicalRootPath else { return nil }
-        defer { FSEventStreamRelease(currentRegistration.stream) }
 
         let registration: StreamRegistration
         if currentRegistration.observationIdentity == observationIdentity,
@@ -351,8 +348,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return nil
         }
-        defer { FSEventStreamRelease(streamRetention.registration.stream) }
-
         guard flush(streamRetention) else { return nil }
         guard
             let postFlushBarrier = continuityLedger.beginBarrier(
@@ -383,7 +378,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return .requiresExact(.registrationMissing)
         }
-        defer { FSEventStreamRelease(streamRetention.registration.stream) }
         guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
         guard
             continuityLedger.barrierIsCurrent(barrier) == nil,
@@ -463,7 +457,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return .requiresExact(.registrationMissing)
         }
-        defer { FSEventStreamRelease(streamRetention.registration.stream) }
         guard flush(streamRetention) else { return .requiresExact(.streamStartFailed) }
         guard
             compositeStreamsAreCurrent(
@@ -579,6 +572,13 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
             return nil
         }
+        let streamLifetime = DarwinFSEventNativeStreamLifetime(
+            stream: stream,
+            queue: queue,
+            releaseCallbackContext: {
+                Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
+            }
+        )
 
         return StreamRegistration(
             lifecycleGeneration: lifecycleGeneration,
@@ -591,9 +591,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             observationIdentity: observationIdentity,
             observationScopes: observationScopes,
             watchedPaths: watchedPaths,
-            stream: stream,
-            queue: queue,
-            callbackContextPtr: callbackContextPtr
+            streamLifetime: streamLifetime
         )
     }
 
@@ -687,9 +685,8 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
 
     private func retainedRegistration(worktreeId: UUID) -> StreamRegistration? {
         lifecycleLock.withLock {
-            guard !hasShutdown, let registration = streamByWorktreeId[worktreeId] else { return nil }
-            FSEventStreamRetain(registration.stream)
-            return registration
+            guard !hasShutdown else { return nil }
+            return streamByWorktreeId[worktreeId]
         }
     }
 
@@ -700,7 +697,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     ) -> CompositeStreamRetention? {
         guard let registration = retainedRegistration(worktreeId: worktreeId) else { return nil }
         guard registration.observationIdentity == observationIdentity else {
-            FSEventStreamRelease(registration.stream)
             return nil
         }
 
@@ -710,7 +706,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         ) {
         case .localOnly:
             guard requiresSharedBinding != true else {
-                FSEventStreamRelease(registration.stream)
                 return nil
             }
             return CompositeStreamRetention(
@@ -719,7 +714,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             )
         case .shared(let sharedBindingLease):
             guard requiresSharedBinding != false else {
-                FSEventStreamRelease(registration.stream)
                 return nil
             }
             return CompositeStreamRetention(
@@ -727,7 +721,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 sharedBindingLease: sharedBindingLease
             )
         case .invalid:
-            FSEventStreamRelease(registration.stream)
             return nil
         }
     }
@@ -775,7 +768,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         // Flushes may synchronously wait for callback queues. The registration
         // and shared leases were retained under their owners' locks, but no
         // lifecycle or registry lock remains held while either flush executes.
-        FSEventStreamFlushSync(streamRetention.registration.stream)
+        guard streamRetention.registration.streamLifetime.flush() else { return false }
         return streamRetention.sharedBindingLease?.flush() ?? true
     }
 
@@ -889,17 +882,11 @@ extension DarwinFSEventStreamClient {
     }
 
     private static func teardown(_ registration: StreamRegistration) {
-        FSEventStreamStop(registration.stream)
-        FSEventStreamInvalidate(registration.stream)
-        FSEventStreamRelease(registration.stream)
-        Unmanaged<CallbackContext>.fromOpaque(registration.callbackContextPtr).release()
-        _ = registration.queue
+        registration.streamLifetime.retire()
     }
 
     private static func scheduleTeardown(_ registration: StreamRegistration) {
-        registration.queue.async {
-            teardown(registration)
-        }
+        registration.streamLifetime.scheduleRetirement()
     }
 }
 
@@ -908,21 +895,12 @@ extension DarwinFSEventStreamClient {
     nonisolated package func captureActivityBarrier() async -> FSEventActivityBarrier? {
         let registrations = lifecycleLock.withLock { () -> [(UUID, StreamRegistration)]? in
             guard !hasShutdown else { return nil }
-            let registrations = streamByWorktreeId.sorted { $0.key.uuidString < $1.key.uuidString }
-            for (_, registration) in registrations {
-                FSEventStreamRetain(registration.stream)
-            }
-            return registrations
+            return streamByWorktreeId.sorted { $0.key.uuidString < $1.key.uuidString }
         }
         guard let registrations else { return nil }
-        defer {
-            for (_, registration) in registrations {
-                FSEventStreamRelease(registration.stream)
-            }
-        }
 
         for (_, registration) in registrations {
-            FSEventStreamFlushSync(registration.stream)
+            guard registration.streamLifetime.flush() else { return nil }
         }
         guard
             let sharedBarrierSnapshot =

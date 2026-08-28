@@ -882,48 +882,28 @@ package enum DarwinSharedExactItemNativeStream {
     }
 
     private final class StreamLifetime: DarwinSharedExactItemStreamLifetime, @unchecked Sendable {
-        private let lock = NSLock()
-        private let stream: FSEventStreamRef
-        private let queue: DispatchQueue
-        private let callbackContextPointer: UnsafeMutableRawPointer
-        private var hasScheduledRetirement = false
+        private let nativeLifetime: DarwinFSEventNativeStreamLifetime
 
         init(
             stream: FSEventStreamRef,
             queue: DispatchQueue,
             callbackContextPointer: UnsafeMutableRawPointer
         ) {
-            self.stream = stream
-            self.queue = queue
-            self.callbackContextPointer = callbackContextPointer
+            nativeLifetime = DarwinFSEventNativeStreamLifetime(
+                stream: stream,
+                queue: queue,
+                releaseCallbackContext: {
+                    Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
+                }
+            )
         }
 
         func retire() {
-            let shouldScheduleRetirement = lock.withLock { () -> Bool in
-                guard !hasScheduledRetirement else { return false }
-                hasScheduledRetirement = true
-                return true
-            }
-            guard shouldScheduleRetirement else { return }
-            queue.async { [self] in
-                FSEventStreamStop(stream)
-                FSEventStreamInvalidate(stream)
-                FSEventStreamRelease(stream)
-                Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-                _ = queue
-            }
+            nativeLifetime.scheduleRetirement()
         }
 
         func flush() -> Bool {
-            let retainedStream = lock.withLock { () -> FSEventStreamRef? in
-                guard !hasScheduledRetirement else { return nil }
-                FSEventStreamRetain(stream)
-                return stream
-            }
-            guard let retainedStream else { return false }
-            defer { FSEventStreamRelease(retainedStream) }
-            FSEventStreamFlushSync(retainedStream)
-            return lock.withLock { !hasScheduledRetirement }
+            nativeLifetime.flush()
         }
     }
 
