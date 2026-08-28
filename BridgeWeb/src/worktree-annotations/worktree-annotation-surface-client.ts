@@ -205,6 +205,9 @@ export function createWorktreeAnnotationSurfaceClient(
 				} else if (message.state.kind === 'refreshing') {
 					projectionStore.markRefreshing();
 				} else {
+					if (message.state.catalogAuthorityRetired) {
+						projectionStore.prepareForWorkerReplacement();
+					}
 					projectionStore.markUnavailable(message.state.retryable);
 				}
 				return;

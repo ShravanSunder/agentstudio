@@ -47,7 +47,11 @@ export interface BridgeCommWorkerAnnotationProjectionDemand {
 export interface BridgeCommWorkerAnnotationProjectionPublication {
 	readonly operationCorrelationId: string | null;
 	readonly state:
-		| { readonly error: unknown; readonly kind: 'unavailable' }
+		| {
+				readonly catalogAuthorityRetired: boolean;
+				readonly error: unknown;
+				readonly kind: 'unavailable';
+		  }
 		| {
 				readonly contentSessionIds: readonly string[];
 				readonly kind: 'ready';
@@ -234,7 +238,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#abortController?.abort();
 		this.#onConvergence({
 			operationCorrelationId: this.#invalidation?.operationCorrelationId ?? null,
-			state: { error, kind: 'unavailable' },
+			state: { catalogAuthorityRetired: false, error, kind: 'unavailable' },
 			surface: this.#surface,
 		});
 	}
@@ -344,12 +348,16 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	#handleSubscriptionFailure(error: unknown): void {
+		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
 		this.#subscription = null;
 		this.#controlReady = false;
 		this.#metadataApplication.retireAuthority();
+		this.#invalidation = null;
+		this.#invalidationGeneration += 1;
+		this.#abortController?.abort();
 		this.#onConvergence({
-			operationCorrelationId: this.#invalidation?.operationCorrelationId ?? null,
-			state: { error, kind: 'unavailable' },
+			operationCorrelationId,
+			state: { catalogAuthorityRetired: true, error, kind: 'unavailable' },
 			surface: this.#surface,
 		});
 		if (
@@ -525,7 +533,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				}
 				this.#onConvergence({
 					operationCorrelationId: invalidation.operationCorrelationId,
-					state: { error, kind: 'unavailable' },
+					state: { catalogAuthorityRetired: false, error, kind: 'unavailable' },
 					surface: this.#surface,
 				});
 			}

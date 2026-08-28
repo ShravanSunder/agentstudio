@@ -333,7 +333,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: null,
-			state: { kind: 'unavailable', retryable: true },
+			state: { catalogAuthorityRetired: false, kind: 'unavailable', retryable: true },
 			surface: 'fileView',
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -363,6 +363,89 @@ describe('worktree annotation surface command rendezvous', () => {
 			retryable: true,
 		});
 		expect(harness.client.getSnapshot().commandOutcomes).toHaveLength(1);
+		harness.client.dispose();
+	});
+
+	test('subscription authority retirement discards an incomplete candidate and retains active stale until lower-revision commit', () => {
+		const harness = createSurfaceClientHarness();
+		for (const message of catalogStagingMessages(20, 'fileView')) harness.publish(message);
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(20, 12),
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		const candidateBegin = catalogStagingMessages(21, 'fileView')[0];
+		if (candidateBegin === undefined) throw new Error('Expected candidate catalog begin.');
+		harness.publish(candidateBegin);
+
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: { catalogAuthorityRetired: true, kind: 'unavailable', retryable: true },
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 20 },
+			kind: 'stale',
+		});
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(21, 12),
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		expect(harness.client.getSnapshot().revision).toBe(20);
+
+		const replacementMessages = catalogStagingMessages(1, 'fileView').map((message) => ({
+			...message,
+			authority: {
+				...message.authority,
+				subscriptionId: 'fileView-annotation-subscription-2',
+				workerDerivationEpoch: 2,
+			},
+		}));
+		const [replacementBegin, replacementWindow, replacementCommit] = replacementMessages;
+		if (
+			replacementBegin === undefined ||
+			replacementWindow === undefined ||
+			replacementCommit === undefined
+		) {
+			throw new Error('Expected complete replacement catalog transfer.');
+		}
+		harness.publish(replacementBegin);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 20 },
+			kind: 'stale',
+		});
+		harness.publish(replacementWindow);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 20 },
+			kind: 'stale',
+		});
+		harness.publish(replacementCommit);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 1 },
+			kind: 'current',
+		});
 		harness.client.dispose();
 	});
 

@@ -82,7 +82,13 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 			operationCorrelationId: bridgeProductSha256Schema.nullable(),
 			state: z.discriminatedUnion('kind', [
 				z.object({ kind: z.literal('refreshing') }).strict(),
-				z.object({ kind: z.literal('unavailable'), retryable: z.boolean() }).strict(),
+				z
+					.object({
+						catalogAuthorityRetired: z.boolean(),
+						kind: z.literal('unavailable'),
+						retryable: z.boolean(),
+					})
+					.strict(),
 				z
 					.object({
 						contentSessionIds: z

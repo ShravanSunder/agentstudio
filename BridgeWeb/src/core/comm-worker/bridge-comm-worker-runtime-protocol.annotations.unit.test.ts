@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'vitest';
 
 import {
@@ -20,6 +22,7 @@ import type {
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeProductWorktreeAnnotationEvent } from './bridge-product-worktree-annotation-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from './bridge-product-worktree-annotation-output-contracts.js';
+import type { BridgeProductAnnotationProjectionContentDescriptor } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerMainToServerMessage,
@@ -292,6 +295,77 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 				surface: 'fileView',
 			}),
 		);
+	});
+
+	test('publishes catalog-authority retirement and fences a held pre-failure projection query', async () => {
+		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<AnnotationMetadataFrame>(8);
+		const heldProjectionQuery = createBridgeProductDeferred<unknown>();
+		const projectionPage = annotationProjectionPage(1, 3);
+		const projectionQueryStarted = createBridgeProductDeferred<void>();
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			productTransport: createAnnotationProductTransport({
+				calledMethods: [],
+				fileAnnotationEvents,
+				onCalledMethod: (method): void => {
+					if (method === 'file.annotations.projection.query') {
+						projectionQueryStarted.resolve();
+					}
+				},
+				projectionQuery: {
+					content: projectionPage,
+					result: heldProjectionQuery.promise,
+				},
+				reviewAnnotationEvents: new BridgeProductBoundedAsyncQueue(8),
+				subscribedKinds: [],
+			}),
+		});
+		for (const catalogFrame of annotationCatalogFrames(1, 'file.annotations')) {
+			fileAnnotationEvents.push(catalogFrame);
+		}
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'file-active-source-before-annotation-subscription-failure',
+				update: {
+					activeSource: {
+						generation: 3,
+						protocol: 'worktree-file',
+						streamId: 'file-source-before-annotation-subscription-failure',
+					},
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 1,
+					sessionId: 'active-viewer-session-before-annotation-subscription-failure',
+				},
+			}),
+		);
+		await projectionQueryStarted.promise;
+
+		fileAnnotationEvents.close(false);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'annotationProjectionConvergence',
+				state: expect.objectContaining({
+					catalogAuthorityRetired: true,
+					kind: 'unavailable',
+				}),
+				surface: 'fileView',
+			}),
+		);
+		heldProjectionQuery.resolve({ descriptor: projectionPage.descriptor, kind: 'content' });
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(
+			postedMessages.some(
+				({ message }) =>
+					message.kind === 'annotationProjectionConvergence' && message.state.kind === 'ready',
+			),
+		).toBe(false);
 	});
 
 	test('forwards annotations after unrelated File viewer epochs advance', async () => {
@@ -590,6 +664,66 @@ function annotationCatalogFrames(
 	}));
 }
 
+function annotationProjectionPage(
+	projectionRevision: number,
+	sourceGeneration: number,
+): {
+	readonly bytes: Uint8Array<ArrayBuffer>;
+	readonly descriptor: BridgeProductAnnotationProjectionContentDescriptor;
+} {
+	const bytes = new TextEncoder().encode(
+		`${JSON.stringify({
+			header: {
+				expectedMessageCount: 0,
+				expectedSessionCount: 1,
+				expectedThreadCount: 0,
+				projectionRevision,
+				recoveryStatus: 'available',
+				sessions: [
+					{
+						completedAtUnixMilliseconds: null,
+						createdAtUnixMilliseconds: 1,
+						eligibleMessageCount: 0,
+						eligibleWithoutInlinePlacementCount: 0,
+						lifecycle: 'living',
+						semanticRevision: 1,
+						sessionId: '00000000-0000-7000-8000-000000000011',
+						sourceRelationship: 'applicable',
+						updatedAtUnixMilliseconds: 2,
+					},
+				],
+				sourceGeneration,
+				worktreeId: annotationWorktreeId,
+			},
+			kind: 'header',
+		})}\n`,
+	);
+	const aggregateSha256 = createHash('sha256').update(bytes).digest('hex');
+	return {
+		bytes,
+		descriptor: {
+			contentKind: 'annotation.projection',
+			descriptorId: 'annotation-projection-after-subscription-failure',
+			maximumBytes: bytes.byteLength,
+			page: {
+				aggregateSha256,
+				expectedMessageCount: 0,
+				expectedPageCount: 1,
+				expectedSessionCount: 1,
+				expectedThreadCount: 0,
+				isLastPage: true,
+				nextCursor: null,
+				operationCorrelationId: 'a'.repeat(64),
+				pageOrdinal: 0,
+				projectionRevision,
+				snapshotId: '00000000-0000-7000-8000-000000000021',
+				sourceGeneration,
+			},
+			surface: 'file',
+		},
+	};
+}
+
 function createAnnotationProductTransport(props: {
 	readonly calledMethods: string[];
 	readonly failingAnnotationMethod?: 'file.annotations.command' | 'review.annotations.command';
@@ -602,6 +736,13 @@ function createAnnotationProductTransport(props: {
 		readonly operationOrder: string[];
 	};
 	readonly onCalledMethod?: ((method: string) => void) | undefined;
+	readonly projectionQuery?: {
+		readonly content: {
+			readonly bytes: Uint8Array<ArrayBuffer>;
+			readonly descriptor: BridgeProductAnnotationProjectionContentDescriptor;
+		};
+		readonly result: Promise<unknown>;
+	};
 	readonly subscribedKinds: string[];
 }): BridgeProductTransportSession {
 	const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
@@ -613,6 +754,12 @@ function createAnnotationProductTransport(props: {
 		call: (async (method: string): Promise<unknown> => {
 			props.calledMethods.push(method);
 			props.onCalledMethod?.(method);
+			if (
+				method === 'file.annotations.projection.query' ||
+				method === 'review.annotations.projection.query'
+			) {
+				return props.projectionQuery?.result ?? null;
+			}
 			if (
 				method === 'file.annotations.output.inspect' ||
 				method === 'review.annotations.output.inspect'
@@ -637,8 +784,32 @@ function createAnnotationProductTransport(props: {
 			}
 			return null;
 		}) as BridgeProductTransportSession['call'],
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double opens only annotation output descriptors.
-		openContent: ((descriptor: BridgeProductAnnotationOutputContentDescriptor): unknown => {
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double opens only the two annotation content descriptors exercised here.
+		openContent: ((
+			descriptor:
+				| BridgeProductAnnotationOutputContentDescriptor
+				| BridgeProductAnnotationProjectionContentDescriptor,
+		): unknown => {
+			if (descriptor.contentKind === 'annotation.projection') {
+				const projectionContent = props.projectionQuery?.content;
+				if (projectionContent === undefined) {
+					throw new Error('Projection content is outside the annotation runtime protocol test.');
+				}
+				return {
+					contentKind: 'annotation.projection',
+					contentRequestId: 'annotation-projection-content-request',
+					frames: (async function* (): AsyncIterable<never> {})(),
+					terminal: Promise.resolve({
+						bytes: projectionContent.bytes.buffer,
+						contentKind: 'annotation.projection',
+						descriptorId: descriptor.descriptorId,
+						endOfSource: true,
+						kind: 'complete',
+						observedByteLength: projectionContent.bytes.byteLength,
+						observedSha256: createHash('sha256').update(projectionContent.bytes).digest('hex'),
+					}),
+				};
+			}
 			if (props.inspection === undefined) {
 				throw new Error('Content is outside the annotation runtime protocol test.');
 			}

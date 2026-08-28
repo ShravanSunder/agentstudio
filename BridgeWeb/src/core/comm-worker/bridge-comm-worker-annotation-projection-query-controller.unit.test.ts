@@ -269,6 +269,47 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.statuses).toEqual(['unavailable', 'refreshing', 'ready']);
 	});
 
+	test('retires failed subscription authority, fences its in-flight query, and reopens from a lower catalog revision', async () => {
+		const firstNotifications = createNotificationQueue('file');
+		const replacementNotifications = createNotificationQueue('file');
+		const firstQuery = deferred<unknown>();
+		const pages = await makeProjectionPages(1, 17);
+		const observedSignals: AbortSignal[] = [];
+		let queryCount = 0;
+		const harness = await createHarness({
+			notificationQueues: [firstNotifications, replacementNotifications],
+			pages,
+			queryOverride: (_request, signal) => {
+				observedSignals.push(signal);
+				queryCount += 1;
+				return queryCount === 1
+					? firstQuery.promise
+					: Promise.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
+			},
+		});
+		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
+		harness.controller.ensureSubscription();
+		pushSessionCatalog(firstNotifications, 20);
+		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 1);
+
+		firstNotifications.close();
+		await flushTaskQueueUntil(() => harness.subscriptionCount() === 2);
+
+		expect(observedSignals[0]?.aborted).toBe(true);
+		expect(harness.catalogAuthorityRetirements).toEqual([true]);
+		firstQuery.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
+		await flushTaskQueue();
+		expect(harness.publications).toEqual([]);
+		expect(harness.querySourceGenerations).toEqual([17]);
+
+		pushSessionCatalog(replacementNotifications, 1);
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySourceGenerations).toEqual([17, 17]);
+		expect(harness.publications).toHaveLength(1);
+		expect(harness.statuses).toEqual(['refreshing', 'unavailable', 'refreshing', 'ready']);
+	});
+
 	test('explicit retry reopens after two pre-bootstrap notification failures', async () => {
 		const firstNotifications = createNotificationQueue('file');
 		const replacementNotifications = createNotificationQueue('file');
@@ -444,6 +485,7 @@ type AnnotationMetadataSubscription =
 type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 interface AnnotationProjectionTestHarness {
+	readonly catalogAuthorityRetirements: boolean[];
 	readonly controller: BridgeCommWorkerAnnotationProjectionQueryController;
 	readonly failures: unknown[];
 	readonly notifications: TestNotificationQueue;
@@ -481,6 +523,7 @@ async function createHarness(props: {
 	let observedSubscriptionCount = 0;
 	const publications: AnnotationProjectionTestHarness['publications'] = [];
 	const failures: unknown[] = [];
+	const catalogAuthorityRetirements: boolean[] = [];
 	const statuses: AnnotationProjectionTestHarness['statuses'] = [];
 	const querySourceGenerations: number[] = [];
 	const querySessionIds: string[][] = [];
@@ -524,7 +567,10 @@ async function createHarness(props: {
 					snapshot: state.snapshot,
 					surface,
 				});
-			} else if (state.kind === 'unavailable') failures.push(state.error);
+			} else if (state.kind === 'unavailable') {
+				failures.push(state.error);
+				catalogAuthorityRetirements.push(state.catalogAuthorityRetired);
+			}
 		},
 		onSourceAuthorityStale: (publication): void => {
 			sourceAuthorityStalePublications.push(publication);
@@ -538,6 +584,7 @@ async function createHarness(props: {
 		transport,
 	});
 	return {
+		catalogAuthorityRetirements,
 		controller,
 		failures,
 		notifications,

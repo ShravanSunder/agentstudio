@@ -75,13 +75,18 @@ export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 				readonly kind: 'ready';
 				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
 		  }
-		| { readonly error: unknown; readonly kind: 'unavailable' }
+		| {
+				readonly catalogAuthorityRetired: boolean;
+				readonly error: unknown;
+				readonly kind: 'unavailable';
+		  }
 		| { readonly kind: 'refreshing' };
 	readonly surface: 'file' | 'review';
 }): BridgeWorkerAnnotationProjectionConvergenceEvent {
 	const state =
 		props.state.kind === 'unavailable'
 			? {
+					catalogAuthorityRetired: props.state.catalogAuthorityRetired,
 					kind: 'unavailable' as const,
 					retryable:
 						props.state.error instanceof BridgeProductControlRequestError &&

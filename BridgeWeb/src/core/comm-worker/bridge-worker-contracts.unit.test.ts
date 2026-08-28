@@ -1,7 +1,10 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import { bridgeCommWorkerAnnotationCommandAcceptedEvent } from './bridge-comm-worker-annotation-runtime-events.js';
+import {
+	bridgeCommWorkerAnnotationCommandAcceptedEvent,
+	bridgeCommWorkerAnnotationProjectionConvergenceEvent,
+} from './bridge-comm-worker-annotation-runtime-events.js';
 import { makeContentRequestDescriptor } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { parseBridgeWorkerMainToServerMessage } from './bridge-worker-contract-parsers.js';
 import {
@@ -103,7 +106,7 @@ describe('BridgeWorkerContracts', () => {
 		} as const;
 		const projectionUnavailable = {
 			...projectionRefreshing,
-			state: { kind: 'unavailable', retryable: true },
+			state: { catalogAuthorityRetired: false, kind: 'unavailable', retryable: true },
 		} as const;
 
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
@@ -133,6 +136,25 @@ describe('BridgeWorkerContracts', () => {
 		expect(bridgeWorkerServerToMainMessageSchema.parse(projectionUnavailable)).toEqual(
 			projectionUnavailable,
 		);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.parse(
+				bridgeCommWorkerAnnotationProjectionConvergenceEvent({
+					operationCorrelationId: null,
+					state: {
+						catalogAuthorityRetired: true,
+						error: new Error('Annotation metadata subscription ended.'),
+						kind: 'unavailable',
+					},
+					surface: 'file',
+				}),
+			),
+		).toMatchObject({ state: { catalogAuthorityRetired: true, retryable: false } });
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({
+				...projectionUnavailable,
+				state: { kind: 'unavailable', retryable: true },
+			}).success,
+		).toBe(false);
 		expect(
 			bridgeWorkerMainToServerMessageSchema.safeParse({
 				...command,
