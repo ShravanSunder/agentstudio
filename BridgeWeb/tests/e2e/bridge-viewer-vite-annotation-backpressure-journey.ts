@@ -519,8 +519,22 @@ async function runAnnotationBackpressureJourney(props: {
 					viewer: 'review',
 				}),
 		});
-		await createdPage.close();
-		page = null;
+		await createdPage.getByTestId('bridge-viewer-context-file').click();
+		await expect
+			.poll(
+				async (): Promise<string | null> =>
+					await createdPage
+						.getByTestId('bridge-viewer-mode-host-file')
+						.getAttribute('data-bridge-viewer-mode-active'),
+				{ timeout: stressOperationTimeoutMilliseconds },
+			)
+			.toBe('true');
+		const stoppedReviewTelemetry = await waitForBackpressureTelemetry({
+			expectedReceiptProducedCount: null,
+			milestones: props.milestones,
+			page: createdPage,
+			viewer: 'review',
+		});
 		const stoppedDemandStatus = await runMilestone({
 			after: 'stopped-demand.checked',
 			before: 'stopped-demand.checking',
@@ -530,12 +544,12 @@ async function runAnnotationBackpressureJourney(props: {
 		if (!stoppedDemandStatus.ok) {
 			throw new Error(`Telemetry status after demand stop failed: ${stoppedDemandStatus.status}.`);
 		}
-		const stoppedReviewTelemetry = backpressureTelemetryObservation({
-			expectedReceiptProducedCount: reviewTelemetry.receiptProducedCount,
+		const stableStoppedReviewTelemetry = backpressureTelemetryObservation({
+			expectedReceiptProducedCount: stoppedReviewTelemetry.receiptProducedCount,
 			status: await stoppedDemandStatus.json(),
 			viewer: 'review',
 		});
-		if (stoppedReviewTelemetry === null) {
+		if (stableStoppedReviewTelemetry === null) {
 			throw new Error('Review telemetry changed after demand stopped.');
 		}
 		return { exactBodyCountAfterReload, fileTelemetry, messageIds, reviewTelemetry };
