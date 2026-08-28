@@ -42,10 +42,13 @@ func makeTestWorkspaceSurfaceCoordinator(
 @MainActor
 func eventually(
     _ description: String,
-    maxTurns: Int = 200,
+    timeout: Duration = .seconds(5),
     condition: @escaping @MainActor () -> Bool
 ) async {
-    for _ in 0..<maxTurns {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+
+    while clock.now < deadline {
         if condition() {
             return
         }
