@@ -24,7 +24,10 @@ import type {
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
-import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
+import {
+	WorktreeAnnotationSurfaceProvider,
+	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
+} from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
 	bridgeAppReviewNavigationSourceForDisplaySlice,
@@ -99,6 +102,18 @@ type BridgeReviewFilterCandidate = Extract<
 const bridgeReviewDefaultViewSettings =
 	createBridgeReviewViewSettingsDefaults(bridgeCodeViewOptions);
 export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
+	return (
+		<WorktreeAnnotationSurfaceProvider
+			markdownWorkerClient={props.markdownWorkerClient}
+			surfaceClient={props.reviewClient}
+			telemetryRecorder={props.telemetryRecorderRef.current}
+		>
+			<BridgeReviewViewerModeContent {...props} />
+		</WorktreeAnnotationSurfaceProvider>
+	);
+}
+
+function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
@@ -115,8 +130,11 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const presentationPositionKey = useId();
+	const prepareActiveEditorsForInstallation =
+		useWorktreeAnnotationPrepareActiveEditorsForInstallation();
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
+		prepareActiveEditorsForInstallation,
 		reviewClient,
 		telemetryRecorderRef,
 	});
@@ -146,6 +164,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const [annotationAttentionItemIds, setAnnotationAttentionItemIds] = useState<readonly string[]>(
 		[],
 	);
+	const [annotationEditorAttentionItemIds, setAnnotationEditorAttentionItemIds] = useState<
+		readonly string[]
+	>([]);
 	const semanticAttentionItemIds = useMemo((): readonly string[] => {
 		if (!isActive) return [];
 		const itemIds = new Set<string>();
@@ -155,8 +176,16 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		return [...itemIds].toSorted();
 	}, [annotationAttentionItemIds, isActive, readingPositionItemId, selectedItemId]);
 	useEffect((): void => {
-		setReviewRefreshSemanticAttention(semanticAttentionItemIds);
-	}, [semanticAttentionItemIds, setReviewRefreshSemanticAttention]);
+		setReviewRefreshSemanticAttention(
+			semanticAttentionItemIds,
+			isActive ? annotationEditorAttentionItemIds : [],
+		);
+	}, [
+		annotationEditorAttentionItemIds,
+		isActive,
+		semanticAttentionItemIds,
+		setReviewRefreshSemanticAttention,
+	]);
 	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
 	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
 	const treeSearchStateRef = useRef(treeSearchState);
@@ -485,6 +514,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		comparisonPaneState,
 		onRetryComparison: controller.updateReviewComparisonTarget,
 		onAnnotationAttentionItemIdsChange: setAnnotationAttentionItemIds,
+		onAnnotationEditorAttentionItemIdsChange: setAnnotationEditorAttentionItemIds,
 		onReadingPositionItemIdChange: setReadingPositionItemId,
 		projectionMode,
 		codeViewControlHandleRef,
@@ -526,22 +556,14 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		...(onOpenFile === undefined ? {} : { onOpenFile }),
 	});
 	return (
-		<WorktreeAnnotationSurfaceProvider
-			markdownWorkerClient={props.markdownWorkerClient}
-			surfaceClient={reviewClient}
-			telemetryRecorder={telemetryRecorderRef.current}
-		>
-			<>
-				<BridgeReviewViewerShellBoundary
-					comparisonPaneState={comparisonPaneState}
-					isActive={isActive}
-					onRetryComparison={controller.updateReviewComparisonTarget}
-					presentationState={presentationState}
-					viewerContextSwitcher={viewerContextSwitcher}
-					viewerHeaderControls={contentHeaderControls}
-				/>
-			</>
-		</WorktreeAnnotationSurfaceProvider>
+		<BridgeReviewViewerShellBoundary
+			comparisonPaneState={comparisonPaneState}
+			isActive={isActive}
+			onRetryComparison={controller.updateReviewComparisonTarget}
+			presentationState={presentationState}
+			viewerContextSwitcher={viewerContextSwitcher}
+			viewerHeaderControls={contentHeaderControls}
+		/>
 	);
 }
 
@@ -592,6 +614,7 @@ function reviewPresentationState(props: {
 	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
 	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
 	readonly onAnnotationAttentionItemIdsChange: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange: (itemIds: readonly string[]) => void;
 	readonly onReadingPositionItemIdChange: (itemId: string | null) => void;
 	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
@@ -666,6 +689,7 @@ function reviewPresentationState(props: {
 			...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile }),
 			onRetryComparison: props.onRetryComparison,
 			onAnnotationAttentionItemIdsChange: props.onAnnotationAttentionItemIdsChange,
+			onAnnotationEditorAttentionItemIdsChange: props.onAnnotationEditorAttentionItemIdsChange,
 			onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,

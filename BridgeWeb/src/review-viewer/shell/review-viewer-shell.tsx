@@ -110,6 +110,7 @@ export interface ReviewViewerShellProps {
 	readonly onOpenFile?: (path: string) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
@@ -398,6 +399,12 @@ export function renderReviewViewerShellPresentation(presentation: {
 										: {
 												onAnnotationAttentionItemIdsChange:
 													props.onAnnotationAttentionItemIdsChange,
+											})}
+									{...(props.onAnnotationEditorAttentionItemIdsChange === undefined
+										? {}
+										: {
+												onAnnotationEditorAttentionItemIdsChange:
+													props.onAnnotationEditorAttentionItemIdsChange,
 											})}
 									{...(props.onReadingPositionItemIdChange === undefined
 										? {}

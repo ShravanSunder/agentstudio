@@ -19,11 +19,24 @@ import type {
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
+import type { BridgeWorkerReviewPreDeliveryPresentationClass } from './bridge-worker-review-publication-contracts.js';
 
 export type BridgeMainReviewPublicationIdentity = ReviewMetadataLineage;
 export type BridgeMainReviewCandidateRole = 'installing' | 'provisional' | 'updateReady';
+export type BridgeMainReviewEffectivePresentationClass =
+	| { readonly kind: 'ordinary' }
+	| {
+			readonly kind: 'promoted';
+			readonly reason:
+				| Extract<
+						BridgeWorkerReviewPreDeliveryPresentationClass,
+						{ readonly kind: 'promoted' }
+				  >['reason']
+				| 'activeAnchor';
+	  };
 export interface BridgeMainReviewCandidatePresentation {
 	readonly affectedStableFileIdentities: readonly string[];
+	readonly effectivePresentationClass: BridgeMainReviewEffectivePresentationClass;
 	readonly identity: BridgeMainReviewPublicationIdentity;
 	readonly role: BridgeMainReviewCandidateRole;
 	readonly startDisposition: BridgeWorkerReviewCandidateStartDisposition;
@@ -32,10 +45,7 @@ export interface BridgeMainReviewFailurePresentation {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
 	readonly presentationClass: Extract<
-		Extract<
-			BridgeWorkerReviewCandidateStartDisposition,
-			{ readonly kind: 'sameSource' }
-		>['presentationClass'],
+		BridgeMainReviewEffectivePresentationClass,
 		{ readonly kind: 'promoted' }
 	>;
 	readonly retryable: boolean;
@@ -73,6 +83,13 @@ export interface BridgeMainReviewCandidateStore {
 	readonly applyReviewCandidateSnapshotUpdate: (
 		update: BridgeMainReviewCandidateSnapshotUpdate,
 	) => boolean;
+	readonly escalateReviewCandidatePresentation: (props: {
+		readonly identity: BridgeMainReviewPublicationIdentity;
+		readonly presentationClass: Extract<
+			BridgeMainReviewEffectivePresentationClass,
+			{ readonly kind: 'promoted' }
+		>;
+	}) => boolean;
 	readonly markReviewCandidateReady: (props: {
 		readonly identity: BridgeMainReviewPublicationIdentity;
 		readonly role: BridgeMainReviewCandidateRole;
@@ -86,6 +103,7 @@ export interface BridgeMainReviewCandidateStore {
 	readonly clearReviewCandidateFailure: () => boolean;
 }
 export interface MutableBridgeMainReviewCandidateBank {
+	effectivePresentationClass: BridgeMainReviewEffectivePresentationClass;
 	readonly identity: BridgeMainReviewPublicationIdentity;
 	readonly reviewItemIndexById: Map<string, number>;
 	readonly reviewTreeRowById: Map<string, BridgeMainReviewTreeDisplayRow>;
@@ -190,6 +208,27 @@ export class BridgeMainReviewCandidateBankOwner {
 		)
 			return false;
 		this.#candidate.role = props.role;
+		this.#refresh();
+		return true;
+	}
+
+	escalatePresentation(props: {
+		readonly identity: BridgeMainReviewPublicationIdentity;
+		readonly presentationClass: Extract<
+			BridgeMainReviewEffectivePresentationClass,
+			{ readonly kind: 'promoted' }
+		>;
+	}): boolean {
+		const candidate = this.#candidate;
+		if (
+			candidate === null ||
+			!isExact(props.identity, candidate.identity) ||
+			candidate.role === 'installing' ||
+			candidate.startDisposition.kind !== 'sameSource'
+		)
+			return false;
+		if (candidate.effectivePresentationClass.kind === 'promoted') return true;
+		candidate.effectivePresentationClass = props.presentationClass;
 		this.#refresh();
 		return true;
 	}
@@ -316,6 +355,10 @@ function cloneCandidate(
 	startDisposition: BridgeWorkerReviewCandidateStartDisposition,
 ): MutableBridgeMainReviewCandidateBank {
 	return {
+		effectivePresentationClass:
+			startDisposition.kind === 'sameSource'
+				? startDisposition.presentationClass
+				: { kind: 'ordinary' },
 		identity,
 		reviewItemIndexById: itemIndex(snapshot.reviewItemIdsByIndex),
 		reviewTreeRowById: rowIndex(snapshot.reviewTreeRowsByIndex),
@@ -360,6 +403,7 @@ function presentation(
 							candidate.startDisposition.kind === 'sameSource'
 								? [...candidate.startDisposition.affectedStableFileIdentities]
 								: [],
+						effectivePresentationClass: candidate.effectivePresentationClass,
 						identity: candidate.identity,
 						role: candidate.role,
 						startDisposition: candidate.startDisposition,
@@ -373,13 +417,16 @@ function promotedFailure(
 	retryable: boolean,
 ): BridgeMainReviewFailurePresentation | null {
 	const disposition = candidate.startDisposition;
-	if (disposition.kind !== 'sameSource' || disposition.presentationClass.kind !== 'promoted') {
+	if (
+		disposition.kind !== 'sameSource' ||
+		candidate.effectivePresentationClass.kind !== 'promoted'
+	) {
 		return null;
 	}
 	return {
 		affectedStableFileIdentities: disposition.affectedStableFileIdentities,
 		identity: candidate.identity,
-		presentationClass: disposition.presentationClass,
+		presentationClass: candidate.effectivePresentationClass,
 		retryable,
 	};
 }

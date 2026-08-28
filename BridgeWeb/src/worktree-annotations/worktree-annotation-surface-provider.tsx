@@ -52,11 +52,17 @@ export interface WorktreeAnnotationSessionCapabilities {
 interface WorktreeAnnotationEditSurfaceRegistry {
 	readonly activeEditTokens: ReadonlySet<string>;
 	readonly activeNewMessageEditTokens: ReadonlySet<string>;
+	readonly prepareActiveEditorsForInstallation: () => Promise<boolean>;
 	readonly register: (editToken: string, kind: WorktreeAnnotationEditSurfaceKind) => () => void;
+	readonly registerInstallationPreparation: (
+		editToken: string,
+		prepare: WorktreeAnnotationEditorInstallationPreparation,
+	) => () => void;
 	readonly releaseWhenInactive: (editToken: string, release: () => Promise<void>) => Promise<void>;
 }
 
 type WorktreeAnnotationEditSurfaceKind = 'message' | 'newMessage';
+type WorktreeAnnotationEditorInstallationPreparation = () => Promise<boolean>;
 
 interface WorktreeAnnotationEditSurfaceCounts {
 	readonly message: number;
@@ -178,6 +184,9 @@ export function WorktreeAnnotationSurfaceProvider(
 	const editSurfaceCountsByEditTokenRef = useRef<
 		ReadonlyMap<string, WorktreeAnnotationEditSurfaceCounts>
 	>(new Map());
+	const installationPreparationsByEditTokenRef = useRef<
+		Map<string, Map<symbol, WorktreeAnnotationEditorInstallationPreparation>>
+	>(new Map());
 	useEffect((): void => {
 		if (explicitSessionId === null && applicableLivingSessionIds.length === 1) {
 			setExplicitSessionId(applicableLivingSessionIds[0] ?? null);
@@ -282,6 +291,41 @@ export function WorktreeAnnotationSurfaceProvider(
 			}),
 		[],
 	);
+	const registerInstallationPreparation = useCallback(
+		(editToken: string, prepare: WorktreeAnnotationEditorInstallationPreparation): (() => void) => {
+			const registrationId = Symbol(editToken);
+			const tokenPreparations =
+				installationPreparationsByEditTokenRef.current.get(editToken) ??
+				new Map<symbol, WorktreeAnnotationEditorInstallationPreparation>();
+			tokenPreparations.set(registrationId, prepare);
+			installationPreparationsByEditTokenRef.current.set(editToken, tokenPreparations);
+			return (): void => {
+				if (!tokenPreparations.delete(registrationId)) return;
+				if (tokenPreparations.size === 0) {
+					installationPreparationsByEditTokenRef.current.delete(editToken);
+				}
+			};
+		},
+		[],
+	);
+	const prepareActiveEditorsForInstallation = useCallback(async (): Promise<boolean> => {
+		const activePreparations = [...installationPreparationsByEditTokenRef.current.values()]
+			.map((registrations) => [...registrations.values()].at(-1))
+			.filter(
+				(preparation): preparation is WorktreeAnnotationEditorInstallationPreparation =>
+					preparation !== undefined,
+			);
+		const results = await Promise.all(
+			activePreparations.map(async (prepare): Promise<boolean> => {
+				try {
+					return await prepare();
+				} catch {
+					return false;
+				}
+			}),
+		);
+		return results.every((result): boolean => result);
+	}, []);
 	const activeEditTokens = useMemo<ReadonlySet<string>>(
 		() => new Set(editSurfaceCountsByEditToken.keys()),
 		[editSurfaceCountsByEditToken],
@@ -299,13 +343,17 @@ export function WorktreeAnnotationSurfaceProvider(
 		() => ({
 			activeEditTokens,
 			activeNewMessageEditTokens,
+			prepareActiveEditorsForInstallation,
 			register: registerEditSurfaceToken,
+			registerInstallationPreparation,
 			releaseWhenInactive: releaseEditWhenInactive,
 		}),
 		[
 			activeEditTokens,
 			activeNewMessageEditTokens,
+			prepareActiveEditorsForInstallation,
 			registerEditSurfaceToken,
+			registerInstallationPreparation,
 			releaseEditWhenInactive,
 		],
 	);
@@ -326,6 +374,7 @@ export function WorktreeAnnotationSurfaceProvider(
 				<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
 					<WorktreeAnnotationInteractionProvider>
 						<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
+							<WorktreeAnnotationPendingRootComposerEditLeaseReconciler />
 							<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
 								{props.children}
 								<WorktreeAnnotationThreadExpansionReconciler />
@@ -337,6 +386,15 @@ export function WorktreeAnnotationSurfaceProvider(
 			</worktreeAnnotationSurfaceClientContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
+}
+
+function WorktreeAnnotationPendingRootComposerEditLeaseReconciler(): null {
+	const interaction = useWorktreeAnnotationInteraction();
+	useWorktreeAnnotationEditSurfaceToken(
+		interaction.pendingRootComposer?.editToken ?? null,
+		'newMessage',
+	);
+	return null;
 }
 
 function installedReviewPublicationKey(surfaceClient: BridgePaneSurfaceClient): string | null {
@@ -443,6 +501,28 @@ export function useWorktreeAnnotationEditSurfaceToken(
 	}, [editToken, kind, register]);
 }
 
+export function useWorktreeAnnotationEditorInstallationPreparation(
+	editToken: string | null,
+	prepare: WorktreeAnnotationEditorInstallationPreparation,
+): void {
+	const registerInstallationPreparation = useContext(
+		worktreeAnnotationEditSurfaceRegistryContext,
+	)?.registerInstallationPreparation;
+	const prepareRef = useRef(prepare);
+	prepareRef.current = prepare;
+	useLayoutEffect((): (() => void) | undefined => {
+		if (registerInstallationPreparation === undefined || editToken === null) return undefined;
+		return registerInstallationPreparation(editToken, (): Promise<boolean> => prepareRef.current());
+	}, [editToken, registerInstallationPreparation]);
+}
+
+export function useWorktreeAnnotationPrepareActiveEditorsForInstallation(): () => Promise<boolean> {
+	return (
+		useContext(worktreeAnnotationEditSurfaceRegistryContext)?.prepareActiveEditorsForInstallation ??
+		prepareNoActiveEditorsForInstallation
+	);
+}
+
 export function useWorktreeAnnotationDeferredEditRelease(): WorktreeAnnotationEditSurfaceRegistry['releaseWhenInactive'] {
 	return (
 		useContext(worktreeAnnotationEditSurfaceRegistryContext)?.releaseWhenInactive ??
@@ -486,4 +566,8 @@ function releaseComposerImmediately(
 	release: () => Promise<void>,
 ): Promise<void> {
 	return release();
+}
+
+function prepareNoActiveEditorsForInstallation(): Promise<boolean> {
+	return Promise.resolve(true);
 }

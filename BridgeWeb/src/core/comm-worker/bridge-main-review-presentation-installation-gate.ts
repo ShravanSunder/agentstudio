@@ -1,4 +1,5 @@
 import type {
+	BridgeMainReviewEffectivePresentationClass,
 	BridgeMainReviewCandidatePresentation,
 	BridgeMainReviewCandidateStore,
 	BridgeMainReviewPublicationIdentity,
@@ -6,10 +7,10 @@ import type {
 import type {
 	BridgeWorkerReviewCandidateFailedEvent,
 	BridgeWorkerReviewCandidateReadyEvent,
-	BridgeWorkerReviewPreDeliveryPresentationClass,
 } from './bridge-worker-review-publication-contracts.js';
 
 export interface BridgeMainReviewSemanticAttention {
+	readonly activeEditorStableFileIdentities: readonly string[];
 	readonly stableFileIdentities: readonly string[];
 }
 
@@ -79,22 +80,24 @@ export type BridgeMainReviewRefreshLifecycleEvent =
 interface BridgeMainReviewRefreshCandidateTelemetryFacts {
 	readonly affectedStableFileCount: number;
 	readonly generation: number;
-	readonly presentationClass: BridgeWorkerReviewPreDeliveryPresentationClass;
+	readonly presentationClass: BridgeMainReviewEffectivePresentationClass;
 }
 
 interface ReadyCandidate {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
-	readonly presentationClass: BridgeWorkerReviewPreDeliveryPresentationClass;
+	readonly presentationClass: BridgeMainReviewEffectivePresentationClass;
 }
 
 export function createBridgeMainReviewPresentationInstallationGate(props: {
 	readonly installationPort: BridgeMainReviewPresentationInstallationPort;
 	readonly onLifecycleEvent?: (event: BridgeMainReviewRefreshLifecycleEvent) => void;
+	readonly prepareActiveEditorsForInstallation: () => Promise<boolean>;
 	readonly store: BridgeMainReviewCandidateStore;
 }): BridgeMainReviewPresentationInstallationGate {
 	let attentionFileIdentities = new Set<string>();
-	let admissionInFlightPublicationId: string | null = null;
+	let activeEditorFileIdentities = new Set<string>();
+	let installationInFlightPublicationId: string | null = null;
 	let isClosed = false;
 	let lifecycleRevision = 0;
 	let pendingInstalledReceiptCandidate: ReadyCandidate | null = null;
@@ -119,6 +122,18 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		);
 	};
 
+	const candidateAffectsActiveEditor = (candidate: ReadyCandidate): boolean => {
+		if (
+			candidate.presentationClass.kind === 'promoted' &&
+			candidate.presentationClass.reason === 'unknown'
+		) {
+			return activeEditorFileIdentities.size > 0;
+		}
+		return candidate.affectedStableFileIdentities.some((fileIdentity): boolean =>
+			activeEditorFileIdentities.has(fileIdentity),
+		);
+	};
+
 	const failureAffectsAttention = (): boolean => {
 		const failure = props.store.getReviewRefreshPresentation().failure;
 		if (failure === null) return false;
@@ -136,20 +151,84 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		candidate: ReadyCandidate,
 		trigger: 'applyNow' | 'automatic',
 	): Promise<void> => {
-		if (isClosed || admissionInFlightPublicationId !== null || !candidateMatchesStore(candidate)) {
+		if (
+			isClosed ||
+			installationInFlightPublicationId !== null ||
+			!candidateMatchesStore(candidate)
+		) {
 			return;
 		}
 		const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 		const requestLifecycleRevision = lifecycleRevision;
+		installationInFlightPublicationId = candidate.identity.publicationId;
+		let editorContinuityPrepared = true;
+		if (candidateAffectsActiveEditor(candidate)) {
+			try {
+				editorContinuityPrepared = await props.prepareActiveEditorsForInstallation();
+			} catch {
+				editorContinuityPrepared = false;
+			}
+		}
+		if (
+			isClosed ||
+			requestLifecycleRevision !== lifecycleRevision ||
+			installationInFlightPublicationId !== candidate.identity.publicationId ||
+			!candidateMatchesStore(candidate)
+		) {
+			if (installationInFlightPublicationId === candidate.identity.publicationId) {
+				installationInFlightPublicationId = null;
+			}
+			await evaluateReadyCandidate();
+			return;
+		}
+		if (!editorContinuityPrepared) {
+			installationInFlightPublicationId = null;
+			if (candidate.presentationClass.kind === 'ordinary') {
+				const activeAnchorPresentationClass = {
+					kind: 'promoted',
+					reason: 'activeAnchor',
+				} as const;
+				const escalatedCandidate: ReadyCandidate = {
+					...candidate,
+					presentationClass: activeAnchorPresentationClass,
+				};
+				if (
+					props.store.escalateReviewCandidatePresentation({
+						identity: candidate.identity,
+						presentationClass: activeAnchorPresentationClass,
+					}) &&
+					props.store.markReviewCandidateReady({
+						identity: candidate.identity,
+						role: 'updateReady',
+					})
+				) {
+					readyCandidate = escalatedCandidate;
+					props.onLifecycleEvent?.({
+						...candidateTelemetryFacts(escalatedCandidate),
+						phase: 'candidateHeld',
+					});
+				}
+				return;
+			}
+			if (props.store.failReviewCandidate({ identity: candidate.identity, retryable: true })) {
+				readyCandidate = null;
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(candidate),
+					phase: 'candidateFailed',
+					retryable: true,
+				});
+			}
+			return;
+		}
 		if (
 			!props.store.markReviewCandidateReady({
 				identity: candidate.identity,
 				role: 'installing',
 			})
 		) {
+			installationInFlightPublicationId = null;
 			return;
 		}
-		admissionInFlightPublicationId = candidate.identity.publicationId;
 		props.onLifecycleEvent?.({
 			...candidateTelemetryFacts(candidate),
 			phase: 'installRequested',
@@ -164,9 +243,9 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		} catch {
 			const requestIsCurrent =
 				requestLifecycleRevision === lifecycleRevision &&
-				admissionInFlightPublicationId === candidate.identity.publicationId;
+				installationInFlightPublicationId === candidate.identity.publicationId;
 			if (requestIsCurrent) {
-				admissionInFlightPublicationId = null;
+				installationInFlightPublicationId = null;
 				props.store.discardReviewCandidate(candidate.identity);
 				if (
 					readyCandidate !== null &&
@@ -187,7 +266,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		if (
 			isClosed ||
 			requestLifecycleRevision !== lifecycleRevision ||
-			admissionInFlightPublicationId !== candidate.identity.publicationId
+			installationInFlightPublicationId !== candidate.identity.publicationId
 		) {
 			props.onLifecycleEvent?.({
 				...candidateTelemetryFacts(candidate),
@@ -198,7 +277,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			});
 			return;
 		}
-		admissionInFlightPublicationId = null;
+		installationInFlightPublicationId = null;
 		if (
 			result.candidatePublicationId !== candidate.identity.publicationId ||
 			result.status === 'rejected'
@@ -300,7 +379,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			if (isClosed) return;
 			isClosed = true;
 			lifecycleRevision += 1;
-			admissionInFlightPublicationId = null;
+			installationInFlightPublicationId = null;
 			pendingInstalledReceiptCandidate = null;
 			readyCandidate = null;
 			props.store.discardReviewCandidate();
@@ -310,8 +389,12 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		handleCandidateReady: async (event, attention): Promise<void> => {
 			if (isClosed) return;
 			const nextAttentionFileIdentities = new Set(attention.stableFileIdentities);
-			const attentionChanged = !setsAreEqual(attentionFileIdentities, nextAttentionFileIdentities);
+			const nextActiveEditorFileIdentities = new Set(attention.activeEditorStableFileIdentities);
+			const attentionChanged =
+				!setsAreEqual(attentionFileIdentities, nextAttentionFileIdentities) ||
+				!setsAreEqual(activeEditorFileIdentities, nextActiveEditorFileIdentities);
 			attentionFileIdentities = nextAttentionFileIdentities;
+			activeEditorFileIdentities = nextActiveEditorFileIdentities;
 			const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
 			if (storedCandidate === null) return;
 			const candidate = readyCandidateFromEvent(event, storedCandidate);
@@ -340,6 +423,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		handleCandidateFailed: (event, attention): void => {
 			if (isClosed) return;
 			attentionFileIdentities = new Set(attention.stableFileIdentities);
+			activeEditorFileIdentities = new Set(attention.activeEditorStableFileIdentities);
 			const identity = {
 				generation: event.reviewGeneration,
 				packageId: event.packageId,
@@ -368,7 +452,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		prepareForWorkerReplacement: (): void => {
 			if (isClosed) return;
 			lifecycleRevision += 1;
-			admissionInFlightPublicationId = null;
+			installationInFlightPublicationId = null;
 			readyCandidate = null;
 			props.store.discardReviewCandidate();
 			props.store.clearReviewCandidateFailure();
@@ -378,8 +462,14 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		semanticAttentionChanged: async (attention): Promise<void> => {
 			if (isClosed) return;
 			const nextAttentionFileIdentities = new Set(attention.stableFileIdentities);
-			if (setsAreEqual(attentionFileIdentities, nextAttentionFileIdentities)) return;
+			const nextActiveEditorFileIdentities = new Set(attention.activeEditorStableFileIdentities);
+			if (
+				setsAreEqual(attentionFileIdentities, nextAttentionFileIdentities) &&
+				setsAreEqual(activeEditorFileIdentities, nextActiveEditorFileIdentities)
+			)
+				return;
 			attentionFileIdentities = nextAttentionFileIdentities;
+			activeEditorFileIdentities = nextActiveEditorFileIdentities;
 			clearUnfocusedFailure();
 			await evaluateReadyCandidate();
 		},
@@ -429,8 +519,7 @@ function readyCandidateFromEvent(
 		affectedStableFileIdentities:
 			disposition.kind === 'sameSource' ? disposition.affectedStableFileIdentities : [],
 		identity,
-		presentationClass:
-			disposition.kind === 'sameSource' ? disposition.presentationClass : { kind: 'ordinary' },
+		presentationClass: storedCandidate.effectivePresentationClass,
 	};
 }
 

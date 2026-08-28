@@ -43,6 +43,7 @@ import type {
 } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationDeferredEditRelease,
+	useWorktreeAnnotationEditorInstallationPreparation,
 	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionDemand,
@@ -61,6 +62,7 @@ export interface WorktreeAnnotationNewMessageComposerProps {
 	readonly editSurfaceRegistrationOwner?: 'composer' | 'parent' | undefined;
 	readonly onCancel: () => void;
 	readonly onCommitted?: (() => void) | undefined;
+	readonly onDurableDraftCreated?: (() => void) | undefined;
 	readonly onSaved: (identity: WorktreeAnnotationSavedMessageIdentity) => void;
 	readonly placement?: 'embedded' | 'standalone' | 'timeline' | undefined;
 	readonly placeholder: string;
@@ -124,6 +126,8 @@ export function WorktreeAnnotationNewMessageComposer(
 	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const createOperationRef = useRef(props.createOperation);
 	createOperationRef.current = props.createOperation;
+	const onDurableDraftCreatedRef = useRef(props.onDurableDraftCreated);
+	onDurableDraftCreatedRef.current = props.onDurableDraftCreated;
 	const scheduler = useMemo(
 		() =>
 			new WorktreeAnnotationDraftScheduler({
@@ -181,6 +185,7 @@ export function WorktreeAnnotationNewMessageComposer(
 						targetMessageIdRef.current = cursor.messageId;
 						targetMessageCursorRef.current = cursor;
 						setIsDurable(true);
+						onDurableDraftCreatedRef.current?.();
 						return;
 					}
 					const projectedMessage = currentMessageById(
@@ -211,6 +216,14 @@ export function WorktreeAnnotationNewMessageComposer(
 				},
 			}),
 		[annotationClient, initialDurableBody],
+	);
+	const prepareForInstallation = useCallback(async (): Promise<boolean> => {
+		await scheduler.focusLost();
+		return targetMessageIdRef.current !== null;
+	}, [scheduler]);
+	useWorktreeAnnotationEditorInstallationPreparation(
+		committedCursor === null ? editTokenRef.current : null,
+		prepareForInstallation,
 	);
 	useEffect(
 		(): (() => void) => (): void => {

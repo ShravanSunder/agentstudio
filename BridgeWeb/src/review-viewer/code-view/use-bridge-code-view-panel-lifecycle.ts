@@ -5,9 +5,13 @@ import type { BridgeCodeViewRenderedItemsSource } from './bridge-code-view-panel
 
 interface UseBridgeCodeViewPanelLifecycleProps {
 	readonly annotationAttentionItemIds: readonly string[];
+	readonly annotationEditorAttentionItemIds: readonly string[];
 	readonly codeViewMountVersion: number;
 	readonly materializationTaskGenerationRef: MutableRefObject<number>;
 	readonly onAnnotationAttentionItemIdsChange: ((itemIds: readonly string[]) => void) | undefined;
+	readonly onAnnotationEditorAttentionItemIdsChange:
+		| ((itemIds: readonly string[]) => void)
+		| undefined;
 	readonly onReadingPositionItemIdChange: ((itemId: string | null) => void) | undefined;
 	readonly onScrollActivityChangeRef: MutableRefObject<((active: boolean) => void) | undefined>;
 	readonly onVisibleItemIdsChange: ((itemIds: readonly string[]) => void) | undefined;
@@ -29,9 +33,11 @@ interface UseBridgeCodeViewPanelLifecycleProps {
 export function useBridgeCodeViewPanelLifecycle(props: UseBridgeCodeViewPanelLifecycleProps): void {
 	const {
 		annotationAttentionItemIds,
+		annotationEditorAttentionItemIds,
 		codeViewMountVersion,
 		materializationTaskGenerationRef,
 		onAnnotationAttentionItemIdsChange,
+		onAnnotationEditorAttentionItemIdsChange,
 		onReadingPositionItemIdChange,
 		onScrollActivityChangeRef,
 		onVisibleItemIdsChange,
@@ -52,10 +58,17 @@ export function useBridgeCodeViewPanelLifecycle(props: UseBridgeCodeViewPanelLif
 	useEffect((): void => {
 		onAnnotationAttentionItemIdsChange?.(annotationAttentionItemIds);
 	}, [annotationAttentionItemIds, onAnnotationAttentionItemIdsChange]);
+	useEffect((): void => {
+		onAnnotationEditorAttentionItemIdsChange?.(annotationEditorAttentionItemIds);
+	}, [annotationEditorAttentionItemIds, onAnnotationEditorAttentionItemIdsChange]);
 	useEffect((): (() => void) | undefined => {
 		if (onAnnotationAttentionItemIdsChange === undefined) return undefined;
 		return (): void => onAnnotationAttentionItemIdsChange?.([]);
 	}, [onAnnotationAttentionItemIdsChange]);
+	useEffect((): (() => void) | undefined => {
+		if (onAnnotationEditorAttentionItemIdsChange === undefined) return undefined;
+		return (): void => onAnnotationEditorAttentionItemIdsChange?.([]);
+	}, [onAnnotationEditorAttentionItemIdsChange]);
 	useEffect((): (() => void) | undefined => {
 		if (onReadingPositionItemIdChange === undefined) return undefined;
 		return (): void => onReadingPositionItemIdChange?.(null);

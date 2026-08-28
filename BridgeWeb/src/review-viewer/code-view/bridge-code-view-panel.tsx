@@ -750,9 +750,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 
 	useBridgeCodeViewPanelLifecycle({
 		annotationAttentionItemIds: annotationPresentation.attentionItemIds,
+		annotationEditorAttentionItemIds: annotationPresentation.activeEditorAttentionItemIds,
 		codeViewMountVersion,
 		materializationTaskGenerationRef,
 		onAnnotationAttentionItemIdsChange: props.onAnnotationAttentionItemIdsChange,
+		onAnnotationEditorAttentionItemIdsChange: props.onAnnotationEditorAttentionItemIdsChange,
 		onReadingPositionItemIdChange,
 		onScrollActivityChangeRef,
 		onVisibleItemIdsChange: props.onVisibleItemIdsChange,

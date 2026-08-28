@@ -135,6 +135,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(page);
+			const annotationCommandTrace = observeReviewAnnotationCommandTrace(page);
 			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
@@ -198,15 +199,6 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				undefined,
 				{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
 			);
-			const draftSaveCommitted = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
-			await Promise.all([
-				draftSaveCommitted,
-				page.getByRole('button', { name: 'Save annotation' }).click(),
-			]);
-			await page.getByText(savedDuringHoldBody, { exact: true }).waitFor({
-				state: 'visible',
-				timeout: annotationComposedConvergenceTimeoutMilliseconds,
-			});
 			const firstHeldCandidate = await waitForHeldCommitPromotionTelemetry({
 				minimumGenerationExclusive: initialPackage.reviewGeneration,
 				page,
@@ -216,11 +208,10 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			});
 			await page.getByRole('button', { name: 'Apply now' }).press('Enter');
 			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
-			const appliedComparison = await waitForSettledReviewComparisonWithDiagnostics({
-				diagnostics: runtimeDiagnostics,
+			const appliedComparison = await waitForInstalledReviewPackage({
 				expectedTargetLabel: 'HEAD',
-				expectedTargetOID: firstAdvance.finalHeadOID,
-				failureContext: (): string => server?.diagnostics() ?? 'server unavailable',
+				initialPackageId: initialPackage.packageId,
+				minimumGeneration: firstHeldCandidate.reviewGeneration,
 				page,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
@@ -229,6 +220,38 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				firstHeldCandidate.reviewGeneration,
 			);
 			await waitForSelectedReviewPathReady({ page, path: affectedFile.path });
+			const retainedComposer = page.getByRole('textbox', {
+				name: 'Write an annotation in Markdown',
+			});
+			try {
+				await retainedComposer.waitFor({
+					state: 'visible',
+					timeout: annotationComposedConvergenceTimeoutMilliseconds,
+				});
+			} catch (error: unknown) {
+				throw new Error(
+					`Applied Review did not retain the active root composer: ${JSON.stringify({
+						annotationDom: await annotationContinuityDomDiagnostic(page),
+						annotationCommandTrace,
+						refreshLifecycle: await reviewRefreshLifecycleDiagnostic(page),
+						runtime: await runtimeDiagnostics.describe(),
+						server: server.diagnostics(),
+					})}`,
+					{ cause: error },
+				);
+			}
+			expect(await retainedComposer.inputValue()).toBe(savedDuringHoldBody);
+			await page
+				.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
+				.waitFor({
+					state: 'visible',
+					timeout: annotationComposedConvergenceTimeoutMilliseconds,
+				});
+			const draftSaveCommitted = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
+			await Promise.all([
+				draftSaveCommitted,
+				page.getByRole('button', { name: 'Save annotation' }).click(),
+			]);
 			await page.getByText(savedDuringHoldBody, { exact: true }).waitFor({
 				state: 'visible',
 				timeout: annotationComposedConvergenceTimeoutMilliseconds,
@@ -237,6 +260,17 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'hidden', timeout: annotationRestartJourneyTimeoutMilliseconds });
+			const verifiedAppliedComparison = await waitForSettledReviewComparisonWithDiagnostics({
+				diagnostics: runtimeDiagnostics,
+				expectedTargetLabel: 'HEAD',
+				expectedTargetOID: firstAdvance.finalHeadOID,
+				failureContext: (): string => server?.diagnostics() ?? 'server unavailable',
+				page,
+				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
+			});
+			expect(verifiedAppliedComparison.reviewGeneration).toBeGreaterThanOrEqual(
+				appliedComparison.reviewGeneration,
+			);
 
 			const secondAdvance = await fixture.advanceReviewedHeadByCommitCount(10);
 			expect(secondAdvance).toMatchObject({
@@ -245,7 +279,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			});
 			const secondPromotedOutcome = await waitForPromotedReadyOrUnexpectedInstall({
 				expectedTargetOID: secondAdvance.finalHeadOID,
-				initialPackageId: appliedComparison.packageId,
+				initialPackageId: verifiedAppliedComparison.packageId,
 				page,
 			});
 			expect(secondPromotedOutcome).toBe('updateReady');
@@ -253,7 +287,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
 			const secondHeldCandidate = await waitForHeldCommitPromotionTelemetry({
-				minimumGenerationExclusive: appliedComparison.reviewGeneration,
+				minimumGenerationExclusive: verifiedAppliedComparison.reviewGeneration,
 				page,
 			});
 			await selectReviewFile({ page, path: unaffectedFile.path });
@@ -298,6 +332,81 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
 			});
 		}
+	});
+}
+
+async function waitForInstalledReviewPackage(props: {
+	readonly expectedTargetLabel: string;
+	readonly initialPackageId: string;
+	readonly minimumGeneration: number;
+	readonly page: Page;
+	readonly timeoutMilliseconds: number;
+}): Promise<{ readonly packageId: string; readonly reviewGeneration: number }> {
+	let installedPackage = await requireReviewPackageIdentity(props.page);
+	await expect
+		.poll(
+			async (): Promise<boolean> => {
+				installedPackage = await requireReviewPackageIdentity(props.page);
+				const targetLabel = await props.page
+					.getByTestId('bridge-review-comparison-trigger')
+					.textContent();
+				return (
+					installedPackage.packageId !== props.initialPackageId &&
+					installedPackage.reviewGeneration >= props.minimumGeneration &&
+					targetLabel === props.expectedTargetLabel
+				);
+			},
+			{ timeout: props.timeoutMilliseconds },
+		)
+		.toBe(true);
+	return installedPackage;
+}
+
+function observeReviewAnnotationCommandTrace(page: Page): string[] {
+	const operationKinds: string[] = [];
+	page.on('request', (request): void => {
+		if (new URL(request.url()).pathname !== '/__bridge-product/command') return;
+		let body: unknown;
+		try {
+			body = request.postDataJSON();
+		} catch {
+			return;
+		}
+		if (!isUnknownRecord(body) || !isUnknownRecord(body['call'])) return;
+		const call = body['call'];
+		if (call['method'] !== 'review.annotations.command' || !isUnknownRecord(call['request'])) {
+			return;
+		}
+		const operation = call['request']['operation'];
+		if (!isUnknownRecord(operation) || typeof operation['kind'] !== 'string') return;
+		operationKinds.push(operation['kind']);
+	});
+	return operationKinds;
+}
+
+function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function annotationContinuityDomDiagnostic(page: Page): Promise<unknown> {
+	return await page.evaluate((): unknown => {
+		const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+		return {
+			codePanelPresent: document.querySelector('[data-testid="bridge-code-view-panel"]') !== null,
+			composerCount: document.querySelectorAll('[aria-label="Write an annotation in Markdown"]')
+				.length,
+			draftMessageCount: document.querySelectorAll(
+				'[data-testid="worktree-annotation-message"][data-annotation-draft="present"]',
+			).length,
+			packageId: reviewShell?.getAttribute('data-review-metadata-id') ?? null,
+			reviewGeneration: reviewShell?.getAttribute('data-review-metadata-generation') ?? null,
+			threads: [...document.querySelectorAll('[data-testid="worktree-annotation-thread"]')].map(
+				(thread) => ({
+					placement: thread.getAttribute('data-annotation-placement'),
+					threadId: thread.getAttribute('data-annotation-thread-id'),
+				}),
+			),
+		};
 	});
 }
 

@@ -134,6 +134,48 @@ describe('Bridge main Review publication integration', () => {
 		harness.dispose();
 	});
 
+	test('does not dispatch install admission before active editor preparation settles', async () => {
+		// Arrange
+		let prepareCallCount = 0;
+		let resolvePreparation = (_prepared: boolean): void => {};
+		const harness = createHarness({
+			prepareActiveEditorsForInstallation: (): Promise<boolean> => {
+				prepareCallCount += 1;
+				return new Promise((resolve): void => {
+					resolvePreparation = resolve;
+				});
+			},
+		});
+		await installPublication(harness, ACTIVE, 'item-a');
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: ['item-b'],
+			stableFileIdentities: ['item-b'],
+		});
+		harness.startCandidate(CANDIDATE, 'ordinary', ['item-b']);
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+
+		// Act
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', ['item-b']));
+
+		// Assert
+		expect(prepareCallCount).toBe(1);
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
+
+		// Act
+		resolvePreparation(true);
+		const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+		harness.admit(admission, CANDIDATE, 'admitted');
+		const installed = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installed);
+		await harness.integration.whenSettled();
+
+		// Assert
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
+		harness.dispose();
+	});
+
 	test('allocates install admission and installed receipt from the main command epoch', async () => {
 		// Arrange
 		const harness = createHarness();
@@ -270,7 +312,10 @@ describe('Bridge main Review publication integration', () => {
 		// Arrange
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
-		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: ['file-b'],
+		});
 		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
 		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
 		harness.receive(candidateReady(CANDIDATE, 'promoted', ['file-b']));
@@ -286,7 +331,10 @@ describe('Bridge main Review publication integration', () => {
 		// Arrange successor before action commit
 		harness.startCandidate(SUCCESSOR, 'promoted', ['file-c']);
 		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
-		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-c'] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: ['file-c'],
+		});
 		harness.receive(candidateReady(SUCCESSOR, 'promoted', ['file-c']));
 		await harness.integration.whenSettled();
 
@@ -386,7 +434,10 @@ describe('Bridge main Review publication integration', () => {
 		await installPublication(harness, ACTIVE, 'item-a');
 		const postBootstrapSamples: BridgeTelemetrySample[] = [];
 		harness.telemetryRecorderRef.current = recordingTelemetryRecorder(postBootstrapSamples);
-		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: ['file-b'],
+		});
 
 		// Act
 		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
@@ -407,7 +458,10 @@ describe('Bridge main Review publication integration', () => {
 	test('ignores stale B failure, retains affected C failure, and clears it when attention leaves', async () => {
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
-		harness.integration.setSemanticAttention({ stableFileIdentities: ['any-review-file'] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: ['any-review-file'],
+		});
 		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
 		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
 		harness.startCandidate(SUCCESSOR, 'promoted', ['any-review-file']);
@@ -427,7 +481,10 @@ describe('Bridge main Review publication integration', () => {
 			retryable: true,
 		});
 
-		harness.integration.setSemanticAttention({ stableFileIdentities: [] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: [],
+		});
 		await harness.integration.whenSettled();
 		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
 		harness.dispose();
@@ -438,7 +495,10 @@ describe('Bridge main Review publication integration', () => {
 		await installPublication(harness, ACTIVE, 'item-a');
 		harness.receive({ ...candidateStarted(CANDIDATE, 'promoted', ['file-b']), epoch: 1 });
 		harness.store.prepareForWorkerReplacement();
-		harness.integration.setSemanticAttention({ stableFileIdentities: ['file-b'] });
+		harness.integration.setSemanticAttention({
+			activeEditorStableFileIdentities: [],
+			stableFileIdentities: ['file-b'],
+		});
 		harness.startCandidate(CANDIDATE, 'promoted', ['file-b']);
 		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
 
@@ -505,6 +565,7 @@ interface Harness {
 
 function createHarness(
 	options: {
+		readonly prepareActiveEditorsForInstallation?: () => Promise<boolean>;
 		readonly synchronousAdmissionStatus?: 'admitted' | 'rejected';
 	} = {},
 ): Harness {
@@ -566,6 +627,9 @@ function createHarness(
 				courierJobs.push(job);
 			},
 		},
+		prepareActiveEditorsForInstallation:
+			options.prepareActiveEditorsForInstallation ??
+			((): Promise<boolean> => Promise.resolve(true)),
 		renderFulfillmentCoordinator: {
 			acceptPublication: (): 'accepted' => 'accepted',
 			bindPublicationItem: vi.fn(),

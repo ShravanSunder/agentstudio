@@ -10,8 +10,19 @@ import {
 	type ReactNode,
 } from 'react';
 
+import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
+
+type WorktreeAnnotationRootCreateOperation = Extract<
+	BridgeProductWorktreeAnnotationOperation,
+	{ readonly kind: 'root.create' }
+>;
+
+type WorktreeAnnotationLocatedOrigin = Extract<
+	WorktreeAnnotationRootCreateOperation['origin'],
+	{ readonly kind: 'located' }
+>;
 
 export type WorktreeAnnotationEditorState =
 	| { readonly editToken: string; readonly kind: 'message'; readonly messageId: string }
@@ -54,9 +65,20 @@ export interface WorktreeAnnotationSavedRangeIdentity {
 	readonly threadId: string;
 }
 
+export interface WorktreeAnnotationPendingRootComposer {
+	readonly committed: boolean;
+	readonly editToken: string;
+	readonly hasDurableDraft: boolean;
+	readonly itemId: string;
+	readonly origin: WorktreeAnnotationLocatedOrigin;
+	readonly range: WorktreeAnnotationRange;
+}
+
 export interface WorktreeAnnotationInteractionController {
 	readonly activeThreadId: string | null;
+	readonly admitPendingRootComposer: (composer: WorktreeAnnotationPendingRootComposer) => void;
 	readonly activateSavedThread: (identity: WorktreeAnnotationSavedRangeIdentity) => void;
+	readonly clearPendingRootComposer: () => void;
 	readonly clearRangePresentation: () => void;
 	readonly closeShareMode: () => void;
 	readonly collapseThread: () => Promise<void>;
@@ -65,12 +87,21 @@ export interface WorktreeAnnotationInteractionController {
 	readonly finishThreadEditor: (editToken: string) => void;
 	readonly leaveThread: () => Promise<void>;
 	readonly openShareMode: () => void;
+	readonly pendingRootComposer: WorktreeAnnotationPendingRootComposer | null;
 	readonly pierreRangePresentation: WorktreeAnnotationPierreRangePresentation;
+	readonly reattachPendingRootComposer: (props: {
+		readonly editToken: string;
+		readonly itemId: string;
+		readonly range: WorktreeAnnotationRange;
+	}) => void;
+	readonly retainPendingRootComposer: (itemId: string, range: WorktreeAnnotationRange) => void;
 	readonly registerThreadEditorExit: (exitEditor: () => Promise<void>) => () => void;
 	readonly resolveThreadFocus: () => HTMLElement | null;
 	readonly setPendingRange: (itemId: string, range: WorktreeAnnotationRange) => void;
 	readonly setShareScope: (scope: WorktreeAnnotationShareScope) => void;
 	readonly shareMode: WorktreeAnnotationShareMode;
+	readonly markPendingRootComposerCommitted: (editToken: string) => void;
+	readonly markPendingRootComposerDurable: (editToken: string) => void;
 	readonly startMessageEdit: (threadId: string, messageId: string, invoker: HTMLElement) => void;
 	readonly startReply: (threadId: string, invoker: HTMLElement) => void;
 	readonly threadExpansion: WorktreeAnnotationThreadExpansion;
@@ -84,6 +115,8 @@ export function WorktreeAnnotationInteractionProvider(props: {
 }): ReactElement {
 	const [pierreRangePresentation, setPierreRangePresentation] =
 		useState<WorktreeAnnotationPierreRangePresentation>({ kind: 'none' });
+	const [pendingRootComposer, setPendingRootComposer] =
+		useState<WorktreeAnnotationPendingRootComposer | null>(null);
 	const [threadExpansion, setThreadExpansion] = useState<WorktreeAnnotationThreadExpansion>({
 		kind: 'closed',
 	});
@@ -95,6 +128,57 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	const activateSavedThread = useCallback(
 		(identity: WorktreeAnnotationSavedRangeIdentity): void => {
 			setPierreRangePresentation({ ...identity, kind: 'savedThread' });
+		},
+		[],
+	);
+	const admitPendingRootComposer = useCallback(
+		(composer: WorktreeAnnotationPendingRootComposer): void => {
+			setPendingRootComposer(composer);
+		},
+		[],
+	);
+	const clearPendingRootComposer = useCallback((): void => {
+		setPendingRootComposer(null);
+	}, []);
+	const markPendingRootComposerCommitted = useCallback((editToken: string): void => {
+		setPendingRootComposer((currentComposer) =>
+			currentComposer?.editToken === editToken
+				? { ...currentComposer, committed: true }
+				: currentComposer,
+		);
+	}, []);
+	const markPendingRootComposerDurable = useCallback((editToken: string): void => {
+		setPendingRootComposer((currentComposer) =>
+			currentComposer?.editToken === editToken
+				? { ...currentComposer, hasDurableDraft: true }
+				: currentComposer,
+		);
+	}, []);
+	const reattachPendingRootComposer = useCallback(
+		(props: {
+			readonly editToken: string;
+			readonly itemId: string;
+			readonly range: WorktreeAnnotationRange;
+		}): void => {
+			setPendingRootComposer((currentComposer) =>
+				currentComposer?.editToken === props.editToken
+					? {
+							...currentComposer,
+							itemId: props.itemId,
+							range: props.range,
+						}
+					: currentComposer,
+			);
+		},
+		[],
+	);
+	const retainPendingRootComposer = useCallback(
+		(itemId: string, range: WorktreeAnnotationRange): void => {
+			setPendingRootComposer((currentComposer) =>
+				currentComposer?.itemId === itemId && annotationRangesMatch(currentComposer.range, range)
+					? currentComposer
+					: null,
+			);
 		},
 		[],
 	);
@@ -236,7 +320,9 @@ export function WorktreeAnnotationInteractionProvider(props: {
 					: pierreRangePresentation.kind === 'savedThread'
 						? pierreRangePresentation.threadId
 						: null,
+			admitPendingRootComposer,
 			activateSavedThread,
+			clearPendingRootComposer,
 			clearRangePresentation,
 			closeShareMode,
 			collapseThread,
@@ -244,8 +330,13 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			expandThread,
 			finishThreadEditor,
 			leaveThread,
+			markPendingRootComposerCommitted,
+			markPendingRootComposerDurable,
 			openShareMode,
+			pendingRootComposer,
 			pierreRangePresentation,
+			reattachPendingRootComposer,
+			retainPendingRootComposer,
 			registerThreadEditorExit,
 			resolveThreadFocus,
 			setPendingRange,
@@ -256,7 +347,9 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			threadExpansion,
 		}),
 		[
+			admitPendingRootComposer,
 			activateSavedThread,
+			clearPendingRootComposer,
 			clearRangePresentation,
 			closeShareMode,
 			collapseThread,
@@ -264,8 +357,13 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			expandThread,
 			finishThreadEditor,
 			leaveThread,
+			markPendingRootComposerCommitted,
+			markPendingRootComposerDurable,
 			openShareMode,
+			pendingRootComposer,
 			pierreRangePresentation,
+			reattachPendingRootComposer,
+			retainPendingRootComposer,
 			registerThreadEditorExit,
 			resolveThreadFocus,
 			setPendingRange,
@@ -280,6 +378,18 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		<worktreeAnnotationInteractionContext.Provider value={controller}>
 			{props.children}
 		</worktreeAnnotationInteractionContext.Provider>
+	);
+}
+
+function annotationRangesMatch(
+	left: WorktreeAnnotationRange,
+	right: WorktreeAnnotationRange,
+): boolean {
+	return (
+		left.start === right.start &&
+		left.end === right.end &&
+		left.side === right.side &&
+		left.endSide === right.endSide
 	);
 }
 

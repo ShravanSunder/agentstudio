@@ -40,6 +40,7 @@ import type {
 } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationDeferredEditRelease,
+	useWorktreeAnnotationEditorInstallationPreparation,
 	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSurfaceClient,
@@ -184,6 +185,14 @@ export function WorktreeAnnotationMessageEditor(
 				},
 			}),
 		[annotationClient, editToken, props.message.messageId],
+	);
+	const prepareForInstallation = useCallback(async (): Promise<boolean> => {
+		await scheduler.focusLost();
+		return true;
+	}, [scheduler]);
+	useWorktreeAnnotationEditorInstallationPreparation(
+		props.isEditing ? editToken : null,
+		prepareForInstallation,
 	);
 	useEffect((): (() => void) | undefined => {
 		if (!props.isEditing) return undefined;

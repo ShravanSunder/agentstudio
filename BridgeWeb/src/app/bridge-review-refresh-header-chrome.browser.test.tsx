@@ -52,6 +52,25 @@ describe('Bridge Review refresh header chrome', () => {
 		}
 	});
 
+	test('presents a Main-local active-anchor escalation without changing worker start facts', async () => {
+		const refreshPresentation = candidatePresentation({
+			effectivePresentationClass: { kind: 'promoted', reason: 'activeAnchor' },
+			startDisposition: {
+				affectedStableFileIdentities: ['item-1'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+		const rendered = await renderRefreshHeader(refreshPresentation, ['item-1']);
+
+		await expect
+			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.toHaveTextContent('Updating…');
+		expect(refreshPresentation.candidate?.startDisposition).toMatchObject({
+			presentationClass: { kind: 'ordinary' },
+		});
+	});
+
 	test('treats symbolic unknown as affected only while Review owns attention', async () => {
 		const refreshPresentation = candidatePresentation({
 			startDisposition: {
@@ -141,6 +160,9 @@ function refreshHeader(
 }
 
 function candidatePresentation(props: {
+	readonly effectivePresentationClass?: NonNullable<
+		BridgeMainReviewRefreshPresentation['candidate']
+	>['effectivePresentationClass'];
 	readonly startDisposition: NonNullable<
 		BridgeMainReviewRefreshPresentation['candidate']
 	>['startDisposition'];
@@ -152,6 +174,11 @@ function candidatePresentation(props: {
 				props.startDisposition.kind === 'sameSource'
 					? props.startDisposition.affectedStableFileIdentities
 					: [],
+			effectivePresentationClass:
+				props.effectivePresentationClass ??
+				(props.startDisposition.kind === 'sameSource'
+					? props.startDisposition.presentationClass
+					: { kind: 'ordinary' }),
 			identity: candidateIdentity,
 			role: 'provisional',
 			startDisposition: props.startDisposition,

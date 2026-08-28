@@ -536,6 +536,12 @@ export function createBridgeMainRenderSnapshotStore(
 			if (marked) publishReviewRefreshPresentation();
 			return marked;
 		},
+		escalateReviewCandidatePresentation: (props): boolean => {
+			if (isDisposed) return false;
+			const escalated = reviewCandidateBankOwner.escalatePresentation(props);
+			if (escalated) publishReviewRefreshPresentation();
+			return escalated;
+		},
 		failReviewCandidate: (props): boolean => {
 			if (isDisposed) return false;
 			const failed = reviewCandidateBankOwner.fail(props);

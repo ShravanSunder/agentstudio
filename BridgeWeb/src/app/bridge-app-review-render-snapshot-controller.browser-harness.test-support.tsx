@@ -44,12 +44,15 @@ import {
 
 export { hierarchicalReviewDisplayEvent };
 
+const prepareNoActiveEditorsForInstallation = (): Promise<boolean> => Promise.resolve(true);
+
 export function ReviewDirectDisplayProbe(props: {
 	readonly reviewClient: BridgePaneSurfaceClient;
 }): ReactElement {
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
+		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 		reviewClient: props.reviewClient,
 	});
 	return (
@@ -69,6 +72,7 @@ export function ReviewIntakeLifecycleProbe(props: {
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
+		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 		reviewClient: props.reviewClient,
 	});
 	return (

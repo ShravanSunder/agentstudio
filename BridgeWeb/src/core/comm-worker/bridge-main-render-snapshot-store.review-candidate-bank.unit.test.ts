@@ -65,6 +65,7 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 			activeIdentity: ACTIVE_IDENTITY,
 			candidate: {
 				affectedStableFileIdentities: ['stable-b'],
+				effectivePresentationClass: { kind: 'ordinary' },
 				identity: CANDIDATE_IDENTITY,
 				role: 'updateReady',
 				startDisposition: sameSourceDisposition(['stable-b']),
@@ -176,11 +177,55 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		expect(stagedSuccessor).toBe(false);
 		expect(store.getReviewRefreshPresentation().candidate).toEqual({
 			affectedStableFileIdentities: ['stable-b'],
+			effectivePresentationClass: { kind: 'ordinary' },
 			identity: CANDIDATE_IDENTITY,
 			role: 'installing',
 			startDisposition: sameSourceDisposition(['stable-b']),
 		});
 		expect(store.promoteReviewCandidate(CANDIDATE_IDENTITY)).toBe(true);
+	});
+
+	test('escalates only the Main-local effective class and preserves it in failure', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		installReview(store, ACTIVE_IDENTITY, reviewDisplayEvent(1, 'item-a', 1));
+		startCandidate(store, CANDIDATE_IDENTITY, ['stable-b']);
+		expect(
+			store.stageReviewCandidateDisplayEvent({
+				event: reviewDisplayEvent(2, 'item-b', 1),
+				identity: CANDIDATE_IDENTITY,
+			}),
+		).toBe(true);
+
+		// Act
+		expect(
+			store.escalateReviewCandidatePresentation({
+				identity: CANDIDATE_IDENTITY,
+				presentationClass: { kind: 'promoted', reason: 'activeAnchor' },
+			}),
+		).toBe(true);
+		expect(
+			store.markReviewCandidateReady({ identity: CANDIDATE_IDENTITY, role: 'updateReady' }),
+		).toBe(true);
+
+		// Assert
+		expect(store.getReviewRefreshPresentation().candidate).toMatchObject({
+			effectivePresentationClass: { kind: 'promoted', reason: 'activeAnchor' },
+			startDisposition: {
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+
+		// Act
+		expect(store.failReviewCandidate({ identity: CANDIDATE_IDENTITY, retryable: true })).toBe(true);
+
+		// Assert
+		expect(store.getReviewRefreshPresentation().failure).toMatchObject({
+			identity: CANDIDATE_IDENTITY,
+			presentationClass: { kind: 'promoted', reason: 'activeAnchor' },
+			retryable: true,
+		});
 	});
 
 	test('promotes the exact newest candidate as one coherent active publication', () => {

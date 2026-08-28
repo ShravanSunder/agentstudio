@@ -31,7 +31,6 @@ import {
 	createVisibleReviewCodeViewItemsSelector,
 	type BridgeReviewRenderSnapshotController,
 	createBridgeReviewWorkerPierreCourier,
-	reviewCodeViewBodyDemandItemIds,
 	useBridgeReviewRenderSnapshotController,
 } from './bridge-app-review-render-snapshot-controller.js';
 import { resolveBridgeWorkerMarkFileViewedFailureCallbacks } from './bridge-app-review-worker-health-resolvers.js';
@@ -44,6 +43,8 @@ const TEST_REVIEW_PUBLICATION_IDENTITY = {
 	sourceIdentity: 'test-review-source',
 } as const;
 
+const prepareNoActiveEditorsForInstallation = (): Promise<boolean> => Promise.resolve(true);
+
 describe('Bridge app review render snapshot controller', () => {
 	test('sends Review selection interactions through the stable surface client', async () => {
 		const sentCommands: BridgeWorkerRpcCommandInput[] = [];
@@ -55,6 +56,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -86,6 +88,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -125,6 +128,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -175,6 +179,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -190,12 +195,6 @@ describe('Bridge app review render snapshot controller', () => {
 			isLoading: true,
 			message: 'Updating review…',
 		});
-	});
-
-	test('derives body demand only from unique CodeView-visible item ids', () => {
-		expect(
-			reviewCodeViewBodyDemandItemIds(['item-selected', 'item-code-visible', 'item-code-visible']),
-		).toEqual(['item-selected', 'item-code-visible']);
 	});
 
 	test('selects ready CodeView items in visible order with stable snapshots', () => {

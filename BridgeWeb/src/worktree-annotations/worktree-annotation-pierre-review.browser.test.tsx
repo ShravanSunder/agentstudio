@@ -38,6 +38,7 @@ describe('worktree annotation Pierre Review integration', () => {
 		const mountedCodeViews: CodeView[] = [];
 		const appliedOptions: CodeViewOptions<undefined>[] = [];
 		const annotationAttentionSnapshots: string[][] = [];
+		const annotationEditorAttentionSnapshots: string[][] = [];
 		const updatedItems: CodeViewItem[] = [];
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
@@ -75,6 +76,9 @@ describe('worktree annotation Pierre Review integration', () => {
 					<BridgeCodeViewPanel
 						onAnnotationAttentionItemIdsChange={(itemIds): void => {
 							annotationAttentionSnapshots.push([...itemIds]);
+						}}
+						onAnnotationEditorAttentionItemIdsChange={(itemIds): void => {
+							annotationEditorAttentionSnapshots.push([...itemIds]);
 						}}
 						presentationPositionKey="annotation-browser-review"
 						projection={projection}
@@ -153,6 +157,56 @@ describe('worktree annotation Pierre Review integration', () => {
 				(): boolean =>
 					document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 2,
 				'Expected both Review threads to publish atomically into Pierre annotation slots.',
+			);
+			await act(async (): Promise<void> => {
+				surface.publishProjection(2, 2);
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'additions',
+						endLine: 2,
+						sourceRole: 'review_head',
+						threadId: annotationHeadThreadId,
+					}),
+					message: annotationMessage({
+						messageId: headMessageId,
+						sessionRevision: 2,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'deletions',
+						endLine: 2,
+						sourceRole: 'review_base',
+						threadId: annotationBaseThreadId,
+					}),
+					message: annotationMessage({
+						messageId: baseMessageId,
+						sessionRevision: 2,
+						threadId: annotationBaseThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await expect
+				.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }).first())
+				.toBeEnabled();
+			await act(async (): Promise<void> => {
+				await rendered.getByRole('button', { name: 'Reply to annotation thread' }).first().click();
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => annotationEditorAttentionSnapshots.at(-1)?.[0] === 'item-source',
+				'Expected an existing-thread editor to publish its owning Review item.',
+			);
+			expect(annotationEditorAttentionSnapshots.at(-1)).toEqual(['item-source']);
+			await act(async (): Promise<void> => {
+				await userEvent.keyboard('{Escape}');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => annotationEditorAttentionSnapshots.at(-1)?.length === 0,
+				'Expected closing the existing-thread editor to clear editor attention.',
 			);
 			expect(codeView.getItem('item-source')?.annotations).toEqual([
 				{
@@ -247,6 +301,7 @@ describe('worktree annotation Pierre Review integration', () => {
 			});
 			await expect.element(headComposer).toBeVisible();
 			expect(annotationAttentionSnapshots.at(-1)).toEqual(['item-source']);
+			expect(annotationEditorAttentionSnapshots.at(-1)).toEqual(['item-source']);
 			await act(async (): Promise<void> => {
 				await headComposer.fill('Head-side comment');
 				await Promise.resolve();
@@ -272,6 +327,7 @@ describe('worktree annotation Pierre Review integration', () => {
 				'Expected clearing Pierre selection to close the root composer.',
 			);
 			expect(annotationAttentionSnapshots.at(-1)).toEqual([]);
+			expect(annotationEditorAttentionSnapshots.at(-1)).toEqual([]);
 			await act(async (): Promise<void> => {
 				invokeGutterAdmission(latestOptions, { start: 2, end: 2, side: 'deletions' }, currentItem);
 				await Promise.resolve();

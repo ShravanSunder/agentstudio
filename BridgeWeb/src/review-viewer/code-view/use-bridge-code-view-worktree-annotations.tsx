@@ -9,6 +9,7 @@ import type {
 import type { CodeViewHandle } from '@pierre/diffs/react';
 import {
 	useCallback,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -24,7 +25,6 @@ import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotati
 import {
 	useWorktreeAnnotationActiveEditTokens,
 	useWorktreeAnnotationActiveNewMessageEditTokens,
-	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -43,11 +43,11 @@ import {
 	threadForPierreAnnotation,
 	worktreeAnnotationMetadataForPierreAnnotation,
 	worktreeAnnotationPierreRangesMatch,
-	type WorktreeAnnotationLocatedOrigin,
 } from './worktree-annotation-pierre-adapter.js';
 
 export interface BridgeCodeViewWorktreeAnnotations {
 	readonly activeThreads: readonly WorktreeAnnotationThreadProjection[];
+	readonly activeEditorAttentionItemIds: readonly string[];
 	readonly attentionItemIds: readonly string[];
 	readonly annotateItem: (item: BridgeCodeViewItem) => BridgeCodeViewItem;
 	readonly codeViewOptions: Readonly<CodeViewOptions<undefined>>;
@@ -94,24 +94,91 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				}).inlineThreads
 			: sessionThreads;
 	}, [activeNewMessageEditTokens, activeSessionId, interaction.shareMode, projection.threads]);
-	const [pendingComposer, setPendingComposer] = useState<{
-		readonly committed: boolean;
-		readonly editToken: string;
-		readonly itemId: string;
-		readonly origin: WorktreeAnnotationLocatedOrigin;
-		readonly range: SelectedLineRange;
-	} | null>(null);
+	const pendingComposer = interaction.pendingRootComposer;
 	const pendingComposerRef = useRef(pendingComposer);
 	pendingComposerRef.current = pendingComposer;
-	useWorktreeAnnotationEditSurfaceToken(pendingComposer?.editToken ?? null);
 	const [composerPresentationRevision, setComposerPresentationRevision] = useState(0);
 	const selectedItemIdRef = useRef<string | null>(null);
 	const rangePresentation = interaction.pierreRangePresentation;
 	const selectedRange = rangePresentation.kind === 'none' ? null : rangePresentation.range;
-	const attentionItemIds = useMemo((): readonly string[] => {
+	const pendingComposerReattachment = useMemo((): {
+		readonly itemId: string;
+		readonly range: SelectedLineRange;
+	} | null => {
+		if (pendingComposer === null) return null;
+		const durableThread = projection.threads.find((thread): boolean =>
+			thread.messages.some(
+				(message): boolean => message.draft?.activeEditToken === pendingComposer.editToken,
+			),
+		);
+		if (
+			durableThread === undefined ||
+			(durableThread.context.placement !== 'exact' &&
+				durableThread.context.placement !== 'relocated')
+		)
+			return null;
+		const itemId = reviewItemIdForAnnotationThread({
+			context: durableThread.context,
+			reviewPackage: props.reviewPackage,
+		});
+		if (itemId === null) return null;
+		const side =
+			durableThread.context.sourceRole === 'review_base'
+				? 'deletions'
+				: durableThread.context.sourceRole === 'review_head'
+					? 'additions'
+					: null;
+		if (side === null) return null;
+		return {
+			itemId,
+			range: {
+				end: durableThread.context.endLine,
+				endSide: side,
+				side,
+				start: durableThread.context.startLine,
+			},
+		};
+	}, [pendingComposer, projection.threads, props.reviewPackage]);
+	useLayoutEffect((): void => {
+		if (pendingComposerReattachment === null) return;
+		const currentComposer = pendingComposerRef.current;
+		if (
+			currentComposer === null ||
+			(currentComposer.itemId === pendingComposerReattachment.itemId &&
+				worktreeAnnotationPierreRangesMatch(
+					currentComposer.range,
+					pendingComposerReattachment.range,
+				))
+		)
+			return;
+		selectedItemIdRef.current = pendingComposerReattachment.itemId;
+		interaction.setPendingRange(
+			pendingComposerReattachment.itemId,
+			pendingComposerReattachment.range,
+		);
+		interaction.reattachPendingRootComposer({
+			editToken: currentComposer.editToken,
+			itemId: pendingComposerReattachment.itemId,
+			range: pendingComposerReattachment.range,
+		});
+		setComposerPresentationRevision((revision): number => revision + 1);
+	}, [interaction, pendingComposerReattachment]);
+	const markPendingComposerDurable = useCallback(
+		(editToken: string): void => {
+			const currentComposer = pendingComposerRef.current;
+			if (currentComposer?.editToken === editToken) {
+				pendingComposerRef.current = {
+					...currentComposer,
+					hasDurableDraft: true,
+				};
+			}
+			interaction.markPendingRootComposerDurable(editToken);
+		},
+		[interaction],
+	);
+	const activeEditorAttentionItemIds = useMemo((): readonly string[] => {
 		const itemIds = new Set<string>();
 		if (pendingComposer !== null) itemIds.add(pendingComposer.itemId);
-		if (rangePresentation.kind !== 'none') itemIds.add(rangePresentation.itemId);
 		const threadExpansion = interaction.threadExpansion;
 		if (threadExpansion.kind === 'open' && threadExpansion.editor !== null) {
 			const thread = projection.threads.find(
@@ -127,13 +194,12 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			if (itemId !== null) itemIds.add(itemId);
 		}
 		return props.reviewPackage.orderedItemIds.filter((itemId): boolean => itemIds.has(itemId));
-	}, [
-		interaction.threadExpansion,
-		pendingComposer,
-		projection.threads,
-		props.reviewPackage,
-		rangePresentation,
-	]);
+	}, [interaction.threadExpansion, pendingComposer, projection.threads, props.reviewPackage]);
+	const attentionItemIds = useMemo((): readonly string[] => {
+		const itemIds = new Set(activeEditorAttentionItemIds);
+		if (rangePresentation.kind !== 'none') itemIds.add(rangePresentation.itemId);
+		return props.reviewPackage.orderedItemIds.filter((itemId): boolean => itemIds.has(itemId));
+	}, [activeEditorAttentionItemIds, props.reviewPackage, rangePresentation]);
 
 	const annotateItem = useCallback(
 		(item: BridgeCodeViewItem): BridgeCodeViewItem => {
@@ -207,7 +273,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			if (range === null || descriptor === undefined || item === null) {
 				selectedItemIdRef.current = null;
 				interaction.clearRangePresentation();
-				setPendingComposer(null);
+				interaction.clearPendingRootComposer();
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
@@ -235,15 +301,16 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			if (origin === null) {
 				selectedItemIdRef.current = null;
 				interaction.clearRangePresentation();
-				setPendingComposer(null);
+				interaction.clearPendingRootComposer();
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
 			selectedItemIdRef.current = item.id;
 			interaction.setPendingRange(item.id, range);
-			setPendingComposer({
+			interaction.admitPendingRootComposer({
 				committed: false,
 				editToken: createWorktreeAnnotationEditToken(),
+				hasDurableDraft: false,
 				itemId: item.id,
 				origin,
 				range,
@@ -269,18 +336,13 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			if (range === null || descriptor === undefined || itemId === null) {
 				selectedItemIdRef.current = null;
 				interaction.clearRangePresentation();
-				setPendingComposer(null);
+				interaction.clearPendingRootComposer();
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
 			selectedItemIdRef.current = itemId;
 			interaction.setPendingRange(itemId, range);
-			setPendingComposer((currentComposer) =>
-				currentComposer?.itemId === itemId &&
-				worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
-					? currentComposer
-					: null,
-			);
+			interaction.retainPendingRootComposer(itemId, range);
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},
 		[interaction, props.reviewPackage.itemsById],
@@ -291,6 +353,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			: { id: rangePresentation.itemId, range: rangePresentation.range };
 	const onSelectedLinesChange = useCallback(
 		(selection: CodeViewLineSelection | null): void => {
+			if (pendingComposerRef.current?.hasDurableDraft === true) return;
 			retainSelectedRange(selection?.range ?? null, selection?.id ?? null);
 		},
 		[retainSelectedRange],
@@ -344,13 +407,8 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 						editToken={metadata.editToken}
 						editSurfaceRegistrationOwner="parent"
 						onCancel={() => admitSelectedRange(null, null)}
-						onCommitted={() =>
-							setPendingComposer((currentComposer) =>
-								currentComposer?.editToken === metadata.editToken
-									? { ...currentComposer, committed: true }
-									: currentComposer,
-							)
-						}
+						onCommitted={() => interaction.markPendingRootComposerCommitted(metadata.editToken)}
+						onDurableDraftCreated={() => markPendingComposerDurable(metadata.editToken)}
 						onSaved={(savedMessage) => {
 							const savedThreadIdentity = {
 								itemId: item.id,
@@ -377,6 +435,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			activeThreads,
 			admitSelectedRange,
 			interaction,
+			markPendingComposerDurable,
 			pendingComposer,
 			props.reviewPackage.itemsById,
 			sessionSelection.rootAdmission,
@@ -385,6 +444,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 
 	return {
 		activeThreads,
+		activeEditorAttentionItemIds,
 		attentionItemIds,
 		annotateItem,
 		codeViewOptions,

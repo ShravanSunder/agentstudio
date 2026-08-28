@@ -70,6 +70,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		patches: BridgeWorkerReviewRenderPatchEvent['patches'],
 	) => void;
 	readonly pierreCourier: BridgeWorkerPierreCourier;
+	readonly prepareActiveEditorsForInstallation: () => Promise<boolean>;
 	readonly renderFulfillmentCoordinator: Pick<
 		BridgeMainRenderFulfillmentCoordinator,
 		| 'acceptPublication'
@@ -81,7 +82,10 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 	readonly store: BridgeMainRenderSnapshotStore;
 	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder } | undefined;
 }): BridgeMainReviewPublicationIntegration {
-	let currentAttention: BridgeMainReviewSemanticAttention = { stableFileIdentities: [] };
+	let currentAttention: BridgeMainReviewSemanticAttention = {
+		activeEditorStableFileIdentities: [],
+		stableFileIdentities: [],
+	};
 	let deferredCandidateIdentity: BridgeMainReviewPublicationIdentity | null = null;
 	const deferredCandidatePierreByItemId = new Map<string, DeferredCandidatePierrePublication>();
 	let admissionDispatchInProgress = false;
@@ -271,6 +275,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				recorder: props.telemetryRecorderRef?.current,
 			});
 		},
+		prepareActiveEditorsForInstallation: props.prepareActiveEditorsForInstallation,
 		store: props.store,
 	});
 

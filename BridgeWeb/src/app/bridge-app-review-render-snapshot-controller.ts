@@ -56,6 +56,7 @@ interface BridgeReviewIntakeReadyAttempt {
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
+	readonly prepareActiveEditorsForInstallation: () => Promise<boolean>;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder };
 }
@@ -95,7 +96,10 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectedItemId: string | null;
 	readonly selectedReviewItem: BridgeWorkerReviewDisplayItem | null;
 	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
-	readonly setReviewRefreshSemanticAttention: (stableFileIdentities: readonly string[]) => void;
+	readonly setReviewRefreshSemanticAttention: (
+		stableFileIdentities: readonly string[],
+		activeEditorStableFileIdentities?: readonly string[],
+	) => void;
 	readonly setReviewTreeVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly updateReviewDisplayProjection: (
 		query: BridgeWorkerReviewProjectionUpdateCommand['query'],
@@ -242,6 +246,7 @@ export function useBridgeReviewRenderSnapshotController(
 				}
 			},
 			pierreCourier,
+			prepareActiveEditorsForInstallation: props.prepareActiveEditorsForInstallation,
 			renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 			store: displayStore,
 			telemetryRecorderRef: props.telemetryRecorderRef,
@@ -308,6 +313,7 @@ export function useBridgeReviewRenderSnapshotController(
 	}, [
 		displayStore,
 		pierreCourier,
+		props.prepareActiveEditorsForInstallation,
 		props.reviewClient,
 		props.telemetryRecorderRef,
 		settleWorkerRequests,
@@ -469,8 +475,14 @@ export function useBridgeReviewRenderSnapshotController(
 		[],
 	);
 	const setReviewRefreshSemanticAttention = useCallback(
-		(stableFileIdentities: readonly string[]): void => {
-			reviewPublicationIntegrationRef.current?.setSemanticAttention({ stableFileIdentities });
+		(
+			stableFileIdentities: readonly string[],
+			activeEditorStableFileIdentities: readonly string[] = [],
+		): void => {
+			reviewPublicationIntegrationRef.current?.setSemanticAttention({
+				activeEditorStableFileIdentities,
+				stableFileIdentities,
+			});
 		},
 		[],
 	);

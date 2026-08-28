@@ -20,11 +20,11 @@ export function bridgeReviewRefreshHeaderPresentation(props: {
 	if (
 		candidate !== null &&
 		candidate.startDisposition.kind === 'sameSource' &&
-		candidate.startDisposition.presentationClass.kind === 'promoted' &&
+		candidate.effectivePresentationClass.kind === 'promoted' &&
 		promotedPresentationAffectsAttention({
 			affectedStableFileIdentities: candidate.affectedStableFileIdentities,
 			attentionItemIds,
-			promotionReason: candidate.startDisposition.presentationClass.reason,
+			promotionReason: candidate.effectivePresentationClass.reason,
 		})
 	) {
 		return candidate.role === 'updateReady'

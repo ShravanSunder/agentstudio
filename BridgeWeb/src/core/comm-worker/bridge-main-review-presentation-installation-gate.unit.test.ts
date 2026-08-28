@@ -7,7 +7,7 @@ import type {
 	BridgeMainReviewRefreshPresentation,
 } from './bridge-main-review-candidate-bank.js';
 import {
-	createBridgeMainReviewPresentationInstallationGate,
+	createBridgeMainReviewPresentationInstallationGate as createBridgeMainReviewPresentationInstallationGateImpl,
 	type BridgeMainReviewInstallAdmissionRequest,
 	type BridgeMainReviewInstallAdmissionResult,
 	type BridgeMainReviewPresentationInstallationPort,
@@ -23,6 +23,22 @@ import type {
 const ACTIVE = identity(1, '11');
 const CANDIDATE = identity(2, '12');
 const SUCCESSOR = identity(3, '13');
+
+type InstallationGateProps = Omit<
+	Parameters<typeof createBridgeMainReviewPresentationInstallationGateImpl>[0],
+	'prepareActiveEditorsForInstallation'
+> & {
+	readonly prepareActiveEditorsForInstallation?: () => Promise<boolean>;
+};
+
+function createBridgeMainReviewPresentationInstallationGate(
+	props: InstallationGateProps,
+): ReturnType<typeof createBridgeMainReviewPresentationInstallationGateImpl> {
+	return createBridgeMainReviewPresentationInstallationGateImpl({
+		prepareActiveEditorsForInstallation: (): Promise<boolean> => Promise.resolve(true),
+		...props,
+	});
+}
 
 describe('Bridge main Review presentation installation gate', () => {
 	test('reports one scrubbed lifecycle sequence for hold, Apply now, and cleanup', async () => {
@@ -118,6 +134,151 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
 		expect(port.receipts).toEqual([CANDIDATE.publicationId]);
 		expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
+	});
+
+	test('prepares an affected active editor before requesting install admission', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'ordinary' }, ['file-b']),
+		);
+		const port = new ImmediateInstallationPort(['admitted']);
+		let prepareCallCount = 0;
+		let resolvePreparation = (_prepared: boolean): void => {};
+		const prepareActiveEditorsForInstallation = (): Promise<boolean> => {
+			prepareCallCount += 1;
+			return new Promise((resolve): void => {
+				resolvePreparation = resolve;
+			});
+		};
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			prepareActiveEditorsForInstallation,
+			store,
+		});
+
+		// Act
+		const install = gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'ordinary', ['file-b']),
+			attention(['file-b'], ['file-b']),
+		);
+
+		// Assert
+		expect(prepareCallCount).toBe(1);
+		expect(port.requests).toEqual([]);
+		expect(store.roles).toEqual(['provisional']);
+
+		// Act
+		resolvePreparation(true);
+		await install;
+
+		// Assert
+		expect(port.requests).toHaveLength(1);
+		expect(store.promotions).toEqual([CANDIDATE.publicationId]);
+	});
+
+	test('escalates an ordinary candidate when affected editor continuity cannot be prepared', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'ordinary' }, ['file-b']),
+		);
+		const port = new ImmediateInstallationPort(['admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			prepareActiveEditorsForInstallation: (): Promise<boolean> => Promise.resolve(false),
+			store,
+		});
+
+		// Act
+		await gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'ordinary', ['file-b']),
+			attention(['file-b'], ['file-b']),
+		);
+
+		// Assert
+		expect(port.requests).toEqual([]);
+		expect(store.promotions).toEqual([]);
+		expect(store.presentation.activeIdentity).toEqual(ACTIVE);
+		expect(store.presentation.candidate).toMatchObject({
+			effectivePresentationClass: { kind: 'promoted', reason: 'activeAnchor' },
+			identity: CANDIDATE,
+			role: 'updateReady',
+			startDisposition: {
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+	});
+
+	test('exposes promoted preservation failure without partial installation', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-b']),
+		);
+		const port = new ImmediateInstallationPort(['admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			prepareActiveEditorsForInstallation: (): Promise<boolean> => Promise.resolve(false),
+			store,
+		});
+		await gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'promoted', ['file-b']),
+			attention(['file-b'], ['file-b']),
+		);
+
+		// Act
+		await gate.applyNow();
+
+		// Assert
+		expect(port.requests).toEqual([]);
+		expect(store.promotions).toEqual([]);
+		expect(store.presentation).toMatchObject({
+			activeIdentity: ACTIVE,
+			candidate: null,
+			failure: {
+				identity: CANDIDATE,
+				presentationClass: { kind: 'promoted', reason: 'files' },
+				retryable: true,
+			},
+		});
+	});
+
+	test('fences late editor preparation after worker replacement', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			CANDIDATE,
+			sameSourceStart({ kind: 'ordinary' }, ['file-b']),
+		);
+		const port = new ImmediateInstallationPort(['admitted']);
+		let resolvePreparation = (_prepared: boolean): void => {};
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			prepareActiveEditorsForInstallation: () =>
+				new Promise((resolve): void => {
+					resolvePreparation = resolve;
+				}),
+			store,
+		});
+		const install = gate.handleCandidateReady(
+			candidateReady(CANDIDATE, 'ordinary', ['file-b']),
+			attention(['file-b'], ['file-b']),
+		);
+
+		// Act
+		gate.prepareForWorkerReplacement();
+		resolvePreparation(true);
+		await install;
+
+		// Assert
+		expect(port.requests).toEqual([]);
+		expect(store.promotions).toEqual([]);
+		expect(store.presentation.candidate).toBeNull();
 	});
 
 	test('holds an affected promoted candidate and installs when semantic attention leaves', async () => {
@@ -401,6 +562,16 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 	subscribeReviewRefreshPresentation = (): (() => void) => (): void => {};
 	setReviewCandidateCodeViewItem = (): boolean => false;
 	startReviewCandidate = (): boolean => false;
+	escalateReviewCandidatePresentation: BridgeMainReviewCandidateStore['escalateReviewCandidatePresentation'] =
+		(props): boolean => {
+			const candidate = this.presentation.candidate;
+			if (candidate === null || !sameIdentity(candidate.identity, props.identity)) return false;
+			this.presentation = {
+				...this.presentation,
+				candidate: { ...candidate, effectivePresentationClass: props.presentationClass },
+			};
+			return true;
+		};
 	failReviewCandidate = (props: {
 		readonly identity: BridgeMainReviewPublicationIdentity;
 		readonly retryable: boolean;
@@ -417,11 +588,11 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 			...this.presentation,
 			candidate: null,
 			failure:
-				start?.kind === 'sameSource' && start.presentationClass.kind === 'promoted'
+				start?.kind === 'sameSource' && candidate.effectivePresentationClass.kind === 'promoted'
 					? {
 							affectedStableFileIdentities: start.affectedStableFileIdentities,
 							identity: candidate.identity,
-							presentationClass: start.presentationClass,
+							presentationClass: candidate.effectivePresentationClass,
 							retryable: props.retryable,
 						}
 					: null,
@@ -448,6 +619,9 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 			candidate: {
 				affectedStableFileIdentities:
 					this.presentation.candidate?.affectedStableFileIdentities ?? [],
+				effectivePresentationClass: this.presentation.candidate?.effectivePresentationClass ?? {
+					kind: 'ordinary',
+				},
 				identity: props.identity,
 				role: props.role,
 				startDisposition,
@@ -631,8 +805,11 @@ function candidateFailed(
 	};
 }
 
-function attention(stableFileIdentities: readonly string[]): BridgeMainReviewSemanticAttention {
-	return { stableFileIdentities };
+function attention(
+	stableFileIdentities: readonly string[],
+	activeEditorStableFileIdentities: readonly string[] = [],
+): BridgeMainReviewSemanticAttention {
+	return { activeEditorStableFileIdentities, stableFileIdentities };
 }
 
 function candidatePresentation(
@@ -645,6 +822,10 @@ function candidatePresentation(
 		candidate: {
 			affectedStableFileIdentities:
 				startDisposition.kind === 'sameSource' ? startDisposition.affectedStableFileIdentities : [],
+			effectivePresentationClass:
+				startDisposition.kind === 'sameSource'
+					? startDisposition.presentationClass
+					: { kind: 'ordinary' },
 			identity: candidateIdentity,
 			role: 'provisional',
 			startDisposition,
