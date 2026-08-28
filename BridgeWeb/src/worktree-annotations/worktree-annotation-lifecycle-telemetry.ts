@@ -1,6 +1,9 @@
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 
 export type WorktreeAnnotationLifecyclePhase =
+	| 'annotation_catalog_main_begin'
+	| 'annotation_catalog_main_commit'
+	| 'annotation_catalog_main_window'
 	| 'annotation_invalidation_received'
 	| 'annotation_paint_started'
 	| 'annotation_paint_terminal'
@@ -25,11 +28,40 @@ export type WorktreeAnnotationLifecyclePhase =
 	| 'worker_application_started'
 	| 'worker_application_terminal';
 
+type WorktreeAnnotationCatalogStagingTelemetry =
+	| {
+			readonly catalogRevision: number;
+			readonly encodedUnitByteCount: number;
+			readonly entryCount: number;
+			readonly kind: 'begin';
+			readonly presentationRevisionAfter: number;
+			readonly presentationRevisionBefore: number;
+	  }
+	| {
+			readonly catalogRevision: number;
+			readonly encodedUnitByteCount: number;
+			readonly entryCount: number;
+			readonly kind: 'commit';
+			readonly presentationRevisionAfter: number;
+			readonly presentationRevisionBefore: number;
+			readonly windowCount: number;
+	  }
+	| {
+			readonly catalogRevision: number;
+			readonly encodedUnitByteCount: number;
+			readonly entryCount: number;
+			readonly kind: 'window';
+			readonly presentationRevisionAfter: number;
+			readonly presentationRevisionBefore: number;
+			readonly windowOrdinal: number;
+	  };
+
 export interface WorktreeAnnotationLifecycleTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
 }
 
 export function recordWorktreeAnnotationLifecycleTelemetry(props: {
+	readonly catalogStaging?: WorktreeAnnotationCatalogStagingTelemetry | undefined;
 	readonly operationCorrelationId: string;
 	readonly phase: WorktreeAnnotationLifecyclePhase;
 	readonly recorder?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
@@ -59,7 +91,40 @@ export function recordWorktreeAnnotationLifecycleTelemetry(props: {
 			...(props.sourceGeneration === undefined
 				? {}
 				: { 'agentstudio.bridge.source.generation': props.sourceGeneration }),
+			...catalogStagingNumericAttributes(props.catalogStaging),
 		},
 		booleanAttributes: {},
 	});
+}
+
+function catalogStagingNumericAttributes(
+	measurement: WorktreeAnnotationCatalogStagingTelemetry | undefined,
+): Readonly<Record<string, number>> {
+	if (measurement === undefined) return {};
+	const commonAttributes = {
+		'agentstudio.bridge.annotation.catalog.entry.count': measurement.entryCount,
+		'agentstudio.bridge.annotation.catalog.revision': measurement.catalogRevision,
+		'agentstudio.bridge.annotation.catalog.unit.byte_count': measurement.encodedUnitByteCount,
+		'agentstudio.bridge.presentation.revision.after': measurement.presentationRevisionAfter,
+		'agentstudio.bridge.presentation.revision.before': measurement.presentationRevisionBefore,
+	};
+	switch (measurement.kind) {
+		case 'begin':
+			return commonAttributes;
+		case 'commit':
+			return {
+				...commonAttributes,
+				'agentstudio.bridge.annotation.catalog.window.count': measurement.windowCount,
+			};
+		case 'window':
+			return {
+				...commonAttributes,
+				'agentstudio.bridge.annotation.catalog.window.ordinal': measurement.windowOrdinal,
+			};
+	}
+	return assertNeverCatalogStagingTelemetry(measurement);
+}
+
+function assertNeverCatalogStagingTelemetry(_value: never): never {
+	throw new Error('Unhandled annotation catalog staging telemetry kind.');
 }

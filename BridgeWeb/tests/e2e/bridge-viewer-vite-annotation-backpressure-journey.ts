@@ -2,6 +2,15 @@ import { chromium, type Page, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
+	cloneSavedAnnotationMessages,
+	latestAnnotationCatalogCommit,
+	observeAnnotationProjectionQueries,
+	requireLongTaskCount,
+	settleBrowserFrames,
+	waitForAnnotationCatalogCommit,
+} from './bridge-viewer-vite-annotation-catalog-performance.ts';
+import {
+	runAnnotationSaveJourney,
 	selectRangeForAnnotation,
 	selectReviewFile,
 	waitForSelectedFileReady,
@@ -23,6 +32,7 @@ import {
 } from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const stressReviewItemCount = 1_699;
+const stressAnnotationCatalogCloneCount = 2_000;
 const stressJourneyTimeoutMilliseconds = 600_000;
 const stressExecutionCeilingMilliseconds = 540_000;
 const stressOperationTimeoutMilliseconds = 120_000;
@@ -199,15 +209,35 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 					milestones,
 					operation: async () => startBridgeViewerOwnedViteProductServer(createdFixture.oracle),
 				});
+				const fileSeed = await runAnnotationSaveJourney({
+					oracle: createdFixture.oracle,
+					server,
+					surface: 'file',
+				});
+				const releaseLargeCatalogFixture = await cloneSavedAnnotationMessages({
+					cloneCount: stressAnnotationCatalogCloneCount,
+					dataRootPath: createdFixture.oracle.dataRootPath,
+					sourceMessageId: fileSeed.outputIdentity.messageId,
+					sourceThreadId: fileSeed.outputIdentity.threadId,
+				});
 				const observations = await runAnnotationBackpressureJourney({
 					milestones,
 					oracle: createdFixture.oracle,
+					releaseLargeCatalogFixture,
 					server,
+					undemandedSessionId: fileSeed.outputIdentity.sessionId,
 				});
 				milestones.transition('assertions.running');
 				expect(createdFixture.oracle.reviewFiles).toHaveLength(stressReviewItemCount);
 				expect(observations.exactBodyCountAfterReload).toBe(6);
 				expect(new Set(observations.messageIds).size).toBe(6);
+				expect(observations.catalogTelemetry.windowCount).toBeGreaterThanOrEqual(2);
+				expect(observations.catalogTelemetry.maximumUnitByteCount).toBeLessThanOrEqual(128 * 1024);
+				expect(observations.catalogTelemetry.presentationRevisionAfter).toBe(
+					observations.catalogTelemetry.presentationRevisionBefore + 1,
+				);
+				expect(observations.catalogTelemetry.longTaskCountDelta).toBe(0);
+				expect(observations.catalogTelemetry.undemandedSessionRichFetchCount).toBe(0);
 				expect(observations.fileTelemetry.currentCount).toBe(0);
 				expect(observations.fileTelemetry.highWaterMark).toBe(1);
 				expect(observations.reviewTelemetry.currentCount).toBe(0);
@@ -290,10 +320,20 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 }
 
 interface AnnotationBackpressureJourneyObservations {
+	readonly catalogTelemetry: AnnotationCatalogTelemetryObservation;
 	readonly exactBodyCountAfterReload: number;
 	readonly fileTelemetry: BackpressureTelemetryObservation;
 	readonly messageIds: readonly string[];
 	readonly reviewTelemetry: BackpressureTelemetryObservation;
+}
+
+interface AnnotationCatalogTelemetryObservation {
+	readonly longTaskCountDelta: number;
+	readonly maximumUnitByteCount: number;
+	readonly presentationRevisionAfter: number;
+	readonly presentationRevisionBefore: number;
+	readonly undemandedSessionRichFetchCount: number;
+	readonly windowCount: number;
 }
 
 interface BackpressureTelemetryObservation {
@@ -317,7 +357,9 @@ interface CommittedAnnotationOutcome {
 async function runAnnotationBackpressureJourney(props: {
 	readonly milestones: AnnotationBackpressureMilestones;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
+	readonly releaseLargeCatalogFixture: () => Promise<void>;
 	readonly server: BridgeViewerOwnedViteProductServer;
+	readonly undemandedSessionId: string;
 }): Promise<AnnotationBackpressureJourneyObservations> {
 	const browser = await runMilestone({
 		after: 'browser.ready',
@@ -330,6 +372,7 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const projectionQueries = observeAnnotationProjectionQueries(createdPage);
 		const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(createdPage);
 		await runMilestone({
 			after: 'file.ready.waiting',
@@ -421,6 +464,8 @@ async function runAnnotationBackpressureJourney(props: {
 		];
 		const bodies = [rootBody, ...replies.map((reply) => reply.body)];
 		const messageIds: string[] = [];
+		const catalogBaseline = await latestAnnotationCatalogCommit(createdPage);
+		const longTaskBaseline = await requireLongTaskCount(createdPage);
 		messageIds.push(
 			await createAndSaveRoot({
 				body: rootBody,
@@ -428,6 +473,21 @@ async function runAnnotationBackpressureJourney(props: {
 				page: createdPage,
 			}),
 		);
+		const catalogTransferTelemetry = await waitForAnnotationCatalogCommit({
+			minimumCatalogRevisionExclusive: catalogBaseline.catalogRevision,
+			page: createdPage,
+		});
+		await settleBrowserFrames(createdPage, 2);
+		const longTaskCountAfterCatalog = await requireLongTaskCount(createdPage);
+		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
+			...catalogTransferTelemetry,
+			longTaskCountDelta: longTaskCountAfterCatalog - longTaskBaseline,
+			undemandedSessionRichFetchCount: projectionQueries
+				.sessionIdsForOperation(catalogTransferTelemetry.operationCorrelationId)
+				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
+				.length,
+		};
+		await props.releaseLargeCatalogFixture();
 		exactSavedBodies.push(rootBody);
 		for (const { body, replyOrdinal } of replies) {
 			// oxlint-disable-next-line no-await-in-loop -- Every reply must commit before the next exact thread revision.
@@ -552,7 +612,13 @@ async function runAnnotationBackpressureJourney(props: {
 		if (stableStoppedReviewTelemetry === null) {
 			throw new Error('Review telemetry changed after demand stopped.');
 		}
-		return { exactBodyCountAfterReload, fileTelemetry, messageIds, reviewTelemetry };
+		return {
+			catalogTelemetry,
+			exactBodyCountAfterReload,
+			fileTelemetry,
+			messageIds,
+			reviewTelemetry,
+		};
 	} finally {
 		await page?.close();
 		await browser.close();

@@ -252,6 +252,11 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.activation.sequence',
+	'agentstudio.bridge.annotation.catalog.entry.count',
+	'agentstudio.bridge.annotation.catalog.revision',
+	'agentstudio.bridge.annotation.catalog.unit.byte_count',
+	'agentstudio.bridge.annotation.catalog.window.count',
+	'agentstudio.bridge.annotation.catalog.window.ordinal',
 	'agentstudio.bridge.content.byte_length',
 	'agentstudio.bridge.content.byte_count',
 	'agentstudio.bridge.content.chunk_byte_count',
@@ -274,6 +279,8 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.presentation.publication_sequence',
 	'agentstudio.bridge.presentation.revision',
+	'agentstudio.bridge.presentation.revision.after',
+	'agentstudio.bridge.presentation.revision.before',
 	'agentstudio.bridge.interaction.sequence',
 	'agentstudio.bridge.review.generation',
 	'agentstudio.bridge.review.refresh.active_bank.count',
@@ -356,6 +363,9 @@ const bridgeDevExplicitSafeTelemetryNames = new Set([
 	'performance.bridge.web.operation_lifecycle',
 ]);
 const bridgeDevExplicitSafeStringAttributePairs = new Set([
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_begin',
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_commit',
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_window',
 	'agentstudio.bridge.phase\u0000annotation_invalidation_received',
 	'agentstudio.bridge.phase\u0000annotation_paint_started',
 	'agentstudio.bridge.phase\u0000annotation_paint_terminal',

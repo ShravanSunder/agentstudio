@@ -16,6 +16,7 @@ import {
 
 const noopUnsubscribe = (): void => {};
 const maximumRetainedOrphanCorrelationCount = 128;
+const annotationCatalogStagingEncoder = new TextEncoder();
 export {
 	emptyWorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationProjectionStore,
@@ -145,7 +146,12 @@ export function createWorktreeAnnotationSurfaceClient(
 			if (isDisposed) return;
 			if (message.kind === 'annotationCatalogStaging') {
 				if (message.surface === surfaceClient.surface) {
-					projectionStore.applyCatalogStaging(message);
+					applyAnnotationCatalogStagingMessage({
+						message,
+						projectionStore,
+						telemetryRecorder,
+						viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
+					});
 				}
 				return;
 			}
@@ -376,6 +382,74 @@ export function createWorktreeAnnotationSurfaceClient(
 		subscribe: projectionStore.subscribe,
 		waitForSnapshot,
 	};
+}
+
+function applyAnnotationCatalogStagingMessage(props: {
+	readonly message: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'annotationCatalogStaging' }
+	>;
+	readonly projectionStore: WorktreeAnnotationProjectionStore;
+	readonly telemetryRecorder: BridgeTelemetryRecorder | undefined;
+	readonly viewer: 'file' | 'review';
+}): void {
+	if (props.telemetryRecorder?.isEnabled('web') !== true) {
+		props.projectionStore.applyCatalogStaging(props.message);
+		return;
+	}
+	const presentationRevisionBefore = props.projectionStore.getSnapshot().presentationRevision;
+	const result = props.projectionStore.applyCatalogStaging(props.message);
+	const presentationRevisionAfter = props.projectionStore.getSnapshot().presentationRevision;
+	const common = {
+		catalogRevision: props.message.transfer.catalogRevision,
+		encodedUnitByteCount: annotationCatalogStagingEncoder.encode(JSON.stringify(props.message))
+			.byteLength,
+		presentationRevisionAfter,
+		presentationRevisionBefore,
+	};
+	const lifecycle = {
+		operationCorrelationId: props.message.operationCorrelationId,
+		recorder: props.telemetryRecorder,
+		result: result.status === 'rejected' ? ('failure' as const) : ('success' as const),
+		transport: 'local' as const,
+		viewer: props.viewer,
+	};
+	switch (props.message.transfer.kind) {
+		case 'catalog.begin':
+			recordWorktreeAnnotationLifecycleTelemetry({
+				...lifecycle,
+				catalogStaging: {
+					...common,
+					entryCount: props.message.transfer.expectedEntryCount,
+					kind: 'begin',
+				},
+				phase: 'annotation_catalog_main_begin',
+			});
+			return;
+		case 'catalog.commit':
+			recordWorktreeAnnotationLifecycleTelemetry({
+				...lifecycle,
+				catalogStaging: {
+					...common,
+					entryCount: props.message.transfer.entryCount,
+					kind: 'commit',
+					windowCount: props.message.transfer.windowCount,
+				},
+				phase: 'annotation_catalog_main_commit',
+			});
+			return;
+		case 'catalog.window':
+			recordWorktreeAnnotationLifecycleTelemetry({
+				...lifecycle,
+				catalogStaging: {
+					...common,
+					entryCount: props.message.transfer.entries.length,
+					kind: 'window',
+					windowOrdinal: props.message.transfer.windowOrdinal,
+				},
+				phase: 'annotation_catalog_main_window',
+			});
+	}
 }
 
 function sendReviewAnnotationCommand(

@@ -6,6 +6,50 @@ import Testing
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
     @Test
+    func annotationCatalogProjectionKeepsAggregatesAndDropsPrivateIdentityAndPath() {
+        let operationID = String(repeating: "a", count: 64)
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 776,
+                severityText: .info,
+                body: "performance.bridge.web.annotation_lifecycle",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.bridge.operation.id": .string(operationID),
+                    "agentstudio.bridge.annotation.catalog.entry.count": .int(2001),
+                    "agentstudio.bridge.annotation.catalog.revision": .int(9),
+                    "agentstudio.bridge.annotation.catalog.unit.byte_count": .int(131_000),
+                    "agentstudio.bridge.annotation.catalog.window.count": .int(3),
+                    "agentstudio.bridge.presentation.revision.after": .int(8),
+                    "agentstudio.bridge.presentation.revision.before": .int(7),
+                    "agentstudio.bridge.annotation.catalog.session_id": .string("private-session"),
+                    "agentstudio.bridge.annotation.catalog.path": .string("/private/repo"),
+                ]
+            )
+        )
+
+        #expect(projection.attributes["agentstudio.bridge.operation.id"] == .string(operationID))
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.entry.count"] == .int(2001)
+        )
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.revision"] == .int(9))
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.unit.byte_count"] == .int(131_000)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.window.count"] == .int(3)
+        )
+        #expect(projection.attributes["agentstudio.bridge.presentation.revision.after"] == .int(8))
+        #expect(projection.attributes["agentstudio.bridge.presentation.revision.before"] == .int(7))
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.session_id"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.path"] == nil)
+    }
+
+    @Test
     func lifecycleProjectionKeepsOnlyScrubbedOperationIdentityAndSafeAttempt() {
         let operationID = String(repeating: "a", count: 64)
         let projection = AgentStudioOTLPTraceProjection.project(

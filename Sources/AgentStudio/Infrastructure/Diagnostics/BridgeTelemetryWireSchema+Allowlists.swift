@@ -448,7 +448,8 @@ extension BridgeTelemetryWireSchema {
             "worktree_file_frame_apply",
             "worktree_file_projection",
             "worker_task",
-        ]).union(BridgeRenderDispositionTelemetryContract.phaseValues),
+        ]).union(BridgeAnnotationCatalogTelemetryContract.phaseValues)
+            .union(BridgeRenderDispositionTelemetryContract.phaseValues),
         "agentstudio.bridge.plane": Set(
             BridgeTelemetryPlane.allCases.map(\.rawValue)
         ),
@@ -976,8 +977,8 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence",
     ]).union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
+        .union(BridgeAnnotationCatalogTelemetryContract.numericAttributeKeys)
         .union(BridgeRenderDispositionTelemetryContract.numericAttributeKeys)
-
     static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.activation.source_available",
         "agentstudio.bridge.cache_hit",

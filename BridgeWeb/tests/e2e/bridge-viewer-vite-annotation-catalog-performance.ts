@@ -1,0 +1,332 @@
+import { spawn } from 'node:child_process';
+import { join } from 'node:path';
+
+import { type Page, type Request } from 'playwright';
+import { uuidv7 } from 'uuidv7';
+import { expect } from 'vitest';
+
+export interface AnnotationCatalogTransferTelemetryObservation {
+	readonly maximumUnitByteCount: number;
+	readonly operationCorrelationId: string;
+	readonly presentationRevisionAfter: number;
+	readonly presentationRevisionBefore: number;
+	readonly windowCount: number;
+}
+
+export interface AnnotationProjectionQueryObservation {
+	readonly dispose: () => void;
+	readonly sessionIdsForOperation: (operationCorrelationId: string) => readonly string[];
+}
+
+interface TelemetryStatusSample {
+	readonly name: string;
+	readonly numericAttributes: Readonly<Record<string, number>>;
+	readonly stringAttributes: Readonly<Record<string, string>>;
+}
+
+export async function cloneSavedAnnotationMessages(props: {
+	readonly cloneCount: number;
+	readonly dataRootPath: string;
+	readonly sourceMessageId: string;
+	readonly sourceThreadId: string;
+}): Promise<() => Promise<void>> {
+	const identifiers = Array.from({ length: props.cloneCount }, (): string => uuidv7());
+	const statements = identifiers.map(
+		(identifier): string => `
+INSERT INTO annotation_message(
+  id, thread_id, ordinal, author_kind, saved_body, saved_body_utf8_bytes,
+  saved_revision, status, semantic_revision, created_at, updated_at,
+  handled, viewed_saved_revision
+)
+SELECT
+  '${identifier}', source.thread_id,
+  (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM annotation_message WHERE thread_id = source.thread_id),
+  source.author_kind, source.saved_body, source.saved_body_utf8_bytes,
+  source.saved_revision, source.status, source.semantic_revision,
+  source.created_at, source.updated_at, source.handled, source.viewed_saved_revision
+FROM annotation_message AS source
+WHERE lower(source.id) = lower('${props.sourceMessageId}');`,
+	);
+	const sql = [
+		'.bail on',
+		'PRAGMA busy_timeout = 10000;',
+		'BEGIN IMMEDIATE;',
+		...statements,
+		'COMMIT;',
+		`SELECT COUNT(*) FROM annotation_message WHERE lower(thread_id) = lower('${props.sourceThreadId}');`,
+	].join('\n');
+	const result = await runSQLiteScript(join(props.dataRootPath, 'local.sqlite'), sql);
+	const messageCount = Number(result.trim().split('\n').at(-1));
+	if (messageCount !== props.cloneCount + 1) {
+		throw new Error(
+			`Large annotation catalog fixture expected ${props.cloneCount + 1} messages, received ${result.trim()}.`,
+		);
+	}
+	return async (): Promise<void> => {
+		const cleanupResult = await runSQLiteScript(
+			join(props.dataRootPath, 'local.sqlite'),
+			[
+				'.bail on',
+				'PRAGMA busy_timeout = 10000;',
+				'BEGIN IMMEDIATE;',
+				`DELETE FROM annotation_message WHERE lower(thread_id) = lower('${props.sourceThreadId}') AND lower(id) != lower('${props.sourceMessageId}');`,
+				'COMMIT;',
+				`SELECT COUNT(*) FROM annotation_message WHERE lower(thread_id) = lower('${props.sourceThreadId}');`,
+			].join('\n'),
+		);
+		const retainedMessageCount = Number(cleanupResult.trim().split('\n').at(-1));
+		if (retainedMessageCount !== 1) {
+			throw new Error(
+				`Large annotation catalog fixture cleanup retained ${cleanupResult.trim()} messages.`,
+			);
+		}
+	};
+}
+
+export async function latestAnnotationCatalogCommit(
+	page: Page,
+): Promise<{ readonly catalogRevision: number }> {
+	const status = await fetchTelemetryStatus(page);
+	const commit = annotationCatalogSamples(status).findLast(
+		(sample) =>
+			sample.stringAttributes['agentstudio.bridge.phase'] === 'annotation_catalog_main_commit',
+	);
+	if (commit === undefined) {
+		throw new Error('Large catalog proof requires an initial Main catalog commit.');
+	}
+	return {
+		catalogRevision: numberAttribute(commit, 'agentstudio.bridge.annotation.catalog.revision'),
+	};
+}
+
+export function observeAnnotationProjectionQueries(
+	page: Page,
+): AnnotationProjectionQueryObservation {
+	const sessionIdsByOperationCorrelationId = new Map<string, string[]>();
+	const handleRequest = (request: Request): void => {
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/command'
+		) {
+			return;
+		}
+		const body: unknown = request.postDataJSON();
+		if (!isRecord(body) || !isRecord(body['call'])) return;
+		const call = body['call'];
+		if (call['method'] !== 'review.annotations.projection.query' || !isRecord(call['request'])) {
+			return;
+		}
+		const projectionRequest = call['request'];
+		const operationCorrelationId = projectionRequest['operationCorrelationId'];
+		const sessionIds = projectionRequest['sessionIds'];
+		if (
+			typeof operationCorrelationId !== 'string' ||
+			!Array.isArray(sessionIds) ||
+			!sessionIds.every((sessionId) => typeof sessionId === 'string')
+		) {
+			return;
+		}
+		sessionIdsByOperationCorrelationId.set(operationCorrelationId, sessionIds);
+	};
+	page.on('request', handleRequest);
+	return {
+		dispose: (): void => {
+			page.off('request', handleRequest);
+		},
+		sessionIdsForOperation: (operationCorrelationId): readonly string[] =>
+			sessionIdsByOperationCorrelationId.get(operationCorrelationId) ?? [],
+	};
+}
+
+export async function waitForAnnotationCatalogCommit(props: {
+	readonly minimumCatalogRevisionExclusive: number;
+	readonly page: Page;
+}): Promise<AnnotationCatalogTransferTelemetryObservation> {
+	let observation: AnnotationCatalogTransferTelemetryObservation | null = null;
+	await expect
+		.poll(
+			async (): Promise<boolean> => {
+				const samples = annotationCatalogSamples(await fetchTelemetryStatus(props.page));
+				const commit = samples.findLast(
+					(sample) =>
+						sample.stringAttributes['agentstudio.bridge.phase'] ===
+							'annotation_catalog_main_commit' &&
+						numberAttribute(sample, 'agentstudio.bridge.annotation.catalog.revision') >
+							props.minimumCatalogRevisionExclusive,
+				);
+				if (commit === undefined) return false;
+				const operationId = commit.stringAttributes['agentstudio.bridge.operation.id'];
+				if (operationId === undefined) return false;
+				const operationSamples = samples.filter(
+					(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === operationId,
+				);
+				const begin = operationSamples.filter(
+					(sample) =>
+						sample.stringAttributes['agentstudio.bridge.phase'] === 'annotation_catalog_main_begin',
+				);
+				const windows = operationSamples.filter(
+					(sample) =>
+						sample.stringAttributes['agentstudio.bridge.phase'] ===
+						'annotation_catalog_main_window',
+				);
+				if (begin.length !== 1 || windows.length < 2) return false;
+				const commitWindowCount = numberAttribute(
+					commit,
+					'agentstudio.bridge.annotation.catalog.window.count',
+				);
+				const commitEntryCount = numberAttribute(
+					commit,
+					'agentstudio.bridge.annotation.catalog.entry.count',
+				);
+				const windowEntryCount = windows.reduce(
+					(total, sample) =>
+						total + numberAttribute(sample, 'agentstudio.bridge.annotation.catalog.entry.count'),
+					0,
+				);
+				if (commitWindowCount !== windows.length || commitEntryCount !== windowEntryCount) {
+					return false;
+				}
+				const presentationRevisionBefore = numberAttribute(
+					commit,
+					'agentstudio.bridge.presentation.revision.before',
+				);
+				const presentationRevisionAfter = numberAttribute(
+					commit,
+					'agentstudio.bridge.presentation.revision.after',
+				);
+				if (
+					presentationRevisionAfter !== presentationRevisionBefore + 1 ||
+					[...begin, ...windows].some(
+						(sample) =>
+							numberAttribute(sample, 'agentstudio.bridge.presentation.revision.before') !==
+								presentationRevisionBefore ||
+							numberAttribute(sample, 'agentstudio.bridge.presentation.revision.after') !==
+								presentationRevisionBefore,
+					)
+				) {
+					return false;
+				}
+				const maximumUnitByteCount = Math.max(
+					...operationSamples.map((sample) =>
+						numberAttribute(sample, 'agentstudio.bridge.annotation.catalog.unit.byte_count'),
+					),
+				);
+				if (maximumUnitByteCount > 128 * 1024) return false;
+				observation = {
+					maximumUnitByteCount,
+					operationCorrelationId: operationId,
+					presentationRevisionAfter,
+					presentationRevisionBefore,
+					windowCount: windows.length,
+				};
+				return true;
+			},
+			{ timeout: 120_000 },
+		)
+		.toBe(true);
+	if (observation === null) throw new Error('Large catalog Main telemetry did not converge.');
+	return observation;
+}
+
+export async function requireLongTaskCount(page: Page): Promise<number> {
+	const observation = await page.evaluate(
+		(): { readonly count: number | null; readonly supported: boolean } => {
+			const supported = PerformanceObserver.supportedEntryTypes.includes('longtask');
+			const probe = Reflect.get(window, '__bridgeFrameJankProbe');
+			const longTask =
+				typeof probe === 'object' && probe !== null ? Reflect.get(probe, 'long_task') : null;
+			const count =
+				typeof longTask === 'object' && longTask !== null ? Reflect.get(longTask, 'count') : null;
+			return { count: typeof count === 'number' ? count : null, supported };
+		},
+	);
+	if (!observation.supported || observation.count === null) {
+		throw new Error('Large catalog proof requires the production Long Tasks probe.');
+	}
+	return observation.count;
+}
+
+export async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {
+	for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Frame settlement is an ordered observation boundary.
+		await page.evaluate(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => resolve());
+			});
+		});
+	}
+}
+
+async function runSQLiteScript(databasePath: string, sql: string): Promise<string> {
+	return await new Promise<string>((resolve, reject): void => {
+		const sqliteProcess = spawn('/usr/bin/sqlite3', [databasePath], {
+			stdio: ['pipe', 'pipe', 'pipe'],
+		});
+		let stdout = '';
+		let stderr = '';
+		sqliteProcess.stdout.setEncoding('utf8');
+		sqliteProcess.stderr.setEncoding('utf8');
+		sqliteProcess.stdout.on('data', (chunk: string): void => {
+			stdout += chunk;
+		});
+		sqliteProcess.stderr.on('data', (chunk: string): void => {
+			stderr += chunk;
+		});
+		sqliteProcess.once('error', reject);
+		sqliteProcess.once('close', (exitCode): void => {
+			if (exitCode === 0) {
+				resolve(stdout);
+				return;
+			}
+			reject(new Error(`Large annotation catalog fixture failed with ${exitCode}: ${stderr}`));
+		});
+		sqliteProcess.stdin.end(sql);
+	});
+}
+
+async function fetchTelemetryStatus(page: Page): Promise<unknown> {
+	const response = await fetch(new URL('/__bridge-dev-telemetry/status', page.url()));
+	if (!response.ok) throw new Error(`Telemetry status failed with ${response.status}.`);
+	return await response.json();
+}
+
+function annotationCatalogSamples(status: unknown): readonly TelemetryStatusSample[] {
+	if (!isRecord(status) || !Array.isArray(status['recentSamples'])) return [];
+	return status['recentSamples']
+		.filter(isTelemetryStatusSample)
+		.filter(
+			(sample) =>
+				sample.name === 'performance.bridge.web.annotation_lifecycle' &&
+				sample.stringAttributes['agentstudio.bridge.viewer'] === 'review' &&
+				sample.stringAttributes['agentstudio.bridge.phase']?.startsWith(
+					'annotation_catalog_main_',
+				) === true,
+		);
+}
+
+function isTelemetryStatusSample(value: unknown): value is TelemetryStatusSample {
+	return (
+		isRecord(value) &&
+		typeof value['name'] === 'string' &&
+		isNumberRecord(value['numericAttributes']) &&
+		isStringRecord(value['stringAttributes'])
+	);
+}
+
+function numberAttribute(sample: TelemetryStatusSample, key: string): number {
+	const value = sample.numericAttributes[key];
+	if (value === undefined) throw new Error(`Missing telemetry number ${key}.`);
+	return value;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNumberRecord(value: unknown): value is Readonly<Record<string, number>> {
+	return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'number');
+}
+
+function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
+	return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+}

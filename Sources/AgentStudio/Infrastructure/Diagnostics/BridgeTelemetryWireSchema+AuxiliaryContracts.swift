@@ -45,6 +45,53 @@ extension BridgeTelemetryWireSchema {
     }
 
     private static func webAnnotationLifecycleContractMatches(_ contract: EventContract) -> Bool {
+        let catalogStagingNumericKeysByPhase: [String: Set<String>] = [
+            "annotation_catalog_main_begin": [
+                "agentstudio.bridge.annotation.catalog.entry.count",
+                "agentstudio.bridge.annotation.catalog.revision",
+                "agentstudio.bridge.annotation.catalog.unit.byte_count",
+                "agentstudio.bridge.presentation.revision.after",
+                "agentstudio.bridge.presentation.revision.before",
+                "agentstudio.bridge.stage.attempt",
+            ],
+            "annotation_catalog_main_commit": [
+                "agentstudio.bridge.annotation.catalog.entry.count",
+                "agentstudio.bridge.annotation.catalog.revision",
+                "agentstudio.bridge.annotation.catalog.unit.byte_count",
+                "agentstudio.bridge.annotation.catalog.window.count",
+                "agentstudio.bridge.presentation.revision.after",
+                "agentstudio.bridge.presentation.revision.before",
+                "agentstudio.bridge.stage.attempt",
+            ],
+            "annotation_catalog_main_window": [
+                "agentstudio.bridge.annotation.catalog.entry.count",
+                "agentstudio.bridge.annotation.catalog.revision",
+                "agentstudio.bridge.annotation.catalog.unit.byte_count",
+                "agentstudio.bridge.annotation.catalog.window.ordinal",
+                "agentstudio.bridge.presentation.revision.after",
+                "agentstudio.bridge.presentation.revision.before",
+                "agentstudio.bridge.stage.attempt",
+            ],
+        ]
+        if let catalogStagingNumericKeys = catalogStagingNumericKeysByPhase[contract.phase] {
+            return contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .data,
+                    priority: .hot,
+                    slice: .reviewProjection,
+                    transport: "local",
+                    attributeKeys: .init(
+                        additionalStringKeys: [
+                            "agentstudio.bridge.operation.id",
+                            "agentstudio.bridge.result",
+                            "agentstudio.bridge.viewer",
+                        ],
+                        numericKeys: catalogStagingNumericKeys
+                    )
+                )
+            )
+        }
         let phases: Set<String> = [
             "refresh_reserved",
             "refresh_operation_terminal",

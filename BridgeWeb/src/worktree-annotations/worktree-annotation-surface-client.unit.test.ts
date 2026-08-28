@@ -179,16 +179,72 @@ describe('worktree annotation surface command rendezvous', () => {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 		});
 
-		expect(harness.telemetrySamples).toHaveLength(2);
-		expect(harness.telemetrySamples[0]?.stringAttributes).toMatchObject({
+		const projectionSamples = harness.telemetrySamples.filter((sample) =>
+			['projection_store_terminal', 'main_thread_install_terminal'].includes(
+				sample.stringAttributes['agentstudio.bridge.phase'] ?? '',
+			),
+		);
+		expect(projectionSamples).toHaveLength(2);
+		expect(projectionSamples[0]?.stringAttributes).toMatchObject({
 			'agentstudio.bridge.operation.id': 'a'.repeat(64),
 			'agentstudio.bridge.phase': 'projection_store_terminal',
 			'agentstudio.bridge.result': 'success',
 		});
-		expect(harness.telemetrySamples[1]?.stringAttributes).toMatchObject({
+		expect(projectionSamples[1]?.stringAttributes).toMatchObject({
 			'agentstudio.bridge.operation.id': 'a'.repeat(64),
 			'agentstudio.bridge.phase': 'main_thread_install_terminal',
 			'agentstudio.bridge.result': 'success',
+		});
+		harness.client.dispose();
+	});
+
+	test('records bounded catalog staging units and the final presentation publication', () => {
+		const harness = createSurfaceClientHarness();
+		const messages = catalogStagingMessages(7, 'fileView');
+		const encoder = new TextEncoder();
+
+		for (const message of messages) harness.publish(message);
+
+		expect(harness.telemetrySamples).toHaveLength(3);
+		for (const [index, sample] of harness.telemetrySamples.entries()) {
+			const message = messages[index];
+			if (message === undefined) throw new Error('Expected catalog staging message.');
+			expect(sample.stringAttributes).toMatchObject({
+				'agentstudio.bridge.operation.id': 'a'.repeat(64),
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': 'file',
+			});
+			expect(sample.numericAttributes).toMatchObject({
+				'agentstudio.bridge.annotation.catalog.revision': 7,
+				'agentstudio.bridge.annotation.catalog.unit.byte_count': encoder.encode(
+					JSON.stringify(message),
+				).byteLength,
+				'agentstudio.bridge.presentation.revision.before': 0,
+			});
+		}
+		expect(harness.telemetrySamples[0]).toMatchObject({
+			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_begin' },
+			numericAttributes: {
+				'agentstudio.bridge.annotation.catalog.entry.count': 3,
+				'agentstudio.bridge.presentation.revision.after': 0,
+			},
+		});
+		expect(harness.telemetrySamples[1]).toMatchObject({
+			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_window' },
+			numericAttributes: {
+				'agentstudio.bridge.annotation.catalog.entry.count': 3,
+				'agentstudio.bridge.annotation.catalog.window.ordinal': 0,
+				'agentstudio.bridge.presentation.revision.after': 0,
+			},
+		});
+		expect(harness.telemetrySamples[2]).toMatchObject({
+			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_commit' },
+			numericAttributes: {
+				'agentstudio.bridge.annotation.catalog.entry.count': 3,
+				'agentstudio.bridge.annotation.catalog.window.count': 1,
+				'agentstudio.bridge.presentation.revision.after': 1,
+			},
 		});
 		harness.client.dispose();
 	});

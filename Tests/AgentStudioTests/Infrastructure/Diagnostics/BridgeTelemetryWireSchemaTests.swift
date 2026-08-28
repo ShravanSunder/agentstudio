@@ -6,6 +6,51 @@ import Testing
 @Suite
 struct BridgeTelemetryWireSchemaTests {
     @Test
+    func annotationCatalogCommitAcceptsOnlyAggregateMainStagingMeasurements() {
+        let operationID = String(repeating: "a", count: 64)
+        let stringAttributes = [
+            "agentstudio.bridge.operation.id": operationID,
+            "agentstudio.bridge.phase": "annotation_catalog_main_commit",
+            "agentstudio.bridge.plane": "data",
+            "agentstudio.bridge.priority": "hot",
+            "agentstudio.bridge.result": "success",
+            "agentstudio.bridge.slice": "review_projection",
+            "agentstudio.bridge.transport": "local",
+            "agentstudio.bridge.viewer": "review",
+        ]
+        let numericAttributes = [
+            "agentstudio.bridge.annotation.catalog.entry.count": 2001.0,
+            "agentstudio.bridge.annotation.catalog.revision": 9.0,
+            "agentstudio.bridge.annotation.catalog.unit.byte_count": 131_000.0,
+            "agentstudio.bridge.annotation.catalog.window.count": 3.0,
+            "agentstudio.bridge.presentation.revision.after": 8.0,
+            "agentstudio.bridge.presentation.revision.before": 7.0,
+            "agentstudio.bridge.stage.attempt": 0.0,
+        ]
+
+        let accepted = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.annotation_lifecycle",
+            durationMilliseconds: nil,
+            stringAttributes: stringAttributes,
+            numericAttributes: numericAttributes,
+            booleanAttributes: [:]
+        )
+        let rejectedIdentity = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.annotation_lifecycle",
+            durationMilliseconds: nil,
+            stringAttributes: stringAttributes.merging([
+                "agentstudio.bridge.annotation.catalog.session_id":
+                    "00000000-0000-7000-8000-000000000001"
+            ]) { _, newValue in newValue },
+            numericAttributes: numericAttributes,
+            booleanAttributes: [:]
+        )
+
+        #expect(accepted == nil)
+        #expect(rejectedIdentity == .unsafeAttribute)
+    }
+
+    @Test
     func primitiveWireFieldsReturnNoDropReasonForValidEvent() {
         let dropReason = BridgeTelemetryWireSchema.dropReason(
             eventName: "performance.bridge.web.first_render",
