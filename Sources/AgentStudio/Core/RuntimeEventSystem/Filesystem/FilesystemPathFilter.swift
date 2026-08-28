@@ -10,6 +10,7 @@ package enum FilesystemPathDisposition: Sendable, Equatable {
 /// Lightweight, cached filtering policy for filesystem projection payloads.
 ///
 /// Current policy:
+/// - ignore `FETCH_HEAD` bookkeeping because it does not alter working-tree status inputs
 /// - suppress `.git` internals from projection-facing changed-path payloads
 /// - apply root-level `.gitignore` rules for projection payload suppression
 package struct FilesystemPathFilter: Sendable {
@@ -55,6 +56,9 @@ package struct FilesystemPathFilter: Sendable {
     }
 
     package func classify(relativePath: String) -> FilesystemPathDisposition {
+        if Self.isFetchHeadBookkeepingPath(relativePath: relativePath) {
+            return .ignoredByPolicy
+        }
         if Self.isOriginConfigPath(relativePath: relativePath) {
             return .projected
         }
@@ -91,6 +95,14 @@ package struct FilesystemPathFilter: Sendable {
 
     package static func isOriginConfigPath(relativePath: String) -> Bool {
         normalized(relativePath: relativePath) == ".git/config"
+    }
+
+    package static func isFetchHeadBookkeepingPath(relativePath: String) -> Bool {
+        let pathComponents = normalized(relativePath: relativePath).split(separator: "/")
+        guard pathComponents.contains(".git"), let fileName = pathComponents.last else {
+            return false
+        }
+        return fileName == "FETCH_HEAD" || fileName == "FETCH_HEAD.lock"
     }
 
     private static func normalized(relativePath: String) -> String {

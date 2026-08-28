@@ -16,6 +16,21 @@ struct FilesystemPathFilterTests {
         #expect(filter.classify(relativePath: ".git/config") == .projected)
     }
 
+    @Test("FETCH_HEAD bookkeeping is ignored without suppressing status-relevant Git state")
+    func ignoresFetchHeadButPreservesStatusRelevantGitState() {
+        let filter = FilesystemPathFilter.empty
+
+        #expect(filter.classify(relativePath: ".git/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".git/FETCH_HEAD.lock") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".git/modules/vendor/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: "nested/.git/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".git/HEAD") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/packed-refs") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/refs/remotes/origin/main") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/config") == .projected)
+    }
+
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")
     func supportsNegationAnchoringDirectoryAndSingleWildcard() throws {
         let rootPath = try makeRootWithGitIgnore(

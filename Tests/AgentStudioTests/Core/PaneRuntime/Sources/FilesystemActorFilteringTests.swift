@@ -207,7 +207,10 @@ struct FilesystemActorFilteringTests {
         }
         defer { collectionTask.cancel() }
 
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        await actor.enqueueRawPaths(
+            worktreeId: worktreeId,
+            paths: ["cache.tmp", ".git/FETCH_HEAD"]
+        )
         for _ in 0..<300 {
             await Task.yield()
         }
