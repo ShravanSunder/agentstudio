@@ -9,6 +9,23 @@ import Testing
 
 @Suite("DarwinCompositeFSEventContinuity")
 struct DarwinCompositeFSEventContinuityTests {
+    @Test("unchanged shared ancestor ambiguity resolves without full Git fallback")
+    func unchangedAncestorAmbiguityResolvesWithoutFallback() async throws {
+        let fixture = try CompositeContinuityFixture()
+        let authority = try #require(await fixture.prepareAuthority())
+
+        fixture.streamFactory.send(path: fixture.ancestorEventPath, eventId: 280)
+
+        let renewedAuthority = await waitForRenewedAuthority(
+            client: fixture.client,
+            authority: authority
+        )
+        let performance = fixture.client.snapshotAndResetIngressPerformance()
+
+        #expect(renewedAuthority?.resolvedAncestorAmbiguityEpoch == 1)
+        #expect(performance.sharedFullRefreshEmissionCount == 0)
+    }
+
     @Test("stable shared fingerprint baseline renews with its resolved ambiguity epoch")
     func stableSharedFingerprintBaselineRenews() async throws {
         let fixture = try CompositeContinuityFixture()
@@ -129,6 +146,19 @@ struct DarwinCompositeFSEventContinuityTests {
 
         #expect(await prepareTask.value == nil)
     }
+}
+
+private func waitForRenewedAuthority(
+    client: DarwinFSEventStreamClient,
+    authority: GitCleanContinuityAuthority
+) async -> GitCleanContinuityAuthority? {
+    for _ in 0..<1000 {
+        if case .authoritative(let renewedAuthority) = await client.renew(authority) {
+            return renewedAuthority
+        }
+        await Task.yield()
+    }
+    return nil
 }
 
 enum CompositeFlushWindow: Int, CaseIterable, Sendable {

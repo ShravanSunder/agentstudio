@@ -59,6 +59,30 @@ struct DarwinSharedExactItemAuthorityBaselines {
         return baseline
     }
 
+    func baseline(worktreeId: UUID) -> DarwinSharedExactItemAuthorityBaseline? {
+        baselineByWorktreeId[worktreeId]
+    }
+
+    mutating func replaceAuthority(
+        worktreeId: UUID,
+        expectedAuthority: GitCleanContinuityAuthority,
+        renewedAuthority: GitCleanContinuityAuthority
+    ) -> Bool {
+        guard let baseline = baselineByWorktreeId[worktreeId],
+            baseline.authority == expectedAuthority
+        else {
+            return false
+        }
+        baselineByWorktreeId[worktreeId] = DarwinSharedExactItemAuthorityBaseline(
+            authority: renewedAuthority,
+            bindingGeneration: baseline.bindingGeneration,
+            exactItemsByParent: baseline.exactItemsByParent,
+            streamGenerationByParent: baseline.streamGenerationByParent,
+            fingerprintsByCanonicalPath: baseline.fingerprintsByCanonicalPath
+        )
+        return true
+    }
+
     mutating func remove(worktreeId: UUID) {
         baselineByWorktreeId.removeValue(forKey: worktreeId)
     }

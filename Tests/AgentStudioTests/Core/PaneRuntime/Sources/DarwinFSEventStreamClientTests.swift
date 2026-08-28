@@ -309,7 +309,16 @@ struct DarwinFSEventStreamClientTests {
         #expect(ledger.renew(authority) == .authoritative(authority))
 
         #expect(ledger.recordAncestorAmbiguity(registrationId: registrationId) == 2)
-        #expect(ledger.renew(authority) == .requiresExact(.eventStreamUncertain))
+        let resolved = ledger.resolveAncestorAmbiguity(
+            expectedAuthority: authority,
+            expectedObservedEpoch: 2
+        )
+        guard case .authoritative(let renewedAuthority) = resolved else {
+            Issue.record("matching ancestor ambiguity did not renew authority")
+            return
+        }
+        #expect(renewedAuthority.resolvedAncestorAmbiguityEpoch == 2)
+        #expect(ledger.renew(authority) == .authoritative(renewedAuthority))
     }
 
     @Test("filesystem ingress does not retain more fine batches than its configured capacity")

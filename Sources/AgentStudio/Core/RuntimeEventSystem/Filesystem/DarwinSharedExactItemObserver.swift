@@ -102,6 +102,8 @@ package struct DarwinSharedExactItemObservationSnapshot: Sendable {
     package let bindingCount: Int
     package let generationByParent: [DarwinSharedExactItemParentKey: UInt64]
     package let referenceCountByParent: [DarwinSharedExactItemParentKey: Int]
+    package let activeRecheckCount: Int
+    package let unresolvedRegistrationCount: Int
 }
 
 package struct DarwinSharedExactItemBindingLease: Sendable {
@@ -148,18 +150,20 @@ package enum DarwinSharedExactItemBindingRetention: Sendable {
 }
 
 package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
-    private struct BindingValidation: Sendable {
+    struct BindingValidation: Sendable {
         let generation: UInt64
         let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
         let isCurrent: @Sendable () -> Bool
     }
 
-    private struct ObserverState {
+    struct ObserverState {
         let generation: UInt64
         let streamLifetime: any DarwinSharedExactItemStreamLifetime
         var exactPathsByWorktreeId: [UUID: Set<String>]
         var worktreeIdsByExactPath: [String: Set<UUID>]
         var latestEventId: FSEventStreamEventId?
+        var activeAncestorRecheckGeneration: UInt64?
+        var unresolvedAncestorEntriesByWorktreeId: [UUID: DarwinSharedExactItemAncestorUnresolvedEntry]
     }
 
     private struct StartedObserver {
@@ -177,22 +181,28 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             | kFSEventStreamEventFlagUnmount
     )
 
-    private let lifecycleCondition = NSCondition()
+    let lifecycleCondition = NSCondition()
     private let streamFactory: DarwinSharedExactItemStreamFactory
-    private let recordRawEvents: @Sendable (UUID, [DarwinFSEventClassifiedRawEvent]) -> Void
-    private let recordAncestorAmbiguity: @Sendable (UUID) -> Void
-    private let markUncertain: @Sendable (UUID) -> Void
-    private let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
-    private let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
+    let recordRawEvents: @Sendable (UUID, [DarwinFSEventClassifiedRawEvent]) -> Void
+    private let recordAncestorAmbiguity: @Sendable (UUID) -> UInt64?
+    let authorityIsCurrentForAncestorRecheck: @Sendable (GitCleanContinuityAuthority) -> Bool
+    let currentObservedAncestorAmbiguityEpoch: @Sendable (GitCleanContinuityAuthority) -> UInt64?
+    let resolveAncestorAmbiguity:
+        @Sendable (GitCleanContinuityAuthority, UInt64) -> GitCleanContinuityAuthorityValidation
+    let markUncertain: @Sendable (UUID) -> Void
+    let yieldFullGitRefresh: @Sendable (UUID, DarwinFSEventIngressSource) -> Void
+    let performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
+    let fingerprintReader: DarwinSharedExactItemFingerprintReader
     private var nextStreamGeneration: UInt64 = 0
-    private var observerByParent: [DarwinSharedExactItemParentKey: ObserverState] = [:]
-    private var exactItemsByParentByWorktreeId: [UUID: [DarwinSharedExactItemParentKey: Set<String>]] = [:]
-    private var bindingValidationByWorktreeId: [UUID: BindingValidation] = [:]
+    var nextAncestorRecheckGeneration: UInt64 = 0
+    var observerByParent: [DarwinSharedExactItemParentKey: ObserverState] = [:]
+    var exactItemsByParentByWorktreeId: [UUID: [DarwinSharedExactItemParentKey: Set<String>]] = [:]
+    var bindingValidationByWorktreeId: [UUID: BindingValidation] = [:]
     private var sharedDependentWorktreeIds: Set<UUID> = []
-    private var fullRefreshDeliveryOutstandingWorktreeIds: Set<UUID> = []
-    private var authorityBaselines = DarwinSharedExactItemAuthorityBaselines()
+    var fullRefreshDeliveryOutstandingWorktreeIds: Set<UUID> = []
+    var authorityBaselines = DarwinSharedExactItemAuthorityBaselines()
     private var startingParentKeys: Set<DarwinSharedExactItemParentKey> = []
-    private var hasShutdown = false
+    var hasShutdown = false
 
     package init(
         streamFactory: @escaping DarwinSharedExactItemStreamFactory,
@@ -201,17 +211,33 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 UUID,
                 [DarwinFSEventClassifiedRawEvent]
             ) -> Void,
-        recordAncestorAmbiguity: @escaping @Sendable (UUID) -> Void = { _ in },
+        recordAncestorAmbiguity: @escaping @Sendable (UUID) -> UInt64? = { _ in nil },
+        authorityIsCurrentForAncestorRecheck:
+            @escaping @Sendable (GitCleanContinuityAuthority) -> Bool = { _ in false },
+        currentObservedAncestorAmbiguityEpoch:
+            @escaping @Sendable (GitCleanContinuityAuthority) -> UInt64? = { _ in nil },
+        resolveAncestorAmbiguity:
+            @escaping @Sendable (
+                GitCleanContinuityAuthority,
+                UInt64
+            ) -> GitCleanContinuityAuthorityValidation = { _, _ in
+                .requiresExact(.eventStreamUncertain)
+            },
         markUncertain: @escaping @Sendable (UUID) -> Void,
         yieldFullGitRefresh: @escaping @Sendable (UUID, DarwinFSEventIngressSource) -> Void,
-        performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
+        performanceAccumulator: DarwinFSEventIngressPerformanceAccumulator,
+        fingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
     ) {
         self.streamFactory = streamFactory
         self.recordRawEvents = recordRawEvents
         self.recordAncestorAmbiguity = recordAncestorAmbiguity
+        self.authorityIsCurrentForAncestorRecheck = authorityIsCurrentForAncestorRecheck
+        self.currentObservedAncestorAmbiguityEpoch = currentObservedAncestorAmbiguityEpoch
+        self.resolveAncestorAmbiguity = resolveAncestorAmbiguity
         self.markUncertain = markUncertain
         self.yieldFullGitRefresh = yieldFullGitRefresh
         self.performanceAccumulator = performanceAccumulator
+        self.fingerprintReader = fingerprintReader
     }
 
     package func bind(
@@ -223,6 +249,22 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     ) -> Bool {
         guard bindingIsCurrent() else { return false }
         let desiredExactItemsByParent = exactItemsByParent.filter { !$0.value.isEmpty }
+        return bindCurrent(
+            worktreeId: worktreeId,
+            bindingGeneration: bindingGeneration,
+            observationIdentity: observationIdentity,
+            desiredExactItemsByParent: desiredExactItemsByParent,
+            bindingIsCurrent: bindingIsCurrent
+        )
+    }
+
+    private func bindCurrent(
+        worktreeId: UUID,
+        bindingGeneration: UInt64,
+        observationIdentity: AgentStudioGit.GitStatusObservationIdentity?,
+        desiredExactItemsByParent: [DarwinSharedExactItemParentKey: Set<String>],
+        bindingIsCurrent: @escaping @Sendable () -> Bool
+    ) -> Bool {
         var startedObservers: [DarwinSharedExactItemParentKey: StartedObserver] = [:]
 
         while true {
@@ -310,7 +352,9 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                         streamLifetime: startedObserver.streamLifetime,
                         exactPathsByWorktreeId: [:],
                         worktreeIdsByExactPath: [:],
-                        latestEventId: nil
+                        latestEventId: nil,
+                        activeAncestorRecheckGeneration: nil,
+                        unresolvedAncestorEntriesByWorktreeId: [:]
                     )
                 } else {
                     redundantStreamLifetimes.append(startedObserver.streamLifetime)
@@ -434,6 +478,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     ) -> Bool {
         lifecycleCondition.withLock {
             bindingIsCurrentLocked(worktreeId: worktreeId, lease: lease)
+                && !worktreeHasUnresolvedAncestorInterestLocked(worktreeId)
                 && authorityBaselines.baseline(
                     worktreeId: worktreeId,
                     authority: authority,
@@ -462,6 +507,12 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 generationByParent: observerByParent.mapValues(\.generation),
                 referenceCountByParent: observerByParent.mapValues {
                     $0.exactPathsByWorktreeId.count
+                },
+                activeRecheckCount: observerByParent.values.count {
+                    $0.activeAncestorRecheckGeneration != nil
+                },
+                unresolvedRegistrationCount: observerByParent.values.reduce(0) {
+                    $0 + $1.unresolvedAncestorEntriesByWorktreeId.count
                 }
             )
         }
@@ -486,7 +537,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
 
         var mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]] = [:]
         var uncertainWorktreeIds: Set<UUID> = []
-        var ancestorAmbiguityWorktreeIds: Set<UUID> = []
+        var ancestorItemsByWorktreeId: [UUID: Set<String>] = [:]
         var exactSubscriberWorktreeIds: Set<UUID> = []
         var shouldRetireObserver = false
         let dependentWorktreeIds = Set(
@@ -515,21 +566,18 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             exactSubscriberWorktreeIds.formUnion(exactSubscribers)
 
             let hasUncertainFlags = rawEvent.flags & Self.uncertaintyFlags != 0
-            let hasAmbiguousAncestorCoverage = observer.worktreeIdsByExactPath.keys.contains { exactPath in
-                exactPath.hasPrefix(normalizedPath + "/")
-            }
-            if hasAmbiguousAncestorCoverage {
+            if hasUncertainFlags || cursorRegressed {
+                uncertainWorktreeIds.formUnion(dependentWorktreeIds)
+            } else {
                 for (exactPath, worktreeIds) in observer.worktreeIdsByExactPath
                 where exactPath.hasPrefix(normalizedPath + "/") {
-                    ancestorAmbiguityWorktreeIds.formUnion(
-                        worktreeIds.filter {
-                            bindingValidationByWorktreeId[$0]?.isCurrent() == true
-                        }
-                    )
+                    for worktreeId in worktreeIds
+                    where
+                        bindingValidationByWorktreeId[worktreeId]?.isCurrent() == true
+                    {
+                        ancestorItemsByWorktreeId[worktreeId, default: []].insert(exactPath)
+                    }
                 }
-            }
-            if hasUncertainFlags || cursorRegressed || hasAmbiguousAncestorCoverage {
-                uncertainWorktreeIds.formUnion(dependentWorktreeIds)
             }
             if rawEvent.flags
                 & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
@@ -538,44 +586,62 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             }
         }
 
-        let fullGitRefreshCandidates = exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
-        let fullGitRefreshWorktreeIds = fullGitRefreshCandidates.subtracting(
-            fullRefreshDeliveryOutstandingWorktreeIds
+        for worktreeId in exactSubscriberWorktreeIds.union(uncertainWorktreeIds) {
+            ancestorItemsByWorktreeId.removeValue(forKey: worktreeId)
+            observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
+        }
+        mergeAncestorAmbiguityLocked(
+            ancestorItemsByWorktreeId,
+            into: &observer
         )
-        fullRefreshDeliveryOutstandingWorktreeIds.formUnion(fullGitRefreshWorktreeIds)
 
+        let fullGitRefreshWorktreeIds = admitFullRefreshLocked(
+            exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
+        )
         var retiredStreamLifetime: (any DarwinSharedExactItemStreamLifetime)?
+        var ancestorRecheckToStart: DarwinSharedExactItemAncestorRecheckSnapshot?
         if shouldRetireObserver {
             retiredStreamLifetime = retireObserverLocked(parentKey: parentKey)
         } else {
             observerByParent[parentKey] = observer
+            ancestorRecheckToStart = beginNextAncestorRecheckLocked(parentKey: parentKey)
         }
         lifecycleCondition.unlock()
-
-        performanceAccumulator.recordSharedFanout(
-            exactSubscriberCount: exactSubscriberWorktreeIds.count,
-            uncertaintySubscriberCount: uncertainWorktreeIds.count,
-            fullRefreshEmissionCount: fullGitRefreshWorktreeIds.count
-        )
-
-        for worktreeId in mutationEventsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
-            guard let events = mutationEventsByWorktreeId[worktreeId] else { continue }
-            recordRawEvents(worktreeId, events)
-        }
-        for worktreeId in ancestorAmbiguityWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            recordAncestorAmbiguity(worktreeId)
-        }
-        for worktreeId in uncertainWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            markUncertain(worktreeId)
-        }
-        for worktreeId in fullGitRefreshWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            yieldFullGitRefresh(
-                worktreeId,
-                uncertainWorktreeIds.contains(worktreeId) ? .sharedUncertainty : .sharedExact
+        emitReceiveEffects(
+            DarwinSharedExactItemReceiveEffects(
+                mutationEventsByWorktreeId: mutationEventsByWorktreeId,
+                uncertainWorktreeIds: uncertainWorktreeIds,
+                exactSubscriberWorktreeIds: exactSubscriberWorktreeIds,
+                fullGitRefreshWorktreeIds: fullGitRefreshWorktreeIds,
+                retiredStreamLifetime: retiredStreamLifetime,
+                ancestorRecheckToStart: ancestorRecheckToStart
             )
-        }
-        if let retiredStreamLifetime {
-            retiredStreamLifetime.retire()
+        )
+    }
+
+    private func mergeAncestorAmbiguityLocked(
+        _ ancestorItemsByWorktreeId: [UUID: Set<String>],
+        into observer: inout ObserverState
+    ) {
+        for worktreeId in ancestorItemsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
+            guard let canonicalItemPaths = ancestorItemsByWorktreeId[worktreeId],
+                let observedEpoch = recordAncestorAmbiguity(worktreeId)
+            else {
+                continue
+            }
+            if var unresolvedEntry = observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] {
+                unresolvedEntry.merge(
+                    observedEpoch: observedEpoch,
+                    canonicalItemPaths: canonicalItemPaths
+                )
+                observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] = unresolvedEntry
+            } else {
+                observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] =
+                    DarwinSharedExactItemAncestorUnresolvedEntry(
+                        observedEpoch: observedEpoch,
+                        canonicalItemPaths: canonicalItemPaths
+                    )
+            }
         }
     }
 
@@ -614,6 +680,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
 
         for parentKey in allParentKeys {
             guard var observer = observerByParent[parentKey] else { continue }
+            observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
             let previousExactPaths = previousExactItemsByParent[parentKey] ?? []
             let desiredExactPaths = desiredExactItemsByParent[parentKey] ?? []
 
@@ -699,8 +766,18 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         }
     }
 
-    private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
+    package static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
+    }
+
+    package static func sortParentKeys(
+        _ lhs: DarwinSharedExactItemParentKey,
+        _ rhs: DarwinSharedExactItemParentKey
+    ) -> Bool {
+        if lhs.volumeSystemNumber != rhs.volumeSystemNumber {
+            return lhs.volumeSystemNumber < rhs.volumeSystemNumber
+        }
+        return lhs.parentPath < rhs.parentPath
     }
 }
 

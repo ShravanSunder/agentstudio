@@ -244,7 +244,21 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 )
             },
             recordAncestorAmbiguity: { worktreeId in
-                _ = continuityLedger.recordAncestorAmbiguity(registrationId: worktreeId)
+                continuityLedger.recordAncestorAmbiguity(registrationId: worktreeId)
+            },
+            authorityIsCurrentForAncestorRecheck: { authority in
+                continuityLedger.authorityIsCurrentForAncestorRecheck(authority)
+            },
+            currentObservedAncestorAmbiguityEpoch: { authority in
+                continuityLedger.currentObservedAncestorAmbiguityEpoch(
+                    expectedAuthority: authority
+                )
+            },
+            resolveAncestorAmbiguity: { authority, observedEpoch in
+                continuityLedger.resolveAncestorAmbiguity(
+                    expectedAuthority: authority,
+                    expectedObservedEpoch: observedEpoch
+                )
             },
             markUncertain: { worktreeId in
                 continuityLedger.markUncertain(registrationId: worktreeId)
@@ -259,7 +273,8 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     source: source
                 )
             },
-            performanceAccumulator: ingressPerformanceAccumulator
+            performanceAccumulator: ingressPerformanceAccumulator,
+            fingerprintReader: sharedExactItemFingerprintReader
         )
     }
 

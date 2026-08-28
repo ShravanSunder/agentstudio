@@ -214,7 +214,7 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
                 registration.observedAncestorAmbiguityEpoch
                     == registration.resolvedAncestorAmbiguityEpoch,
                 authority.resolvedAncestorAmbiguityEpoch
-                    == registration.resolvedAncestorAmbiguityEpoch
+                    <= registration.resolvedAncestorAmbiguityEpoch
             else {
                 return .requiresExact(.eventStreamUncertain)
             }
@@ -226,6 +226,54 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
                     mutationEpoch: authority.mutationEpoch,
                     uncertaintyEpoch: authority.uncertaintyEpoch,
                     resolvedAncestorAmbiguityEpoch: registration.resolvedAncestorAmbiguityEpoch
+                )
+            )
+        }
+    }
+
+    package func authorityIsCurrentForAncestorRecheck(
+        _ authority: GitCleanContinuityAuthority
+    ) -> Bool {
+        lock.withLock {
+            authorityFailureReasonIgnoringAncestorAmbiguity(authority) == nil
+        }
+    }
+
+    package func currentObservedAncestorAmbiguityEpoch(
+        expectedAuthority authority: GitCleanContinuityAuthority
+    ) -> UInt64? {
+        lock.withLock {
+            guard authorityFailureReasonIgnoringAncestorAmbiguity(authority) == nil else {
+                return nil
+            }
+            return registrationById[authority.registrationId]?.observedAncestorAmbiguityEpoch
+        }
+    }
+
+    package func resolveAncestorAmbiguity(
+        expectedAuthority authority: GitCleanContinuityAuthority,
+        expectedObservedEpoch: UInt64
+    ) -> GitCleanContinuityAuthorityValidation {
+        lock.withLock {
+            if let failureReason = authorityFailureReasonIgnoringAncestorAmbiguity(authority) {
+                return .requiresExact(failureReason)
+            }
+            guard var registration = registrationById[authority.registrationId] else {
+                return .requiresExact(.registrationMissing)
+            }
+            guard registration.observedAncestorAmbiguityEpoch == expectedObservedEpoch else {
+                return .requiresExact(.eventStreamUncertain)
+            }
+            registration.resolvedAncestorAmbiguityEpoch = expectedObservedEpoch
+            registrationById[authority.registrationId] = registration
+            return .authoritative(
+                GitCleanContinuityAuthority(
+                    registrationId: authority.registrationId,
+                    observationIdentity: authority.observationIdentity,
+                    registrationGeneration: authority.registrationGeneration,
+                    mutationEpoch: authority.mutationEpoch,
+                    uncertaintyEpoch: authority.uncertaintyEpoch,
+                    resolvedAncestorAmbiguityEpoch: expectedObservedEpoch
                 )
             )
         }
@@ -330,6 +378,31 @@ package final class GitCleanContinuityLedger: @unchecked Sendable {
             registration.observedAncestorAmbiguityEpoch
                 == barrier.observedAncestorAmbiguityEpoch
         else {
+            return .eventStreamUncertain
+        }
+        return nil
+    }
+
+    private func authorityFailureReasonIgnoringAncestorAmbiguity(
+        _ authority: GitCleanContinuityAuthority
+    ) -> GitCleanContinuityFailureReason? {
+        guard !hasShutdown else { return .shutdown }
+        guard let registration = registrationById[authority.registrationId] else {
+            return .registrationMissing
+        }
+        guard registration.identity == authority.observationIdentity else {
+            return .identityChanged
+        }
+        guard registration.generation == authority.registrationGeneration else {
+            return .registrationReplaced
+        }
+        guard registration.mutationEpoch == authority.mutationEpoch else {
+            return .mutationObserved
+        }
+        guard registration.uncertaintyEpoch == authority.uncertaintyEpoch else {
+            return .eventStreamUncertain
+        }
+        guard authority.resolvedAncestorAmbiguityEpoch <= registration.resolvedAncestorAmbiguityEpoch else {
             return .eventStreamUncertain
         }
         return nil
