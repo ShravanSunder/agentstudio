@@ -205,40 +205,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         await startGitProjector()
-        // Probes are independent libgit2 discovery reads; run them concurrently so one slow or
-        // stalled worktree cannot serialize the whole fleet behind it.
-        let validatedContextsByWorktreeId = await withTaskGroup(
-            of: (UUID, WorktreeFilesystemContext?).self,
-            returning: [UUID: WorktreeFilesystemContext].self
-        ) { group in
-            for (worktreeId, context) in assertion.contextsByWorktreeId {
-                group.addTask { [registrationValidator] in
-                    switch await registrationValidator.registrationDecision(context: context) {
-                    case .validated:
-                        return (worktreeId, context)
-                    case .authoritativeNegative:
-                        return (worktreeId, nil)
-                    }
-                }
-            }
-            var validatedContexts: [UUID: WorktreeFilesystemContext] = [:]
-            for await (worktreeId, context) in group {
-                if let context {
-                    validatedContexts[worktreeId] = context
-                }
-            }
-            return validatedContexts
-        }
-        let validatedAssertion = FilesystemTopologyAssertion(
-            generation: assertion.generation,
-            contextsByWorktreeId: validatedContextsByWorktreeId,
-            repositoryStableKeysByWorktreeId: assertion.repositoryStableKeysByWorktreeId.filter {
-                validatedContextsByWorktreeId[$0.key] != nil
-            }
-        )
-        await filesystemActor.assertTopology(validatedAssertion)
-        await remoteReferenceRefreshActor.assertTopology(validatedContextsByWorktreeId)
-        await gitWorkingDirectoryProjector.assertTopology(validatedAssertion)
+        await filesystemActor.assertTopology(assertion)
+        await remoteReferenceRefreshActor.assertTopology(assertion.contextsByWorktreeId)
+        await gitWorkingDirectoryProjector.assertTopology(assertion)
     }
 
     func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
