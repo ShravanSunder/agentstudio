@@ -43,6 +43,12 @@ struct BridgeReviewFoundationContractTests {
             #expect(object["comparedRole"] as? String == testCase.expectedComparedRole)
             #expect(object["reviewedSubjectBranchName"] as? String == "feature/x")
             #expect(try JSONDecoder().decode(BridgeReviewComparisonOrigin.self, from: data) == testCase.origin)
+            #expect(
+                try BridgeProductStrictJSON.decode(
+                    BridgeReviewComparisonOrigin.self,
+                    from: data
+                ) == testCase.origin
+            )
         }
     }
 

@@ -319,6 +319,7 @@ enum BridgeProductStrictJSON {
             "reviewGeneration",
             "reviewComparison",
             "reviewItemId",
+            "reviewedSubjectBranchName",
             "reviewPriority",
             "reviewState",
             "reviewStates",
