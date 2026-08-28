@@ -1,0 +1,196 @@
+type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+export function initializeTopologyScrollReveal(
+  artwork: SVGSVGElement,
+  layoutArtwork: LayoutTopologyArtwork,
+): () => void {
+  const revealPaths = [...artwork.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
+  const revealNodes = [
+    ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+  ];
+  const routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
+  const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
+  const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
+  if (verticalRevealSolid === null || verticalRevealFade === null) {
+    throw new Error("Topology vertical reveal mask is incomplete");
+  }
+  const lifecycle = new AbortController();
+  const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let lastLayoutHeight = 0;
+  let lastLayoutWidth = 0;
+  let layoutNeedsUpdate = true;
+  let pendingAnimationFrame: number | undefined;
+  let currentNodes = new Set<SVGGraphicsElement>();
+
+  const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
+    const nextCurrentNodes = new Set<SVGGraphicsElement>();
+    if (enabled) {
+      const activeOwnerIds = new Set(["main"]);
+      for (const group of routeGroups) {
+        if (group.style.display === "none") {
+          continue;
+        }
+        const routeId = group.dataset["routeId"];
+        const route = group.querySelector<SVGPathElement>(
+          '[data-route][data-topology-path-role="core"]',
+        );
+        if (routeId === undefined || route === null) {
+          continue;
+        }
+        const start = Number(route.dataset["topologyPathStart"]);
+        const end = Number(route.dataset["topologyPathEnd"]);
+        const remainsOpen = group.dataset["endKind"] === "open";
+        if (
+          Number.isFinite(start) &&
+          Number.isFinite(end) &&
+          revealProgress >= start &&
+          (remainsOpen || revealProgress < end)
+        ) {
+          activeOwnerIds.add(routeId);
+        }
+      }
+      const leaderByOwnerId = new Map<
+        string,
+        { readonly node: SVGGraphicsElement; readonly progress: number }
+      >();
+      for (const node of revealNodes) {
+        const routeGroup = node.closest<SVGGElement>("[data-topology-route-group]");
+        const ownerId = node.dataset["nodeOwner"];
+        const nodeProgress = Number(node.dataset["topologyNodeProgress"]);
+        if (
+          ownerId === undefined ||
+          !activeOwnerIds.has(ownerId) ||
+          node.style.display === "none" ||
+          routeGroup?.style.display === "none" ||
+          !Number.isFinite(nodeProgress) ||
+          nodeProgress > revealProgress
+        ) {
+          continue;
+        }
+        const currentLeader = leaderByOwnerId.get(ownerId);
+        if (currentLeader === undefined || nodeProgress > currentLeader.progress) {
+          leaderByOwnerId.set(ownerId, { node, progress: nodeProgress });
+        }
+      }
+      for (const { node } of leaderByOwnerId.values()) {
+        nextCurrentNodes.add(node);
+      }
+    }
+    for (const node of currentNodes) {
+      if (!nextCurrentNodes.has(node)) {
+        node.removeAttribute("data-topology-current-node");
+      }
+    }
+    for (const node of nextCurrentNodes) {
+      if (!currentNodes.has(node)) {
+        node.setAttribute("data-topology-current-node", "");
+      }
+    }
+    currentNodes = nextCurrentNodes;
+  };
+
+  const renderReveal = (): void => {
+    pendingAnimationFrame = undefined;
+    if (layoutNeedsUpdate) {
+      if (!layoutArtwork(artwork)) {
+        return;
+      }
+      lastLayoutWidth = artwork.clientWidth;
+      lastLayoutHeight = artwork.clientHeight;
+      layoutNeedsUpdate = false;
+    }
+
+    const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+    const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
+    const revealProgress = reducedMotionQuery.matches ? 1 : scrollProgress;
+    const atStart = !reducedMotionQuery.matches && window.scrollY <= 0;
+    artwork.dataset["topologyScrollProgress"] = String(scrollProgress);
+
+    artwork.toggleAttribute("data-topology-at-start", atStart);
+    artwork.toggleAttribute(
+      "data-topology-at-end",
+      !reducedMotionQuery.matches && scrollProgress >= 0.9999,
+    );
+
+    const topologyStartY = Number(artwork.dataset["topologyStartY"]);
+    const topologyEndY = Number(artwork.dataset["topologyEndY"]);
+    if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
+      return;
+    }
+    if (atStart) {
+      verticalRevealSolid.setAttribute("height", String(artwork.clientHeight));
+      verticalRevealFade.setAttribute("y", String(topologyStartY));
+      verticalRevealFade.setAttribute("height", "0");
+      artwork.dataset["topologyRevealEdgeY"] = String(topologyStartY);
+      for (const path of revealPaths) {
+        path.style.visibility = "hidden";
+      }
+      for (const node of revealNodes) {
+        node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
+      }
+      updateCurrentNodes(revealProgress, false);
+      return;
+    }
+    const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
+    const fadeHeight =
+      revealProgress >= 1 ? 0 : Math.min(288, Math.max(96, (topologyEndY - topologyStartY) * 0.06));
+    verticalRevealSolid.setAttribute(
+      "height",
+      String(revealProgress >= 1 ? artwork.clientHeight : revealY),
+    );
+    verticalRevealFade.setAttribute("y", String(revealY));
+    verticalRevealFade.setAttribute("height", String(fadeHeight));
+    artwork.dataset["topologyRevealEdgeY"] = String(revealY);
+    for (const path of revealPaths) {
+      path.style.visibility = "visible";
+    }
+    for (const node of revealNodes) {
+      node.style.opacity = "1";
+    }
+    updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
+  };
+
+  const scheduleRender = (): void => {
+    if (pendingAnimationFrame !== undefined) {
+      return;
+    }
+    pendingAnimationFrame = window.requestAnimationFrame(renderReveal);
+  };
+
+  const forceLayoutUpdate = (): void => {
+    layoutNeedsUpdate = true;
+    scheduleRender();
+  };
+
+  const scheduleMeaningfulLayoutUpdate = (entries: readonly ResizeObserverEntry[]): void => {
+    const entry = entries[0];
+    if (entry === undefined) {
+      return;
+    }
+    const widthChanged = Math.abs(entry.contentRect.width - lastLayoutWidth) > 0.5;
+    const heightChanged = Math.abs(entry.contentRect.height - lastLayoutHeight) > 8;
+    if (widthChanged || heightChanged) {
+      forceLayoutUpdate();
+    }
+  };
+
+  const artworkResizeObserver = new ResizeObserver(scheduleMeaningfulLayoutUpdate);
+  artworkResizeObserver.observe(artwork);
+  window.addEventListener("scroll", scheduleRender, { passive: true, signal: lifecycle.signal });
+  window.addEventListener("resize", forceLayoutUpdate, { signal: lifecycle.signal });
+  reducedMotionQuery.addEventListener("change", scheduleRender, { signal: lifecycle.signal });
+  scheduleRender();
+
+  return (): void => {
+    lifecycle.abort();
+    artworkResizeObserver.disconnect();
+    updateCurrentNodes(0, false);
+    if (pendingAnimationFrame !== undefined) {
+      window.cancelAnimationFrame(pendingAnimationFrame);
+    }
+  };
+}

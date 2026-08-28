@@ -1,0 +1,271 @@
+---
+import { authoredTopologyRoutes } from "./full-page-topology-contract";
+import { maximumRenderedTopologyRowCount } from "./full-page-topology-model";
+
+interface Props {
+  readonly mainlineAnchorSelector?: string;
+  readonly portalFrameSelector?: string;
+  readonly portalSurfaceSelector?: string;
+}
+
+const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
+---
+
+<svg
+  class="block h-full w-full opacity-80"
+  data-full-page-topology
+  data-mainline-anchor-selector={mainlineAnchorSelector}
+  data-portal-frame-selector={portalFrameSelector}
+  data-portal-surface-selector={portalSurfaceSelector}
+  viewBox="0 0 1000 5200"
+  preserveAspectRatio="none"
+  aria-hidden="true"
+>
+  <defs>
+    <linearGradient id="topology-vertical-reveal-gradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="white" stop-opacity="1" />
+      <stop offset="1" stop-color="white" stop-opacity="0" />
+    </linearGradient>
+    <mask id="topology-vertical-reveal-mask" maskUnits="userSpaceOnUse">
+      <rect data-topology-reveal-solid x="0" y="0" width="1000" height="0" fill="white" />
+      <rect
+        data-topology-reveal-fade
+        x="0"
+        y="0"
+        width="1000"
+        height="0"
+        fill="url(#topology-vertical-reveal-gradient)"
+      />
+    </mask>
+  </defs>
+  <g data-topology-reveal-layer mask="url(#topology-vertical-reveal-mask)">
+  <g class="topology-primary">
+    <path
+      class="topology-mainline topology-line topology-reveal-path"
+      data-mainline
+      data-topology-path-role="core"
+      data-topology-path-start="0"
+      data-topology-path-end="1"
+    />
+  </g>
+
+  {
+    authoredTopologyRoutes.map((worktree) => (
+      <g
+        class={`topology-route accent-${worktree.accent}`}
+        data-topology-route-group
+        data-route-id={worktree.id}
+        data-route-accent={worktree.accent}
+        data-route-placement={worktree.placement}
+        data-topology-variants={worktree.variants.join(" ")}
+        data-fork-glass-index={worktree.forkGlassIndex}
+        data-fork-page-row={worktree.forkPageRow}
+        data-end-glass-index={worktree.endGlassIndex}
+        data-end-page-offset={worktree.endPageOffset}
+        data-end-page-row={worktree.endPageRow}
+        data-end-kind={worktree.endKind}
+      >
+        <path
+          class="topology-clearance topology-reveal-path"
+          data-route
+          data-topology-path-role="clearance"
+          data-topology-path-start="0"
+          data-topology-path-end="1"
+        />
+        <path
+          class="topology-line topology-reveal-path"
+          data-route
+          data-topology-path-role="core"
+          data-topology-path-start="0"
+          data-topology-path-end="1"
+        />
+        <circle
+          class="accent-main"
+          data-node
+          data-node-position="fork"
+          data-topology-route-node
+          data-topology-node-progress="1"
+          r="4"
+        />
+        <circle
+          class={worktree.endKind === "merge" ? "accent-main" : undefined}
+          data-node
+          data-node-position="end"
+          data-topology-route-node
+          data-topology-node-progress="1"
+          r="4"
+        />
+      </g>
+    ))
+  }
+
+  <g
+    class="node-terminal-group accent-main"
+    data-node
+    data-mainline-node="start"
+    data-topology-node-progress="0"
+  >
+    <circle class="node-terminal-halo" r="7" />
+    <circle class="node-terminal" r="7" />
+  </g>
+  <g
+    class="node-terminal-group accent-main"
+    data-node
+    data-mainline-node="end"
+    data-topology-node-progress="1"
+  >
+    <circle class="node-terminal-halo" r="7" />
+    <circle class="node-terminal" r="7" />
+  </g>
+  <g data-mainline-fill-nodes>
+    {
+      Array.from({ length: maximumRenderedTopologyRowCount }, (_, index) => (
+        <circle
+          class="accent-main"
+          data-node
+          data-mainline-fill-index={index}
+          data-topology-node-progress="1"
+          r="4"
+        />
+      ))
+    }
+  </g>
+  </g>
+</svg>
+
+<script>
+  import { layoutFullPageTopology } from "./full-page-topology-layout";
+  import { initializeTopologyScrollReveal } from "./topology-scroll-reveal";
+
+  const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+  if (artwork !== null) {
+    initializeTopologyScrollReveal(artwork, layoutFullPageTopology);
+  }
+</script>
+
+<style>
+  path,
+  circle {
+    vector-effect: non-scaling-stroke;
+  }
+
+  .topology-mainline,
+  .topology-route > path {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .topology-mainline {
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+    stroke-width: 2px;
+  }
+
+  .topology-route > path {
+    stroke-width: 1.5px;
+  }
+
+  .topology-route > .topology-clearance {
+    stroke: var(--color-canvas);
+    stroke-width: 5px;
+  }
+
+  .topology-reveal-path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  [data-topology-node-progress] {
+    opacity: 0;
+  }
+
+  [data-topology-at-start] [data-topology-node-progress="0"] .node-terminal-halo,
+  [data-topology-at-end] [data-topology-node-progress="1"] .node-terminal-halo {
+    animation: topology-terminal-node-halo 3.2s ease-out infinite;
+  }
+
+  [data-topology-current-node]:not(.node-terminal-group) {
+    animation: topology-current-node-pulse 2.6s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .accent-peach {
+    color: var(--color-parallel);
+  }
+
+  .accent-cyan {
+    color: var(--color-glyph);
+  }
+
+  .accent-main {
+    color: var(--color-primary);
+  }
+
+  .accent-peach > path {
+    stroke: color-mix(in srgb, var(--color-parallel) 34%, transparent);
+  }
+
+  .accent-cyan > path {
+    stroke: color-mix(in srgb, var(--color-glyph) 36%, transparent);
+  }
+
+  [data-node] {
+    fill: currentColor;
+    stroke: currentColor;
+  }
+
+  .node-terminal {
+    fill: var(--color-primary);
+    stroke: var(--color-primary);
+  }
+
+  .node-terminal-halo {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2px;
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  @keyframes topology-terminal-node-halo {
+    0% {
+      opacity: 0.72;
+      transform: scale(1);
+    }
+
+    70%,
+    100% {
+      opacity: 0;
+      transform: scale(2.35);
+    }
+  }
+
+  @keyframes topology-current-node-pulse {
+    0%,
+    100% {
+      filter: brightness(1) drop-shadow(0 0 0 currentColor);
+      stroke-width: 1px;
+      transform: scale(1);
+    }
+
+    45%,
+    62% {
+      filter: brightness(1.02) drop-shadow(0 0 2px currentColor);
+      stroke-width: 1px;
+      transform: scale(1.1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-topology-current-node] {
+      animation: none;
+    }
+
+    .node-terminal-halo {
+      animation: none;
+      opacity: 0;
+    }
+  }
+</style>

@@ -1,0 +1,15 @@
+---
+import FullPageTopologyArtwork from "@/topology-lab/FullPageTopologyArtwork.astro";
+---
+
+<div
+  class="pointer-events-none absolute inset-0 z-0 hidden overflow-hidden topology:block"
+  data-site-topology-backdrop
+  aria-hidden="true"
+>
+  <FullPageTopologyArtwork
+    mainlineAnchorSelector="[data-topology-mainline-anchor]"
+    portalFrameSelector=".site-frame"
+    portalSurfaceSelector="[data-scroll-material-surface]"
+  />
+</div>
