@@ -16,6 +16,17 @@ struct FilesystemPathFilterTests {
         #expect(filter.classify(relativePath: ".git/config") == .projected)
     }
 
+    @Test("classifies git object database writes separately from repository state")
+    func classifiesGitObjectDatabaseWritesSeparately() {
+        let filter = FilesystemPathFilter.empty
+
+        #expect(filter.classify(relativePath: ".git/objects") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: ".git/objects/aa/bb") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: "nested/.git/objects/pack/data.pack") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: ".git/refs/heads/main") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
+    }
+
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")
     func supportsNegationAnchoringDirectoryAndSingleWildcard() throws {
         let rootPath = try makeRootWithGitIgnore(

@@ -28,8 +28,34 @@ struct FilesystemActorFilteringTests {
         #expect(changeset.worktreeId == worktreeId)
         #expect(changeset.paths == ["Sources/App.swift"])
         #expect(changeset.containsGitInternalChanges)
-        #expect(changeset.suppressedGitInternalPathCount == 2)
+        #expect(changeset.suppressedGitInternalPathCount == 1)
         #expect(changeset.suppressedIgnoredPathCount == 0)
+
+        await actor.shutdown()
+    }
+
+    @Test("git object database writes do not become downstream invalidations")
+    func gitObjectDatabaseWritesDoNotBecomeDownstreamInvalidations() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/git-objects-\(UUID().uuidString)")
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+
+        await actor.enqueueRawPaths(
+            worktreeId: worktreeId,
+            paths: [".git/objects/aa/bb", "Sources/App.swift"]
+        )
+
+        let envelope = try #require(await iterator.next())
+        let changeset = try #require(filesChangedChangeset(from: envelope))
+        #expect(changeset.paths == ["Sources/App.swift"])
+        #expect(!changeset.containsGitInternalChanges)
+        #expect(changeset.suppressedGitInternalPathCount == 0)
 
         await actor.shutdown()
     }

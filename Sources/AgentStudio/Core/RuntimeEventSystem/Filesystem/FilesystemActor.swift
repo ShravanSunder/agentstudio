@@ -363,6 +363,8 @@ package actor FilesystemActor {
             switch root.pathFilter.classify(relativePath: ownedPath.relativePath) {
             case .projected:
                 pendingChanges.projectedPaths.insert(ownedPath.relativePath)
+            case .gitObjectDatabase:
+                continue
             case .gitInternal:
                 pendingChanges.containsGitInternalChanges = true
                 pendingChanges.suppressedGitInternalPathCount += 1

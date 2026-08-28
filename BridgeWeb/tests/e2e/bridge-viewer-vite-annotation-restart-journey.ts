@@ -159,7 +159,22 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
-			expect(await requireReviewPackageIdentity(page)).toEqual(initialPackage);
+			const heldPackage = await requireReviewPackageIdentity(page);
+			if (
+				heldPackage.packageId !== initialPackage.packageId ||
+				heldPackage.reviewGeneration !== initialPackage.reviewGeneration
+			) {
+				throw new Error(
+					`Promoted Review candidate was presented as held after display advanced: ${JSON.stringify(
+						{
+							heldPackage,
+							initialPackage,
+							refreshLifecycle: await reviewRefreshLifecycleDiagnostic(page),
+							server: server.diagnostics(),
+						},
+					)}`,
+				);
+			}
 			await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
 			const rootCreateCommitted = waitForCommittedAnnotationCommand(page, 'root.create', 'review');
 			const savedDuringHoldBody = 'A new root comment saved while the promoted refresh was held.';
@@ -420,6 +435,54 @@ async function requireReviewPackageIdentity(page: Page): Promise<{
 		throw new Error('Review shell did not expose its installed package identity.');
 	}
 	return { packageId, reviewGeneration };
+}
+
+async function reviewRefreshLifecycleDiagnostic(
+	page: Page,
+): Promise<readonly Readonly<Record<string, unknown>>[]> {
+	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
+	const response = await fetch(statusUrl, { cache: 'no-store' });
+	if (!response.ok) return [{ status: response.status }];
+	const body: unknown = await response.json();
+	if (typeof body !== 'object' || body === null) return [{ status: 'invalid-body' }];
+	const recentSamples = Reflect.get(body, 'recentSamples');
+	if (!Array.isArray(recentSamples)) return [{ status: 'missing-samples' }];
+	return recentSamples
+		.filter((sample): boolean => {
+			if (typeof sample !== 'object' || sample === null) return false;
+			return Reflect.get(sample, 'name') === 'performance.bridge.web.review_refresh_lifecycle';
+		})
+		.slice(-32)
+		.map((sample): Readonly<Record<string, unknown>> => {
+			const numericAttributes = Reflect.get(sample, 'numericAttributes');
+			const stringAttributes = Reflect.get(sample, 'stringAttributes');
+			return {
+				generation:
+					typeof numericAttributes === 'object' && numericAttributes !== null
+						? Reflect.get(numericAttributes, 'agentstudio.bridge.review.generation')
+						: null,
+				phase:
+					typeof stringAttributes === 'object' && stringAttributes !== null
+						? Reflect.get(stringAttributes, 'agentstudio.bridge.phase')
+						: null,
+				presentationClass:
+					typeof stringAttributes === 'object' && stringAttributes !== null
+						? Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.presentation_class')
+						: null,
+				promotionReason:
+					typeof stringAttributes === 'object' && stringAttributes !== null
+						? Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.promotion_reason')
+						: null,
+				result:
+					typeof stringAttributes === 'object' && stringAttributes !== null
+						? Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.result')
+						: null,
+				resultReason:
+					typeof stringAttributes === 'object' && stringAttributes !== null
+						? Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.result_reason')
+						: null,
+			};
+		});
 }
 
 async function waitForHeldCommitPromotionTelemetry(props: {
