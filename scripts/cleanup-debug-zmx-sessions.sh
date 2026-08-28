@@ -54,19 +54,32 @@ if [[ $# -eq 4 && "$1" == "--inventory-exact-root" && "$3" == "--zmx-bin" ]]; th
   canonical_home="$(canonical_path "$HOME")"
   canonical_root="$(canonical_path "$exact_root")"
   canonical_zmx_bin="$(canonical_path "$exact_zmx_bin")"
-  if ! /usr/bin/python3 - "$canonical_home" "$canonical_root" <<'PY'
+  canonical_proof_root=""
+  if [[ -n "${AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT:-}" ]]; then
+    canonical_proof_root="$(canonical_path "$AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT")"
+  fi
+  if ! /usr/bin/python3 - "$canonical_home" "$canonical_root" "$canonical_proof_root" <<'PY'
 import os
 import re
 import sys
 
-home, root = sys.argv[1:]
+home, root, proof_root = sys.argv[1:]
 expected_base = os.path.join(home, ".agentstudio-db")
 relative = os.path.relpath(root, expected_base)
-if not re.fullmatch(r"[0-9a-z]{4}/z", relative):
+if re.fullmatch(r"[0-9a-z]{4}/z", relative):
+    sys.exit(0)
+if not proof_root:
+    sys.exit(1)
+temporary_proof_base = os.path.realpath("/tmp/agentstudio-sidebar-performance")
+if os.path.commonpath([proof_root, temporary_proof_base]) != temporary_proof_base:
+    sys.exit(1)
+if os.path.basename(proof_root) != "disposable-debug-data":
+    sys.exit(1)
+if root != os.path.join(proof_root, "z"):
     sys.exit(1)
 PY
   then
-    echo "exact inventory root is outside isolated debug root: $exact_root" >&2
+    echo "exact inventory root is outside isolated debug or disposable proof root: $exact_root" >&2
     exit 2
   fi
   debug_data_root="${canonical_root%/z}"

@@ -21,6 +21,32 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(result.stdout.contains("Agent\\ Studio\\ Debug\\ \(code)"))
         #expect(result.stdout.contains("/.agentstudio-db/\(code)"))
     }
+
+    @Test("debug launcher projects an explicit disposable data and zmx identity")
+    func debugLauncherProjectsExplicitDisposableDataIdentity() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let disposableDataRoot = fixture.url("disposable-proof-data")
+        let disposableZmxRoot = disposableDataRoot.appending(path: "z")
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--print-identity"],
+            environment: ["AGENTSTUDIO_DEBUG_DATA_DIR": disposableDataRoot.path]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(
+            result.stdout.contains(
+                "AGENTSTUDIO_OBSERVABILITY_DATA_DIR=\(shellEscapedStateValue(disposableDataRoot.path))"
+            )
+        )
+        #expect(
+            result.stdout.contains(
+                "AGENTSTUDIO_OBSERVABILITY_ZMX_DIR=\(shellEscapedStateValue(disposableZmxRoot.path))"
+            )
+        )
+    }
+
     @Test("debug launcher allocates a shared swift build slot by default")
     func debugLauncherAllocatesSharedSwiftBuildSlotByDefault() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)

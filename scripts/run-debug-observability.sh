@@ -257,7 +257,8 @@ retire_debug_candidate() {
   local state_path="${1:?missing state path}"
   local expected_code="${2:?missing debug code}"
   local expected_debug_root="${3:?missing debug root}"
-  local operation="${4:-retire}"
+  local expected_data_root="${4:?missing data root}"
+  local operation="${5:-retire}"
   [ -f "$state_path" ] || {
     echo "candidate retirement state is missing: $state_path" >&2
     return 1
@@ -280,7 +281,7 @@ retire_debug_candidate() {
   local expected_bundle_identifier="com.agentstudio.app.debug.d$expected_code"
   local expected_app="$expected_debug_root/apps/AgentStudio Debug $expected_code.app"
   local expected_executable="$expected_app/Contents/MacOS/AgentStudio"
-  local expected_zmx_dir="$expected_debug_root/z"
+  local expected_zmx_dir="$expected_data_root/z"
   case "$state_pid" in
     ''|*[!0-9]*)
       echo "candidate identity mismatch: invalid PID" >&2
@@ -292,7 +293,7 @@ retire_debug_candidate() {
     [ -z "$state_start_identity" ] || [ "$state_bundle_identifier" != "$expected_bundle_identifier" ] ||
     [ "$(realpath_value "$state_app")" != "$(realpath_value "$expected_app")" ] ||
     [ "$(realpath_value "$state_executable")" != "$(realpath_value "$expected_executable")" ] ||
-    [ "$(realpath_value "$state_data_dir")" != "$(realpath_value "$expected_debug_root")" ] ||
+    [ "$(realpath_value "$state_data_dir")" != "$(realpath_value "$expected_data_root")" ] ||
     [ "$(realpath_value "$state_zmx_dir")" != "$(realpath_value "$expected_zmx_dir")" ]
   then
     echo "candidate identity mismatch: state tuple" >&2
@@ -867,7 +868,8 @@ cd "$PROJECT_ROOT"
 
 debug_code="$(worktree_debug_code)"
 debug_root="$HOME/.agentstudio-db/$debug_code"
-debug_zmx_dir="$debug_root/z"
+launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
+debug_zmx_dir="$launch_data_root/z"
 state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
 
 if [ "$retire_candidate" = true ] && [ "$validate_candidate" = true ]; then
@@ -875,18 +877,18 @@ if [ "$retire_candidate" = true ] && [ "$validate_candidate" = true ]; then
   exit 2
 fi
 if [ "$retire_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" retire
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" retire
   exit $?
 fi
 if [ "$validate_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" validate
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" validate
   exit $?
 fi
 
 if [ "$print_identity" = true ]; then
   write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
   write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
   write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
   write_state_value AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER "com.agentstudio.app.debug.d$debug_code"
   write_state_value AGENTSTUDIO_OBSERVABILITY_APP_NAME "Agent Studio Debug $debug_code"
@@ -1110,7 +1112,6 @@ fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
-launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"
 fi

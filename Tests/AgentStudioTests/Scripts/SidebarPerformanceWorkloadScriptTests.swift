@@ -110,7 +110,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("validate_strict_host_envelope"))
         #expect(
             source.contains(
-                "if ! \"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --preflight-idle; then"
+                "\"$DEBUG_RUNNER\" --preflight-idle; then"
             )
         )
         #expect(source.contains("refusing to reset a non-idle debug root"))
@@ -594,8 +594,13 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_TRACE_FLUSH=immediate"))
         #expect(source.contains("KEY_MUTATION_TRACE_TAGS=\"performance,app.startup\""))
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=\"$KEY_MUTATION_TRACE_TAGS\""))
-        #expect(source.contains("run-debug-observability.sh\" --print-identity"))
-        #expect(source.contains("refusing to reset debug data root outside $HOME/.agentstudio-db/"))
+        #expect(source.contains("AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER"))
+        #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=\"$STRICT_DISPOSABLE_DATA_ROOT\""))
+        #expect(source.contains("STRICT_DISPOSABLE_DATA_ROOT=\"$ARTIFACT/disposable-debug-data\""))
+        #expect(source.contains("refusing reset for non-proof data root"))
+        #expect(source.contains("refusing reset outside proof artifact"))
+        #expect(source.contains("refusing to reset persistent debug data root"))
+        #expect(source.contains("AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT"))
         #expect(source.contains("--inventory-exact-root \"$zmx_dir\" --zmx-bin \"$zmx_bin\""))
         #expect(source.contains("ZMX_DIR=\"$zmx_dir\" \"$zmx_bin\" kill \"$session_name\""))
         #expect(source.contains("refusing to remove debug data root while exact-root zmx sessions remain"))

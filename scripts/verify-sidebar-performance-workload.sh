@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_STACK_HELPER="$HOME/dev/ai-tools/observability/observability-stack"
 STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
+DEBUG_RUNNER="${AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER:-$PROJECT_ROOT/scripts/run-debug-observability.sh}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
@@ -150,20 +151,29 @@ PY
 }
 
 reset_disposable_debug_root() {
-  local expected_bundle_identifier inventory zmx_bin zmx_dir session_name
-  RESET_IDENTITY="$("$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity)"
+  local artifact_root expected_bundle_identifier inventory reset_root zmx_bin zmx_dir session_name
+  RESET_IDENTITY="$(AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
+    "$DEBUG_RUNNER" --print-identity)"
   RESET_DEBUG_CODE="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
   RESET_DATA_DIR="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
   RESET_BUNDLE_IDENTIFIER="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER)"
 
-  case "$RESET_DATA_DIR" in
-    "$HOME/.agentstudio-db/"*) ;;
-    *) echo "refusing to reset debug data root outside $HOME/.agentstudio-db/: $RESET_DATA_DIR" >&2; return 1 ;;
-  esac
-  [ "$RESET_DATA_DIR" != "$HOME/.agentstudio-db" ] || {
-    echo "refusing to reset debug data root container" >&2
+  artifact_root="$(canonical_path "$ARTIFACT")"
+  reset_root="$(canonical_path "$RESET_DATA_DIR")"
+  [ "$reset_root" = "$(canonical_path "$STRICT_DISPOSABLE_DATA_ROOT")" ] || {
+    echo "refusing reset for non-proof data root: $RESET_DATA_DIR" >&2
     return 1
   }
+  case "$reset_root" in
+    "$artifact_root/"*) ;;
+    *) echo "refusing reset outside proof artifact: $RESET_DATA_DIR" >&2; return 1 ;;
+  esac
+  case "$reset_root" in
+    "$(canonical_path "$HOME/.agentstudio-db")"/*)
+      echo "refusing to reset persistent debug data root: $RESET_DATA_DIR" >&2
+      return 1
+      ;;
+  esac
   case "$RESET_DEBUG_CODE" in
     ''|*[!a-z0-9]*) echo "refusing reset with unsafe debug code: $RESET_DEBUG_CODE" >&2; return 1 ;;
   esac
@@ -173,20 +183,23 @@ reset_disposable_debug_root() {
     return 1
   fi
 
-  if ! "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle; then
+  if ! AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
+    "$DEBUG_RUNNER" --preflight-idle; then
     echo "refusing to reset a non-idle debug root" >&2
     return 1
   fi
   zmx_dir="$RESET_DATA_DIR/z"
   zmx_bin="$RESET_DATA_DIR/bin/zmx"
   if [ -d "$zmx_dir" ]; then
-    inventory="$("$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
+    inventory="$(AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT="$STRICT_DISPOSABLE_DATA_ROOT" \
+      "$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
       --inventory-exact-root "$zmx_dir" --zmx-bin "$zmx_bin")" || return 1
     while IFS= read -r session_name; do
       [ -n "$session_name" ] || continue
       ZMX_DIR="$zmx_dir" "$zmx_bin" kill "$session_name"
     done < <(printf '%s\n' "$inventory" | sed -n 's/^session=\([^ ]*\).*/\1/p')
-    inventory="$("$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
+    inventory="$(AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT="$STRICT_DISPOSABLE_DATA_ROOT" \
+      "$PROJECT_ROOT/scripts/cleanup-debug-zmx-sessions.sh" \
       --inventory-exact-root "$zmx_dir" --zmx-bin "$zmx_bin")" || return 1
     printf '%s\n' "$inventory" | grep -q 'session_count=0$' || {
       echo "refusing to remove debug data root while exact-root zmx sessions remain" >&2
@@ -241,13 +254,15 @@ inject_strict_git_continuity_uncertainty() {
 retire_current_candidate() {
   [ -s "$STATE_FILE" ] || return 0
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --retire-candidate
+    AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
+    "$DEBUG_RUNNER" --retire-candidate
   APP_PID=""
 }
 
 validate_current_candidate() {
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --validate-candidate >/dev/null
+    AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
+    "$DEBUG_RUNNER" --validate-candidate >/dev/null
 }
 
 cleanup() {
@@ -1813,13 +1828,14 @@ begin_strict_population() {
   : >"$population_artifact/zmx-lifecycle.jsonl"
   strict_zmx_inventory_json ready >>"$population_artifact/zmx-lifecycle.jsonl"
   env AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
     AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1 \
     AGENTSTUDIO_TRACE_TAGS="$trace_tags" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION="$selector" \
     AGENTSTUDIO_STARTUP_WATCH_FOLDER="$STRICT_CONTROL_ROOT" \
     AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+    "$DEBUG_RUNNER" --detach
   for _ in $(seq 1 60); do [ -s "$STATE_FILE" ] && break; /bin/sleep 1; done
   [ -s "$STATE_FILE" ] || return 1
   APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
@@ -2767,12 +2783,13 @@ run_repo_explorer_key_mutation_phase() {
 
   TRACE_MARKER="$TRACE_MARKER_K"
   env \
+    AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
     AGENTSTUDIO_TRACE_FLUSH=immediate \
     AGENTSTUDIO_TRACE_TAGS="$KEY_MUTATION_TRACE_TAGS" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-key-mutation-proof \
     AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+    "$DEBUG_RUNNER" --detach
 
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
     wait_for_debug_observability
@@ -2789,12 +2806,13 @@ run_repo_explorer_interaction_phase() {
   reset_disposable_debug_root
   TRACE_MARKER="$TRACE_MARKER_I"
   env \
+    AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
     AGENTSTUDIO_TRACE_FLUSH=immediate \
     AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-interaction-proof \
     AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+    "$DEBUG_RUNNER" --detach
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" wait_for_debug_observability
   APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
   TRACE_MARKER="$TRACE_MARKER_W"
@@ -2954,6 +2972,7 @@ TRACE_MARKER_K="$(opaque_trace_marker "${TRACE_NAME}-k" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER_I="$(opaque_trace_marker "${TRACE_NAME}-i" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER="$TRACE_MARKER_W"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
+STRICT_DISPOSABLE_DATA_ROOT="$ARTIFACT/disposable-debug-data"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
@@ -3159,6 +3178,7 @@ fi
 reset_disposable_debug_root
 
 env \
+  AGENTSTUDIO_DEBUG_DATA_DIR="$STRICT_DISPOSABLE_DATA_ROOT" \
   AGENTSTUDIO_TRACE_FLUSH=immediate \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
@@ -3166,7 +3186,7 @@ env \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof \
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
-  "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+  "$DEBUG_RUNNER" --detach
 
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
