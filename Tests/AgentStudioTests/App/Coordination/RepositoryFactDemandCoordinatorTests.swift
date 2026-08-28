@@ -239,7 +239,9 @@ struct RepositoryFactDemandCoordinatorTests {
                         contentEqual: 1,
                         delivered: 1,
                         cleared: 0,
-                        rejectedAfterShutdown: 0
+                        rejectedAfterShutdown: 0,
+                        warmRepositoryCurrent: 1,
+                        warmWorktreeCurrent: 4
                     )
                 ]
         )
