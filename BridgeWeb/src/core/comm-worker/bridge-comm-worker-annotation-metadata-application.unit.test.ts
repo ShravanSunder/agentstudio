@@ -2,18 +2,39 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeCommWorkerAnnotationMetadataApplication } from './bridge-comm-worker-annotation-metadata-application.js';
 import type { BridgeProductMetadataDataFrame } from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductReviewAnnotationMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import type {
 	BridgeProductWorktreeAnnotationCatalogEntry,
 	BridgeProductWorktreeAnnotationEvent,
 } from './bridge-product-worktree-annotation-contracts.js';
 
 const sessionId = '01890abc-def0-7abc-8def-0123456789ab';
+const threadId = '01890abc-def0-7abc-8def-0123456789ac';
 const firstWorktreeId = 'worktree-1';
 const replacementWorktreeId = 'worktree-2';
 
 type AnnotationMetadataFrame = BridgeProductMetadataDataFrame<BridgeProductWorktreeAnnotationEvent>;
 
 describe('Bridge communication worker annotation metadata application authority', () => {
+	test('commits a registered session-scoped thread into the normalized worker catalog', () => {
+		const application = new BridgeCommWorkerAnnotationMetadataApplication();
+		const catalogActions = commitCatalog(application, {
+			catalogRevision: 1,
+			subscriptionId: 'annotation-subscription-session-scope',
+			worktreeId: firstWorktreeId,
+			workerDerivationEpoch: 1,
+		});
+		const committedCatalogAction = catalogActions.at(-1);
+
+		expect(committedCatalogAction?.kind).toBe('catalog');
+		if (committedCatalogAction?.kind !== 'catalog') return;
+		expect(committedCatalogAction.catalog.threadsById.get(threadId)).toMatchObject({
+			scope: 'session',
+			sessionId,
+			threadId,
+		});
+	});
+
 	test('ignores noncatalog events before a lifecycle catalog establishes authority', () => {
 		const application = new BridgeCommWorkerAnnotationMetadataApplication();
 
@@ -143,18 +164,23 @@ function commitCatalog(
 		},
 	];
 
-	return events.map((event, index) =>
-		application.accept(
-			frame({
+	return events.map((event, index) => {
+		const registeredData =
+			bridgeProductReviewAnnotationMetadataApplicationProtocol.dataSchema.parse({
 				event,
+				subscriptionKind: 'review.annotations',
+			});
+		return application.accept(
+			frame({
+				event: registeredData.event,
 				streamSequence: index + 1,
 				subscriptionId: props.subscriptionId,
 				subscriptionSequence: index + 1,
 				workerDerivationEpoch: props.workerDerivationEpoch,
 			}),
 			[],
-		),
-	);
+		);
+	});
 }
 
 function frame(props: {
@@ -178,5 +204,8 @@ function frame(props: {
 }
 
 function validCatalogEntries(): readonly BridgeProductWorktreeAnnotationCatalogEntry[] {
-	return [{ kind: 'session', semanticRevision: 3, sessionId }];
+	return [
+		{ kind: 'session', semanticRevision: 3, sessionId },
+		{ createdOrdinal: 0, kind: 'thread', scope: 'session', sessionId, threadId },
+	];
 }

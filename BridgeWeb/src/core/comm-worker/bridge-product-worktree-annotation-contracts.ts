@@ -405,7 +405,7 @@ export const bridgeProductWorktreeAnnotationCatalogEntrySchema = z.discriminated
 		.object({
 			createdOrdinal: bridgeProductNonnegativeSequenceSchema,
 			kind: z.literal('thread'),
-			scope: z.enum(['located', 'whole_file']),
+			scope: z.enum(['located', 'whole_file', 'session']),
 			sessionId: bridgeProductReviewPublicationIdSchema,
 			threadId: bridgeProductReviewPublicationIdSchema,
 		})

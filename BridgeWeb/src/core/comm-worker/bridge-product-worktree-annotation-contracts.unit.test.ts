@@ -48,7 +48,7 @@ describe('Bridge product worktree annotation contracts', () => {
 						{
 							createdOrdinal: 0,
 							kind: 'thread',
-							scope: 'whole_file',
+							scope: 'session',
 							sessionId: lowercaseSessionId,
 							threadId: '01890abc-def0-7abc-8def-012345678902',
 						},
