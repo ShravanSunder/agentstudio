@@ -8,6 +8,19 @@ import Testing
 @MainActor
 @Suite("AppCommand sidebar commands")
 struct AppCommandSidebarCommandsTests {
+    @Test("repository fact update is a targeted inline-only command with no IPC exposure")
+    func repositoryFactUpdateIsTargetedInlineOnlyAndNotExposedToIPC() {
+        let definition = AppCommandDispatcher.shared.definition(for: .updateRepositoryFacts)
+
+        #expect(definition.label == "Update Repository")
+        #expect(definition.icon == .system(.arrowClockwise))
+        #expect(definition.helpText == "Update local Git, remote references, and pull request facts")
+        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
+        #expect(definition.targeting == .targeted([.repo]))
+        #expect(definition.ipcExposure.executionModes.isEmpty)
+        #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
+    }
+
     @Test("Repo sidebar grouping commands remain presented and executable")
     func repoSidebarGroupingCommandsRemainPresentedAndExecutable() {
         let expected: [(AppCommand, String, CommandIcon)] = [

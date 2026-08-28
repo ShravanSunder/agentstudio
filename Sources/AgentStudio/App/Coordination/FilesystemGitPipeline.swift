@@ -2,6 +2,67 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
+protocol RepositoryFactUpdateStarting: AnyObject, Sendable {
+    func startRepositoryFactUpdate(repoId: UUID, attemptId: UUID) async -> RepositoryFactUpdateAdmissionBatch
+}
+
+struct RepositoryFactUpdateSourceAdmissionHandler: Sendable {
+    let source: RepositoryFactSource
+    let admit: @Sendable (UUID, UUID) async -> RepositoryFactSourceUpdateAdmission
+
+    init(
+        source: RepositoryFactSource,
+        admit: @escaping @Sendable (UUID, UUID) async -> RepositoryFactSourceUpdateAdmission
+    ) {
+        self.source = source
+        self.admit = admit
+    }
+}
+
+struct RepositoryFactUpdateAdmissionBatch: Sendable {
+    let acceptedLeasesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateLease]
+    let terminalResultsBySource: [RepositoryFactSource: RepositoryFactUpdateSourceResult]
+
+    init(admissionsBySource: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission]) {
+        var acceptedLeasesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateLease] = [:]
+        var terminalResultsBySource: [RepositoryFactSource: RepositoryFactUpdateSourceResult] = [:]
+        for (source, admission) in admissionsBySource {
+            switch admission {
+            case .accepted(let lease):
+                acceptedLeasesBySource[source] = lease
+            case .notApplicable:
+                terminalResultsBySource[source] = .notApplicable
+            case .obsolete:
+                terminalResultsBySource[source] = .obsolete
+            }
+        }
+        self.acceptedLeasesBySource = acceptedLeasesBySource
+        self.terminalResultsBySource = terminalResultsBySource
+    }
+
+    var acceptedSources: Set<RepositoryFactSource> {
+        Set(acceptedLeasesBySource.keys)
+    }
+
+    func settlement() async -> [RepositoryFactSource: RepositoryFactSourceUpdateOutcome] {
+        await withTaskGroup(
+            of: (RepositoryFactSource, RepositoryFactSourceUpdateOutcome).self,
+            returning: [RepositoryFactSource: RepositoryFactSourceUpdateOutcome].self
+        ) { group in
+            for (source, lease) in acceptedLeasesBySource {
+                group.addTask {
+                    (source, await lease.settlement())
+                }
+            }
+            var outcomesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateOutcome] = [:]
+            for await (source, outcome) in group {
+                outcomesBySource[source] = outcome
+            }
+            return outcomesBySource
+        }
+    }
+}
+
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
     func filesystemLogicalDebtCount() async -> Int
@@ -15,7 +76,7 @@ protocol WatchedFolderCommandHandling: AnyObject, Sendable {
 /// `FilesystemActor` owns filesystem ingestion/routing and emits filesystem facts.
 /// `GitWorkingDirectoryProjector` subscribes to those facts and emits git snapshot projections.
 final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFolderCommandHandling,
-    Sendable
+    RepositoryFactUpdateStarting, Sendable
 {
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
@@ -193,6 +254,62 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func waitForRepositoryFactDemandAdmission() async {
         await gitWorkingDirectoryProjector.waitForVisibilityAdmission()
+    }
+
+    func startRepositoryFactUpdate(
+        repoId: UUID,
+        attemptId: UUID
+    ) async -> RepositoryFactUpdateAdmissionBatch {
+        await Self.admitRepositoryFactUpdateSources(
+            repoId: repoId,
+            attemptId: attemptId,
+            handlers: [
+                RepositoryFactUpdateSourceAdmissionHandler(source: .localGit) { [self] repoId, attemptId in
+                    await gitWorkingDirectoryProjector.startExplicitRepositoryUpdate(
+                        repoId: repoId,
+                        attemptId: attemptId
+                    )
+                },
+                RepositoryFactUpdateSourceAdmissionHandler(source: .remoteReferences) { [self] repoId, attemptId in
+                    await remoteReferenceRefreshActor.startExplicitRepositoryUpdate(
+                        repoId: repoId,
+                        attemptId: attemptId
+                    )
+                },
+                RepositoryFactUpdateSourceAdmissionHandler(source: .forge) { [forgeActor] repoId, attemptId in
+                    await forgeActor.startExplicitRepositoryUpdate(
+                        repoId: repoId,
+                        attemptId: attemptId
+                    )
+                },
+            ]
+        )
+    }
+
+    static func admitRepositoryFactUpdateSources(
+        repoId: UUID,
+        attemptId: UUID,
+        handlers: [RepositoryFactUpdateSourceAdmissionHandler]
+    ) async -> RepositoryFactUpdateAdmissionBatch {
+        let admissionsBySource = await withTaskGroup(
+            of: (RepositoryFactSource, RepositoryFactSourceUpdateAdmission).self,
+            returning: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission].self
+        ) { group in
+            for handler in handlers {
+                group.addTask {
+                    (
+                        handler.source,
+                        await handler.admit(repoId, attemptId)
+                    )
+                }
+            }
+            var admissionsBySource: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission] = [:]
+            for await (source, admission) in group {
+                admissionsBySource[source] = admission
+            }
+            return admissionsBySource
+        }
+        return RepositoryFactUpdateAdmissionBatch(admissionsBySource: admissionsBySource)
     }
 
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {

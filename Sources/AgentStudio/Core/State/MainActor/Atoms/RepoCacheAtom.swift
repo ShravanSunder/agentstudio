@@ -493,6 +493,11 @@ package final class RepoCacheAtom {
     }
 
     package let enrichmentCacheAtom: RepoEnrichmentCacheAtom
+    private let repositoryFactUpdateProgressFamily = AtomFamily<UUID, RepositoryFactUpdateProgress>(
+        telemetryLabel: "repository_fact_update_progress",
+        isContentEqual: ==
+    )
+    private let repositoryFactUpdateRevisionAtom = AtomRevision()
 
     package init(
         enrichmentCacheAtom: RepoEnrichmentCacheAtom = .init()
@@ -540,6 +545,10 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.repoEnrichmentRevision
     }
 
+    package var repositoryFactUpdateRevision: Int {
+        repositoryFactUpdateRevisionAtom.value
+    }
+
     package func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
         enrichmentCacheAtom.repoEnrichment(for: repoId)
     }
@@ -558,6 +567,10 @@ package final class RepoCacheAtom {
 
     package func isPullRequestLoading(forRepository repoId: UUID) -> Bool {
         enrichmentCacheAtom.isPullRequestLoading(forRepository: repoId)
+    }
+
+    package func repositoryFactUpdateProgress(for repoId: UUID) -> RepositoryFactUpdateProgress? {
+        repositoryFactUpdateProgressFamily.value(for: repoId)
     }
 
     package func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
@@ -598,6 +611,18 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.setPullRequestLoading(isLoading, forRepository: repoId)
     }
 
+    package func setRepositoryFactUpdateProgress(_ progress: RepositoryFactUpdateProgress) {
+        let mutation = AtomMutationContext(aggregateRevision: repositoryFactUpdateRevisionAtom)
+        repositoryFactUpdateProgressFamily.setValue(progress, for: progress.repoId, mutation: mutation)
+        mutation.commit()
+    }
+
+    package func removeRepositoryFactUpdateProgress(for repoId: UUID) {
+        let mutation = AtomMutationContext(aggregateRevision: repositoryFactUpdateRevisionAtom)
+        repositoryFactUpdateProgressFamily.removeValue(for: repoId, mutation: mutation)
+        mutation.commit()
+    }
+
     package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
         enrichmentCacheAtom.removePullRequestFacts(keys: keys)
     }
@@ -620,6 +645,7 @@ package final class RepoCacheAtom {
 
     package func removeRepo(_ repoId: UUID) {
         enrichmentCacheAtom.removeRepo(repoId)
+        removeRepositoryFactUpdateProgress(for: repoId)
     }
 
     func markRebuilt(sourceRevision: UInt64, at timestamp: Date = Date()) {
@@ -639,5 +665,8 @@ package final class RepoCacheAtom {
 
     func clear() {
         enrichmentCacheAtom.clear()
+        let mutation = AtomMutationContext(aggregateRevision: repositoryFactUpdateRevisionAtom)
+        repositoryFactUpdateProgressFamily.removeAll(mutation: mutation)
+        mutation.commit()
     }
 }

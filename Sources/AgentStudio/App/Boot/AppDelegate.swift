@@ -72,6 +72,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var bridgeGitReadScheduler: BridgeGitReadScheduler!
     var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
+    var repositoryFactUpdateSource: (any RepositoryFactUpdateStarting)?
+    var repositoryFactUpdateTasksByRepoId: [UUID: Task<Void, Never>] = [:]
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
@@ -269,9 +271,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
             await self?.flushApplicationStateBeforeTermination(store: store)
+            self?.cancelAllRepositoryFactUpdates()
             if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
                 await workspaceSurfaceCoordinator.shutdown()
             }
+            await self?.waitForRepositoryFactUpdatesToSettle()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

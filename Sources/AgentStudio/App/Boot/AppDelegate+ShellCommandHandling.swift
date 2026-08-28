@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import Foundation
 
@@ -47,7 +48,8 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .removeRepo, .addRepoFavorite, .removeRepoFavorite, .openWorktree, .openWorktreeInPane,
+            .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -72,6 +74,8 @@ extension AppDelegate: ShellCommandHandling {
         case .watchFolder:
             Task { await handleWatchFolderRequested() }
             return true
+        case .updateRepositoryFacts:
+            return false
         case .toggleSidebar:
             mainWindowController?.toggleSidebar()
             return true
@@ -162,9 +166,9 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        _ = target
-        _ = targetType
         switch command {
+        case .updateRepositoryFacts:
+            return executeRepositoryFactUpdate(repoId: target, targetType: targetType)
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
             .selectTab, .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -209,6 +213,109 @@ extension AppDelegate: ShellCommandHandling {
             .filterSidebar, .openNewTerminalInTab:
             return false
         }
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        guard command == .updateRepositoryFacts else {
+            return canExecute(command)
+        }
+        guard
+            targetType == .repo,
+            repositoryFactUpdateSource != nil,
+            store?.repositoryTopologyAtom.repo(target) != nil
+        else {
+            return false
+        }
+        return repositoryFactUpdateTasksByRepoId[target] == nil
+    }
+
+    func cancelRepositoryFactUpdate(repoId: UUID) {
+        repositoryFactUpdateTasksByRepoId[repoId]?.cancel()
+        repoCache?.removeRepositoryFactUpdateProgress(for: repoId)
+    }
+
+    func cancelAllRepositoryFactUpdates() {
+        for task in repositoryFactUpdateTasksByRepoId.values {
+            task.cancel()
+        }
+        guard let repoCache else { return }
+        for repoId in repositoryFactUpdateTasksByRepoId.keys {
+            repoCache.removeRepositoryFactUpdateProgress(for: repoId)
+        }
+    }
+
+    func waitForRepositoryFactUpdatesToSettle() async {
+        let tasks = Array(repositoryFactUpdateTasksByRepoId.values)
+        for task in tasks {
+            await task.value
+        }
+    }
+
+    private func executeRepositoryFactUpdate(repoId: UUID, targetType: SearchItemType) -> Bool {
+        guard
+            canExecute(.updateRepositoryFacts, target: repoId, targetType: targetType),
+            let repository = store.repositoryTopologyAtom.repo(repoId),
+            let repositoryFactUpdateSource
+        else {
+            return false
+        }
+
+        do {
+            try atomStore.core.applicationEntityRecency.recordOpened(
+                repositoryStableKey: repository.stableKey,
+                worktreeStableKeys: repository.worktrees.map(\.stableKey),
+                at: Date()
+            )
+        } catch {
+            return false
+        }
+
+        let attemptId = UUIDv7.generate()
+        repoCache.setRepositoryFactUpdateProgress(
+            .captured(repoId: repoId, attemptId: attemptId)
+        )
+        repositoryFactUpdateTasksByRepoId[repoId] = Task { @MainActor [weak self, repositoryFactUpdateSource] in
+            let admission = await repositoryFactUpdateSource.startRepositoryFactUpdate(
+                repoId: repoId,
+                attemptId: attemptId
+            )
+            guard self?.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) == true else {
+                _ = await admission.settlement()
+                self?.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+                return
+            }
+
+            let admittedProgress = RepositoryFactUpdateProgress.admitted(
+                repoId: repoId,
+                attemptId: attemptId,
+                applicableSources: admission.acceptedSources,
+                terminalResultsBySource: admission.terminalResultsBySource
+            )
+            self?.repoCache.setRepositoryFactUpdateProgress(admittedProgress)
+            let outcomesBySource = await admission.settlement()
+            if self?.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) == true {
+                self?.repoCache.setRepositoryFactUpdateProgress(
+                    admittedProgress.settled(outcomesBySource)
+                )
+            }
+            self?.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+        }
+        return true
+    }
+
+    private func isCurrentRepositoryFactUpdate(repoId: UUID, attemptId: UUID) -> Bool {
+        repoCache.repositoryFactUpdateProgress(for: repoId)?.attemptId == attemptId
+    }
+
+    private func finishRepositoryFactUpdateTask(repoId: UUID, attemptId: UUID) {
+        guard
+            repositoryFactUpdateTasksByRepoId[repoId] != nil,
+            repoCache.repositoryFactUpdateProgress(for: repoId)?.attemptId == attemptId
+                || repoCache.repositoryFactUpdateProgress(for: repoId) == nil
+        else {
+            return
+        }
+        repositoryFactUpdateTasksByRepoId.removeValue(forKey: repoId)
     }
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {

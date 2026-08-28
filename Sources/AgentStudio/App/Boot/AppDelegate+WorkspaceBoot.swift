@@ -338,6 +338,7 @@ extension AppDelegate {
         )
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        repositoryFactUpdateSource = pipeline
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -380,6 +381,7 @@ extension AppDelegate {
             performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
+            self?.cancelRepositoryFactUpdate(repoId: repoId)
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }

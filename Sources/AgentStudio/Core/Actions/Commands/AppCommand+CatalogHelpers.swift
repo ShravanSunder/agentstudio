@@ -119,6 +119,19 @@ extension AppCommand {
         )
     }
 
+    func repositoryFactUpdateDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Update Repository",
+            icon: .system(.arrowClockwise),
+            helpText: "Update local Git, remote references, and pull request facts",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .targeted([.repo]),
+            commandBarGroupName: "Repo",
+            commandBarGroupPriority: CommandBarGroupPriority.repo
+        )
+    }
+
     func bridgeWebViewReloadDefinition() -> AppCommandSpec {
         AppCommandSpec(
             command: self,

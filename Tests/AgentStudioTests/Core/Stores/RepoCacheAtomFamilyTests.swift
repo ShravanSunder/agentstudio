@@ -66,6 +66,50 @@ private func observePullRequestUnavailability(
 @MainActor
 @Suite(.serialized)
 struct RepoCacheAtomFamilyTests {
+    @Test("repository fact update progress is keyed and equal writes are suppressed")
+    func repositoryFactUpdateProgressIsKeyedAndEqualWritesAreSuppressed() {
+        let cacheAtom = RepoCacheAtom()
+        let watchedRepoID = UUIDv7.generate()
+        let unrelatedRepoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let progress = RepositoryFactUpdateProgress.captured(
+            repoId: watchedRepoID,
+            attemptId: attemptID
+        )
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        withObservationTracking {
+            _ = cacheAtom.repositoryFactUpdateProgress(for: watchedRepoID)
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        cacheAtom.setRepositoryFactUpdateProgress(
+            .captured(repoId: unrelatedRepoID, attemptId: UUIDv7.generate())
+        )
+        #expect(!invalidationCounter.didFire)
+
+        cacheAtom.setRepositoryFactUpdateProgress(progress)
+        #expect(invalidationCounter.count == 1)
+        let acceptedRevision = cacheAtom.repositoryFactUpdateRevision
+
+        cacheAtom.setRepositoryFactUpdateProgress(progress)
+        #expect(cacheAtom.repositoryFactUpdateRevision == acceptedRevision)
+        #expect(cacheAtom.repositoryFactUpdateProgress(for: watchedRepoID) == progress)
+    }
+
+    @Test("repository removal clears runtime-only fact update progress")
+    func repositoryRemovalClearsFactUpdateProgress() {
+        let cacheAtom = RepoCacheAtom()
+        let repoID = UUIDv7.generate()
+        cacheAtom.setRepositoryFactUpdateProgress(
+            .captured(repoId: repoID, attemptId: UUIDv7.generate())
+        )
+
+        cacheAtom.removeRepo(repoID)
+
+        #expect(cacheAtom.repositoryFactUpdateProgress(for: repoID) == nil)
+    }
+
     @Test("unrelated repository projection does not invalidate keyed loading reader")
     func unrelatedRepositoryProjectionPreservesLoadingReader() {
         let cacheAtom = RepoEnrichmentCacheAtom()

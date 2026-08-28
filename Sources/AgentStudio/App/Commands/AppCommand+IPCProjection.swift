@@ -172,7 +172,7 @@ extension AppCommand {
                 .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
                 .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
                 .openPullRequest,
-                .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+                .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
                 .openWorktree, .openWorktreeInPane,
                 .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -203,7 +203,7 @@ extension AppCommand {
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .showViewer:
+            case .showViewer, .updateRepositoryFacts:
                 .notExposed
             case .openPullRequest:
                 .notExposed
@@ -290,7 +290,7 @@ extension AppCommand {
             return .required(primary: .tab, additional: [])
         case .splitRight, .splitLeft:
             return .required(primary: .tab, additional: [.pane])
-        case .removeRepo, .addRepoFavorite, .removeRepoFavorite:
+        case .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite:
             return .required(primary: .repo, additional: [])
         case .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
             .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -370,7 +370,7 @@ extension AppCommand {
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .editPaneNote,
-            .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
+            .watchFolder, .updateRepositoryFacts, .removeRepo, .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,

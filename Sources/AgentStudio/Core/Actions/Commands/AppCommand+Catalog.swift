@@ -582,6 +582,8 @@ extension AppCommand {
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
+        case .updateRepositoryFacts:
+            return repositoryFactUpdateDefinition()
         case .removeRepo:
             return AppCommandSpec(
                 command: self,

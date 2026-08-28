@@ -41,6 +41,31 @@ package final class ApplicationEntityRecencyAtom {
         )
     }
 
+    package func recordOpened(
+        repositoryStableKey: String,
+        worktreeStableKeys: [String],
+        at timestamp: Date
+    ) throws {
+        var openedRecencies = [
+            try ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: repositoryStableKey),
+                interaction: .opened,
+                lastInteractedAt: timestamp
+            )
+        ]
+        openedRecencies += try worktreeStableKeys.map { worktreeStableKey in
+            try ApplicationEntityRecency(
+                entity: .worktree(worktreeStableKey: worktreeStableKey),
+                interaction: .opened,
+                lastInteractedAt: timestamp
+            )
+        }
+        recentEntities = Self.normalized(
+            recentEntities + openedRecencies,
+            referenceDate: now()
+        )
+    }
+
     package func hydrate(_ recentEntities: [ApplicationEntityRecency]) {
         self.recentEntities = Self.normalized(recentEntities, referenceDate: now())
         hydrationDisposition = .authoritative
