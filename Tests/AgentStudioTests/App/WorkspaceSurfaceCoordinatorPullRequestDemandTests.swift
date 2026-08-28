@@ -66,6 +66,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let owningWindowId = UUIDv7.generate()
+            coreAtoms.applicationEntityRecency.hydrate([])
             coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
             coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
             #expect(await source.waitForLastSnapshot([]))
