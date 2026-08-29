@@ -41,10 +41,14 @@ describe('worktree annotation Share comments presentation', () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(<ShareModeFixture onCopy={onCopy} onExport={onExport} />);
+		const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
+		expect(shareTrigger.element().textContent).toBe('');
+		expect(shareTrigger.element().querySelector('.lucide-share-2')).not.toBeNull();
+		expect(shareTrigger.element().getAttribute('data-slot')).toBe('tooltip-trigger');
+		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Share comments');
+		expect(getComputedStyle(shareTrigger.element()).width).toBe('24px');
 
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
-		);
+		await performBrowserAction(() => shareTrigger.click());
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await expect.element(shareMode).toBeVisible();
 		expect(shareMode.element().textContent).toContain('Share');

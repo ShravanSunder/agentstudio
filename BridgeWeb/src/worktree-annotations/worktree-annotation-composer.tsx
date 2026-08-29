@@ -432,14 +432,7 @@ export function WorktreeAnnotationNewMessageComposer(
 							) : savePhase === 'saving' ? (
 								<span>Saving draft…</span>
 							) : isDurable ? (
-								<>
-									<span className="inline-flex items-center gap-1 font-medium text-warning">
-										<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-										Draft
-									</span>
-									<span aria-hidden="true">·</span>
-									<span>saved locally</span>
-								</>
+								<span className="font-medium">Draft</span>
 							) : (
 								<span>New annotation</span>
 							)}

@@ -154,7 +154,7 @@ describe.sequential('saved annotation range activation', () => {
 		}
 	});
 
-	test('focuses the saved File range without opening or scrolling', async () => {
+	test('keeps File focus inert and activates the saved range on click without scrolling', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const selectedLineCalls: Parameters<CodeView['setSelectedLines']>[0][] = [];
 		const scrollCalls: Parameters<CodeView['scrollTo']>[0][] = [];
@@ -199,10 +199,18 @@ describe.sequential('saved annotation range activation', () => {
 			const commentSurface = await stableAnnotationInteractionSurface(
 				'Expected the stable saved File comment surface.',
 			);
+			const selectedLineCallCountBeforeFocus = selectedLineCalls.length;
 			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
 				commentSurface.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+				await Promise.resolve();
+			});
+			expect(commentSurface.getAttribute('data-annotation-active')).toBe('false');
+			expect(selectedLineCalls).toHaveLength(selectedLineCallCountBeforeFocus);
+
+			await act(async (): Promise<void> => {
+				commentSurface.click();
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
@@ -210,7 +218,7 @@ describe.sequential('saved annotation range activation', () => {
 					document
 						.querySelector('[data-worktree-annotation-interaction]')
 						?.getAttribute('data-annotation-active') === 'true',
-				'Expected focus to activate the saved File thread.',
+				'Expected click to activate the saved File thread.',
 			);
 			await settleBrowserCondition(
 				(): boolean =>
@@ -220,7 +228,7 @@ describe.sequential('saved annotation range activation', () => {
 							selection.range.start === 4 &&
 							selection.range.end === 7,
 					),
-				'Expected focus to publish the complete saved File range.',
+				'Expected click to publish the complete saved File range.',
 			);
 
 			expect(selectedLineCalls).toContainEqual({
@@ -236,7 +244,7 @@ describe.sequential('saved annotation range activation', () => {
 		}
 	});
 
-	test('focuses the saved Review range without opening or scrolling', async () => {
+	test('keeps Review focus inert and activates the saved range on click without scrolling', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const selectedLineCalls: Parameters<CodeView['setSelectedLines']>[0][] = [];
 		const scrollCalls: Parameters<CodeView['scrollTo']>[0][] = [];
@@ -285,10 +293,18 @@ describe.sequential('saved annotation range activation', () => {
 			const commentSurface = await stableAnnotationInteractionSurface(
 				'Expected the stable saved Review comment surface.',
 			);
+			const selectedLineCallCountBeforeFocus = selectedLineCalls.length;
 			const scrollCallCountBeforeFocus = scrollCalls.length;
 
 			await act(async (): Promise<void> => {
 				commentSurface.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+				await Promise.resolve();
+			});
+			expect(commentSurface.getAttribute('data-annotation-active')).toBe('false');
+			expect(selectedLineCalls).toHaveLength(selectedLineCallCountBeforeFocus);
+
+			await act(async (): Promise<void> => {
+				commentSurface.click();
 				await Promise.resolve();
 			});
 
@@ -306,7 +322,7 @@ describe.sequential('saved annotation range activation', () => {
 							selection.range.start === 2 &&
 							selection.range.end === 2,
 					),
-				'Expected focus to publish the complete saved Review range.',
+				'Expected click to publish the complete saved Review range.',
 			);
 			expect(selectedLineCalls).toContainEqual({ id: 'item-source', range: expectedRange });
 			expect(scrollCalls).toHaveLength(scrollCallCountBeforeFocus);

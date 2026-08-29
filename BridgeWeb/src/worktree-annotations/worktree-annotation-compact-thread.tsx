@@ -1,4 +1,6 @@
 import {
+	useLayoutEffect,
+	useRef,
 	useState,
 	type CSSProperties,
 	type MouseEvent as ReactMouseEvent,
@@ -19,6 +21,7 @@ import { WorktreeAnnotationCommandButton } from './worktree-annotation-inline-su
 import type { WorktreeAnnotationRange } from './worktree-annotation-interaction.js';
 import { deriveWorktreeAnnotationThreadStateCounts } from './worktree-annotation-message-state.js';
 import type {
+	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationThreadProjection,
 } from './worktree-annotation-surface-client.js';
@@ -67,7 +70,26 @@ export function WorktreeAnnotationThread(
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const threadFrameRef = useRef<HTMLElement | null>(null);
 	const threadId = props.thread.context.threadId;
+	const threadExpansion =
+		interaction.threadExpansion.kind === 'open' && interaction.threadExpansion.threadId === threadId
+			? interaction.threadExpansion
+			: null;
+	const isExpanded = threadExpansion !== null;
+	const rangeActive = interaction.activeThreadId === threadId;
+	useLayoutEffect((): void => {
+		const threadFrame = threadFrameRef.current;
+		if (
+			!rangeActive ||
+			threadFrame === null ||
+			threadFrame.contains(document.activeElement) ||
+			(document.activeElement !== document.body && document.activeElement?.isConnected === true)
+		) {
+			return;
+		}
+		threadFrame.focus({ preventScroll: true });
+	}, [rangeActive, threadId]);
 	const projectedVisibleMessages = props.thread.messages.filter(
 		(message): boolean =>
 			message.draft?.activeEditToken === null ||
@@ -99,24 +121,19 @@ export function WorktreeAnnotationThread(
 	const canSetThreadResolution =
 		ownsActiveSession && sessionSelection.capabilities.canSetThreadResolution;
 	const hasMultipleMessages = visibleMessages.length > 1;
-	const threadExpansion =
-		interaction.threadExpansion.kind === 'open' && interaction.threadExpansion.threadId === threadId
-			? interaction.threadExpansion
-			: null;
-	const isExpanded = threadExpansion !== null;
-	const rangeActive = interaction.activeThreadId === threadId;
 	const activateRange = (): void => {
 		if (props.rangeIdentity === undefined) return;
 		interaction.activateSavedThread({ threadId, ...props.rangeIdentity });
 	};
 	const handleThreadClick = (event: ReactMouseEvent<HTMLElement>): void => {
 		activateRange();
-		if (!hasMultipleMessages || isExpanded) return;
-		if (
+		const targetOwnsInteraction =
 			event.target instanceof Element &&
-			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null
-		)
-			return;
+			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null;
+		if (!targetOwnsInteraction && window.getSelection()?.isCollapsed !== false) {
+			event.currentTarget.focus({ preventScroll: true });
+		}
+		if (!hasMultipleMessages || isExpanded || targetOwnsInteraction) return;
 		if (window.getSelection()?.isCollapsed === false) return;
 		event.stopPropagation();
 		void markExposedNewMessagesViewed();
@@ -142,8 +159,14 @@ export function WorktreeAnnotationThread(
 		if (outcome.status.kind === 'failed') setOperationError(outcome.status.code);
 	};
 	const hasDraft = visibleMessages.some((message) => message.draft !== null);
+	const hasUnsavedHumanDraft = visibleMessages.some((message) =>
+		messageHasUncommittedHumanDraft(message, projection.commandOutcomes),
+	);
 	const hasLockedMessage = visibleMessages.some((message) => message.status === 'locked');
 	const threadStateCounts = deriveWorktreeAnnotationThreadStateCounts(visibleMessages);
+	const threadEditorOwnsTextInput =
+		threadExpansion?.editor?.kind === 'message' ||
+		(threadExpansion?.editor?.kind === 'reply' && !threadExpansion.editor.committed);
 
 	const startReply = (invoker: HTMLElement): void => {
 		activateRange();
@@ -184,7 +207,7 @@ export function WorktreeAnnotationThread(
 			<WorktreeAnnotationCommandButton
 				action="replyToThread"
 				appearance="thread-action"
-				disabled={!canReply}
+				disabled={!canReply || hasUnsavedHumanDraft || threadEditorOwnsTextInput}
 				onClick={(event) => startReply(event.currentTarget)}
 			/>
 			<WorktreeAnnotationCommandButton
@@ -259,13 +282,15 @@ export function WorktreeAnnotationThread(
 			data-annotation-expanded={isExpanded ? 'true' : 'false'}
 			data-testid="worktree-annotation-thread"
 			onClickCapture={handleThreadClick}
-			onFocusCapture={activateRange}
+			ref={threadFrameRef}
+			tabIndex={-1}
 			onKeyDownCapture={(event) => {
 				if (
 					matchesWorktreeAnnotationActionShortcut(event, 'replyToThread') &&
 					rangeActive &&
 					canReply &&
-					(threadExpansion?.editor ?? null) === null &&
+					!hasUnsavedHumanDraft &&
+					!threadEditorOwnsTextInput &&
 					!worktreeAnnotationShortcutTargetOwnsTextInput(event.target) &&
 					window.getSelection()?.isCollapsed !== false
 				) {
@@ -335,6 +360,7 @@ export function WorktreeAnnotationThread(
 								editToken={replyEditor.editToken}
 								key={replyEditor.editToken}
 								onCancel={() => interaction.finishThreadEditor(replyEditor.editToken)}
+								onCommitted={() => interaction.markThreadEditorCommitted(replyEditor.editToken)}
 								onSaved={() => interaction.finishThreadEditor(replyEditor.editToken)}
 								placement="timeline"
 								placeholder="Reply with Markdown"
@@ -351,6 +377,23 @@ export function WorktreeAnnotationThread(
 			)}
 		</WorktreeAnnotationConversationFrame>
 	);
+}
+
+function messageHasUncommittedHumanDraft(
+	message: WorktreeAnnotationMessageEntry,
+	commandOutcomes: readonly WorktreeAnnotationCommandOutcome[],
+): boolean {
+	if (message.authorKind !== 'human' || message.draft === null) return false;
+	return !commandOutcomes.some((outcome) => {
+		const receipt = outcome.status.kind === 'committed' ? outcome.receipt : undefined;
+		return (
+			receipt?.kind === 'message' &&
+			receipt.messageId === message.messageId &&
+			receipt.messageRevision >= message.messageRevision &&
+			receipt.draftRevision === null &&
+			receipt.savedRevision !== null
+		);
+	});
 }
 
 interface WorktreeAnnotationTimelineSummaryProps {
@@ -405,7 +448,7 @@ function WorktreeAnnotationTimelineSummary(
 					<span>latest {annotationRelativeTime(props.latestMessage.createdAt)}</span>
 					<span aria-hidden="true">·</span>
 					<span>{props.resolution === 'open' ? 'Open' : 'Resolved'}</span>
-					{!props.hasDraft ? null : <span className="font-medium text-warning">Draft</span>}
+					{!props.hasDraft ? null : <span className="font-medium">Draft</span>}
 					{props.hasLockedMessage ? <span>Contains locked output</span> : null}
 					{props.readStatus === 'unknown' ? <span>Membership unknown</span> : null}
 					{props.readStatus === 'unavailable' ? <span>Updates unavailable</span> : null}

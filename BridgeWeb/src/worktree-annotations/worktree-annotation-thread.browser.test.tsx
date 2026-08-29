@@ -15,7 +15,6 @@ import {
 	annotationSessionSummary,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
-import type { WorktreeAnnotationMessageEntry } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
@@ -300,17 +299,21 @@ describe('worktree annotation inline thread', () => {
 	);
 
 	test.each(['r', '{Control>}r{/Control}'])(
-		'routes %s to the active annotation thread',
+		'routes %s after a pointer activates the annotation frame',
 		async (keys) => {
 			const surface = new RecordingAnnotationBrowserSurface('fileView');
 			const rendered = await renderLocatedAnnotationProjection(surface);
 			await publishThreadMessages(surface, [
 				makeSavedMessage({ body: 'Reply shortcut target.', messageId: rootMessageId }),
 			]);
-			const targetAnnotation = rendered.getByTestId('worktree-annotation-message');
+			const annotationFrame = rendered.getByTestId('worktree-annotation-thread').element();
+			if (!(annotationFrame instanceof HTMLElement)) throw new Error('Expected annotation frame.');
 
 			await act(async (): Promise<void> => {
-				targetAnnotation.element().focus();
+				annotationFrame.click();
+			});
+			expect(annotationFrame.contains(document.activeElement)).toBe(true);
+			await act(async (): Promise<void> => {
 				await userEvent.keyboard(keys);
 			});
 			await expect
@@ -329,7 +332,6 @@ describe('worktree annotation inline thread', () => {
 			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
 		});
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
-
 		await act(async (): Promise<void> => {
 			composer.element().focus();
 			await userEvent.keyboard('er{Control>}e{/Control}{Control>}r{/Control}');
@@ -656,7 +658,7 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByText('Relocated')).toBeVisible();
 	});
 
-	test('shows the warning Draft cue when the compact latest message has a draft', async () => {
+	test('distinguishes the neutral Draft cue from yellow Pending state', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
 
@@ -677,10 +679,13 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Unsaved latest changes.')).toBeVisible();
-		await expect.element(rendered.getByText('Draft changes · saved locally')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-message').getByText('Draft'))
+			.toBeVisible();
 		const draftCue = rendered.getByTestId('worktree-annotation-thread-summary').getByText('Draft');
 		await expect.element(draftCue).toBeVisible();
-		expect(draftCue.element().className).toContain('text-warning');
+		expect(draftCue.element().className).not.toContain('text-warning');
+		expect(document.querySelector('[data-annotation-draft="present"] .bg-warning')).toBeNull();
 	});
 
 	test('keeps output inclusion controls out of the thread timeline', async () => {
@@ -694,115 +699,6 @@ describe('worktree annotation inline thread', () => {
 		expect(document.querySelector('[aria-label="Include latest comment"]')).toBeNull();
 		expect(document.querySelector('[aria-label="Exclude latest comment"]')).toBeNull();
 		expect(rendered.getByText('Mixed inclusion').all()).toHaveLength(0);
-	});
-
-	test('saves a resumed durable draft from the primary pointer action', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
-		const draftMessage = {
-			...makeSavedMessage({ body: 'Saved body.', messageId: rootMessageId }),
-			draft: {
-				activeEditToken: 'annotation-edit-existing-draft',
-				body: 'Reviewed body.',
-				revision: 1,
-			},
-			savedRevision: 1,
-		} satisfies WorktreeAnnotationMessageEntry;
-
-		await publishThreadMessages(surface, [draftMessage]);
-		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Edit annotation' }).click();
-		});
-		await settleBrowserCondition(
-			(): boolean =>
-				surface.sentOperations.some((operation) => operation.kind === 'draft.edit.acquire'),
-			'Expected the resumed draft to acquire current-generation edit ownership.',
-		);
-		const acquireOperation = surface.sentOperations.find(
-			(operation) => operation.kind === 'draft.edit.acquire',
-		);
-		if (acquireOperation?.kind !== 'draft.edit.acquire') {
-			throw new Error('Expected draft.edit.acquire before Save.');
-		}
-		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommitted();
-			surface.publishThread({
-				context: locatedContext,
-				message: {
-					...draftMessage,
-					draft: {
-						activeEditToken: acquireOperation.editToken,
-						body: 'Reviewed body.',
-						revision: 2,
-					},
-					sessionRevision: 4,
-				},
-			});
-			await Promise.resolve();
-		});
-		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Save annotation' }).click();
-		});
-		await settleBrowserCondition(
-			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
-			'Expected the primary Save action to issue draft.save.',
-		);
-		expect(surface.sentOperations.at(-1)).toMatchObject({
-			kind: 'draft.save',
-			messageId: rootMessageId,
-		});
-
-		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
-			await Promise.resolve();
-		});
-		await settleBrowserCondition(
-			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
-			'Expected the exact committed Save receipt to close the editor before projection.',
-		);
-		expect(
-			rendered.getByTestId('worktree-annotation-thread').element().contains(document.activeElement),
-		).toBe(true);
-		expect(
-			rendered
-				.getByTestId('worktree-annotation-thread')
-				.element()
-				.getAttribute('data-annotation-expanded'),
-		).toBe('true');
-		await act(async (): Promise<void> => {
-			surface.publishThread({
-				context: locatedContext,
-				message: {
-					...draftMessage,
-					draft: null,
-					savedBody: 'Reviewed body.',
-					savedRevision: 2,
-					sessionRevision: 5,
-				},
-			});
-			await Promise.resolve();
-		});
-		await expect
-			.element(rendered.getByTestId('worktree-annotation-thread').getByText('Reviewed body.'))
-			.toBeVisible();
-		const savedThread = rendered.getByTestId('worktree-annotation-thread').element();
-		expect(savedThread.contains(document.activeElement)).toBe(true);
-		await act(async (): Promise<void> => {
-			savedThread.focus();
-			await userEvent.keyboard('r');
-		});
-		await expect
-			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
-			.toBeVisible();
-		await act(async (): Promise<void> => {
-			await userEvent.keyboard('{Escape}');
-			await Promise.resolve();
-			savedThread.focus();
-			await userEvent.keyboard('{Control>}r{/Control}');
-		});
-		await expect
-			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
-			.toBeVisible();
 	});
 
 	test('keeps unchanged saved annotations unsaveable without exposing draft internals', async () => {

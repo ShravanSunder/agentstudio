@@ -26,12 +26,24 @@ export function WorktreeAnnotationShareTrigger(props: {
 	readonly onOpen: () => void;
 }): ReactElement {
 	return (
-		<BridgeViewerButton disabled={props.disabled} onClick={props.onOpen}>
-			<BridgeViewerIcon>
-				<Share2 />
-			</BridgeViewerIcon>
-			Share comments
-		</BridgeViewerButton>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<BridgeViewerButton
+						ariaLabel="Share comments"
+						className={bridgeViewerChromeIconButtonClassName}
+						data-tooltip="Share comments"
+						disabled={props.disabled}
+						onClick={props.onOpen}
+					/>
+				}
+			>
+				<BridgeViewerIcon>
+					<Share2 aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+				</BridgeViewerIcon>
+			</TooltipTrigger>
+			<TooltipContent side="bottom">Share comments</TooltipContent>
+		</Tooltip>
 	);
 }
 

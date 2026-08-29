@@ -2,6 +2,7 @@ import { parseDiffFromFile } from '@pierre/diffs';
 import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -373,6 +374,14 @@ describe('worktree annotation Pierre range selection', () => {
 				'Expected authoritative M1 to replace the committed receipt presentation.',
 			);
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
+			const installedThread = rendered.getByTestId('worktree-annotation-thread').element();
+			expect(installedThread.contains(document.activeElement)).toBe(true);
+			await act(async (): Promise<void> => {
+				await userEvent.keyboard('r');
+			});
+			await expect
+				.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+				.toBeVisible();
 			expect(
 				surface.sentOperations
 					.map((operation) => operation.kind)

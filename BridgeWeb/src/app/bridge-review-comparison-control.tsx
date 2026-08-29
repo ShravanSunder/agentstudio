@@ -117,10 +117,10 @@ export function BridgeReviewComparisonControl(
 		locallyPendingTarget === null
 			? closedComparisonLabel(props)
 			: `Compare to: ${comparisonTargetLabel(locallyPendingTarget)} · Updating`;
-	const visibleLabel =
-		locallyPendingTarget === null
-			? closedComparisonVisibleLabel(props)
-			: `${comparisonTargetLabel(locallyPendingTarget)} · Updating`;
+	const presentsUpdatingChrome = isUpdating || label.endsWith(' · Updating');
+	const visibleLabel = presentsUpdatingChrome
+		? installedComparisonVisibleLabel(props)
+		: closedComparisonVisibleLabel(props);
 	const narrowComparisonLabel = narrowComparisonLabelForPackage(props.displayedReviewPackage);
 	const activeTarget = props.comparisonPresentation?.activeTarget ?? null;
 	const displayedContribution = displayedContributionForComparison(props);
@@ -181,7 +181,7 @@ export function BridgeReviewComparisonControl(
 			open={open}
 		>
 			<PopoverTrigger
-				aria-busy={isUpdating || undefined}
+				aria-busy={presentsUpdatingChrome || undefined}
 				aria-describedby={descriptionId}
 				aria-label={label}
 				className={comparisonTriggerClassName}
@@ -189,7 +189,7 @@ export function BridgeReviewComparisonControl(
 				disabled={isUpdating}
 				title={label}
 			>
-				{isUpdating ? (
+				{presentsUpdatingChrome ? (
 					<LoaderCircleIcon
 						aria-hidden="true"
 						className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -647,6 +647,14 @@ function closedComparisonVisibleLabel(props: BridgeReviewComparisonControlProps)
 	return accessibleLabel.startsWith('Compare to: ')
 		? accessibleLabel.slice('Compare to: '.length)
 		: accessibleLabel;
+}
+
+function installedComparisonVisibleLabel(props: BridgeReviewComparisonControlProps): string {
+	const displayedContribution = displayedContributionForComparison(props);
+	if (displayedContribution !== null) {
+		return comparisonTargetLabel(displayedContribution.origin.symbolicTarget);
+	}
+	return closedComparisonVisibleLabel(props).replace(/ · Updating$/u, '');
 }
 
 function targetMatchesRepositoryDefault(

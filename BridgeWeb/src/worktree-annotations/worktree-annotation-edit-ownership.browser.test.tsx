@@ -55,6 +55,9 @@ describe('worktree annotation browser edit ownership', () => {
 		await expect
 			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
 			.toBeEnabled();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }))
+			.toBeDisabled();
 
 		await rendered.rerender(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
@@ -106,6 +109,7 @@ describe('worktree annotation browser edit ownership', () => {
 		});
 		const editor = rendered.getByRole('textbox', { name: 'Annotation Markdown' });
 		await expect.element(editor).toBeEnabled();
+		expect(document.activeElement).toBe(editor.element());
 		await act(async (): Promise<void> => {
 			await editor.fill('Changed durable draft');
 			await userEvent.keyboard('{Escape}');
@@ -137,12 +141,38 @@ describe('worktree annotation browser edit ownership', () => {
 				.filter((kind) => kind.startsWith('draft.')),
 		).toEqual(['draft.edit.acquire', 'draft.flush', 'draft.edit.release']);
 	});
+
+	test('blocks Reply while the human annotation has an unsaved draft', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ProjectedThread />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await publishMessage(surface, draftMessage({ activeEditToken: null, revision: 1 }));
+		const annotationFrame = rendered.getByTestId('worktree-annotation-thread').element();
+		if (!(annotationFrame instanceof HTMLElement)) throw new Error('Expected annotation frame.');
+		const replyButton = rendered.getByRole('button', { name: 'Reply to annotation thread' });
+		await expect.element(replyButton).toBeDisabled();
+
+		await act(async (): Promise<void> => {
+			annotationFrame.click();
+		});
+		await act(async (): Promise<void> => {
+			await userEvent.keyboard('r{Control>}r{/Control}');
+		});
+		expect(rendered.getByRole('textbox', { name: 'Reply with Markdown' }).all()).toHaveLength(0);
+	});
 });
 
 function ProjectedThread(props: { readonly portalGeneration?: number }): ReactElement | null {
 	const projection = useWorktreeAnnotationProjection();
 	return projection.threads[0] === undefined ? null : (
-		<WorktreeAnnotationThread key={props.portalGeneration} thread={projection.threads[0]} />
+		<WorktreeAnnotationThread
+			key={props.portalGeneration}
+			rangeIdentity={{ itemId: 'file-1', range: { end: 8, start: 8 } }}
+			thread={projection.threads[0]}
+		/>
 	);
 }
 

@@ -317,7 +317,7 @@ describe('worktree annotation inline shell', () => {
 		await settleThreadMotion(historyPanel, 'Expected reversed soft mask motion to settle.');
 	});
 
-	test('activates the saved range on focus and expands the compact thread only on click', async () => {
+	test('keeps focus inert and activates the saved range only on click', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
@@ -328,7 +328,7 @@ describe('worktree annotation inline shell', () => {
 			await Promise.resolve();
 		});
 		expect(document.body.textContent).not.toContain('Root message.');
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).not.toContain(
 			'bg-comment-active-surface',
 		);
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(

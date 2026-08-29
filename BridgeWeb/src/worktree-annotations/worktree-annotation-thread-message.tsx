@@ -1,6 +1,7 @@
 import {
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -97,12 +98,7 @@ export function WorktreeAnnotationThreadSummary(
 					<span>{props.resolution === 'open' ? 'Open' : 'Resolved'}</span>
 					<span aria-hidden="true">·</span>
 					<span>{props.messageCount} annotations</span>
-					{!props.hasDraft ? null : (
-						<span className="inline-flex items-center gap-1 font-medium text-warning">
-							<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-							Draft
-						</span>
-					)}
+					{!props.hasDraft ? null : <span className="font-medium">Draft</span>}
 					{props.hasLockedMessage ? <span>Contains locked output</span> : null}
 					{props.placement === 'relocated' ? <span>Relocated</span> : null}
 					{props.placement === 'outdated' ? <span>Outdated</span> : null}
@@ -141,6 +137,7 @@ export function WorktreeAnnotationMessageEditor(
 	};
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const editorRef = useRef<HTMLTextAreaElement | null>(null);
 	const derivedState = deriveWorktreeAnnotationMessageState(props.message);
 	const bodyGestureStartedWithTextSelectionRef = useRef(false);
 	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
@@ -220,6 +217,13 @@ export function WorktreeAnnotationMessageEditor(
 	useEffect((): void => {
 		if (!canEdit && isEditing) onFinishEdit();
 	}, [canEdit, isEditing, onFinishEdit]);
+	useLayoutEffect((): void => {
+		const editor = editorRef.current;
+		if (!isEditing || !editOwnershipReady || editor === null) return;
+		editor.focus({ preventScroll: true });
+		const caretOffset = editor.value.length;
+		editor.setSelectionRange(caretOffset, caretOffset);
+	}, [editOwnershipReady, isEditing]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
 	const hasUnsavedChanges = worktreeAnnotationMessageHasUnsavedChanges(
 		body,
@@ -366,16 +370,7 @@ export function WorktreeAnnotationMessageEditor(
 					{annotationMessageHasExceptionalState(props.message) ? (
 						<>
 							<span aria-hidden="true">·</span>
-							<span
-								className={
-									props.message.draft === null
-										? undefined
-										: 'inline-flex items-center gap-1 font-medium text-warning'
-								}
-							>
-								{props.message.draft === null ? null : (
-									<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-								)}
+							<span className={props.message.draft === null ? undefined : 'font-medium'}>
 								{annotationMessageStateLabel(props.message)}
 							</span>
 						</>
@@ -436,10 +431,10 @@ export function WorktreeAnnotationMessageEditor(
 			{props.isEditing && messageCanBeginEditing ? (
 				<Textarea
 					appearance="embedded"
-					autoFocus
 					aria-label="Annotation Markdown"
 					className="min-h-16"
 					disabled={!editOwnershipReady}
+					ref={editorRef}
 					value={body}
 					onChange={(event) => {
 						const nextBody = event.currentTarget.value;
@@ -511,7 +506,7 @@ function assertCommittedAnnotationOutcome(
 export function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {
 	if (message.status === 'locked') return 'Output locked';
 	if (message.savedBody === null) return 'Draft';
-	if (message.draft !== null) return 'Draft changes · saved locally';
+	if (message.draft !== null) return 'Draft';
 	return 'Saved';
 }
 

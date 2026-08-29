@@ -640,6 +640,36 @@ Date: 2026-08-25
       packaged clipboard/save panel, History Repeat/failure, and restart/refresh
       recovery journeys.
 
+33. **2026-08-29 obvious-fix implementation checkpoint**
+    - Implemented pointer-owned activation plus stable thread keyboard focus; removed
+      focus-owned Pierre activation. Root/message/Reply Save now restores focus inside
+      the active thread, and Edit focuses its exact Textarea after edit-ownership
+      admission with the caret at the end.
+    - `R` and Ctrl-R use natural pointer/post-Save focus. Reply is disabled while an
+      active editor owns text input or an uncommitted human draft exists. A committed
+      Save receipt releases the gate before stale projection convergence without
+      permitting two simultaneous draft editors.
+    - Draft baseline is neutral `Draft` only: no yellow dot and no `changes · saved
+      locally`; Pending remains yellow. The misleading Escape/Ctrl-R same-`act` proof
+      now yields until editor absence, and tests no longer call `.focus()` to fake the
+      product result.
+    - Comparison pending chrome retains the installed target label, replaces only the
+      leading icon with the existing spinner, and keeps requested-target Updating
+      status in the accessible label. Permanent Share is the existing 24px Bridge icon
+      button with Share2, shared Tooltip, and `Share comments` accessible name.
+    - Test responsibility cleanup: moved the large Save/focus journey into
+      `worktree-annotation-thread-save-focus.browser.test.tsx`; the general thread
+      file is 886 lines and the focused file is 130 lines.
+    - Proof: scoped format/type-aware lint/diff checks pass; TypeScript and product
+      contract pass; combined focused Chromium 88/88; complete Browser inventory 318
+      passed and 5 skipped across 60 passing files plus one skipped file.
+    - Current-head external blockers: unit inventory is 2,100/2,101 because committed
+      concurrent `bridge-product-transport.unit.test.ts` is 1,035 lines and violates
+      the under-1,000 structural gate. Fresh Vite backend health is 204, but concurrent
+      Review publication repeatedly throws React `Maximum update depth exceeded` from
+      `bridge-main-render-snapshot-store`, preventing honest manual File/Review proof.
+      Neither blocker is owned or modified by this UI slice.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

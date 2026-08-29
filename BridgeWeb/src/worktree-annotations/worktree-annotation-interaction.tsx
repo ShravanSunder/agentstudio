@@ -26,7 +26,7 @@ type WorktreeAnnotationLocatedOrigin = Extract<
 
 export type WorktreeAnnotationEditorState =
 	| { readonly editToken: string; readonly kind: 'message'; readonly messageId: string }
-	| { readonly editToken: string; readonly kind: 'reply' };
+	| { readonly committed: boolean; readonly editToken: string; readonly kind: 'reply' };
 
 export interface WorktreeAnnotationRange {
 	readonly end: number;
@@ -102,6 +102,7 @@ export interface WorktreeAnnotationInteractionController {
 	readonly shareMode: WorktreeAnnotationShareMode;
 	readonly markPendingRootComposerCommitted: (editToken: string) => void;
 	readonly markPendingRootComposerDurable: (editToken: string) => void;
+	readonly markThreadEditorCommitted: (editToken: string) => void;
 	readonly startMessageEdit: (threadId: string, messageId: string, invoker: HTMLElement) => void;
 	readonly startReply: (threadId: string, invoker: HTMLElement) => void;
 	readonly threadExpansion: WorktreeAnnotationThreadExpansion;
@@ -228,11 +229,26 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	);
 	const startReply = useCallback((threadId: string, invoker: HTMLElement): void => {
 		setThreadExpansion({
-			editor: { editToken: createWorktreeAnnotationEditToken(), kind: 'reply' },
+			editor: { committed: false, editToken: createWorktreeAnnotationEditToken(), kind: 'reply' },
 			invoker,
 			kind: 'open',
 			returnFocusPoint: elementCenter(invoker),
 			threadId,
+		});
+	}, []);
+	const markThreadEditorCommitted = useCallback((editToken: string): void => {
+		setThreadExpansion((currentExpansion): WorktreeAnnotationThreadExpansion => {
+			if (
+				currentExpansion.kind === 'closed' ||
+				currentExpansion.editor?.kind !== 'reply' ||
+				currentExpansion.editor.editToken !== editToken
+			) {
+				return currentExpansion;
+			}
+			return {
+				...currentExpansion,
+				editor: { ...currentExpansion.editor, committed: true },
+			};
 		});
 	}, []);
 	const registerThreadEditorExit = useCallback((exitEditor: () => Promise<void>): (() => void) => {
@@ -332,6 +348,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			leaveThread,
 			markPendingRootComposerCommitted,
 			markPendingRootComposerDurable,
+			markThreadEditorCommitted,
 			openShareMode,
 			pendingRootComposer,
 			pierreRangePresentation,
@@ -359,6 +376,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			leaveThread,
 			markPendingRootComposerCommitted,
 			markPendingRootComposerDurable,
+			markThreadEditorCommitted,
 			openShareMode,
 			pendingRootComposer,
 			pierreRangePresentation,

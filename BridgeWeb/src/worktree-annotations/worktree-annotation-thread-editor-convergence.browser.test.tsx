@@ -213,10 +213,10 @@ describe('worktree annotation editor convergence', () => {
 			await Promise.resolve();
 		});
 		await settleBrowserCondition(
-			(): boolean => document.body.textContent?.includes('saved locally') ?? false,
+			(): boolean => document.querySelector('[data-annotation-draft="present"]') !== null,
 			'Expected the remounted composer to adopt its durable reply draft.',
 		);
-		await expect.element(rendered.getByText('saved locally')).toBeVisible();
+		await expect.element(rendered.getByText('Draft')).toBeVisible();
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Revert annotation draft' }).click();
@@ -278,7 +278,7 @@ describe('worktree annotation editor convergence', () => {
 			await Promise.resolve();
 		});
 		await settleBrowserCondition(
-			(): boolean => document.body.textContent?.includes('saved locally') ?? false,
+			(): boolean => document.querySelector('[data-annotation-draft="present"]') !== null,
 			'Expected the surviving composer to adopt delayed durable detail.',
 		);
 		await expect
