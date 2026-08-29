@@ -519,6 +519,7 @@ struct CIFastLaneWorkflowTests {
         #expect(discoveredSuiteFilters.contains("OcticonLoaderTests\n"))
         #expect(discoveredSuiteFilters.contains("TerminalActivityProjectorTests\n"))
         #expect(discoveredSuiteFilters.contains("GitWorkingDirectoryProjectorTests\n"))
+        #expect(discoveredSuiteFilters.contains("BridgeDevelopmentSeededWorktreeObservationTests\n"))
         #expect(!discoveredSuiteFilters.contains("BridgePaneControllerTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemGitPipelineIntegrationTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemSourceE2ETests\n"))

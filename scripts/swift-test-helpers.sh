@@ -105,6 +105,9 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift' \
       'GitWorkingDirectoryProjectorTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioBridgeDevelopmentServerTests/BridgeDevelopmentSeededWorktreeObservationTests.swift' \
+      'BridgeDevelopmentSeededWorktreeObservationTests'
   } | while IFS=: read -r source_file suite_name; do
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
