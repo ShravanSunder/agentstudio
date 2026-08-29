@@ -463,6 +463,30 @@ describe('Bridge product transport', () => {
 		await secondCancel;
 	});
 
+	test('fails a metadata stream when frame acknowledgement remains pending', async () => {
+		try {
+			const harness = createTransportHarness({ frameAcknowledgementTimeoutMilliseconds: 100 });
+			const subscription = harness.transport.subscribe(
+				bridgeProductReviewMetadataApplicationProtocol,
+				{ interests: [] },
+			);
+			const firstEvent = subscription.events[Symbol.asyncIterator]().next();
+			const firstEventExpectation = expect(firstEvent).rejects.toThrow('timed out');
+			harness.server.holdFrameAcknowledgement = true;
+			await harness.server.waitForMetadataStream();
+			const request = harness.server.requiredMetadataRequest();
+			harness.server.emitMetadata(metadataAccepted(request, 0));
+			vi.useFakeTimers();
+			await vi.advanceTimersByTimeAsync(101);
+
+			await firstEventExpectation;
+			expect(harness.server.metadataReaderCancelCount).toBe(1);
+			harness.server.releaseFrameAcknowledgement();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	test('settles cancel only after the correlated terminal metadata frame', async () => {
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe(
@@ -538,7 +562,11 @@ interface TransportHarness {
 }
 
 function createTransportHarness(
-	epochs: { readonly fileEpoch?: number; readonly reviewEpoch?: number } = {},
+	options: {
+		readonly fileEpoch?: number;
+		readonly reviewEpoch?: number;
+		readonly frameAcknowledgementTimeoutMilliseconds?: number;
+	} = {},
 ): TransportHarness {
 	const authority: BridgeProductSessionAuthority = {
 		bootstrap: {
@@ -573,9 +601,15 @@ function createTransportHarness(
 			createIdentifier: purposeIdentifier(),
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: {
-				file: epochs.fileEpoch ?? 0,
-				review: epochs.reviewEpoch ?? 0,
+				file: options.fileEpoch ?? 0,
+				review: options.reviewEpoch ?? 0,
 			},
+			...(options.frameAcknowledgementTimeoutMilliseconds === undefined
+				? {}
+				: {
+						frameAcknowledgementTimeoutMilliseconds:
+							options.frameAcknowledgementTimeoutMilliseconds,
+					}),
 			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 		}),
 	};
@@ -587,11 +621,13 @@ class TestProductServer {
 	metadataFetchCount = 0;
 	metadataReaderCancelCount = 0;
 	nextAcknowledgementStatus = 204;
+	holdFrameAcknowledgement = false;
 	readonly requestRoutes: string[] = [];
 	#heldOpen: (() => void) | null = null;
 	#holdOpen = false;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	#metadataRequest: BridgeProductMetadataStreamRequest | null = null;
+	#heldFrameAcknowledgement: (() => void) | null = null;
 
 	readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
@@ -612,9 +648,20 @@ class TestProductServer {
 	async #acknowledgeFrame(body: unknown): Promise<Response> {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
+		if (this.holdFrameAcknowledgement) {
+			await new Promise<void>((resolve): void => {
+				this.#heldFrameAcknowledgement = resolve;
+			});
+		}
 		const status = this.nextAcknowledgementStatus;
 		this.nextAcknowledgementStatus = 204;
 		return new Response(null, { status });
+	}
+
+	releaseFrameAcknowledgement(): void {
+		const release = this.#heldFrameAcknowledgement;
+		this.#heldFrameAcknowledgement = null;
+		release?.();
 	}
 
 	emitMetadata(frame: BridgeProductMetadataFrame): void {

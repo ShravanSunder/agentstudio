@@ -88,6 +88,8 @@ export interface CreateBridgeProductTransportProps {
 	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
 	readonly maximumConcurrentContentResponses?: number;
 	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	/** Maximum time an exact frame observation acknowledgement may remain pending. */
+	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
@@ -167,6 +169,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #epochs: Record<BridgeProductSurface, number>;
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	readonly #frameAcknowledgementTimeoutMilliseconds: number;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
 	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
 		acknowledgedFrameCount: 0,
@@ -207,6 +210,14 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
 		this.#executeProductRequest = props.executeProductRequest;
 		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
+		this.#frameAcknowledgementTimeoutMilliseconds =
+			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
+		if (
+			!Number.isSafeInteger(this.#frameAcknowledgementTimeoutMilliseconds) ||
+			this.#frameAcknowledgementTimeoutMilliseconds <= 0
+		) {
+			throw new Error('Bridge frame acknowledgement timeout must be a positive safe integer.');
+		}
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
@@ -551,24 +562,43 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	async #sendFrameAcknowledgement(
 		request: BridgeProductFrameAcknowledgementRequest,
 	): Promise<void> {
-		let response: Response;
+		const abortController = new AbortController();
+		let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
 		try {
-			response = await this.#executeProductRequest('command', {
-				body: encodeBridgeProductRequestBody(request),
-				headers: {
-					'Content-Type': 'application/json',
-					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
-				},
-				method: 'POST',
-			});
-		} catch {
+			const response = await Promise.race([
+				this.#executeProductRequest('command', {
+					body: encodeBridgeProductRequestBody(request),
+					headers: {
+						'Content-Type': 'application/json',
+						'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
+					},
+					method: 'POST',
+					signal: abortController.signal,
+				}),
+				new Promise<Response>((_, reject): void => {
+					timeout = globalThis.setTimeout((): void => {
+						abortController.abort();
+						reject(
+								new BridgeProductFrameAcknowledgementFailure(
+									'request_timeout',
+									null,
+									'Bridge product frame acknowledgement request timed out.',
+								),
+						);
+					}, this.#frameAcknowledgementTimeoutMilliseconds);
+				}),
+			]);
+			assertBridgeProductFrameAcknowledgementAccepted(response.status);
+		} catch (error) {
+			if (error instanceof BridgeProductFrameAcknowledgementFailure) throw error;
 			throw new BridgeProductFrameAcknowledgementFailure(
 				'request_failed',
 				null,
 				'Bridge product frame acknowledgement request failed.',
 			);
+		} finally {
+			if (timeout !== undefined) globalThis.clearTimeout(timeout);
 		}
-		assertBridgeProductFrameAcknowledgementAccepted(response.status);
 	}
 
 	#recordMetadataStreamFailure(
@@ -807,6 +837,7 @@ function assertBridgeProductFrameAcknowledgementAccepted(status: number): assert
 type BridgeProductFrameAcknowledgementFailureCode =
 	| 'rejected_status'
 	| 'request_failed'
+	| 'request_timeout'
 	| 'unsupported_status';
 
 class BridgeProductFrameAcknowledgementFailure extends Error {
