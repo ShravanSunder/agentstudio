@@ -43,7 +43,7 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 			productResponses.push(
 				`${response.status()} ${response.request().method()} ${path} request=${requestBody}`,
 			) - 1;
-		if (path !== '/__bridge-product/command' && response.status() < 400) return;
+		if (response.status() < 400) return;
 		responseBodyReads.push(
 			response
 				.text()

@@ -140,6 +140,59 @@ describe('Bridge comm worker Review published-position ownership', () => {
 		expect(ledger.releasePublished(exactQueuedReceipt)).toBe(false);
 	});
 
+	test('releases an exact queued publication while 1,699-item Review demand is suspended', () => {
+		// Arrange
+		const observations: Array<{ readonly currentCount: number; readonly phase: string }> = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			observeOutstandingPublications: (observation): void => {
+				observations.push({
+					currentCount: observation.currentCount,
+					phase: observation.phase,
+				});
+			},
+			start: () => ({
+				cancel: () => {},
+				pause: () => {},
+				resume: () => {},
+				updateRole: () => {},
+			}),
+		});
+		const initial = ledger.reconcile(reviewMembership(1_699));
+		const publishedAdmission = initial.active[0];
+		if (publishedAdmission === undefined) throw new Error('Expected a Review admission.');
+		const identity = renderReceiptIdentity(
+			publishedAdmission.itemId,
+			publishedAdmission.attemptToken,
+		);
+		ledger.markPublished(publishedAdmission.itemId, publishedAdmission.attemptToken, identity);
+		ledger.release(publishedAdmission.itemId, publishedAdmission.attemptToken, 'resident');
+		ledger.setSuspended(true);
+
+		// Act
+		const released = ledger.releasePublished(
+			bridgeWorkerRenderDispositionReceiptSchema.parse({
+				...identity,
+				disposition: 'queued',
+				kind: 'render.disposition',
+				receivedAtMilliseconds: 1,
+			}),
+		);
+
+		// Assert
+		expect(released).toBe(true);
+		expect(ledger.reconcile(reviewMembership(1_699)).active).toHaveLength(11);
+		expect(observations.slice(-2)).toEqual([
+			{
+				currentCount: 1,
+				phase: 'render_disposition_response_posted_before_owner_effect',
+			},
+			{
+				currentCount: 0,
+				phase: 'render_publication_outstanding_changed',
+			},
+		]);
+	});
+
 	test('keeps an invalidated publication held and never revives its obsolete intent', () => {
 		const startedItemIds: string[] = [];
 		const ledger = createTestLedger(startedItemIds);

@@ -1,4 +1,4 @@
-import { chromium, type Page, type Response } from 'playwright';
+import { chromium, type Page, type Request, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
@@ -16,6 +16,11 @@ import {
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import {
+	type BackpressureTelemetryObservation,
+	compactTelemetryDiagnostic,
+	waitForBackpressureTelemetry,
+} from './bridge-viewer-vite-backpressure-telemetry.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -336,19 +341,6 @@ interface AnnotationCatalogTelemetryObservation {
 	readonly windowCount: number;
 }
 
-interface BackpressureTelemetryObservation {
-	readonly currentCount: number;
-	readonly failureCount: number;
-	readonly highWaterMark: number;
-	readonly maximumPublicationAgeMilliseconds: number;
-	readonly maximumReceiptPendingAgeMilliseconds: number;
-	readonly maximumWorkerQueueWaitMilliseconds: number;
-	readonly receiptHighWaterMark: number;
-	readonly receiptPendingCount: number;
-	readonly receiptProducedCount: number;
-	readonly responseBeforeOwnerEffectObserved: boolean;
-}
-
 interface CommittedAnnotationOutcome {
 	readonly messageId: string;
 	readonly requestId: string;
@@ -399,6 +391,7 @@ async function runAnnotationBackpressureJourney(props: {
 					expectedReceiptProducedCount: 3,
 					milestones: props.milestones,
 					page: createdPage,
+					timeoutMilliseconds: 30_000,
 					viewer: 'file',
 				}),
 			timeoutMilliseconds: 30_000,
@@ -510,6 +503,56 @@ async function runAnnotationBackpressureJourney(props: {
 			props.milestones.transition(`reply.${replyOrdinal}.body.visible`);
 			exactSavedBodies.push(body);
 		}
+		const reviewTelemetry = await runMilestone({
+			after: 'review.telemetry.ready',
+			before: 'review.telemetry.waiting',
+			milestones: props.milestones,
+			operation: async () =>
+				waitForBackpressureTelemetry({
+					expectedReceiptProducedCount: null,
+					milestones: props.milestones,
+					page: createdPage,
+					timeoutMilliseconds: stressJourneyTimeoutMilliseconds,
+					viewer: 'review',
+				}),
+		});
+		const fileModeUpdateRequest = createdPage.waitForRequest(
+			fileActiveViewerModeUpdateRequestMatches,
+			{ timeout: stressOperationTimeoutMilliseconds },
+		);
+		await createdPage.getByTestId('bridge-viewer-context-file').click();
+		await fileModeUpdateRequest;
+		await expect
+			.poll(
+				async (): Promise<string | null> =>
+					await createdPage
+						.getByTestId('bridge-viewer-mode-host-file')
+						.getAttribute('data-bridge-viewer-mode-active'),
+				{ timeout: stressOperationTimeoutMilliseconds },
+			)
+			.toBe('true');
+		await settleBrowserFrames(createdPage, 2);
+		await runMilestone({
+			after: 'stopped-demand.checked',
+			before: 'stopped-demand.checking',
+			milestones: props.milestones,
+			operation: async () => {
+				try {
+					return await waitForBackpressureTelemetry({
+						expectedReceiptProducedCount: null,
+						milestones: props.milestones,
+						page: createdPage,
+						timeoutMilliseconds: stressDiagnosticTimeoutMilliseconds,
+						viewer: 'review',
+					});
+				} catch (error: unknown) {
+					throw new Error(
+						`Stopped Review demand did not quiesce: ${await runtimeDiagnostics.describe()}.`,
+						{ cause: error },
+					);
+				}
+			},
+		});
 
 		await runMilestone({
 			after: 'review.reload.complete',
@@ -566,52 +609,6 @@ async function runAnnotationBackpressureJourney(props: {
 				return exactBodyCount;
 			},
 		});
-
-		const reviewTelemetry = await runMilestone({
-			after: 'review.telemetry.ready',
-			before: 'review.telemetry.waiting',
-			milestones: props.milestones,
-			operation: async () =>
-				waitForBackpressureTelemetry({
-					expectedReceiptProducedCount: null,
-					milestones: props.milestones,
-					page: createdPage,
-					viewer: 'review',
-				}),
-		});
-		await createdPage.getByTestId('bridge-viewer-context-file').click();
-		await expect
-			.poll(
-				async (): Promise<string | null> =>
-					await createdPage
-						.getByTestId('bridge-viewer-mode-host-file')
-						.getAttribute('data-bridge-viewer-mode-active'),
-				{ timeout: stressOperationTimeoutMilliseconds },
-			)
-			.toBe('true');
-		const stoppedReviewTelemetry = await waitForBackpressureTelemetry({
-			expectedReceiptProducedCount: null,
-			milestones: props.milestones,
-			page: createdPage,
-			viewer: 'review',
-		});
-		const stoppedDemandStatus = await runMilestone({
-			after: 'stopped-demand.checked',
-			before: 'stopped-demand.checking',
-			milestones: props.milestones,
-			operation: async () => fetch(new URL('/__bridge-dev-telemetry/status', props.server.origin)),
-		});
-		if (!stoppedDemandStatus.ok) {
-			throw new Error(`Telemetry status after demand stop failed: ${stoppedDemandStatus.status}.`);
-		}
-		const stableStoppedReviewTelemetry = backpressureTelemetryObservation({
-			expectedReceiptProducedCount: stoppedReviewTelemetry.receiptProducedCount,
-			status: await stoppedDemandStatus.json(),
-			viewer: 'review',
-		});
-		if (stableStoppedReviewTelemetry === null) {
-			throw new Error('Review telemetry changed after demand stopped.');
-		}
 		return {
 			catalogTelemetry,
 			exactBodyCountAfterReload,
@@ -815,183 +812,20 @@ function annotationCommandResponseMatches(
 	);
 }
 
-async function waitForBackpressureTelemetry(props: {
-	readonly expectedReceiptProducedCount: number | null;
-	readonly milestones: AnnotationBackpressureMilestones;
-	readonly page: Page;
-	readonly viewer: 'file' | 'review';
-}): Promise<BackpressureTelemetryObservation> {
-	const statusUrl = new URL('/__bridge-dev-telemetry/status', props.page.url()).toString();
-	let latestStatus: unknown = null;
-	let observation: BackpressureTelemetryObservation | null = null;
-	try {
-		await expect
-			.poll(
-				async (): Promise<boolean> => {
-					const response = await fetch(statusUrl);
-					if (!response.ok) return false;
-					latestStatus = await response.json();
-					props.milestones.recordTelemetry(latestStatus, props.viewer);
-					observation = backpressureTelemetryObservation({ ...props, status: latestStatus });
-					return observation !== null;
-				},
-				{
-					timeout: props.viewer === 'file' ? 30_000 : stressJourneyTimeoutMilliseconds,
-				},
-			)
-			.toBe(true);
-	} catch (error: unknown) {
-		throw new Error(
-			`Backpressure telemetry did not quiesce: ${JSON.stringify(compactTelemetryDiagnostic(latestStatus, props.viewer))}.`,
-			{ cause: error },
-		);
-	}
-	if (observation === null) {
-		throw new Error(`Backpressure telemetry did not quiesce: ${JSON.stringify(latestStatus)}.`);
-	}
-	return observation;
-}
-
-interface TelemetryStatusSample {
-	readonly name: string;
-	readonly numericAttributes: Readonly<Record<string, number>>;
-	readonly stringAttributes: Readonly<Record<string, string>>;
-}
-
-function backpressureTelemetryObservation(props: {
-	readonly expectedReceiptProducedCount: number | null;
-	readonly status: unknown;
-	readonly viewer: 'file' | 'review';
-}): BackpressureTelemetryObservation | null {
-	if (!isRecord(props.status) || !Array.isArray(props.status['recentSamples'])) return null;
-	const samples = props.status['recentSamples'].filter(isTelemetryStatusSample);
-	const admissions = samples.filter(
-		(sample) =>
-			sample.name === 'performance.bridge.web.render_disposition_admission' &&
-			sample.stringAttributes['agentstudio.bridge.viewer'] === props.viewer,
-	);
-	const publications = samples.filter(
-		(sample) =>
-			sample.name === 'performance.bridge.worker.render_publication_outstanding' &&
-			sample.stringAttributes['agentstudio.bridge.viewer'] === props.viewer,
-	);
-	const latestAdmission = admissions.at(-1);
-	const latestPublication = publications.at(-1);
-	if (latestAdmission === undefined || latestPublication === undefined) return null;
-	const receiptPendingCount = numberAttribute(
-		latestAdmission,
-		'agentstudio.bridge.render_disposition.pending_count',
-	);
-	const receiptProducedCount = numberAttribute(
-		latestAdmission,
-		'agentstudio.bridge.render_disposition.produced_count',
-	);
-	const receiptRetainedCount = numberAttribute(
-		latestAdmission,
-		'agentstudio.bridge.render_disposition.retained_count',
-	);
-	const currentCount = numberAttribute(
-		latestPublication,
-		'agentstudio.bridge.render_publication.current_count',
-	);
+function fileActiveViewerModeUpdateRequestMatches(request: Request): boolean {
 	if (
-		receiptRetainedCount !== 0 ||
-		(props.expectedReceiptProducedCount === null
-			? receiptProducedCount === 0
-			: receiptProducedCount !== props.expectedReceiptProducedCount) ||
-		currentCount !== 0
-	)
-		return null;
-	const failureCount = samples.filter(
-		(sample) =>
-			sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'] === 'timed_out' ||
-			sample.stringAttributes['agentstudio.bridge.phase'] ===
-				'render_disposition_admission_overloaded' ||
-			sample.stringAttributes['agentstudio.bridge.worker.session_state'] ===
-				'replacement_requested',
-	).length;
-	if (failureCount > 0) return null;
-	return {
-		currentCount,
-		failureCount,
-		highWaterMark: maximumAttribute(
-			publications,
-			'agentstudio.bridge.render_publication.high_water_mark',
-		),
-		maximumPublicationAgeMilliseconds: maximumAttribute(
-			publications,
-			'agentstudio.bridge.render_publication.oldest_age_ms',
-		),
-		maximumReceiptPendingAgeMilliseconds: maximumAttribute(
-			admissions,
-			'agentstudio.bridge.render_disposition.oldest_pending_age_ms',
-		),
-		maximumWorkerQueueWaitMilliseconds: maximumAttribute(
-			samples.filter((sample) => sample.name === 'performance.bridge.worker.task'),
-			'agentstudio.bridge.worker.queue_wait_ms',
-		),
-		receiptHighWaterMark: maximumAttribute(
-			admissions,
-			'agentstudio.bridge.render_disposition.pending_high_water_mark',
-		),
-		receiptPendingCount,
-		receiptProducedCount,
-		responseBeforeOwnerEffectObserved: publications.some(
-			(sample) =>
-				sample.stringAttributes['agentstudio.bridge.phase'] ===
-				'render_disposition_response_posted_before_owner_effect',
-		),
-	};
-}
-
-function isTelemetryStatusSample(value: unknown): value is TelemetryStatusSample {
+		request.method() !== 'POST' ||
+		new URL(request.url()).pathname !== '/__bridge-product/command'
+	) {
+		return false;
+	}
+	const body: unknown = request.postDataJSON();
 	return (
-		isRecord(value) &&
-		typeof value['name'] === 'string' &&
-		isRecord(value['numericAttributes']) &&
-		isRecord(value['stringAttributes'])
+		isRecord(body) &&
+		body['kind'] === 'product.call' &&
+		isRecord(body['call']) &&
+		body['call']['method'] === 'file.activeViewerMode.update'
 	);
-}
-
-function numberAttribute(sample: TelemetryStatusSample, key: string): number {
-	return sample.numericAttributes[key] ?? 0;
-}
-
-function maximumAttribute(samples: readonly TelemetryStatusSample[], key: string): number {
-	return samples.reduce((maximum, sample) => Math.max(maximum, numberAttribute(sample, key)), 0);
-}
-
-function compactTelemetryDiagnostic(
-	status: unknown,
-	viewer: 'file' | 'review',
-): readonly Readonly<Record<string, unknown>>[] {
-	if (!isRecord(status) || !Array.isArray(status['recentSamples'])) return [];
-	return status['recentSamples']
-		.filter(isTelemetryStatusSample)
-		.filter(
-			(sample) =>
-				sample.stringAttributes['agentstudio.bridge.viewer'] === viewer &&
-				(sample.name === 'performance.bridge.web.render_disposition_admission' ||
-					sample.name === 'performance.bridge.worker.render_publication_outstanding'),
-		)
-		.slice(-12)
-		.map((sample) => ({
-			current: sample.numericAttributes['agentstudio.bridge.render_publication.current_count'],
-			event: sample.name,
-			highWater:
-				sample.numericAttributes['agentstudio.bridge.render_publication.high_water_mark'] ??
-				sample.numericAttributes['agentstudio.bridge.render_disposition.pending_high_water_mark'],
-			oldest:
-				sample.numericAttributes['agentstudio.bridge.render_publication.oldest_age_ms'] ??
-				sample.numericAttributes['agentstudio.bridge.render_disposition.oldest_pending_age_ms'],
-			outcome:
-				sample.stringAttributes['agentstudio.bridge.render_publication.outcome'] ??
-				sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'],
-			pending: sample.numericAttributes['agentstudio.bridge.render_disposition.pending_count'],
-			phase: sample.stringAttributes['agentstudio.bridge.phase'],
-			produced: sample.numericAttributes['agentstudio.bridge.render_disposition.produced_count'],
-			viewer,
-		}));
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
