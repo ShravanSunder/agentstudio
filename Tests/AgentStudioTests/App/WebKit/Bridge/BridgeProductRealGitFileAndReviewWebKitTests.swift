@@ -862,6 +862,9 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: AgentStudioGitStatusPhysicalGate()
+                ),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,
