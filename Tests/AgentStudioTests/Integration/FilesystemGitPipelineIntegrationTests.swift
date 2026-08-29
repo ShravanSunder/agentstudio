@@ -156,11 +156,15 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        let visibilityAdmissionGeneration = gitClock.scheduledSleepGeneration
         await pipeline.setRepositoryFactDemand(
             makeRepositoryFactDemand(
                 sidebarAttendedWorktreeIds: [worktreeId],
                 repositoryIdByWorktreeId: [worktreeId: repoId]
             ))
+        await gitClock.waitForPendingSleepGeneration(visibilityAdmissionGeneration)
+        gitClock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await pipeline.waitForRepositoryFactDemandAdmission()
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
@@ -177,16 +181,15 @@ struct FilesystemGitPipelineIntegrationTests {
             clock: gitClock,
             provider: provider,
             cacheReceipt: cacheReceipt,
-            cadence: refreshPolicy.activePaneCadence,
             repoCache: repoCache,
             worktreeId: worktreeId
         )
         await runPeriodicGitRefreshPhase(
-            .init(status: makeTrackedStatus(aheadCount: 1), expectedStatusReadCount: 2),
+            .init(status: makeTrackedStatus(aheadCount: 1)),
             context: refreshContext
         )
         await runPeriodicGitRefreshPhase(
-            .init(status: makeTrackedStatus(behindCount: 2), expectedStatusReadCount: 3),
+            .init(status: makeTrackedStatus(behindCount: 2)),
             context: refreshContext
         )
 
@@ -644,8 +647,6 @@ struct FilesystemGitPipelineIntegrationTests {
         let clock: TestPushClock
         let provider: MutableGitWorkingTreeStatusProvider
         let cacheReceipt: PeriodicGitCacheReceipt
-        let cadence: Duration
-        let expectedStatusReadCount: Int
         let expectedAheadCount: Int?
         let expectedBehindCount: Int?
     }
@@ -654,14 +655,12 @@ struct FilesystemGitPipelineIntegrationTests {
         let clock: TestPushClock
         let provider: MutableGitWorkingTreeStatusProvider
         let cacheReceipt: PeriodicGitCacheReceipt
-        let cadence: Duration
         let repoCache: RepoCacheAtom
         let worktreeId: UUID
     }
 
     private struct PeriodicGitRefreshPhase {
         let status: GitWorkingTreeStatus
-        let expectedStatusReadCount: Int
     }
 
     private func runPeriodicGitRefreshPhase(
@@ -676,8 +675,6 @@ struct FilesystemGitPipelineIntegrationTests {
                 clock: context.clock,
                 provider: context.provider,
                 cacheReceipt: context.cacheReceipt,
-                cadence: context.cadence,
-                expectedStatusReadCount: phase.expectedStatusReadCount,
                 expectedAheadCount: expectedAheadCount,
                 expectedBehindCount: expectedBehindCount
             )
@@ -698,12 +695,15 @@ struct FilesystemGitPipelineIntegrationTests {
         let clock = props.clock
         let provider = props.provider
         let cacheReceipt = props.cacheReceipt
-        let cadence = props.cadence
-        let expectedStatusReadCount = props.expectedStatusReadCount
         let expectedAheadCount = props.expectedAheadCount
         let expectedBehindCount = props.expectedBehindCount
         await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: cadence)
+        let expectedStatusReadCount = await provider.callCount + 1
+        guard let nextDeadline = clock.pendingSleepDeadlines.min() else {
+            Issue.record("periodic refresh should own an exact pending deadline")
+            return
+        }
+        clock.advance(to: nextDeadline)
         await provider.waitForCallCount(expectedStatusReadCount)
         await cacheReceipt.waitForSnapshot(
             aheadCount: expectedAheadCount,

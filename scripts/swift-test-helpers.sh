@@ -38,6 +38,39 @@ large_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+large_process_global_suite_filters() {
+  local large_suite_pattern
+  large_suite_pattern="$(large_non_webkit_filter_pattern)"
+  local webkit_leaf_suite_pattern
+  webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
+  local excluded_suite_pattern="E2E|Zmx|$webkit_leaf_suite_pattern"
+
+  {
+    serialized_main_actor_suite_matches main-actor-first
+    serialized_main_actor_suite_matches suite-first
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Infrastructure/Diagnostics/AgentStudioOTLPBootstrapSmokeTests.swift' \
+      'AgentStudioOTLPBootstrapSmokeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift' \
+      'DarwinSharedExactItemRealStreamIntegrationTests'
+  } | while IFS=: read -r source_file suite_name; do
+    case "$source_file" in
+      *"/App/WebKit/"*) continue ;;
+    esac
+    if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
+      continue
+    fi
+    if printf '%s\n' "$suite_name" | grep -Eq "$large_suite_pattern"; then
+      printf '%s\n' "$suite_name"
+    fi
+  done | sort -u
+}
+
+large_process_global_filter_pattern() {
+  large_process_global_suite_filters | /usr/bin/paste -sd'|' -
+}
+
 serialized_main_actor_suite_pattern() {
   local annotation_order="$1"
   local declaration_modifiers='(?:(?:public|package|internal|fileprivate|private|open|final|indirect|nonisolated(?:\(unsafe\))?)\s+)*'
@@ -192,6 +225,27 @@ run_aggregate_serial_non_webkit_swift_tests() {
   fi
 }
 
+run_large_process_global_swift_tests() {
+  local swift_test_bundle
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  local swift_testing_helper
+  swift_testing_helper="$(swift_testing_helper_path)"
+  local testing_framework_path
+  testing_framework_path="$(swift_testing_framework_path)"
+  local large_process_global_suite_filter
+  while IFS= read -r large_process_global_suite_filter; do
+    [ -n "$large_process_global_suite_filter" ] || continue
+    run_swift_with_timeout \
+      "isolated large process-global suite: $large_process_global_suite_filter" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$large_process_global_suite_filter" \
+      "$swift_test_bundle" --testing-library swift-testing
+  done < <(large_process_global_suite_filters)
+}
+
 swift_testing_bundle_path() {
   local test_bundle
   test_bundle="$(find "$BUILD_PATH" -type f -path '*/debug/AgentStudioPackageTests.xctest/Contents/MacOS/AgentStudioPackageTests' -print -quit)"
@@ -274,6 +328,7 @@ run_large_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
+      --skip "$(large_process_global_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 
     run_swift_with_timeout \
@@ -288,8 +343,11 @@ run_large_non_webkit_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
+      --skip "$(large_process_global_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
+
+  run_large_process_global_swift_tests
 }
 
 webkit_suite_filters() {

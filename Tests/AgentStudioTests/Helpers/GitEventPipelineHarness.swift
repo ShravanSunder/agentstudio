@@ -335,12 +335,16 @@ struct GitTopologyPipelineHarness {
 
 @MainActor
 struct GitEnrichmentPipelineHarness {
+    private static let cacheApplyTickCadence = Duration.milliseconds(25)
+
     let bus: EventBus<RuntimeEnvelope>
     let workspaceStore: WorkspaceStore
     let repoCache: RepoCacheAtom
     let coordinator: WorkspaceCacheCoordinator
     let projector: GitWorkingDirectoryProjector
     let forgeActor: ForgeActor
+    let forgeProjectionSubscriber: RecordingSubscriber<RuntimeEnvelope>
+    let cacheApplyClock: TestPushClock
     let tempDir: URL
 
     static func make(
@@ -352,11 +356,21 @@ struct GitEnrichmentPipelineHarness {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
+        let cacheApplyClock = TestPushClock()
+        let forgeProjectionSubscription = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "GitEnrichmentPipelineHarness.forgeProjection"
+        )
+        let forgeProjectionSubscriber = RecordingSubscriber(
+            subscription: forgeProjectionSubscription
+        )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            scopeSyncHandler: { _ in },
+            enrichmentApplyTickCadence: cacheApplyTickCadence,
+            enrichmentApplyClock: cacheApplyClock
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -376,6 +390,8 @@ struct GitEnrichmentPipelineHarness {
             coordinator: coordinator,
             projector: projector,
             forgeActor: forgeActor,
+            forgeProjectionSubscriber: forgeProjectionSubscriber,
+            cacheApplyClock: cacheApplyClock,
             tempDir: tempDir
         )
     }
@@ -385,10 +401,58 @@ struct GitEnrichmentPipelineHarness {
         await forgeActor.start()
     }
 
+    func advanceCacheApplyTick() async {
+        await cacheApplyClock.waitForPendingSleepCount(atLeast: 1)
+        cacheApplyClock.advance(by: Self.cacheApplyTickCadence)
+    }
+
+    func waitForStableForgeProjection(repoId: UUID) async {
+        _ = await forgeProjectionSubscriber.firstEvent { envelope in
+            guard case .worktree(let worktreeEnvelope) = envelope,
+                case .forge(
+                    .pullRequestRepositoryProjectionChanged(
+                        let eventRepoId,
+                        let projection,
+                        _
+                    )
+                ) = worktreeEnvelope.event,
+                eventRepoId == repoId,
+                case .stable(.ready) = projection
+            else { return false }
+            return true
+        }
+    }
+
+    func synchronizeCacheCoordinator(repoId: UUID, worktreeId: UUID) async {
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.gitEnvelope(
+                event: .statusOutcome(
+                    GitStatusOutcomeFact(
+                        worktreeId: worktreeId,
+                        repoId: repoId,
+                        outcome: .completed,
+                        reason: nil,
+                        consecutiveFailureCount: 0
+                    )
+                ),
+                repoId: repoId,
+                worktreeId: worktreeId
+            )
+        )
+        await assertEventuallyAsync("cache coordinator should consume its ordering barrier") {
+            let diagnostics = await bus.diagnosticsSnapshot()
+            return diagnostics.activeSubscribers.contains { subscriber in
+                subscriber.subscriberName == "WorkspaceCacheCoordinator"
+                    && subscriber.pendingDeliveryCount == 0
+            }
+        }
+    }
+
     func shutdown() async {
         await coordinator.shutdown()
         await projector.shutdown()
         await forgeActor.shutdown()
+        await forgeProjectionSubscriber.shutdown()
         try? FileManager.default.removeItem(at: tempDir)
     }
 }
