@@ -180,8 +180,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     }
 
     private static let uncertaintyFlags = FSEventStreamEventFlags(
-        kFSEventStreamEventFlagMustScanSubDirs
-            | kFSEventStreamEventFlagUserDropped
+        kFSEventStreamEventFlagUserDropped
             | kFSEventStreamEventFlagKernelDropped
             | kFSEventStreamEventFlagEventIdsWrapped
             | kFSEventStreamEventFlagRootChanged

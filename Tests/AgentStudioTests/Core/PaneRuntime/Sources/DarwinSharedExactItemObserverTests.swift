@@ -78,7 +78,8 @@ struct DarwinSharedExactItemObserverTests {
             parentKey: parentKey,
             streamGeneration: generation,
             path: configurationPath,
-            eventId: 41
+            eventId: 41,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
         )
 
         #expect(
@@ -227,7 +228,10 @@ struct DarwinSharedExactItemObserverTests {
             streamGeneration: generation,
             path: "\(parentKey.parentPath)/unrelated",
             eventId: 92,
-            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+            flags: FSEventStreamEventFlags(
+                kFSEventStreamEventFlagMustScanSubDirs
+                    | kFSEventStreamEventFlagUserDropped
+            )
         )
         let uncertaintySnapshot = fixture.performanceAccumulator.snapshotAndReset()
         #expect(uncertaintySnapshot.sharedRawCallbackBatchCount == 1)
@@ -265,7 +269,10 @@ struct DarwinSharedExactItemObserverTests {
             )
         )
         let generation = try #require(fixture.registry.snapshot().generationByParent[parentKey])
-        let uncertaintyFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        let uncertaintyFlags = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagMustScanSubDirs
+                | kFSEventStreamEventFlagKernelDropped
+        )
 
         for eventId in FSEventStreamEventId(100)...FSEventStreamEventId(101) {
             receive(

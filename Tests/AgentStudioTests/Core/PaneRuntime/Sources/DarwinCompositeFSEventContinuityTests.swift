@@ -14,7 +14,11 @@ struct DarwinCompositeFSEventContinuityTests {
         let fixture = try CompositeContinuityFixture()
         let authority = try #require(await fixture.prepareAuthority())
 
-        fixture.streamFactory.send(path: fixture.ancestorEventPath, eventId: 280)
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 280,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
 
         let renewedAuthority = await waitForRenewedAuthority(
             client: fixture.client,
