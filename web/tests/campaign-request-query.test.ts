@@ -18,6 +18,9 @@ describe("campaign request owner query", () => {
     expect(query).toContain("blob1 AS route_kind");
     expect(query).toContain("blob6 AS placement");
     expect(query).toContain("FROM agent_studio_campaign_requests");
+    expect(query).toContain("WHERE timestamp >= toDateTime('2026-08-28 00:00:00', 'UTC')");
+    expect(query).toContain("AND timestamp < toDateTime('2026-08-29 00:00:00', 'UTC')");
+    expect(query).not.toContain("2026-08-28T00:00:00Z");
     expect(query).toContain("GROUP BY route_kind, channel, campaign, creative, variant, placement");
   });
 

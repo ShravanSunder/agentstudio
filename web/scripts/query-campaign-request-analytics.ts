@@ -34,6 +34,9 @@ const assertBoundedTimeWindow = (from: string, to: string): void => {
   }
 };
 
+const formatCloudflareDateTime = (isoTimestamp: string): string =>
+  new Date(isoTimestamp).toISOString().slice(0, 19).replace("T", " ");
+
 const selectAndGroupByByQueryGroup = {
   total: { groupBy: "", select: "" },
   path: { groupBy: "GROUP BY path", select: "index1 AS path," },
@@ -51,13 +54,15 @@ const selectAndGroupByByQueryGroup = {
 export const buildCampaignRequestQuery = (input: CampaignRequestQueryInput): string => {
   assertBoundedTimeWindow(input.from, input.to);
   const projection = selectAndGroupByByQueryGroup[input.group];
+  const fromDateTime = formatCloudflareDateTime(input.from);
+  const toDateTime = formatCloudflareDateTime(input.to);
 
   return [
     `SELECT ${projection.select}`,
     '  sum(_sample_interval) AS "campaign_path_requests"',
     `FROM ${campaignRequestDatasetName}`,
-    `WHERE timestamp >= toDateTime('${input.from}')`,
-    `  AND timestamp < toDateTime('${input.to}')`,
+    `WHERE timestamp >= toDateTime('${fromDateTime}', 'UTC')`,
+    `  AND timestamp < toDateTime('${toDateTime}', 'UTC')`,
     projection.groupBy,
     "ORDER BY campaign_path_requests DESC",
     "FORMAT JSON",
@@ -132,9 +137,10 @@ const run = async (): Promise<void> => {
 };
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await run().catch((error: unknown): never => {
-    const message = error instanceof Error ? error.message : "Campaign analytics query failed";
-    process.stderr.write(`${message}\n`);
+  await run().catch((): never => {
+    process.stderr.write(
+      "Campaign analytics query failed. Verify the time window, network access, and private credentials.\n",
+    );
     process.exit(1);
   });
 }
