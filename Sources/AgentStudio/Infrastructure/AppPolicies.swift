@@ -465,7 +465,7 @@ package enum AppPolicies {
     }
 
     package enum FilesystemIngress {
-        package static let bufferedFineBatchCapacity: Int = 64
+        package static let bufferedFineBatchCapacity: Int = 512
         package static let maximumRetainedOverflowPathsPerRegistration: Int = 256
         package static let maximumRetainedActivityOverflowParticipantScopes: Int = 256
     }
