@@ -64,7 +64,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The periodic Git integration fixture now settles visibility admission before registration, derives the next provider call count dynamically, and advances the injected clock to the actual scheduler deadline. The focused leaf passed 1/1 and the complete `FilesystemGitPipelineIntegrationTests` suite passed 7/7.
 - The Git enrichment integration fixture now drives the existing cache-apply clock explicitly and waits for stable Forge projection plus an ordered cache-consumer barrier. `GitEnrichmentEventPipelineIntegrationTests` passed 2/2 without wall-clock sleeps.
 - `SWIFT_TEST_SKIP_PREBUILD=1 mise run test:swift:large` passed the broad 359-test/56-suite inventory, the 5-test PaneAgent owner, and every isolated process-global suite. `SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_PARALLEL=0 mise run test:swift:large` passed the same topology through the fallback path. `mise run format`, `mise run lint`, and `git diff --check` passed before the checkpoint commit; the final aggregate gate remains open.
-- Aggregate `mise run test` at `631a7955b` completed successfully: BridgeWeb unit 1,764, integration 19, browser 211 passed/5 skipped; Swift fast 4,403 tests/621 suites, large 359 tests/56 suites, WebKit serialized, and E2E serialized all passed (exit 0, 490s). A final exact-HEAD rerun remains required after the later bounded CPU and geometry checkpoints.
+- Final exact-HEAD aggregate `mise run test` at `b56dd54e5` completed successfully after the isolated topology suite passed 7/7: BridgeWeb unit 1,764, integration 19, browser 211 passed/5 skipped, E2E 4; Swift fast/isolated/large, WebKit serialized, and E2E serialized all passed (exit 0, 429s).
 
 ## Non-Goals
 
