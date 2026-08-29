@@ -502,6 +502,13 @@ Date: 2026-08-25
       The proof must wait for the Reply textbox to be absent before issuing the second
       shortcut. Treat this as a test sequencing defect, not the cause of the live
       yellow-padding keyboard-owner defect.
+    - Settled investigation model: pointer activation on any non-interactive part of
+      the complete annotation surface both activates Pierre and establishes that
+      thread's keyboard owner. Save/Escape completion restores focus inside the
+      already-active thread without re-activating. Incidental Tab/programmatic focus
+      into an inactive thread remains presentation-only and must not paint/select it.
+      `R`/Ctrl-R route only when the thread is both active and the current keyboard
+      owner, with no annotation editor/draft input owner.
 
 26. **Vite page does not recover after supervised backend restart**
     - Real Chrome/Vite observation on 2026-08-29: a repository WIP edit triggered
@@ -513,6 +520,100 @@ Date: 2026-08-25
       requires the live production comm-worker page to reconnect, bootstrap current
       source, and leave the pending chrome after a supervised backend restart without
       losing annotation/editor state.
+
+27. **Real Chrome focus evidence for root Save, yellow frame, and Edit**
+    - Fresh Swift-backed Vite File journey created a durable root annotation on
+      `BridgeWeb/src/app/bridge-review-comparison-control-ux.browser.test.tsx:200-201`.
+      After Command-Enter Save, the annotation committed and rendered Pending, but
+      `document.activeElement` was `BODY`; both `R` and Ctrl-R produced zero Reply
+      editors.
+    - Clicking yellow thread header/padding moved focus to `DIFFS-CONTAINER`, outside
+      the annotation; `R` produced zero Reply editors. Clicking the message card moved
+      focus to `ARTICLE[aria-label="Root annotation by You"]`; `R` immediately opened
+      exactly one Reply editor. This is the deterministic live explanation for the
+      intermittent shortcut.
+    - After Reply Escape settled, the first immediate Edit click did not install an
+      editor; a later Edit click opened one. Once open, the Textarea was enabled but
+      `document.activeElement` remained `BODY` after another 800 ms. Source mechanism
+      to prove: Textarea mounts `autoFocus` while disabled pending edit-ownership
+      acquisition, then enables without a second focus admission.
+
+28. **Active editor disappears into non-recovering File load during worktree refresh**
+    - In the same real Chrome journey, the existing-message editor was open when a
+      worktree refresh began. The selected surface changed to `Loading file`; the
+      thread and Textarea both disappeared. The Swift backend stayed healthy, Chrome
+      emitted no error/warning logs, and the File surface did not recover after more
+      than six seconds.
+    - This is distinct from item 26's backend-restart refusal. Investigate the File
+      content-generation/install boundary, active-editor installation preparation,
+      and whether ordinary worktree refresh is incorrectly replacing the installed
+      surface instead of retaining it until the next complete file snapshot.
+    - Acceptance: ordinary unrelated file changes never remove the active annotation
+      or editor; exact selected-file changes preserve/reconcile the editor or promote
+      a deliberate refresh state without blanking the surface indefinitely.
+
+29. **Permanent Review Share entry is verbose chrome**
+    - Native debug-app owner screenshot shows `[share icon  Share comments]` occupying
+      the compact Review header. The persistent entry should be icon-only, using the
+      existing Share action icon with command-style tooltip/accessibility name `Share
+      comments`; the in-flow opened surface may retain a short `Share` heading.
+    - Acceptance: no toolbar width jump, no duplicated visible verb, same owned
+      shadcn button size/color/tooltip as adjacent compact header actions.
+
+30. **Reconsider the full-width contextual-bar interaction, not only its color**
+    - Owner rejected treating the loading/update bar as an automatic visual template.
+      The current permanent header plus second full-width Share row duplicates
+      ownership, adds a vertical layout jump, leaves a large empty span, and presents
+      too many visible verbs.
+    - Design investigation must compare: (A) transform the existing Review/File
+      header into Share mode in place; (B) one compact contextual row that replaces,
+      rather than stacks under, the normal header/status row; (C) retain a secondary
+      in-flow row only if it earns the extra height. All variants keep Share non-modal
+      and non-floating.
+    - Pending/All remain the only scopes. Copy, Export, and Done should be icon-first
+      compact actions with command-style tooltips. Do not duplicate `Share` or `Share
+      comments` in visible chrome. Loading/update states need their own minimal status
+      treatment and must not become a generic interactive-toolbar pattern.
+    - Acceptance evaluation: no toolbar width/height jump, no content-covering overlay,
+      stable Pierre geometry, compact keyboard order, clear mode ownership, shadcn
+      primitives/tokens only, and tasteful narrow-width behavior.
+
+31. **2026-08-29 full-flow investigation boundary**
+    - Real supervised stack: Vite `5174`, production comm worker, freshly built Swift
+      development backend, isolated SQLite owner. Health returned 204.
+    - Real File passes: range admission, durable root draft, Command-Enter commit,
+      reload persistence, Pending membership, Copy dismissal/handled transition/toast,
+      History inspection, Mark as not handled, All scope, JSON Export dismissal/toast,
+      and durable History growth.
+    - Real cross-view passes: after the annotated file was committed and no longer
+      placeable inline in Review, Review Share still reported `All 1`, `Pending 0`,
+      and the shared durable `History (2)`.
+    - Real failures: root Save returns focus to `BODY`; yellow padding focuses
+      `DIFFS-CONTAINER`; Edit installs an enabled Textarea without focusing it; a
+      selected-file refresh can strand File at `Loading file`; supervised backend
+      restart can strand an existing page at `Source pending`.
+    - Output-byte boundary: Chrome confirmed UI/state outcomes, but the development
+      output harness did not expose OS clipboard bytes through the Chrome extension.
+      Exact bytes remain owned by E2E capture proof and later packaged clipboard/save
+      panel proof.
+    - Automated focused Chromium: 33/34 passed. The one failure is a test batching
+      defect (Escape and Ctrl-R in one `act`) and must be separated from the proven
+      live focus-owner failure.
+    - Independent proof audit gaps: no composed-real agent-authored New/viewed
+      journey; no real File↔Review Edit/Reply Command-Enter shortcut journey; no real
+      mixed human/agent All byte parity; no real History Repeat/cancel/failure; no
+      packaged clipboard/save-panel proof.
+    - Native debug proof: current BridgeWeb and Swift built into isolated `Agent Studio
+      Debug 1owk`, PID `80019`; exact marker-scoped observability/startup verification
+      passed. Computer Use observed native Review, opened a range composer, and saw
+      durable Draft plus the full Share bar. Native mutation actions later conflicted
+      with concurrent human app changes; do not misclassify tool interruption as a
+      product failure or substitute another UI operator against owner direction.
+    - Exact complete-gate attempt: quality/architecture/format/typecheck/product
+      contract passed; unit 2,100/2,100; Swift-backed Node integration 22/22;
+      Browser 316 passed, 5 skipped, 1 failed. The aggregate stopped before stress
+      and ordinary E2E at the already-diagnosed same-`act` Escape/Ctrl-R test
+      sequencing failure (`worktree-annotation-thread.browser.test.tsx:805`).
 
 ## Scope classification
 
