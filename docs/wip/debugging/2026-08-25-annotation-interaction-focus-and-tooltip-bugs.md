@@ -615,6 +615,31 @@ Date: 2026-08-25
       and ordinary E2E at the already-diagnosed same-`act` Escape/Ctrl-R test
       sequencing failure (`worktree-annotation-thread.browser.test.tsx:805`).
 
+32. **2026-08-29 decision boundary: implement now versus design later**
+    - Implement now without further product questions: non-interactive yellow-surface
+      pointer activation establishes the active thread keyboard owner; root/message
+      Save restores focus to the same active thread; Edit focuses its exact Textarea
+      after edit-ownership admission; `R` and Ctrl-R open one Reply only for an active
+      keyboard-owned saved thread; an active/unsaved human draft blocks Reply; the
+      Escape/Ctrl-R browser proof yields between lifecycle transitions; natural-focus
+      proof does not call `.focus()` as a substitute for product behavior.
+    - Implement now in compact chrome: comparison update retains the stable visible
+      target label and swaps only its leading icon for a spinner; permanent Share is
+      icon-only with command-style tooltip/accessibility name; Pending retains yellow
+      while Draft removes the yellow dot and verbose `changes · saved locally` copy.
+    - Correctness floor to implement when the existing owner is bounded: installed
+      File/Review content and active editors remain visible through background refresh;
+      supervised backend restart reconnects or presents a recoverable failure instead
+      of permanent `Loading file` / `Source pending`.
+    - Design later with the owner: whether Share transforms the existing header,
+      replaces a status row, or earns a secondary row; promoted/loading presentation;
+      exact active-versus-closed Draft styling; Escape semantics for a dirty durable
+      draft; and whether incidental Tab focus requires Enter before Pierre activation.
+    - Proof-only follow-ups, not new product design: composed-real File/Review
+      Command-Enter→Reply, agent New/viewed durability, mixed-author All byte parity,
+      packaged clipboard/save panel, History Repeat/failure, and restart/refresh
+      recovery journeys.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
