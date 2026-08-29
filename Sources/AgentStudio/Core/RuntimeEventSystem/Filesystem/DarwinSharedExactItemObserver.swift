@@ -2,16 +2,6 @@ import AgentStudioGit
 import CoreServices
 import Foundation
 
-package enum DarwinFSEventStreamConfiguration {
-    package static let continuityFlags = FSEventStreamCreateFlags(
-        kFSEventStreamCreateFlagFileEvents
-            | kFSEventStreamCreateFlagNoDefer
-            | kFSEventStreamCreateFlagUseCFTypes
-            | kFSEventStreamCreateFlagWatchRoot
-            | kFSEventStreamCreateFlagMarkSelf
-    )
-}
-
 package struct DarwinSharedExactItemRawEvent: Sendable {
     package let path: String
     package let eventId: FSEventStreamEventId
@@ -73,15 +63,17 @@ package enum DarwinFSEventPathClassifier {
         let rootPrefix = rootPath + "/"
         let classifiedRawEvents = rawEvents.map { event in
             let candidate = normalizedPath(for: event.path)
-            let hasRelevantMutation = canonicalScopes.contains { scope in
-                switch scope.kind {
-                case .item:
-                    return candidate == scope.path
-                case .subtree:
-                    return candidate == scope.path
-                        || scope.subtreePrefix.map { candidate.hasPrefix($0) } == true
+            let hasRelevantMutation =
+                !FilesystemPathFilter.isAgentStudioPrivateStagingRefPath(candidate)
+                && canonicalScopes.contains { scope in
+                    switch scope.kind {
+                    case .item:
+                        return candidate == scope.path
+                    case .subtree:
+                        return candidate == scope.path
+                            || scope.subtreePrefix.map { candidate.hasPrefix($0) } == true
+                    }
                 }
-            }
             return DarwinFSEventClassifiedRawEvent(
                 eventId: event.eventId,
                 flags: event.flags,
@@ -91,7 +83,8 @@ package enum DarwinFSEventPathClassifier {
         }
         let ordinaryWorktreePaths = ordinaryPaths.filter { path in
             let candidate = normalizedPath(for: path)
-            return candidate == rootPath || candidate.hasPrefix(rootPrefix)
+            return !FilesystemPathFilter.isAgentStudioPrivateStagingRefPath(candidate)
+                && (candidate == rootPath || candidate.hasPrefix(rootPrefix))
         }
         return DarwinFSEventClassification(
             rawEvents: classifiedRawEvents,
@@ -953,6 +946,19 @@ package enum DarwinSharedExactItemNativeStream {
                 DarwinFSEventStreamConfiguration.continuityFlags
             )
         else {
+            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
+            return nil
+        }
+        guard
+            DarwinFSEventStreamConfiguration.installPrivateStagingExclusions(
+                DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
+                    sharedParentPath: parentKey.parentPath
+                ),
+                on: stream
+            )
+        else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
             Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
             return nil
         }

@@ -56,6 +56,9 @@ package struct FilesystemPathFilter: Sendable {
     }
 
     package func classify(relativePath: String) -> FilesystemPathDisposition {
+        if Self.isAgentStudioPrivateStagingRefPath(relativePath) {
+            return .ignoredByPolicy
+        }
         if Self.isFetchHeadBookkeepingPath(relativePath: relativePath) {
             return .ignoredByPolicy
         }
@@ -103,6 +106,14 @@ package struct FilesystemPathFilter: Sendable {
             return false
         }
         return fileName == "FETCH_HEAD" || fileName == "FETCH_HEAD.lock"
+    }
+
+    package static func isAgentStudioPrivateStagingRefPath(_ path: String) -> Bool {
+        let normalizedPath = normalized(relativePath: path)
+        return normalizedPath == "refs/agentstudio/staged"
+            || normalizedPath.hasPrefix("refs/agentstudio/staged/")
+            || normalizedPath.hasSuffix("/refs/agentstudio/staged")
+            || normalizedPath.contains("/refs/agentstudio/staged/")
     }
 
     private static func normalized(relativePath: String) -> String {
@@ -166,7 +177,9 @@ package enum RepositoryLocalActivityPathClassifier {
 
     package static func qualifiesGitMetadataPath(_ path: String) -> Bool {
         let normalizedPath = normalized(path)
-        guard !isAgentStudioStagingRef(normalizedPath) else { return false }
+        guard !FilesystemPathFilter.isAgentStudioPrivateStagingRefPath(normalizedPath) else {
+            return false
+        }
         guard !normalizedPath.hasSuffix(".lock") else { return false }
 
         let components = normalizedPath.split(separator: "/")
@@ -178,11 +191,6 @@ package enum RepositoryLocalActivityPathClassifier {
             || normalizedPath.contains("/refs/remotes/")
             || normalizedPath.hasPrefix("refs/heads/")
             || normalizedPath.hasPrefix("refs/remotes/")
-    }
-
-    private static func isAgentStudioStagingRef(_ path: String) -> Bool {
-        path.contains("/refs/agentstudio/staged/")
-            || path.hasPrefix("refs/agentstudio/staged/")
     }
 
     private static func normalized(_ path: String) -> String {

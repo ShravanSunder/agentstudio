@@ -557,6 +557,22 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return nil
         }
 
+        if observationIdentity != nil {
+            guard
+                DarwinFSEventStreamConfiguration.installPrivateStagingExclusions(
+                    DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
+                        observationScopes: observationScopes
+                    ),
+                    on: stream
+                )
+            else {
+                FSEventStreamInvalidate(stream)
+                FSEventStreamRelease(stream)
+                Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
+                return nil
+            }
+        }
+
         let queue = DispatchQueue(
             label: "com.agentstudio.fsevents.\(worktreeId.uuidString)",
             qos: .utility

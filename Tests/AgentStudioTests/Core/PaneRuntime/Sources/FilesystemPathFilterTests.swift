@@ -22,6 +22,10 @@ struct FilesystemPathFilterTests {
 
         #expect(filter.classify(relativePath: ".git/FETCH_HEAD") == .ignoredByPolicy)
         #expect(filter.classify(relativePath: ".git/FETCH_HEAD.lock") == .ignoredByPolicy)
+        #expect(
+            filter.classify(relativePath: ".git/refs/agentstudio/staged/attempt/heads/main")
+                == .ignoredByPolicy
+        )
         #expect(filter.classify(relativePath: ".git/modules/vendor/FETCH_HEAD") == .ignoredByPolicy)
         #expect(filter.classify(relativePath: "nested/.git/FETCH_HEAD") == .ignoredByPolicy)
         #expect(filter.classify(relativePath: ".git/HEAD") == .gitInternal)
