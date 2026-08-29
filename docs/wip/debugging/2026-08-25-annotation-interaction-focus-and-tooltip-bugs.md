@@ -703,6 +703,26 @@ Date: 2026-08-25
       occlusion to eliminate the current repeated canvas reflow.
     - Status: owner-accepted design checkpoint; not implemented.
 
+35. **Promoted refresh status and action form one right-side header group**
+    - Accepted placement: promoted same-source refresh status and its available
+      action render together as one compact group on the right side of the
+      existing 36 px Review header. The stable Review/File identity and title
+      remain on the left.
+    - Computing presents a compact spinner with `Updating…`. A held complete
+      candidate presents `Update ready` with `Apply now`. A retryable promoted
+      failure presents `Update unavailable` with `Retry`.
+    - This is not a second toolbar, inserted loading row, floating shelf, or
+      canvas overlay. Ordinary same-source refresh remains visually silent.
+      Initial load and explicit comparison-target replacement retain their
+      separate existing presentations.
+    - The group does not move or dim the canvas, disable Review/annotation
+      interaction, steal focus, or force focus into an action. Its presence must
+      not change header height or the stable left-side title geometry.
+    - Exact status colors remain open. The proposed neutral Updating, accent-blue
+      Update ready, and restrained-red Update unavailable treatments are not yet
+      owner-confirmed.
+    - Status: owner-accepted placement checkpoint; not implemented.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
