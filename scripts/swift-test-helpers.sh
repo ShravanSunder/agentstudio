@@ -25,6 +25,9 @@ large_non_webkit_filter_pattern() {
     TerminalActivityAgentSettledHeuristicTests
     MainWindowControllerInboxToolbarButtonTests
     ProcessExecutorTests
+    DarwinCompositeFSEventContinuityTests
+    DarwinFSEventStreamClientTests
+    DarwinSharedExactItemObserverTests
     FilesystemActorActivityTests
     WorkspaceStrictStartupSubprocessTests
   )
@@ -56,6 +59,15 @@ large_process_global_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift' \
       'DarwinSharedExactItemRealStreamIntegrationTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift' \
+      'DarwinCompositeFSEventContinuityTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift' \
+      'DarwinFSEventStreamClientTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemObserverTests.swift' \
+      'DarwinSharedExactItemObserverTests'
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorActivityTests.swift' \
       'FilesystemActorActivityTests'
@@ -141,9 +153,6 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift' \
       'GitWorkingDirectoryProjectorTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift' \
-      'DarwinCompositeFSEventContinuityTests'
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift' \
       'AgentStudioAppIPCServiceTests'

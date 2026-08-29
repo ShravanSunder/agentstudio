@@ -508,7 +508,6 @@ struct CIFastLaneWorkflowTests {
             "TerminalPaneMountViewExitBehaviorTests",
             "TerminalActivityProjectorTests",
             "GitWorkingDirectoryProjectorTests",
-            "DarwinCompositeFSEventContinuityTests",
             "AgentStudioAppIPCServiceTests",
             "AgentStudioAppIPCServiceAuthModeTests",
             "AgentStudioAppIPCServiceCommandTests",
@@ -595,6 +594,9 @@ struct CIFastLaneWorkflowTests {
         )
         for suiteName in [
             "AgentStudioOTLPBootstrapSmokeTests",
+            "DarwinCompositeFSEventContinuityTests",
+            "DarwinFSEventStreamClientTests",
+            "DarwinSharedExactItemObserverTests",
             "DarwinSharedExactItemRealStreamIntegrationTests",
             "DerivedActivityNotificationIntegrationTests",
             "DrawerCommandIntegrationTests",
