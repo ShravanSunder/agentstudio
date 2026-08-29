@@ -60,7 +60,7 @@ export async function waitForBackpressureTelemetry(props: {
 		);
 	}
 	if (telemetryProofFailure !== null) {
-		throw new Error(`Backpressure telemetry proof is invalid: ${telemetryProofFailure}.`);
+		throw new Error(`Backpressure telemetry proof is invalid: ${String(telemetryProofFailure)}.`);
 	}
 	if (observation === null) {
 		throw new Error(`Backpressure telemetry did not quiesce: ${JSON.stringify(latestStatus)}.`);
