@@ -110,6 +110,7 @@ export class BridgeCommWorkerProductController {
 	#fileDemandEpoch = 0;
 	#hasFileMetadataDemand = false;
 	#fileSourceEnsure: Promise<void> | null = null;
+	#fileFrameObservationRecoveryAttempted = false;
 	#reviewSubscription: ReviewMetadataSubscription | null = null;
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
@@ -684,6 +685,7 @@ export class BridgeCommWorkerProductController {
 				if (subscription !== this.#fileSubscription) return;
 				const event = frame.data;
 				this.#fileSource = event.source;
+				this.#fileFrameObservationRecoveryAttempted = false;
 				this.#onFileMetadataEvent(event, workerDerivationEpoch);
 				if (event.eventKind === 'file.sourceAccepted' || this.#hasFileMetadataDemand) {
 					this.#scheduleFileMetadataInterestPublication();
@@ -692,6 +694,13 @@ export class BridgeCommWorkerProductController {
 		} catch (error) {
 			if (this.#retireFailedFileMetadataSubscription(subscription)) {
 				this.#onFileMetadataFailure(error, workerDerivationEpoch);
+				if (
+					!this.#fileFrameObservationRecoveryAttempted &&
+					bridgeProductFrameObservationTimedOut(error)
+				) {
+					this.#fileFrameObservationRecoveryAttempted = true;
+					void this.ensureFileSource().catch((): void => {});
+				}
 				throw error;
 			}
 		}

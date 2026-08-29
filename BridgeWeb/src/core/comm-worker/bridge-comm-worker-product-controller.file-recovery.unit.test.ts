@@ -95,7 +95,12 @@ describe('Bridge comm worker File metadata recovery', () => {
 
 		// Act
 		await controller.ensureFileSource();
-		firstEvents.fail(new Error('construction invalidated'), true);
+		firstEvents.fail(
+			Object.assign(new Error('metadata acknowledgement timed out'), {
+				failureCode: 'request_timeout',
+			}),
+			true,
+		);
 		await observedFailure.promise;
 		await controller.ensureFileSource();
 		expect(discoveryCount).toBe(2);
