@@ -30,10 +30,21 @@ extension WorkspaceSurfaceCoordinator {
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         if viewRegistry.isInitialRestorePending {
-            let activePaneIDs = activeTab.activePaneIds.map(PaneId.init(existingUUID:))
-            _ = preparedContentVisibilitySignalHandler(activePaneIDs)
+            // The active arrangement layout contains only top-level panes;
+            // expanded drawer children are owned by the drawer view layout.
+            // Include every currently visible pane so a failed prepared mount
+            // receives the same post-settlement repair opportunity as its
+            // parent. Without this, a drawer child can remain on the
+            // `.preparing` placeholder forever until a layout edit re-enters
+            // the steady-state restore path.
+            let visiblePaneIDs = TerminalRestoreScheduler.order(
+                activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
+                resolver: visibilityTierResolver
+            )
+            .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
+            _ = preparedContentVisibilitySignalHandler(visiblePaneIDs)
             RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(activeTab.activePaneIds.count)"
+                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count)"
             )
             return
         }
