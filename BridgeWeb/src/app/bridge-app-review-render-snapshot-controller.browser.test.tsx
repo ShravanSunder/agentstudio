@@ -24,6 +24,7 @@ import {
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
@@ -421,6 +422,19 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			);
 			await import('../review-viewer/shell/review-viewer-shell.js');
 			await settleRenderedReviewFrame();
+			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
+			await settleRenderedReviewFrame();
+		});
+
+		const canvas = rendered.getByTestId('bridge-review-canvas').element();
+		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
+		expect(canvas.hasAttribute('inert')).toBe(false);
+		expect(tree.hasAttribute('inert')).toBe(false);
+		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).not.toBe('none');
+		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
+
+		await act(async (): Promise<void> => {
 			harness.publish(
 				reviewDisplayEvent({
 					itemId: 'item-1',
@@ -439,15 +453,12 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					},
 				},
 			);
-			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
 			await settleRenderedReviewFrame();
 		});
 
 		await expect
 			.element(rendered.getByTestId('bridge-viewer-content-status'))
 			.toHaveTextContent('Update ready');
-		const canvas = rendered.getByTestId('bridge-review-canvas').element();
-		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
 		expect(canvas.hasAttribute('inert')).toBe(false);
 		expect(tree.hasAttribute('inert')).toBe(false);
 		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
@@ -482,7 +493,11 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			);
 			await import('../review-viewer/shell/review-viewer-shell.js');
 			await settleRenderedReviewFrame();
-			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
+			harness.publish(
+				reviewComparisonLoadingPanelChromeEventForHarness({
+					activeTarget: { basis: 'commonCommit', kind: 'ref', name: 'feature/new-target' },
+				}),
+			);
 			await settleRenderedReviewFrame();
 		});
 
@@ -857,9 +872,11 @@ function reviewComparisonPanelChromeEventForHarness(): ReturnType<
 	};
 }
 
-function reviewComparisonLoadingPanelChromeEventForHarness(): ReturnType<
-	typeof reviewComparisonPanelChromeEvent
-> {
+function reviewComparisonLoadingPanelChromeEventForHarness(
+	props: {
+		readonly activeTarget?: BridgeReviewComparisonTarget;
+	} = {},
+): ReturnType<typeof reviewComparisonPanelChromeEvent> {
 	const event = reviewComparisonPanelChromeEventForHarness();
 	return {
 		...event,
@@ -871,7 +888,7 @@ function reviewComparisonLoadingPanelChromeEventForHarness(): ReturnType<
 						...patch,
 						payload: {
 							reviewComparison: {
-								activeTarget: {
+								activeTarget: props.activeTarget ?? {
 									basis: 'commonCommit',
 									branchName: 'master',
 									kind: 'localDefaultBranch',
