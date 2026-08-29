@@ -163,7 +163,9 @@ struct FilesystemActorActivityTests {
             )
         }
 
-        await clock.waitForPendingSleepCount()
+        let burstBarrier = try #require(await streamClient.captureActivityBarrier())
+        #expect(burstBarrier.deliveredEventIDByParticipant.values.max() ?? 0 >= 43)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .seconds(1))
         let burstCommitted = await waitUntil {
             await activityCommitRecorder.commits.count == 1
