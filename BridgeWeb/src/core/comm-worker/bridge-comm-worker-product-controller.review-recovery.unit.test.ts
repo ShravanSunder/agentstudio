@@ -56,8 +56,14 @@ describe('Bridge comm worker Review metadata recovery', () => {
 				},
 			});
 			controller.ensureReviewMetadata();
-			firstEvents.fail(new Error('metadata stream ended'), true);
+			firstEvents.fail(
+				Object.assign(new Error('metadata acknowledgement timed out'), {
+					failureCode: 'request_timeout',
+				}),
+				true,
+			);
 			await observedFailure.promise;
+			expect(subscriptionCount).toBe(2);
 
 			// Act
 			await controller.sendProductControl(command);

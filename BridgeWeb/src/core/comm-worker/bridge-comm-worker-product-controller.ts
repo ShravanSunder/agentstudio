@@ -115,6 +115,7 @@ export class BridgeCommWorkerProductController {
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewDesiredInterestSignature: string | null = null;
 	#reviewRecoveryPublicationId: string | null = null;
+	#reviewFrameObservationRecoveryAttempted = false;
 	#reviewWorkerDerivationEpoch = 0;
 
 	constructor(props: {
@@ -476,6 +477,7 @@ export class BridgeCommWorkerProductController {
 					) {
 						continue;
 					}
+					this.#reviewFrameObservationRecoveryAttempted = false;
 					this.#reviewRecoveryPublicationId = null;
 				} catch (error) {
 					await this.#recoverReviewMetadataApplicationFailure(
@@ -492,6 +494,17 @@ export class BridgeCommWorkerProductController {
 				this.#reviewSubscription = null;
 				this.#reviewDesiredInterestSignature = null;
 				this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+				if (
+					!this.#reviewFrameObservationRecoveryAttempted &&
+					bridgeProductFrameObservationTimedOut(error)
+				) {
+					this.#reviewFrameObservationRecoveryAttempted = true;
+					try {
+						this.ensureReviewMetadata();
+					} catch {
+						// The typed failure is already published; a later demand retries recovery.
+					}
+				}
 				throw error;
 			}
 		}
@@ -812,6 +825,15 @@ function fileMetadataInterestsInPriorityOrder(
 
 function uniqueFileDemandPaths(paths: readonly string[]): readonly string[] {
 	return [...new Set(paths)];
+}
+
+function bridgeProductFrameObservationTimedOut(error: unknown): boolean {
+	return (
+		typeof error === 'object' &&
+		error !== null &&
+		'failureCode' in error &&
+		error.failureCode === 'request_timeout'
+	);
 }
 
 function assertNeverBridgeProductControlCommand(command: never): never {
