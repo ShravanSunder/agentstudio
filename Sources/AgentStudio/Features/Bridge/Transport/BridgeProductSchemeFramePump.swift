@@ -357,19 +357,20 @@ extension BridgeProductSession {
     private func waitWithFrameObservationTimeout(
         _ operation: @escaping @Sendable () async -> Bool
     ) async -> Bool {
-        let operationTask = Task { await operation() }
-        do {
-            try await frameObservationDelay(frameObservationTimeout)
-        } catch is CancellationError {
-            operationTask.cancel()
-            return await operationTask.value
-        } catch {
-            operationTask.cancel()
-            return false
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                do {
+                    try await self.frameObservationDelay(self.frameObservationTimeout)
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        operationTask.cancel()
-        _ = await operationTask.value
-        return false
     }
 
     func resumeProducerFrameWaiterIfPossible(

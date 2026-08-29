@@ -549,7 +549,7 @@ struct BridgeProductSchemeAdapterTests {
         )
         #expect(
             containmentSamples.first?.stringAttributes["agentstudio.bridge.result_reason"]
-                == "frame_acknowledgement_rejected"
+                == "frame_delivery_rejected"
         )
     }
 
