@@ -579,11 +579,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					timeout = globalThis.setTimeout((): void => {
 						abortController.abort();
 						reject(
-								new BridgeProductFrameAcknowledgementFailure(
-									'request_timeout',
-									null,
-									'Bridge product frame acknowledgement request timed out.',
-								),
+							new BridgeProductFrameAcknowledgementFailure(
+								'request_timeout',
+								null,
+								'Bridge product frame acknowledgement request timed out.',
+							),
 						);
 					}, this.#frameAcknowledgementTimeoutMilliseconds);
 				}),
