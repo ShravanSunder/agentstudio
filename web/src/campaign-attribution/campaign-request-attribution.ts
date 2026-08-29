@@ -3,7 +3,7 @@ import {
   campaignChannels,
   type CampaignAttributionRoute,
   type CampaignChannel,
-} from "./campaign-attribution-registry";
+} from "./campaign-attribution-registry.ts";
 
 export const campaignRequestDatasetName = "agent_studio_campaign_requests";
 export const aggregateCampaignDimension = "__channel_aggregate__";

@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +14,33 @@ const timeWindow = {
 } as const;
 
 describe("campaign request owner query", () => {
+  it("starts through the declared native Node command and sanitizes missing credentials", () => {
+    const environment = { ...process.env };
+    delete environment["CLOUDFLARE_ACCOUNT_ID"];
+    delete environment["CLOUDFLARE_API_TOKEN"];
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        resolve(import.meta.dirname, "../scripts/query-campaign-request-analytics.ts"),
+        "--from",
+        timeWindow.from,
+        "--to",
+        timeWindow.to,
+        "--group",
+        "total",
+      ],
+      { encoding: "utf8", env: environment, timeout: 10_000 },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe(
+      "Campaign analytics query failed. Verify the time window, network access, and private credentials.\n",
+    );
+    expect(result.stderr).not.toContain("ERR_MODULE_NOT_FOUND");
+  });
+
   it("uses sampling-aware totals and stable creative aliases", () => {
     const query = buildCampaignRequestQuery({ ...timeWindow, group: "creative" });
 
