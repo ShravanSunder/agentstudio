@@ -349,7 +349,7 @@ extension WebKitSerializedTests {
             )
             #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 2)
             #expect(proof.updatingReviewStatus.comparisonStatusText == nil)
-            #expect(proof.updatingReviewStatus.reviewStatusText == "Updating review…")
+            #expect(proof.updatingReviewStatus.reviewStatusText == nil)
             #expect(proof.updatingReviewStatus.fileStatusText == nil)
             #expect(proof.updatingFileStatus.fileStatusText == "Updating files…")
             #expect(proof.updatingFileStatus.reviewStatusText == nil)

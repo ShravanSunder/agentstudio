@@ -404,7 +404,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
               pendingCount: integerIn(textForPrefix('Pending')),
               otherSavedCommentsVisible:
                 document.querySelector('[aria-label="Other saved comments"]') !== null,
-              shareVisible: document.querySelector('[aria-label="Share comments"]') !== null
+              shareVisible:
+                document.querySelector('[data-testid="worktree-annotation-share-mode"]') !== null
             });
             """
         )
