@@ -1,12 +1,4 @@
-import {
-	Check,
-	ChevronDown,
-	MessageSquareReply,
-	Pencil,
-	RotateCcw,
-	Undo2,
-	type LucideIcon,
-} from 'lucide-react';
+import { Check, ChevronDown, Pencil, Reply, RotateCcw, Undo2, type LucideIcon } from 'lucide-react';
 
 export type WorktreeAnnotationActionId =
 	| 'collapseThread'
@@ -38,7 +30,7 @@ const staticActionSpecs = {
 	},
 	replyToThread: {
 		accessibleName: 'Reply to annotation thread',
-		icon: MessageSquareReply,
+		icon: Reply,
 		shortcutKeycap: 'R',
 	},
 	resolveThread: {

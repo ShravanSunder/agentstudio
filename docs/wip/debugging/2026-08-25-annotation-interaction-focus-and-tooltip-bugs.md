@@ -433,6 +433,16 @@ Date: 2026-08-25
       the History paint/copy correction; no assertion or membership gate was
       weakened.
 
+22. **Reply shortcut after edit save and compact thread action chrome**
+    - Confirmed requirement: Command-Enter completes editing, returns focus to the
+      active thread, and plain `R` plus Ctrl-R must open Reply without a second click.
+    - Changed the Reply icon from the visually heavy `MessageSquareReply` to Lucide
+      `Reply`, and introduced one `thread-action` presentation path for Reply and
+      Reopen/Resolve controls at the compact `icon-sm` (24px) button scale. The
+      standalone frame now uses uniform 12px (`p-3`) breathing room on all sides.
+    - Browser proof still required against the real backend; the new regression test
+      covers both shortcuts after an edited Save.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

@@ -785,9 +785,24 @@ describe('worktree annotation inline thread', () => {
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-thread').getByText('Reviewed body.'))
 			.toBeVisible();
-		expect(
-			rendered.getByTestId('worktree-annotation-thread').element().contains(document.activeElement),
-		).toBe(true);
+		const savedThread = rendered.getByTestId('worktree-annotation-thread').element();
+		expect(savedThread.contains(document.activeElement)).toBe(true);
+		await act(async (): Promise<void> => {
+			savedThread.focus();
+			await userEvent.keyboard('r');
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toBeVisible();
+		await act(async (): Promise<void> => {
+			await userEvent.keyboard('{Escape}');
+			await Promise.resolve();
+			savedThread.focus();
+			await userEvent.keyboard('{Control>}r{/Control}');
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toBeVisible();
 	});
 
 	test('keeps unchanged saved annotations unsaveable without exposing draft internals', async () => {

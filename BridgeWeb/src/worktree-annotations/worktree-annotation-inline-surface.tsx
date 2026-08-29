@@ -172,6 +172,7 @@ export interface WorktreeAnnotationCommandButtonProps {
 		| 'message'
 		| 'primary'
 		| 'success'
+		| 'thread-action'
 		| 'thread'
 		| 'timeline'
 		| 'toolbar'
@@ -210,24 +211,20 @@ export function WorktreeAnnotationCommandButton(
 									? 'text-comment-muted aria-expanded:bg-transparent aria-expanded:text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 									: appearance === 'toolbar'
 										? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-										: appearance === 'thread'
+										: appearance === 'thread' || appearance === 'thread-action'
 											? 'text-comment-foreground hover:bg-comment-hover hover:text-comment-foreground'
 											: 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
 						}
 						disabled={props.disabled}
 						ref={props.buttonRef}
 						shape="default"
-						size={
-							appearance === 'timeline' || appearance === 'thread' || appearance === 'success'
-								? 'icon'
-								: 'icon-sm'
-						}
+						size={appearance === 'timeline' ? 'icon' : 'icon-sm'}
 						variant={
 							appearance === 'primary'
 								? 'tint'
 								: appearance === 'success'
 									? 'success-outline'
-									: appearance === 'thread'
+									: appearance === 'thread' || appearance === 'thread-action'
 										? 'outline'
 										: 'ghost'
 						}

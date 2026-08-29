@@ -119,12 +119,11 @@ describe('worktree annotation inline shell', () => {
 		expect(commandButtons[0]?.getAttribute('aria-label')).toBe('Edit annotation');
 		expect(latestCardContent.classList).toContain('p-2');
 		expect(latestCardContent.classList).toContain('pr-10');
-		expect(thread.classList).toContain('pr-4');
-		expect(thread.classList).toContain('pb-4');
+		expect(thread.classList).toContain('p-3');
 		expect(thread.classList).not.toContain('pr-9');
 		expect(thread.classList).not.toContain('pb-9');
-		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(16, 1);
-		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(16, 1);
+		expect(expandedThreadBounds.right - latestCardBounds.right).toBeCloseTo(12, 1);
+		expect(expandedThreadBounds.bottom - latestCardBounds.bottom).toBeCloseTo(12, 1);
 		expect(compactThread.getBoundingClientRect().height).toBeGreaterThan(compactThreadHeight);
 		expect(followingDiffRow.getBoundingClientRect().top).toBeGreaterThan(followingDiffRowTop);
 		await page.screenshot({ path: '../../../tmp/bridgeweb-inline-thread-expanded.png' });
@@ -335,13 +334,7 @@ describe('worktree annotation inline shell', () => {
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
 			'rounded-2xl',
 		);
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain('p-2');
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'pr-4',
-		);
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'pb-4',
-		);
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain('p-3');
 
 		await act(async (): Promise<void> => {
 			await rendered
@@ -407,12 +400,12 @@ describe('worktree annotation inline shell', () => {
 			.getByRole('button', { name: 'Reply to annotation thread' })
 			.element();
 		expect(replyButton.classList).toContain('border-border');
-		expect(replyButton.classList).toContain('size-7');
+		expect(replyButton.classList).toContain('size-6');
 		const resolveButton = thread.getByRole('button', { name: 'Resolve annotation thread' });
 		await expect.element(resolveButton).toBeVisible();
 		expect(resolveButton.element().classList).toContain('border-success/50');
 		expect(resolveButton.element().classList).toContain('text-success');
-		expect(resolveButton.element().classList).toContain('size-7');
+		expect(resolveButton.element().classList).toContain('size-6');
 
 		await act(async (): Promise<void> => {
 			await thread.getByText('Latest message.').click();
