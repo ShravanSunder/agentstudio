@@ -8,6 +8,107 @@ import Testing
 @MainActor
 @Suite("Repo Explorer table row-height invalidation", .serialized)
 struct RepoExplorerTableRowHeightInvalidationTests {
+    @Test("context-menu row keeps opening height until deferred content installs")
+    func contextMenuRowKeepsOpeningHeightUntilDeferredContentInstalls() async throws {
+        let fixtures = (0..<6).map(makeWorktreeFixture(index:))
+        let fixture = fixtures[5]
+        var openingStatuses = confirmedEmptyStatuses(for: fixtures)
+        openingStatuses[fixture.worktree.id] = resolvedStatus()
+        let openingSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: openingStatuses
+        )
+        let updatedSnapshot = worktreeSnapshot(
+            fixtures: fixtures,
+            statusesByWorktreeID: confirmedEmptyStatuses(for: fixtures)
+        )
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer, height: 36)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+
+        try apply(
+            snapshot: openingSnapshot,
+            baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+            requestGeneration: 1,
+            to: materializer
+        )
+        let scrollView = try #require(materializer.view as? NSScrollView)
+        let tableView = try #require(scrollView.documentView as? NSTableView)
+        let rowIndex = try #require(openingSnapshot.rowIndexByID[fixture.rowID])
+        let precedingRowIndex = rowIndex - 1
+        materializer.scroll(to: fixture.rowID, offset: 0)
+        let openingHeight = tableView.rect(ofRow: rowIndex).height
+        let openingFrameHeight = tableView.frame.height
+        let updatedHeight = updatedSnapshot.rows[rowIndex].layout.metrics.fallbackHeight
+        let openingCell = try #require(
+            tableView.view(atColumn: 0, row: rowIndex, makeIfNecessary: true)
+                as? RepoExplorerTableRowCell
+        )
+        let openingCellIdentity = ObjectIdentifier(openingCell)
+        let openingBinding = try #require(openingCell.currentBindingIdentity)
+        let openingAnchor = try #require(materializer.currentTopVisibleAnchor)
+        let rootMenu = NSMenu()
+        let childMenu = NSMenu()
+        let rootMenuIdentity = ObjectIdentifier(rootMenu)
+        let childMenuIdentity = ObjectIdentifier(childMenu)
+
+        materializer.menuDidBeginTracking(rootMenuIdentity, clickedRow: rowIndex)
+        materializer.menuDidBeginTracking(childMenuIdentity, clickedRow: -1)
+        materializer.menuDidEndTracking(rootMenuIdentity)
+        try apply(
+            snapshot: updatedSnapshot,
+            baseline: nativePlanBaseline(
+                snapshot: openingSnapshot,
+                revision: 1,
+                visibleGeneration: 1
+            ),
+            requestGeneration: 2,
+            to: materializer
+        )
+
+        #expect(openingHeight > updatedHeight)
+        #expect(tableView.rect(ofRow: rowIndex).height == openingHeight)
+        #expect(tableView.frame.height == openingFrameHeight)
+        #expect(
+            tableView.rect(ofRow: precedingRowIndex).maxY
+                == tableView.rect(ofRow: rowIndex).minY
+        )
+        #expect(tableView.rect(ofRow: rowIndex).maxY == tableView.frame.height)
+        let trackedCell = try #require(
+            tableView.view(atColumn: 0, row: rowIndex, makeIfNecessary: false)
+                as? RepoExplorerTableRowCell
+        )
+        #expect(ObjectIdentifier(trackedCell) == openingCellIdentity)
+        #expect(trackedCell.currentBindingIdentity == openingBinding)
+        #expect(materializer.currentTopVisibleAnchor == openingAnchor)
+
+        materializer.menuDidEndTracking(childMenuIdentity)
+        for _ in 0..<100 {
+            if tableView.rect(ofRow: rowIndex).height == updatedHeight,
+                trackedCell.currentBindingIdentity?.visibleGeneration == 2
+            {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(tableView.rect(ofRow: rowIndex).height == updatedHeight)
+        #expect(tableView.frame.height == updatedSnapshot.fallbackContentHeight)
+        #expect(
+            tableView.rect(ofRow: precedingRowIndex).maxY
+                == tableView.rect(ofRow: rowIndex).minY
+        )
+        #expect(tableView.rect(ofRow: rowIndex).maxY == tableView.frame.height)
+        #expect(trackedCell.currentBindingIdentity?.visibleGeneration == 2)
+        #expect(materializer.currentTopVisibleAnchor == openingAnchor)
+    }
+
     @Test("offscreen worktree chip heights survive scrolling and filtered membership")
     func offscreenWorktreeChipHeightsSurviveScrollingAndFilteredMembership() throws {
         let fixtures = (0..<6).map(makeWorktreeFixture(index:))
@@ -438,10 +539,11 @@ struct RepoExplorerTableRowHeightInvalidationTests {
     }
 
     private func makeMaterializerWindow(
-        _ materializer: RepoExplorerTableMaterializer
+        _ materializer: RepoExplorerTableMaterializer,
+        height: CGFloat = 70
     ) -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 70),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: height),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false

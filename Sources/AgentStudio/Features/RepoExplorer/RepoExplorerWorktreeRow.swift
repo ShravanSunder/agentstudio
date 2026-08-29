@@ -301,7 +301,6 @@ package struct RepoExplorerWorktreeRow: View {
                 } label: {
                     menuLabel(actionSpec: LocalActionSpec.createNewInTab.actionSpec)
                 }
-                .id("repo-explorer-new-tab-context-menu")
             }
 
             if hasCurrentTabCommands {
@@ -335,7 +334,6 @@ package struct RepoExplorerWorktreeRow: View {
                 } label: {
                     menuLabel(actionSpec: LocalActionSpec.createNewInPane.actionSpec)
                 }
-                .id("repo-explorer-current-tab-context-menu")
             }
 
             if !panePresentations.isEmpty {
