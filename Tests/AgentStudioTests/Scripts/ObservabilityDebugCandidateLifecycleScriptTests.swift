@@ -107,14 +107,17 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
 
     @Test("debug zmx helper inventories only one validated exact debug root")
     func debugZmxHelperInventoriesOnlyOneValidatedExactRoot() throws {
-        for listing in [
-            "",
-            "name=session-1\\tclients=1\\tstart_dir=/tmp/worktree\\n",
-        ] {
+        for listingKind in 0..<3 {
             let fixture = try LauncherScriptFixture()
             defer { fixture.cleanup() }
             let exactRoot = fixture.url(".agentstudio-db/test/z")
             try FileManager.default.createDirectory(at: exactRoot, withIntermediateDirectories: true)
+            let listingCommand =
+                switch listingKind {
+                case 0: "exit 0"
+                case 1: "printf 'no sessions found in %s\\n' \"$ZMX_DIR\""
+                default: "printf '%b' 'name=session-1\\tclients=1\\tstart_dir=/tmp/worktree\\n'"
+                }
             let zmxPath = fixture.url(".agentstudio-db/test/bin/zmx")
             try FileManager.default.createDirectory(
                 at: zmxPath.deletingLastPathComponent(),
@@ -125,7 +128,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
                 """
                 #!/bin/bash
                 if [ "${1:-}" = "list" ]; then
-                  printf '%b' "\(listing)"
+                  \(listingCommand)
                   exit 0
                 fi
                 exit 70

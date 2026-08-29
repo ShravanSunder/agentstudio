@@ -95,6 +95,9 @@ PY
     printf 'inventory_root=%s status=list_failed\n' "$canonical_root" >&2
     exit 1
   fi
+  if [[ "$exact_listing" == "no sessions found in $canonical_root" ]]; then
+    exact_listing=""
+  fi
   exact_rows="$(printf '%s\n' "$exact_listing" | parse_session_rows)"
   if [[ -n "$exact_listing" ]]; then
     listing_line_count="$(printf '%s\n' "$exact_listing" | awk 'NF { count++ } END { print count + 0 }')"
