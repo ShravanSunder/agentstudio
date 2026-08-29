@@ -670,6 +670,34 @@ Date: 2026-08-25
       `bridge-main-render-snapshot-store`, preventing honest manual File/Review proof.
       Neither blocker is owned or modified by this UI slice.
 
+34. **Share uses a 90%-width floating shelf attached to the header**
+    - Accepted presentation: opening the permanent icon-only Share trigger reveals
+      a pane-width floating shelf that descends from the existing File/Review
+      header. It is not a same-height header morph and does not occupy an in-flow
+      grid row.
+    - Width and placement: the shelf is centered at 90% of the content-pane width,
+      leaving a visible 5% gap on each side. Those gaps, the active Share-trigger
+      treatment, and the directional entrance make the shelf read as a temporary
+      child of the header rather than a second permanent toolbar.
+    - Geometry: the shelf overlays the upper canvas strip; opening and closing do
+      not move the header, Pierre canvas, active annotation, or scroll position.
+      Actual-size proof must still determine the shelf height and ensure it does
+      not fully obscure a focused annotation or control.
+    - Return paths: activating Share again, activating the explicit Close control,
+      or pressing Escape closes the shelf and returns focus to Share. Clicking
+      outside also closes it, but focus remains on the outside target the reviewer
+      chose. Successful Copy or Export retains the existing dismissal and toast
+      behavior; failed or cancelled output retains the shelf.
+    - Contents remain Pending/All, Copy Markdown, Export JSON, and Close. There is
+      no annotation checklist. Exact History/error placement, narrow-width
+      wrapping, motion duration/easing, and output-pending dismissal remain open
+      design details; do not infer them from the old in-flow toolbar.
+    - Rationale: a full-width shelf has the clearest visible origin and reverse
+      return motion. The 90% width preserves that directional story while the side
+      gaps keep it visibly floating. This intentionally accepts some top-strip
+      occlusion to eliminate the current repeated canvas reflow.
+    - Status: owner-accepted design checkpoint; not implemented.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
