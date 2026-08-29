@@ -1,9 +1,9 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
 
+@testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 
 @MainActor
@@ -473,6 +473,20 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 4
             )
         )
+        _ = await fixture.bus.post(
+            runtimeEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(false)),
+                seq: 5
+            )
+        )
+        await assertEventuallyAsync("router should consume the ordering sentinel") {
+            let diagnostics = await fixture.bus.diagnosticsSnapshot()
+            return diagnostics.activeSubscribers.contains { subscriber in
+                subscriber.subscriberName == "InboxNotificationRouter"
+                    && subscriber.pendingDeliveryCount == 0
+            }
+        }
         await fixture.router.flushTraceRecords()
         await assertEventuallyMain("barrier event should prove pane observation events were consumed") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
