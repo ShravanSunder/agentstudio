@@ -10,6 +10,12 @@ import {
 	type AnnotationOutputIdentityCapture,
 	verifyAnnotationOutputCaptures,
 } from './bridge-viewer-vite-annotation-output-capture.ts';
+import {
+	annotationProjectionContentRequestDiagnostic,
+	annotationProjectionQueryResultDiagnostic,
+	annotationProjectionUiDiagnostic,
+	waitForDemandedAnnotationProjectionContent,
+} from './bridge-viewer-vite-annotation-projection-test-support.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
@@ -170,6 +176,7 @@ export async function runAnnotationSaveJourney(props: {
 	const browser = await chromium.launch({ channel: 'chrome', headless: true });
 	const diagnostics: string[] = [];
 	let page: Page | null = null;
+	let expectedSavedBody: string | null = null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		observeAnnotationJourneyDiagnostics(page, diagnostics);
@@ -202,9 +209,29 @@ export async function runAnnotationSaveJourney(props: {
 			'root.create',
 			props.surface,
 		);
+		const sourceRefreshCommitted =
+			props.surface === 'file'
+				? waitForCommittedAnnotationCommand(page, 'source.refresh', 'file')
+				: null;
+		const demandedDraftProjectionCommitted =
+			sourceRefreshCommitted === null
+				? null
+				: waitForDemandedAnnotationProjectionContent({
+						afterRequestSequence: sourceRefreshCommitted.then((receipt) => receipt.requestSequence),
+						page,
+						sessionId: rootCreateCommitted.then((receipt) => {
+							if (receipt.sessionId === null) {
+								throw new Error('Committed root annotation did not identify its session.');
+							}
+							return receipt.sessionId;
+						}),
+					});
 		const savedBody = `${props.surface === 'file' ? 'File' : 'Review'} Save must settle from its exact command receipt.`;
+		expectedSavedBody = savedBody;
 		await page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(savedBody);
 		await rootCreateCommitted;
+		if (sourceRefreshCommitted !== null) await sourceRefreshCommitted;
+		if (demandedDraftProjectionCommitted !== null) await demandedDraftProjectionCommitted;
 		await page
 			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
 			.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
@@ -314,7 +341,9 @@ export async function runAnnotationSaveJourney(props: {
 		if (page !== null) {
 			recordAnnotationDiagnostic(
 				diagnostics,
-				`projection-ui:${JSON.stringify(await annotationProjectionUiDiagnostic(page))}`,
+				`projection-ui:${JSON.stringify(
+					await annotationProjectionUiDiagnostic(page, expectedSavedBody),
+				)}`,
 			);
 			if (props.surface === 'file') {
 				recordAnnotationDiagnostic(
@@ -411,20 +440,6 @@ async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<
 	return completedStageCount;
 }
 
-async function annotationProjectionUiDiagnostic(page: Page): Promise<{
-	readonly composerCount: number;
-	readonly refreshingCount: number;
-	readonly unavailableCount: number;
-}> {
-	return {
-		composerCount: await page
-			.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-			.count(),
-		refreshingCount: await page.getByText('Refreshing', { exact: true }).count(),
-		unavailableCount: await page.getByText('Updates unavailable', { exact: true }).count(),
-	};
-}
-
 function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]): void {
 	page.on('console', (message): void => {
 		if (message.type() === 'error' || message.type() === 'warning') {
@@ -438,7 +453,11 @@ function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]):
 		const path = new URL(request.url()).pathname;
 		const errorText = request.failure()?.errorText ?? 'unknown';
 		if (path === '/__bridge-product/command' && errorText === 'net::ERR_ABORTED') return;
-		recordAnnotationDiagnostic(diagnostics, `requestfailed:${path}:${errorText}`);
+		const body: unknown = request.postDataJSON();
+		recordAnnotationDiagnostic(
+			diagnostics,
+			`requestfailed:${path}:${errorText}:${JSON.stringify(annotationProjectionContentRequestDiagnostic(body))}`,
+		);
 	});
 	page.on('response', (response): void => {
 		const request = response.request();
@@ -489,12 +508,20 @@ function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]):
 				.then((responseBody: unknown): void => {
 					recordAnnotationDiagnostic(
 						diagnostics,
-						`projection-query-result:${JSON.stringify(annotationProjectionQueryResultDiagnostic(responseBody))}`,
+						`projection-query-result:${JSON.stringify(
+							annotationProjectionQueryResultDiagnostic(responseBody, callRequest),
+						)}`,
 					);
 				})
 				.catch((): void => {
 					recordAnnotationDiagnostic(diagnostics, 'projection-query-result:unreadable');
 				});
+		}
+		if (contentKind === 'annotation.projection') {
+			recordAnnotationDiagnostic(
+				diagnostics,
+				`projection-content:${JSON.stringify(annotationProjectionContentRequestDiagnostic(body))}`,
+			);
 		}
 		if (operationKind === 'output.history') {
 			void response
@@ -533,44 +560,6 @@ function annotationHistoryResultDiagnostic(value: unknown): unknown {
 		firstSessionId: isUnknownRecord(firstSummary) ? firstSummary['sessionId'] : null,
 		outcomeSessionId: result['outcome']['sessionId'],
 		summaryCount: summaries.length,
-	};
-}
-
-function annotationProjectionQueryResultDiagnostic(value: unknown): unknown {
-	if (!isUnknownRecord(value)) return { shape: typeof value };
-	if (value['kind'] === 'request.error') {
-		return {
-			code: value['code'],
-			kind: value['kind'],
-			nextExpectedRequestSequence: value['nextExpectedRequestSequence'],
-			requestSequence: value['requestSequence'],
-			retryable: value['retryable'],
-			safeMessage: value['safeMessage'],
-		};
-	}
-	const call = value['call'];
-	if (!isUnknownRecord(call)) return { kind: value['kind'] };
-	const result = call['result'];
-	if (!isUnknownRecord(result)) return { kind: value['kind'], resultShape: typeof result };
-	const descriptor = result['descriptor'];
-	if (!isUnknownRecord(descriptor)) {
-		return {
-			code: result['code'],
-			kind: value['kind'],
-			resultKind: result['kind'],
-		};
-	}
-	const page = descriptor['page'];
-	return {
-		descriptorPresent: true,
-		kind: value['kind'],
-		requestSequence: value['requestSequence'],
-		page: isUnknownRecord(page)
-			? {
-					pageOrdinal: page['pageOrdinal'],
-					sourceGeneration: page['sourceGeneration'],
-				}
-			: null,
 	};
 }
 
@@ -791,10 +780,10 @@ async function settleBrowserFrames(page: Page, frameCount: number): Promise<void
 
 export async function waitForCommittedAnnotationCommand(
 	page: Page,
-	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create',
+	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create' | 'source.refresh',
 	surface: 'file' | 'review',
 	timeoutMilliseconds = annotationSaveJourneyTimeoutMilliseconds,
-): Promise<void> {
+): Promise<{ readonly requestSequence: number; readonly sessionId: string | null }> {
 	const response = await page.waitForResponse(
 		(candidate): boolean => isAnnotationCommandResponse(candidate, operationKind, surface),
 		{ timeout: timeoutMilliseconds },
@@ -802,6 +791,7 @@ export async function waitForCommittedAnnotationCommand(
 	const body: unknown = await response.json();
 	if (
 		!isUnknownRecord(body) ||
+		typeof body['requestSequence'] !== 'number' ||
 		body['kind'] !== 'call.completed' ||
 		!isUnknownRecord(body['call']) ||
 		body['call']['method'] !== `${surface}.annotations.command` ||
@@ -815,6 +805,11 @@ export async function waitForCommittedAnnotationCommand(
 			`Expected committed ${operationKind} response, received ${JSON.stringify(body)}.`,
 		);
 	}
+	const outcome = body['call']['result']['outcome'];
+	return {
+		requestSequence: body['requestSequence'],
+		sessionId: typeof outcome['sessionId'] === 'string' ? outcome['sessionId'] : null,
+	};
 }
 
 async function waitForAnnotationProjectionContentResponse(page: Page): Promise<void> {
@@ -839,7 +834,7 @@ async function waitForAnnotationProjectionContentResponse(page: Page): Promise<v
 
 function isAnnotationCommandResponse(
 	response: Response,
-	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create',
+	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create' | 'source.refresh',
 	surface: 'file' | 'review',
 ): boolean {
 	const request = response.request();
