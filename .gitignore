@@ -33,8 +33,13 @@ xcuserdata/
 node_modules/
 .pnpm-store/
 .vite/
+/.cloudflare/
 BridgeWeb/dist/
 BridgeWeb/.vitest-attachments/
+web/.astro/
+web/.cloudflare
+web/dist/
+web/.wrangler/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
 #   mise run bridge-web-build

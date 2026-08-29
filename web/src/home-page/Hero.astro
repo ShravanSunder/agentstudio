@@ -1,0 +1,89 @@
+---
+import { marketingCopy } from "@/marketing-copy";
+
+import InstallCommand from "./InstallCommand.astro";
+---
+
+<section
+  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-18"
+  aria-labelledby="hero-title"
+>
+  <div class="relative z-[2] max-w-hero">
+    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
+      {marketingCopy.hero.eyebrow}
+    </p>
+    <h1
+      id="hero-title"
+      class="mt-6 mb-7.5 max-w-hero font-display text-hero font-extrabold"
+      aria-label={marketingCopy.hero.headline}
+    >
+      <span class="block whitespace-nowrap">{marketingCopy.hero.headlineSetupFirst}</span>
+      <span class="block whitespace-nowrap">
+        {marketingCopy.hero.headlineSetupSecondBeforeAccent}<span
+          >{marketingCopy.hero.headlineSetupSecondAccent}</span
+        >
+      </span>
+      <span class="mt-[0.5em] block whitespace-nowrap text-hero-payoff text-primary"
+        >{marketingCopy.hero.headlinePayoff}</span
+      >
+    </h1>
+    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
+      {marketingCopy.hero.description}
+    </p>
+    <div
+      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:items-stretch"
+    >
+      <InstallCommand />
+    </div>
+  </div>
+
+  <div
+    class="hero__planes absolute top-14 right-20 h-55 w-75 origin-top-right scale-[0.78] opacity-90 max-xl:top-13 max-xl:right-16 max-xl:scale-[0.7] max-lg:right-12 max-lg:scale-[0.6] max-md:top-12 max-md:right-6 max-md:scale-[0.46] max-sm:hidden"
+    data-topology-mainline-anchor
+    aria-hidden="true"
+  >
+    <span class="hero__plane hero__plane--rear-one"></span>
+    <span class="hero__plane hero__plane--rear-two"></span>
+    <span class="hero__plane hero__plane--front"><span class="hero__glyph">&gt;_</span></span>
+  </div>
+</section>
+
+<style>
+  .hero__plane {
+    position: absolute;
+    top: 48px;
+    right: 28px;
+    width: 190px;
+    height: 132px;
+    border-radius: 24px;
+    transform-origin: center;
+  }
+
+  .hero__plane--rear-one {
+    border: 2px solid rgb(239 159 118 / 72%);
+    background: rgb(17 17 27 / 56%);
+    transform: translate(-42px, -18px) rotate(-12deg);
+  }
+
+  .hero__plane--rear-two {
+    border: 2px solid rgb(239 159 118 / 82%);
+    background: rgb(21 21 32 / 68%);
+    transform: translate(-20px, 4px) rotate(7deg);
+  }
+
+  .hero__plane--front {
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--color-primary);
+    background: var(--color-ground);
+  }
+
+  .hero__glyph {
+    color: var(--color-glyph);
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.16em;
+    transform: translateX(-0.08em);
+  }
+</style>

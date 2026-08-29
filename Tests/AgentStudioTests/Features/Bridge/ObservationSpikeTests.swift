@@ -14,22 +14,6 @@ final class SpikeTestState: @unchecked Sendable {
     var propertyB: String = "initial"
 }
 
-private actor DebouncedIntCollector {
-    private var values: [Int] = []
-
-    func append(_ value: Int) {
-        values.append(value)
-    }
-
-    func hasValues() -> Bool {
-        !values.isEmpty
-    }
-
-    func snapshot() -> [Int] {
-        values
-    }
-}
-
 // MARK: - @resultBuilder Spike Types
 
 /// Minimal @resultBuilder with a generic type parameter.
@@ -117,16 +101,16 @@ final class ObservationSpikeTests {
     func test_asyncAlgorithmsDebounce_coalescesRapidValues() async throws {
         // Arrange
         let channel = AsyncChannel<Int>()
-        let collector = DebouncedIntCollector()
         let debounceClock = TestPushClock()
 
         let observationTask = Task {
+            var collectedValues: [Int] = []
             for await value in channel.debounce(for: .milliseconds(100), clock: debounceClock) {
-                await collector.append(value)
+                collectedValues.append(value)
             }
+            return collectedValues
         }
         defer {
-            channel.finish()
             observationTask.cancel()
         }
 
@@ -134,23 +118,16 @@ final class ObservationSpikeTests {
         await debounceClock.waitForPendingSleepCount(atLeast: 1)
 
         // Act — rapid values (all within 100ms debounce window)
-        await channel.send(1)
-        await channel.send(2)
-        await channel.send(3)
+        for value in 1...3 {
+            await channel.send(value)
+        }
 
-        // Advance the debounce clock in steps until at least one debounced value arrives
-        let didAdvanceToEmission = await advanceClockUntilAsyncCondition(
-            debounceClock,
-            until: { await collector.hasValues() },
-            maxSteps: 40,
-            step: .milliseconds(5)
-        )
-        #expect(didAdvanceToEmission)
+        channel.finish()
+        debounceClock.advance(by: .milliseconds(100))
 
         // Assert
-        let didReceiveDebouncedValue = await collector.hasValues()
-        #expect(didReceiveDebouncedValue)
-        let collectedValues = await collector.snapshot()
+        let collectedValues = await observationTask.value
+        #expect(!collectedValues.isEmpty)
 
         // The debounced stream should have fewer values than the 4 events
         // (initial 0, then 1, 2, 3). The rapid 1/2/3 mutations should
@@ -298,17 +275,4 @@ final class ObservationSpikeTests {
         return condition()
     }
 
-    private func advanceClockUntilAsyncCondition(
-        _ clock: TestPushClock,
-        until condition: @escaping () async -> Bool,
-        maxSteps: Int,
-        step: Duration
-    ) async -> Bool {
-        for _ in 0..<maxSteps {
-            if await condition() { return true }
-            clock.advance(by: step)
-            await Task.yield()
-        }
-        return await condition()
-    }
 }

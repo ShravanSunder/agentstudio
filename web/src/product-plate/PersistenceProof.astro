@@ -1,0 +1,114 @@
+---
+import { Image } from "astro:assets";
+import type { ImageMetadata } from "astro";
+
+import { marketingCopy } from "@/marketing-copy";
+
+interface Props {
+  readonly beforeImage: ImageMetadata;
+  readonly restoredImage: ImageMetadata;
+  readonly beforePhoneImage?: ImageMetadata;
+  readonly restoredPhoneImage?: ImageMetadata;
+  readonly beforeLabel?: string;
+  readonly restoredLabel?: string;
+  readonly beforeImageDescription?: string;
+  readonly restoredImageDescription?: string;
+  readonly accessibilityLabel?: string;
+}
+
+const {
+  beforeImage,
+  restoredImage,
+  beforePhoneImage,
+  restoredPhoneImage,
+  beforeLabel = marketingCopy.stories.persistence.beforeLabel,
+  restoredLabel = marketingCopy.stories.persistence.restoredLabel,
+  beforeImageDescription = marketingCopy.stories.persistence.beforeImageDescription,
+  restoredImageDescription = marketingCopy.stories.persistence.restoredImageDescription,
+  accessibilityLabel = "Workspace restoration",
+} = Astro.props;
+---
+
+<div class="persistence-proof grid gap-1" data-persistence-proof data-enhanced="false">
+  <div
+    class="flex min-h-12 gap-1 bg-transparent"
+    role="group"
+    aria-label={accessibilityLabel}
+  >
+    <button
+      type="button"
+      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative isolate min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
+      data-persistence-proof-button="before"
+      aria-pressed="true"
+      disabled
+    >
+      <span class="relative z-[1]">{beforeLabel}</span>
+    </button>
+    <button
+      type="button"
+      class="scroll-material-pane scroll-material-selection-control persistence-proof__control relative isolate min-w-0 flex-1 basis-0 cursor-pointer rounded-xl border border-line px-4.5 font-mono-product text-compact-control text-ink-muted uppercase transition-colors duration-150 ease-out hover:text-ink motion-reduce:duration-0 disabled:pointer-events-none"
+      data-persistence-proof-button="restored"
+      aria-pressed="false"
+      disabled
+    >
+      <span class="relative z-[1]">{restoredLabel}</span>
+    </button>
+  </div>
+
+  <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="before">
+    <picture class="block">
+      {beforePhoneImage !== undefined && <source media="(max-width: 620px)" srcset={beforePhoneImage.src} />}
+      <Image
+        src={beforeImage}
+        alt={beforeImageDescription}
+        widths={[720, 1080, 1440, 2160]}
+        sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+        format="png"
+        loading="lazy"
+        decoding="async"
+        class="block h-auto w-full"
+      />
+    </picture>
+  </figure>
+  <figure class="m-0 overflow-clip rounded-control" data-persistence-frame="restored" hidden>
+    <picture class="block">
+      {restoredPhoneImage !== undefined && <source media="(max-width: 620px)" srcset={restoredPhoneImage.src} />}
+      <Image
+        src={restoredImage}
+        alt={restoredImageDescription}
+        widths={[720, 1080, 1440, 2160]}
+        sizes="(max-width: 800px) 100vw, (max-width: 1200px) 75vw, 1120px"
+        format="png"
+        loading="lazy"
+        decoding="async"
+        class="block h-auto w-full"
+      />
+    </picture>
+  </figure>
+</div>
+
+<style>
+  @reference "../styles/global.css";
+
+  .persistence-proof__control[aria-pressed="true"] {
+    @apply text-ink;
+  }
+
+  .persistence-proof__control:active {
+    background: var(--color-active-surface);
+  }
+
+  .persistence-proof__control {
+    --scroll-material-selection-dot-top: calc(50% - 4px);
+  }
+
+  @media (width < 64rem) {
+    .persistence-proof__control[aria-pressed="true"]::before {
+      opacity: 0;
+    }
+
+    .persistence-proof__control[aria-pressed="true"] {
+      background: var(--scroll-material-pane-background);
+    }
+  }
+</style>

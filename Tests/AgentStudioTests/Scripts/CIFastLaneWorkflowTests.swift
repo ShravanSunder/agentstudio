@@ -317,7 +317,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceContributionTests"))
-        #expect(testHelperScript.contains("PaneAgentLaunchOwnerTests"))
+        #expect(largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(largeLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(nonSerializedRunner.contains("--parallel"))
@@ -354,6 +354,26 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("standalone_swift_test_filters"))
         #expect(!testHelperScript.contains("isolated_swift_test_class_filters"))
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
+    }
+
+    @Test("packaged journey fixture runs outside the parallel large inventory")
+    func packagedJourneyFixtureRunsInSerialLargeProcessLane() throws {
+        let testHelperScript = try String(
+            contentsOfFile: "scripts/swift-test-helpers.sh",
+            encoding: .utf8
+        )
+        let largeRunner = try shellFunction(
+            named: "run_large_non_webkit_swift_tests",
+            in: testHelperScript
+        )
+        let largeSerialFilter = try shellFunction(
+            named: "large_serial_non_webkit_filter_pattern",
+            in: testHelperScript
+        )
+
+        #expect(largeSerialFilter.contains("BridgePackagedProductJourneyScriptTests"))
+        #expect(largeRunner.contains("--skip \"$(large_serial_non_webkit_filter_pattern)\""))
+        #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
     }
 
     @Test("SQLite crash fixture stays in the serial fast process lane")
