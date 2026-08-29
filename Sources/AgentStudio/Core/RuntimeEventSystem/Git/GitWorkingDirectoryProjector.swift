@@ -517,6 +517,11 @@ package actor GitWorkingDirectoryProjector {
                 missingBaseline: true,
                 allowsPromptMissingBaseline: demandTier(for: worktreeId) != .background
             )
+        } else if activePaneWorktreeId == worktreeId
+            || activeWorktreeIds.contains(worktreeId)
+            || sidebarVisibleWorktreeIds.contains(worktreeId)
+        {
+            enqueueAttendedMissingBaselineIfNeeded(worktreeId: worktreeId)
         }
         if endedGlobalCapacityPause {
             admitPendingWorktrees()

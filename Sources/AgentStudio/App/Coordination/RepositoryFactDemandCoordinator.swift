@@ -290,6 +290,12 @@ final class RepositoryFactDemandCoordinator {
             input.localActivityHydrationDisposition == .authoritative
             ? activity.warmWorktreeIDs
             : activity.warmWorktreeIDs.intersection(input.openWorktreeIds)
+        let automaticLocalGitWorktreeIds: Set<UUID> =
+            input.localActivityHydrationDisposition == .authoritative
+            ? activity.warmWorktreeIDs
+            : activity.warmWorktreeIDs.intersection(
+                input.openWorktreeIds.union(input.activePaneWorktreeId.map { [$0] } ?? [])
+            )
         return (
             RepositoryFactDemandSnapshot(
                 activePaneWorktreeId: input.activePaneWorktreeId,
@@ -299,7 +305,7 @@ final class RepositoryFactDemandCoordinator {
                 repositoryIdByWorktreeId: input.repositoryIdByWorktreeId,
                 warmRepositoryIds: activity.warmRepositoryIDs,
                 locallyInactiveRepositoryIds: activity.locallyInactiveRepositoryIDs,
-                warmAutomaticWorktreeIds: activity.warmWorktreeIDs,
+                warmAutomaticWorktreeIds: automaticLocalGitWorktreeIds,
                 locallyInactiveWorktreeIds: activity.locallyInactiveWorktreeIDs,
                 automaticRemoteAndForgeWorktreeIds: automaticRemoteAndForgeWorktreeIds
             ),

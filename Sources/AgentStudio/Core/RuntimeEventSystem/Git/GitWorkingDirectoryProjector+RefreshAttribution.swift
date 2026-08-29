@@ -139,9 +139,13 @@ extension GitWorkingDirectoryProjector {
     func recordRequiredIntent(
         changeset: FileChangeset,
         triggerSource: GitRefreshTriggerSource,
-        isExplicit: Bool = false
+        isExplicit: Bool = false,
+        isRequiredForCorrectness: Bool = false
     ) {
-        guard isExplicit || triggerSource == .filesystemChange || triggerSource == .remoteReferenceRefresh else {
+        guard
+            isExplicit || isRequiredForCorrectness || triggerSource == .filesystemChange
+                || triggerSource == .remoteReferenceRefresh
+        else {
             return
         }
         let worktreeId = changeset.worktreeId
@@ -186,7 +190,8 @@ extension GitWorkingDirectoryProjector {
     func enqueueImmediateRefreshIfRegistered(
         worktreeId: UUID,
         triggerSource: GitRefreshTriggerSource = .visibilityChange,
-        isExplicit: Bool = false
+        isExplicit: Bool = false,
+        isRequiredForCorrectness: Bool = false
     ) {
         guard !suppressedWorktreeIds.contains(worktreeId) else { return }
         guard let context = registeredContext(for: worktreeId) else { return }
@@ -202,19 +207,26 @@ extension GitWorkingDirectoryProjector {
             timestamp: envelopeClock.now,
             batchSeq: nextBatchSeq
         )
-        enqueueImmediateRefresh(changeset, triggerSource: triggerSource, isExplicit: isExplicit)
+        enqueueImmediateRefresh(
+            changeset,
+            triggerSource: triggerSource,
+            isExplicit: isExplicit,
+            isRequiredForCorrectness: isRequiredForCorrectness
+        )
     }
 
     func enqueueImmediateRefresh(
         _ changeset: FileChangeset,
         triggerSource: GitRefreshTriggerSource,
-        isExplicit: Bool = false
+        isExplicit: Bool = false,
+        isRequiredForCorrectness: Bool = false
     ) {
         let worktreeId = changeset.worktreeId
         recordRequiredIntent(
             changeset: changeset,
             triggerSource: triggerSource,
-            isExplicit: isExplicit
+            isExplicit: isExplicit,
+            isRequiredForCorrectness: isRequiredForCorrectness
         )
         immediateRefreshWorktreeIds.insert(worktreeId)
         if isExplicit {

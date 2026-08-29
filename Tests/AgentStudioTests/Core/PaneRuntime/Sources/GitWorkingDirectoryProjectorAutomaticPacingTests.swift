@@ -7,7 +7,7 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector automatic pacing")
 struct GitWorkingDirectoryProjectorAutomaticPacingTests {
-    @Test("inactive registration owns no automatic work and warm transition rearms")
+    @Test("cold attended registration receives one baseline without recurring automatic work")
     func inactiveRegistrationHasNoAutomaticDeadline() async {
         let worktreeID = UUIDv7.generate()
         let repositoryID = UUIDv7.generate()
@@ -42,7 +42,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             )
         )
 
-        #expect(await providerCallCount.value == 0)
+        #expect(await automaticPacingWaitUntil { await providerCallCount.value == 1 })
+        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks.isEmpty })
         #expect(await actor.pendingByWorktreeId[worktreeID] == nil)
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] == nil)
 
@@ -51,10 +52,19 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             sidebarAttendedWorktreeIds: [worktreeID],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
+            warmAutomaticWorktreeIds: []
+        )
+        #expect(await providerCallCount.value == 1)
+
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeID],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
             warmAutomaticWorktreeIds: [worktreeID]
         )
-        #expect(await automaticPacingWaitUntil { await providerCallCount.value == 1 })
-        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks.isEmpty })
+        #expect(await providerCallCount.value == 1)
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] != nil)
 
         await actor.setRepositoryFactAttention(
             activePaneWorktreeId: nil,

@@ -130,9 +130,26 @@ extension GitWorkingDirectoryProjector {
             tierEligibleWorktreeIds.remove(worktreeId)
         }
         for worktreeId in newlyAttendedWorktreeIds {
-            scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+            if isAutomaticEligible(worktreeId: worktreeId) {
+                scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+            } else {
+                enqueueAttendedMissingBaselineIfNeeded(worktreeId: worktreeId)
+            }
         }
         scheduleCoalescedVisibilityAdmission()
+    }
+
+    func enqueueAttendedMissingBaselineIfNeeded(worktreeId: UUID) {
+        guard lastAcceptedStatusAtByWorktreeId[worktreeId] == nil,
+            pendingByWorktreeId[worktreeId] == nil,
+            worktreeTasks[worktreeId] == nil,
+            !hasRequiredIntent(worktreeId: worktreeId)
+        else { return }
+        enqueueImmediateRefreshIfRegistered(
+            worktreeId: worktreeId,
+            triggerSource: .visibilityChange,
+            isRequiredForCorrectness: true
+        )
     }
 
     private enum ExactCleanRenewalDisposition {

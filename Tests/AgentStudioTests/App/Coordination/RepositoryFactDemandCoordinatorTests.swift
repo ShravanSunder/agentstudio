@@ -11,7 +11,7 @@ import Testing
 struct RepositoryFactDemandCoordinatorTests {
     private let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
 
-    @Test("missing local activity evidence retains local correctness but defers remote demand")
+    @Test("missing local activity evidence defers recurring fleet work")
     func missingLocalActivityEvidenceRetainsCorrectnessEligibility() async throws {
         let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
         let warmRepositoryID = seededUUID(1)
@@ -55,12 +55,12 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.sidebarAttendedWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
         #expect(snapshot.warmRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
-        #expect(snapshot.warmAutomaticWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
+        #expect(snapshot.warmAutomaticWorktreeIds.isEmpty)
         #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
         #expect(snapshot.demandedRepositoryIds.isEmpty)
     }
 
-    @Test("pre-hydration activity remains unknown and defers automatic remote demand")
+    @Test("pre-hydration activity remains unknown and defers recurring fleet work")
     func preHydrationActivityRetainsCorrectnessEligibility() async throws {
         let receiver = RepositoryFactDemandReceiverProbe()
         let coordinator = RepositoryFactDemandCoordinator(
@@ -86,7 +86,7 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.sidebarAttendedWorktreeIds == input.sidebarAttendedWorktreeIds)
         #expect(snapshot.warmRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
-        #expect(snapshot.warmAutomaticWorktreeIds == Set(input.repositoryIdByWorktreeId.keys))
+        #expect(snapshot.warmAutomaticWorktreeIds == Set(input.activePaneWorktreeId.map { [$0] } ?? []))
         #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
         #expect(snapshot.demandedRepositoryIds.isEmpty)
     }
@@ -106,6 +106,7 @@ struct RepositoryFactDemandCoordinatorTests {
         await coordinator.waitUntilIdle()
 
         let snapshot = try #require(await receiver.receivedSnapshots().last)
+        #expect(snapshot.warmAutomaticWorktreeIds == input.openWorktreeIds)
         #expect(
             snapshot.forgeDemandedWorktreeIds
                 == input.sidebarAttendedWorktreeIds.union(input.visibleActiveTabWorktreeIds)
