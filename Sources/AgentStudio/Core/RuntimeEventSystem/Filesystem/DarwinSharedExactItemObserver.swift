@@ -170,6 +170,8 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         var exactPathsByWorktreeId: [UUID: Set<String>]
         var worktreeIdsByExactPath: [String: Set<UUID>]
         var latestEventId: FSEventStreamEventId?
+        var latestActivitySettledEventId: FSEventStreamEventId?
+        var pendingActivityDeliveryCount: Int
         var activeAncestorRecheckGeneration: UInt64?
         var unresolvedAncestorEntriesByWorktreeId: [UUID: DarwinSharedExactItemAncestorUnresolvedEntry]
     }
@@ -177,6 +179,15 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
     private struct StartedObserver {
         let generation: UInt64
         let streamLifetime: any DarwinSharedExactItemStreamLifetime
+    }
+
+    private struct ReceiveClassification {
+        var mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]] = [:]
+        var uncertainWorktreeIds: Set<UUID> = []
+        var exactSubscriberWorktreeIds: Set<UUID> = []
+        var activityQualifyingWorktreeIds: Set<UUID> = []
+        var exactHitWithPendingAncestorWorktreeIds: Set<UUID> = []
+        var shouldRetireObserver = false
     }
 
     private static let uncertaintyFlags = FSEventStreamEventFlags(
@@ -321,12 +332,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 return true
             }
 
-            let generationByMissingParent = Dictionary(
-                uniqueKeysWithValues: missingParentKeys.map { parentKey in
-                    nextStreamGeneration &+= 1
-                    return (parentKey, nextStreamGeneration)
-                }
-            )
+            let generationByMissingParent = nextStreamGenerations(for: missingParentKeys)
             startingParentKeys.formUnion(missingParentKeys)
             lifecycleCondition.unlock()
 
@@ -371,6 +377,8 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                         exactPathsByWorktreeId: [:],
                         worktreeIdsByExactPath: [:],
                         latestEventId: nil,
+                        latestActivitySettledEventId: nil,
+                        pendingActivityDeliveryCount: 0,
                         activeAncestorRecheckGeneration: nil,
                         unresolvedAncestorEntriesByWorktreeId: [:]
                     )
@@ -553,92 +561,81 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             return
         }
 
-        var mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]] = [:]
-        var uncertainWorktreeIds: Set<UUID> = []
         var ancestorItemsByWorktreeId: [UUID: Set<String>] = [:]
-        var exactSubscriberWorktreeIds: Set<UUID> = []
-        var activityQualifyingWorktreeIds: Set<UUID> = []
-        var shouldRetireObserver = false
+        var ancestorEventIdByWorktreeId: [UUID: FSEventStreamEventId] = [:]
         let dependentWorktreeIds = Set(
             observer.exactPathsByWorktreeId.keys.filter {
                 bindingValidationByWorktreeId[$0]?.isCurrent() == true
             })
 
-        for rawEvent in rawEvents {
-            let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(
-                rawEvent.path
-            )
-            let cursorRegressed = observer.latestEventId.map { rawEvent.eventId < $0 } ?? false
-            observer.latestEventId = rawEvent.eventId
-            let exactSubscribers = (observer.worktreeIdsByExactPath[normalizedPath] ?? []).filter {
-                bindingValidationByWorktreeId[$0]?.isCurrent() == true
-            }
-            for worktreeId in exactSubscribers {
-                mutationEventsByWorktreeId[worktreeId, default: []].append(
-                    DarwinFSEventClassifiedRawEvent(
-                        eventId: rawEvent.eventId,
-                        flags: rawEvent.flags,
-                        hasRelevantMutation: true,
-                        path: rawEvent.path
-                    )
-                )
-            }
-            exactSubscriberWorktreeIds.formUnion(exactSubscribers)
-            if RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(normalizedPath) {
-                activityQualifyingWorktreeIds.formUnion(exactSubscribers)
-            }
+        let classification = classifyReceiveEvents(
+            rawEvents,
+            dependentWorktreeIds: dependentWorktreeIds,
+            observer: &observer,
+            ancestorItemsByWorktreeId: &ancestorItemsByWorktreeId,
+            ancestorEventIdByWorktreeId: &ancestorEventIdByWorktreeId
+        )
 
-            let hasUncertainFlags = rawEvent.flags & Self.uncertaintyFlags != 0
-            if hasUncertainFlags || cursorRegressed {
-                uncertainWorktreeIds.formUnion(dependentWorktreeIds)
-            } else {
-                for (exactPath, worktreeIds) in observer.worktreeIdsByExactPath
-                where exactPath.hasPrefix(normalizedPath + "/") {
-                    for worktreeId in worktreeIds
-                    where
-                        bindingValidationByWorktreeId[worktreeId]?.isCurrent() == true
-                    {
-                        ancestorItemsByWorktreeId[worktreeId, default: []].insert(exactPath)
-                    }
-                }
-            }
-            shouldRetireObserver = shouldRetireObserver || Self.isRootChange(rawEvent)
-        }
-
-        for worktreeId in exactSubscriberWorktreeIds.union(uncertainWorktreeIds) {
+        for worktreeId in classification.uncertainWorktreeIds {
             ancestorItemsByWorktreeId.removeValue(forKey: worktreeId)
             observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
         }
+        for worktreeId in classification.exactSubscriberWorktreeIds.subtracting(classification.uncertainWorktreeIds) {
+            ancestorItemsByWorktreeId.removeValue(forKey: worktreeId)
+            let exactHitPaths = Set(
+                classification.mutationEventsByWorktreeId[worktreeId, default: []].map {
+                    DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0.path)
+                }
+            )
+            guard
+                var unresolvedEntry =
+                    observer.unresolvedAncestorEntriesByWorktreeId[worktreeId]
+            else { continue }
+            unresolvedEntry.canonicalItemPaths.subtract(exactHitPaths)
+            if unresolvedEntry.canonicalItemPaths.isEmpty {
+                observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
+            } else {
+                observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] = unresolvedEntry
+            }
+        }
         mergeAncestorAmbiguityLocked(
             ancestorItemsByWorktreeId,
+            latestEventIdByWorktreeId: ancestorEventIdByWorktreeId,
             into: &observer
         )
 
         let fullGitRefreshWorktreeIds = admitFullRefreshLocked(
-            exactSubscriberWorktreeIds.union(uncertainWorktreeIds)
+            classification.exactSubscriberWorktreeIds.union(classification.uncertainWorktreeIds)
+        )
+        let activityCoverageLostWorktreeIds = classification.uncertainWorktreeIds.union(
+            classification.exactHitWithPendingAncestorWorktreeIds.subtracting(
+                classification.activityQualifyingWorktreeIds)
         )
         var retiredStreamLifetime: (any DarwinSharedExactItemStreamLifetime)?
         var ancestorRecheckToStart: DarwinSharedExactItemAncestorRecheckSnapshot?
-        if shouldRetireObserver {
+        if classification.shouldRetireObserver {
             retiredStreamLifetime = retireObserverLocked(parentKey: parentKey)
         } else {
+            observer.pendingActivityDeliveryCount += 1
             observerByParent[parentKey] = observer
             ancestorRecheckToStart = beginNextAncestorRecheckLocked(parentKey: parentKey)
         }
         lifecycleCondition.unlock()
         emitReceiveEffects(
             DarwinSharedExactItemReceiveEffects(
+                parentKey: parentKey,
+                streamGeneration: streamGeneration,
                 activityObservationBatch: Self.makeActivityObservationBatch(
                     parentKey: parentKey,
                     streamGeneration: streamGeneration,
                     rawEvents: rawEvents,
                     participantWorktreeIds: dependentWorktreeIds,
-                    qualifyingWorktreeIds: activityQualifyingWorktreeIds,
-                    coverageLostWorktreeIds: uncertainWorktreeIds
+                    qualifyingWorktreeIds: classification.activityQualifyingWorktreeIds,
+                    coverageLostWorktreeIds: activityCoverageLostWorktreeIds
                 ),
-                mutationEventsByWorktreeId: mutationEventsByWorktreeId,
-                uncertainWorktreeIds: uncertainWorktreeIds,
-                exactSubscriberWorktreeIds: exactSubscriberWorktreeIds,
+                mutationEventsByWorktreeId: classification.mutationEventsByWorktreeId,
+                uncertainWorktreeIds: classification.uncertainWorktreeIds,
+                exactSubscriberWorktreeIds: classification.exactSubscriberWorktreeIds,
                 fullGitRefreshWorktreeIds: fullGitRefreshWorktreeIds,
                 retiredStreamLifetime: retiredStreamLifetime,
                 ancestorRecheckToStart: ancestorRecheckToStart
@@ -646,12 +643,71 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         )
     }
 
+    private func nextStreamGenerations(
+        for parentKeys: Set<DarwinSharedExactItemParentKey>
+    ) -> [DarwinSharedExactItemParentKey: UInt64] {
+        Dictionary(
+            uniqueKeysWithValues: parentKeys.map { parentKey in
+                nextStreamGeneration &+= 1
+                return (parentKey, nextStreamGeneration)
+            })
+    }
+
+    private func classifyReceiveEvents(
+        _ rawEvents: [DarwinSharedExactItemRawEvent],
+        dependentWorktreeIds: Set<UUID>,
+        observer: inout ObserverState,
+        ancestorItemsByWorktreeId: inout [UUID: Set<String>],
+        ancestorEventIdByWorktreeId: inout [UUID: FSEventStreamEventId]
+    ) -> ReceiveClassification {
+        var result = ReceiveClassification()
+        for rawEvent in rawEvents {
+            let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(rawEvent.path)
+            let cursorRegressed = observer.latestEventId.map { rawEvent.eventId < $0 } ?? false
+            observer.latestEventId = rawEvent.eventId
+            let exactSubscribers = (observer.worktreeIdsByExactPath[normalizedPath] ?? []).filter {
+                bindingValidationByWorktreeId[$0]?.isCurrent() == true
+            }
+            for worktreeId in exactSubscribers {
+                result.mutationEventsByWorktreeId[worktreeId, default: []].append(
+                    DarwinFSEventClassifiedRawEvent(
+                        eventId: rawEvent.eventId, flags: rawEvent.flags, hasRelevantMutation: true, path: rawEvent.path
+                    )
+                )
+            }
+            result.exactSubscriberWorktreeIds.formUnion(exactSubscribers)
+            result.exactHitWithPendingAncestorWorktreeIds.formUnion(
+                exactSubscribers.filter {
+                    observer.unresolvedAncestorEntriesByWorktreeId[$0] != nil
+                })
+            if RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(normalizedPath) {
+                result.activityQualifyingWorktreeIds.formUnion(exactSubscribers)
+            }
+            if rawEvent.flags & Self.uncertaintyFlags != 0 || cursorRegressed {
+                result.uncertainWorktreeIds.formUnion(dependentWorktreeIds)
+            } else {
+                for (exactPath, worktreeIds) in observer.worktreeIdsByExactPath
+                where exactPath.hasPrefix(normalizedPath + "/") {
+                    for worktreeId in worktreeIds where bindingValidationByWorktreeId[worktreeId]?.isCurrent() == true {
+                        ancestorItemsByWorktreeId[worktreeId, default: []].insert(exactPath)
+                        ancestorEventIdByWorktreeId[worktreeId] = max(
+                            ancestorEventIdByWorktreeId[worktreeId] ?? rawEvent.eventId, rawEvent.eventId)
+                    }
+                }
+            }
+            result.shouldRetireObserver = result.shouldRetireObserver || Self.isRootChange(rawEvent)
+        }
+        return result
+    }
+
     private func mergeAncestorAmbiguityLocked(
         _ ancestorItemsByWorktreeId: [UUID: Set<String>],
+        latestEventIdByWorktreeId: [UUID: FSEventStreamEventId],
         into observer: inout ObserverState
     ) {
         for worktreeId in ancestorItemsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let canonicalItemPaths = ancestorItemsByWorktreeId[worktreeId],
+                let latestEventId = latestEventIdByWorktreeId[worktreeId],
                 let observedEpoch = recordAncestorAmbiguity(worktreeId)
             else {
                 continue
@@ -659,6 +715,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
             if var unresolvedEntry = observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] {
                 unresolvedEntry.merge(
                     observedEpoch: observedEpoch,
+                    latestEventId: latestEventId,
                     canonicalItemPaths: canonicalItemPaths
                 )
                 observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] = unresolvedEntry
@@ -666,6 +723,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                 observer.unresolvedAncestorEntriesByWorktreeId[worktreeId] =
                     DarwinSharedExactItemAncestorUnresolvedEntry(
                         observedEpoch: observedEpoch,
+                        latestEventId: latestEventId,
                         canonicalItemPaths: canonicalItemPaths
                     )
             }
@@ -861,121 +919,5 @@ package enum DarwinFSEventPathNormalizer {
         }
 
         return componentContainsOnlyDots && (componentLength == 1 || componentLength == 2)
-    }
-}
-
-package enum DarwinSharedExactItemNativeStream {
-    private final class CallbackContext {
-        let eventHandler: @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
-
-        init(eventHandler: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void) {
-            self.eventHandler = eventHandler
-        }
-    }
-
-    private final class StreamLifetime: DarwinSharedExactItemStreamLifetime, @unchecked Sendable {
-        private let nativeLifetime: DarwinFSEventNativeStreamLifetime
-
-        init(
-            stream: FSEventStreamRef,
-            queue: DispatchQueue,
-            callbackContextPointer: UnsafeMutableRawPointer
-        ) {
-            nativeLifetime = DarwinFSEventNativeStreamLifetime(
-                stream: stream,
-                queue: queue,
-                releaseCallbackContext: {
-                    Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-                }
-            )
-        }
-
-        func retire() {
-            nativeLifetime.scheduleRetirement()
-        }
-
-        func flush() -> Bool {
-            nativeLifetime.flush()
-        }
-    }
-
-    private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, ids in
-        guard let info else { return }
-        let context = Unmanaged<CallbackContext>.fromOpaque(info).takeUnretainedValue()
-        let pathArray = unsafeBitCast(paths, to: CFArray.self)
-        let boundedCount = min(Int(count), CFArrayGetCount(pathArray))
-        var rawEvents: [DarwinSharedExactItemRawEvent] = []
-        rawEvents.reserveCapacity(boundedCount)
-        for index in 0..<boundedCount {
-            guard let value = CFArrayGetValueAtIndex(pathArray, index) else { continue }
-            rawEvents.append(
-                DarwinSharedExactItemRawEvent(
-                    path: unsafeBitCast(value, to: CFString.self) as String,
-                    eventId: ids[index],
-                    flags: flags[index]
-                )
-            )
-        }
-        context.eventHandler(rawEvents)
-    }
-
-    package static func start(
-        parentKey: DarwinSharedExactItemParentKey,
-        streamGeneration: UInt64,
-        eventHandler: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
-    ) -> (any DarwinSharedExactItemStreamLifetime)? {
-        let callbackContext = CallbackContext(eventHandler: eventHandler)
-        let callbackContextPointer = Unmanaged.passRetained(callbackContext).toOpaque()
-        var streamContext = FSEventStreamContext(
-            version: 0,
-            info: callbackContextPointer,
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
-        let watchedPaths = [parentKey.parentPath as NSString] as CFArray
-        guard
-            let stream = FSEventStreamCreate(
-                kCFAllocatorDefault,
-                callback,
-                &streamContext,
-                watchedPaths,
-                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-                0.1,
-                DarwinFSEventStreamConfiguration.continuityFlags
-            )
-        else {
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-            return nil
-        }
-        guard
-            DarwinFSEventStreamConfiguration.installPrivateStagingExclusions(
-                DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
-                    sharedParentPath: parentKey.parentPath
-                ),
-                on: stream
-            )
-        else {
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-            return nil
-        }
-        let queue = DispatchQueue(
-            label: "com.agentstudio.fsevents.shared.\(parentKey.volumeSystemNumber).\(streamGeneration)",
-            qos: .utility
-        )
-        FSEventStreamSetDispatchQueue(stream, queue)
-        guard FSEventStreamStart(stream) else {
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-            return nil
-        }
-        return StreamLifetime(
-            stream: stream,
-            queue: queue,
-            callbackContextPointer: callbackContextPointer
-        )
     }
 }

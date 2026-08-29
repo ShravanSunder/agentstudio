@@ -8,6 +8,53 @@ import Testing
 
 @Suite("DarwinSharedExactItemObserver", .serialized)
 struct DarwinSharedExactItemObserverTests {
+    @Test("shared activity settlement waits for every reentrant delivery")
+    func sharedActivitySettlementWaitsForReentrantDelivery() throws {
+        let parentKey = makeSharedParentKey("activity-delivery-order")
+        let worktreeId = UUIDv7.generate()
+        let fixture = makeSharedExactItemFixture()
+        #expect(
+            bind(
+                fixture.registry,
+                worktreeId: worktreeId,
+                parentKey: parentKey,
+                itemName: "configuration"
+            )
+        )
+        let generation = try #require(fixture.registry.snapshot().generationByParent[parentKey])
+        let barrierCapture = SharedActivityBarrierCapture()
+        fixture.effectRecorder.setNextActivityObservationHook { _ in
+            fixture.registry.receive(
+                parentKey: parentKey,
+                streamGeneration: generation,
+                rawEvents: [
+                    DarwinSharedExactItemRawEvent(
+                        path: "\(parentKey.parentPath)/configuration",
+                        eventId: 402,
+                        flags: 0
+                    )
+                ]
+            )
+            barrierCapture.store(fixture.registry.captureActivityBarrier())
+        }
+
+        receive(
+            fixture.registry,
+            parentKey: parentKey,
+            streamGeneration: generation,
+            path: "\(parentKey.parentPath)/configuration",
+            eventId: 401
+        )
+
+        let participant = try #require(
+            fixture.effectRecorder.activityObservationBatches.first?.participant
+        )
+        #expect(barrierCapture.barrier?.deliveredEventIDByParticipant[participant] == 0)
+        let settledBarrier = try #require(fixture.registry.captureActivityBarrier())
+        #expect(settledBarrier.deliveredEventIDByParticipant[participant] == 402)
+        fixture.registry.shutdown()
+    }
+
     @Test("activity barrier rejects shared binding topology changes")
     func activityBarrierRejectsSharedBindingTopologyChanges() throws {
         let parentKey = makeSharedParentKey("activity-barrier-topology")
@@ -560,7 +607,7 @@ struct DarwinSharedExactItemObserverTests {
         )
         #expect(activityBatch.participantWorktreeIds == [worktreeId])
         #expect(activityBatch.qualifyingWorktreeIds.isEmpty)
-        #expect(activityBatch.coverageLostWorktreeIds.isEmpty)
+        #expect(activityBatch.coverageLostWorktreeIds == [worktreeId])
         let barrier = try #require(fixture.registry.captureActivityBarrier())
         let participant = activityBatch.participant
         #expect(barrier.deliveredEventIDByParticipant[participant] == 51)
@@ -770,6 +817,7 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     private var recordedActions: [SharedExactItemRecordedAction] = []
     private var recordedFullGitRefreshSources: [DarwinFSEventIngressSource] = []
     private var recordedActivityObservationBatches: [FSEventActivityObservationBatch] = []
+    private var nextActivityObservationHook: (@Sendable (FSEventActivityObservationBatch) -> Void)?
 
     var actions: [SharedExactItemRecordedAction] {
         lock.withLock { recordedActions }
@@ -826,8 +874,19 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
     }
 
     func recordActivityObservations(_ batch: FSEventActivityObservationBatch) {
-        lock.withLock {
+        let hook = lock.withLock {
             recordedActivityObservationBatches.append(batch)
+            defer { nextActivityObservationHook = nil }
+            return nextActivityObservationHook
+        }
+        hook?(batch)
+    }
+
+    func setNextActivityObservationHook(
+        _ hook: @escaping @Sendable (FSEventActivityObservationBatch) -> Void
+    ) {
+        lock.withLock {
+            nextActivityObservationHook = hook
         }
     }
 
@@ -837,6 +896,19 @@ private final class SharedExactItemEffectRecorder: @unchecked Sendable {
             recordedFullGitRefreshSources.removeAll(keepingCapacity: true)
             recordedActivityObservationBatches.removeAll(keepingCapacity: true)
         }
+    }
+}
+
+private final class SharedActivityBarrierCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedBarrier: FSEventActivityBarrier?
+
+    var barrier: FSEventActivityBarrier? {
+        lock.withLock { storedBarrier }
+    }
+
+    func store(_ barrier: FSEventActivityBarrier?) {
+        lock.withLock { storedBarrier = barrier }
     }
 }
 
@@ -881,96 +953,6 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
             },
             onRetire: { [weak self] in
                 self?.lock.withLock {
-                    self?.retiredStreamCount += 1
-                }
-            }
-        )
-    }
-}
-
-private final class RecordingSharedExactItemStreamLifetime:
-    DarwinSharedExactItemStreamLifetime, @unchecked Sendable
-{
-    private let lock = NSLock()
-    private let onFlush: @Sendable () -> Bool
-    private let onRetire: @Sendable () -> Void
-    private var hasRetired = false
-
-    init(
-        onFlush: @escaping @Sendable () -> Bool = { true },
-        onRetire: @escaping @Sendable () -> Void
-    ) {
-        self.onFlush = onFlush
-        self.onRetire = onRetire
-    }
-
-    func flush() -> Bool {
-        onFlush()
-    }
-
-    func retire() {
-        let shouldRetire = lock.withLock { () -> Bool in
-            guard !hasRetired else { return false }
-            hasRetired = true
-            return true
-        }
-        if shouldRetire {
-            onRetire()
-        }
-    }
-}
-
-private final class ControllableSharedExactItemStreamFactory: @unchecked Sendable {
-    private let condition = NSCondition()
-    private let startEvents: AsyncStream<Void>
-    private let startEventsContinuation: AsyncStream<Void>.Continuation
-    private var canCompleteStreamStart = false
-    private var startedStreamCount = 0
-    private var retiredStreamCount = 0
-
-    init() {
-        (startEvents, startEventsContinuation) = AsyncStream.makeStream(
-            of: Void.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-    }
-
-    var startCount: Int {
-        condition.withLock { startedStreamCount }
-    }
-
-    var retirementCount: Int {
-        condition.withLock { retiredStreamCount }
-    }
-
-    func waitUntilStreamStartBegins() async {
-        for await _ in startEvents {
-            return
-        }
-    }
-
-    func allowStreamStartToComplete() {
-        condition.withLock {
-            canCompleteStreamStart = true
-            condition.broadcast()
-        }
-    }
-
-    func makeStream(
-        parentKey _: DarwinSharedExactItemParentKey,
-        streamGeneration _: UInt64,
-        eventHandler _: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
-    ) -> (any DarwinSharedExactItemStreamLifetime)? {
-        condition.lock()
-        startedStreamCount += 1
-        startEventsContinuation.yield(())
-        while !canCompleteStreamStart {
-            condition.wait()
-        }
-        condition.unlock()
-        return RecordingSharedExactItemStreamLifetime(
-            onRetire: { [weak self] in
-                self?.condition.withLock {
                     self?.retiredStreamCount += 1
                 }
             }

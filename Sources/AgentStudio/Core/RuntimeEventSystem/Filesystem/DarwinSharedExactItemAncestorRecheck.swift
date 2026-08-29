@@ -2,10 +2,16 @@ import Foundation
 
 struct DarwinSharedExactItemAncestorUnresolvedEntry: Equatable, Sendable {
     var observedEpoch: UInt64
+    var latestEventId: FSEventStreamEventId
     var canonicalItemPaths: Set<String>
 
-    mutating func merge(observedEpoch: UInt64, canonicalItemPaths: Set<String>) {
+    mutating func merge(
+        observedEpoch: UInt64,
+        latestEventId: FSEventStreamEventId,
+        canonicalItemPaths: Set<String>
+    ) {
         self.observedEpoch = observedEpoch
+        self.latestEventId = max(self.latestEventId, latestEventId)
         self.canonicalItemPaths.formUnion(canonicalItemPaths)
     }
 }
@@ -13,6 +19,7 @@ struct DarwinSharedExactItemAncestorUnresolvedEntry: Equatable, Sendable {
 struct DarwinSharedExactItemAncestorRecheckEntry: Equatable, Sendable {
     let worktreeId: UUID
     let observedEpoch: UInt64
+    let latestEventId: FSEventStreamEventId
     let canonicalItemPaths: Set<String>
     let baseline: DarwinSharedExactItemAuthorityBaseline?
 }
@@ -33,6 +40,8 @@ struct DarwinSharedExactItemAncestorRecheckSnapshot: Equatable, Sendable {
 }
 
 struct DarwinSharedExactItemReceiveEffects {
+    let parentKey: DarwinSharedExactItemParentKey
+    let streamGeneration: UInt64
     let activityObservationBatch: FSEventActivityObservationBatch
     let mutationEventsByWorktreeId: [UUID: [DarwinFSEventClassifiedRawEvent]]
     let uncertainWorktreeIds: Set<UUID>
@@ -40,6 +49,12 @@ struct DarwinSharedExactItemReceiveEffects {
     let fullGitRefreshWorktreeIds: Set<UUID>
     let retiredStreamLifetime: (any DarwinSharedExactItemStreamLifetime)?
     let ancestorRecheckToStart: DarwinSharedExactItemAncestorRecheckSnapshot?
+}
+
+private enum DarwinSharedExactItemAncestorActivityDisposition {
+    case equal
+    case qualifyingChange
+    case coverageLost
 }
 
 extension DarwinSharedExactItemObserverRegistry {
@@ -72,6 +87,10 @@ extension DarwinSharedExactItemObserverRegistry {
             fullRefreshEmissionCount: effects.fullGitRefreshWorktreeIds.count
         )
         yieldActivityObservations(effects.activityObservationBatch)
+        completeActivityDelivery(
+            parentKey: effects.parentKey,
+            streamGeneration: effects.streamGeneration
+        )
         for worktreeId in effects.mutationEventsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let events = effects.mutationEventsByWorktreeId[worktreeId] else { continue }
             recordRawEvents(worktreeId, events)
@@ -117,6 +136,7 @@ extension DarwinSharedExactItemObserverRegistry {
                     DarwinSharedExactItemAncestorRecheckEntry(
                         worktreeId: worktreeId,
                         observedEpoch: unresolvedEntry.observedEpoch,
+                        latestEventId: unresolvedEntry.latestEventId,
                         canonicalItemPaths: unresolvedEntry.canonicalItemPaths,
                         baseline: currentAuthorityBaselineLocked(worktreeId: worktreeId)
                     )
@@ -165,6 +185,7 @@ extension DarwinSharedExactItemObserverRegistry {
 
         var fallbackWorktreeIds: Set<UUID> = []
         var equalWorktreeIds: Set<UUID> = []
+        var qualifyingActivityWorktreeIds: Set<UUID> = []
         for worktreeId in recheck.entriesByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
             guard let recheckEntry = recheck.entriesByWorktreeId[worktreeId],
                 let unresolvedEntry = observer.unresolvedAncestorEntriesByWorktreeId[worktreeId]
@@ -172,32 +193,86 @@ extension DarwinSharedExactItemObserverRegistry {
                 continue
             }
             guard unresolvedEntry.observedEpoch == recheckEntry.observedEpoch,
+                unresolvedEntry.latestEventId == recheckEntry.latestEventId,
                 unresolvedEntry.canonicalItemPaths == recheckEntry.canonicalItemPaths
             else {
                 fallbackWorktreeIds.insert(worktreeId)
                 continue
             }
-            guard recheckEntryMatchesBaseline(recheckEntry, outcome: outcome) else {
+            switch activityDisposition(recheckEntry, outcome: outcome) {
+            case .equal:
+                observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
+                equalWorktreeIds.insert(worktreeId)
+            case .qualifyingChange:
+                observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
+                qualifyingActivityWorktreeIds.insert(worktreeId)
+                fallbackWorktreeIds.insert(worktreeId)
+            case .coverageLost:
                 observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
                 fallbackWorktreeIds.insert(worktreeId)
-                continue
             }
-            observer.unresolvedAncestorEntriesByWorktreeId.removeValue(forKey: worktreeId)
-            equalWorktreeIds.insert(worktreeId)
         }
         observerByParent[recheck.parentKey] = observer
         resolveCompletedEqualWorktreesLocked(equalWorktreeIds, fallback: &fallbackWorktreeIds)
 
+        let coverageLostWorktreeIds = fallbackWorktreeIds.subtracting(
+            qualifyingActivityWorktreeIds
+        )
+        let terminalWorktreeIds =
+            equalWorktreeIds
+            .union(qualifyingActivityWorktreeIds)
+            .union(coverageLostWorktreeIds)
+        let activityObservationBatch = makeAncestorCompletionActivityObservationBatch(
+            recheck,
+            participantWorktreeIds: terminalWorktreeIds,
+            qualifyingWorktreeIds: qualifyingActivityWorktreeIds,
+            coverageLostWorktreeIds: coverageLostWorktreeIds
+        )
+        if activityObservationBatch != nil,
+            var currentObserver = observerByParent[recheck.parentKey],
+            currentObserver.generation == recheck.streamGeneration
+        {
+            currentObserver.pendingActivityDeliveryCount += 1
+            observerByParent[recheck.parentKey] = currentObserver
+        }
         let successorRechecks = beginAllReadyAncestorRechecksLocked()
         let admittedFallbackWorktreeIds = admitFullRefreshLocked(fallbackWorktreeIds)
         lifecycleCondition.unlock()
 
+        if let activityObservationBatch {
+            yieldActivityObservations(activityObservationBatch)
+            completeActivityDelivery(
+                parentKey: recheck.parentKey,
+                streamGeneration: recheck.streamGeneration
+            )
+        }
         emitAncestorFallbacks(
             fallbackWorktreeIds,
             admittedWorktreeIds: admittedFallbackWorktreeIds
         )
         for successor in successorRechecks {
             startAncestorRecheck(successor)
+        }
+    }
+
+    func completeActivityDelivery(
+        parentKey: DarwinSharedExactItemParentKey,
+        streamGeneration: UInt64
+    ) {
+        lifecycleCondition.withLock {
+            guard var observer = observerByParent[parentKey],
+                observer.generation == streamGeneration,
+                observer.pendingActivityDeliveryCount > 0
+            else {
+                return
+            }
+            observer.pendingActivityDeliveryCount -= 1
+            if observer.pendingActivityDeliveryCount == 0,
+                observer.unresolvedAncestorEntriesByWorktreeId.isEmpty
+            {
+                observer.latestActivitySettledEventId = observer.latestEventId
+            }
+            observerByParent[parentKey] = observer
         }
     }
 
@@ -227,20 +302,54 @@ extension DarwinSharedExactItemObserverRegistry {
         }
     }
 
-    private func recheckEntryMatchesBaseline(
+    private func activityDisposition(
         _ recheckEntry: DarwinSharedExactItemAncestorRecheckEntry,
         outcome: DarwinSharedExactItemFingerprintOutcome?
-    ) -> Bool {
+    ) -> DarwinSharedExactItemAncestorActivityDisposition {
         guard let baseline = recheckEntry.baseline,
             currentAuthorityBaselineLocked(worktreeId: recheckEntry.worktreeId) == baseline,
             authorityIsCurrentForAncestorRecheck(baseline.authority),
             let fingerprints = outcome?.snapshot?.fingerprintsByCanonicalPath
         else {
-            return false
+            return .coverageLost
         }
-        return recheckEntry.canonicalItemPaths.allSatisfy {
-            fingerprints[$0] == baseline.fingerprintsByCanonicalPath[$0]
+
+        let changedPaths = recheckEntry.canonicalItemPaths.filter {
+            fingerprints[$0] != baseline.fingerprintsByCanonicalPath[$0]
         }
+        guard !changedPaths.isEmpty else {
+            let baselineMissingPath = recheckEntry.canonicalItemPaths.contains {
+                baseline.fingerprintsByCanonicalPath[$0]?.kind == .missing
+            }
+            return baselineMissingPath ? .coverageLost : .equal
+        }
+        return changedPaths.contains(where: RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath)
+            ? .qualifyingChange : .coverageLost
+    }
+
+    private func makeAncestorCompletionActivityObservationBatch(
+        _ recheck: DarwinSharedExactItemAncestorRecheckSnapshot,
+        participantWorktreeIds: Set<UUID>,
+        qualifyingWorktreeIds: Set<UUID>,
+        coverageLostWorktreeIds: Set<UUID>
+    ) -> FSEventActivityObservationBatch? {
+        guard !participantWorktreeIds.isEmpty else { return nil }
+        let processedThroughEventID =
+            participantWorktreeIds.compactMap {
+                recheck.entriesByWorktreeId[$0]?.latestEventId
+            }.max() ?? 0
+        return FSEventActivityObservationBatch(
+            participant: FSEventParticipant(
+                scopeKey:
+                    "shared:\(recheck.parentKey.volumeSystemNumber):\(recheck.parentKey.parentPath)",
+                generation: recheck.streamGeneration,
+                volumeIdentifier: String(recheck.parentKey.volumeSystemNumber)
+            ),
+            processedThroughEventID: UInt64(processedThroughEventID),
+            participantWorktreeIds: participantWorktreeIds,
+            qualifyingWorktreeIds: qualifyingWorktreeIds,
+            coverageLostWorktreeIds: coverageLostWorktreeIds
+        )
     }
 
     private func resolveCompletedEqualWorktreesLocked(

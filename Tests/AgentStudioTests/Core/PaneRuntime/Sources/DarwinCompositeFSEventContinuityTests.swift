@@ -30,6 +30,153 @@ struct DarwinCompositeFSEventContinuityTests {
         #expect(performance.sharedFullRefreshEmissionCount == 0)
     }
 
+    @Test("shared activity cursor waits for MustScan ancestor verification")
+    func activityCursorWaitsForMustScanVerification() async throws {
+        let fingerprintGate = CompositeFingerprintGate()
+        let fixture = try CompositeContinuityFixture(
+            regularFileOpened: fingerprintGate.regularFileOpened
+        )
+        _ = try #require(await fixture.prepareAuthority())
+        fingerprintGate.blockNextRead()
+
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 281,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+        await fingerprintGate.waitUntilOpened()
+
+        let pendingBarrier = try #require(await fixture.client.captureActivityBarrier())
+        #expect(fixture.sharedDeliveredEventID(in: pendingBarrier) == 0)
+
+        fingerprintGate.allowRead()
+        let settledBarrier = try #require(
+            await waitForSharedActivitySettlement(fixture: fixture, eventID: 281)
+        )
+        #expect(fixture.sharedDeliveredEventID(in: settledBarrier) == 281)
+        let completionBatch = try #require(
+            fixture.activityObservationBatches.last { $0.processedThroughEventID == 281 }
+        )
+        #expect(completionBatch.qualifyingWorktreeIds.isEmpty)
+        #expect(completionBatch.coverageLostWorktreeIds.isEmpty)
+    }
+
+    @Test("changed qualifying shared item records activity before cursor settlement")
+    func changedQualifyingSharedItemRecordsActivityBeforeSettlement() async throws {
+        let fixture = try CompositeContinuityFixture(sharedItemName: "packed-refs")
+        _ = try #require(await fixture.prepareAuthority())
+        try Data("changed".utf8).write(to: fixture.configurationPath)
+
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 282,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+
+        let settledBarrier = try #require(
+            await waitForSharedActivitySettlement(fixture: fixture, eventID: 282)
+        )
+        let completionBatch = try #require(
+            fixture.activityObservationBatches.first {
+                $0.processedThroughEventID == 282
+                    && $0.qualifyingWorktreeIds == [fixture.worktreeId]
+            }
+        )
+        #expect(completionBatch.qualifyingWorktreeIds == [fixture.worktreeId])
+        #expect(completionBatch.coverageLostWorktreeIds.isEmpty)
+        #expect(fixture.sharedDeliveredEventID(in: settledBarrier) == 282)
+    }
+
+    @Test("missing qualifying shared item restarts activity coverage")
+    func missingQualifyingSharedItemRestartsCoverage() async throws {
+        let fixture = try CompositeContinuityFixture(sharedItemName: "packed-refs")
+        try FileManager.default.removeItem(at: fixture.configurationPath)
+        _ = try #require(await fixture.prepareAuthority())
+        try Data("created".utf8).write(to: fixture.configurationPath)
+        try FileManager.default.removeItem(at: fixture.configurationPath)
+
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 286,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+
+        let settledBarrier = try #require(
+            await waitForSharedActivitySettlement(fixture: fixture, eventID: 286)
+        )
+        let completionBatch = try #require(
+            fixture.activityObservationBatches.last { $0.processedThroughEventID == 286 }
+        )
+        #expect(completionBatch.qualifyingWorktreeIds.isEmpty)
+        #expect(completionBatch.coverageLostWorktreeIds == [fixture.worktreeId])
+        #expect(fixture.sharedDeliveredEventID(in: settledBarrier) == 286)
+    }
+
+    @Test("unreadable shared item restarts activity coverage before cursor settlement")
+    func unreadableSharedItemRestartsCoverageBeforeSettlement() async throws {
+        let fixture = try CompositeContinuityFixture()
+        _ = try #require(await fixture.prepareAuthority())
+        try FileManager.default.removeItem(at: fixture.configurationPath)
+        try FileManager.default.createDirectory(
+            at: fixture.configurationPath,
+            withIntermediateDirectories: false
+        )
+
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 283,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+
+        let settledBarrier = try #require(
+            await waitForSharedActivitySettlement(fixture: fixture, eventID: 283)
+        )
+        let completionBatch = try #require(
+            fixture.activityObservationBatches.last { $0.processedThroughEventID == 283 }
+        )
+        #expect(completionBatch.qualifyingWorktreeIds.isEmpty)
+        #expect(completionBatch.coverageLostWorktreeIds == [fixture.worktreeId])
+        #expect(fixture.sharedDeliveredEventID(in: settledBarrier) == 283)
+    }
+
+    @Test("nonqualifying exact hit preserves remaining ancestor activity scope")
+    func nonqualifyingExactHitPreservesRemainingAncestorScope() async throws {
+        let fingerprintGate = CompositeFingerprintGate()
+        let fixture = try CompositeContinuityFixture(
+            additionalSharedItemNames: ["packed-refs"],
+            regularFileOpened: fingerprintGate.regularFileOpened
+        )
+        _ = try #require(await fixture.prepareAuthority())
+        fingerprintGate.blockNextRead()
+
+        fixture.streamFactory.send(
+            path: fixture.ancestorEventPath,
+            eventId: 284,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+        await fingerprintGate.waitUntilOpened()
+        fixture.streamFactory.send(
+            path: fixture.configurationEventPath,
+            eventId: 285,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)
+        )
+
+        let pendingBarrier = try #require(await fixture.client.captureActivityBarrier())
+        #expect(fixture.sharedDeliveredEventID(in: pendingBarrier) == 0)
+
+        fingerprintGate.allowRead()
+        let settledBarrier = try #require(
+            await waitForSharedActivitySettlement(fixture: fixture, eventID: 285)
+        )
+        #expect(fixture.sharedDeliveredEventID(in: settledBarrier) == 285)
+        #expect(
+            fixture.activityObservationBatches.contains {
+                $0.processedThroughEventID == 285
+                    && $0.coverageLostWorktreeIds == [fixture.worktreeId]
+            }
+        )
+    }
+
     @Test("stable shared fingerprint baseline renews with its resolved ambiguity epoch")
     func stableSharedFingerprintBaselineRenews() async throws {
         let fixture = try CompositeContinuityFixture()
@@ -60,6 +207,7 @@ struct DarwinCompositeFSEventContinuityTests {
             regularFileOpened: fingerprintGate.regularFileOpened
         )
         let barrier = try #require(await fixture.prepare())
+        fingerprintGate.blockNextRead()
         let commitTask = Task { await fixture.client.commit(barrier) }
 
         await fingerprintGate.waitUntilOpened()
@@ -165,6 +313,23 @@ private func waitForRenewedAuthority(
     return nil
 }
 
+private func waitForSharedActivitySettlement(
+    fixture: CompositeContinuityFixture,
+    eventID: UInt64
+) async -> FSEventActivityBarrier? {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while clock.now < deadline {
+        if let barrier = await fixture.client.captureActivityBarrier(),
+            fixture.sharedDeliveredEventID(in: barrier) == eventID
+        {
+            return barrier
+        }
+        await Task.yield()
+    }
+    return nil
+}
+
 enum CompositeFlushWindow: Int, CaseIterable, Sendable {
     case prepare = 1
     case commitBeforeFingerprint = 2
@@ -188,9 +353,18 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     let observationPlan: AgentStudioGit.GitStatusObservationPlan
 
     private let fixtureRoot: URL
+    private let activityObservationLock = NSLock()
+    private var recordedActivityObservationBatches: [FSEventActivityObservationBatch] = []
+    private var ingressTask: Task<Void, Never>?
+
+    var activityObservationBatches: [FSEventActivityObservationBatch] {
+        activityObservationLock.withLock { recordedActivityObservationBatches }
+    }
 
     init(
         blockedFlushNumber: Int = .max,
+        sharedItemName: String = "configuration",
+        additionalSharedItemNames: [String] = [],
         regularFileOpened: @escaping CompositeRegularFileOpened = { _ in }
     ) throws {
         fixtureRoot = FileManager.default.temporaryDirectory.appending(
@@ -199,10 +373,13 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         )
         worktreeRoot = fixtureRoot.appending(path: "worktree", directoryHint: .isDirectory)
         let externalParent = fixtureRoot.appending(path: "external", directoryHint: .isDirectory)
-        configurationPath = externalParent.appending(path: "configuration")
+        configurationPath = externalParent.appending(path: sharedItemName)
         try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
         try Data().write(to: configurationPath)
+        for additionalSharedItemName in additionalSharedItemNames {
+            try Data().write(to: externalParent.appending(path: additionalSharedItemName))
+        }
         configurationEventPath = try #require(
             configurationPath.withUnsafeFileSystemRepresentation { pathPointer -> String? in
                 guard let pathPointer, let resolvedPointer = Darwin.realpath(pathPointer, nil) else {
@@ -231,16 +408,34 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         )
         observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "composite-continuity"),
-            scopes: [
-                AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: worktreeRoot),
-                AgentStudioGit.GitStatusObservationScope(kind: .item, path: configurationPath),
-            ],
+            scopes: [AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: worktreeRoot)]
+                + ([sharedItemName] + additionalSharedItemNames).map {
+                    AgentStudioGit.GitStatusObservationScope(
+                        kind: .item,
+                        path: externalParent.appending(path: $0)
+                    )
+                },
             support: .supported
         )
         client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
+        ingressTask = Task { [client, weak self] in
+            for await item in client.events() {
+                switch item {
+                case .activityObservations(let batch):
+                    self?.activityObservationLock.withLock {
+                        self?.recordedActivityObservationBatches.append(batch)
+                    }
+                case .activityProcessingFence(let fenceID):
+                    client.acknowledgeActivityProcessingFence(fenceID)
+                case .batch:
+                    break
+                }
+            }
+        }
     }
 
     deinit {
+        ingressTask?.cancel()
         streamFactory.allowBlockedFlush(result: false)
         client.shutdown()
         try? FileManager.default.removeItem(at: fixtureRoot)
@@ -258,13 +453,20 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         guard let barrier = await prepare() else { return nil }
         return await client.commit(barrier).authority
     }
+
+    func sharedDeliveredEventID(in barrier: FSEventActivityBarrier) -> UInt64? {
+        barrier.deliveredEventIDByParticipant.first { participant, _ in
+            participant.scopeKey.hasPrefix("shared:")
+        }?.value
+    }
 }
 
 private final class CompositeFingerprintGate: @unchecked Sendable {
     private let condition = NSCondition()
     private let openedEvents: AsyncStream<Void>
     private let openedContinuation: AsyncStream<Void>.Continuation
-    private var mayRead = false
+    private var shouldBlockNextRead = false
+    private var mayRead = true
 
     init() {
         (openedEvents, openedContinuation) = AsyncStream.makeStream(
@@ -277,11 +479,23 @@ private final class CompositeFingerprintGate: @unchecked Sendable {
         { [weak self] _ in
             guard let self else { return }
             condition.lock()
+            guard shouldBlockNextRead else {
+                condition.unlock()
+                return
+            }
             openedContinuation.yield()
             while !mayRead {
                 condition.wait()
             }
+            shouldBlockNextRead = false
             condition.unlock()
+        }
+    }
+
+    func blockNextRead() {
+        condition.withLock {
+            shouldBlockNextRead = true
+            mayRead = false
         }
     }
 

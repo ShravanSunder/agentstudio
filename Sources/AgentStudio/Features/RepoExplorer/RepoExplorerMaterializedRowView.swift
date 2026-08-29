@@ -68,7 +68,7 @@ struct RepoExplorerMaterializedRowView: View {
                     {
                         repositoryActivityTrailingContent(
                             repoID: repoID,
-                            isUpdating: RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible(
+                            isUpdating: RepoExplorerRepositoryUpdatePresentation.isLoading(
                                 group.repositoryFactUpdateProgress
                             )
                         )

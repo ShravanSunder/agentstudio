@@ -47,7 +47,9 @@ extension DarwinSharedExactItemObserverRegistry {
                     generation: generation,
                     volumeIdentifier: String(parentKey.volumeSystemNumber)
                 )
-                deliveredEventIDByParticipant[participant] = UInt64(observer.latestEventId ?? 0)
+                deliveredEventIDByParticipant[participant] = UInt64(
+                    observer.latestActivitySettledEventId ?? 0
+                )
                 for worktreeId in observer.exactPathsByWorktreeId.keys.sorted(by: Self.sortWorktreeIds) {
                     guard bindingValidationByWorktreeId[worktreeId]?.isCurrent() == true else {
                         continue

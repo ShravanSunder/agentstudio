@@ -410,6 +410,16 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!functionSource.contains("Text(inactivityStatus.label)"))
         #expect(!functionSource.contains("Text(\"Updating\")"))
         #expect(functionSource.contains("if controlState.revealsRefresh, let commandPresentation"))
+        #expect(
+            source.contains(
+                "isUpdating: RepoExplorerRepositoryUpdatePresentation.isLoading("
+            )
+        )
+        #expect(
+            !source.contains(
+                "isUpdating: RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible("
+            )
+        )
     }
 
     @Test("inactive repository refresh reveal is local and explicitly dismissible")
