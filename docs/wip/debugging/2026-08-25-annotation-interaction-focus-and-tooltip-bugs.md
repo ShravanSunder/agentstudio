@@ -503,6 +503,17 @@ Date: 2026-08-25
       shortcut. Treat this as a test sequencing defect, not the cause of the live
       yellow-padding keyboard-owner defect.
 
+26. **Vite page does not recover after supervised backend restart**
+    - Real Chrome/Vite observation on 2026-08-29: a repository WIP edit triggered
+      the development supervisor to rebuild/restart Swift. Two product commands hit
+      `ECONNREFUSED` during the restart. After the supervisor reported ready and the
+      proxied health endpoint returned 204, the existing File page remained at
+      `Source pending`, `Updating files…`, and `0/0` instead of resubscribing.
+    - Reload restores the development journey but is only a workaround. Acceptance
+      requires the live production comm-worker page to reconnect, bootstrap current
+      source, and leave the pending chrome after a supervised backend restart without
+      losing annotation/editor state.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
