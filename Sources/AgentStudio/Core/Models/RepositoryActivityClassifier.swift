@@ -55,8 +55,10 @@ package struct RepositoryActivityClassificationInput: Equatable, Sendable {
 package struct RepositoryActivityClassification: Equatable, Sendable {
     package let dispositionByRepositoryID: [UUID: RepositoryActivityDisposition]
     package let warmRepositoryIDs: Set<UUID>
+    package let unknownRepositoryIDs: Set<UUID>
     package let locallyInactiveRepositoryIDs: Set<UUID>
     package let warmWorktreeIDs: Set<UUID>
+    package let unknownWorktreeIDs: Set<UUID>
     package let locallyInactiveWorktreeIDs: Set<UUID>
     package let nextTransitionAt: Date?
 }
@@ -67,8 +69,10 @@ package enum RepositoryActivityClassifier {
     ) -> RepositoryActivityClassification {
         var dispositionByRepositoryID: [UUID: RepositoryActivityDisposition] = [:]
         var warmRepositoryIDs = Set<UUID>()
+        var unknownRepositoryIDs = Set<UUID>()
         var locallyInactiveRepositoryIDs = Set<UUID>()
         var warmWorktreeIDs = Set<UUID>()
+        var unknownWorktreeIDs = Set<UUID>()
         var locallyInactiveWorktreeIDs = Set<UUID>()
         var nextTransitionAt: Date?
 
@@ -89,22 +93,35 @@ package enum RepositoryActivityClassifier {
                 activity.lastQualifyingActivityAt.map({ $0 <= input.referenceDate }) ?? true
             else {
                 dispositionByRepositoryID[repository.repositoryID] = .unclassified
-                warmRepositoryIDs.insert(repository.repositoryID)
-                warmWorktreeIDs.formUnion(worktreeIDs)
+                unknownRepositoryIDs.insert(repository.repositoryID)
+                unknownWorktreeIDs.formUnion(worktreeIDs)
                 continue
             }
 
-            let latestProofBoundary = max(
-                activity.continuousCoverageStartedAt,
-                activity.lastQualifyingActivityAt ?? activity.continuousCoverageStartedAt
-            )
-            let expiration = latestProofBoundary.addingTimeInterval(input.inactivityHorizon)
-            if input.referenceDate <= expiration {
+            if let lastQualifyingActivityAt = activity.lastQualifyingActivityAt,
+                input.referenceDate
+                    <= lastQualifyingActivityAt.addingTimeInterval(input.inactivityHorizon)
+            {
                 dispositionByRepositoryID[repository.repositoryID] = .warm
                 warmRepositoryIDs.insert(repository.repositoryID)
                 warmWorktreeIDs.formUnion(worktreeIDs)
-                let transitionAt = Date(
-                    timeIntervalSinceReferenceDate: expiration.timeIntervalSinceReferenceDate.nextUp
+                let transitionAt = nextTransitionDate(
+                    after: lastQualifyingActivityAt,
+                    horizon: input.inactivityHorizon
+                )
+                nextTransitionAt = min(nextTransitionAt ?? transitionAt, transitionAt)
+                continue
+            }
+
+            if input.referenceDate
+                <= activity.continuousCoverageStartedAt.addingTimeInterval(input.inactivityHorizon)
+            {
+                dispositionByRepositoryID[repository.repositoryID] = .unclassified
+                unknownRepositoryIDs.insert(repository.repositoryID)
+                unknownWorktreeIDs.formUnion(worktreeIDs)
+                let transitionAt = nextTransitionDate(
+                    after: activity.continuousCoverageStartedAt,
+                    horizon: input.inactivityHorizon
                 )
                 nextTransitionAt = min(nextTransitionAt ?? transitionAt, transitionAt)
             } else {
@@ -117,10 +134,19 @@ package enum RepositoryActivityClassifier {
         return RepositoryActivityClassification(
             dispositionByRepositoryID: dispositionByRepositoryID,
             warmRepositoryIDs: warmRepositoryIDs,
+            unknownRepositoryIDs: unknownRepositoryIDs,
             locallyInactiveRepositoryIDs: locallyInactiveRepositoryIDs,
             warmWorktreeIDs: warmWorktreeIDs,
+            unknownWorktreeIDs: unknownWorktreeIDs,
             locallyInactiveWorktreeIDs: locallyInactiveWorktreeIDs,
             nextTransitionAt: nextTransitionAt
+        )
+    }
+
+    private static func nextTransitionDate(after boundary: Date, horizon: TimeInterval) -> Date {
+        let expiration = boundary.addingTimeInterval(horizon)
+        return Date(
+            timeIntervalSinceReferenceDate: expiration.timeIntervalSinceReferenceDate.nextUp
         )
     }
 }
