@@ -505,6 +505,17 @@ struct RepoExplorerWorktreeRowTests {
         #expect(source.contains("worktreeContextMenuLabel(for: showBridgeFiles)"))
     }
 
+    @Test("creation submenus keep stable identities while their command state updates")
+    func creationSubmenusKeepStableIdentities() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains(".id(\"repo-explorer-new-tab-context-menu\")"))
+        #expect(source.contains(".id(\"repo-explorer-current-tab-context-menu\")"))
+    }
+
     @Test("context menu labels use the same content vocabulary in tabs and panes")
     func contextMenuLabelsUseSharedContentVocabulary() {
         #expect(
