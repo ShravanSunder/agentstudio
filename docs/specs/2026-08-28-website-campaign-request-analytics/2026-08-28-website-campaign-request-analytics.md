@@ -117,7 +117,7 @@ collect visitor identity.
 | ID | Observable proof |
 | --- | --- |
 | V1 | Routing evidence shows only the six campaign route patterns invoke Worker-first behavior; `/` and ordinary assets remain asset-first. |
-| V2 | Automated behavior evidence admits known canonical GET/200 routes and rejects unknown, noncanonical, non-GET, query-attribution, and non-200 cases. |
+| V2 | Automated behavior evidence admits known canonical GET/200 routes, including when a query string is present; proves the query is ignored for route resolution, identity, dimensions, and storage; and rejects unknown, noncanonical, non-GET, and non-200 cases. |
 | V3 | Automated data inspection shows exact registered dimensions, explicit aggregate classification, stable field ordering, one index, and no request-derived personal fields. |
 | V4 | Failure-injection evidence shows analytics write failure returns the unchanged asset response. |
 | V5 | Production build and Cloudflare packaging evidence contains the Worker entrypoint, selective routing, static assets binding, and Analytics Engine binding together. |
