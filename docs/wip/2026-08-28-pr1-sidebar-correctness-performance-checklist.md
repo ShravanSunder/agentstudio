@@ -2,7 +2,7 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current checkpoint: `60426e83c`
+Current checkpoint: `0294233b9`
 Status: not PR-ready
 
 ## Product Contract
@@ -29,8 +29,10 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Add a red Repo Explorer materialization test proving locally inactive rows retain cached branch, file, ahead/behind, and PR chips with no empty replacement row.
 - [x] Cut demand and Repo Explorer classification over from application-open recency to the existing repository-local activity atom without adding replay machinery.
 - [x] Fix local-Git admission so unknown/missing attended baselines remain bounded correctness work while truly inactive recurring deadlines remain suppressed.
+- [x] Keep unknown-hydration local correctness eligibility while deferring automatic Remote/Forge demand to authoritative activity or open worktrees.
 - [x] Remove locally-inactive presentation suppression from worktree and pane/tab projections while preserving the repository memorychip annotation.
 - [x] Prove cached facts remain visible throughout explicit refresh and loading terminates.
+- [x] Stabilize nested New Tab and Current Tab context-menu identities during asynchronous row/command updates.
 - [x] Prevent FSEvent activity-barrier flush from racing native stream retirement during the loaded startup baseline.
 - [x] Preserve canonical topology membership through source assertion; bulk reconciliation no longer re-probes and silently unregisters owned worktrees.
 - [x] Keep repository stable-key enrichment metadata-only; it no longer unregisters and re-registers unchanged filesystem roots or erases their pending Git baseline.
@@ -53,6 +55,8 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - `95289e288` correctly stops treating absent PR facts as permanent loading and removes fabricated `Unknown branch`, but it exposed the missing-baseline defect and is not sufficient by itself.
 - Fresh marker `debug-observability-lbim-1787955213-90463` proved 146 warm worktrees created baseline debt, then 145 intents disappeared without running Git because `FilesystemGitPipeline.assertTopology` re-probed and filtered canonical membership. The 146-worktree ownership integration now proves assertion performs zero secondary discovery calls while direct candidate registration still rejects certain non-repositories.
 - Fresh marker `debug-observability-lbim-1787956797-50268` isolated the remaining identical collapse after the assertion-owner fix: stable-key enrichment alone forced 146 filesystem unregister/register cycles. The focused lifecycle test now proves the stable-key map updates while the existing stream registration remains unchanged.
+- `c24be9beb` separates unknown activity from automatic remote demand: pending/unavailable hydration still warms local Git for correctness, but Remote/Forge receives only open worktrees until activity is authoritative. Coordinator coverage passes 8/8.
+- `0294233b9` gives the two creation submenus stable SwiftUI identities so command-snapshot updates do not tear down native submenu tracking. `RepoExplorerWorktreeRowTests` passes 28/28.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
 - The periodic Git integration fixture now settles visibility admission before registration, derives the next provider call count dynamically, and advances the injected clock to the actual scheduler deadline. The focused leaf passed 1/1 and the complete `FilesystemGitPipelineIntegrationTests` suite passed 7/7.
 - The Git enrichment integration fixture now drives the existing cache-apply clock explicitly and waits for stable Forge projection plus an ordered cache-consumer barrier. `GitEnrichmentEventPipelineIntegrationTests` passed 2/2 without wall-clock sleeps.
