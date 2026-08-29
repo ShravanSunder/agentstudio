@@ -669,10 +669,12 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'origin',
 			},
+			expectedVisibleLabel: 'origin/main · Updating',
 			rowTestId: 'comparison-branch-origin-main',
 		},
 		{
 			expectedTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
+			expectedVisibleLabel: 'main · Updating',
 			rowTestId: 'comparison-branch-main',
 		},
 		{
@@ -682,6 +684,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'upstream',
 			},
+			expectedVisibleLabel: 'upstream/release · Updating',
 			rowTestId: 'comparison-branch-upstream-release',
 		},
 	])('applies $rowTestId immediately', async (scenario) => {
@@ -709,6 +712,15 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(scenario.expectedTarget);
 		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
+		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+		await expect.element(trigger).toHaveTextContent(scenario.expectedVisibleLabel);
+		expect(trigger.element()).toBeDisabled();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-pending-icon"]'),
+		).not.toBeNull();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-trigger-icon"]'),
+		).toBeNull();
 	});
 
 	test('accepts only a full hexadecimal commit OID', async () => {

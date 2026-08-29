@@ -443,6 +443,66 @@ Date: 2026-08-25
     - Browser proof still required against the real backend; the new regression test
       covers both shortcuts after an edited Save.
 
+23. **Intermittent post-save Reply shortcuts and verbose Review update chrome**
+    - Live owner proof on 2026-08-29 shows a saved active annotation thread where
+      plain `R` and Ctrl-R sometimes open Reply and sometimes do nothing. This is
+      intermittent focus/ownership behavior, not a missing binding: the action spec
+      and matcher already admit both key forms.
+    - Required behavior: Command-Enter completes editing, preserves the active
+      thread as the keyboard owner, and both `R` and Ctrl-R open exactly one Reply
+      editor without another pointer action. Repeated saves, projection refreshes,
+      expansion states, and File/Review surface switches must not change the result.
+    - Live Review proof also shows the compact comparison target changing from
+      `HEAD` to verbose `<target> · Updating`. Required presentation keeps the stable
+      target label and substitutes only a compact shadcn-style spinner/status icon
+      immediately before it; update state must not resize the toolbar or add prose.
+    - Proof required: deterministic browser reproduction for the failing focus state,
+      red/green Browser coverage over both shortcuts after Save, real Swift-backed
+      Vite File and Review journeys, and the same journey inside the debug app.
+
+24. **Draft language, Reply eligibility, and exact Edit focus**
+    - Pending is a saved-revision workflow state; Draft is a local editing state.
+      They must not both use the yellow warning dot/text treatment. Pending retains
+      yellow. Draft uses neutral/editor language, removes `changes · saved locally`,
+      and relies on the owned focus ring plus Save/Revert controls for emphasis.
+    - A human-authored unsaved draft blocks Reply until Save or Revert. The Reply
+      control is disabled and `R` / Ctrl-R do not create a second editor while any
+      annotation editor owns text input.
+    - Clicking Edit must keep the same thread active, open exactly that message's
+      editor, place DOM focus/caret in its Textarea immediately, and preserve row
+      identity, geometry, scroll position, and expansion without flicker.
+    - Current proof gap: the post-save shortcut browser test explicitly calls
+      `savedThread.focus()` before `R` and Ctrl-R, so it does not prove the product
+      chain `Command-Enter → Save convergence → returned focus owner → Reply`.
+    - Likely focus race: `finishThreadEditor` captures a connected invoker/fallback,
+      schedules `.focus()` in a microtask, and projection convergence may replace the
+      captured node before that microtask. Separately, clicking message content works
+      because the focusable message article owns focus; clicking yellow frame padding
+      activates Pierre without establishing a DOM keyboard owner.
+
+25. **Focus-versus-activation authority conflict to resolve before fixing**
+    - Earlier governing text says generic focus must not activate/mutate thread state,
+      but current source routes `onFocusCapture={activateRange}` and a browser test
+      requires focus to activate the saved range. Do not stack another listener until
+      the intended authority is reconciled.
+    - Investigation target: distinguish pointer activation, programmatic post-command
+      focus restoration, and incidental keyboard traversal. The yellow/Pierre active
+      thread needs one deterministic keyboard owner without making arbitrary focus
+      movement silently select a different annotation.
+    - 2026-08-29 focused Chromium evidence: 33/34 tests passed. In the resumed
+      durable-draft Save journey, plain `R` opened Reply, but Escape followed by
+      Ctrl-R raced editor teardown/focus restoration and no Reply editor appeared
+      within 60 seconds. The DOM remained yellow/active and expanded. This proves
+      lifecycle timing changes shortcut ownership even when the key matcher admits
+      both forms; it is not evidence that Ctrl-R is unbound.
+    - Follow-up source diagnosis: that 60-second gate failure batches Escape,
+      `savedThread.focus()`, and Ctrl-R inside one React `act`. The Escape callback
+      requests `finishThreadEditor`, but React cannot commit `editor: null` until the
+      batch yields; Ctrl-R therefore observes the old editor and is correctly blocked.
+      The proof must wait for the Reply textbox to be absent before issuing the second
+      shortcut. Treat this as a test sequencing defect, not the cause of the live
+      yellow-padding keyboard-owner defect.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component

@@ -1714,3 +1714,354 @@ Other current UI-lane gates: the full unit/check gate rejects
 publication-continuity expectation (successor expected, predecessor received) and React `act(...)` guards in
 that test plus comparison-control UX. Swift/Node integration is 22/22. These files remain unstaged by the
 backend lane.
+
+## 2026-08-26 10:48 EDT — Backend reviewed-subject Git evidence checkpoint
+
+Checkpoint `7ff6f889d` completes S2 of the durable review-subject identity plan. File annotation evidence now
+uses the existing scheduled `HEAD` revision read; Review annotation evidence uses only the retained correlated
+publication and performs no second `HEAD` read. Bounded ancestry reuses the existing scheduled commit-range
+reader with annotation-specific 10-commit and 256-traversal policy limits. Cancellation propagates; capped,
+unrelated, traversal-limited, and read-failure results remain conservative non-proof.
+
+Fresh parent proof on the final diff: 37/37 focused Swift tests passed across three suites; scoped swift-format,
+SwiftLint (zero violations), architecture lint, and `git diff --check` passed. No new scheduler, client, cache,
+event, queue, coordinator, table, transport message, PR0 protocol expansion, UI change, or direct libgit2 walk
+was added. All concurrent BridgeWeb and packaged-journey changes remain untouched and unstaged by this lane.
+S3 two-stage discovery and atomic association is now in progress.
+
+## 2026-08-27 09:48 EDT — Annotation UI interaction contract update
+
+The annotation UI lane has cut body interaction over to single-click activation
+and guarded double-click Edit. Please update the untracked
+`worktree-annotation-editor-installation-preparation.browser.test.tsx` setup to
+enter the saved-message editor through the permanent `Edit annotation` button
+instead of single-clicking `Existing saved body.` The installation-preparation
+behavior and transport contract do not change. I intentionally did not edit or
+stage that concurrently owned test file.
+
+## 2026-08-27 10:22 EDT — Aggregate lint blocker routed to transport owner
+
+The stop hook runs aggregate lint over the shared dirty worktree. Annotation UI
+proof is green and no UI-owned file appears in its error output. The sole error
+is SwiftLint `function_parameter_count` at
+`BridgePaneProductMetadataCoordinator+SubscriptionProducers.swift:215`: the
+active transport function has seven parameters and the limit is six. The same
+transport files also have pending swift-format warnings. The UI lane did not
+change the function signature or format/stage any transport-owned file.
+
+## 2026-08-27 12:11 EDT — Metadata S2 correction checkpoint
+
+Bridge/backend checkpoint `7ff8cd569` is committed and pushed. It records only
+the source-validated generic catalog-transfer corrections: 8 MiB/200,000-entry
+candidate bounds, multiple same-lease observation waits settled by one existing
+high-water owner, a 128 KiB fully encoded worker-to-Main staging-message cap,
+and the S2a versus S3/S4 proof split. Independent bounded verification passed
+all four corrections and `git diff --check`.
+
+S2a implementation is now active in disjoint Swift and TypeScript generic-only
+lanes. Neither lane may touch worker-message unions, annotation projection/UI,
+SQLite/data models, or the dirty Review-publication files. Real annotation
+stream and existing-MessagePort/Main-bank integration remain deferred to S3/S4
+after coordination with those owners.
+
+## 2026-08-27 12:45 EDT — Metadata S2a implementation checkpoint
+
+Generic S2a checkpoint `a9be5772a` is committed and pushed. The existing
+metadata transport now has strict cross-language `kind`-discriminated
+begin/window/commit contracts, full-envelope 128 KiB packing, 8 MiB/200,000
+candidate preflight and assembly, and multiple exact same-lease observation
+waits settled from the existing monotonic high-water owner. No new route, port,
+queue, scheduler, timeout, store, atom, coordinator, application field, UI, or
+SQLite behavior was added.
+
+Parent G2a proof is green: TypeScript 23/23 plus typecheck/lint/format; Swift
+41/41 across six suites plus current-code shared-corpus 2/2; fixture mirrors,
+architecture lint, and diff checks pass. S3 mapping is now read-only while the
+concurrent reviewed-subject association lane still owns dirty annotation
+repository/data-model files. The bridge lane will not edit those files until
+their owner checkpoints or supplies a stable interface.
+
+## 2026-08-27 13:10 EDT — S3 association checkpoint requested
+
+Bridge checkpoint `3f035ec05` is committed and pushed with only the new
+body-free annotation catalog model, one concrete SQLite read transaction, and
+six real-SQLite tests. It does not touch the association lane.
+
+Read-only parent verification of the current association work is green: 14/14
+tests across `WorktreeAnnotationSQLiteAssociationRepositoryTests` and
+`WorktreeAnnotationSQLiteRepositoryTests`; scoped `git diff --check` is clean.
+S3 now needs the association owner to commit its current repository access,
+lifecycle/loading/core, existing repository-test, and new association-test
+files as one stable checkpoint. Please record the commit and proof here. The
+bridge lane will then re-anchor and add catalog access forwarding plus committed
+mutation classification without overwriting those semantics.
+
+## 2026-08-27 13:12 EDT — Association checkpoint proof complete
+
+The same six association-owned files also pass scoped swift-format, SwiftLint
+(0 violations), architecture lint, and release-scope checks. No file changed
+during proof. The only remaining S3 unblock is the association owner creating
+and recording its checkpoint commit; Bridge will then consume the stable
+`AssociationMutationResult` and repository-access surface.
+
+## 2026-08-27 14:54 EDT — Metadata S3 native annotation checkpoint
+
+Bridge checkpoint `33fab324a` is committed and pushed. Native Worktree
+Annotation now returns explicit committed mutation classifications, advances
+session/output revisions exactly once, captures a body-free catalog behind the
+service-owned application generation fence, and publishes strict
+`annotation.catalog`, `annotation.sessionChanged`, or
+`annotation.controlChanged` events. Catalog phases use the existing generic
+S2 writer, full-envelope 128 KiB sizing, producer enqueue result, and
+observation high-water pacing; operation correlation remains in the generic
+frame.
+
+Parent S3 proof is green: 59/59 tests across ten suites; scoped swift-format
+and SwiftLint have zero violations; architecture lint and `git diff --check`
+pass. The old `snapshot.required` application payload and dynamic mutation
+result facade are removed. No route, port, queue, scheduler, store, atom,
+coordinator, database migration, security behavior, or UI behavior was added.
+S4 may now consume this typed event stream in the communication worker and the
+existing main annotation projection store. Concurrent UI and packaged-journey
+files remain uncommitted and untouched by this checkpoint.
+
+## 2026-08-27 15:18 EDT — S4 transport switch collision notice
+
+S4 adds the strict `annotationCatalogStaging` worker-to-main message on the
+existing port. The Review render-snapshot controller is concurrently dirty for
+editor-attention work and has one exhaustive transport switch that must classify
+the new annotation message as annotation-client-owned. The Bridge lane will add
+only the adjacent no-op case beside `annotationProjectionConvergence`; it will
+not modify the concurrent editor-attention diff or any Review presentation
+behavior. The annotation surface client remains the sole consumer of the new
+message through the existing RPC subscription fanout.
+
+The shared dirty annotation browser fixture also required the corresponding
+transport-only hard cut: it now emits a session-ID-only catalog begin/window/
+commit before its existing rich projection and stamps the demanded session IDs
+on that projection. The Bridge lane did not alter its concurrent Review
+identity/editor behavior; the dedicated worker/applicator tests, not this UI
+fixture, remain the proof for complete thread/message relationship catalogs.
+
+The same new union member required one adjacent `return false` case in the
+concurrently dirty Review publication integration. That case explicitly leaves
+catalog consumption to the annotation surface client and does not alter the
+concurrent semantic-attention/publication work.
+
+Correction to the earlier fixture wording: the browser fixture now emits the
+complete session/thread/message relationship catalog needed to authorize its
+rich projection, not a session-only catalog.
+
+Current S4 aggregate note: the typed-frame migration is being reduced through
+shared test helpers, while the complete BridgeWeb unit/architecture gate also
+reports two concurrent oversized test files outside this lane:
+`bridge-main-render-snapshot-store.unit.test.ts` at 1025 lines and
+`worktree-annotation-thread.browser.test.tsx` at 1033 lines. The Bridge lane
+will not split those UI/Review-owned tests; their owner must return them under
+the repository's 1000-line ceiling before the S4 checkpoint can claim the full
+gate.
+
+## 2026-08-27 16:11 EDT — S4 transport and real-system proof checkpoint pending aggregate owner
+
+The Bridge metadata/application path is implemented through the existing
+transport and port: strict typed annotation events, application-specific worker
+catalog normalization, bounded worker-to-Main staging, incremental hidden Main
+candidate maps, atomic final swap, empty-demand control read before rich demand,
+session-change suppression/coalescing, current catalog fencing, and retained
+stale state across worker replacement. The generic transport remains unaware of
+annotation keys and owns only typed frame identities/order and catalog transfer
+mechanics.
+
+Fresh owned proof:
+
+- TypeScript and product-contract typechecks pass.
+- Full type-aware oxlint exits 0; full formatting check passes.
+- Unit lane: 2079/2080 pass; the sole failure is the two concurrent file-length
+  violations recorded above.
+- Swift-backed Node integration: 22/22 pass with real Darwin observation.
+- Core annotation Chrome journeys: 31/31 pass.
+- Real Vite/production-worker/Swift-backend annotation journeys: 4/4 ordinary
+  plus 1/1 1,699-item stress pass. Stress covers root + five replies, exact
+  command settlement, reload, six durable bodies, and bounded render telemetry.
+
+The full grouped Browser Mode aggregate was terminated after its shared console
+guard recursively emitted overlapping `act()` errors and broad unrelated File
+viewer failures. The Bridge lane did not modify that harness. No S4 commit has
+been created yet because the canonical checkpoint requires the complete
+BridgeWeb gate and the dirty UI/Review files still need their owner checkpoint.
+
+## 2026-08-27 16:21 EDT — S4 re-anchor green; two owner-controlled size gates still block checkpoint
+
+The Bridge lane re-anchored at pushed HEAD `33fab324a` without editing concurrent
+UI/Review work. The exact S4 worker/runtime/store set remains 55/55, TypeScript
+and product-contract typechecks pass, `git diff --check` passes, and the focused
+packaged-journey script suite passes 20/20 after the required host-permission
+rerun. The communication-worker query controller remains 847 lines with its
+110-line annotation metadata application owner split out.
+
+The two complete-gate blockers are unchanged:
+
+- `bridge-main-render-snapshot-store.unit.test.ts`: 1,025 lines;
+- `worktree-annotation-thread.browser.test.tsx`: 1,033 lines.
+
+Both are concurrent UI/Review-owned files and neither contains the S4 transport
+implementation. Please return them below the repository's 1,000-line source
+limit and record the owning checkpoint. The Bridge lane will then rerun the
+complete BridgeWeb gate and stage only exact S4 paths/hunks; it will not split,
+stage, reset, or otherwise rewrite those concurrent files.
+
+## 2026-08-27 16:44 EDT — Fresh packaged WKWebView File/Review proof passed
+
+The strict packaged LaunchServices journey now passes on the current dirty
+integration worktree. It built and signed the exact candidate, created a fresh
+isolated 257-file/257-diff Git fixture, used authenticated IPC, persisted and
+read back `journey-stack-base`, observed automatic Git-ref invalidation, proved
+Review early/middle/final traversal, preserved and foregrounded the independent
+Files pane, drained both telemetry surfaces, preserved the fixture digest, and
+passed marker-scoped Victoria paint correlation. The final Review generation
+was 4 and the candidate remains available for visual inspection.
+
+One earlier run was invalid because the operator switched the startup Files pane
+to Review before starting the verifier. The corrected run followed the intended
+order and passed without a product or harness change. The diagnosis is recorded
+under `tmp/debug-workflows/2026-08-27-agent-studio-review-comments-packaged-file-surface-readiness/`.
+
+S4/S5 checkpoint and PR readiness still wait only on the complete BridgeWeb
+aggregate: the two over-1,000-line concurrent test files and the shared Browser
+Mode recursive console/overlapping-`act()` collapse remain outside the Bridge
+transport lane.
+
+## 2026-08-27 18:20 EDT — S4, browser harness, and S5 proof checkpoints pushed
+
+The Bridge lane fixed the Browser aggregate at root cause and pushed three
+scoped checkpoints after a complete green `mise run test:bridge-web`:
+
+- `45c2d01a4` — deterministic Review continuity proof, Base UI motion
+  settlement, valid Share catalog ordering/fast assertions, and 50%-CPU bounded
+  Browser parallelism;
+- `e7f4a25fc` — behavior-neutral splits for the two oversized shared test files;
+- `7e73d9a77` — S4 typed annotation worker/catalog/store integration, including
+  only the two previously coordinated one-line shared exhaustive-switch hunks;
+- `3cc5f09e0` — real-Vite vocabulary updates plus packaged-candidate foreground
+  reactivation proof.
+
+Fresh complete BridgeWeb proof: quality/typecheck passed; unit 2,080/2,080;
+Swift-backed Node integration 22/22; Browser 314 passed/5 skipped across 60
+files in 17–20 seconds; 1,699-item stress 1/1; ordinary Vite E2E 8/8.
+
+The remaining dirty production files are the UI owner’s comparison-control and
+editor-attention/installation work, plus its tests. Please checkpoint that lane
+when its own proof is green. Bridge will then run exact-HEAD `mise run test`,
+fresh implementation review, and PR-readiness checks without absorbing or
+rewriting those UI hunks.
+
+## 2026-08-28 07:06 EDT — Swift metadata recovery and Vite harness checkpoints pushed
+
+The Bridge lane pushed two scoped checkpoints without staging or editing the UI
+owner's dirty production files:
+
+- `15e37c8e1` — completed the strict JSON vocabulary for annotation catalog
+  frames, added a product-frame round-trip regression, and hard-cut the Swift
+  development HTTP harness from the retired compact invalidation to typed
+  catalog/session events. Focused proof: metadata contracts 5/5, routing 4/4,
+  located restore 1/1, SQLite restart durability 1/1.
+- `0bcd26322` — corrected two Vite E2E harness races: async
+  `page.waitForFunction` performed only one telemetry fetch, and Share output
+  accepted stale Pending membership before Export was enabled. Focused proof:
+  File Save 1/1, Review Save 1/1, combined Save 2/2, cold restart system 2/2;
+  typecheck/format/diff check pass.
+
+The latest combined ordinary Vite run moved past those failures but exposed one
+UI-owner failure in the new held-refresh/editor-attention journey:
+`holds a promoted Review update for Apply now and auto-installs after focus
+leaves` timed out because the root comment saved during the hold was not visible
+after focus left (`bridge-viewer-vite-annotation-restart-journey.ts:217`). The
+dirty installation-preparation callback is currently registered but has no
+production caller; the UI owner should finish/wire that lane and rerun this
+journey before checkpointing it.
+
+The same five-minute combined run also timed out one otherwise-existing File
+deep-scroll E2E. Bridge is isolating that separately as potential aggregate
+harness/resource interference; no UI or transport conclusion is attached yet.
+
+## 2026-08-28 07:28 EDT — Backend proof checkpoint pushed; UI held-refresh remains the integration blocker
+
+The Bridge lane pushed `069032260 test(bridge): align async proof fixtures`.
+It corrected three stale Swift proofs without production changes: the viewed
+mutation's cross-session fixture now uses another worktree identity, File stream
+pacing distinguishes a fulfilled pull waiter from the exact observation waiter,
+and development Review invalidation waits on continuation/task completion rather
+than a fixed count of scheduler yields. Focused proof is 2/2, 2/2, and 11/11;
+scoped format/lint/architecture checks pass.
+
+A fresh complete Swift run then passed the 4,511-test/643-suite fast inventory,
+including all Bridge HTTP, annotation, transport, and real Darwin observation
+tests. Its later isolated process tail encountered unrelated
+`VendorWorktreeScriptTests` fixture checkout failures and timed out; Bridge made
+no vendor/submodule changes.
+
+The isolated File deep-scroll Vite journey passes 1/1 in 39.89 seconds. The only
+current product-integration failure remains the UI owner's held-refresh journey
+at `bridge-viewer-vite-annotation-restart-journey.ts:217`. Please wire the
+registered editor installation preparation into the production install path,
+prove that journey, and checkpoint the dirty UI lane. Bridge will then rerun the
+exact-final-HEAD aggregate and proceed to independent implementation review.
+
+## 2026-08-28 08:43 EDT — Backend Git-object refresh churn fixed and pushed
+
+The earlier held-refresh failure was reclassified from UI continuity to backend
+source admission after a fresh real Vite run captured the exact lifecycle:
+private Git object construction produced ordinary Review generations 4 through
+14 before the single reviewed-HEAD move produced promoted generation 16. The
+filesystem boundary treated `.git/objects/*` writes as repository-state
+invalidation even though refs, index, worktree content, and Review output were
+unchanged.
+
+The Bridge lane pushed `9cdad16f4 fix(bridge): suppress git object-only refresh
+churn`. `FilesystemPathFilter` now distinguishes object-database storage from
+state-bearing Git internals, and `FilesystemActor` drops that storage before it
+can invalidate Git, File, or Review. `.git/HEAD`, refs, packed refs, index, and
+config remain admitted; ordinary projected file changes remain admitted.
+
+Proof on the checkpoint source: RED reproduced 2 exact admission failures;
+GREEN passed 14/14 focused Swift tests, TypeScript format/lint/typecheck, full
+Swift format/lint/architecture lint, and the real Swift backend + Vite
+production worker + Chrome held-refresh journey 1/1 in 12.38 seconds. That
+journey now keeps Review A installed, holds the single 10-commit candidate,
+preserves the saved comment through Apply now, and auto-installs the next held
+candidate after attention moves.
+
+No concurrent UI/editor-attention file was staged or committed. The registered
+active-editor installation-preparation callback still has no production caller;
+that is a separate unsaved-editor continuity obligation, not the cause of the
+fixed saved-comment disappearance.
+
+## 2026-08-28 10:31 EDT — Unsaved editor continuity checkpoint pushed
+
+The Bridge lane pushed `cfb859e69 fix(bridge): preserve editors across review
+installs`. The implementation wires the existing installation gate to prepare
+active annotation editors before native admission, retains the pending root
+composer presentation lease in the existing provider-stable interaction owner,
+projects `root.create` durability to that lease, and reattaches exact/relocated
+Review placement by the same edit token without moving body, cursor, scheduler,
+persistence, or command ownership.
+
+Pierre source inspection proved that `updateItemId` publishes controlled
+selection through `onSelectedLinesChange`; that programmatic reconciliation no
+longer retires a durable composer. User-owned line-selection completion,
+outside click, Escape, Save, and Revert retain their existing semantics.
+
+The real E2E initially produced a false failure because its comparison observer
+clicked the comparison trigger while the reattached composer was active; that
+outside pointerdown correctly collapsed the draft. The journey now observes
+package/generation without interaction, verifies the target after the editor is
+closed, and carries the newest ordinary successor identity into its second
+promoted refresh.
+
+Fresh proof on the checkpoint source: 52/52 installation/candidate/controller
+unit tests; 8/8 focused Pierre/editor-preparation Browser tests; the real Swift
+backend + Vite production-worker + file-backed journey 1/1 in 12.43 seconds;
+complete BridgeWeb aggregate green with 2,086/2,086 unit tests, 1/1 stress E2E,
+8/8 ordinary Vite E2E, and all lint/architecture/format/typecheck/product
+contracts passing in 177.13 seconds. Comparison-control UI and unrelated
+review-subject/PR2/WIP files remain uncommitted and were not included.

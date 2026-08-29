@@ -1,4 +1,4 @@
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, LoaderCircleIcon } from 'lucide-react';
 import {
 	useEffect,
 	useId,
@@ -58,6 +58,8 @@ export function BridgeReviewComparisonControl(
 	const [comparisonBasis, setComparisonBasis] =
 		useState<BridgeReviewComparisonBranchBasis>('commonCommit');
 	const [open, setOpen] = useState(false);
+	const [locallyPendingComparison, setLocallyPendingComparison] =
+		useState<LocallyPendingComparison | null>(null);
 	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
 	const targetQueryState =
@@ -69,6 +71,20 @@ export function BridgeReviewComparisonControl(
 	const cancelTargetQueryAndClose = (): void => {
 		onCancelTargetQuery?.();
 		setOpen(false);
+	};
+	const applyComparisonTarget = (
+		target: BridgeWorkerReviewComparisonUpdateCommand['target'],
+	): void => {
+		setLocallyPendingComparison({
+			presentationAtRequest: props.comparisonPresentation,
+			target,
+		});
+		try {
+			props.onApplyTarget(target);
+		} catch (error) {
+			setLocallyPendingComparison(null);
+			throw error;
+		}
 	};
 	useEffect((): void => {
 		if (!isActive && open) {
@@ -82,8 +98,29 @@ export function BridgeReviewComparisonControl(
 			selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current;
 		activeInput?.focus();
 	}, [open, selectionMode]);
-	const label = closedComparisonLabel(props);
-	const visibleLabel = closedComparisonVisibleLabel(props);
+	useEffect((): void => {
+		if (locallyPendingComparison === null) return;
+		const nativePresentation = props.comparisonPresentation;
+		if (nativePresentation === locallyPendingComparison.presentationAtRequest) return;
+		if (
+			nativePresentation?.activeTarget !== null &&
+			nativePresentation?.activeTarget !== undefined &&
+			comparisonTargetsEqual(nativePresentation.activeTarget, locallyPendingComparison.target)
+		) {
+			setLocallyPendingComparison(null);
+		}
+	}, [locallyPendingComparison, props.comparisonPresentation]);
+	const locallyPendingTarget = locallyPendingComparison?.target ?? null;
+	const isLocallyPending = locallyPendingTarget !== null;
+	const isUpdating = disabled || isLocallyPending;
+	const label =
+		locallyPendingTarget === null
+			? closedComparisonLabel(props)
+			: `Compare to: ${comparisonTargetLabel(locallyPendingTarget)} · Updating`;
+	const visibleLabel =
+		locallyPendingTarget === null
+			? closedComparisonVisibleLabel(props)
+			: `${comparisonTargetLabel(locallyPendingTarget)} · Updating`;
 	const narrowComparisonLabel = narrowComparisonLabelForPackage(props.displayedReviewPackage);
 	const activeTarget = props.comparisonPresentation?.activeTarget ?? null;
 	const displayedContribution = displayedContributionForComparison(props);
@@ -108,7 +145,7 @@ export function BridgeReviewComparisonControl(
 			setValidationMessage('Enter a full 40- or 64-character hexadecimal commit hash.');
 			return;
 		}
-		props.onApplyTarget({ kind: 'commit', oid: normalizedOID });
+		applyComparisonTarget({ kind: 'commit', oid: normalizedOID });
 		setValidationMessage(null);
 		cancelTargetQueryAndClose();
 	};
@@ -144,14 +181,23 @@ export function BridgeReviewComparisonControl(
 			open={open}
 		>
 			<PopoverTrigger
+				aria-busy={isUpdating || undefined}
 				aria-describedby={descriptionId}
 				aria-label={label}
 				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
-				disabled={disabled}
+				disabled={isUpdating}
 				title={label}
 			>
-				<BridgeReviewComparisonIcon kind="trigger" />
+				{isUpdating ? (
+					<LoaderCircleIcon
+						aria-hidden="true"
+						className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
+						data-testid="bridge-review-comparison-pending-icon"
+					/>
+				) : (
+					<BridgeReviewComparisonIcon kind="trigger" />
+				)}
 				<span>{visibleLabel}</span>
 				<ChevronDownIcon aria-hidden="true" className="size-3 shrink-0" />
 			</PopoverTrigger>
@@ -182,7 +228,7 @@ export function BridgeReviewComparisonControl(
 							{statePresentation === null ? null : (
 								<ComparisonAttemptState
 									onRetry={(target): void => {
-										props.onApplyTarget(target);
+										applyComparisonTarget(target);
 										cancelTargetQueryAndClose();
 									}}
 									presentation={statePresentation}
@@ -252,7 +298,7 @@ export function BridgeReviewComparisonControl(
 							comparisonBasis={comparisonBasis}
 							onComparisonBasisChange={setComparisonBasis}
 							onSelectTarget={(target): void => {
-								props.onApplyTarget(target);
+								applyComparisonTarget(target);
 								cancelTargetQueryAndClose();
 							}}
 							searchInputRef={branchSearchInputRef}
@@ -478,6 +524,11 @@ function isDisplayedPackageAwaitingPresentationDelivery(
 
 type ReviewComparisonTarget = BridgeReviewComparisonTarget;
 
+interface LocallyPendingComparison {
+	readonly presentationAtRequest: BridgeReviewComparisonControlProps['comparisonPresentation'];
+	readonly target: ReviewComparisonTarget;
+}
+
 type ContributionOrigin = Extract<
 	NonNullable<BridgeReviewPackage['comparisonOrigin']>,
 	{ readonly kind: 'contribution' }
@@ -654,6 +705,36 @@ function comparisonTargetDescription(target: ReviewComparisonTarget, targetLabel
 
 function comparisonTargetLabel(target: ReviewComparisonTarget): string {
 	return bridgeReviewComparisonTargetLabel(target);
+}
+
+function comparisonTargetsEqual(
+	left: ReviewComparisonTarget,
+	right: ReviewComparisonTarget,
+): boolean {
+	if (left.kind !== right.kind) return false;
+	switch (left.kind) {
+		case 'localDefaultBranch':
+			return (
+				right.kind === 'localDefaultBranch' &&
+				left.basis === right.basis &&
+				left.branchName === right.branchName
+			);
+		case 'originDefaultBranch':
+			return (
+				right.kind === 'originDefaultBranch' &&
+				left.basis === right.basis &&
+				left.branchName === right.branchName &&
+				left.remoteName === right.remoteName
+			);
+		case 'branch':
+			return right.kind === 'branch' && left.basis === right.basis && left.name === right.name;
+		case 'commit':
+			return right.kind === 'commit' && left.oid === right.oid;
+		case 'ref':
+			return right.kind === 'ref' && left.basis === right.basis && left.name === right.name;
+		default:
+			return unreachableComparisonValue(left);
+	}
 }
 
 function unreachableComparisonValue(value: never): never {

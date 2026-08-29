@@ -198,7 +198,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('journey-stack-base');
+			.toHaveTextContent('origin/main · Updating');
 	});
 
 	test('shows an exact commit as one direct base without a basis selector', async () => {
