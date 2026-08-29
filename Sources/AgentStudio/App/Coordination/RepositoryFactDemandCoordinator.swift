@@ -54,6 +54,32 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
     let locallyInactiveRepositoryIds: Set<UUID>
     let warmAutomaticWorktreeIds: Set<UUID>
     let locallyInactiveWorktreeIds: Set<UUID>
+    let automaticRemoteAndForgeWorktreeIds: Set<UUID>
+
+    init(
+        activePaneWorktreeId: UUID?,
+        sidebarAttendedWorktreeIds: Set<UUID>,
+        visibleActiveTabWorktreeIds: Set<UUID>,
+        openWorktreeIds: Set<UUID>,
+        repositoryIdByWorktreeId: [UUID: UUID],
+        warmRepositoryIds: Set<UUID>,
+        locallyInactiveRepositoryIds: Set<UUID>,
+        warmAutomaticWorktreeIds: Set<UUID>,
+        locallyInactiveWorktreeIds: Set<UUID>,
+        automaticRemoteAndForgeWorktreeIds: Set<UUID>? = nil
+    ) {
+        self.activePaneWorktreeId = activePaneWorktreeId
+        self.sidebarAttendedWorktreeIds = sidebarAttendedWorktreeIds
+        self.visibleActiveTabWorktreeIds = visibleActiveTabWorktreeIds
+        self.openWorktreeIds = openWorktreeIds
+        self.repositoryIdByWorktreeId = repositoryIdByWorktreeId
+        self.warmRepositoryIds = warmRepositoryIds
+        self.locallyInactiveRepositoryIds = locallyInactiveRepositoryIds
+        self.warmAutomaticWorktreeIds = warmAutomaticWorktreeIds
+        self.locallyInactiveWorktreeIds = locallyInactiveWorktreeIds
+        self.automaticRemoteAndForgeWorktreeIds =
+            automaticRemoteAndForgeWorktreeIds ?? warmAutomaticWorktreeIds
+    }
 
     static let empty = Self(
         activePaneWorktreeId: nil,
@@ -70,7 +96,7 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
     var forgeDemandedWorktreeIds: Set<UUID> {
         sidebarAttendedWorktreeIds
             .union(visibleActiveTabWorktreeIds)
-            .intersection(warmAutomaticWorktreeIds)
+            .intersection(automaticRemoteAndForgeWorktreeIds)
     }
 
     var demandedRepositoryIds: Set<UUID> {
@@ -260,6 +286,10 @@ final class RepositoryFactDemandCoordinator {
                 inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
             )
         )
+        let automaticRemoteAndForgeWorktreeIds: Set<UUID> =
+            input.localActivityHydrationDisposition == .authoritative
+            ? activity.warmWorktreeIDs
+            : activity.warmWorktreeIDs.intersection(input.openWorktreeIds)
         return (
             RepositoryFactDemandSnapshot(
                 activePaneWorktreeId: input.activePaneWorktreeId,
@@ -270,7 +300,8 @@ final class RepositoryFactDemandCoordinator {
                 warmRepositoryIds: activity.warmRepositoryIDs,
                 locallyInactiveRepositoryIds: activity.locallyInactiveRepositoryIDs,
                 warmAutomaticWorktreeIds: activity.warmWorktreeIDs,
-                locallyInactiveWorktreeIds: activity.locallyInactiveWorktreeIDs
+                locallyInactiveWorktreeIds: activity.locallyInactiveWorktreeIDs,
+                automaticRemoteAndForgeWorktreeIds: automaticRemoteAndForgeWorktreeIds
             ),
             activity.nextTransitionAt
         )

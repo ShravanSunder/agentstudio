@@ -11,7 +11,7 @@ import Testing
 struct RepositoryFactDemandCoordinatorTests {
     private let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
 
-    @Test("missing local activity evidence retains bounded correctness eligibility")
+    @Test("missing local activity evidence retains local correctness but defers remote demand")
     func missingLocalActivityEvidenceRetainsCorrectnessEligibility() async throws {
         let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000)
         let warmRepositoryID = seededUUID(1)
@@ -56,11 +56,11 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.warmRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
         #expect(snapshot.warmAutomaticWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
-        #expect(snapshot.forgeDemandedWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
-        #expect(snapshot.demandedRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
+        #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
+        #expect(snapshot.demandedRepositoryIds.isEmpty)
     }
 
-    @Test("pre-hydration activity remains unknown with bounded correctness eligibility")
+    @Test("pre-hydration activity remains unknown and defers automatic remote demand")
     func preHydrationActivityRetainsCorrectnessEligibility() async throws {
         let receiver = RepositoryFactDemandReceiverProbe()
         let coordinator = RepositoryFactDemandCoordinator(
@@ -74,7 +74,7 @@ struct RepositoryFactDemandCoordinatorTests {
             activePaneWorktreeId: input.activePaneWorktreeId,
             sidebarAttendedWorktreeIds: input.sidebarAttendedWorktreeIds,
             visibleActiveTabWorktreeIds: input.visibleActiveTabWorktreeIds,
-            openWorktreeIds: input.openWorktreeIds,
+            openWorktreeIds: [],
             repositoryIdByWorktreeId: input.repositoryIdByWorktreeId,
             activityTopology: input.activityTopology
         )
@@ -87,6 +87,25 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.warmRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
         #expect(snapshot.warmAutomaticWorktreeIds == Set(input.repositoryIdByWorktreeId.keys))
+        #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
+        #expect(snapshot.demandedRepositoryIds.isEmpty)
+    }
+
+    @Test("pre-hydration activity keeps remote demand for an open worktree")
+    func preHydrationActivityKeepsOpenWorktreeRemoteDemand() async throws {
+        let receiver = RepositoryFactDemandReceiverProbe()
+        let coordinator = RepositoryFactDemandCoordinator(
+            wallClockNow: RepositoryFactDemandWallClock(referenceDate).read,
+            delivery: { snapshot in
+                await receiver.receive(snapshot)
+            }
+        )
+        let input = try makeDemandInput(seed: 11)
+
+        coordinator.accept(input)
+        await coordinator.waitUntilIdle()
+
+        let snapshot = try #require(await receiver.receivedSnapshots().last)
         #expect(
             snapshot.forgeDemandedWorktreeIds
                 == input.sidebarAttendedWorktreeIds.union(input.visibleActiveTabWorktreeIds)
