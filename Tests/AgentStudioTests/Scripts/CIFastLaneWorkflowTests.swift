@@ -598,6 +598,7 @@ struct CIFastLaneWorkflowTests {
             "DarwinSharedExactItemRealStreamIntegrationTests",
             "DerivedActivityNotificationIntegrationTests",
             "DrawerCommandIntegrationTests",
+            "FilesystemActorActivityTests",
             "FilesystemGitPipelineDemandIntegrationTests",
             "FilesystemGitPipelineIntegrationTests",
             "FilesystemToPrimarySidebarIntegrationTests",
@@ -610,6 +611,7 @@ struct CIFastLaneWorkflowTests {
             "WorkspaceDrawerRestoreIntegrationTests",
             "WorkspaceSurfaceCoordinatorFilesystemSourceTests",
             "WorkspaceSurfaceTerminalRestoreIntegrationTests",
+            "WorkspaceStrictStartupSubprocessTests",
             "WorkspaceTopologyBootRepairIntegrationTests",
         ] {
             #expect(discoveredLargeProcessGlobalSuites.contains(suiteName))

@@ -25,6 +25,8 @@ large_non_webkit_filter_pattern() {
     TerminalActivityAgentSettledHeuristicTests
     MainWindowControllerInboxToolbarButtonTests
     ProcessExecutorTests
+    FilesystemActorActivityTests
+    WorkspaceStrictStartupSubprocessTests
   )
   local IFS="|"
   echo "${patterns[*]}"
@@ -54,6 +56,12 @@ large_process_global_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift' \
       'DarwinSharedExactItemRealStreamIntegrationTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorActivityTests.swift' \
+      'FilesystemActorActivityTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/App/WorkspaceStrictStartupSubprocessTests.swift' \
+      'WorkspaceStrictStartupSubprocessTests'
   } | while IFS=: read -r source_file suite_name; do
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
