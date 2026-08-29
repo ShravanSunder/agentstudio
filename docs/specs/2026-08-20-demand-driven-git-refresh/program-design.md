@@ -109,6 +109,8 @@ The structural crux is where “good enough” becomes a decision. Putting that 
 | Repository-root mtime or recurring tree scan determines inactivity | No activity ledger | Deep changes are missed by root mtime; a recurring scan recreates the work being removed | Reject |
 | Persist local Git/PR snapshots for inactive rows | Rich chips survive restart | New schema and stale facts look current; storage work exceeds the compact UX need | Reject |
 | Application-open recency determines inactivity | Reuses current table and atom | Viewing is not repository activity; missing history falsely classifies active repositories cold | Reject |
+| Collapse incomplete coverage into ordinary warm sidebar demand | No additional demand field | A restart makes the complete fleet look recently active and assigns visible sixty-second local cadence without qualifying activity | Reject |
+| Keep incomplete coverage unknown and clamp its local correctness path to the existing background tier | One required baseline and finite self-heal remain, while accepted facts stay visible and remote work stays demand-driven | Adds one subset to the existing complete demand snapshot and extends the inactivity-boundary calculation to coverage maturity | Select |
 | Dedicated positive-evidence activity ledger plus replayable FSEvents coverage | Actual local activity controls admission; missing/gapped evidence stays truthful | Adds one keyed atom, factual SQLite records, off-main contraction, cursor replay, and cutover proof | Select |
 | One generic cross-source refresh transaction | One apparent success bit | Violates the selected fetch-only promise and couples independent authorities | Reject |
 | One canonical-repository fetch intent plus represented-worktree recomputation | One truthful loading lifetime and one network operation regardless of worktree count | Requires remote settlement to include downstream recomputation | Select |
@@ -138,9 +140,9 @@ At first cutover, one temporary replay stream per volume is created inside the s
 
 Live owned-fetch attribution is structural. Streams request `MarkSelf`. The `agentstudio-git` hard cut moves only final canonical remote-ref promotion from child `git update-ref` into an in-process libgit2 multi-ref transaction: lock every captured ref, re-read and compare the captured old targets under lock, apply the complete update/delete set, and atomically commit. Private child-written staging refs remain identifiable by the reserved package namespace and are excluded from activity without suppressing correctness. Before promotion, the store durably installs the owned-promotion marker. Only `OwnEvent` canonical-ref events matching the active attempt's exact returned mutation set are excluded from activity; non-own same-path events qualify, and loss/overlap/mismatch becomes unknown. The marker clears only in the atomic activity/cursor commit after every participating stream crosses the promotion barrier. Because `OwnEvent` does not apply to historical replay, a crash leaving the marker set resets affected coverage to unknown rather than guessing provenance.
 
-`RepositoryActivityClassifier` is a pure Sendable Core function, not mutable state. Its immutable input contains activity hydration/coverage disposition, complete current repository/worktree membership, open-pane associations, repository-keyed last qualifying activity and continuous-coverage start, a reference instant, and the sixty-day policy duration. Pending, missing, gapped, or unavailable evidence returns `unknown`; it never enters the inactive sets. An open associated pane yields an ephemeral `warm` disposition without changing persisted activity. Authoritative evidence yields `warm` until the inclusive `lastActivity + 60 days` boundary, and yields `locallyInactive` only after both the last activity and continuous-coverage start precede the cutoff. One worktree event warms the complete repository. Search, grouping, disclosure, viewport, row materialization, enrichment, cached Git facts, and Forge values are absent from the input.
+`RepositoryActivityClassifier` is a pure Sendable Core function, not mutable state. Its immutable input contains activity hydration/coverage disposition, complete current repository/worktree membership, open-pane associations, repository-keyed last qualifying activity and continuous-coverage start, a reference instant, and the sixty-day policy duration. Pending, missing, gapped, or unavailable evidence returns `unknown`; it never enters the inactive sets. An open associated pane yields an ephemeral `warm` disposition without changing persisted activity. Authoritative evidence yields `warm` only when qualifying activity is inside the sixty-day horizon. When qualifying activity is absent or older than the cutoff but continuous coverage has not yet spanned the complete horizon, the disposition remains `unknown`; a recent coverage restart is not itself qualifying activity. The repository becomes `locallyInactive` only after both the last qualifying activity and continuous-coverage start precede the cutoff. One worktree event warms the complete repository. Search, grouping, disclosure, viewport, row materialization, enrichment, cached Git facts, and Forge values are absent from the input.
 
-The classifier is reused rather than its results becoming a second persisted truth. `RepositoryFactDemandCoordinator` evaluates it off MainActor for source admission. `RepoExplorerProjectionWorker` evaluates the same function off MainActor for presentation. Both receive the same canonical topology, activity/coverage evidence, open-pane associations, reference instant, and policy threshold. Equality at `latestQualifyingActivity + 60 days` remains warm, so the next legal cold transition is the first representable `Date` after equality (`expiration.timeIntervalSinceReferenceDate.nextUp`). Closed authoritative warm repositories contribute that instant; open-pane and unknown repositories contribute no inactivity deadline. The demand lane owns one reschedulable earliest boundary wake, and Repo Explorer folds the same instant into its existing deadline task. Waiting stays off MainActor. Activity, coverage, topology, or pane-association change replaces the pending complete input; stale generations have no authority.
+The classifier is reused rather than its results becoming a second persisted truth. `RepositoryFactDemandCoordinator` evaluates it off MainActor for source admission. `RepoExplorerProjectionWorker` evaluates the same function off MainActor for presentation. Both receive the same canonical topology, activity/coverage evidence, open-pane associations, reference instant, and policy threshold. Equality at the latest required proof boundary plus sixty days remains non-inactive, so the next legal inactive transition is the first representable `Date` after equality (`expiration.timeIntervalSinceReferenceDate.nextUp`). The proof boundary is the later of the last qualifying activity, when present, and continuous-coverage start. Closed authoritative warm or coverage-maturing unknown repositories contribute that instant. Open-pane overrides and unknown evidence without continuous authoritative coverage contribute no inactivity deadline. The demand lane owns one reschedulable earliest boundary wake, and Repo Explorer folds the same instant into its existing deadline task. Waiting stays off MainActor. Activity, coverage, topology, or pane-association change replaces the pending complete input; stale generations have no authority.
 
 ### RepositoryFactDemandCoordinator
 
@@ -152,13 +154,16 @@ The coordinator accepts a compact immutable input capture and publishes a classi
 - sidebar-attended worktree identities: the sidebar's semantic worktree membership before search, grouping, scrolling, or row materialization;
 - visible-pane worktrees in the active tab, honoring management, drawer, zoom, occlusion, minimization, and window visibility semantics already defined by PR-fact demand;
 - open worktrees;
-- warm, unknown, and locally inactive repositories/worktrees;
+- warm, `unknownWorktreeIds`, and locally inactive repositories/worktrees;
+- `backgroundOnlyAutomaticWorktreeIds` for unknown worktrees admitted only to the existing background local-correctness tier;
 - demanded worktree identities with their attention class for Forge;
 - demanded repository identities for remote-reference refresh.
 
-The coordinator owns no source freshness, provider, accepted fact cache, or retry state. It owns only latest complete demand/activity input, the derived semantic snapshot, and one earliest sixty-day transition deadline. It does not read `ViewRegistry`, `RepoExplorerTableMaterializer`, viewport rows, search state, grouping presentation, or row materialization; render bookkeeping never creates source demand. Sidebar attention comes from canonical sidebar presentation state plus canonical repository/worktree membership, then inactivity admission removes cold repositories from automatic source demand without removing membership. Empty attention is delivered on hiding, minimization, occlusion, topology removal, and shutdown. The local projector retains only warm registered worktrees as periodic self-heal inventory; locally inactive registrations remain available for mutation-triggered correctness and explicit work but own no periodic deadline.
+The coordinator owns no source freshness, provider, accepted fact cache, or retry state. It owns only latest complete demand/activity input, the derived semantic snapshot, and one earliest sixty-day transition deadline. It does not read `ViewRegistry`, `RepoExplorerTableMaterializer`, viewport rows, search state, grouping presentation, or row materialization; render bookkeeping never creates source demand. Sidebar attention comes from canonical sidebar presentation state plus canonical repository/worktree membership, then inactivity admission removes cold repositories from automatic source demand without removing membership. Empty attention is delivered on hiding, minimization, occlusion, topology removal, and shutdown. The local projector retains warm and unknown registered worktrees as periodic self-heal inventory; locally inactive registrations remain available for mutation-triggered correctness and explicit work but own no periodic deadline.
 
-Boot restores activity rows and cursor facts before activity-dependent demand begins, validates/replays cursor coverage through the filesystem owner, and only then permits confirmed inactivity. Pending or failed restore/replay remains unknown and follows bounded warm eligibility. It never suppresses the fleet by interpreting an empty array or unavailable store as negative activity evidence.
+`backgroundOnlyAutomaticWorktreeIds` is a policy-bearing subset of local automatic eligibility, not another demand owner. It is derived from the classifier's unknown worktree set only after activity hydration has settled as authoritative or unavailable; the brief pending-hydration state admits only active/open overrides and cannot seed a closed fleet before the persisted boundary is known. `FilesystemGitPipeline` delivers the subset with the complete snapshot to `GitWorkingDirectoryProjector`. The projector checks the subset before stale attention-tier state: every included key selects the existing background cadence even if sidebar-attended or visible, while active/open keys are excluded from the subset by the current complete classification. The field participates in complete-value equality and latest delivery, and disappears immediately when qualifying activity or an open-pane override makes the repository warm. It never enters the remote-reference or Forge demand projections.
+
+Boot restores activity rows and cursor facts before activity-dependent demand begins, validates/replays cursor coverage through the filesystem owner, and only then permits confirmed inactivity. Pending, unavailable, or failed restore/replay remains unknown. While hydration is pending, only open/active overrides create source eligibility. Once hydration settles unavailable or authoritative with incomplete coverage, closed/sidebar-only unknown worktrees never inherit the visible sixty-second tier: they receive one required missing-cache baseline and then use the existing background cadence and exact-clean continuity renewal. Open/active worktrees retain their ordinary foreground class. Unknown state creates no automatic remote-reference or Forge demand. An empty array, unavailable store, or recent coverage restart never becomes negative activity evidence or ordinary warm demand.
 
 Current HEAD already uses one content-equal demand capture followed by narrow projections to each owner. `FilesystemGitPipeline` accepts the complete snapshot once and projects it to filesystem-ingress attention, local-Git attention, remote-reference repository demand, and Forge worktree demand. The cold slice preserves that foundation and adds activity input/classification before the existing source projections; it does not restore the retired separate setters or any viewport-owned demand path.
 
@@ -166,7 +171,7 @@ The capture is ID-only and uses dedicated association-only keyed facts rather th
 
 The coordinator observes active tab/window/sidebar presentation state, pane-association membership, repository/worktree membership, and the association slots needed for the complete snapshot. `FilesystemProjectionIndex` remains a filesystem event/topology projection owner and is not attention authority. The capture does not observe `SidebarVisibleWorktreesRuntimeAtom`, composite `PaneStructuralFacts`, composite `Pane`/`Worktree` values, branch or enrichment facts, filesystem paths, cache dictionaries, search, grouping, viewport rows, row presentation, or every pane's display state. `ForgeActor` retains its existing actor-owned worktree membership and resolves current non-empty branches after receiving demanded worktree IDs; branch changes therefore alter Forge scope without creating a second MainActor branch owner. Membership/topology changes may rebuild the compact identity projection; search, grouping, scrolling, row rendering, unrelated pane facts, and unrelated enrichment writes do not rebuild or deliver demand. Content equality runs before any source-owner call.
 
-The same complete snapshot preserves the already-landed filesystem ingress priority without restoring a second demand path. `FilesystemGitPipeline` continues to project active-pane and open-worktree IDs to one `FilesystemActor` attention update. The remaining change adds warm periodic eligibility to the existing `GitWorkingDirectoryProjector` update and removes locally inactive repositories/worktrees from the existing remote-reference and Forge automatic-demand projections. `FilesystemActor` still observes every registered worktree and prioritizes active/open flushes. A relevant cold-repository FSEvent therefore retains ordinary local affected-scope correctness while creating no remote or Forge demand. A failed or cancelled delivery commits no partial owner state; latest-value delivery retries the complete snapshot, including an A -> B -> A reversion, before accepting it as delivered.
+The same complete snapshot preserves the already-landed filesystem ingress priority without restoring a second demand path. `FilesystemGitPipeline` continues to project active-pane and open-worktree IDs to one `FilesystemActor` attention update. The remaining change adds warm periodic eligibility plus the unknown background-only subset to the existing `GitWorkingDirectoryProjector` update and limits remote-reference and Forge automatic-demand projections to warm repositories/worktrees. `FilesystemActor` still observes every registered worktree and prioritizes active/open flushes. A relevant cold-repository FSEvent therefore retains ordinary local affected-scope correctness while creating no remote or Forge demand. A failed or cancelled delivery commits no partial owner state; latest-value delivery retries the complete snapshot, including an A -> B -> A reversion, before accepting it as delivered.
 
 ### RepoEnrichmentCacheAtom and RepoCacheAtom
 
@@ -211,7 +216,7 @@ Current HEAD already uses per-worktree deadlines and one reschedulable earliest-
 
 Attention and activity changes update tier and deadlines. They create physical intent only when the accepted local fact is missing, invalidated, stale for the new tier, or explicitly requested. Ordinary tab/sidebar changes with fresh facts perform no Git work. A locally inactive worktree retains registration, current accepted facts, observer continuity, and mutation ingress, but has no status-fact or detail freshness deadline. Transitioning to inactivity removes only future automatic deadline eligibility; it does not cancel in-process work, release capacity, clear pending known mutation, or weaken generation validation.
 
-Registration creates missing-baseline intent only when the repository is warm or when current topology has not yet received its activity disposition. Active and visible registrations receive priority; warm background registrations enter the same paced automatic governor and finite deadline path rather than bypassing admission as one eager fleet seed. Once classified locally inactive, an unmaterialized registration waits for a relevant filesystem mutation, explicit repository update, or warm transition instead of retaining an automatic checkpoint.
+Registration creates missing-baseline intent when the repository is warm or unknown. Active/open registrations receive their ordinary foreground priority. Closed/sidebar-only unknown registrations receive one paced background baseline rather than visible priority; after settlement they retain only the existing finite background self-heal cadence, eligible for exact-clean continuity renewal. Warm background registrations enter the same paced automatic governor and finite deadline path rather than bypassing admission as one eager fleet seed. Once classified locally inactive, an unmaterialized registration waits for a relevant filesystem mutation, explicit repository update, or warm transition instead of retaining an automatic checkpoint.
 
 At a finite warm freshness checkpoint the projector first asks the status provider to renew the accepted verified-clean authority. A renewed authority advances the complete empty fact/detail freshness and adaptive cadence without acquiring Git capacity. A result that requires exact work retains one scope-preserving exact fallback intent under the existing priority, governor, capacity, and currentness rules. Known invalidations do not take the continuity fast path. A relevant cold-repository filesystem mutation retains its safe affected scope and admits local correctness work through the same gate; it also advances qualifying activity when coverage is current, but does not itself create remote-reference or Forge demand.
 
@@ -424,26 +429,29 @@ UI/derived reader
 ```text
 CURRENT
 canonical window/tab/pane/sidebar/topology IDs
+  + repository-keyed live-checkpoint activity/coverage facts
   -> captureRepositoryFactDemandSnapshot
-  -> RepositoryFactDemandCoordinator complete-value equality/latest delivery
+  -> RepositoryFactDemandCoordinator off-main classification and complete-value equality/latest delivery
   -> FilesystemGitPipeline.setRepositoryFactDemand
        active/open ingress IDs ------> FilesystemActor
-       all semantic local attention -> GitWorkingDirectoryProjector
-       attended repository IDs -----> RemoteReferenceRefreshActor
-       attended worktree IDs --------> ForgeActor
-  -> every registered worktree retains background local deadlines
-  [missing] recency classification, cold suppression, and cutoff wake
+       warm automatic local IDs -----> GitWorkingDirectoryProjector
+       warm attended repository IDs -> RemoteReferenceRefreshActor
+       warm attended worktree IDs --> ForgeActor
+  [defect] the first live checkpoint restarts coverage at now; the classifier
+           collapses every coverage-maturing closed repository into warm
+  [effect] the attended fleet inherits visible sixty-second local cadence
 
 TARGET
 canonical window/tab/pane/sidebar/topology IDs
   + repository-keyed activity/coverage facts
-  -> [added] one compact complete RepositoryFactDemandInput capture
-  -> [added] off-main RepositoryActivityClassifier
+  -> [unchanged] one compact complete RepositoryFactDemandInput capture
+  -> [changed] off-main RepositoryActivityClassifier
        -> warm/unknown/inactive repository and worktree sets + next boundary
   -> [unchanged] complete-value equality and latest-value contraction
   -> [changed] one pipeline fan-out
        active/open ingress IDs ------> FilesystemActor
        warm local attention IDs -----> GitWorkingDirectoryProjector
+       unknown local IDs ------------> existing background tier only
        warm attended repository IDs -> RemoteReferenceRefreshActor
        warm attended worktree IDs --> ForgeActor
   -> [added] one earliest sixty-day boundary wake reclassifies the latest input
@@ -455,22 +463,25 @@ canonical window/tab/pane/sidebar/topology IDs
 
 ```text
 CURRENT
-application-open recency incorrectly drives repository inactivity
-Repo Explorer capture -> topology/enrichment/PR/pane facts -> off-main projection
-  [wrong] viewing/opening and missing history determine classification
+persisted repository-local activity restores as unavailable because PR1 has no replay
+  -> first live checkpoint restarts authoritative coverage at now
+  -> RepositoryActivityClassifier treats recent coverage as ordinary warm
+Repo Explorer capture -> activity/topology/enrichment/PR/pane facts -> off-main projection
+  [preserved] accepted branch and Git/PR chips remain visible
+  [defect] coverage-maturing repositories have no truthful unknown interval
 
 TARGET
 persisted qualifying-activity + cursor coverage + topology/open-pane associations
-  -> [added] off-main repository-keyed activity contraction and replay validation
-  -> [added] immutable Repo Explorer activity input
-  -> [added] shared pure RepositoryActivityClassifier in existing off-main worker
+  -> [unchanged] off-main repository-keyed activity contraction and live-checkpoint validation
+  -> [unchanged] immutable Repo Explorer activity input
+  -> [changed] shared pure RepositoryActivityClassifier in existing off-main worker
   -> [changed] repository header projection
        warm -> ordinary Git/PR chips unchanged
        unknown -> no inactive claim; accepted presentation retained
        inactive By Repo -> memorychip; click reveals Refresh for 30s
        inactive By Tab/Pane -> accepted Git/PR chips retained; no repeated control
        updating -> progress indicator only, same header geometry
-  -> [changed] existing Repo Explorer recency deadline selects the earlier pane-text or inactivity boundary
+  -> [changed] existing Repo Explorer deadline also schedules coverage-maturing unknown-to-inactive transition
   <- keyed changed-only materialization for affected repository/group rows
   [intentionally unchanged] canonical membership, ordering, filtering, grouping, focus, and row height
 ```
@@ -514,11 +525,13 @@ FSEvent -> 500ms debounce / 10s max flush
   -> mutation/uncertainty falls back to exact Git
   -> changed-only EventBus/cache publication
   [preserved] one-second threshold is slow observation; native completion retains custody
-  [defect] every registered worktree still contributes automatic background deadlines
+  [defect] coverage-maturing unknown is represented as warm; sidebar attention
+           therefore selects visible cadence for the complete closed fleet
 
 TARGET
 classified activity snapshot
-  -> [added] warm automatic-eligible worktree set
+  -> [unchanged] warm automatic-eligible worktree set
+  -> [added] unknown background-only local-correctness set
   -> [changed] locally inactive worktree removes registration/periodic/visibility/retry
        automatic deadlines and automatic-attributed pending work
   -> [preserved] active native work retains custody and currentness validation
@@ -625,12 +638,12 @@ Repository activity classification is derived from persisted positive facts plus
 
 | Activity state | Guard | Source effect | Presentation |
 | --- | --- | --- | --- |
-| Unknown | hydration/replay pending, missing row, cursor gap/wrap, unavailable journal/store, or suspect timestamp | bounded warm correctness eligibility; no inactivity deadline | no locally inactive claim; accepted presentation retained |
+| Unknown | hydration/replay pending, missing row, cursor gap/wrap, unavailable journal/store, suspect timestamp, or authoritative coverage too recent to prove the full negative interval | one missing-cache local baseline plus finite background local self-heal; no visible-tier inheritance and no automatic remote/Forge demand; coverage-maturing evidence contributes its one transition deadline | no locally inactive claim; accepted presentation retained |
 | Warm | associated open pane, or authoritative qualifying activity is inside sixty days | ordinary tiered local self-heal; attended/active remote and Forge demand | ordinary accepted Git/PR chips |
 | Locally inactive | no open pane and authoritative continuous coverage plus last activity both precede the cutoff | no periodic local/detail deadline; no automatic remote/Forge demand; relevant FSEvent still admits local correctness and activity | memorychip status; revealed fetch-only Refresh; last accepted branch and chips retained |
 | Explicitly updating | valid Refresh has one remote-reference lease outstanding | one canonical-repository fetch plus represented-worktree recomputation | progress indicator only while unsettled |
 
-Warm-to-inactive is driven by the earliest authoritative classifier boundary and removes future automatic eligibility only. Qualifying activity drives inactive-to-warm; an associated pane supplies only a current-session warm override. Coverage loss drives `unknown`, never inactive. Refresh itself does not change activity. Search, grouping, scrolling, disclosure, and materialization are illegal initiators. A stale classifier or deadline generation publishes nothing.
+Warm-to-inactive and coverage-maturing-unknown-to-inactive are driven by the earliest authoritative classifier boundary and remove future automatic eligibility only. Qualifying activity drives unknown/inactive-to-warm; an associated pane supplies only a current-session warm override. Coverage loss drives `unknown`, never inactive. Refresh itself does not change activity. Search, grouping, scrolling, disclosure, and materialization are illegal initiators. A stale classifier or deadline generation publishes nothing.
 
 Repository Refresh progress is keyed by repository and attempt identity:
 
@@ -654,7 +667,7 @@ Demand delivery is one complete-value consistency boundary. No source owner obse
 
 Each source actor owns exactly one reschedulable next-deadline task. The demand coordinator separately owns exactly one earliest authoritative repository-activity transition task; Repo Explorer folds the same transition instant into its existing presentation deadline rather than adding a poll. Deadline waiting and rescheduling run outside MainActor through the injected clock seam; only compact generation-checked state application returns to MainActor. A state change cancels the prior wait, recomputes the earliest useful instant, and installs one successor. A stale wake recomputes and has no authority.
 
-Local deadline candidates include warm status freshness, warm line-detail freshness, verified-clean checkpoint renewal, automatic governor, capacity fallback, and genuine failure. Locally inactive keys contribute none of the first three. Remote-ref and Forge candidates include warm demanded freshness, capacity fallback, provider backoff, and authoritative retry-after. Forge's one-second equivalent-follow-up candidate is an eligibility recheck only; it never advances a same-scope automatic physical start ahead of the three-minute successful-result floor.
+Local deadline candidates include warm class-specific status/detail freshness, unknown background-only status/detail freshness, verified-clean checkpoint renewal, automatic governor, capacity fallback, and genuine failure. Locally inactive keys contribute none of the first three. Unknown closed/sidebar-only keys are clamped to the background cadence before sidebar visibility can select a faster tier; active/open state removes that clamp through ordinary warm classification. Remote-ref and Forge candidates include warm demanded freshness, capacity fallback, provider backoff, and authoritative retry-after. Forge's one-second equivalent-follow-up candidate is an eligibility recheck only; it never advances a same-scope automatic physical start ahead of the three-minute successful-result floor.
 
 Local automatic pacing uses completed physical duty:
 
@@ -725,6 +738,8 @@ Required outcome families:
 
 - activity: warm, unknown, locally-inactive, qualifying-observed, owned-fetch-excluded, coverage-replayed, coverage-gap/reset, boundary-reclassified, activity-reactivated, pane-override, stale-boundary-suppressed;
 - demand: projected, content-equal, delivered, cleared, inactive-suppressed;
+- unknown-demand proof snapshot: unknown current, unknown background-only current,
+  unknown resolved as visible tier, unknown in remote demand, and unknown in Forge demand;
 - cache: hit-fresh, hit-stale, unknown, unavailable, wrong-identity;
 - source selection: topology, local-ref, local-status, line-detail, remote-fetch, Forge;
 - contraction: coalesced, replaced, retained-scope count, max-flush admission;
@@ -738,6 +753,8 @@ Required outcome families:
 - explicit repository Refresh: captured, remote-applicable, remote-admitted, fetch-settled, recomputation-settled, superseded;
 - debt: pending count by source/reason, physical count, current verified-clean authority count, oldest authority/checkpoint age, oldest physical age, next deadline distance.
 
+The marker-scoped proof path observes the unknown-demand relationship at the production owners rather than inferring it from unrelated aggregates. One settled complete-demand generation reports the classifier's unknown worktree count and its intersection with `backgroundOnlyAutomaticWorktreeIds`; the pipeline reports unknown intersections with remote-reference and Forge demand; and the local projector reports the applied unknown deadline/admission tier. Counts are numeric measurements, not identity dimensions. Acceptance requires every admitted closed unknown key to be background-only, with zero visible-tier, remote-demand, and Forge-demand intersections. Deterministic proof deliberately misprojects one unknown key and requires this seam to fail, so warm-key activity cannot mask a broken unknown projection.
+
 ```text
 DETERMINISTIC PROOF
 injected clocks + controllable local/child providers
@@ -749,7 +766,9 @@ injected clocks + controllable local/child providers
   -> first-cutover device/time event-ID replay through HistoryDone; retained-history failure unknown
   -> MarkSelf/OwnEvent current-process promotion, non-own same-ref collision, owned-promotion
      crash marker, loss/overlap ambiguity, and private staging namespace classification
-  -> warm/unknown/cold transition and zero automatic cold deadlines/source demand
+  -> warm/unknown/cold transition; unknown closed/sidebar-only keys never inherit visible cadence
+  -> one missing-cache unknown baseline, finite background self-heal, and zero unknown remote/Forge demand
+  -> zero automatic cold deadlines/source demand
   -> cache hit/no-call, debounce, freshness, capacity, generation flows
   -> positive continuity renewal makes zero physical calls
   -> uncertainty retains exactly one exact fallback and foreground priority
@@ -801,7 +820,7 @@ strict verifier
   -> graceful exact-candidate retirement and zero required loss
 ```
 
-Final runtime proof may use controlled disposable remotes for staged-fetch and activity mutation while topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The fixture records warm, unknown, and locally inactive repository/worktree counts; proves unknown evidence never claims inactivity; proves cold membership survives every grouping/search mode; and observes a full inactivity interval with zero periodic local, automatic remote-reference, or automatic Forge starts for cold keys. Controlled edit, commit, pull, and external-fetch evidence in any disposable worktree must warm its repository, while one Agent Studio automatic fetch must leave activity unchanged. The native Refresh control must produce one fetch, preserve checked-out `HEAD`, exclude Forge, keep one loading lifetime through represented-worktree recomputation, and preserve prior facts on failure without moving the row.
+Final runtime proof may use controlled disposable remotes for staged-fetch and activity mutation while topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The fixture records warm, unknown, and locally inactive repository/worktree counts; proves unknown evidence never claims inactivity, never inherits visible cadence, receives at most one missing-cache baseline, retains finite background local self-heal, and creates no automatic remote-reference or Forge demand; proves cold membership survives every grouping/search mode; and observes a full inactivity interval with zero periodic local, automatic remote-reference, or automatic Forge starts for cold keys. Controlled edit, commit, pull, and external-fetch evidence in any disposable worktree must warm its repository, while one Agent Studio automatic fetch must leave activity unchanged. The native Refresh control must produce one fetch, preserve checked-out `HEAD`, exclude Forge, keep one loading lifetime through represented-worktree recomputation, and preserve prior facts on failure without moving the row.
 
 Immediately before the timed idle interval, the verifier injects one controlled local observer uncertainty and ends that proof action; it starts idle sampling before the retained exact fallback settles. The measured interval therefore includes fallback CPU and complete recovery without including the injection action. The same interval includes at least one complete maximum warm local self-heal checkpoint and positive continuity renewals. With the selected 240-second warm-background base and 4x adaptation, retain at least 1,000 usable one-second samples; if policy tuning lengthens the maximum, the proof horizon lengthens with it. Settlement requires no overdue warm deadline, no automatic deadline for locally inactive keys, physical work within source gates, preparation debt classified by reason, and oldest debt plus next deadline within policy. Inventory and include every debug-owned descendant/helper process so cost cannot pass by relocation. The final marker must meet idle p99 and action p95 CPU targets with zero hidden loss or uncertainty. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
 
@@ -814,7 +833,7 @@ Immediately before the timed idle interval, the verifier injects one controlled 
 | U-GIT-CACHE-FIRST-1 | RepoCacheAtom families, source-owner freshness, keyed eager reads | cache hit/no-source and keyed revision proof |
 | U-GIT-SOURCE-SUFFICIENCY-1 | three source owners consuming one demand snapshot | source-selection behavior and end-to-end fact provenance |
 | U-GIT-SELF-HEAL-1 | finite local/detail deadlines, verified-clean renewal, authority-bound ancestor resolution, fail-closed exact fallback, and first-demand remote deadlines | injected-clock renewal/fallback longitudinal, ancestor race/loss, and demanded-checkpoint proof |
-| U-GIT-COLD-1 | dedicated activity/coverage atom and store, off-main projector, shared classifier, warm-only automatic demand/deadlines, fetch-only command join, keyed progress, stable inactive header | schema/replay/gap/provenance/classifier/deadline tests, cold mutation/no-work integration, native fetch-only/geometry proof, marker CPU evidence |
+| U-GIT-COLD-1 | dedicated activity/coverage atom and store, off-main projector, shared classifier, warm plus unknown-background local deadlines, warm-only automatic remote/Forge demand, inactive zero automatic work, fetch-only command join, keyed progress, stable inactive header | schema/replay/gap/provenance/classifier/deadline tests, unknown production-owner correlation snapshot, cold mutation/no-work integration, native fetch-only/geometry proof, marker CPU evidence |
 | U-GIT-FOREGROUND-1 | shared demand class, immutable admission, source capacity/reservation | blocked-background/remote interleavings and stressed action proof |
 | U-GIT-ADMISSION-1 | bounded contraction, one active/one pending, deadline owners | outcome-accounted state tests and telemetry ratios |
 | U-GIT-LOCAL-EFFICIENCY-1 | fact/detail package cutover, exact-clean baseline, loss-aware continuity, shared exact-item fingerprint admission, safe pathspec, complete materialization | package differential/observer/fingerprint proof, compatibility/timing, and app zero-call renewal proof |
@@ -836,22 +855,18 @@ The current checkpoint foundation is preservation-critical and is not remaining 
 - process execution, changed-only cache publication, bounded telemetry, and reasoned preparation/physical debt proof already exist;
 - `Package.swift` already pins `agentstudio-git` at `29d0d93a99c300881c166f8aad3878f9259451b4` with the package contracts consumed by current HEAD.
 
-The remaining hard cutover is:
+The current branch already contains the application-local activity schema/store, off-main activity projector, live-checkpoint coverage restart, shared classifier, complete demand snapshot and pipeline fan-out, inactive local/remote/Forge suppression, fetch-only command and sidebar presentation, and shared-parent ancestor recheck. The current PR1 corrective cutover is only:
 
-- launcher/command-bar application-open recency is removed from repository-fact admission without changing its own UI consumers;
-- dedicated repository-local-activity and per-volume FSEvents cursor facts are persisted through the application-local SQLite boundary with no database enum strings/magic variants;
-- FSEvents retains event IDs/required loss flags, replays from validated cursors, resets coverage on gaps, and attributes Agent Studio-owned ref promotion without suppressing Git correctness;
-- an off-main keyed projector contracts qualifying activity before changed-only atom/store publication;
-- the shared pure activity classifier supplies warm/unknown/inactive sets and the earliest authoritative cutoff boundary to existing demand and Repo Explorer projection lanes;
-- locally inactive worktrees stop contributing automatic local/detail deadlines while preserving registration, observation, FSEvent/explicit intent, currentness, and physical custody;
-- locally inactive repositories/worktrees stop contributing automatic remote-reference and Forge demand while accepted facts remain retained;
-- one targeted fetch-only repository command admits only the repository-keyed remote owner and joins progress through represented-worktree local recomputation;
-- Repo Explorer gains the By Repo header status/update control and grouping-specific cold-chip suppression through existing keyed/off-main materialization.
-- shared-parent ancestor-only ambiguity changes from unconditional fleet fallback to one authority-bound, coalesced, off-executor exact-item fingerprint recheck; every unresolved case preserves the existing exact fallback.
+- recent authoritative coverage without qualifying activity remains unknown rather than becoming ordinary warm;
+- the existing complete demand snapshot carries unknown worktree membership plus `backgroundOnlyAutomaticWorktreeIds`;
+- the existing local projector clamps that subset to its background cadence before sidebar/visibility tier selection, while remote-reference and Forge projections remain warm-only;
+- deterministic and marker-scoped proof observe the classifier, pipeline intersections, applied deadline/admission tier, and exact-process CPU outcome.
 
-There is one additive application-local schema migration for factual activity/cursor records and no dual runtime scheduler or compatibility path. Deadline, demand, capacity, classification, continuity fingerprints/epochs, and physical state rebuild from current topology, hydrated activity/cursor evidence, package-declared observation plans, and accepted runtime facts at launch. Existing Git/Forge EventBus facts and source-fact shapes remain stable; no new EventBus case is added.
+FSEvents replay across downtime and its full owned-fetch provenance/package-promotion cutover remain later full-program targets outside this PR1 correction. Their absence leaves activity unknown and therefore uses the bounded background-only local path; it never authorizes inactivity or visible/remote fleet cadence.
 
-The current exact package pin `29d0d93a99c300881c166f8aad3878f9259451b4` is the pre-cutover baseline. Implementation requires one deliberate `agentstudio-git` contract/revision update for in-process atomic canonical-ref promotion with captured old-target verification; staging, remote child execution, and cleanup contracts remain unchanged. The app consumes only the new revision after its package tests and consumer compatibility proof pass. There is no simultaneous old/new promotion, activity, or ancestor-disposition path. Rollback restores the prior package pin and App activity/demand/command/projection behavior without reinterpreting new activity rows as launcher recency.
+The existing branch schema addition stores factual activity/cursor records and has no dual runtime scheduler or compatibility path. Deadline, demand, capacity, classification, continuity fingerprints/epochs, and physical state rebuild from current topology, hydrated activity/cursor evidence, package-declared observation plans, and accepted runtime facts at launch. Existing Git/Forge EventBus facts and source-fact shapes remain stable; no new EventBus case is added.
+
+The current exact package pin `29d0d93a99c300881c166f8aad3878f9259451b4` is the pre-cutover baseline and remains unchanged by the current PR1 correction. Later full-program implementation requires one deliberate `agentstudio-git` contract/revision update for in-process atomic canonical-ref promotion with captured old-target verification; staging, remote child execution, and cleanup contracts remain unchanged. The app consumes only the new revision after its package tests and consumer compatibility proof pass. There is no simultaneous old/new promotion, activity, or ancestor-disposition path. Rollback restores the prior package pin and App activity/demand/command/projection behavior without reinterpreting new activity rows as launcher recency.
 
 Architecture enforcement prevents:
 
@@ -874,6 +889,7 @@ Architecture enforcement prevents:
 - automatic remote work without demand;
 - a remote-reference network fetch keyed by worktree ID, Git-directory path, symlink target, or anything other than the canonical repository identity;
 - a locally inactive repository retaining periodic local/detail deadlines or automatic remote/Forge demand;
+- an unknown closed/sidebar-only repository inheriting active/visible cadence or creating automatic remote/Forge demand;
 - application-open recency, missing activity rows, cursor gaps, or unavailable persistence proving inactivity;
 - Agent Studio-owned automatic fetch/promotion advancing repository-local activity;
 - SQLite multi-state enums encoded as strings or magic integer variants;
