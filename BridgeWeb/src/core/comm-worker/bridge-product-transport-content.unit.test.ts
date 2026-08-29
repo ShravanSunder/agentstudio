@@ -96,6 +96,33 @@ describe('Bridge product content transport', () => {
 		expect(harness.server.frameAcknowledgements).toHaveLength(1);
 	});
 
+	test('fails a metadata stream when frame acknowledgement remains pending', async () => {
+		const harness = createContentTransportHarness(0, undefined, 100);
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
+		const firstEvent = subscription.events[Symbol.asyncIterator]().next();
+		const firstEventExpectation = expect(firstEvent).rejects.toThrow('timed out');
+		harness.server.holdMetadataAcknowledgement();
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		try {
+			vi.useFakeTimers();
+			harness.server.emitMetadata(metadataAccepted(request));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(harness.server.frameAcknowledgements).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(101);
+
+			await firstEventExpectation;
+			expect(harness.server.metadataReaderCancelCount).toBe(1);
+		} finally {
+			harness.server.releaseHeldContentAcknowledgement();
+			vi.useRealTimers();
+		}
+	});
+
 	test('paces content independently from other content, metadata, and control', async () => {
 		const harness = createContentTransportHarness();
 		harness.server.holdContentAcknowledgement('content-request-1');
