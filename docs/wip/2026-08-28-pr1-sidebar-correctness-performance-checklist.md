@@ -2,7 +2,7 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current checkpoint: `0294233b9`
+Current checkpoint: `05daa220d`
 Status: not PR-ready
 
 ## Product Contract
@@ -32,7 +32,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Keep unknown-hydration local correctness eligibility while deferring automatic Remote/Forge demand to authoritative activity or open worktrees.
 - [x] Remove locally-inactive presentation suppression from worktree and pane/tab projections while preserving the repository memorychip annotation.
 - [x] Prove cached facts remain visible throughout explicit refresh and loading terminates.
-- [x] Stabilize nested New Tab and Current Tab context-menu identities during asynchronous row/command updates.
+- [x] Freeze the exact tracked row's native height through root/child menu updates, then reconcile height and scroll anchor after final close.
 - [x] Prevent FSEvent activity-barrier flush from racing native stream retirement during the loaded startup baseline.
 - [x] Preserve canonical topology membership through source assertion; bulk reconciliation no longer re-probes and silently unregisters owned worktrees.
 - [x] Keep repository stable-key enrichment metadata-only; it no longer unregisters and re-registers unchanged filesystem roots or erases their pending Git baseline.
@@ -56,12 +56,15 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - Fresh marker `debug-observability-lbim-1787955213-90463` proved 146 warm worktrees created baseline debt, then 145 intents disappeared without running Git because `FilesystemGitPipeline.assertTopology` re-probed and filtered canonical membership. The 146-worktree ownership integration now proves assertion performs zero secondary discovery calls while direct candidate registration still rejects certain non-repositories.
 - Fresh marker `debug-observability-lbim-1787956797-50268` isolated the remaining identical collapse after the assertion-owner fix: stable-key enrichment alone forced 146 filesystem unregister/register cycles. The focused lifecycle test now proves the stable-key map updates while the existing stream registration remains unchanged.
 - `c24be9beb` separates unknown activity from automatic remote demand: pending/unavailable hydration still warms local Git for correctness, but Remote/Forge receives only open worktrees until activity is authoritative. Coordinator coverage passes 8/8.
-- `0294233b9` gives the two creation submenus stable SwiftUI identities so command-snapshot updates do not tear down native submenu tracking. `RepoExplorerWorktreeRowTests` passes 28/28.
+- `dc9d38b3a` replaces the insufficient stable-ID workaround with behavioral geometry ownership: the RED proof reproduced 63-point content inside a prematurely shortened 44-point native row; 28/28 native table tests and 27/27 worktree-row tests pass.
+- `0e9a6f29f` separates one required missing-cache baseline from recurring local-Git cadence. Unknown attended worktrees receive one correctness read; only open/active or authoritatively warm worktrees retain automatic deadlines. Coordinator/pacing tests pass 11/11 and demand integration passes 2/2.
+- `05daa220d` raises the bounded FSEvent ingress capacity from 64 to 512. The real-size RED/green test holds one filesystem plus one activity batch for 148 worktrees without manufactured overflow; the complete FSEvent stream suite passes 29/29.
+- Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
 - The periodic Git integration fixture now settles visibility admission before registration, derives the next provider call count dynamically, and advances the injected clock to the actual scheduler deadline. The focused leaf passed 1/1 and the complete `FilesystemGitPipelineIntegrationTests` suite passed 7/7.
 - The Git enrichment integration fixture now drives the existing cache-apply clock explicitly and waits for stable Forge projection plus an ordered cache-consumer barrier. `GitEnrichmentEventPipelineIntegrationTests` passed 2/2 without wall-clock sleeps.
 - `SWIFT_TEST_SKIP_PREBUILD=1 mise run test:swift:large` passed the broad 359-test/56-suite inventory, the 5-test PaneAgent owner, and every isolated process-global suite. `SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_PARALLEL=0 mise run test:swift:large` passed the same topology through the fallback path. `mise run format`, `mise run lint`, and `git diff --check` passed before the checkpoint commit; the final aggregate gate remains open.
-- Exact-HEAD aggregate `mise run test` completed successfully: BridgeWeb unit 1,764, integration 19, browser 211 passed/5 skipped; Swift fast 4,403 tests/621 suites, large 359 tests/56 suites, WebKit serialized, and E2E serialized all passed (exit 0, 490s).
+- Aggregate `mise run test` at `631a7955b` completed successfully: BridgeWeb unit 1,764, integration 19, browser 211 passed/5 skipped; Swift fast 4,403 tests/621 suites, large 359 tests/56 suites, WebKit serialized, and E2E serialized all passed (exit 0, 490s). A final exact-HEAD rerun remains required after the later bounded CPU and geometry checkpoints.
 
 ## Non-Goals
 
