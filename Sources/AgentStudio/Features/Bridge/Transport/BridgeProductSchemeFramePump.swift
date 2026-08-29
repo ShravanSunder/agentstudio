@@ -228,6 +228,20 @@ extension BridgeProductSession {
         sequence: Int,
         productAdmission: BridgeProductAdmissionContext
     ) async -> Bool {
+        await waitWithFrameObservationTimeout {
+            await self.waitUntilProducerFrameSequenceObservedWithoutTimeout(
+                for: lease,
+                sequence: sequence,
+                productAdmission: productAdmission
+            )
+        }
+    }
+
+    private func waitUntilProducerFrameSequenceObservedWithoutTimeout(
+        for lease: BridgeProductProducerLease,
+        sequence: Int,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> Bool {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -282,6 +296,18 @@ extension BridgeProductSession {
         _ receipt: BridgeProductProducerFrameReceipt,
         productAdmission: BridgeProductAdmissionContext
     ) async -> Bool {
+        await waitWithFrameObservationTimeout {
+            await self.waitUntilProducerFrameObservedWithoutTimeout(
+                receipt,
+                productAdmission: productAdmission
+            )
+        }
+    }
+
+    private func waitUntilProducerFrameObservedWithoutTimeout(
+        _ receipt: BridgeProductProducerFrameReceipt,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> Bool {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -326,6 +352,24 @@ extension BridgeProductSession {
                 )
             }
         }
+    }
+
+    private func waitWithFrameObservationTimeout(
+        _ operation: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        let operationTask = Task { await operation() }
+        do {
+            try await frameObservationDelay(frameObservationTimeout)
+        } catch is CancellationError {
+            operationTask.cancel()
+            return await operationTask.value
+        } catch {
+            operationTask.cancel()
+            return false
+        }
+        operationTask.cancel()
+        _ = await operationTask.value
+        return false
     }
 
     func resumeProducerFrameWaiterIfPossible(
