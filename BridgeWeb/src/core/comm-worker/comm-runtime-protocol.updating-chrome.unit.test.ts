@@ -271,7 +271,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 		expect(presentation.fileSubscriptionCount()).toBe(2);
 	});
 
-	test('publishes updating state only for the native-foreground active surface', async () => {
+	test('keeps Review refresh chrome classifier-owned while File retains updating state', async () => {
 		// Arrange
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const fileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(16);
@@ -307,14 +307,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 		});
 
 		// Assert
-		expect(panelChromePublications(postedMessages)).toEqual([
-			{
-				kind: 'reviewRenderPatch',
-				operation: 'upsert',
-				payload: { isLoading: true, message: 'Updating review…', reviewComparison: null },
-				surface: 'review',
-			},
-		]);
+		expect(panelChromePublications(postedMessages)).toEqual([]);
 		expect(telemetrySamples).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -326,14 +319,6 @@ describe('Bridge comm worker updating panel chrome', () => {
 					}),
 					numericAttributes: expect.objectContaining({
 						'agentstudio.bridge.presentation.revision': 1,
-					}),
-				}),
-				expect.objectContaining({
-					name: 'performance.bridge.web.pane_presentation',
-					stringAttributes: expect.objectContaining({
-						'agentstudio.bridge.panel.operation': 'upsert',
-						'agentstudio.bridge.phase': 'panel_chrome_published',
-						'agentstudio.bridge.viewer': 'review',
 					}),
 				}),
 			]),
@@ -357,7 +342,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		// Assert
 		const fileModePublications = panelChromePublications(postedMessages);
-		expect(fileModePublications).toHaveLength(2);
+		expect(fileModePublications).toHaveLength(1);
 		expect(fileModePublications).toEqual(
 			expect.arrayContaining([
 				{
@@ -365,12 +350,6 @@ describe('Bridge comm worker updating panel chrome', () => {
 					operation: 'upsert',
 					payload: { fileRefreshFailure: null, isLoading: true, message: 'Updating files…' },
 					surface: 'file',
-				},
-				{
-					kind: 'reviewRenderPatch',
-					operation: 'reset',
-					payload: null,
-					surface: 'review',
 				},
 			]),
 		);

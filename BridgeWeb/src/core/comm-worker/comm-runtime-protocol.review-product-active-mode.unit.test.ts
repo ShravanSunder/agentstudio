@@ -1,4 +1,4 @@
-import { describe, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
@@ -9,6 +9,7 @@ import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worke
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import { reviewSnapshotWithContentEvent } from './bridge-comm-worker-runtime-protocol.review-product-fixtures.test-support.js';
 import {
+	drainBridgeCommWorkerPreparationUntilIdle,
 	drainUntilReviewAttemptCount,
 	expectOriginalReviewContentAttemptsRemainActive,
 	makePendingReviewContentStream,
@@ -21,6 +22,7 @@ import {
 	type ReviewMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
+	createDeferredReviewContentStream,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -29,6 +31,97 @@ import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js'
 type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review product active viewer mode lifecycle', () => {
+	test('does not publish content that completes after File mode suspends Review', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const deferredStreams = new Map<string, ReturnType<typeof createDeferredReviewContentStream>>();
+		const reviewSubscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-file-mode-late-content',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			openReviewContent: (descriptor) => {
+				const deferredStream = createDeferredReviewContentStream(descriptor);
+				deferredStreams.set(descriptor.descriptorId, deferredStream);
+				return deferredStream.stream;
+			},
+			productTransport: makeReviewProductTransport({ reviewSubscription, subscribedKinds: [] }),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
+		await flushBridgeWorkerRuntimeContinuations();
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'request-review-active-before-file',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 1,
+					sessionId: 'late-content-session',
+				},
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 2,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-late-content-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await startBridgeCommWorkerPreparationDrains(
+			scheduledDrains,
+			flushBridgeWorkerRuntimeContinuations,
+		);
+		expect(deferredStreams.size).toBe(2);
+
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 3,
+				requestId: 'request-file-before-late-content',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 2,
+					sessionId: 'late-content-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		postedMessages.length = 0;
+		for (const deferredStream of deferredStreams.values()) {
+			deferredStream.resolve('late Review content\n');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(
+			scheduledDrains,
+			flushBridgeWorkerRuntimeContinuations,
+		);
+
+		expect(
+			postedMessages.filter(
+				({ message }) =>
+					message.kind === 'reviewPierreRenderJob' || message.kind === 'reviewRenderPatch',
+			),
+		).toEqual([]);
+	});
+
 	test('preserves pending Review content across accepted, stale, and repeated viewer mode updates', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];

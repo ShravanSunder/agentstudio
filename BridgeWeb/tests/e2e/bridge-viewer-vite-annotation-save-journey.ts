@@ -292,6 +292,7 @@ export async function runAnnotationSaveJourney(props: {
 			state: 'visible',
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
+		const reloadedSavedMessageCount = await reloadedSavedThreadBody.count();
 		const outputIdentity = await verifyAnnotationOutputCaptures({
 			dataRootPath: props.oracle.dataRootPath,
 			page,
@@ -306,7 +307,7 @@ export async function runAnnotationSaveJourney(props: {
 			gatedProjectionRequestCount,
 			outputIdentity,
 			projectedSavedMessageCount,
-			reloadedSavedMessageCount: await reloadedSavedThreadBody.count(),
+			reloadedSavedMessageCount,
 			savingControlCountAfterCommit,
 		};
 	} catch (error: unknown) {

@@ -43,6 +43,7 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 	if (props.surface === 'review' && props.activeReviewPublicationIdentity === null) return null;
 	const refreshingLane = props.surface === 'file' ? 'file' : 'review';
 	const isUpdating =
+		props.surface === 'file' &&
 		props.presentation.nativeActivity === 'foreground' &&
 		props.activeViewerMode === props.surface &&
 		props.presentation.refreshingLanes.includes(refreshingLane);
@@ -75,7 +76,7 @@ export function publishBridgeCommWorkerUpdatingChrome(props: {
 						...(isUpdating
 							? {
 									isLoading: true,
-									message: props.surface === 'file' ? 'Updating files…' : 'Updating review…',
+									message: 'Updating files…',
 								}
 							: {}),
 						...(props.surface === 'file'

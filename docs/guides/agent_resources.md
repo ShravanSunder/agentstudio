@@ -87,7 +87,26 @@ React UI rules.
 
 Always use the existing Swift development backend plus Vite as the primary
 iteration loop for Bridge development instead of repeatedly rebuilding the full
-app. From the repository root, start the backend with an isolated data root:
+app. The default command supervises both processes from the repository root:
+
+```bash
+pnpm --dir BridgeWeb run dev
+```
+
+Vite reports frontend readiness before the supervised Swift build finishes.
+Wait for the distinct `[bridge-backend] Bridge development server is ready.`
+line, then open
+`http://127.0.0.1:5173/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
+Vite provides React HMR while the Swift backend uses the production Core,
+Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
+If SwiftPM reports `sandbox_apply: Operation not permitted` from an agent-run
+terminal, rerun the unchanged command with host permission; do not disable the
+SwiftPM sandbox in repository code.
+
+For manual backend debugging, start the development backend on a chosen
+loopback port, then point Vite at that exact origin with
+`BRIDGE_WEB_DEV_BACKEND_ORIGIN`. Without that variable, Vite intentionally
+starts and proxies to its own supervised backend.
 
 ```bash
 mise run build-bridge-development-server
@@ -98,12 +117,9 @@ bridge_dev_root="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-bridge-dev.XXXXXX")"
   --seed-worktree "$PWD" \
   --seed-target HEAD \
   --port 43871
+BRIDGE_WEB_DEV_BACKEND_ORIGIN=http://127.0.0.1:43871 pnpm --dir BridgeWeb run dev
 ```
 
-In a second terminal, run `pnpm --dir BridgeWeb run dev`, then open
-`http://127.0.0.1:5173/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
-Vite provides React HMR while the Swift backend uses the production Core,
-Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
 Use the actual app for final validation of packaged WKWebView, native chrome,
 App lifecycle, and other boundaries the development server cannot prove.
 
