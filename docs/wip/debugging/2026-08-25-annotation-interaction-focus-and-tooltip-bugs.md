@@ -688,10 +688,15 @@ Date: 2026-08-25
       outside also closes it, but focus remains on the outside target the reviewer
       chose. Successful Copy or Export retains the existing dismissal and toast
       behavior; failed or cancelled output retains the shelf.
+    - Motion: opening and closing both use the app's 120 ms fast motion. The
+      complete, already-laid-out shelf translates downward from the header on
+      open with ease-out and retracts upward on close with ease-in. Controls do
+      not stagger, animate height, or reveal independently. Reduced-motion
+      presentation removes the translation and changes state immediately.
     - Contents remain Pending/All, Copy Markdown, Export JSON, and Close. There is
       no annotation checklist. Exact History/error placement, narrow-width
-      wrapping, motion duration/easing, and output-pending dismissal remain open
-      design details; do not infer them from the old in-flow toolbar.
+      wrapping, and output-pending dismissal remain open design details; do not
+      infer them from the old in-flow toolbar.
     - Rationale: a full-width shelf has the clearest visible origin and reverse
       return motion. The 90% width preserves that directional story while the side
       gaps keep it visibly floating. This intentionally accepts some top-strip
