@@ -562,8 +562,8 @@ struct DarwinSharedExactItemObserverTests {
         )
     }
 
-    @Test("shared exact callback metadata reaches activity ingress")
-    func sharedExactCallbackMetadataReachesActivityIngress() throws {
+    @Test("shared exact self-event metadata does not mint external activity")
+    func sharedExactSelfEventMetadataDoesNotMintExternalActivity() throws {
         // Arrange
         let fixture = makeSharedExactItemFixture()
         let parentKey = makeSharedParentKey("activity-metadata")
@@ -607,7 +607,7 @@ struct DarwinSharedExactItemObserverTests {
         )
         #expect(activityBatch.participantWorktreeIds == [worktreeId])
         #expect(activityBatch.qualifyingWorktreeIds.isEmpty)
-        #expect(activityBatch.coverageLostWorktreeIds == [worktreeId])
+        #expect(activityBatch.coverageLostWorktreeIds.isEmpty)
         let barrier = try #require(fixture.registry.captureActivityBarrier())
         let participant = activityBatch.participant
         #expect(barrier.deliveredEventIDByParticipant[participant] == 51)
