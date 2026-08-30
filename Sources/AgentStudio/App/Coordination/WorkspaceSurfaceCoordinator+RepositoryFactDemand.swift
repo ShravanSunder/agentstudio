@@ -65,14 +65,20 @@ extension WorkspaceSurfaceCoordinator {
         let activePaneWorktreeId = store.tabLayoutAtom.activeTab?.activePaneId
             .flatMap { associationByPaneId[$0]?.worktreeId }
         let repositoryIDs = topology.repositoryIdsInOrder
+        var worktreeStableKeysByRepositoryID: [UUID: [UUID: String]] = [:]
+        for worktreeID in membershipWorktreeIds {
+            guard
+                let repositoryID = repositoryIdByWorktreeId[worktreeID],
+                let worktreeStableKey = topology.worktreeStableKey(for: worktreeID)
+            else { continue }
+            worktreeStableKeysByRepositoryID[repositoryID, default: [:]][worktreeID] = worktreeStableKey
+        }
         let activityTopology: [RepositoryActivityTopology] = repositoryIDs.compactMap { repositoryID in
-            guard let repository = topology.repo(repositoryID) else { return nil }
+            guard let repositoryStableKey = topology.repositoryStableKey(for: repositoryID) else { return nil }
             return RepositoryActivityTopology(
                 repositoryID: repositoryID,
-                repositoryStableKey: repository.stableKey,
-                worktreeStableKeysByID: Dictionary(
-                    uniqueKeysWithValues: repository.worktrees.map { ($0.id, $0.stableKey) }
-                )
+                repositoryStableKey: repositoryStableKey,
+                worktreeStableKeysByID: worktreeStableKeysByRepositoryID[repositoryID] ?? [:]
             )
         }
         let repositoryLocalActivityByStableKey = Dictionary(

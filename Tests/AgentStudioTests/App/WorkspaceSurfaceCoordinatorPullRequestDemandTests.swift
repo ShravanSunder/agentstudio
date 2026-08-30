@@ -109,6 +109,84 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
         }
     }
 
+    @Test("repository fact demand classifies activity through sealed topology identity")
+    func repositoryFactDemandUsesSealedTopologyIdentity() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            // Arrange
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-sealed-identity"))
+            let worktree = try #require(repository.worktrees.first)
+            let repositoryStableKey = "1111222233334444"
+            let topologyPreparation = RepositoryTopologyReplacement.prepare(
+                repositories: store.repositoryTopologyAtom.repos,
+                watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+                unavailableRepositoryIDs: [],
+                stableIdentity: RepositoryTopologyStableIdentity(
+                    repositoryStableKeysByID: [repository.id: repositoryStableKey],
+                    worktreeStableKeysByID: [worktree.id: repositoryStableKey],
+                    watchedPathStableKeysByID: store.repositoryTopologyAtom.watchedPathStableKeysByID
+                )
+            )
+            guard case .prepared(let replacement) = topologyPreparation else {
+                Issue.record("expected supplied stable identity to prepare")
+                return
+            }
+            store.repositoryTopologyAtom.replaceTopology(replacement)
+
+            let referenceDate = Date()
+            coreAtoms.repositoryLocalActivity.publishAuthoritative(
+                RepositoryLocalActivitySnapshot(
+                    activityByRepositoryStableKey: [
+                        repositoryStableKey: try RepositoryLocalActivity(
+                            repositoryStableKey: repositoryStableKey,
+                            lastQualifyingActivityAt: referenceDate,
+                            continuousCoverageStartedAt: referenceDate.addingTimeInterval(-1),
+                            updatedAt: referenceDate,
+                            ownedPromotionAttemptID: nil,
+                            ownedPromotionStartedAt: nil,
+                            ownedPromotionUnsettled: false
+                        )
+                    ],
+                    cursorByVolumeIdentifier: [:]
+                )
+            )
+
+            let source = PullRequestDemandRecordingFilesystemSource()
+            let windowLifecycle = WindowLifecycleAtom()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: PullRequestDemandSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: gitStatusPhysicalGate
+                ),
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
+                filesystemSource: source,
+                windowLifecycleStore: windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let owningWindowId = UUIDv7.generate()
+            windowLifecycle.recordWindowRegistered(owningWindowId)
+            windowLifecycle.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: owningWindowId
+            )
+
+            // Act
+            coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
+            await coordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
+
+            // Assert
+            #expect(await source.lastSnapshot == [worktree.id])
+
+            await coordinator.shutdown()
+        }
+    }
+
 }
 
 private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
