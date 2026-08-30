@@ -6,6 +6,10 @@ import { Popover } from '@/components/ui/popover.js';
 import { BridgeViewerHeaderShelf } from '../app/bridge-viewer-header-shelf.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
+import {
+	type WorktreeAnnotationOutputPendingController,
+	useWorktreeAnnotationOutputPendingController,
+} from './worktree-annotation-output-pending-controller.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
 import {
 	WorktreeAnnotationShareModeRow,
@@ -28,7 +32,7 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 	const membershipUnknown = projection.revision === null;
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const lastCloseReasonRef = useRef<string | null>(null);
-	const [isOutputPending, setIsOutputPending] = useState(false);
+	const outputPendingController = useWorktreeAnnotationOutputPendingController();
 	const isOpen = interaction.shareMode.kind === 'open';
 	const headerAnchor = useCallback(
 		(): Element | null =>
@@ -50,7 +54,7 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 					interaction.openShareMode();
 					return;
 				}
-				if (isOutputPending) return;
+				if (outputPendingController.isPending) return;
 				lastCloseReasonRef.current = eventDetails.reason;
 				interaction.closeShareMode();
 			}}
@@ -70,9 +74,8 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 				testId="worktree-annotation-share-shelf"
 			>
 				<WorktreeAnnotationShareSurfaceContent
-					isPending={isOutputPending}
+					outputPendingController={outputPendingController}
 					onClose={closeShareMode}
-					onPendingChange={setIsOutputPending}
 				/>
 			</BridgeViewerHeaderShelf>
 		</Popover>
@@ -80,9 +83,8 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 }
 
 function WorktreeAnnotationShareSurfaceContent(props: {
-	readonly isPending: boolean;
 	readonly onClose: () => void;
-	readonly onPendingChange: (pending: boolean) => void;
+	readonly outputPendingController: WorktreeAnnotationOutputPendingController;
 }): ReactElement | null {
 	const client = useWorktreeAnnotationSurfaceClient();
 	const interaction = useWorktreeAnnotationInteraction();
@@ -99,7 +101,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		return (
 			<WorktreeAnnotationShareModeRow
 				error={null}
-				isOutputPending={props.isPending}
+				isOutputPending={props.outputPendingController.isPending}
 				isOutputReady={false}
 				membership={{ kind: 'unknown' }}
 				onCopy={ignoreUnknownOutput}
@@ -144,8 +146,8 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		outputKind: 'clipboardMarkdown' | 'jsonFile',
 		scope: WorktreeAnnotationShareScope,
 	): Promise<void> => {
-		if (props.isPending) return;
-		props.onPendingChange(true);
+		const pendingLease = props.outputPendingController.tryAcquire();
+		if (pendingLease === null) return;
 		setError(null);
 		try {
 			const outcome = await client.execute({
@@ -190,14 +192,14 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		} catch (caught: unknown) {
 			setError(caught instanceof Error ? caught.message : 'Output failed.');
 		} finally {
-			props.onPendingChange(false);
+			pendingLease.release();
 		}
 	};
 	return (
 		<>
 			<WorktreeAnnotationShareModeRow
 				error={error}
-				isOutputPending={props.isPending}
+				isOutputPending={props.outputPendingController.isPending}
 				isOutputReady={isOutputReady}
 				membership={{ allCount: shared.allCount, kind: 'ready', pendingCount: shared.pendingCount }}
 				onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
@@ -208,7 +210,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			/>
 			<WorktreeAnnotationOutputHistoryControl
 				embedded
-				onOutputPendingChange={props.onPendingChange}
+				outputPendingController={props.outputPendingController}
 			/>
 		</>
 	);

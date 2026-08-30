@@ -349,6 +349,33 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
 	});
 
+	test('uses one output lease across Share commands and History Repeat', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface, 'unknown');
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Copy Markdown' }).click(),
+		);
+
+		await expect
+			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
+			.toBeDisabled();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.toBeDisabled();
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'output.repeat'),
+		).toHaveLength(0);
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
+			await settleInteraction();
+		});
+	});
+
 	test.each(['fileView', 'review'] as const)(
 		'keeps collapsed and expanded History outside the %s Share command hit area',
 		async (surfaceKind) => {

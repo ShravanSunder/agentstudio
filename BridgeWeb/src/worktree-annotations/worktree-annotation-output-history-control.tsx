@@ -12,6 +12,10 @@ import { BridgeViewerButton } from '../app/bridge-viewer-button.js';
 import { cn } from '../app/class-name.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import {
+	type WorktreeAnnotationOutputPendingController,
+	useWorktreeAnnotationOutputPendingController,
+} from './worktree-annotation-output-pending-controller.js';
+import {
 	annotationOutputFeedback,
 	annotationOutputHistoryStatus,
 	annotationCountLabel,
@@ -35,7 +39,7 @@ type WorktreeAnnotationOutputInspectionState =
 
 export function WorktreeAnnotationOutputHistoryControl(props: {
 	readonly embedded?: boolean | undefined;
-	readonly onOutputPendingChange?: ((pending: boolean) => void) | undefined;
+	readonly outputPendingController?: WorktreeAnnotationOutputPendingController | undefined;
 }): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
@@ -43,7 +47,8 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 	const [inspection, setInspection] = useState<WorktreeAnnotationOutputInspectionState | null>(
 		null,
 	);
-	const [isOutputPending, setIsOutputPending] = useState(false);
+	const localOutputPendingController = useWorktreeAnnotationOutputPendingController();
+	const outputPendingController = props.outputPendingController ?? localOutputPendingController;
 	const history = projection.outputHistory.filter(
 		(summary) => summary.sessionId === selection.activeSessionId,
 	);
@@ -79,9 +84,8 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 		}
 	};
 	const repeatOutput = async (attemptId: string): Promise<void> => {
-		if (isOutputPending) return;
-		setIsOutputPending(true);
-		props.onOutputPendingChange?.(true);
+		const pendingLease = outputPendingController.tryAcquire();
+		if (pendingLease === null) return;
 		try {
 			const outcome = await annotationClient.execute({ attemptId, kind: 'output.repeat' });
 			if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
@@ -93,8 +97,7 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 		} catch (error: unknown) {
 			toast.error(error instanceof Error ? error.message : 'Output repetition failed.');
 		} finally {
-			setIsOutputPending(false);
-			props.onOutputPendingChange?.(false);
+			pendingLease.release();
 		}
 	};
 
@@ -115,7 +118,7 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 					<WorktreeAnnotationOutputHistory
 						history={history}
 						inspection={inspection}
-						isOutputPending={isOutputPending}
+						isOutputPending={outputPendingController.isPending}
 						onInspect={(attemptId) => void inspectOutput(attemptId)}
 						onMarkNotHandled={(summary) => void markNotHandled(summary)}
 						onRepeat={(attemptId) => void repeatOutput(attemptId)}
