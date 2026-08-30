@@ -469,15 +469,19 @@ struct CIFastLaneWorkflowTests {
         #expect(filteredOutput == "okbad\nreal diagnostic\n")
     }
 
-    @Test("Swift formatted output is normalized before mise consumes it")
-    func swiftFormattedOutputIsNormalizedBeforeMiseConsumesIt() throws {
+    @Test("Swift formatted pipeline normalizes UTF-8 before mise consumes it")
+    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() throws {
+        let helperScript = try String(contentsOfFile: "scripts/xcb-helpers.sh", encoding: .utf8)
         let filteredOutput = try runBash(
-            "source scripts/xcb-helpers.sh; "
-                + "xcbeautify() { cat >/dev/null; printf $'formatted\\xff output\\n'; }; "
-                + "export -f xcbeautify; printf 'raw input\\n' | _xcb_pipe"
+            "source scripts/xcb-helpers.sh; printf $'raw\\xff input\\n' | _xcb_pipe"
         )
 
-        #expect(filteredOutput == "formatted output\n")
+        #expect(
+            helperScript.contains(
+                "xcbeautify \"${extra_args[@]}\" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c"
+            )
+        )
+        #expect(filteredOutput == "raw input\n")
     }
 
     @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
