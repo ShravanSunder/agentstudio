@@ -102,6 +102,6 @@ package struct WorkspaceArrangementViewDerived {
     }
 
     private func isActivePane(_ paneID: UUID) -> Bool {
-        paneAtom.graphAtom.paneState(paneID)?.residency.isActive == true
+        paneAtom.graphAtom.paneStructuralFacts(paneID)?.residency.isActive == true
     }
 }

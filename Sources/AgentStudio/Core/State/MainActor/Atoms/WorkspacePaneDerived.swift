@@ -38,7 +38,7 @@ package struct WorkspacePaneDerived {
 
     func activeResidencyPaneIds(in orderedPaneIds: [UUID]) -> [UUID] {
         orderedPaneIds.filter { paneId in
-            graphAtom.paneState(paneId)?.residency.isActive == true
+            graphAtom.paneStructuralFacts(paneId)?.residency.isActive == true
         }
     }
 
