@@ -54,7 +54,13 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 					interaction.openShareMode();
 					return;
 				}
-				if (outputPendingController.isPending) return;
+				if (
+					outputPendingController.isPending &&
+					lastCloseReasonRef.current !== 'imperative-action'
+				) {
+					eventDetails.cancel();
+					return;
+				}
 				lastCloseReasonRef.current = eventDetails.reason;
 				interaction.closeShareMode();
 			}}

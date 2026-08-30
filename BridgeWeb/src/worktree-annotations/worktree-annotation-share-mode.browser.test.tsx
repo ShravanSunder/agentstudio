@@ -45,7 +45,7 @@ describe('worktree annotation Share comments presentation', () => {
 		const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
 		expect(shareTrigger.element().textContent).toBe('');
 		expect(shareTrigger.element().querySelector('.lucide-share-2')).not.toBeNull();
-		expect(shareTrigger.element().getAttribute('data-slot')).toBe('tooltip-trigger');
+		expect(shareTrigger.element().getAttribute('data-slot')).toBe('popover-trigger');
 		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Share comments');
 		expect(getComputedStyle(shareTrigger.element()).width).toBe('24px');
 
@@ -106,21 +106,21 @@ describe('worktree annotation Share comments presentation', () => {
 			<ShareModeFixture allCount={0} pendingCount={0} onCopy={onCopy} onExport={onExport} />,
 		);
 
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
-		);
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+		});
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Close Share comments' }).click(),
-		);
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Close Share comments' }).element());
+		});
 		await expect
 			.element(rendered.getByRole('region', { name: 'Share comments' }))
 			.not.toBeInTheDocument();
 
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
-		);
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+		});
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await performBrowserAction(async (): Promise<void> => {
 			rendered
@@ -194,9 +194,32 @@ function ShareModeFixture(props: {
 	);
 }
 
-async function performBrowserAction(action: () => Promise<void>): Promise<void> {
+async function performBrowserAction(action: () => Promise<void> | void): Promise<void> {
+	const shelfBeforeAction = document.querySelector<HTMLElement>(
+		'[data-testid="worktree-annotation-share-shelf"]',
+	);
 	await act(async (): Promise<void> => {
 		await action();
 		await Promise.resolve();
+		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+		await settleClosingShareShelf(shelfBeforeAction);
 	});
+}
+
+async function settleClosingShareShelf(shelf: HTMLElement | null): Promise<void> {
+	if (shelf === null || !shelf.hasAttribute('data-ending-style')) return;
+	await Promise.all(
+		shelf.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
+			try {
+				await animation.finished;
+			} catch {
+				// Reversing an in-flight transition cancels its predecessor.
+			}
+		}),
+	);
+}
+
+function clickHtmlButton(element: HTMLElement | SVGElement): void {
+	if (!(element instanceof HTMLButtonElement)) throw new Error('Expected an HTML button.');
+	element.click();
 }

@@ -19,6 +19,7 @@ function PopoverContent({
 	align = 'center',
 	alignOffset = 0,
 	collisionAvoidance,
+	collisionPadding,
 	motion = 'default',
 	positionerClassName,
 	side = 'bottom',
@@ -27,7 +28,13 @@ function PopoverContent({
 }: PopoverPrimitive.Popup.Props &
 	Pick<
 		PopoverPrimitive.Positioner.Props,
-		'align' | 'alignOffset' | 'anchor' | 'collisionAvoidance' | 'side' | 'sideOffset'
+		| 'align'
+		| 'alignOffset'
+		| 'anchor'
+		| 'collisionAvoidance'
+		| 'collisionPadding'
+		| 'side'
+		| 'sideOffset'
 	> & {
 		readonly motion?: 'default' | 'shelf';
 		readonly positionerClassName?: string;
@@ -39,6 +46,7 @@ function PopoverContent({
 				alignOffset={alignOffset}
 				anchor={anchor}
 				collisionAvoidance={collisionAvoidance}
+				collisionPadding={collisionPadding}
 				side={side}
 				sideOffset={sideOffset}
 				className={cn('isolate z-50', positionerClassName)}

@@ -48,7 +48,10 @@ const successfulAttemptId = '00000000-0000-7000-8000-000000000085';
 
 describe('worktree annotation Share comments integrated surface', () => {
 	afterEach(async (): Promise<void> => {
-		await cleanup();
+		await act(async (): Promise<void> => {
+			await cleanup();
+			await Promise.resolve();
+		});
 		toastSpies.default.mockReset();
 		toastSpies.error.mockReset();
 		toastSpies.success.mockReset();
@@ -88,8 +91,14 @@ describe('worktree annotation Share comments integrated surface', () => {
 			rendered.getByRole('button', { name: 'Share comments' }).click(),
 		);
 		const outsideTarget = rendered.getByRole('button', { name: 'Code canvas target' });
+		const closingShelf = requireHtmlElement(
+			rendered.getByTestId('worktree-annotation-share-shelf').element(),
+		);
 
-		await performBrowserAction(() => outsideTarget.click());
+		await act(async (): Promise<void> => {
+			await outsideTarget.click();
+			await finishShareShelfMotion(closingShelf);
+		});
 
 		await expect
 			.element(rendered.getByRole('region', { name: 'Share comments' }))
@@ -172,9 +181,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 			await publishShareProjection(surface);
 
 			await expect.element(rendered.getByRole('button', { name: 'Share comments' })).toBeEnabled();
-			await performBrowserAction(() =>
-				rendered.getByRole('button', { name: 'Share comments' }).click(),
-			);
+			await performBrowserAction(() => {
+				clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+			});
 			const pendingScopeButton = requireShareScopeButton('Pending comments');
 			expect(pendingScopeButton.getAttribute('aria-label')).toBe('Pending comments, 2');
 			expect(pendingScopeButton.getAttribute('aria-pressed')).toBe('true');
@@ -194,9 +203,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 			const allScopeButton = requireShareScopeButton('All comments');
 			expect(allScopeButton.getAttribute('aria-label')).toBe('All comments, 3');
 			await performBrowserAction(async (): Promise<void> => allScopeButton.click());
-			await performBrowserAction(() =>
-				rendered.getByRole('button', { name: 'Copy Markdown' }).click(),
-			);
+			await performBrowserAction(() => {
+				clickHtmlButton(rendered.getByRole('button', { name: 'Copy Markdown' }).element());
+			});
 			expect(findLastOperation(surface, 'output.scope.commit')).toEqual({
 				displayedProjectionRevision: 3,
 				expectedSessionRevision: 3,
@@ -207,13 +216,17 @@ describe('worktree annotation Share comments integrated surface', () => {
 				sourceGeneration: 3,
 			});
 
+			const closingShelf = requireHtmlElement(
+				rendered.getByTestId('worktree-annotation-share-shelf').element(),
+			);
 			await act(async (): Promise<void> => {
 				surface.settleMostRecentOutput({
 					kind: 'succeeded',
 					summary: outputSummary('clipboard_markdown', 3),
 				});
-				await settleInteraction();
+				await Promise.resolve();
 			});
+			await act(async (): Promise<void> => finishShareShelfMotion(closingShelf));
 			await expect
 				.element(rendered.getByRole('region', { name: 'Share comments' }))
 				.not.toBeInTheDocument();
@@ -256,39 +269,48 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
-		);
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+		});
 
-		await performBrowserAction(() => rendered.getByRole('button', { name: 'Export JSON' }).click());
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Export JSON' }).element());
+		});
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
 			await settleInteraction();
 		});
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
 
-		await performBrowserAction(() => rendered.getByRole('button', { name: 'Export JSON' }).click());
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Export JSON' }).element());
+		});
+		const closingShelf = requireHtmlElement(
+			rendered.getByTestId('worktree-annotation-share-shelf').element(),
+		);
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentOutput({
 				effectError: 'write failed',
 				kind: 'effect_failed',
 				summary: outputSummary('json_file'),
 			});
-			await settleInteraction();
+			await Promise.resolve();
+			await Promise.resolve();
 		});
 		await expect.element(rendered.getByRole('alert')).toHaveTextContent('Export failed.');
 
-		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Copy Markdown' }).click(),
-		);
+		await performBrowserAction(() => {
+			clickHtmlButton(rendered.getByRole('button', { name: 'Copy Markdown' }).element());
+		});
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentOutput({
 				finalizationError: 'history failed',
 				kind: 'partial_success',
 				summary: outputSummary('clipboard_markdown'),
 			});
-			await settleInteraction();
+			await Promise.resolve();
 		});
+		await act(async (): Promise<void> => finishShareShelfMotion(closingShelf));
 		await expect
 			.element(rendered.getByRole('region', { name: 'Share comments' }))
 			.not.toBeInTheDocument();
@@ -337,6 +359,12 @@ describe('worktree annotation Share comments integrated surface', () => {
 			.toBeDisabled();
 		await performBrowserAction(() => userEvent.keyboard('{Escape}'));
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-share-shelf')
+				.element()
+				.hasAttribute('data-ending-style'),
+		).toBe(false);
 
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentOutput({
@@ -501,7 +529,7 @@ function ShareSurfaceFixture(props: {
 					statusText={null}
 					title="Sources/First.swift"
 				/>
-				<button data-testid="share-layout-code-canvas" type="button">
+				<button className="mt-16" data-testid="share-layout-code-canvas" type="button">
 					Code canvas target
 				</button>
 			</div>
@@ -714,7 +742,7 @@ function isToastAction(value: unknown): value is {
 	);
 }
 
-async function performBrowserAction(action: () => Promise<void>): Promise<void> {
+async function performBrowserAction(action: () => Promise<void> | void): Promise<void> {
 	await act(async (): Promise<void> => {
 		await action();
 		await settleInteraction();
@@ -725,6 +753,35 @@ async function settleInteraction(): Promise<void> {
 	await Promise.resolve();
 	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 	await Promise.resolve();
+}
+
+async function finishShareShelfMotion(shelf: HTMLElement): Promise<void> {
+	await waitForShareShelfEndingStyle(shelf);
+	const animations = shelf.getAnimations({ subtree: true });
+	for (const animation of animations) animation.finish();
+	await Promise.all(animations.map((animation) => animation.finished.catch((): void => {})));
+	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	await Promise.resolve();
+}
+
+async function waitForShareShelfEndingStyle(
+	shelf: HTMLElement,
+	remainingFrames = 10,
+): Promise<void> {
+	if (!shelf.isConnected || shelf.hasAttribute('data-ending-style')) return;
+	if (remainingFrames <= 0) throw new Error('Share shelf did not enter its closing transition.');
+	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	await waitForShareShelfEndingStyle(shelf, remainingFrames - 1);
+}
+
+function requireHtmlElement(element: HTMLElement | SVGElement): HTMLElement {
+	if (!(element instanceof HTMLElement)) throw new Error('Expected an HTML element.');
+	return element;
+}
+
+function clickHtmlButton(element: HTMLElement | SVGElement): void {
+	if (!(element instanceof HTMLButtonElement)) throw new Error('Expected an HTML button.');
+	element.click();
 }
 
 const locatedContext: WorktreeAnnotationThreadContext = {

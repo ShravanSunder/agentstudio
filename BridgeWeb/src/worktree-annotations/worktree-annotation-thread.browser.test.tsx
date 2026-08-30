@@ -272,7 +272,7 @@ describe('worktree annotation inline thread', () => {
 		'routes Control-E to the exact pointer-activated editable annotation',
 		async ({ expectedBody, ordinal }) => {
 			const surface = new RecordingAnnotationBrowserSurface('fileView');
-			const rendered = await renderAnnotationProjection(surface);
+			const rendered = await renderLocatedAnnotationProjection(surface);
 			await publishThreadMessages(surface, [
 				makeSavedMessage({ body: 'Shortcut root.', messageId: rootMessageId }),
 				makeSavedMessage({ body: 'Shortcut reply.', messageId: replyMessageId, ordinal: 1 }),
@@ -310,9 +310,19 @@ describe('worktree annotation inline thread', () => {
 			makeSavedMessage({ body: 'Thread-only shortcut target.', messageId: rootMessageId }),
 		]);
 		const annotationFrame = rendered.getByTestId('worktree-annotation-thread').element();
+		const annotationFrameBounds = annotationFrame.getBoundingClientRect();
+		const paddingClickPosition = { x: 4, y: 4 } as const;
+		expect(
+			document.elementFromPoint(
+				annotationFrameBounds.left + paddingClickPosition.x,
+				annotationFrameBounds.top + paddingClickPosition.y,
+			),
+		).toBe(annotationFrame);
 
 		await act(async (): Promise<void> => {
-			await userEvent.click(annotationFrame);
+			await userEvent.click(annotationFrame, { position: paddingClickPosition });
+		});
+		await act(async (): Promise<void> => {
 			await userEvent.keyboard('{Control>}e{/Control}');
 		});
 
@@ -368,12 +378,17 @@ describe('worktree annotation inline thread', () => {
 				],
 			},
 		]);
-		const replyToFirstThread = rendered
-			.getByRole('button', { name: 'Reply to annotation thread' })
-			.all()[0];
-		if (replyToFirstThread === undefined) throw new Error('Expected the first Reply control.');
+		const firstThreadFrame = document.querySelector<HTMLElement>(
+			`[data-annotation-thread-id="${CSS.escape(locatedContext.threadId)}"]`,
+		);
+		const replyToFirstThread = firstThreadFrame?.querySelector<HTMLButtonElement>(
+			'button[aria-label="Reply to annotation thread"]',
+		);
+		if (replyToFirstThread === null || replyToFirstThread === undefined) {
+			throw new Error('Expected thread A Reply control.');
+		}
 		await act(async (): Promise<void> => {
-			await replyToFirstThread.click();
+			replyToFirstThread.click();
 			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Draft in A.');
 		});
 		await settleBrowserCondition(
