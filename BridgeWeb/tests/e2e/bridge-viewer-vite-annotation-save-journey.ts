@@ -361,13 +361,19 @@ export async function runAnnotationSaveJourney(props: {
 			}
 		}
 		throw new Error(
-			`Annotation Save journey failed: browser=${JSON.stringify(diagnostics)} server=${props.server.diagnostics()}`,
+			`Annotation Save journey failed: cause=${JSON.stringify(annotationSaveJourneyCause(error))} browser=${JSON.stringify(diagnostics)} server=${props.server.diagnostics()}`,
 			{ cause: error },
 		);
 	} finally {
 		await page?.close();
 		await browser.close();
 	}
+}
+
+function annotationSaveJourneyCause(error: unknown): Readonly<Record<string, string>> {
+	return error instanceof Error
+		? { kind: error.name, message: error.message }
+		: { kind: typeof error, message: String(error) };
 }
 
 async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {

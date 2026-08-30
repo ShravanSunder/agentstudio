@@ -301,9 +301,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				if (
 					bridgeFileDisplayEventIsAccepted(currentFreshness, message) &&
 					(message.patches.some(
-						(patch): boolean =>
-							patch.slice === 'fileTree' &&
-							(patch.operation === 'reset' || patch.operation === 'replacementCommit'),
+						(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'reset',
 					) ||
 						fileDisplayPatchInvalidatesSelection(message, selection))
 				) {
