@@ -88,8 +88,11 @@ extension RepoExplorerProjectionInputCapture {
             )
             _ = coreAtoms.attendedPane.attendedPaneId
         case .activity:
-            _ = coreAtoms.applicationEntityRecency.hydrationDisposition
-            _ = coreAtoms.applicationEntityRecency.recentEntities
+            let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
+            _ = repositoryLocalActivity.hydrationDisposition
+            for repositoryStableKey in request?.snapshot.repos.map(\.stableKey) ?? [] {
+                _ = repositoryLocalActivity.activity(for: repositoryStableKey)
+            }
         }
     }
 
