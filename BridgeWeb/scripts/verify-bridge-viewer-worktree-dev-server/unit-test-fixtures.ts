@@ -45,8 +45,13 @@ export function makePassingInteractionPerformanceProof(): WorktreeInteractionPer
 		scrollToVisibleRows: summarizeInteractionSamples(passingScrollSamples),
 		startupLoadTiming: {
 			pageLoadToContentReady: summarizeInteractionSamples([55]),
+			pageLoadToContentRequestStarted: summarizeInteractionSamples([40]),
+			pageLoadToContentResponseStarted: summarizeInteractionSamples([45]),
 			pageLoadToFirstVisibleContentWindow: summarizeInteractionSamples([70]),
+			pageLoadToMetadata: summarizeInteractionSamples([20]),
 			pageLoadToSelectedPath: summarizeInteractionSamples([24]),
+			pageLoadToShellMounted: summarizeInteractionSamples([10]),
+			pageLoadToSourceAccepted: summarizeInteractionSamples([15]),
 		},
 		treeScrollSettleFrameCount: summarizeInteractionSamples(
 			Array.from({ length: 100 }, (): number => 2),

@@ -2,7 +2,9 @@ import { chromium } from 'playwright';
 
 import {
 	reviewInteractionPerformanceSatisfied,
+	reviewStartupLoadTimingSatisfied,
 	worktreeInteractionPerformanceSatisfied,
+	worktreeStartupLoadTimingSatisfied,
 } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import {
 	worktreeFileOpenLoadTelemetrySatisfied,
@@ -60,6 +62,7 @@ import {
 } from './file-search-filter.ts';
 import {
 	collectReviewInteractionPerformanceProof,
+	collectReviewStartupLoadTimingProof,
 	collectWorktreeInteractionPerformanceProof,
 	collectWorktreeStartupLoadTimingProof,
 } from './interaction-performance.ts';
@@ -107,6 +110,24 @@ import {
 	type WorktreeFileStaleRefreshFixture,
 } from './worktree-data.ts';
 
+interface WorktreeDevServerStartupSurfaceResultBase {
+	readonly browserProof: Awaited<ReturnType<typeof readBrowserProof>>;
+	readonly observedPageUrl: string;
+	readonly scenarioName: string;
+}
+
+export type WorktreeDevServerStartupSurfaceResult =
+	| (WorktreeDevServerStartupSurfaceResultBase & {
+			readonly proof: Awaited<ReturnType<typeof collectWorktreeStartupLoadTimingProof>>;
+			readonly satisfied: boolean;
+			readonly surface: 'file';
+	  })
+	| (WorktreeDevServerStartupSurfaceResultBase & {
+			readonly proof: Awaited<ReturnType<typeof collectReviewStartupLoadTimingProof>>;
+			readonly satisfied: boolean;
+			readonly surface: 'review';
+	  });
+
 export async function runBridgeViewerWorktreeDevServerVerifier(): Promise<void> {
 	const browser = await chromium.launch({ headless: true });
 	installVerifierBrowser(browser);
@@ -142,6 +163,43 @@ export async function runBridgeViewerWorktreeDevServerVerifier(): Promise<void> 
 				);
 			}
 		}
+	} finally {
+		clearVerifierBrowser();
+		try {
+			await closeAllWorktreeFileSurfaces();
+		} finally {
+			await browser.close();
+		}
+	}
+}
+
+export async function runBridgeViewerWorktreeDevServerStartupSurfaceVerifier(
+	surface: 'file' | 'review',
+): Promise<WorktreeDevServerStartupSurfaceResult> {
+	const browser = await chromium.launch({ headless: true });
+	installVerifierBrowser(browser);
+	try {
+		const page = await makeVerificationPage();
+		if (surface === 'file') {
+			const proof = await collectWorktreeStartupLoadTimingProof({ page });
+			return {
+				browserProof: await readBrowserProof(page),
+				observedPageUrl: page.url(),
+				proof,
+				satisfied: worktreeStartupLoadTimingSatisfied({ startupLoadTiming: proof }),
+				scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
+				surface,
+			};
+		}
+		const proof = await collectReviewStartupLoadTimingProof({ page });
+		return {
+			browserProof: await readBrowserProof(page),
+			observedPageUrl: page.url(),
+			proof,
+			satisfied: reviewStartupLoadTimingSatisfied({ reviewStartupLoadTiming: proof }),
+			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
+			surface,
+		};
 	} finally {
 		clearVerifierBrowser();
 		try {

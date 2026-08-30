@@ -32,6 +32,8 @@ export const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PAT
 
 export const performanceOnlyMode = process.env['BRIDGE_VIEWER_WORKTREE_PERFORMANCE_ONLY'] === '1';
 
+export const startupOnlyMode = process.env['BRIDGE_VIEWER_WORKTREE_STARTUP_ONLY'] === '1';
+
 export const execFileAsync = promisify(execFile);
 
 export const fileToReviewHandoffFixtureRelativePath =
