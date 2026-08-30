@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `236aabe44`
-Status: not PR-ready
+Current implementation checkpoint: `0e6c45e5e`
+Status: wrap-up in progress; local aggregate green, review and publication open
 
 ## Product Contract
 
@@ -38,11 +38,12 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Keep repository stable-key enrichment metadata-only; it no longer unregisters and re-registers unchanged filesystem roots or erases their pending Git baseline.
 - [x] Rerun focused Git-demand, cache-convergence, projection, materialization, row-height, and mounted-row tests.
 - [x] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
-- [ ] Capture PID-bound visual proof for By Repo, By Pane, and By Tab showing real branches and cached chips; prove search and scrolling do not collapse, clip, overlap, or move rows.
-- [ ] Populate or verify the complete `open-source` and `project-dev` roots with exactly five tabs, twenty pane models, and zero debug-owned PTYs.
-- [ ] Run exact-`lbim` process CPU populations: settled idle p99 below 10%; search/clear, grouping, hide/show, and tab switching p95 below 20% (release ceiling below 25% only where the owner explicitly accepts it).
-- [ ] Diagnose and fix only marker-correlated PR1 hotspots; do not resume PR2 FSEvents replay work.
-- [ ] Run `mise run format`, `mise run lint`, `mise run test`, `git diff --check`, fresh native proof, independent implementation review, and PR checks.
+- [x] Validate the preserved `lbim` sidebar in By Repo, By Pane, and By Tab with real branches and cached chips; owner accepted the live sidebar behavior after search, scrolling, grouping, and tab use.
+- [x] Keep the extended five-tab/twenty-pane, zero-PTY fixture and reproducible PID-bound capture packet in PR2; it is not claimed as PR1 proof.
+- [x] Keep exact-`lbim` idle p99 below 10% and ordinary-action p95 below 20% populations in PR2; PR1 does not claim those targets were proven.
+- [x] Stop PR1 product changes after the accepted stable sidebar; marker-correlated residual tuning and FSEvents replay remain PR2 work.
+- [x] Complete the exact-HEAD aggregate at `0e6c45e5e` with exit code 0.
+- [ ] Complete the independent implementation review, push, and PR checks.
 
 ## Current Evidence
 
@@ -75,6 +76,8 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The exact current Debug lbim bundle rebuilt and signed against preserved `~/.agentstudio-db/lbim`, marker `debug-observability-lbim-1788058509-49131`. LaunchServices again returned `kLSNoExecutableErr`; direct fallback PID `52299` exited before exact candidate validation. No native, CPU, or fresh marker proof was claimed.
 - After the full macOS reboot, native FSEvents continuity recovered (focused leaf 1/1), the shared OTLP stack restarted, and exact Debug lbim relaunched through LaunchServices as PID `15789` with preserved data and marker `debug-observability-lbim-1788083142-12324`; exact candidate validation and `verify-debug-observability` passed.
 - The first recovered aggregate attempt passed lint, architecture, release, BridgeWeb unit 1,764/1,764, integration 19/19, and browser 211 passed/5 skipped, then exposed one PR1-relevant flaky proof gate: the native-table pilot compared baseline and doubled scale in separate sub-millisecond time blocks. Five exact pre-fix repetitions passed 3/5 and failed 2/5 even though every absolute p95 remained below 0.85 ms versus the unchanged 4 ms ceiling. The diagnostic now prepares both production-path runtimes and alternates baseline→doubled then doubled→baseline matched transactions before applying the unchanged 20% growth policy. The complete focused suite passed 7/7; five exact post-fix repetitions passed 5/5 with growth from -8.6% to +0.13%.
+- Exact-final `mise run test` at `0e6c45e5e` passed with exit code 0 in 480.24 seconds: BridgeWeb unit 1,764/1,764, integration 19/19, browser 211 passed/5 skipped, E2E 4/4, and all Swift fast, isolated, large, serialized WebKit, and serialized E2E lanes completed successfully.
+- The owner accepted the preserved `lbim` sidebar behavior as stable and suitable for PR1 wrap-up. Extended five-tab/twenty-pane capture, exact-process CPU populations, and deeper marker-scoped tuning are explicitly deferred to PR2 and are not represented as proven by PR1.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
@@ -85,17 +88,17 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 
 ## Current Requirement-To-Proof Matrix
 
-| Requirement | Automated proof at `236aabe44` | Required native/runtime proof | Status |
+| Requirement | Automated proof at `0e6c45e5e` | Required native/runtime proof | Status |
 | --- | --- | --- | --- |
-| Actual branch or detached HEAD plus cached file/ahead/behind/PR facts | Cache, projection, materialization, refresh-lifetime, and Git-pipeline suites; final affected set 94/94 | PID-bound By Repo/Pane/Tab readback from preserved lbim | Automated green; exact-final debug launch blocked by LaunchServices |
-| Inactive annotates freshness without hiding facts | Classifier, cached-fact retention, projection, and row tests | Mixed warm/unknown/inactive headers and chips in lbim | Automated green; native open |
+| Actual branch or detached HEAD plus cached file/ahead/behind/PR facts | Cache, projection, materialization, refresh-lifetime, and Git-pipeline suites; final affected set 94/94 | Preserved lbim readback across By Repo/Pane/Tab | Automated green; live sidebar accepted by owner |
+| Inactive annotates freshness without hiding facts | Classifier, cached-fact retention, projection, and row tests | Mixed warm/unknown/inactive headers and chips in lbim | Automated green; live sidebar accepted by owner |
 | Unknown receives phased local self-heal and no visible/Remote/Forge demand | Exact cutoff/transition tests, applied pipeline/source metrics, deliberate misroute falsifier, strict self-heal ownership falsifier | Positive unknown marker with zero forbidden intersections | Automated green; marker proof open |
-| Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; native/OTLP open |
-| Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | PID-bound bottom-scroll plus New Terminal child-menu capture | Automated green; child-menu proof open |
-| Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | At least 1,000 exact-lbim idle samples and action populations on complete 5/20 zero-PTY fixture | Open |
-| Exact final aggregate gate | Focused 94/94, format/lint/architecture/release/diff gates green | `mise run test` exit 0 on final HEAD | Open; exact-final Chrome and AppKit host aborts are not acceptance |
-| Independent implementation review | Three reviews produced and three remediation passes completed | Fresh review of final corrected HEAD | Owner authorization required for review four |
-| PR publication readiness | Local branch checkpoints only | Push, CI, comments, threads, and mergeability | Deferred while push/host state is unavailable |
+| Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; extended native/OTLP population deferred to PR2 |
+| Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | Preserved lbim interaction | Automated green; live sidebar accepted by owner |
+| Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | Extended exact-lbim 5/20 populations | Deferred to PR2; not claimed by PR1 |
+| Exact final aggregate gate | Focused 94/94 plus exact-final aggregate | `mise run test` at `0e6c45e5e` | Green; exit 0 in 480.24 seconds |
+| Independent implementation review | Three reviews produced and three remediation passes completed | Fresh review of final corrected HEAD | Authorized as part of PR1 wrap-up; pending |
+| PR publication readiness | Local branch checkpoints and exact-final aggregate | Push, CI, comments, threads, and mergeability | Pending |
 
 ## Non-Goals
 
@@ -110,11 +113,10 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 
 PR1 is ready to open or update only after every hard-priority row above is complete and the following release packet exists:
 
-- [ ] One final requirements-to-proof matrix covers branch visibility, cached chips, inactive annotation, refresh behavior, all three grouping modes, search, scrolling, focus, row geometry, demand invariance, and CPU targets.
-- [ ] `mise run format`, `mise run lint`, and `mise run test` pass on the exact final HEAD with exit code 0.
-- [ ] The preserved `lbim` app is rebuilt from that exact HEAD and PID-bound captures prove By Repo, By Pane, and By Tab with real branches and cached file/ahead/behind chips.
-- [ ] The exact debug PID passes the agreed settled-idle and ordinary-action CPU populations with complete watched roots, five tabs, twenty pane models, and zero PTYs.
-- [ ] Fresh marker-scoped Victoria evidence agrees with the exact PID samples and shows no admission, debounce, projection, Forge, Git, filesystem, row-height, focus, or rendering loop.
+- [x] The final requirements-to-proof matrix covers branch visibility, cached chips, inactive annotation, refresh behavior, grouping modes, search, scrolling, focus, row geometry, and demand invariance; extended CPU targets are explicitly assigned to PR2.
+- [x] `mise run format`, `mise run lint`, and `mise run test` pass on exact HEAD `0e6c45e5e`; the aggregate exited 0 in 480.24 seconds.
+- [x] The preserved `lbim` app was rebuilt from `0e6c45e5e`, retained the existing data root, showed real branches and chips, and was accepted by the owner as stable.
+- [x] Exact-process 5/20 CPU populations and deeper marker-scoped Victoria tuning are deferred to PR2; PR1 makes no quantitative CPU-target claim.
 - [ ] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
 - [ ] The branch is pushed, the PR description contains the proof matrix and exact commands, and GitHub checks, comments, review threads, and mergeability are all green.
 - [ ] A beta release is proposed only from merged `main` through the repository tag-driven release flow; PR1 work never tags or releases directly from this branch.
