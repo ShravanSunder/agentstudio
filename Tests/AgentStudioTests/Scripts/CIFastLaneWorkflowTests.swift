@@ -469,6 +469,17 @@ struct CIFastLaneWorkflowTests {
         #expect(filteredOutput == "okbad\nreal diagnostic\n")
     }
 
+    @Test("Swift formatted output is normalized before mise consumes it")
+    func swiftFormattedOutputIsNormalizedBeforeMiseConsumesIt() throws {
+        let filteredOutput = try runBash(
+            "source scripts/xcb-helpers.sh; "
+                + "xcbeautify() { cat >/dev/null; printf $'formatted\\xff output\\n'; }; "
+                + "export -f xcbeautify; printf 'raw input\\n' | _xcb_pipe"
+        )
+
+        #expect(filteredOutput == "formatted output\n")
+    }
+
     @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
     func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() throws {
         let scannerStatus = try runBashStatus(

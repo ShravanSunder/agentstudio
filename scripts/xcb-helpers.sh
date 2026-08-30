@@ -22,7 +22,7 @@ _xcb_pipe() {
     if [ -n "${XCB_EXTRA_ARGS:-}" ]; then
       read -r -a extra_args <<<"${XCB_EXTRA_ARGS}"
     fi
-    bash "$filter_script" | xcbeautify "${extra_args[@]}"
+    bash "$filter_script" | xcbeautify "${extra_args[@]}" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c
     return
   fi
 
