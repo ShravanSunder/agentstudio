@@ -394,7 +394,7 @@ extension WorkspaceSurfaceCoordinator {
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             retireZoomCompanion(forSourcePane: paneId)
             teardownView(for: paneId)
-            store.paneAtom.purgeOrphanedPane(paneId)
+            _ = store.mutationCoordinator.removePane(paneId)
             viewRegistry.retireSlot(for: paneId)
 
         case .enterDrawer,
