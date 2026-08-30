@@ -28,7 +28,7 @@ package struct WorkspaceArrangementViewDerived {
             return []
         }
         return visiblePaneIds(
-            layoutPaneIds: arrangement.layout.paneIds,
+            layoutPaneIds: arrangement.layout.paneIds.filter(isActivePane),
             minimizedPaneIds: arrangement.minimizedPaneIds
         )
     }
@@ -37,6 +37,7 @@ package struct WorkspaceArrangementViewDerived {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
             let paneFacts = paneAtom.graphAtom.paneStructuralFacts(parentPaneId),
+            isActivePane(parentPaneId),
             let drawerID = paneFacts.ownedDrawerID
         else { return nil }
         if let drawerView = tab.activeArrangement.drawerViews[drawerID] {
@@ -51,7 +52,7 @@ package struct WorkspaceArrangementViewDerived {
             let drawerView = drawerView(forParent: parentPaneId)
         else { return [] }
         return visiblePaneIds(
-            layoutPaneIds: drawerView.layout.paneIds,
+            layoutPaneIds: drawerView.layout.paneIds.filter(isActivePane),
             minimizedPaneIds: drawerView.minimizedPaneIds
         )
     }
@@ -70,5 +71,9 @@ package struct WorkspaceArrangementViewDerived {
     ) -> [UUID] {
         guard !managementLayerAtom.isActive else { return layoutPaneIds }
         return layoutPaneIds.filter { !minimizedPaneIds.contains($0) }
+    }
+
+    private func isActivePane(_ paneID: UUID) -> Bool {
+        paneAtom.graphAtom.paneState(paneID)?.residency.isActive == true
     }
 }

@@ -305,6 +305,74 @@ struct WorkspaceCompositionPreparerTests {
         }
     }
 
+    @Test("backgrounded canonical pane families remain durable but are excluded from prepared mounts")
+    func backgroundedCanonicalPaneFamiliesRemainDurableButAreExcludedFromPreparedMounts() throws {
+        let activePane = makeCompositionPane(title: "Active terminal")
+        var backgroundedParent = makeCompositionPane(
+            title: "Backgrounded parent",
+            residency: .backgrounded
+        )
+        var backgroundedChild = makeCompositionPane(
+            title: "Backgrounded drawer child",
+            residency: .backgrounded
+        )
+        backgroundedChild.kind = .drawerChild(parentPaneId: backgroundedParent.id)
+        backgroundedParent.withDrawer { drawer in
+            drawer.paneIds = [backgroundedChild.id]
+            drawer.isExpanded = true
+        }
+        let drawerID = try #require(backgroundedParent.drawer?.drawerId)
+        let mainLayout = Layout(paneId: activePane.id)
+            .inserting(
+                paneId: backgroundedParent.id,
+                at: activePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            id: UUIDv7.generate(),
+            name: "Default",
+            isDefault: true,
+            layout: mainLayout,
+            activePaneId: activePane.id,
+            drawerViews: [
+                drawerID: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: backgroundedChild.id)),
+                    activeChildId: backgroundedChild.id
+                )
+            ]
+        )
+        let tab = Tab(
+            id: UUIDv7.generate(),
+            name: "Foreground tab",
+            allPaneIds: [activePane.id, backgroundedParent.id, backgroundedChild.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Retained background family",
+            panes: [activePane, backgroundedParent, backgroundedChild],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        #expect(prepared.tabs == [tab])
+        #expect(
+            prepared.tabGraph.tabIDByPaneID == [
+                activePane.id: tab.id,
+                backgroundedParent.id: tab.id,
+                backgroundedChild.id: tab.id,
+            ])
+        #expect(prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [activePane.id])
+        #expect(prepared.nonterminalContentMountInput.entries.isEmpty)
+    }
+
     @Test("unowned drawer child rejects when its parent remains owned")
     func unownedDrawerChildRejectsWhenParentRemainsOwned() throws {
         // Arrange
