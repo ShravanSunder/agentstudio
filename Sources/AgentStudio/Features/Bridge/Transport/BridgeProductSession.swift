@@ -13,8 +13,6 @@ actor BridgeProductSession {
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
-    let frameObservationTimeout: Duration
-    let frameObservationDelay: @Sendable (Duration) async throws -> Void
     private let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry
@@ -47,15 +45,6 @@ actor BridgeProductSession {
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
-        frameObservationTimeout: Duration = .seconds(5),
-        frameObservationDelay: @escaping @Sendable (Duration) async throws -> Void = { duration in
-            let seconds = duration.components.seconds
-            let attoseconds = duration.components.attoseconds
-            let nanoseconds =
-                UInt64(max(0, seconds)) * 1_000_000_000
-                + UInt64(max(0, attoseconds) / 1_000_000_000)
-            try await Task.sleep(nanoseconds: nanoseconds)
-        },
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil
     ) throws {
@@ -73,8 +62,6 @@ actor BridgeProductSession {
             encodedCapability: capabilityHeader
         )
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
-        self.frameObservationTimeout = frameObservationTimeout
-        self.frameObservationDelay = frameObservationDelay
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
