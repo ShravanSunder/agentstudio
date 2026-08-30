@@ -35,6 +35,7 @@ type WorktreeAnnotationOutputInspectionState =
 
 export function WorktreeAnnotationOutputHistoryControl(props: {
 	readonly embedded?: boolean | undefined;
+	readonly onOutputPendingChange?: ((pending: boolean) => void) | undefined;
 }): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
@@ -80,6 +81,7 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 	const repeatOutput = async (attemptId: string): Promise<void> => {
 		if (isOutputPending) return;
 		setIsOutputPending(true);
+		props.onOutputPendingChange?.(true);
 		try {
 			const outcome = await annotationClient.execute({ attemptId, kind: 'output.repeat' });
 			if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
@@ -92,6 +94,7 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 			toast.error(error instanceof Error ? error.message : 'Output repetition failed.');
 		} finally {
 			setIsOutputPending(false);
+			props.onOutputPendingChange?.(false);
 		}
 	};
 

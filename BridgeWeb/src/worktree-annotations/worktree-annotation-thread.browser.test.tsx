@@ -94,7 +94,7 @@ describe('worktree annotation inline thread', () => {
 			await Promise.resolve();
 		});
 		expect(getComputedStyle(editCommands).opacity).toBe('1');
-		expect(editButton.element().getAttribute('data-tooltip')).toBe('Edit annotation (E)');
+		expect(editButton.element().getAttribute('data-tooltip')).toBe('Edit annotation (⌃E)');
 
 		const replyButton = rendered.getByRole('button', { name: 'Reply to annotation thread' });
 		expect(replyButton.element().getAttribute('data-tooltip')).toBe(
@@ -342,6 +342,75 @@ describe('worktree annotation inline thread', () => {
 				.toBeVisible();
 		},
 	);
+
+	test('keeps the newly clicked message active after the previous thread flushes', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		const secondThreadContext = {
+			...locatedContext,
+			endLine: 12,
+			startLine: 12,
+			threadId: annotationBaseThreadId,
+		};
+		await publishThreads(surface, [
+			{
+				context: locatedContext,
+				messages: [makeSavedMessage({ body: 'First active thread.', messageId: rootMessageId })],
+			},
+			{
+				context: secondThreadContext,
+				messages: [
+					makeSavedMessage({
+						body: 'Second exact target.',
+						messageId: secondRootMessageId,
+						threadId: annotationBaseThreadId,
+					}),
+				],
+			},
+		]);
+		const replyToFirstThread = rendered
+			.getByRole('button', { name: 'Reply to annotation thread' })
+			.all()[0];
+		if (replyToFirstThread === undefined) throw new Error('Expected the first Reply control.');
+		await act(async (): Promise<void> => {
+			await replyToFirstThread.click();
+			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Draft in A.');
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected the first thread draft command to remain in flight.',
+		);
+
+		await act(async (): Promise<void> => {
+			await userEvent.click(rendered.getByText('Second exact target.').element());
+		});
+		expect(
+			document
+				.querySelector(`[data-annotation-thread-id="${annotationBaseThreadId}"]`)
+				?.getAttribute('data-annotation-active'),
+		).toBe('true');
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => document.querySelector('[aria-label="Reply with Markdown"]') === null,
+			'Expected the first thread editor to finish after its durable flush.',
+		);
+		expect(
+			document
+				.querySelector(`[data-annotation-thread-id="${annotationBaseThreadId}"]`)
+				?.getAttribute('data-annotation-active'),
+		).toBe('true');
+
+		await act(async (): Promise<void> => {
+			await userEvent.keyboard('{Control>}e{/Control}');
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
+			.toHaveValue('Second exact target.');
+	});
 
 	test('does not route annotation shortcuts while an editor owns text input', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');

@@ -1,7 +1,7 @@
 import { act, type ReactElement } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
 const toastSpies = vi.hoisted(() => ({
 	default: vi.fn<(message: string) => void>(),
@@ -74,6 +74,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 		expect(shelfBounds.width).toBeCloseTo(headerBounds.width * 0.9, 0);
 		expect(shelfBounds.left - headerBounds.left).toBeCloseTo(headerBounds.width * 0.05, 0);
 		expect(getComputedStyle(shelf).transitionDuration).toBe('0.12s');
+		expect(shelf.getAttribute('data-side')).toBe('bottom');
+		expect(shelf.className).toContain('motion-reduce:translate-y-0');
+		expect(shelf.className).toContain('max-h-[var(--available-height)]');
 		expect(document.querySelector('[data-slot="popover-content"]')).toBe(shelf);
 	});
 
@@ -317,6 +320,35 @@ describe('worktree annotation Share comments integrated surface', () => {
 		});
 	});
 
+	test('locks shelf dismissal while History Repeat is unresolved', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface, 'unknown');
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Repeat output attempt 1' }).click(),
+		);
+
+		await expect
+			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.toBeDisabled();
+		await performBrowserAction(() => userEvent.keyboard('{Escape}'));
+		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentOutput({
+				effectError: 'repeat failed',
+				kind: 'effect_failed',
+				summary: outputSummary('clipboard_markdown'),
+			});
+			await settleInteraction();
+		});
+		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+	});
+
 	test.each(['fileView', 'review'] as const)(
 		'keeps collapsed and expanded History outside the %s Share command hit area',
 		async (surfaceKind) => {
@@ -497,14 +529,16 @@ function ViewedCommandTestControl(): ReactElement {
 
 async function publishShareProjection(
 	surface: RecordingAnnotationBrowserSurface,
-	includeHistory = false,
+	includeHistory: boolean | 'unknown' = false,
 ): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
 			expectedThreadCount: 2,
-			...(includeHistory
+			...(includeHistory !== false
 				? {
-						outputHistory: [successfulHistorySummary()],
+						outputHistory: [
+							includeHistory === 'unknown' ? unknownHistorySummary() : successfulHistorySummary(),
+						],
 					}
 				: {}),
 			revision: 3,
@@ -542,6 +576,14 @@ async function publishShareProjection(
 		});
 		await settleInteraction();
 	});
+}
+
+function unknownHistorySummary(): WorktreeAnnotationOutputHistorySummary {
+	return {
+		...successfulHistorySummary(),
+		canMarkNotHandled: false,
+		state: 'unknown',
+	};
 }
 
 function successfulHistorySummary(): WorktreeAnnotationOutputHistorySummary {

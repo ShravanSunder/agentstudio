@@ -116,6 +116,42 @@ describe('Bridge Review refresh header chrome', () => {
 		);
 	});
 
+	test('reserves one stable right-side slot across silent and promoted states', async () => {
+		const silentPresentation = candidatePresentation({
+			startDisposition: {
+				affectedStableFileIdentities: ['item-1'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+		const readyPresentation = candidatePresentation({
+			role: 'updateReady',
+			startDisposition: {
+				affectedStableFileIdentities: ['item-1'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'promoted', reason: 'files' },
+			},
+		});
+		const rendered = await renderRefreshHeader(silentPresentation, ['item-1']);
+		const title = rendered.getByTestId('bridge-viewer-content-title').element();
+		const silentTitleBounds = title.getBoundingClientRect();
+		const silentSlotBounds = rendered
+			.getByTestId('bridge-review-refresh-header-slot')
+			.element()
+			.getBoundingClientRect();
+
+		await rendered.rerender(refreshHeader(readyPresentation, ['item-1']));
+		const readyTitleBounds = title.getBoundingClientRect();
+		const readySlotBounds = rendered
+			.getByTestId('bridge-review-refresh-header-slot')
+			.element()
+			.getBoundingClientRect();
+
+		expect(readyTitleBounds.left).toBe(silentTitleBounds.left);
+		expect(readyTitleBounds.width).toBe(silentTitleBounds.width);
+		expect(readySlotBounds.width).toBe(silentSlotBounds.width);
+	});
+
 	test('renders retryable promoted failure through the owned button and preserves focus', async () => {
 		const onRetry = vi.fn();
 		const refreshPresentation = failurePresentation(true);

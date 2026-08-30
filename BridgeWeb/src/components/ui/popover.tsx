@@ -18,6 +18,7 @@ function PopoverContent({
 	className,
 	align = 'center',
 	alignOffset = 0,
+	collisionAvoidance,
 	motion = 'default',
 	positionerClassName,
 	side = 'bottom',
@@ -26,7 +27,7 @@ function PopoverContent({
 }: PopoverPrimitive.Popup.Props &
 	Pick<
 		PopoverPrimitive.Positioner.Props,
-		'align' | 'alignOffset' | 'anchor' | 'side' | 'sideOffset'
+		'align' | 'alignOffset' | 'anchor' | 'collisionAvoidance' | 'side' | 'sideOffset'
 	> & {
 		readonly motion?: 'default' | 'shelf';
 		readonly positionerClassName?: string;
@@ -37,6 +38,7 @@ function PopoverContent({
 				align={align}
 				alignOffset={alignOffset}
 				anchor={anchor}
+				collisionAvoidance={collisionAvoidance}
 				side={side}
 				sideOffset={sideOffset}
 				className={cn('isolate z-50', positionerClassName)}
@@ -46,7 +48,7 @@ function PopoverContent({
 					className={cn(
 						'z-50 flex w-72 origin-(--transform-origin) flex-col gap-4 rounded-lg bg-popover p-2.5 text-xs text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden',
 						motion === 'shelf'
-							? 'translate-y-0 transition-transform duration-[var(--motion-fast)] ease-out data-ending-style:-translate-y-2 data-ending-style:ease-in data-starting-style:-translate-y-2 motion-reduce:transform-none motion-reduce:transition-none'
+							? 'translate-y-0 transition-transform duration-[var(--motion-fast)] ease-out data-ending-style:-translate-y-2 data-ending-style:ease-in data-starting-style:-translate-y-2 motion-reduce:translate-y-0 motion-reduce:transition-none'
 							: 'duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
 						className,
 					)}

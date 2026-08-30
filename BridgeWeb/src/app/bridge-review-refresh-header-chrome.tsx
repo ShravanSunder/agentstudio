@@ -59,8 +59,31 @@ export function BridgeReviewRefreshHeaderGroup(props: {
 	readonly onApplyNow: () => void;
 	readonly onRetry: () => void;
 	readonly presentation: BridgeReviewRefreshHeaderPresentation;
-}): ReactElement | null {
-	if (props.presentation.statusText === null) return null;
+}): ReactElement {
+	const refreshGroup =
+		props.presentation.statusText === null ? null : (
+			<BridgeReviewRefreshHeaderGroupContent
+				onApplyNow={props.onApplyNow}
+				onRetry={props.onRetry}
+				presentation={props.presentation}
+			/>
+		);
+	return (
+		<div className="grid h-6 shrink-0" data-testid="bridge-review-refresh-header-slot">
+			<BridgeReviewRefreshHeaderGroupSizer />
+			{refreshGroup}
+		</div>
+	);
+}
+
+function BridgeReviewRefreshHeaderGroupContent(props: {
+	readonly onApplyNow: () => void;
+	readonly onRetry: () => void;
+	readonly presentation: Exclude<
+		BridgeReviewRefreshHeaderPresentation,
+		{ readonly statusText: null }
+	>;
+}): ReactElement {
 	const presentationClassName =
 		props.presentation.statusText === 'Updating…'
 			? 'text-muted-foreground'
@@ -69,7 +92,11 @@ export function BridgeReviewRefreshHeaderGroup(props: {
 				: 'text-warning';
 	return (
 		<div
-			className={cn(bridgeViewerChromeSegmentedControlClassName, presentationClassName)}
+			className={cn(
+				bridgeViewerChromeSegmentedControlClassName,
+				'col-start-1 row-start-1',
+				presentationClassName,
+			)}
 			data-testid="bridge-review-refresh-header-group"
 		>
 			<span
@@ -86,6 +113,30 @@ export function BridgeReviewRefreshHeaderGroup(props: {
 				onApplyNow={props.onApplyNow}
 				onRetry={props.onRetry}
 			/>
+		</div>
+	);
+}
+
+function BridgeReviewRefreshHeaderGroupSizer(): ReactElement {
+	return (
+		<div
+			aria-hidden="true"
+			className={cn(
+				bridgeViewerChromeSegmentedControlClassName,
+				'invisible col-start-1 row-start-1 text-warning',
+			)}
+		>
+			<span className="inline-flex h-5 items-center gap-1 px-1.5 text-[11px] font-medium leading-none">
+				<TriangleAlertIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+				Update unavailable
+			</span>
+			<BridgeViewerButton
+				ariaLabel="Retry"
+				className={bridgeViewerChromeSegmentButtonClassName}
+				disabled
+			>
+				Retry
+			</BridgeViewerButton>
 		</div>
 	);
 }

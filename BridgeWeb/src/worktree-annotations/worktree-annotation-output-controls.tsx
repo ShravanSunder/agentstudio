@@ -206,7 +206,10 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 				onScopeChange={interaction.setShareScope}
 				scope={displayedScope}
 			/>
-			<WorktreeAnnotationOutputHistoryControl embedded />
+			<WorktreeAnnotationOutputHistoryControl
+				embedded
+				onOutputPendingChange={props.onPendingChange}
+			/>
 		</>
 	);
 }

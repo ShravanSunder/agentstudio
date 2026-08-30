@@ -15,7 +15,8 @@ export function BridgeViewerHeaderShelf(props: BridgeViewerHeaderShelfProps): Re
 		<PopoverContent
 			align="center"
 			anchor={props.anchor}
-			className="mx-auto w-[90%] max-w-[var(--available-width)] gap-0 p-2"
+			className="mx-auto max-h-[var(--available-height)] w-[90%] max-w-[var(--available-width)] gap-0 overflow-y-auto overscroll-contain p-2"
+			collisionAvoidance={{ align: 'shift', fallbackAxisSide: 'none', side: 'none' }}
 			data-testid={props.testId}
 			finalFocus={props.finalFocus}
 			initialFocus

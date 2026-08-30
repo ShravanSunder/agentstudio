@@ -121,6 +121,8 @@ export function WorktreeAnnotationInteractionProvider(props: {
 }): ReactElement {
 	const [pierreRangePresentation, setPierreRangePresentation] =
 		useState<WorktreeAnnotationPierreRangePresentation>({ kind: 'none' });
+	const pierreRangePresentationRef = useRef(pierreRangePresentation);
+	pierreRangePresentationRef.current = pierreRangePresentation;
 	const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 	const [pendingRootComposer, setPendingRootComposer] =
 		useState<WorktreeAnnotationPendingRootComposer | null>(null);
@@ -134,15 +136,19 @@ export function WorktreeAnnotationInteractionProvider(props: {
 
 	const activateSavedThread = useCallback(
 		(identity: WorktreeAnnotationSavedRangeIdentity): void => {
+			const nextPresentation = { ...identity, kind: 'savedThread' } as const;
 			setActiveMessageId(null);
-			setPierreRangePresentation({ ...identity, kind: 'savedThread' });
+			pierreRangePresentationRef.current = nextPresentation;
+			setPierreRangePresentation(nextPresentation);
 		},
 		[],
 	);
 	const activateSavedMessage = useCallback(
 		(identity: WorktreeAnnotationSavedRangeIdentity, messageId: string): void => {
+			const nextPresentation = { ...identity, kind: 'savedThread' } as const;
 			setActiveMessageId(messageId);
-			setPierreRangePresentation({ ...identity, kind: 'savedThread' });
+			pierreRangePresentationRef.current = nextPresentation;
+			setPierreRangePresentation(nextPresentation);
 		},
 		[],
 	);
@@ -198,11 +204,14 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		[],
 	);
 	const setPendingRange = useCallback((itemId: string, range: WorktreeAnnotationRange): void => {
+		const nextPresentation = { itemId, kind: 'pending', range } as const;
 		setActiveMessageId(null);
-		setPierreRangePresentation({ itemId, kind: 'pending', range });
+		pierreRangePresentationRef.current = nextPresentation;
+		setPierreRangePresentation(nextPresentation);
 	}, []);
 	const clearRangePresentation = useCallback((): void => {
 		setActiveMessageId(null);
+		pierreRangePresentationRef.current = { kind: 'none' };
 		setPierreRangePresentation((currentPresentation) =>
 			currentPresentation.kind === 'none' ? currentPresentation : { kind: 'none' },
 		);
@@ -219,17 +228,19 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		);
 	}, []);
 	const expandThread = useCallback((threadId: string, invoker: HTMLElement): void => {
-		setThreadExpansion({
+		const nextExpansion = {
 			editor: null,
 			invoker,
 			kind: 'open',
 			returnFocusPoint: elementCenter(invoker),
 			threadId,
-		});
+		} as const;
+		threadExpansionRef.current = nextExpansion;
+		setThreadExpansion(nextExpansion);
 	}, []);
 	const startMessageEdit = useCallback(
 		(threadId: string, messageId: string, invoker: HTMLElement): void => {
-			setThreadExpansion({
+			const nextExpansion = {
 				editor: {
 					editToken: createWorktreeAnnotationEditToken(),
 					kind: 'message',
@@ -239,18 +250,22 @@ export function WorktreeAnnotationInteractionProvider(props: {
 				kind: 'open',
 				returnFocusPoint: elementCenter(invoker),
 				threadId,
-			});
+			} as const;
+			threadExpansionRef.current = nextExpansion;
+			setThreadExpansion(nextExpansion);
 		},
 		[],
 	);
 	const startReply = useCallback((threadId: string, invoker: HTMLElement): void => {
-		setThreadExpansion({
+		const nextExpansion = {
 			editor: { committed: false, editToken: createWorktreeAnnotationEditToken(), kind: 'reply' },
 			invoker,
 			kind: 'open',
 			returnFocusPoint: elementCenter(invoker),
 			threadId,
-		});
+		} as const;
+		threadExpansionRef.current = nextExpansion;
+		setThreadExpansion(nextExpansion);
 	}, []);
 	const markThreadEditorCommitted = useCallback((editToken: string): void => {
 		setThreadExpansion((currentExpansion): WorktreeAnnotationThreadExpansion => {
@@ -261,10 +276,12 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			) {
 				return currentExpansion;
 			}
-			return {
+			const nextExpansion = {
 				...currentExpansion,
 				editor: { ...currentExpansion.editor, committed: true },
-			};
+			} as const;
+			threadExpansionRef.current = nextExpansion;
+			return nextExpansion;
 		});
 	}, []);
 	const registerThreadEditorExit = useCallback((exitEditor: () => Promise<void>): (() => void) => {
@@ -297,19 +314,47 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		setThreadExpansion(nextExpansion);
 		queueMicrotask((): void => focusTarget?.focus());
 	}, []);
-	const collapseThread = useCallback(async (): Promise<void> => {
+	const collapseThread = useCallback(async (expectedThreadId?: string): Promise<void> => {
+		const initialExpansion = threadExpansionRef.current;
+		if (
+			initialExpansion.kind === 'closed' ||
+			(expectedThreadId !== undefined && initialExpansion.threadId !== expectedThreadId)
+		)
+			return;
 		const exitEditor = threadEditorExitRef.current;
 		if (exitEditor !== null) await exitEditor();
-		threadEditorExitRef.current = null;
-		setThreadExpansion((currentExpansion): WorktreeAnnotationThreadExpansion => {
-			if (currentExpansion.kind === 'closed') return currentExpansion;
-			return { kind: 'closed' };
-		});
+		const currentExpansion = threadExpansionRef.current;
+		if (
+			currentExpansion.kind === 'closed' ||
+			(expectedThreadId !== undefined && currentExpansion.threadId !== expectedThreadId)
+		)
+			return;
+		if (threadEditorExitRef.current === exitEditor) threadEditorExitRef.current = null;
+		const closedExpansion = { kind: 'closed' } as const;
+		threadExpansionRef.current = closedExpansion;
+		setThreadExpansion(closedExpansion);
 	}, []);
-	const leaveThread = useCallback(async (): Promise<void> => {
-		await collapseThread();
-		clearRangePresentation();
-	}, [clearRangePresentation, collapseThread]);
+	const leaveThread = useCallback(
+		async (expectedThreadId?: string): Promise<void> => {
+			const threadIdToLeave =
+				expectedThreadId ??
+				(pierreRangePresentationRef.current.kind === 'savedThread'
+					? pierreRangePresentationRef.current.threadId
+					: threadExpansionRef.current.kind === 'open'
+						? threadExpansionRef.current.threadId
+						: undefined);
+			await collapseThread(threadIdToLeave);
+			const currentPresentation = pierreRangePresentationRef.current;
+			if (
+				threadIdToLeave !== undefined &&
+				(currentPresentation.kind !== 'savedThread' ||
+					currentPresentation.threadId !== threadIdToLeave)
+			)
+				return;
+			clearRangePresentation();
+		},
+		[clearRangePresentation, collapseThread],
+	);
 	const resolveThreadFocus = useCallback((): HTMLElement | null => {
 		if (threadExpansion.kind === 'closed') return null;
 		const sameThreadTarget = focusTargetForThreadExpansion(threadExpansion);
@@ -339,7 +384,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 				event.target.closest('[data-worktree-annotation-preserve-expansion]') !== null
 			)
 				return;
-			void leaveThread();
+			void leaveThread(dismissibleThreadId);
 		};
 		document.addEventListener('click', handleDocumentClick, true);
 		return (): void => document.removeEventListener('click', handleDocumentClick, true);
@@ -348,10 +393,10 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		() => ({
 			activeMessageId,
 			activeThreadId:
-				threadExpansion.kind === 'open'
-					? threadExpansion.threadId
-					: pierreRangePresentation.kind === 'savedThread'
-						? pierreRangePresentation.threadId
+				pierreRangePresentation.kind === 'savedThread'
+					? pierreRangePresentation.threadId
+					: threadExpansion.kind === 'open'
+						? threadExpansion.threadId
 						: null,
 			admitPendingRootComposer,
 			activateSavedMessage,
