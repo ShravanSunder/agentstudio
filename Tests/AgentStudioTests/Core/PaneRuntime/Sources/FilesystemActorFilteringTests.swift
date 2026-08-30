@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -11,8 +12,8 @@ struct FilesystemActorFilteringTests {
         let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
-        let worktreeId = UUID()
-        let rootPath = URL(fileURLWithPath: "/tmp/git-internal-\(UUID().uuidString)")
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/git-internal-\(UUIDv7.generate().uuidString)")
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
@@ -39,8 +40,8 @@ struct FilesystemActorFilteringTests {
         let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
-        let worktreeId = UUID()
-        let rootPath = URL(fileURLWithPath: "/tmp/git-objects-\(UUID().uuidString)")
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/git-objects-\(UUIDv7.generate().uuidString)")
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
@@ -66,7 +67,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-filter-\(UUID().uuidString)")
+            .appending(path: "gitignore-filter-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
@@ -81,7 +82,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
@@ -108,7 +109,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "filtered-only-\(UUID().uuidString)")
+            .appending(path: "filtered-only-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
         try "*.tmp\n".write(
@@ -117,7 +118,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
@@ -144,7 +145,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "ignored-only-\(UUID().uuidString)")
+            .appending(path: "ignored-only-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
         try "*.tmp\n".write(
@@ -153,7 +154,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = FilteringObservedFilesystemChanges()
@@ -181,7 +182,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-reload-\(UUID().uuidString)")
+            .appending(path: "gitignore-reload-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
         try "*.tmp\n".write(
@@ -190,7 +191,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = FilteringObservedFilesystemChanges()
@@ -237,7 +238,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-only-refresh-\(UUID().uuidString)")
+            .appending(path: "gitignore-only-refresh-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
         try "*.tmp\n".write(
@@ -246,7 +247,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
@@ -276,7 +277,7 @@ struct FilesystemActorFilteringTests {
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-coalesced-\(UUID().uuidString)")
+            .appending(path: "gitignore-coalesced-\(UUIDv7.generate().uuidString)")
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
         try "*.tmp\n".write(
@@ -285,7 +286,7 @@ struct FilesystemActorFilteringTests {
             encoding: .utf8
         )
 
-        let worktreeId = UUID()
+        let worktreeId = UUIDv7.generate()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = FilteringObservedFilesystemChanges()
