@@ -22,9 +22,15 @@ extension FilesystemActor {
 
         recordRequiredFullGitRefresh(for: worktreeId, when: requiresFullGitRefresh)
 
-        let observedActivityPaths = Set(activityObservations.map(\.path))
+        let observedActivityPaths = Set(
+            activityObservations.lazy.filter { !$0.isOwnEvent }.map(\.path)
+        )
+        let ownedEventPaths = Set(
+            activityObservations.lazy.filter(\.isOwnEvent).map(\.path)
+        )
         let ordinaryPathSet = Set(paths)
         var qualifyingRepositoryStableKeys: Set<String> = []
+        var coverageLostRepositoryStableKeys: Set<String> = []
         for rawPath in paths {
             guard let ownedPath = rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)
             else {
@@ -74,46 +80,82 @@ extension FilesystemActor {
             {
                 qualifyingRepositoryStableKeys.insert(repositoryStableKey)
             }
+            if ownedEventPaths.contains(rawPath),
+                pathDisposition == .gitInternal,
+                RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(
+                    ownedPath.relativePath
+                ),
+                let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
+            {
+                coverageLostRepositoryStableKeys.insert(repositoryStableKey)
+            }
             pendingChanges.recordPendingChange(at: schedulingClock.now())
             pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
         }
 
-        if let activityParticipant,
-            let processedThroughEventID = activityObservations.map(\.eventID).max()
-        {
-            if let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId],
-                activityObservations.contains(where: {
-                    !ordinaryPathSet.contains($0.path)
-                        && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath($0.path)
-                })
-            {
-                qualifyingRepositoryStableKeys.insert(repositoryStableKey)
-            }
-            let coverageLostRepositoryStableKeys: Set<String>
-            if activityObservations.contains(where: \.hasCoverageLoss),
-                let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId]
-            {
-                coverageLostRepositoryStableKeys = [repositoryStableKey]
-            } else {
-                coverageLostRepositoryStableKeys = []
-            }
-            await repositoryLocalActivityProjector?.ingest(
-                RepositoryLocalActivityObservedEvent(
-                    scopeKey: activityParticipant.scopeKey,
-                    generation: activityParticipant.generation,
-                    eventID: processedThroughEventID,
+        if let activityParticipant {
+            await ingestRepositoryLocalActivity(
+                RepositoryLocalActivityIngress(
+                    sourceWorktreeID: worktreeId,
+                    participant: activityParticipant,
+                    observations: activityObservations,
+                    ordinaryPaths: ordinaryPathSet,
                     qualifyingRepositoryStableKeys: qualifyingRepositoryStableKeys,
-                    coverageLostRepositoryStableKeys: coverageLostRepositoryStableKeys,
-                    observedAt: Date()
+                    coverageLostRepositoryStableKeys: coverageLostRepositoryStableKeys
                 )
             )
-            recordPendingActivityCheckpoint()
         }
 
         if shouldScheduleAndRecord {
             scheduleDrainIfNeeded()
             await recordLogicalDebtSnapshotIfChanged()
         }
+    }
+
+    private struct RepositoryLocalActivityIngress {
+        let sourceWorktreeID: UUID
+        let participant: FSEventParticipant
+        let observations: [FSEventObservation]
+        let ordinaryPaths: Set<String>
+        var qualifyingRepositoryStableKeys: Set<String>
+        var coverageLostRepositoryStableKeys: Set<String>
+    }
+
+    private func ingestRepositoryLocalActivity(
+        _ ingress: RepositoryLocalActivityIngress
+    ) async {
+        guard let processedThroughEventID = ingress.observations.map(\.eventID).max() else {
+            return
+        }
+        var qualifyingRepositoryStableKeys = ingress.qualifyingRepositoryStableKeys
+        var coverageLostRepositoryStableKeys = ingress.coverageLostRepositoryStableKeys
+        if let repositoryStableKey = repositoryStableKeysByWorktreeId[ingress.sourceWorktreeID] {
+            if ingress.observations.contains(where: {
+                !ingress.ordinaryPaths.contains($0.path)
+                    && !$0.isOwnEvent
+                    && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath($0.path)
+            }) {
+                qualifyingRepositoryStableKeys.insert(repositoryStableKey)
+            }
+            if ingress.observations.contains(where: {
+                $0.hasCoverageLoss
+                    || ($0.isOwnEvent
+                        && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath($0.path))
+            }) {
+                coverageLostRepositoryStableKeys.insert(repositoryStableKey)
+            }
+        }
+        await repositoryLocalActivityProjector?.ingest(
+            RepositoryLocalActivityObservedEvent(
+                scopeKey: ingress.participant.scopeKey,
+                generation: ingress.participant.generation,
+                eventID: processedThroughEventID,
+                qualifyingRepositoryStableKeys: qualifyingRepositoryStableKeys,
+                coverageLostRepositoryStableKeys: coverageLostRepositoryStableKeys,
+                observedAt: Date()
+            )
+        )
+        recordPendingActivityCheckpoint()
     }
 
     private func recordRequiredFullGitRefresh(for worktreeId: UUID, when required: Bool) {

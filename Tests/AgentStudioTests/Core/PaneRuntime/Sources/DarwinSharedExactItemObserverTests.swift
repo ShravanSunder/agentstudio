@@ -568,13 +568,14 @@ struct DarwinSharedExactItemObserverTests {
         let fixture = makeSharedExactItemFixture()
         let parentKey = makeSharedParentKey("activity-metadata")
         let worktreeId = UUIDv7.generate()
-        let exactPath = "\(parentKey.parentPath)/config"
+        let itemName = "refs/remotes/origin/main"
+        let exactPath = "\(parentKey.parentPath)/\(itemName)"
         #expect(
             bind(
                 fixture.registry,
                 worktreeId: worktreeId,
                 parentKey: parentKey,
-                itemName: "config"
+                itemName: itemName
             )
         )
         let streamGeneration = try #require(
@@ -607,7 +608,7 @@ struct DarwinSharedExactItemObserverTests {
         )
         #expect(activityBatch.participantWorktreeIds == [worktreeId])
         #expect(activityBatch.qualifyingWorktreeIds.isEmpty)
-        #expect(activityBatch.coverageLostWorktreeIds.isEmpty)
+        #expect(activityBatch.coverageLostWorktreeIds == [worktreeId])
         let barrier = try #require(fixture.registry.captureActivityBarrier())
         let participant = activityBatch.participant
         #expect(barrier.deliveredEventIDByParticipant[participant] == 51)

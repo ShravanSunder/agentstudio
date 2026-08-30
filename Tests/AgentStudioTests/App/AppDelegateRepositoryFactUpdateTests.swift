@@ -78,8 +78,8 @@ struct AppDelegateRepositoryFactUpdateTests {
         )
     }
 
-    @Test("dispatch records complete recency and captured progress before source admission")
-    func dispatchRecordsRecencyAndProgressBeforeAdmission() async throws {
+    @Test("dispatch preserves launcher recency and captures progress before source admission")
+    func dispatchPreservesRecencyAndCapturesProgressBeforeAdmission() async throws {
         let admissionGate = AppDelegateRepositoryFactUpdateGate()
         let localSettlementGate = AppDelegateRepositoryFactUpdateOutcomeGate(outcome: .completed)
         let remoteSettlementGate = AppDelegateRepositoryFactUpdateOutcomeGate(outcome: .failed)
@@ -102,10 +102,7 @@ struct AppDelegateRepositoryFactUpdateTests {
         let recordedStableKeys = Set(
             fixture.delegate.atomStore.core.applicationEntityRecency.recentEntities.map(\.entity.storageKey)
         )
-        #expect(
-            recordedStableKeys
-                == Set([fixture.repository.stableKey] + fixture.repository.worktrees.map(\.stableKey))
-        )
+        #expect(recordedStableKeys.isEmpty)
         #expect(!fixture.delegate.execute(.updateRepositoryFacts, target: fixture.repository.id, targetType: .repo))
 
         await admissionGate.release()

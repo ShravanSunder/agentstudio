@@ -270,16 +270,6 @@ extension AppDelegate: ShellCommandHandling {
             return false
         }
 
-        do {
-            try atomStore.core.applicationEntityRecency.recordOpened(
-                repositoryStableKey: repository.stableKey,
-                worktreeStableKeys: repository.worktrees.map(\.stableKey),
-                at: Date()
-            )
-        } catch {
-            return false
-        }
-
         let attemptId = UUIDv7.generate()
         repoCache.setRepositoryFactUpdateProgress(
             .captured(repoId: repoId, attemptId: attemptId)

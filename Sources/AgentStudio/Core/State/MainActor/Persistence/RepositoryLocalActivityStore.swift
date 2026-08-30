@@ -2,6 +2,7 @@
 package final class RepositoryLocalActivityStore {
     private let atom: RepositoryLocalActivityAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private var currentSessionAuthoritativeRepositoryStableKeys: Set<String> = []
 
     package private(set) var isHydrated = false
 
@@ -15,6 +16,7 @@ package final class RepositoryLocalActivityStore {
 
     package func restoreAsync() async {
         guard !isHydrated else { return }
+        currentSessionAuthoritativeRepositoryStableKeys.removeAll(keepingCapacity: true)
         switch await sqliteDatastore.loadRepositoryLocalActivity() {
         case .loaded:
             // Persisted activity survives restart, but PR1 does not replay the
@@ -33,8 +35,17 @@ package final class RepositoryLocalActivityStore {
         _ commit: RepositoryLocalActivityCommit
     ) async throws -> RepositoryLocalActivitySnapshot {
         let acceptedSnapshot = try await sqliteDatastore.commitRepositoryLocalActivity(commit)
-        atom.publishAuthoritative(acceptedSnapshot)
+        currentSessionAuthoritativeRepositoryStableKeys.formUnion(
+            commit.repositoryUpdates.map(\.repositoryStableKey)
+        )
+        let currentSessionSnapshot = RepositoryLocalActivitySnapshot(
+            activityByRepositoryStableKey: acceptedSnapshot.activityByRepositoryStableKey.filter {
+                currentSessionAuthoritativeRepositoryStableKeys.contains($0.key)
+            },
+            cursorByVolumeIdentifier: acceptedSnapshot.cursorByVolumeIdentifier
+        )
+        atom.publishAuthoritative(currentSessionSnapshot)
         isHydrated = true
-        return acceptedSnapshot
+        return currentSessionSnapshot
     }
 }

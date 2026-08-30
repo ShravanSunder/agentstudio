@@ -186,6 +186,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         var uncertainWorktreeIds: Set<UUID> = []
         var exactSubscriberWorktreeIds: Set<UUID> = []
         var activityQualifyingWorktreeIds: Set<UUID> = []
+        var activityOwnEventWorktreeIds: Set<UUID> = []
         var exactHitWithPendingAncestorWorktreeIds: Set<UUID> = []
         var shouldRetireObserver = false
     }
@@ -610,7 +611,7 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
         let activityCoverageLostWorktreeIds = classification.uncertainWorktreeIds.union(
             classification.exactHitWithPendingAncestorWorktreeIds.subtracting(
                 classification.activityQualifyingWorktreeIds)
-        )
+        ).union(classification.activityOwnEventWorktreeIds)
         var retiredStreamLifetime: (any DarwinSharedExactItemStreamLifetime)?
         var ancestorRecheckToStart: DarwinSharedExactItemAncestorRecheckSnapshot?
         if classification.shouldRetireObserver {
@@ -681,7 +682,13 @@ package final class DarwinSharedExactItemObserverRegistry: @unchecked Sendable {
                     observer.unresolvedAncestorEntriesByWorktreeId[$0] != nil
                 })
             if RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(normalizedPath) {
-                result.activityQualifyingWorktreeIds.formUnion(exactSubscribers)
+                if rawEvent.flags
+                    & FSEventStreamEventFlags(kFSEventStreamEventFlagOwnEvent) != 0
+                {
+                    result.activityOwnEventWorktreeIds.formUnion(exactSubscribers)
+                } else {
+                    result.activityQualifyingWorktreeIds.formUnion(exactSubscribers)
+                }
             }
             if rawEvent.flags & Self.uncertaintyFlags != 0 || cursorRegressed {
                 result.uncertainWorktreeIds.formUnion(dependentWorktreeIds)

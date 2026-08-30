@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `d6f1d6af1` plus one pending test-stability checkpoint
-Status: wrap-up in progress; focused correction green, exact-final aggregate/review/publication open
+Current implementation checkpoint: `bbdbf2b12` plus reviewed correctness remediation pending checkpoint
+Status: wrap-up in progress; reviewed correction green, exact-final aggregate/review/publication open
 
 ## Product Contract
 
@@ -42,6 +42,10 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Keep the extended five-tab/twenty-pane, zero-PTY fixture and reproducible PID-bound capture packet in PR2; it is not claimed as PR1 proof.
 - [x] Keep exact-`lbim` idle p99 below 10% and ordinary-action p95 below 20% populations in PR2; PR1 does not claim those targets were proven.
 - [x] Stop PR1 product changes after the accepted stable sidebar; marker-correlated residual tuning and FSEvents replay remain PR2 work.
+- [x] Prevent Agent Studio-owned canonical-ref promotion from minting local activity while retaining Git invalidation; conservative live attribution restarts only the affected repository's coverage.
+- [x] Keep untouched persisted repositories unknown after restart until each repository receives a current-session checkpoint.
+- [x] Make repository Refresh preserve launcher/application-open recency.
+- [x] Reconcile the Program Design and exact `agentstudio-git` pin with PR1's conservative live self-event boundary; replay and durable exact provenance remain PR2.
 - [ ] Complete the exact-HEAD aggregate after the topology convergence test correction.
 - [ ] Complete the independent implementation review, push, and PR checks.
 
@@ -79,6 +83,11 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - Exact-final `mise run test` at `0e6c45e5e` passed with exit code 0 in 480.24 seconds: BridgeWeb unit 1,764/1,764, integration 19/19, browser 211 passed/5 skipped, E2E 4/4, and all Swift fast, isolated, large, serialized WebKit, and serialized E2E lanes completed successfully.
 - The owner accepted the preserved `lbim` sidebar behavior as stable and suitable for PR1 wrap-up. Extended five-tab/twenty-pane capture, exact-process CPU populations, and deeper marker-scoped tuning are explicitly deferred to PR2 and are not represented as proven by PR1.
 - The documentation-only `d6f1d6af1` aggregate reproduced one test-bound failure after 313.65 seconds: the watched-folder removal integration exhausted 200 `Task.yield()` turns in 0.002 seconds before the asynchronous scan/result/event pipeline emitted `repoRemoved`. Product source was identical to green `0e6c45e5e`. The test now uses the suite's established 1,000-turn convergence bound without adding a sleep or changing product behavior; the focused `TopologyEventPipelineIntegrationTests` suite passed 7/7 in 0.033 seconds.
+- The fourth fresh implementation review at `bbdbf2b12` found four source-backed PR1 defects: the pinned in-process promotion was absent from the current-boundary prose; qualifying live `OwnEvent` ref changes minted local activity; one post-restart checkpoint published untouched persisted rows authoritative; and Refresh wrote unrelated application-open recency. The owner authorized immediate correction.
+- The reviewed correction preserves the `c8dbd7ef0f344293160b8f7d72d93931328761fd` package pin, converts qualifying live process-owned ref changes into affected-repository coverage restart rather than activity, accumulates current-session authority by repository key, removes Refresh recency mutation, and reconciles the Program Design. The red run failed with five exact issues across the four affected suites; the green run passed 38/38 across five suites. Adjacent FSEvents, composite continuity, activity-projector, classifier, and demand integration coverage passed 52/52 across five suites.
+- The exact package `GitStagedFetchIntegrationTests` suite passed 8/8 at the pinned `c8dbd7e` revision, including current-process attribution, atomic promotion, concurrent mutation rejection, cleanup, and abandoned-staging bounds. The complete package check reached its unrelated Bridge adapter compatibility suite and failed because that external package worktree targets a different Agent Studio checkout whose Bridge comparison DTOs have moved; no Git promotion test failed and no Bridge code was changed in PR1.
+- The second exact-head aggregate exposed a separate test-clock race: the periodic Git fixture awaited a sleep, then yielded to read provider count before reading the sleep deadline, allowing cancellation to remove the deadline. The fixture now captures provider count before awaiting the exact deadline; the complete `FilesystemGitPipelineIntegrationTests` suite passes 7/7 without a wall-clock sleep.
+- `mise run lint` passes after the reviewed correction with SwiftLint 0 violations, architecture lint OK, release-script verification green, and `git diff --check` clean.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
@@ -89,16 +98,19 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 
 ## Current Requirement-To-Proof Matrix
 
-| Requirement | Automated proof at `0e6c45e5e` | Required native/runtime proof | Status |
+| Requirement | Automated proof at reviewed remediation | Required native/runtime proof | Status |
 | --- | --- | --- | --- |
 | Actual branch or detached HEAD plus cached file/ahead/behind/PR facts | Cache, projection, materialization, refresh-lifetime, and Git-pipeline suites; final affected set 94/94 | Preserved lbim readback across By Repo/Pane/Tab | Automated green; live sidebar accepted by owner |
 | Inactive annotates freshness without hiding facts | Classifier, cached-fact retention, projection, and row tests | Mixed warm/unknown/inactive headers and chips in lbim | Automated green; live sidebar accepted by owner |
 | Unknown receives phased local self-heal and no visible/Remote/Forge demand | Exact cutoff/transition tests, applied pipeline/source metrics, deliberate misroute falsifier, strict self-heal ownership falsifier | Positive unknown marker with zero forbidden intersections | Automated green; marker proof open |
+| Agent-owned fetch does not mint local activity | Local and shared real-ref `OwnEvent` tests; pinned staged-promotion integration 8/8 | Existing live observation boundary | Automated green; downtime/exact provenance deferred to PR2 |
+| Restart authority is repository-keyed | Two-repository store restart test plus projector/classifier suites | Existing preserved-data launch | Automated green; untouched rows remain unknown |
+| Refresh preserves launcher recency | AppDelegate command/admission suite | Existing command path | Automated green |
 | Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; extended native/OTLP population deferred to PR2 |
 | Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | Preserved lbim interaction | Automated green; live sidebar accepted by owner |
 | Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | Extended exact-lbim 5/20 populations | Deferred to PR2; not claimed by PR1 |
 | Exact final aggregate gate | Focused 94/94, focused topology 7/7, prior full aggregate green | `mise run test` on the final test-stability checkpoint | Pending rerun |
-| Independent implementation review | Three reviews produced and three remediation passes completed | Fresh review of final corrected HEAD | Authorized as part of PR1 wrap-up; pending |
+| Independent implementation review | Fourth fresh review found four defects; remediation focused proof is green | Fresh review of final corrected HEAD | Pending |
 | PR publication readiness | Local branch checkpoints and exact-final aggregate | Push, CI, comments, threads, and mergeability | Pending |
 
 ## Non-Goals

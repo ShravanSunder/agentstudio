@@ -74,6 +74,11 @@ package struct FSEventObservation: Equatable, Sendable {
         )
         return eventFlags & coverageLossFlags != 0
     }
+
+    package var isOwnEvent: Bool {
+        FSEventStreamEventFlags(flags)
+            & FSEventStreamEventFlags(kFSEventStreamEventFlagOwnEvent) != 0
+    }
 }
 
 package struct FSEventActivityObservationBatch: Equatable, Sendable {

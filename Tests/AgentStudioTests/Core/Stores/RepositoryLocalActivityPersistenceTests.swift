@@ -195,6 +195,7 @@ struct RepositoryLocalActivityStoreTests {
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: UUIDv7.generate())
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let stableKey = "cccccccccccccccc"
+        let untouchedStableKey = "eeeeeeeeeeeeeeee"
         let seedingStore = RepositoryLocalActivityStore(
             atom: RepositoryLocalActivityAtom(),
             sqliteDatastore: datastore
@@ -206,7 +207,12 @@ struct RepositoryLocalActivityStoreTests {
                         repositoryStableKey: stableKey,
                         qualifyingActivityAt: Date(timeIntervalSince1970: 120),
                         coverageChange: .restart(at: Date(timeIntervalSince1970: 100))
-                    )
+                    ),
+                    .init(
+                        repositoryStableKey: untouchedStableKey,
+                        qualifyingActivityAt: Date(timeIntervalSince1970: 110),
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 90))
+                    ),
                 ],
                 updatedAt: Date(timeIntervalSince1970: 130)
             )
@@ -242,6 +248,7 @@ struct RepositoryLocalActivityStoreTests {
             restartedAtom.activity(for: stableKey)?.continuousCoverageStartedAt
                 == Date(timeIntervalSince1970: 200)
         )
+        #expect(restartedAtom.activity(for: untouchedStableKey) == nil)
     }
 
     @Test("publishes only the snapshot acknowledged by SQLite")
