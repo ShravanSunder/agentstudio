@@ -12,7 +12,7 @@ struct WorkspaceFocusedPaneResolverTests {
     }
 
     @Test
-    func missingActivePaneProducesNoFocusedPane() {
+    func missingCanonicalActivePaneFallsBackToFirstActiveResidencyPane() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -31,7 +31,8 @@ struct WorkspaceFocusedPaneResolverTests {
                 requestedOwner: atom(\.workspaceFocusOwner).owner
             )
 
-            #expect(focusedPane == nil)
+            #expect(focusedPane?.activeMainPaneId == pane.id)
+            #expect(focusedPane?.paneId == pane.id)
         }
     }
 
