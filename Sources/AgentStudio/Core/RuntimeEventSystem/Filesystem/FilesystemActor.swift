@@ -149,6 +149,20 @@ package actor FilesystemActor {
     }
 
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        await register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            revokesActivityAuthority: true
+        )
+    }
+
+    func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL,
+        revokesActivityAuthority: Bool
+    ) async {
         guard !hasBegunShutdown else { return }
         startIngressTaskIfNeeded()
 
@@ -156,6 +170,14 @@ package actor FilesystemActor {
         let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
 
         let existing = roots[worktreeId]
+        if revokesActivityAuthority,
+            existing?.repoId != repoId || existing?.rootPath != rootPath,
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId]
+        {
+            await repositoryLocalActivityProjector?.revokeAuthority(
+                for: [repositoryStableKey]
+            )
+        }
         roots[worktreeId] = RootState(
             repoId: repoId,
             rootPath: rootPath,
@@ -179,6 +201,21 @@ package actor FilesystemActor {
     }
 
     package func unregister(worktreeId: UUID) async {
+        await unregister(worktreeId: worktreeId, revokesActivityAuthority: true)
+    }
+
+    func unregister(
+        worktreeId: UUID,
+        revokesActivityAuthority: Bool
+    ) async {
+        if revokesActivityAuthority,
+            roots[worktreeId] != nil,
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId]
+        {
+            await repositoryLocalActivityProjector?.revokeAuthority(
+                for: [repositoryStableKey]
+            )
+        }
         let removedRoot = roots.removeValue(forKey: worktreeId)
         pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {

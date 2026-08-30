@@ -421,9 +421,16 @@ extension AppDelegate {
 
     private func makeRepositoryLocalActivityProjector() -> RepositoryLocalActivityProjector {
         let localActivityStore = repositoryLocalActivityStore!
-        return RepositoryLocalActivityProjector { commit in
-            _ = try await localActivityStore.commitAsync(commit)
-        }
+        return RepositoryLocalActivityProjector(
+            authorityRevocationSink: { repositoryStableKeys in
+                await localActivityStore.revokeCurrentSessionAuthority(
+                    for: repositoryStableKeys
+                )
+            },
+            commitSink: { commit in
+                _ = try await localActivityStore.commitAsync(commit)
+            }
+        )
     }
 
     private func bootRegisterFilesystemIngressPerformanceReporter(

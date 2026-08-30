@@ -189,6 +189,97 @@ struct RepositoryLocalActivityPersistenceTests {
 @MainActor
 @Suite("Repository local activity store", .serialized)
 struct RepositoryLocalActivityStoreTests {
+    @Test("scope replacement revokes only affected current-session authority")
+    func scopeReplacementRevokesOnlyAffectedCurrentSessionAuthority() async throws {
+        // Arrange
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: UUIDv7.generate())
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let atom = RepositoryLocalActivityAtom()
+        let store = RepositoryLocalActivityStore(atom: atom, sqliteDatastore: datastore)
+        let affectedStableKey = "aaaaaaaaaaaaaaaa"
+        let unaffectedStableKey = "bbbbbbbbbbbbbbbb"
+        _ = try await store.commitAsync(
+            try RepositoryLocalActivityCommit(
+                repositoryUpdates: [
+                    .init(
+                        repositoryStableKey: affectedStableKey,
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 100))
+                    ),
+                    .init(
+                        repositoryStableKey: unaffectedStableKey,
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 100))
+                    ),
+                ],
+                updatedAt: Date(timeIntervalSince1970: 110)
+            )
+        )
+
+        // Act
+        store.revokeCurrentSessionAuthority(for: [affectedStableKey])
+
+        // Assert
+        #expect(atom.hydrationDisposition == .authoritative)
+        #expect(atom.activity(for: affectedStableKey) == nil)
+        #expect(atom.activity(for: unaffectedStableKey) != nil)
+
+        let persisted = await datastore.loadRepositoryLocalActivity()
+        guard case .loaded(let persistedSnapshot) = persisted else {
+            Issue.record("repository activity persistence unexpectedly unavailable")
+            return
+        }
+        #expect(persistedSnapshot.activityByRepositoryStableKey[affectedStableKey] != nil)
+    }
+
+    @Test("failed replacement checkpoint cannot reauthorize a revoked stable key")
+    func failedReplacementCheckpointCannotReauthorizeRevokedStableKey() async throws {
+        // Arrange
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: UUIDv7.generate())
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let atom = RepositoryLocalActivityAtom()
+        let store = RepositoryLocalActivityStore(atom: atom, sqliteDatastore: datastore)
+        let stableKey = "aaaaaaaaaaaaaaaa"
+        _ = try await store.commitAsync(
+            try RepositoryLocalActivityCommit(
+                repositoryUpdates: [
+                    .init(
+                        repositoryStableKey: stableKey,
+                        coverageChange: .restart(at: Date(timeIntervalSince1970: 100))
+                    )
+                ],
+                updatedAt: Date(timeIntervalSince1970: 110)
+            )
+        )
+        store.revokeCurrentSessionAuthority(for: [stableKey])
+        try await fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    CREATE TRIGGER reject_replacement_checkpoint
+                    BEFORE UPDATE ON local_repository_activity
+                    BEGIN
+                        SELECT RAISE(ABORT, 'reject replacement checkpoint');
+                    END
+                    """
+            )
+        }
+
+        // Act / Assert
+        await #expect(throws: (any Error).self) {
+            _ = try await store.commitAsync(
+                try RepositoryLocalActivityCommit(
+                    repositoryUpdates: [
+                        .init(
+                            repositoryStableKey: stableKey,
+                            coverageChange: .restart(at: Date(timeIntervalSince1970: 200))
+                        )
+                    ],
+                    updatedAt: Date(timeIntervalSince1970: 210)
+                )
+            )
+        }
+        #expect(atom.hydrationDisposition == .authoritative)
+        #expect(atom.activity(for: stableKey) == nil)
+    }
+
     @Test("restart keeps persisted activity unknown until a live coverage checkpoint")
     func restartKeepsPersistedActivityUnknownUntilLiveCheckpoint() async throws {
         // Arrange

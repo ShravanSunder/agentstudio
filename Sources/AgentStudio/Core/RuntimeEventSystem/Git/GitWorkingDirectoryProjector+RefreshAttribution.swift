@@ -126,6 +126,8 @@ extension GitWorkingDirectoryProjector {
         }
 
         remoteReferenceRecomputationLeasesByAuthorityRevision[acceptance.authorityRevision] = settlement.lease
+        remoteReferenceRecomputationRepositoryIdByAuthorityRevision[acceptance.authorityRevision] =
+            acceptance.repoId
         guard attempt.outcomesByWorktreeId.count < representedWorktreeIds.count else {
             settlement.resolve(Self.compositeRepositoryRecomputationOutcome(attempt.outcomesByWorktreeId.values))
             return
@@ -141,6 +143,8 @@ extension GitWorkingDirectoryProjector {
         }
         let outcome = await lease.settlement()
         remoteReferenceRecomputationLeasesByAuthorityRevision.removeValue(forKey: authorityRevision)
+        remoteReferenceRecomputationRepositoryIdByAuthorityRevision.removeValue(forKey: authorityRevision)
+        remoteReferenceRecomputationAttemptsByAuthorityRevision.removeValue(forKey: authorityRevision)
         return outcome
     }
 
@@ -209,6 +213,26 @@ extension GitWorkingDirectoryProjector {
         remoteReferenceRecomputationAttemptsByAuthorityRevision.removeAll(keepingCapacity: false)
         for attempt in remoteAttempts {
             attempt.settlement.resolve(outcome)
+        }
+        remoteReferenceRecomputationLeasesByAuthorityRevision.removeAll(keepingCapacity: false)
+        remoteReferenceRecomputationRepositoryIdByAuthorityRevision.removeAll(keepingCapacity: false)
+    }
+
+    func cancelRemoteReferenceRecomputations(
+        repoId: UUID,
+        outcome: RepositoryFactSourceUpdateOutcome
+    ) {
+        let authorityRevisions = remoteReferenceRecomputationRepositoryIdByAuthorityRevision.compactMap { entry in
+            entry.value == repoId ? entry.key : nil
+        }
+        for authorityRevision in authorityRevisions {
+            if let attempt = remoteReferenceRecomputationAttemptsByAuthorityRevision.removeValue(
+                forKey: authorityRevision
+            ) {
+                attempt.settlement.resolve(outcome)
+            }
+            remoteReferenceRecomputationLeasesByAuthorityRevision.removeValue(forKey: authorityRevision)
+            remoteReferenceRecomputationRepositoryIdByAuthorityRevision.removeValue(forKey: authorityRevision)
         }
     }
 

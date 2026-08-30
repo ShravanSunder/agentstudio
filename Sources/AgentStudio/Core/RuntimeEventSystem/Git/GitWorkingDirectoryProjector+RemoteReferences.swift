@@ -22,6 +22,7 @@ extension GitWorkingDirectoryProjector {
         switch update {
         case .invalidated:
             remoteReferenceAcceptanceByRepoId.removeValue(forKey: repoId)
+            cancelRemoteReferenceRecomputations(repoId: repoId, outcome: .obsolete)
         case .localAccepted(let acceptance):
             installRemoteReferenceAuthority(acceptance)
         case .promoted(let acceptance, let representedWorktreeIds):

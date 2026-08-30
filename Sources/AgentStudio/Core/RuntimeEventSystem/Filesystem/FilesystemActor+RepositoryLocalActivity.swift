@@ -22,6 +22,14 @@ extension FilesystemActor {
             assertion.contextsByWorktreeId[$0.key] != nil
         }
         let previousRepositoryStableKeysByWorktreeId = repositoryStableKeysByWorktreeId
+        let authorityRevocationRepositoryStableKeys = activityAuthorityRevocationRepositoryStableKeys(
+            previousRepositoryStableKeysByWorktreeId: previousRepositoryStableKeysByWorktreeId,
+            desiredRepositoryStableKeysByWorktreeId: desiredRepositoryStableKeysByWorktreeId,
+            desiredContextsByWorktreeId: assertion.contextsByWorktreeId
+        )
+        await repositoryLocalActivityProjector?.revokeAuthority(
+            for: authorityRevocationRepositoryStableKeys
+        )
         let activityTopologyChanged =
             previousRepositoryStableKeysByWorktreeId
             != desiredRepositoryStableKeysByWorktreeId
@@ -33,7 +41,7 @@ extension FilesystemActor {
         let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
         let removedWorktreeIds = Set(roots.keys).subtracting(desiredWorktreeIds)
         for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            await unregister(worktreeId: worktreeId)
+            await unregister(worktreeId: worktreeId, revokesActivityAuthority: false)
         }
 
         for (worktreeId, context) in assertion.contextsByWorktreeId.sorted(by: { lhs, rhs in
@@ -43,13 +51,48 @@ extension FilesystemActor {
                 roots[worktreeId]?.repoId != context.repoId
                 || roots[worktreeId]?.rootPath != context.rootPath
             guard filesystemIdentityChanged else { continue }
-            await register(worktreeId: worktreeId, repoId: context.repoId, rootPath: context.rootPath)
+            await register(
+                worktreeId: worktreeId,
+                repoId: context.repoId,
+                rootPath: context.rootPath,
+                revokesActivityAuthority: false
+            )
         }
         repositoryStableKeysByWorktreeId = desiredRepositoryStableKeysByWorktreeId
         if activityTopologyChanged {
             recordPendingActivityCheckpoint()
             scheduleDrainIfNeeded()
         }
+    }
+
+    private func activityAuthorityRevocationRepositoryStableKeys(
+        previousRepositoryStableKeysByWorktreeId: [UUID: String],
+        desiredRepositoryStableKeysByWorktreeId: [UUID: String],
+        desiredContextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    ) -> Set<String> {
+        let candidateWorktreeIds = Set(previousRepositoryStableKeysByWorktreeId.keys)
+            .union(desiredRepositoryStableKeysByWorktreeId.keys)
+        var affectedRepositoryStableKeys = Set<String>()
+        for worktreeId in candidateWorktreeIds {
+            let previousRepositoryStableKey =
+                previousRepositoryStableKeysByWorktreeId[worktreeId]
+            let desiredRepositoryStableKey = desiredRepositoryStableKeysByWorktreeId[worktreeId]
+            let desiredContext = desiredContextsByWorktreeId[worktreeId]
+            let filesystemIdentityChanged =
+                roots[worktreeId]?.repoId != desiredContext?.repoId
+                || roots[worktreeId]?.rootPath != desiredContext?.rootPath
+            guard
+                previousRepositoryStableKey != desiredRepositoryStableKey
+                    || filesystemIdentityChanged
+            else { continue }
+            if let previousRepositoryStableKey {
+                affectedRepositoryStableKeys.insert(previousRepositoryStableKey)
+            }
+            if let desiredRepositoryStableKey {
+                affectedRepositoryStableKeys.insert(desiredRepositoryStableKey)
+            }
+        }
+        return affectedRepositoryStableKeys
     }
 
     func ingestSharedActivityObservations(

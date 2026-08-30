@@ -8,6 +8,90 @@ import Testing
 
 @Suite("FilesystemActor repository activity", .serialized)
 struct FilesystemActorActivityTests {
+    @Test("remove and re-add revokes repository authority before a replacement checkpoint")
+    func removeAndReAddRevokesAuthorityBeforeReplacementCheckpoint() async {
+        // Arrange
+        let streamClient = ControllableFSEventStreamClient()
+        let authorityRevocationRecorder = FilesystemActivityAuthorityRevocationRecorder()
+        let activityProjector = RepositoryLocalActivityProjector(
+            authorityRevocationSink: { repositoryStableKeys in
+                await authorityRevocationRecorder.record(repositoryStableKeys)
+            },
+            commitSink: { _ in }
+        )
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            repositoryLocalActivityProjector: activityProjector,
+            sleepClock: TestPushClock(),
+            debounceWindow: .seconds(60),
+            maxFlushLatency: .seconds(120)
+        )
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let rootPath = URL(filePath: "/tmp/activity-authority-\(worktreeId)")
+        let stableKey = "1111111122222222"
+        let unaffectedWorktreeId = UUIDv7.generate()
+        let unaffectedRepoId = UUIDv7.generate()
+        let unaffectedRootPath = URL(
+            filePath: "/tmp/activity-authority-\(unaffectedWorktreeId)"
+        )
+        let unaffectedStableKey = "3333333344444444"
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath),
+                    unaffectedWorktreeId: WorktreeFilesystemContext(
+                        repoId: unaffectedRepoId,
+                        rootPath: unaffectedRootPath
+                    ),
+                ],
+                repositoryStableKeysByWorktreeId: [
+                    worktreeId: stableKey,
+                    unaffectedWorktreeId: unaffectedStableKey,
+                ]
+            )
+        )
+        await authorityRevocationRecorder.reset()
+
+        // Act
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 2,
+                contextsByWorktreeId: [
+                    unaffectedWorktreeId: WorktreeFilesystemContext(
+                        repoId: unaffectedRepoId,
+                        rootPath: unaffectedRootPath
+                    )
+                ],
+                repositoryStableKeysByWorktreeId: [
+                    unaffectedWorktreeId: unaffectedStableKey
+                ]
+            )
+        )
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 3,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath),
+                    unaffectedWorktreeId: WorktreeFilesystemContext(
+                        repoId: unaffectedRepoId,
+                        rootPath: unaffectedRootPath
+                    ),
+                ],
+                repositoryStableKeysByWorktreeId: [
+                    worktreeId: stableKey,
+                    unaffectedWorktreeId: unaffectedStableKey,
+                ]
+            )
+        )
+
+        // Assert
+        #expect(await authorityRevocationRecorder.revocations == [[stableKey], [stableKey]])
+        await actor.shutdown()
+    }
+
     @Test("stable-key topology enrichment preserves the existing stream registration")
     func stableKeyTopologyEnrichmentPreservesExistingStreamRegistration() async {
         // Arrange
@@ -486,5 +570,17 @@ private actor FilesystemActivityCommitRecorder {
 
     func reset() {
         commits.removeAll(keepingCapacity: true)
+    }
+}
+
+private actor FilesystemActivityAuthorityRevocationRecorder {
+    private(set) var revocations: [Set<String>] = []
+
+    func record(_ repositoryStableKeys: Set<String>) {
+        revocations.append(repositoryStableKeys)
+    }
+
+    func reset() {
+        revocations.removeAll(keepingCapacity: true)
     }
 }

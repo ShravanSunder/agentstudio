@@ -119,8 +119,7 @@ package actor RemoteReferenceRefreshActor {
             else { return }
 
             let nextGeneration = nextTopologyGeneration(repoId: repoId)
-            await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
-            await revokeActiveOperation(repoId: repoId)
+            await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
             settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
             registration.repositoryPath = nextRepositoryPath
             registration.remoteName = remoteName
@@ -131,6 +130,7 @@ package actor RemoteReferenceRefreshActor {
             lastSuccessfulFetchAtByRepoId.removeValue(forKey: repoId)
             failureDeadlineByRepoId.removeValue(forKey: repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: repoId)
+            invalidatingRepositoryIds.remove(repoId)
         } else {
             let nextGeneration = nextTopologyGeneration(repoId: repoId)
             registrationsByRepoId[repoId] = RemoteReferenceRegistration(
@@ -155,8 +155,7 @@ package actor RemoteReferenceRefreshActor {
             return
         }
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
-        await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
-        await revokeActiveOperation(repoId: repoId)
+        await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
         settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
         registration.worktreeIds.remove(worktreeId)
         registration.topologyGeneration = nextGeneration
@@ -170,6 +169,9 @@ package actor RemoteReferenceRefreshActor {
             explicitRepositoryIds.remove(repoId)
         } else {
             registrationsByRepoId[repoId] = registration
+        }
+        invalidatingRepositoryIds.remove(repoId)
+        if !registration.worktreeIds.isEmpty {
             await establishLocalAcceptance(repoId: repoId)
             if demandedRepositoryIds.contains(repoId) {
                 pendingRepositoryIds.insert(repoId)
@@ -199,8 +201,7 @@ package actor RemoteReferenceRefreshActor {
             guard let desiredEntries = desiredEntriesByRepoId[repoId] else {
                 guard registrationsByRepoId[repoId] != nil else { continue }
                 let nextGeneration = nextTopologyGeneration(repoId: repoId)
-                await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
-                await revokeActiveOperation(repoId: repoId)
+                await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
                 settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
                 registrationsByRepoId.removeValue(forKey: repoId)
                 demandedRepositoryIds.remove(repoId)
@@ -209,6 +210,7 @@ package actor RemoteReferenceRefreshActor {
                 lastSuccessfulFetchAtByRepoId.removeValue(forKey: repoId)
                 failureDeadlineByRepoId.removeValue(forKey: repoId)
                 currentnessRetryAtByRepoId.removeValue(forKey: repoId)
+                invalidatingRepositoryIds.remove(repoId)
                 continue
             }
 
@@ -227,9 +229,9 @@ package actor RemoteReferenceRefreshActor {
             }
 
             let nextGeneration = nextTopologyGeneration(repoId: repoId)
-            if currentRegistration != nil {
-                await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
-                await revokeActiveOperation(repoId: repoId)
+            let replacedExistingRegistration = currentRegistration != nil
+            if replacedExistingRegistration {
+                await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
                 settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
             }
             registrationsByRepoId[repoId] = RemoteReferenceRegistration(
@@ -243,6 +245,9 @@ package actor RemoteReferenceRefreshActor {
             lastSuccessfulFetchAtByRepoId.removeValue(forKey: repoId)
             failureDeadlineByRepoId.removeValue(forKey: repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: repoId)
+            if replacedExistingRegistration {
+                invalidatingRepositoryIds.remove(repoId)
+            }
             await establishLocalAcceptance(repoId: repoId)
             if demandedRepositoryIds.contains(repoId) {
                 pendingRepositoryIds.insert(repoId)
@@ -256,10 +261,8 @@ package actor RemoteReferenceRefreshActor {
         guard var registration = registrationsByRepoId[repoId], registration.expectedOrigin != expectedOrigin else {
             return
         }
-        invalidatingRepositoryIds.insert(repoId)
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
-        await invalidateAuthority(repoId: repoId, topologyGeneration: nextGeneration)
-        await revokeActiveOperation(repoId: repoId, alreadyInvalidating: true)
+        await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
         settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
         registration.expectedOrigin = expectedOrigin
         registration.topologyGeneration = nextGeneration
@@ -506,11 +509,15 @@ package actor RemoteReferenceRefreshActor {
 
     private func finishPromotion(_ outcome: RemoteReferencePromotionOutcome) async {
         let attempt = outcome.attempt
-        guard !invalidatingRepositoryIds.contains(attempt.repoId),
-            case .promoting(let activeAttempt, _, _) = activeOperationsByRepoId[attempt.repoId],
+        guard case .promoting(let activeAttempt, _, _) = activeOperationsByRepoId[attempt.repoId],
             activeAttempt.stagingId == attempt.stagingId
         else { return }
         performanceAccumulator.increment(\.promotionCompleted)
+        guard !invalidatingRepositoryIds.contains(attempt.repoId) else {
+            performanceAccumulator.increment(\.validationObsolete)
+            flushPerformanceSnapshot()
+            return
+        }
 
         await recordCleanup(outcome.stagedFetch.handle, repoId: attempt.repoId)
         switch outcome {
@@ -687,6 +694,12 @@ package actor RemoteReferenceRefreshActor {
                 authorityRevision: nextAuthorityRevision()
             )
         )
+    }
+
+    private func beginIdentityInvalidation(repoId: UUID, topologyGeneration: UInt64) async {
+        invalidatingRepositoryIds.insert(repoId)
+        await invalidateAuthority(repoId: repoId, topologyGeneration: topologyGeneration)
+        await revokeActiveOperation(repoId: repoId, alreadyInvalidating: true)
     }
 }
 

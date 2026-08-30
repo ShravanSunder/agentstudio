@@ -73,6 +73,7 @@ package struct RepositoryLocalActivityBarrier: Equatable, Sendable {
 
 package actor RepositoryLocalActivityProjector {
     package typealias CommitSink = @Sendable (RepositoryLocalActivityCommit) async throws -> Void
+    package typealias AuthorityRevocationSink = @Sendable (Set<String>) async -> Void
 
     private struct BufferedObservation {
         var processedEventID: UInt64
@@ -86,6 +87,7 @@ package actor RepositoryLocalActivityProjector {
     }
 
     private let commitSink: CommitSink
+    private let authorityRevocationSink: AuthorityRevocationSink
     private var participantByScopeKey: [String: RepositoryLocalActivityParticipant] = [:]
     private var bufferedObservationByParticipant: [RepositoryLocalActivityParticipantIdentity: BufferedObservation] =
         [:]
@@ -95,8 +97,17 @@ package actor RepositoryLocalActivityProjector {
     private var isCommitInFlight = false
     private var deferredParticipantReplacement: DeferredParticipantReplacement?
 
-    package init(commitSink: @escaping CommitSink) {
+    package init(
+        authorityRevocationSink: @escaping AuthorityRevocationSink = { _ in },
+        commitSink: @escaping CommitSink
+    ) {
+        self.authorityRevocationSink = authorityRevocationSink
         self.commitSink = commitSink
+    }
+
+    package func revokeAuthority(for repositoryStableKeys: Set<String>) async {
+        guard !repositoryStableKeys.isEmpty else { return }
+        await authorityRevocationSink(repositoryStableKeys)
     }
 
     package func replaceParticipants(

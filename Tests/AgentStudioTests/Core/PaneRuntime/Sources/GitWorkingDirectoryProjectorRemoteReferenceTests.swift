@@ -115,7 +115,26 @@ struct GitWorkingDirectoryProjectorRemoteReferenceTests {
             .promoted(promotedAcceptance, representedWorktreeIds: [worktreeId])
         )
         #expect(await actor.immediateRefreshWorktreeIds.contains(worktreeId))
+        await actor.applyRemoteReferenceAuthorityUpdate(
+            .invalidated(repoId: repoId, topologyGeneration: 2, authorityRevision: 5)
+        )
+        #expect(await actor.remoteReferenceRecomputationAttemptsByAuthorityRevision.isEmpty)
+        #expect(await actor.remoteReferenceRecomputationLeasesByAuthorityRevision.isEmpty)
+        #expect(await actor.remoteReferenceRecomputationRepositoryIdByAuthorityRevision.isEmpty)
+
+        let shutdownAcceptance = makeAcceptance(
+            repoId: repoId,
+            origin: origin,
+            rootPath: rootPath,
+            authorityRevision: 6
+        )
+        await actor.applyRemoteReferenceAuthorityUpdate(
+            .promoted(shutdownAcceptance, representedWorktreeIds: [worktreeId])
+        )
         await actor.shutdown()
+        #expect(await actor.remoteReferenceRecomputationAttemptsByAuthorityRevision.isEmpty)
+        #expect(await actor.remoteReferenceRecomputationLeasesByAuthorityRevision.isEmpty)
+        #expect(await actor.remoteReferenceRecomputationRepositoryIdByAuthorityRevision.isEmpty)
     }
 
     private func makeStatus() -> GitWorkingTreeStatus {

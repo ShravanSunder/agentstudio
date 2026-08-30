@@ -112,6 +112,7 @@ package actor GitWorkingDirectoryProjector {
     var explicitRepositoryUpdateAttemptsById: [UUID: GitExplicitRepositoryUpdateAttempt] = [:]
     var remoteReferenceRecomputationAttemptsByAuthorityRevision: [UInt64: GitRemoteReferenceRecomputationAttempt] = [:]
     var remoteReferenceRecomputationLeasesByAuthorityRevision: [UInt64: RepositoryFactSourceUpdateLease] = [:]
+    var remoteReferenceRecomputationRepositoryIdByAuthorityRevision: [UInt64: UUID] = [:]
     var isShuttingDown = false
 
     var queuedLogicalDebtCount: Int {

@@ -145,6 +145,54 @@ struct RemoteReferenceRefreshRecomputationTests {
         await actor.waitUntilIdle()
         #expect(performanceRecorder.settlements.last?.physicalActive == 0)
     }
+
+    @Test("final unregister invalidates before a ready promotion can publish")
+    func finalUnregisterInvalidatesBeforeReadyPromotionPublishes() async throws {
+        let fixture = RemoteReferenceRefreshFixture(suspendPromotion: true)
+        let invalidationGate = RemoteReferenceAuthorityApplicationGate()
+        let performanceRecorder = RemoteReferencePerformanceRecorderSpy()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            performanceRecorder: performanceRecorder,
+            onAuthorityUpdate: { update in
+                await fixture.acceptanceRecorder.record(update)
+                guard case .invalidated = update else { return }
+                await invalidationGate.waitForRelease()
+            }
+        )
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: fixture.repoId,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+        await fixture.provider.waitUntilPromotionSuspended()
+        let unregisterTask = Task {
+            await actor.unregister(worktreeId: fixture.worktreeId, repoId: fixture.repoId)
+        }
+        await invalidationGate.waitUntilEntered()
+
+        await fixture.provider.releasePromotion()
+        for _ in 0..<1000 where performanceRecorder.combinedSnapshot.promotionCompleted == 0 {
+            await actor.flushPerformanceSnapshot()
+            await Task.yield()
+        }
+
+        #expect(performanceRecorder.combinedSnapshot.promotionCompleted == 1)
+        #expect(await fixture.acceptanceRecorder.acceptanceCount == 0)
+        await invalidationGate.release()
+        await unregisterTask.value
+        #expect(await lease.settlement() == .obsolete)
+        await actor.waitUntilIdle()
+        #expect(performanceRecorder.settlements.last?.physicalActive == 0)
+        await actor.shutdown()
+    }
 }
 
 private actor RemoteReferenceRecomputationGate {

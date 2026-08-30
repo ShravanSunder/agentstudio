@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `bbdbf2b12` plus reviewed correctness remediation pending checkpoint
-Status: wrap-up in progress; reviewed correction green, exact-final aggregate/review/publication open
+Current implementation checkpoint: `43f6511f4` plus final reviewed correctness remediation pending checkpoint
+Status: wrap-up in progress; final remediation focused proof green, exact-final aggregate/review/publication open
 
 ## Product Contract
 
@@ -91,6 +91,9 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - Post-correction focused proof passed the remote actor plus recomputation suites 21/21, `RemoteReferenceRepositoryCardinalityTests` 2/2, and the combined `FilesystemActorActivityTests` + `TestPushClockTests` + `FilesystemGitPipelineIntegrationTests` set 16/16. The earlier five-suite combined filter exposed process-wide suite interaction and timed out; the exact aggregate remains the authoritative topology and is still required on the committed final HEAD.
 - Exact aggregate `mise run test` at `a10618f99` reached the isolated native FSEvents lane after 313.77 seconds and failed only `DarwinCompositeFSEventContinuityTests` because `prepareAuthority()` returned `nil` in the unchanged host-sensitive suite. The same post-reboot FSEvents host boundary and unchanged source lane are already recorded above; no product or proof-gate change was made for it.
 - The exact-head review then found one reachable actor-reentrancy defect during the promotion-authority handoff: origin replacement or shutdown could revoke `.promoting` while the projector callback was suspended, after which the callback recreated stale recomputation custody. Promotion now enters an explicit applying-authority state before the await and validates that exact state before advancing. Deterministic origin-replacement and shutdown regressions pass with the complete actor/recomputation set, 23/23.
+- Exact aggregate `mise run test` at `43f6511f4` passed with exit code 0 in 469.70 seconds: SwiftLint reported 0 violations across 2,230 files; BridgeWeb unit 1,764/1,764, integration 19/19, browser 211 passed/5 skipped, and E2E 4/4 passed; all Swift prebuild, fast, large, serialized WebKit, and serialized E2E lanes passed; final E2E passed 6/6 across three suites.
+- The final fresh review found three remaining fail-closed gaps: several topology identity paths suspended in authority invalidation before marking the repository invalidating; projector invalidation/shutdown could retain an unjoined recomputation lease; and same-key repository activity authority survived observation-scope replacement until a later checkpoint. Identity invalidation is now centralized and active before its first await; invalidation/shutdown retire every repository-keyed recomputation revision; and activity scope replacement synchronously revokes only affected current-session authority while preserving persisted facts and rejecting late pre-revocation commits. Focused Git lifecycle proof passes 27/27 across three suites; activity store/actor proof passes 13/13 across two suites.
+- The post-format combined focused rerun passed 40/40 across five suites: `RemoteReferenceRefreshActorTests`, `RemoteReferenceRefreshRecomputationTests`, `GitWorkingDirectoryProjectorRemoteReferenceTests`, `RepositoryLocalActivityStoreTests`, and `FilesystemActorActivityTests`.
 - `mise run lint` passes after the reviewed correction with SwiftLint 0 violations, architecture lint OK, release-script verification green, and `git diff --check` clean.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
