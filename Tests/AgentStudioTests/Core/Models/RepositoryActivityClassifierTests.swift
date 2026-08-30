@@ -69,9 +69,9 @@ struct RepositoryActivityClassifierTests {
         let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000_000)
         let warmActivityAt = referenceDate.addingTimeInterval(-100)
         let coverageStartedAt = referenceDate.addingTimeInterval(-horizon - 1000)
+        let warmBoundary = warmActivityAt.addingTimeInterval(horizon)
         let warmTransition = Date(
-            timeIntervalSinceReferenceDate: warmActivityAt.addingTimeInterval(horizon)
-                .timeIntervalSinceReferenceDate.nextUp
+            timeIntervalSinceReferenceDate: warmBoundary.timeIntervalSinceReferenceDate.nextUp
         )
         let firstActivity = try RepositoryLocalActivity(
             repositoryStableKey: "1111111111111111",
@@ -101,6 +101,26 @@ struct RepositoryActivityClassifierTests {
                 referenceDate: referenceDate
             )
         )
+        let exactBoundary = RepositoryActivityClassifier.classify(
+            input(
+                localActivityHydrationDisposition: .authoritative,
+                repositoryLocalActivityByStableKey: [
+                    firstActivity.repositoryStableKey: firstActivity,
+                    secondActivity.repositoryStableKey: secondActivity,
+                ],
+                referenceDate: warmBoundary
+            )
+        )
+        let afterBoundary = RepositoryActivityClassifier.classify(
+            input(
+                localActivityHydrationDisposition: .authoritative,
+                repositoryLocalActivityByStableKey: [
+                    firstActivity.repositoryStableKey: firstActivity,
+                    secondActivity.repositoryStableKey: secondActivity,
+                ],
+                referenceDate: warmTransition
+            )
+        )
 
         #expect(result.dispositionByRepositoryID[firstRepositoryID] == .warm)
         #expect(result.dispositionByRepositoryID[secondRepositoryID] == .locallyInactive)
@@ -111,6 +131,9 @@ struct RepositoryActivityClassifierTests {
         #expect(result.unknownWorktreeIDs.isEmpty)
         #expect(result.locallyInactiveWorktreeIDs == [secondWorktreeID])
         #expect(result.nextTransitionAt == warmTransition)
+        #expect(exactBoundary.dispositionByRepositoryID[firstRepositoryID] == .warm)
+        #expect(exactBoundary.nextTransitionAt == warmTransition)
+        #expect(afterBoundary.dispositionByRepositoryID[firstRepositoryID] == .locallyInactive)
     }
 
     @Test("activity expiry becomes unknown until continuous coverage matures")
@@ -118,13 +141,13 @@ struct RepositoryActivityClassifierTests {
         let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000_000)
         let lastActivityAt = referenceDate.addingTimeInterval(-50 * 24 * 60 * 60)
         let coverageStartedAt = referenceDate.addingTimeInterval(-10 * 24 * 60 * 60)
+        let activityBoundaryAt = lastActivityAt.addingTimeInterval(horizon)
+        let coverageBoundaryAt = coverageStartedAt.addingTimeInterval(horizon)
         let activityTransitionAt = Date(
-            timeIntervalSinceReferenceDate: lastActivityAt.addingTimeInterval(horizon)
-                .timeIntervalSinceReferenceDate.nextUp
+            timeIntervalSinceReferenceDate: activityBoundaryAt.timeIntervalSinceReferenceDate.nextUp
         )
         let coverageTransitionAt = Date(
-            timeIntervalSinceReferenceDate: coverageStartedAt.addingTimeInterval(horizon)
-                .timeIntervalSinceReferenceDate.nextUp
+            timeIntervalSinceReferenceDate: coverageBoundaryAt.timeIntervalSinceReferenceDate.nextUp
         )
         let activity = try RepositoryLocalActivity(
             repositoryStableKey: "1111111111111111",
@@ -150,12 +173,38 @@ struct RepositoryActivityClassifierTests {
                 referenceDate: activityTransitionAt
             )
         )
+        let exactActivityBoundary = RepositoryActivityClassifier.classify(
+            input(
+                localActivityHydrationDisposition: .authoritative,
+                repositoryLocalActivityByStableKey: [activity.repositoryStableKey: activity],
+                referenceDate: activityBoundaryAt
+            )
+        )
+        let exactCoverageBoundary = RepositoryActivityClassifier.classify(
+            input(
+                localActivityHydrationDisposition: .authoritative,
+                repositoryLocalActivityByStableKey: [activity.repositoryStableKey: activity],
+                referenceDate: coverageBoundaryAt
+            )
+        )
+        let inactive = RepositoryActivityClassifier.classify(
+            input(
+                localActivityHydrationDisposition: .authoritative,
+                repositoryLocalActivityByStableKey: [activity.repositoryStableKey: activity],
+                referenceDate: coverageTransitionAt
+            )
+        )
 
         #expect(warm.dispositionByRepositoryID[firstRepositoryID] == .warm)
         #expect(warm.nextTransitionAt == activityTransitionAt)
+        #expect(exactActivityBoundary.dispositionByRepositoryID[firstRepositoryID] == .warm)
+        #expect(exactActivityBoundary.nextTransitionAt == activityTransitionAt)
         #expect(unknown.dispositionByRepositoryID[firstRepositoryID] == .unclassified)
         #expect(unknown.unknownRepositoryIDs.contains(firstRepositoryID))
         #expect(unknown.nextTransitionAt == coverageTransitionAt)
+        #expect(exactCoverageBoundary.dispositionByRepositoryID[firstRepositoryID] == .unclassified)
+        #expect(exactCoverageBoundary.nextTransitionAt == coverageTransitionAt)
+        #expect(inactive.dispositionByRepositoryID[firstRepositoryID] == .locallyInactive)
     }
 
     @Test("an open worktree keeps its repository warm without a time deadline")

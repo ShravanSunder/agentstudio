@@ -360,6 +360,10 @@ package actor ForgeActor {
         }
     }
 
+    package func appliedAutomaticDemandWorktreeIds() -> Set<UUID> {
+        demandedWorktreeIds
+    }
+
     private func updateMembershipBranch(
         worktreeId: UUID,
         repoId: UUID,

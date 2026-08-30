@@ -536,7 +536,15 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 ]
             )
         )
-        await actor.setAutomaticEligibleWorktrees([blockingWorktreeId, targetWorktreeId])
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: [blockingWorktreeId, targetWorktreeId],
+            backgroundOnlyAutomaticWorktreeIds: [targetWorktreeId]
+        )
+        #expect(await actor.logicalDebtSnapshot().backgroundOnlyAutomaticCount == 1)
         await actor.enqueueImmediateRefresh(
             admissionFilesystemChangeset(
                 worktreeId: blockingWorktreeId,
@@ -567,7 +575,14 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         )
         #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
 
-        await actor.setAutomaticEligibleWorktrees([blockingWorktreeId])
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: [blockingWorktreeId],
+            backgroundOnlyAutomaticWorktreeIds: []
+        )
 
         #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths == ["tracked-41.txt"])
         #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))

@@ -292,6 +292,10 @@ package actor RemoteReferenceRefreshActor {
         flushPerformanceSnapshot()
     }
 
+    package func appliedAutomaticDemandRepositoryIds() -> Set<UUID> {
+        demandedRepositoryIds
+    }
+
     package func shutdown() async {
         guard !isShuttingDown else {
             await waitUntilIdle()

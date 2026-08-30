@@ -16,6 +16,7 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
     package let inactiveAutomaticSourceStartCount: UInt64
     package let backgroundOnlyAutomaticCount: Int
     package let backgroundOnlyAutomaticDeadlineCount: Int
+    package let backgroundOnlyAutomaticOwnedCount: Int
     package let backgroundOnlyResolvedVisibleTierCount: Int
     package let oldestPreparationTimestamp: ContinuousClock.Instant?
     package let nextDeadline: Duration?
@@ -37,6 +38,7 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
             && lhs.inactiveAutomaticSourceStartCount == rhs.inactiveAutomaticSourceStartCount
             && lhs.backgroundOnlyAutomaticCount == rhs.backgroundOnlyAutomaticCount
             && lhs.backgroundOnlyAutomaticDeadlineCount == rhs.backgroundOnlyAutomaticDeadlineCount
+            && lhs.backgroundOnlyAutomaticOwnedCount == rhs.backgroundOnlyAutomaticOwnedCount
             && lhs.backgroundOnlyResolvedVisibleTierCount
                 == rhs.backgroundOnlyResolvedVisibleTierCount
             && lhs.oldestPreparationTimestamp == rhs.oldestPreparationTimestamp
@@ -72,6 +74,8 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
                 backgroundOnlyAutomaticCount),
             "agentstudio.performance.git.background_only_automatic_deadline.current": .int(
                 backgroundOnlyAutomaticDeadlineCount),
+            "agentstudio.performance.git.background_only_automatic_owned.current": .int(
+                backgroundOnlyAutomaticOwnedCount),
             "agentstudio.performance.git.background_only_resolved_visible_tier.current": .int(
                 backgroundOnlyResolvedVisibleTierCount),
             "agentstudio.performance.git.oldest_preparation_ms": .double(oldestPreparationMilliseconds),
@@ -106,6 +110,13 @@ extension GitWorkingDirectoryProjector {
         }
         let backgroundOnlyAutomaticDeadlineCount = automaticRefreshDeadlineByWorktreeId.keys.count {
             backgroundOnlyAutomaticWorktreeIds.contains($0)
+        }
+        let backgroundOnlyAutomaticOwnedCount = backgroundOnlyEligibleWorktreeIds.count {
+            automaticRefreshDeadlineByWorktreeId[$0] != nil
+                || statusFailureDeadlineByWorktreeId[$0] != nil
+                || capacityFallbackDeadlineByWorktreeId[$0] != nil
+                || pendingByWorktreeId[$0] != nil
+                || worktreeTasks[$0] != nil
         }
         let backgroundOnlyResolvedVisibleTierCount = backgroundOnlyEligibleWorktreeIds.count {
             demandTier(for: $0) == .visibleSidebar
@@ -159,6 +170,7 @@ extension GitWorkingDirectoryProjector {
             inactiveAutomaticSourceStartCount: inactiveAutomaticSourceStartCount,
             backgroundOnlyAutomaticCount: backgroundOnlyEligibleWorktreeIds.count,
             backgroundOnlyAutomaticDeadlineCount: backgroundOnlyAutomaticDeadlineCount,
+            backgroundOnlyAutomaticOwnedCount: backgroundOnlyAutomaticOwnedCount,
             backgroundOnlyResolvedVisibleTierCount: backgroundOnlyResolvedVisibleTierCount,
             oldestPreparationTimestamp: oldestPreparationTimestamp,
             nextDeadline: nextDeadline,

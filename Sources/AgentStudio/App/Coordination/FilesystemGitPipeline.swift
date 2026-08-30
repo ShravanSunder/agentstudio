@@ -83,6 +83,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     private let remoteReferenceRefreshActor: RemoteReferenceRefreshActor
     private let forgeActor: ForgeActor
     private let registrationValidator: GitWorktreeRegistrationValidator
+    private let repositoryFactDemandPerformanceRecorder: (any RepositoryFactDemandPerformanceRecording)?
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -99,8 +100,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
         gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        repositoryFactDemandPerformanceRecorder:
+            (any RepositoryFactDemandPerformanceRecording)? = nil
     ) {
+        self.repositoryFactDemandPerformanceRecorder =
+            repositoryFactDemandPerformanceRecorder ?? performanceTraceRecorder
         self.filesystemActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventStreamClient,
@@ -225,6 +230,42 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         )
         await remoteReferenceRefreshActor.setDemand(repositoryIds: snapshot.demandedRepositoryIds)
         await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)
+        guard let repositoryFactDemandPerformanceRecorder else { return }
+        let appliedBackgroundOnlyAutomaticWorktreeIds =
+            await gitWorkingDirectoryProjector.appliedBackgroundOnlyAutomaticWorktreeIds()
+        let appliedRemoteDemandRepositoryIds =
+            await remoteReferenceRefreshActor.appliedAutomaticDemandRepositoryIds()
+        let appliedForgeDemandWorktreeIds =
+            await forgeActor.appliedAutomaticDemandWorktreeIds()
+        repositoryFactDemandPerformanceRecorder.recordRepositoryFactDemandPerformanceSnapshot(
+            Self.appliedDemandPerformanceSnapshot(
+                snapshot: snapshot,
+                backgroundOnlyAutomaticWorktreeIds: appliedBackgroundOnlyAutomaticWorktreeIds,
+                remoteDemandRepositoryIds: appliedRemoteDemandRepositoryIds,
+                forgeDemandWorktreeIds: appliedForgeDemandWorktreeIds
+            )
+        )
+    }
+
+    static func appliedDemandPerformanceSnapshot(
+        snapshot: RepositoryFactDemandSnapshot,
+        backgroundOnlyAutomaticWorktreeIds: Set<UUID>,
+        remoteDemandRepositoryIds: Set<UUID>,
+        forgeDemandWorktreeIds: Set<UUID>
+    ) -> RepositoryFactDemandPerformanceSnapshot {
+        var performance = RepositoryFactDemandPerformanceSnapshot()
+        performance.applied = 1
+        performance.appliedUnknownWorktreeCurrent = UInt64(snapshot.unknownWorktreeIds.count)
+        performance.appliedUnknownBackgroundOnlyCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(backgroundOnlyAutomaticWorktreeIds).count
+        )
+        performance.appliedUnknownRemoteDemandCurrent = UInt64(
+            snapshot.unknownRepositoryIds.intersection(remoteDemandRepositoryIds).count
+        )
+        performance.appliedUnknownForgeDemandCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(forgeDemandWorktreeIds).count
+        )
+        return performance
     }
 
     func waitForRepositoryFactDemandAdmission() async {

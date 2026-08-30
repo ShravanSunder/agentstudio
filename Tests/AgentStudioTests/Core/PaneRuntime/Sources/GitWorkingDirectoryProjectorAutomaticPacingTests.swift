@@ -83,6 +83,70 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         await actor.shutdown()
     }
 
+    @Test("background-only promotion starts one ordinary-tier baseline without duplication")
+    func backgroundOnlyPromotionStartsOneOrdinaryTierBaseline() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = AutomaticPacingCallCounter()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(50),
+            visibleSidebarCadence: .milliseconds(100),
+            openPaneCadence: .milliseconds(200),
+            backgroundCadence: .milliseconds(400),
+            backgroundStripeCount: 1
+        )
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in
+                await calls.increment()
+                return GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            },
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let worktreeId = UUIDv7.generate()
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeId],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: [worktreeId],
+            backgroundOnlyAutomaticWorktreeIds: [worktreeId]
+        )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await actor.waitForVisibilityAdmission()
+        await bus.post(
+            automaticPacingRegistrationEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/background-promotion-\(worktreeId)")
+            )
+        )
+        #expect(await automaticPacingWaitUntil { await actor.rootPathByWorktreeId[worktreeId] != nil })
+        #expect(await calls.value == 0)
+
+        await setPromotedAttention(actor: actor, worktreeId: worktreeId)
+        #expect(await automaticPacingWaitUntil { await calls.value == 1 })
+        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        await setPromotedAttention(actor: actor, worktreeId: worktreeId)
+        #expect(await calls.value == 1)
+        let lastStart = try #require(await actor.lastAutomaticStartAtByWorktreeId[worktreeId])
+        let nextDeadline = try #require(
+            await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+        )
+        #expect(nextDeadline >= lastStart + policy.visibleSidebarCadence)
+
+        await actor.shutdown()
+    }
+
     @Test(
         "active-pane invalidation bypasses automatic pacing",
         arguments: [false, true]
@@ -230,6 +294,20 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         await gate.releaseAll()
         await actor.shutdown()
     }
+}
+
+private func setPromotedAttention(
+    actor: GitWorkingDirectoryProjector,
+    worktreeId: UUID
+) async {
+    await actor.setRepositoryFactAttention(
+        activePaneWorktreeId: nil,
+        sidebarAttendedWorktreeIds: [worktreeId],
+        visibleActiveTabWorktreeIds: [],
+        openWorktreeIds: [],
+        warmAutomaticWorktreeIds: [worktreeId],
+        backgroundOnlyAutomaticWorktreeIds: []
+    )
 }
 
 private actor AutomaticPacingCallCounter {

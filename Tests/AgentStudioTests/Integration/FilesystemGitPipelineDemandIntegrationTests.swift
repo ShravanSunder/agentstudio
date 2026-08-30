@@ -15,25 +15,15 @@ struct FilesystemGitPipelineDemandIntegrationTests {
     @Test("unknown attended repository publishes its first complete sidebar baseline")
     func unknownAttendedRepositoryPublishesCompleteSidebarBaseline() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let expectedStatus = GitWorkingTreeStatus(
-            summary: GitWorkingTreeSummary(
-                changed: 2,
-                staged: 1,
-                untracked: 3,
-                linesAdded: 69,
-                linesDeleted: 19,
-                aheadCount: 2,
-                behindCount: 1,
-                hasUpstream: true
-            ),
-            branch: "feature/sidebar-admission",
-            origin: "git@github.com:askluna/agent-studio.git"
-        )
+        let expectedStatus = demandIntegrationExpectedSidebarStatus()
         let gitProvider = DemandIntegrationGitStatusProvider(status: expectedStatus)
         let remoteReferenceProvider = DemandIntegrationRemoteReferenceProvider()
         let forgeProvider = DemandIntegrationForgeProvider(
             expectedBranch: "feature/sidebar-admission"
         )
+        let performanceRecorder = DemandIntegrationPerformanceRecorder()
+        let gitClock = TestPushClock()
+        let refreshPolicy = demandIntegrationUnknownRefreshPolicy()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: DemandIntegrationRegistrationDiscoveryProvider(),
@@ -43,7 +33,10 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             fseventStreamClient: DemandIntegrationSilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
-            gitCoalescingWindow: .zero
+            gitCoalescingWindow: .zero,
+            gitRefreshPolicy: refreshPolicy,
+            gitSleepClock: gitClock,
+            repositoryFactDemandPerformanceRecorder: performanceRecorder
         )
         let rootPath = demandIntegrationFixtureRootPath()
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
@@ -82,11 +75,17 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             )
         )
         await demandCoordinator.waitUntilIdle()
+        try expectUnknownAppliedPerformance(performanceRecorder)
+        await gitClock.waitForPendingSleepCount(atLeast: 1)
+        gitClock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await pipeline.waitForRepositoryFactDemandAdmission()
         await pipeline.register(
             worktreeId: worktree.id,
             repoId: repository.id,
             rootPath: rootPath
         )
+        await gitClock.waitForPendingSleepCount(atLeast: 1)
+        gitClock.advance(by: refreshPolicy.backgroundCadence)
 
         let baselinePublished = await eventually("unknown attended baseline should reach RepoCache") {
             repoCache.worktreeEnrichment(for: worktree.id)?.snapshot?.summary
@@ -109,6 +108,38 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             pipeline: pipeline,
             cacheCoordinator: cacheCoordinator
         )
+    }
+
+    @Test("applied demand performance exposes a misrouted unknown key")
+    func appliedDemandPerformanceExposesMisroutedUnknownKey() {
+        let repositoryId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let snapshot = RepositoryFactDemandSnapshot(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeId],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            repositoryIdByWorktreeId: [worktreeId: repositoryId],
+            warmRepositoryIds: [],
+            unknownRepositoryIds: [repositoryId],
+            locallyInactiveRepositoryIds: [],
+            warmAutomaticWorktreeIds: [],
+            unknownWorktreeIds: [worktreeId],
+            backgroundOnlyAutomaticWorktreeIds: [worktreeId],
+            locallyInactiveWorktreeIds: []
+        )
+
+        let performance = FilesystemGitPipeline.appliedDemandPerformanceSnapshot(
+            snapshot: snapshot,
+            backgroundOnlyAutomaticWorktreeIds: [worktreeId],
+            remoteDemandRepositoryIds: [repositoryId],
+            forgeDemandWorktreeIds: [worktreeId]
+        )
+
+        #expect(performance.appliedUnknownWorktreeCurrent == 1)
+        #expect(performance.appliedUnknownBackgroundOnlyCurrent == 1)
+        #expect(performance.appliedUnknownRemoteDemandCurrent == 1)
+        #expect(performance.appliedUnknownForgeDemandCurrent == 1)
     }
 
     @Test("changed attention reuses fresh local remote and Forge facts")
@@ -469,6 +500,43 @@ private func demandIntegrationFixtureRootPath() -> URL {
         .appending(path: "pipeline-demand-cache-\(UUIDv7.generate().uuidString)")
 }
 
+private func demandIntegrationExpectedSidebarStatus() -> GitWorkingTreeStatus {
+    GitWorkingTreeStatus(
+        summary: GitWorkingTreeSummary(
+            changed: 2,
+            staged: 1,
+            untracked: 3,
+            linesAdded: 69,
+            linesDeleted: 19,
+            aheadCount: 2,
+            behindCount: 1,
+            hasUpstream: true
+        ),
+        branch: "feature/sidebar-admission",
+        origin: "git@github.com:askluna/agent-studio.git"
+    )
+}
+
+private func demandIntegrationUnknownRefreshPolicy() -> AppPolicies.GitRefresh.Policy {
+    AppPolicies.GitRefresh.Policy(
+        activePaneCadence: .milliseconds(50),
+        visibleSidebarCadence: .milliseconds(100),
+        openPaneCadence: .milliseconds(200),
+        backgroundCadence: .milliseconds(400),
+        backgroundStripeCount: 1
+    )
+}
+
+private func expectUnknownAppliedPerformance(
+    _ recorder: DemandIntegrationPerformanceRecorder
+) throws {
+    let performance = try #require(recorder.snapshots.last)
+    #expect(performance.appliedUnknownWorktreeCurrent == 1)
+    #expect(performance.appliedUnknownBackgroundOnlyCurrent == 1)
+    #expect(performance.appliedUnknownRemoteDemandCurrent == 0)
+    #expect(performance.appliedUnknownForgeDemandCurrent == 0)
+}
+
 private func demandIntegrationActivityTopology(
     repository: Repo,
     worktreeId: UUID
@@ -496,6 +564,23 @@ private struct DemandIntegrationSourceCallCounts: Equatable {
     let remotePromote: Int
     let remoteCleanup: Int
     let forge: Int
+}
+
+private final class DemandIntegrationPerformanceRecorder:
+    RepositoryFactDemandPerformanceRecording, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var recordedSnapshots: [RepositoryFactDemandPerformanceSnapshot] = []
+
+    var snapshots: [RepositoryFactDemandPerformanceSnapshot] {
+        lock.withLock { recordedSnapshots }
+    }
+
+    func recordRepositoryFactDemandPerformanceSnapshot(
+        _ snapshot: RepositoryFactDemandPerformanceSnapshot
+    ) {
+        lock.withLock { recordedSnapshots.append(snapshot) }
+    }
 }
 
 private struct DemandIntegrationRemoteCallCounts: Equatable {

@@ -28,6 +28,8 @@ struct AgentStudioOTLPStartupDiagnosticProjectionTests {
                 "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
                 "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
                 "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count": .int(1),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count": .int(2),
             ]
         )
 
@@ -47,6 +49,16 @@ struct AgentStudioOTLPStartupDiagnosticProjectionTests {
             projection.attributes[
                 "agentstudio.startup_diagnostic.sidebar_proof.control_root_present"
             ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count"
+            ] == .int(2)
         )
     }
 

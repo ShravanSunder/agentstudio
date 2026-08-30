@@ -100,6 +100,16 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
         )
         #expect(missingBackground.exitCode == 1)
         #expect(missingBackground.stderr.contains("unknown background classification"))
+
+        let missingSelfHealSequence = try mutateSettlementSequence(
+            reasonedGitSettlementSequence()
+        ) { _, observation in
+            observation["git_background_only_deadline_count"] = 0
+            observation["git_background_only_owned_count"] = 0
+        }
+        let missingSelfHeal = try await runQuiescenceContract(sequence: missingSelfHealSequence)
+        #expect(missingSelfHeal.exitCode == 1)
+        #expect(missingSelfHeal.stderr.contains("unknown background self-heal ownership"))
     }
 
     @Test("strict quiescence rejects overdue Git deadlines")
@@ -323,7 +333,7 @@ struct SidebarPerformanceWorkloadSettlementScriptTests {
                 ? nextDeadlineMilliseconds - (timestamp * 1000)
                 : 0
             return """
-                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"unknown_worktree_count":1,"unknown_background_only_count":1,"unknown_remote_demand_count":0,"unknown_forge_demand_count":0,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(observedNextDeadlineMilliseconds),"git_background_only_automatic_count":1,"git_background_only_deadline_count":1,"git_background_only_visible_tier_count":0,"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"proof_failure_count":\(proofFailureCount),"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
+                {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"unknown_worktree_count":1,"unknown_background_only_count":1,"unknown_remote_demand_count":0,"unknown_forge_demand_count":0,"git_logical_debt":\(gitLogicalDebt),"git_future_automatic_count":\(futureAutomaticCount),"git_future_failure_count":\(futureFailureCount),"git_ready_pending_count":\(readyPendingCount),"git_capacity_pending_count":\(capacityPendingCount),"git_active_follow_up_count":\(activeFollowUpCount),"git_unclassified_pending_count":\(unclassifiedPendingCount),"git_overdue_deadline_count":\(overdueDeadlineCount),"git_running_count":\(runningCount),"git_physical_limit":\(physicalLimit),"git_oldest_preparation_ms":\(oldestPreparationMilliseconds),"git_next_deadline_ms":\(observedNextDeadlineMilliseconds),"git_background_only_automatic_count":1,"git_background_only_deadline_count":1,"git_background_only_owned_count":1,"git_background_only_visible_tier_count":0,"remote_physical_active":0,"remote_pending_total":0,"remote_pending_future":0,"remote_pending_ready":0,"remote_pending_capacity":0,"remote_pending_active_follow_up":0,"remote_pending_unclassified":0,"remote_overdue_deadline":0,"remote_next_deadline_ms":0,"remote_physical_limit":1,"forge_physical_active":0,"forge_pending_total":0,"forge_pending_future":0,"forge_pending_ready":0,"forge_pending_capacity":0,"forge_pending_active_follow_up":0,"forge_pending_unclassified":0,"forge_overdue_deadline":0,"forge_next_deadline_ms":0,"forge_physical_limit":2,"git_maximum_settlement_ms":\(maximumSettlementMilliseconds),"export_backlog":0,"proof_failure_count":\(proofFailureCount),"observation_time":\(timestamp),"export_sample_time":\(timestamp)}
                 """
         }
         return "[" + observations.joined(separator: ",") + "]"

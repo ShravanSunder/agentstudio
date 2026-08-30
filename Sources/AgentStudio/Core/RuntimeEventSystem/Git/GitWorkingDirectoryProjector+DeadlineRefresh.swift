@@ -187,6 +187,10 @@ extension GitWorkingDirectoryProjector {
         }
     }
 
+    package func appliedBackgroundOnlyAutomaticWorktreeIds() -> Set<UUID> {
+        backgroundOnlyAutomaticWorktreeIds
+    }
+
     func scheduleCoalescedVisibilityAdmission() {
         if visibilityAdmissionTask != nil {
             recordVisibilityAdmissionTelemetry(

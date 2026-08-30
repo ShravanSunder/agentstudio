@@ -142,6 +142,11 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             "agentstudio.performance.repository_fact_demand.unknown.background_only.current": .int(9),
             "agentstudio.performance.repository_fact_demand.unknown.remote_demand.current": .int(0),
             "agentstudio.performance.repository_fact_demand.unknown.forge_demand.current": .int(0),
+            "agentstudio.performance.repository_fact_demand.pipeline.applied.count": .int(1),
+            "agentstudio.performance.repository_fact_demand.pipeline.unknown_worktree.current": .int(9),
+            "agentstudio.performance.repository_fact_demand.pipeline.unknown_background_only.current": .int(9),
+            "agentstudio.performance.repository_fact_demand.pipeline.unknown_remote_demand.current": .int(0),
+            "agentstudio.performance.repository_fact_demand.pipeline.unknown_forge_demand.current": .int(0),
             "agentstudio.performance.repository_fact_demand.inactive.remote_suppressed.current": .int(118),
         ]
         let projection = AgentStudioOTLPTraceProjection.project(
@@ -169,7 +174,7 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             event.measurements.filter { measurement in
                 guard case .gauge = measurement else { return false }
                 return true
-            }.count == 8)
+            }.count == 12)
     }
 
     @Test
