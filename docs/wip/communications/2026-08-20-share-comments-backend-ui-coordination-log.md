@@ -2093,3 +2093,32 @@ outside the sandbox. Fable could not initialize because npm DNS was unavailable.
 Do not treat these environment failures as product results; rerun the focused
 browser suite, backend integration, complete aggregate, and fresh Fable review
 when the host services recover.
+
+## 2026-08-29 21:33 EDT — Clean combined HEAD aggregate reaches host boundary
+
+The concurrent UI lane committed and cleaned its work. Combined HEAD
+`1ca7e43d8` has no dirty files. `mise run test:bridge-web:check` passes on that
+HEAD, including BridgeWeb architecture, format, TypeScript, and product-contract
+checks. `mise run test:bridge-web:unit` passes 322 files / 2,101 tests.
+
+The required `mise run test` aggregate was then run on the clean combined HEAD.
+Swift lint and AgentStudio architecture lint passed with zero violations;
+BridgeWeb quality checks and all 2,101 unit tests passed. The aggregate stopped
+in the Node integration lane at 20/22: both real-backend tests exited before
+readiness because `FSEventStreamStart` returned false and the seeded observation
+owner correctly failed closed with typed `streamStartFailed`. An isolated
+backend integration reproduces the same result outside the command sandbox.
+
+Read-only host diagnosis found the same intentional top-level assertion in a
+prior `fsevents-baseline-probe` crash under the AgentStudio coalition. The
+current AgentStudio process cannot enter the external user bootstrap
+(`launchctl ... Reentrancy avoided`), Apple Terminal is unavailable to Computer
+Use by policy, and the post-restart Computer Use service itself fails to start.
+Chrome still exits `SIGABRT` before Browser Mode collection. Fable still cannot
+initialize because npm DNS returns `ENOTFOUND`.
+
+No product or harness change is justified. Remaining proof must run after a
+full AgentStudio/login-session recovery or from a normal Terminal process
+outside the current AgentStudio host: focused Browser Mode, the 22-test backend
+integration, complete aggregate, fresh read-only Fable review, then push when
+Git/key/network services recover.
