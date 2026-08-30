@@ -2,7 +2,7 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current checkpoint: `92ce38c13`
+Current implementation checkpoint: `236aabe44`
 Status: not PR-ready
 
 ## Product Contract
@@ -61,6 +61,10 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - `05daa220d` raises the bounded FSEvent ingress capacity from 64 to 512. The real-size RED/green test holds one filesystem plus one activity batch for 148 worktrees without manufactured overflow; the complete FSEvent stream suite passes 29/29.
 - `a1234ae2b` keeps coverage-maturing unknown repositories on local background cadence without granting visible-tier, Remote, or Forge demand. The combined classifier, demand, projector, OTLP, strict-verifier, and real Git-pipeline run passed 52/52.
 - `92ce38c13` exposes the production unknown/background-only proof seam and makes the strict verifier reject unknown-to-visible, unknown-to-Remote, unknown-to-Forge, or incomplete background projection. The settlement verifier passed 17/17 after formatting; `mise run lint` passed with 0 SwiftLint violations, architecture lint OK, and release-script checks green.
+- `9c6f97b47` closes two independently reviewed gaps: sidebar visibility can no longer prompt a background-only missing baseline ahead of its registration phase, and the strict fixture requires positive unknown repository/worktree membership rather than permitting a vacuous zero-unknown proof.
+- `07458d47d` removes the contradictory legacy guard that required `.unclassified == 0` even though the classifier intentionally represents every unknown repository as `.unclassified`; mixed warm/unknown/inactive fixture admission is now reachable.
+- `236aabe44` records the exact applied Git/Remote/Forge demand sets at the pipeline/source owners, binds the strict verifier to those applied intersections, requires every registered background-only unknown key to own a finite deadline or classified in-flight work, exports the new numeric fields through the OTLP taxonomy, and adds exact cutoff plus background promotion/contraction transition proof. The final affected set passed 94/94 across 12 suites; `mise run format`, `mise run lint`, architecture lint, release checks, and `git diff --check` passed before the commit.
+- The third independent implementation review at `07458d47d` found three proof gaps, all remediated by `236aabe44`. Its coverage is therefore stale for the corrected HEAD. The workflow's three automatic remediation passes are exhausted; a fourth fresh review requires explicit owner authorization.
 - Exact Debug `lbim` PID `16674` relaunched against the preserved data root and showed stable By Repo branches, chips, and content-driven 44/63/70-point rows. The real root context menu remained open over chip-bearing rows. The root-plus-child menu geometry regression suite passed 4/4; live child-hover proof remains open.
 - The final aggregate gate is externally blocked after a WindowServer restart. BridgeWeb headless Chrome aborted before executing any browser test on two consecutive runs. The Swift fast process then reproduced system pasteboard failure: every AppKit pasteboard-backed drag decode returned `nil`, followed by a Swift Testing signal-6 abort while rendering an invalid `NSPasteboard`. LaunchServices subsequently rejected the freshly built Debug bundle with `kLSNoExecutableErr`, and the direct-executable fallback exited immediately. No product, test-topology, or proof-gate workaround was applied.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
@@ -69,6 +73,20 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The Git enrichment integration fixture now drives the existing cache-apply clock explicitly and waits for stable Forge projection plus an ordered cache-consumer barrier. `GitEnrichmentEventPipelineIntegrationTests` passed 2/2 without wall-clock sleeps.
 - `SWIFT_TEST_SKIP_PREBUILD=1 mise run test:swift:large` passed the broad 359-test/56-suite inventory, the 5-test PaneAgent owner, and every isolated process-global suite. `SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_PARALLEL=0 mise run test:swift:large` passed the same topology through the fallback path. `mise run format`, `mise run lint`, and `git diff --check` passed before the checkpoint commit; the final aggregate gate remains open.
 - Final exact-HEAD aggregate `mise run test` at `b56dd54e5` completed successfully after the isolated topology suite passed 7/7: BridgeWeb unit 1,764, integration 19, browser 211 passed/5 skipped, E2E 4; Swift fast/isolated/large, WebKit serialized, and E2E serialized all passed (exit 0, 429s).
+
+## Current Requirement-To-Proof Matrix
+
+| Requirement | Automated proof at `236aabe44` | Required native/runtime proof | Status |
+| --- | --- | --- | --- |
+| Actual branch or detached HEAD plus cached file/ahead/behind/PR facts | Cache, projection, materialization, refresh-lifetime, and Git-pipeline suites; final affected set 94/94 | PID-bound By Repo/Pane/Tab readback from preserved lbim | Automated green; native refresh required |
+| Inactive annotates freshness without hiding facts | Classifier, cached-fact retention, projection, and row tests | Mixed warm/unknown/inactive headers and chips in lbim | Automated green; native open |
+| Unknown receives phased local self-heal and no visible/Remote/Forge demand | Exact cutoff/transition tests, applied pipeline/source metrics, deliberate misroute falsifier, strict self-heal ownership falsifier | Positive unknown marker with zero forbidden intersections | Automated green; marker proof open |
+| Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; native/OTLP open |
+| Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | PID-bound bottom-scroll plus New Terminal child-menu capture | Automated green; child-menu proof open |
+| Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | At least 1,000 exact-lbim idle samples and action populations on complete 5/20 zero-PTY fixture | Open |
+| Exact final aggregate gate | Focused 94/94, format/lint/architecture/release/diff gates green | `mise run test` exit 0 on final HEAD | Open; prior host aborts are not acceptance |
+| Independent implementation review | Three reviews produced and three remediation passes completed | Fresh review of final corrected HEAD | Owner authorization required for review four |
+| PR publication readiness | Local branch checkpoints only | Push, CI, comments, threads, and mergeability | Deferred while push/host state is unavailable |
 
 ## Non-Goals
 
