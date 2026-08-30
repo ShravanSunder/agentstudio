@@ -214,3 +214,161 @@ enum PilotReplayPreparationOutcome: Sendable {
     case ready(PilotReplayState)
     case failed(ScaleResult)
 }
+
+@MainActor
+struct PreparedPilotScale {
+    let runtime: PilotScaleRuntime
+    let replayState: PilotReplayState
+    let scale: PilotScale
+}
+
+enum PilotScalePreparationOutcome {
+    case ready(PreparedPilotScale)
+    case failed(ScaleResult)
+}
+
+struct PairedScaleResult {
+    let baseline: ScaleResult
+    let doubled: ScaleResult
+}
+
+enum PairedScaleReplayOutcome {
+    case completed(PairedScaleResult)
+    case failed(RepoExplorerNativeTablePilotResult.FailureReason)
+}
+
+@MainActor
+extension RepoExplorerNativeTablePilot {
+    static func replayPairedTransactions<C: Clock>(
+        baseline: PreparedPilotScale,
+        doubled: PreparedPilotScale,
+        completionDeadline: C.Instant,
+        clock: C
+    ) -> PairedScaleReplayOutcome where C.Duration == Duration {
+        let warmupCount = AppPolicies.SidebarPerformanceProof.warmupTransactionCountPerScale
+        let measuredCount = AppPolicies.SidebarPerformanceProof.measuredTransactionCountPerScale
+        var baselineMeasurements: [Double] = []
+        var doubledMeasurements: [Double] = []
+        baselineMeasurements.reserveCapacity(measuredCount)
+        doubledMeasurements.reserveCapacity(measuredCount)
+
+        for transactionIndex in 0..<(warmupCount + measuredCount) {
+            guard !Task.isCancelled, clock.now < completionDeadline else {
+                return .failed(Task.isCancelled ? .cancelled : .completionTimeout)
+            }
+            for scale in pairedScaleOrder(transactionIndex: transactionIndex) {
+                let preparedScale = scale == .baseline ? baseline : doubled
+                let transactionResult = applyReplayTransaction(
+                    runtime: preparedScale.runtime,
+                    replayState: preparedScale.replayState,
+                    transactionIndex: transactionIndex
+                )
+                guard case .success(let elapsedMilliseconds) = transactionResult else {
+                    return .failed(
+                        preparedScale.runtime.fixture.contentChild.failureReason
+                            ?? .transactionInvalid
+                    )
+                }
+                guard transactionIndex >= warmupCount else { continue }
+                switch preparedScale.scale {
+                case .baseline:
+                    baselineMeasurements.append(elapsedMilliseconds)
+                case .doubled:
+                    doubledMeasurements.append(elapsedMilliseconds)
+                }
+            }
+        }
+
+        guard baselineMeasurements.count == measuredCount,
+            doubledMeasurements.count == measuredCount
+        else {
+            return .failed(.measurementCountMismatch)
+        }
+        return .completed(
+            PairedScaleResult(
+                baseline: completedScaleResult(
+                    measurements: baselineMeasurements,
+                    exactness: baseline.runtime.fixture.contentChild.isExact
+                ),
+                doubled: completedScaleResult(
+                    measurements: doubledMeasurements,
+                    exactness: doubled.runtime.fixture.contentChild.isExact
+                )
+            )
+        )
+    }
+
+    static func preparedScaleFailure(
+        _ reason: RepoExplorerNativeTablePilotResult.FailureReason
+    ) -> ScaleResult {
+        .failed(reason, livenessProjectionCount: 1, drainCompleted: true, templatePairCount: 1)
+    }
+
+    static func pairedScaleOrder(transactionIndex: Int) -> [PilotScale] {
+        transactionIndex.isMultiple(of: 2)
+            ? [.baseline, .doubled]
+            : [.doubled, .baseline]
+    }
+
+    private static func applyReplayTransaction(
+        runtime: PilotScaleRuntime,
+        replayState: PilotReplayState,
+        transactionIndex: Int
+    ) -> Result<Double, RepoExplorerNativeTablePilotResult.FailureReason> {
+        guard let currentBaseline = runtime.host.acceptedBaseline else {
+            return .failure(.fixtureInvalid)
+        }
+        let candidateID = replayState.seedEvent.candidateID + UInt64(transactionIndex) + 1
+        let visibleGeneration =
+            replayState.seedEvent.visibleGeneration + UInt64(transactionIndex) + 1
+        let isForward = transactionIndex.isMultiple(of: 2)
+        let template =
+            isForward
+            ? replayState.scenario.templates.forward
+            : replayState.scenario.templates.reverse
+        let expectedPresentation =
+            isForward
+            ? replayState.scenario.target
+            : replayState.scenario.source
+        let candidateResult = template.instantiate(
+            baseline: currentBaseline,
+            candidateID: RepoExplorerMaterializationCandidateID(rawValue: candidateID),
+            requestGeneration: visibleGeneration,
+            visibleGeneration: visibleGeneration
+        )
+        guard case .success(let candidate) = candidateResult,
+            candidate.presentation == expectedPresentation,
+            case .accepted(let acceptedBaseline) = runtime.host.apply(candidate),
+            acceptedBaseline.presentation == expectedPresentation,
+            acceptedBaseline.revision == currentBaseline.revision &+ 1,
+            acceptedBaseline.visibleGeneration == visibleGeneration,
+            runtime.fixture.contentChild.isExact,
+            let elapsedMilliseconds = runtime.fixture.contentChild.takeLastMeasurement()
+        else {
+            return .failure(.transactionInvalid)
+        }
+        return .success(elapsedMilliseconds)
+    }
+
+    private static func completedScaleResult(
+        measurements: [Double],
+        exactness: Bool
+    ) -> ScaleResult {
+        ScaleResult(
+            measurements: measurements,
+            p95Milliseconds: nearestRankP95(measurements),
+            exactness: exactness,
+            failureReason: nil,
+            livenessProjectionCount: 1,
+            drainCompleted: true,
+            templatePairCount: 1
+        )
+    }
+
+    private static func nearestRankP95(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sortedValues = values.sorted()
+        let rank = max(1, Int(ceil(Double(sortedValues.count) * 0.95)))
+        return sortedValues[rank - 1]
+    }
+}

@@ -79,8 +79,8 @@ struct RepoExplorerNativeTablePilotTests {
         #expect(source.contains("projectionAdapter.stopAndDrain()"))
         #expect(source.contains("reacknowledgeRetainedPresentation("))
         #expect(source.contains("PilotReplayScenario.prepare("))
-        #expect(source.contains("template.instantiate("))
-        #expect(source.contains("host.apply(candidate)"))
+        #expect(supportSource.contains("template.instantiate("))
+        #expect(supportSource.contains("host.apply(candidate)"))
         #expect(supportSource.contains("@concurrent nonisolated static func prepare("))
         #expect(combinedSource.contains("host.detach()"))
         #expect(!combinedSource.replacingOccurrences(of: "group.addTask {", with: "").contains("Task {"))
@@ -101,6 +101,18 @@ struct RepoExplorerNativeTablePilotTests {
         #expect(source.split(separator: "\n").count < 600)
         #expect(fixtureSource.split(separator: "\n").count < 600)
         #expect(supportSource.split(separator: "\n").count < 600)
+    }
+
+    @Test("paired pilot alternates scale order to cancel block timing drift")
+    func pairedPilotAlternatesScaleOrder() {
+        #expect(
+            RepoExplorerNativeTablePilot.pairedScaleOrder(transactionIndex: 0)
+                == [.baseline, .doubled]
+        )
+        #expect(
+            RepoExplorerNativeTablePilot.pairedScaleOrder(transactionIndex: 1)
+                == [.doubled, .baseline]
+        )
     }
 
     @Test("pilot replay measures mixed membership and displaced survivors")

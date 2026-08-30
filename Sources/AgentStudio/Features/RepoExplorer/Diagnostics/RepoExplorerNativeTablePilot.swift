@@ -37,7 +37,7 @@ package enum RepoExplorerNativeTablePilot {
             by: policy.nativeTablePilotCompletionTimeout
         )
 
-        let baseline = await runScale(
+        let baselinePreparation = await prepareScale(
             worktreeCount: policy.worktreeCount,
             scale: .baseline,
             completionDeadline: completionDeadline,
@@ -45,7 +45,10 @@ package enum RepoExplorerNativeTablePilot {
             performanceTraceRecorder: performanceTraceRecorder,
             project: project
         )
-        guard baseline.failureReason == nil else {
+        guard case .ready(let baselineScale) = baselinePreparation else {
+            guard case .failed(let baseline) = baselinePreparation else {
+                preconditionFailure("Unhandled native table baseline preparation")
+            }
             return failedResult(
                 reason: baseline.failureReason ?? .transactionInvalid,
                 baseline: baseline,
@@ -55,15 +58,16 @@ package enum RepoExplorerNativeTablePilot {
         }
 
         guard !Task.isCancelled else {
+            await baselineScale.runtime.cleanup()
             return failedResult(
                 reason: .cancelled,
-                baseline: baseline,
+                baseline: preparedScaleFailure(.cancelled),
                 doubled: nil,
                 performanceTraceRecorder: performanceTraceRecorder
             )
         }
 
-        let doubled = await runScale(
+        let doubledPreparation = await prepareScale(
             worktreeCount: policy.doubledWorktreeCount,
             scale: .doubled,
             completionDeadline: completionDeadline,
@@ -71,15 +75,57 @@ package enum RepoExplorerNativeTablePilot {
             performanceTraceRecorder: performanceTraceRecorder,
             project: project
         )
-        guard doubled.failureReason == nil else {
+        guard case .ready(let doubledScale) = doubledPreparation else {
+            await baselineScale.runtime.cleanup()
+            guard case .failed(let doubled) = doubledPreparation else {
+                preconditionFailure("Unhandled native table doubled preparation")
+            }
             return failedResult(
                 reason: doubled.failureReason ?? .transactionInvalid,
-                baseline: baseline,
+                baseline: preparedScaleFailure(doubled.failureReason ?? .transactionInvalid),
                 doubled: doubled,
                 performanceTraceRecorder: performanceTraceRecorder
             )
         }
 
+        let replayOutcome = replayPairedTransactions(
+            baseline: baselineScale,
+            doubled: doubledScale,
+            completionDeadline: completionDeadline,
+            clock: clock
+        )
+        await baselineScale.runtime.cleanup()
+        await doubledScale.runtime.cleanup()
+
+        guard case .completed(let pairedResult) = replayOutcome else {
+            guard case .failed(let reason) = replayOutcome else {
+                preconditionFailure("Unhandled native table paired replay outcome")
+            }
+            return failedResult(
+                reason: reason,
+                baseline: preparedScaleFailure(reason),
+                doubled: preparedScaleFailure(reason),
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+        }
+        return completedResult(
+            pairedResult,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    private static func completedResult(
+        _ pairedResult: PairedScaleResult,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) -> RepoExplorerNativeTablePilotResult {
+        let policy = AppPolicies.SidebarPerformanceProof.self
+        let baseline = pairedResult.baseline
+        let doubled = pairedResult.doubled
+        recordScaleResults(
+            baseline: baseline,
+            doubled: doubled,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
         let growthPercent = growthPercent(
             baseline: baseline.p95Milliseconds,
             doubled: doubled.p95Milliseconds
@@ -120,7 +166,7 @@ package enum RepoExplorerNativeTablePilot {
         return result
     }
 
-    private static func runScale<C: Clock>(
+    private static func prepareScale<C: Clock>(
         worktreeCount: Int,
         scale: PilotScale,
         completionDeadline: C.Instant,
@@ -129,7 +175,7 @@ package enum RepoExplorerNativeTablePilot {
         project:
             @escaping @Sendable (RepoExplorerProjectionWork) throws(CancellationError)
             -> RepoExplorerProjectionResult
-    ) async -> ScaleResult where C.Duration == Duration {
+    ) async -> PilotScalePreparationOutcome where C.Duration == Duration {
         let topology = await PilotTopology.build(
             repositoryCount: AppPolicies.SidebarPerformanceProof.repositoryCount,
             worktreeCount: worktreeCount,
@@ -144,7 +190,7 @@ package enum RepoExplorerNativeTablePilot {
         )
         guard runtime.projectionAdapter.registerMaterializationHost(runtime.host) else {
             await runtime.cleanup()
-            return .failed(.fixtureInvalid)
+            return .failed(.failed(.fixtureInvalid))
         }
 
         let preparation = await prepareReplay(
@@ -152,24 +198,23 @@ package enum RepoExplorerNativeTablePilot {
             completionDeadline: completionDeadline,
             clock: clock
         )
-        let result: ScaleResult
         switch preparation {
         case .ready(let replayState):
-            result = await replayTransactions(
-                runtime: runtime,
-                replayState: replayState,
-                completionDeadline: completionDeadline,
-                clock: clock
+            return .ready(
+                PreparedPilotScale(
+                    runtime: runtime,
+                    replayState: replayState,
+                    scale: scale
+                )
             )
         case .failed(let failure):
-            result = failure
+            await runtime.cleanup()
+            performanceTraceRecorder?.record(
+                .repoExplorerNativeTablePilot,
+                attributes: scaleTraceAttributes(scale: scale, result: failure)
+            )
+            return .failed(failure)
         }
-        await runtime.cleanup()
-        performanceTraceRecorder?.record(
-            .repoExplorerNativeTablePilot,
-            attributes: scaleTraceAttributes(scale: scale, result: result)
-        )
-        return result
     }
 
     private static func prepareReplay<C: Clock>(
@@ -249,98 +294,18 @@ package enum RepoExplorerNativeTablePilot {
         )
     }
 
-    private static func replayTransactions<C: Clock>(
-        runtime: PilotScaleRuntime,
-        replayState: PilotReplayState,
-        completionDeadline: C.Instant,
-        clock: C
-    ) async -> ScaleResult where C.Duration == Duration {
-        let warmupCount = AppPolicies.SidebarPerformanceProof.warmupTransactionCountPerScale
-        let measuredCount = AppPolicies.SidebarPerformanceProof.measuredTransactionCountPerScale
-        var measuredMilliseconds: [Double] = []
-        measuredMilliseconds.reserveCapacity(measuredCount)
-
-        for transactionIndex in 0..<(warmupCount + measuredCount) {
-            guard !Task.isCancelled, clock.now < completionDeadline else {
-                return replayFailure(Task.isCancelled ? .cancelled : .completionTimeout)
-            }
-            let transactionResult = applyReplayTransaction(
-                runtime: runtime,
-                replayState: replayState,
-                transactionIndex: transactionIndex
-            )
-            guard case .success(let elapsedMilliseconds) = transactionResult else {
-                return replayFailure(
-                    runtime.fixture.contentChild.failureReason ?? .transactionInvalid
-                )
-            }
-            if transactionIndex >= warmupCount {
-                measuredMilliseconds.append(elapsedMilliseconds)
-            }
-        }
-
-        guard measuredMilliseconds.count == measuredCount else {
-            return replayFailure(.measurementCountMismatch)
-        }
-        return ScaleResult(
-            measurements: measuredMilliseconds,
-            p95Milliseconds: nearestRankP95(measuredMilliseconds),
-            exactness: runtime.fixture.contentChild.isExact,
-            failureReason: nil,
-            livenessProjectionCount: 1,
-            drainCompleted: true,
-            templatePairCount: 1
+    private static func recordScaleResults(
+        baseline: ScaleResult,
+        doubled: ScaleResult,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
+        performanceTraceRecorder?.record(
+            .repoExplorerNativeTablePilot,
+            attributes: scaleTraceAttributes(scale: .baseline, result: baseline)
         )
-    }
-
-    private static func applyReplayTransaction(
-        runtime: PilotScaleRuntime,
-        replayState: PilotReplayState,
-        transactionIndex: Int
-    ) -> Result<Double, RepoExplorerNativeTablePilotResult.FailureReason> {
-        guard let currentBaseline = runtime.host.acceptedBaseline else {
-            return .failure(.fixtureInvalid)
-        }
-        let candidateID = replayState.seedEvent.candidateID + UInt64(transactionIndex) + 1
-        let visibleGeneration =
-            replayState.seedEvent.visibleGeneration + UInt64(transactionIndex) + 1
-        let isForward = transactionIndex.isMultiple(of: 2)
-        let template =
-            isForward
-            ? replayState.scenario.templates.forward
-            : replayState.scenario.templates.reverse
-        let expectedPresentation =
-            isForward
-            ? replayState.scenario.target
-            : replayState.scenario.source
-        let candidateResult = template.instantiate(
-            baseline: currentBaseline,
-            candidateID: RepoExplorerMaterializationCandidateID(rawValue: candidateID),
-            requestGeneration: visibleGeneration,
-            visibleGeneration: visibleGeneration
-        )
-        guard case .success(let candidate) = candidateResult,
-            candidate.presentation == expectedPresentation,
-            case .accepted(let acceptedBaseline) = runtime.host.apply(candidate),
-            acceptedBaseline.presentation == expectedPresentation,
-            acceptedBaseline.revision == currentBaseline.revision &+ 1,
-            acceptedBaseline.visibleGeneration == visibleGeneration,
-            runtime.fixture.contentChild.isExact,
-            let elapsedMilliseconds = runtime.fixture.contentChild.takeLastMeasurement()
-        else {
-            return .failure(.transactionInvalid)
-        }
-        return .success(elapsedMilliseconds)
-    }
-
-    private static func replayFailure(
-        _ reason: RepoExplorerNativeTablePilotResult.FailureReason
-    ) -> ScaleResult {
-        .failed(
-            reason,
-            livenessProjectionCount: 1,
-            drainCompleted: true,
-            templatePairCount: 1
+        performanceTraceRecorder?.record(
+            .repoExplorerNativeTablePilot,
+            attributes: scaleTraceAttributes(scale: .doubled, result: doubled)
         )
     }
 
@@ -410,13 +375,6 @@ package enum RepoExplorerNativeTablePilot {
         case .accepted, .invalidEvent, .streamClosed:
             .transactionInvalid
         }
-    }
-
-    private static func nearestRankP95(_ values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sortedValues = values.sorted()
-        let rank = max(1, Int(ceil(Double(sortedValues.count) * 0.95)))
-        return sortedValues[rank - 1]
     }
 
     private static func growthPercent(baseline: Double, doubled: Double) -> Double {
