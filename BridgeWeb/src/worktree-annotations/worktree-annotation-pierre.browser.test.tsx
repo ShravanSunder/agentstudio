@@ -476,7 +476,7 @@ describe('worktree annotation Pierre integration', () => {
 				await rendered
 					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
 					.fill('Saved before the File refresh settles.');
-				await rendered.getByRole('button', { name: 'Save annotation' }).click();
+				await userEvent.keyboard('{Meta>}{Enter}{/Meta}');
 			});
 			await settleBrowserCondition(
 				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
