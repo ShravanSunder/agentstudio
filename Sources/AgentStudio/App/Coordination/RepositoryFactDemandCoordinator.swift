@@ -400,9 +400,21 @@ final class RepositoryFactDemandCoordinator {
         performanceSnapshot.hydrationUnclassifiedCurrent =
             input.localActivityHydrationDisposition == .authoritative ? 0 : 1
         performanceSnapshot.warmRepositoryCurrent = UInt64(snapshot.warmRepositoryIds.count)
+        performanceSnapshot.unknownRepositoryCurrent = UInt64(snapshot.unknownRepositoryIds.count)
         performanceSnapshot.inactiveRepositoryCurrent = UInt64(
             snapshot.locallyInactiveRepositoryIds.count)
         performanceSnapshot.warmWorktreeCurrent = UInt64(snapshot.warmAutomaticWorktreeIds.count)
+        performanceSnapshot.unknownWorktreeCurrent = UInt64(snapshot.unknownWorktreeIds.count)
+        performanceSnapshot.unknownBackgroundOnlyCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(snapshot.backgroundOnlyAutomaticWorktreeIds)
+                .count
+        )
+        performanceSnapshot.unknownRemoteDemandCurrent = UInt64(
+            snapshot.unknownRepositoryIds.intersection(snapshot.demandedRepositoryIds).count
+        )
+        performanceSnapshot.unknownForgeDemandCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(snapshot.forgeDemandedWorktreeIds).count
+        )
         performanceSnapshot.inactiveWorktreeCurrent = UInt64(
             snapshot.locallyInactiveWorktreeIds.count)
         performanceSnapshot.inactiveRemoteSuppressedCurrent = UInt64(

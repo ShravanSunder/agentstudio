@@ -136,7 +136,12 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
         let attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.repository_fact_demand.activity.boundary_reclassified.count": .int(1),
             "agentstudio.performance.repository_fact_demand.activity.warm_repository.current": .int(2),
+            "agentstudio.performance.repository_fact_demand.activity.unknown_repository.current": .int(7),
             "agentstudio.performance.repository_fact_demand.activity.inactive_repository.current": .int(119),
+            "agentstudio.performance.repository_fact_demand.activity.unknown_worktree.current": .int(9),
+            "agentstudio.performance.repository_fact_demand.unknown.background_only.current": .int(9),
+            "agentstudio.performance.repository_fact_demand.unknown.remote_demand.current": .int(0),
+            "agentstudio.performance.repository_fact_demand.unknown.forge_demand.current": .int(0),
             "agentstudio.performance.repository_fact_demand.inactive.remote_suppressed.current": .int(118),
         ]
         let projection = AgentStudioOTLPTraceProjection.project(
@@ -164,7 +169,7 @@ struct AgentStudioOTLPDemandAdmissionPerformanceTests {
             event.measurements.filter { measurement in
                 guard case .gauge = measurement else { return false }
                 return true
-            }.count == 3)
+            }.count == 8)
     }
 
     @Test

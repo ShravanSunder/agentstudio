@@ -11,8 +11,13 @@ struct RepositoryFactDemandPerformanceSnapshot: Equatable, Sendable {
     var paneReactivated: UInt64 = 0
     var hydrationUnclassifiedCurrent: UInt64 = 0
     var warmRepositoryCurrent: UInt64 = 0
+    var unknownRepositoryCurrent: UInt64 = 0
     var inactiveRepositoryCurrent: UInt64 = 0
     var warmWorktreeCurrent: UInt64 = 0
+    var unknownWorktreeCurrent: UInt64 = 0
+    var unknownBackgroundOnlyCurrent: UInt64 = 0
+    var unknownRemoteDemandCurrent: UInt64 = 0
+    var unknownForgeDemandCurrent: UInt64 = 0
     var inactiveWorktreeCurrent: UInt64 = 0
     var inactiveRemoteSuppressedCurrent: UInt64 = 0
     var inactiveForgeSuppressedCurrent: UInt64 = 0
@@ -56,10 +61,20 @@ extension AgentStudioPerformanceTraceRecorder: RepositoryFactDemandPerformanceRe
                     Self.repositoryDemandTraceInteger(snapshot.hydrationUnclassifiedCurrent),
                 "agentstudio.performance.repository_fact_demand.activity.warm_repository.current":
                     Self.repositoryDemandTraceInteger(snapshot.warmRepositoryCurrent),
+                "agentstudio.performance.repository_fact_demand.activity.unknown_repository.current":
+                    Self.repositoryDemandTraceInteger(snapshot.unknownRepositoryCurrent),
                 "agentstudio.performance.repository_fact_demand.activity.inactive_repository.current":
                     Self.repositoryDemandTraceInteger(snapshot.inactiveRepositoryCurrent),
                 "agentstudio.performance.repository_fact_demand.activity.warm_worktree.current":
                     Self.repositoryDemandTraceInteger(snapshot.warmWorktreeCurrent),
+                "agentstudio.performance.repository_fact_demand.activity.unknown_worktree.current":
+                    Self.repositoryDemandTraceInteger(snapshot.unknownWorktreeCurrent),
+                "agentstudio.performance.repository_fact_demand.unknown.background_only.current":
+                    Self.repositoryDemandTraceInteger(snapshot.unknownBackgroundOnlyCurrent),
+                "agentstudio.performance.repository_fact_demand.unknown.remote_demand.current":
+                    Self.repositoryDemandTraceInteger(snapshot.unknownRemoteDemandCurrent),
+                "agentstudio.performance.repository_fact_demand.unknown.forge_demand.current":
+                    Self.repositoryDemandTraceInteger(snapshot.unknownForgeDemandCurrent),
                 "agentstudio.performance.repository_fact_demand.activity.inactive_worktree.current":
                     Self.repositoryDemandTraceInteger(snapshot.inactiveWorktreeCurrent),
                 "agentstudio.performance.repository_fact_demand.inactive.remote_suppressed.current":

@@ -65,6 +65,10 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             await actor.automaticRefreshDeadlineByWorktreeId[worktreeID]
         )
         #expect(nextDeadline >= lastStart + policy.backgroundCadence)
+        let debt = await actor.logicalDebtSnapshot()
+        #expect(debt.backgroundOnlyAutomaticCount == 1)
+        #expect(debt.backgroundOnlyAutomaticDeadlineCount == 1)
+        #expect(debt.backgroundOnlyResolvedVisibleTierCount == 0)
 
         await actor.shutdown()
     }

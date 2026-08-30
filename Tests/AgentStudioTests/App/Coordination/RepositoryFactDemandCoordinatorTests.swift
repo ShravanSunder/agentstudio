@@ -103,7 +103,9 @@ struct RepositoryFactDemandCoordinatorTests {
     @Test("settled unavailable activity admits unknown worktrees only to local background work")
     func unavailableActivityUsesOnlyLocalBackgroundEligibility() async throws {
         let receiver = RepositoryFactDemandReceiverProbe()
+        let performanceRecorder = RepositoryFactDemandPerformanceRecorderSpy()
         let coordinator = RepositoryFactDemandCoordinator(
+            performanceRecorder: performanceRecorder,
             wallClockNow: RepositoryFactDemandWallClock(referenceDate).read,
             delivery: { snapshot in
                 await receiver.receive(snapshot)
@@ -133,6 +135,12 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.automaticLocalGitWorktreeIds == everyWorktreeID)
         #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
         #expect(snapshot.demandedRepositoryIds.isEmpty)
+        let performance = try #require(performanceRecorder.snapshots.last)
+        #expect(performance.unknownRepositoryCurrent == 1)
+        #expect(performance.unknownWorktreeCurrent == UInt64(everyWorktreeID.count))
+        #expect(performance.unknownBackgroundOnlyCurrent == UInt64(everyWorktreeID.count))
+        #expect(performance.unknownRemoteDemandCurrent == 0)
+        #expect(performance.unknownForgeDemandCurrent == 0)
     }
 
     @Test("pre-hydration activity keeps remote demand for an open worktree")

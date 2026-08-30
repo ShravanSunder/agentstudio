@@ -14,6 +14,9 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
     package let overdueDeadlineCount: Int
     package let inactiveAutomaticDeadlineCount: Int
     package let inactiveAutomaticSourceStartCount: UInt64
+    package let backgroundOnlyAutomaticCount: Int
+    package let backgroundOnlyAutomaticDeadlineCount: Int
+    package let backgroundOnlyResolvedVisibleTierCount: Int
     package let oldestPreparationTimestamp: ContinuousClock.Instant?
     package let nextDeadline: Duration?
     package let oldestPreparationMilliseconds: Double
@@ -32,6 +35,10 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
             && lhs.overdueDeadlineCount == rhs.overdueDeadlineCount
             && lhs.inactiveAutomaticDeadlineCount == rhs.inactiveAutomaticDeadlineCount
             && lhs.inactiveAutomaticSourceStartCount == rhs.inactiveAutomaticSourceStartCount
+            && lhs.backgroundOnlyAutomaticCount == rhs.backgroundOnlyAutomaticCount
+            && lhs.backgroundOnlyAutomaticDeadlineCount == rhs.backgroundOnlyAutomaticDeadlineCount
+            && lhs.backgroundOnlyResolvedVisibleTierCount
+                == rhs.backgroundOnlyResolvedVisibleTierCount
             && lhs.oldestPreparationTimestamp == rhs.oldestPreparationTimestamp
             && lhs.nextDeadline == rhs.nextDeadline
     }
@@ -61,6 +68,12 @@ package struct GitLogicalDebtSnapshot: Equatable, Sendable {
                 inactiveAutomaticDeadlineCount),
             "agentstudio.performance.git.inactive_automatic_source_start.count": .int(
                 Int(clamping: inactiveAutomaticSourceStartCount)),
+            "agentstudio.performance.git.background_only_automatic.current": .int(
+                backgroundOnlyAutomaticCount),
+            "agentstudio.performance.git.background_only_automatic_deadline.current": .int(
+                backgroundOnlyAutomaticDeadlineCount),
+            "agentstudio.performance.git.background_only_resolved_visible_tier.current": .int(
+                backgroundOnlyResolvedVisibleTierCount),
             "agentstudio.performance.git.oldest_preparation_ms": .double(oldestPreparationMilliseconds),
             "agentstudio.performance.git.next_deadline_ms": .double(nextDeadlineMilliseconds),
         ]
@@ -87,6 +100,15 @@ extension GitWorkingDirectoryProjector {
         }
         let inactiveAutomaticDeadlineCount = automaticRefreshDeadlineByWorktreeId.keys.count {
             !isAutomaticEligible(worktreeId: $0)
+        }
+        let backgroundOnlyEligibleWorktreeIds = backgroundOnlyAutomaticWorktreeIds.filter {
+            isAutomaticEligible(worktreeId: $0) && registeredContext(for: $0) != nil
+        }
+        let backgroundOnlyAutomaticDeadlineCount = automaticRefreshDeadlineByWorktreeId.keys.count {
+            backgroundOnlyAutomaticWorktreeIds.contains($0)
+        }
+        let backgroundOnlyResolvedVisibleTierCount = backgroundOnlyEligibleWorktreeIds.count {
+            demandTier(for: $0) == .visibleSidebar
         }
 
         var readyPendingCount = 0
@@ -135,6 +157,9 @@ extension GitWorkingDirectoryProjector {
             overdueDeadlineCount: overdueDeadlineCount,
             inactiveAutomaticDeadlineCount: inactiveAutomaticDeadlineCount,
             inactiveAutomaticSourceStartCount: inactiveAutomaticSourceStartCount,
+            backgroundOnlyAutomaticCount: backgroundOnlyEligibleWorktreeIds.count,
+            backgroundOnlyAutomaticDeadlineCount: backgroundOnlyAutomaticDeadlineCount,
+            backgroundOnlyResolvedVisibleTierCount: backgroundOnlyResolvedVisibleTierCount,
             oldestPreparationTimestamp: oldestPreparationTimestamp,
             nextDeadline: nextDeadline,
             oldestPreparationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(

@@ -1146,11 +1146,15 @@ import sys
 required = (
     "capture", "execution", "publication", "binding", "visible_update",
     "cold_automatic_deadline_count", "cold_automatic_source_start_count",
+    "unknown_worktree_count", "unknown_background_only_count",
+    "unknown_remote_demand_count", "unknown_forge_demand_count",
     "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
     "git_ready_pending_count", "git_capacity_pending_count",
     "git_active_follow_up_count", "git_unclassified_pending_count",
     "git_overdue_deadline_count", "git_running_count", "git_physical_limit",
     "git_oldest_preparation_ms", "git_next_deadline_ms",
+    "git_background_only_automatic_count", "git_background_only_deadline_count",
+    "git_background_only_visible_tier_count",
     "remote_physical_active", "remote_pending_total", "remote_pending_future",
     "remote_pending_ready", "remote_pending_capacity", "remote_pending_active_follow_up",
     "remote_pending_unclassified", "remote_overdue_deadline", "remote_next_deadline_ms",
@@ -1201,6 +1205,20 @@ if float(vector["cold_automatic_deadline_count"]) != 0:
     raise SystemExit("quiescence cold automatic deadline remains")
 if float(vector["cold_automatic_source_start_count"]) != 0:
     raise SystemExit("quiescence cold automatic source start was observed")
+unknown_worktree_count = float(vector["unknown_worktree_count"])
+unknown_background_only_count = float(vector["unknown_background_only_count"])
+if unknown_background_only_count != unknown_worktree_count:
+    raise SystemExit("quiescence unknown background classification is incomplete")
+if float(vector["git_background_only_automatic_count"]) != unknown_background_only_count:
+    raise SystemExit("quiescence unknown background classification did not reach Git")
+if float(vector["git_background_only_deadline_count"]) > unknown_background_only_count:
+    raise SystemExit("quiescence unknown background deadline count exceeds eligibility")
+if float(vector["unknown_remote_demand_count"]) != 0:
+    raise SystemExit("quiescence unknown remote demand was observed")
+if float(vector["unknown_forge_demand_count"]) != 0:
+    raise SystemExit("quiescence unknown Forge demand was observed")
+if float(vector["git_background_only_visible_tier_count"]) != 0:
+    raise SystemExit("quiescence unknown visible tier was observed")
 if float(vector["git_ready_pending_count"]) != 0:
     raise SystemExit("quiescence Git ready work remains pending")
 if float(vector["git_capacity_pending_count"]) != 0:
@@ -1490,10 +1508,14 @@ strict_sidebar_quiescence_vector_json() {
   local observation_time="${2:?missing observation time}"
   local marker_selector capture execution publication binding visible_update proof_failure_count
   local cold_automatic_deadline_count cold_automatic_source_start_count
+  local unknown_worktree_count unknown_background_only_count
+  local unknown_remote_demand_count unknown_forge_demand_count
   local git_logical_debt
   local git_future_automatic_count git_future_failure_count git_ready_pending_count
   local git_capacity_pending_count git_active_follow_up_count git_unclassified_pending_count
   local git_overdue_deadline_count git_running_count git_oldest_preparation_ms git_next_deadline_ms
+  local git_background_only_automatic_count git_background_only_deadline_count
+  local git_background_only_visible_tier_count
   local remote_physical_active remote_pending_total remote_pending_future remote_pending_ready
   local remote_pending_capacity remote_pending_active_follow_up remote_pending_unclassified
   local remote_overdue_deadline remote_next_deadline_ms remote_sample_time
@@ -1527,6 +1549,18 @@ strict_sidebar_quiescence_vector_json() {
   cold_automatic_source_start_count="$(metric_value_at_observation \
     "max(agentstudio_performance_git_inactive_automatic_source_start_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"}) + (sum(agentstudio_performance_remote_reference_execution_automatic_without_demand_started_count{agent.proof.marker=\"$marker_selector\",event=\"performance.remote_reference.refresh\"}) or vector(0)) + (sum(agentstudio_performance_forge_execution_automatic_without_demand_started_count{agent.proof.marker=\"$marker_selector\",event=\"performance.forge.refresh\"}) or vector(0))" \
     "$observation_time")"
+  unknown_worktree_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_repository_fact_demand_activity_unknown_worktree_current{agent.proof.marker=\"$marker_selector\",event=\"performance.repository_fact_demand\"})" \
+    "$observation_time")"
+  unknown_background_only_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_repository_fact_demand_unknown_background_only_current{agent.proof.marker=\"$marker_selector\",event=\"performance.repository_fact_demand\"})" \
+    "$observation_time")"
+  unknown_remote_demand_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_repository_fact_demand_unknown_remote_demand_current{agent.proof.marker=\"$marker_selector\",event=\"performance.repository_fact_demand\"})" \
+    "$observation_time")"
+  unknown_forge_demand_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_repository_fact_demand_unknown_forge_demand_current{agent.proof.marker=\"$marker_selector\",event=\"performance.repository_fact_demand\"})" \
+    "$observation_time")"
   git_logical_debt="$(metric_value_at_observation \
     "max(agentstudio_performance_git_logical_debt_count{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
     "$observation_time")"
@@ -1559,6 +1593,15 @@ strict_sidebar_quiescence_vector_json() {
     "$observation_time")"
   git_next_deadline_ms="$(metric_value_at_observation \
     "max(agentstudio_performance_git_next_deadline_ms{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_background_only_automatic_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_background_only_automatic_current{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_background_only_deadline_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_background_only_automatic_deadline_current{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
+    "$observation_time")"
+  git_background_only_visible_tier_count="$(metric_value_at_observation \
+    "max(agentstudio_performance_git_background_only_resolved_visible_tier_current{agent.proof.marker=\"$marker_selector\",event=\"performance.git.logical_debt\"})" \
     "$observation_time")"
   remote_physical_active="$(source_settlement_metric_value_at_observation \
     remote_reference physical_active_current "$marker_selector" "$observation_time")"
@@ -1611,11 +1654,15 @@ strict_sidebar_quiescence_vector_json() {
     "$observation_time")"
   /usr/bin/python3 - "$capture" "$execution" "$publication" "$binding" "$visible_update" \
     "$cold_automatic_deadline_count" "$cold_automatic_source_start_count" \
+    "$unknown_worktree_count" "$unknown_background_only_count" \
+    "$unknown_remote_demand_count" "$unknown_forge_demand_count" \
     "$git_logical_debt" "$git_future_automatic_count" "$git_future_failure_count" \
     "$git_ready_pending_count" "$git_capacity_pending_count" "$git_active_follow_up_count" \
     "$git_unclassified_pending_count" "$git_overdue_deadline_count" "$git_running_count" \
     "$STRICT_POLICY_GIT_STATUS_PHYSICAL_LIMIT" "$git_oldest_preparation_ms" \
-    "$git_next_deadline_ms" "$remote_physical_active" "$remote_pending_total" \
+    "$git_next_deadline_ms" "$git_background_only_automatic_count" \
+    "$git_background_only_deadline_count" "$git_background_only_visible_tier_count" \
+    "$remote_physical_active" "$remote_pending_total" \
     "$remote_pending_future" "$remote_pending_ready" "$remote_pending_capacity" \
     "$remote_pending_active_follow_up" "$remote_pending_unclassified" "$remote_overdue_deadline" \
     "$remote_next_deadline_ms" "$STRICT_POLICY_REMOTE_REFERENCE_PHYSICAL_LIMIT" \
@@ -1631,10 +1678,14 @@ import sys
 names = (
     "capture", "execution", "publication", "binding", "visible_update",
     "cold_automatic_deadline_count", "cold_automatic_source_start_count",
+    "unknown_worktree_count", "unknown_background_only_count",
+    "unknown_remote_demand_count", "unknown_forge_demand_count",
     "git_logical_debt", "git_future_automatic_count", "git_future_failure_count",
     "git_ready_pending_count", "git_capacity_pending_count", "git_active_follow_up_count",
     "git_unclassified_pending_count", "git_overdue_deadline_count", "git_running_count",
     "git_physical_limit", "git_oldest_preparation_ms", "git_next_deadline_ms",
+    "git_background_only_automatic_count", "git_background_only_deadline_count",
+    "git_background_only_visible_tier_count",
     "remote_physical_active", "remote_pending_total", "remote_pending_future",
     "remote_pending_ready", "remote_pending_capacity", "remote_pending_active_follow_up",
     "remote_pending_unclassified", "remote_overdue_deadline", "remote_next_deadline_ms",
