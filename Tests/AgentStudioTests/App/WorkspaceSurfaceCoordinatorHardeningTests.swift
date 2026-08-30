@@ -329,6 +329,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let backgroundPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Background")
         harness.store.setResidency(.backgrounded, for: backgroundPane.id)
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.coordinator.windowLifecycleStore.recordLaunchLayoutSettled()
 
         harness.coordinator.execute(
             .reactivatePane(
