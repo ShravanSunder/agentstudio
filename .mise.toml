@@ -293,7 +293,6 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-bridge-development-server]
 description = "Build the Bridge development server through an allocated Swift build slot"
-depends = ["verify-vendors"]
 run = "bash \"${PROJECT_ROOT}/scripts/build-bridge-development-server.sh\""
 
 [tasks.build-release]
