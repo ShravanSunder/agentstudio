@@ -274,7 +274,7 @@ extension SidebarPerformanceWorkloadScriptTests {
         let readyGitDebt = try await runQuiescenceContract(
             sequence: """
                 [
-                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":1,"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":1,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"export_backlog":0,"proof_failure_count":0,"observation_time":0,"export_sample_time":0},
+                  {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":1,\(settledUnknownVectorFields),"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":1,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"export_backlog":0,"proof_failure_count":0,"observation_time":0,"export_sample_time":0},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":1,"export_sample_time":1},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":2,"export_sample_time":2},
                   {"capture":1,"execution":1,"publication":1,"binding":1,"visible_update":1,"git_logical_debt":0,\(settledGitVectorFields),"export_backlog":0,"observation_time":3,"export_sample_time":3},
@@ -831,7 +831,13 @@ extension SidebarPerformanceWorkloadScriptTests {
 
     private var settledGitVectorFields: String {
         """
-        "cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
+        \(settledUnknownVectorFields),"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
+        """
+    }
+
+    private var settledUnknownVectorFields: String {
+        """
+        "unknown_worktree_count":1,"unknown_background_only_count":1,"unknown_remote_demand_count":0,"unknown_forge_demand_count":0,"git_background_only_automatic_count":1,"git_background_only_deadline_count":1,"git_background_only_owned_count":1,"git_background_only_visible_tier_count":0
         """
     }
 
@@ -851,6 +857,7 @@ extension SidebarPerformanceWorkloadScriptTests {
                 "STRICT_POLICY_METRICS_EXPORT_INTERVAL_MS": "60000",
                 "STRICT_POLICY_MAXIMUM_SAMPLER_GAP_MS": "1250",
                 "STRICT_POLICY_SAMPLE_INTERVAL_MS": "1000",
+                "STRICT_FIXTURE_UNKNOWN_WORKTREE_COUNT": "1",
             ]
         )
     }
