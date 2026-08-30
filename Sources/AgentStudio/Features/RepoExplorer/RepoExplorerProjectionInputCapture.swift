@@ -178,8 +178,14 @@ final class RepoExplorerProjectionInputCapture {
     ) -> RepoExplorerScopedCapture? {
         scopedCaptureCount += 1
         switch invalidation {
-        case .structural, .presentation, .activity:
+        case .structural, .presentation, .activityHydration:
             return nil
+        case .repositoryActivity(let repositoryID):
+            return captureRepositoryActivity(
+                repositoryID,
+                previous: previous,
+                referenceDate: referenceDate
+            )
         case .repository(let repositoryID):
             return captureRepositoryChange(repositoryID, previous: previous)
         case .worktree(let worktreeID):
@@ -210,6 +216,29 @@ final class RepoExplorerProjectionInputCapture {
                 referenceDate: referenceDate
             )
         }
+    }
+
+    private func captureRepositoryActivity(
+        _ repositoryID: UUID,
+        previous: RepoExplorerProjectionRequest,
+        referenceDate: Date
+    ) -> RepoExplorerScopedCapture? {
+        guard
+            let repositoryStableKey = previous.snapshot.repos.first(where: {
+                $0.id == repositoryID
+            })?.stableKey
+        else { return nil }
+        var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
+        activityByRepositoryStableKey[repositoryStableKey] =
+            coreAtoms.repositoryLocalActivity.activity(for: repositoryStableKey)
+        return RepoExplorerScopedCapture(
+            request: previous.replacing(
+                repositoryLocalActivityByStableKey: activityByRepositoryStableKey,
+                activityReferenceDate: referenceDate
+            ),
+            changes: [.repositoryActivity(repositoryID)],
+            requiresFullProjection: false
+        )
     }
 
     private func captureRepositoryChange(

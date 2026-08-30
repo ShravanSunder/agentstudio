@@ -12,7 +12,8 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
     case tabStructure(UUID)
     case tab(UUID)
     case attention
-    case activity
+    case activityHydration
+    case repositoryActivity(UUID)
 }
 
 enum RepoExplorerInputInvalidation: Equatable, Sendable {
@@ -23,7 +24,8 @@ enum RepoExplorerInputInvalidation: Equatable, Sendable {
     case pane(UUID)
     case tab(UUID)
     case attention
-    case activity
+    case activityHydration
+    case repositoryActivity(UUID)
 }
 
 struct RepoExplorerScopedCapture: Sendable {
@@ -87,20 +89,26 @@ extension RepoExplorerProjectionInputCapture {
                 transientKeyboardSurface: coreAtoms.transientKeyboardSurface
             )
             _ = coreAtoms.attendedPane.attendedPaneId
-        case .activity:
-            let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
-            _ = repositoryLocalActivity.hydrationDisposition
-            for repositoryStableKey in request?.snapshot.repos.map(\.stableKey) ?? [] {
-                _ = repositoryLocalActivity.activity(for: repositoryStableKey)
-            }
+        case .activityHydration:
+            _ = coreAtoms.repositoryLocalActivity.hydrationDisposition
+        case .repositoryActivity(let repositoryID):
+            guard
+                let repositoryStableKey = request?.snapshot.repos.first(where: {
+                    $0.id == repositoryID
+                })?.stableKey
+            else { return }
+            _ = coreAtoms.repositoryLocalActivity.activity(for: repositoryStableKey)
         }
     }
 
     func observationTokens(for request: RepoExplorerProjectionRequest) -> Set<RepoExplorerObservationToken> {
         let structuralPaneIDs = demandedPaneIDs(in: request.snapshot)
         let structuralTabIDs = demandedTabIDs(in: request.snapshot)
-        var tokens: Set<RepoExplorerObservationToken> = [.demand, .presentation, .membership, .activity]
+        var tokens: Set<RepoExplorerObservationToken> = [
+            .demand, .presentation, .membership, .activityHydration,
+        ]
         tokens.formUnion(request.snapshot.repos.map { .repository($0.id) })
+        tokens.formUnion(request.snapshot.repos.map { .repositoryActivity($0.id) })
         tokens.formUnion(request.snapshot.repos.flatMap(\.worktrees).map { .worktree($0.id) })
         tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.paneStructure))
         tokens.formUnion(structuralTabIDs.map(RepoExplorerObservationToken.tabStructure))
@@ -130,8 +138,10 @@ extension RepoExplorerProjectionInputCapture {
             .tab(tabID)
         case .attention:
             .attention
-        case .activity:
-            .activity
+        case .activityHydration:
+            .activityHydration
+        case .repositoryActivity(let repositoryID):
+            .repositoryActivity(repositoryID)
         }
     }
 }

@@ -6,6 +6,110 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerProjectionWorkerTests {
+    @Test("repository activity delta updates one deadline and preserves unrelated result facts")
+    func repositoryActivityDeltaPreservesUnrelatedResultFacts() throws {
+        let referenceDate = Date(timeIntervalSince1970: 10_000_000)
+        let firstRepository = repo(
+            id: UUIDv7.generate(),
+            name: "first",
+            stableKey: "1111111111111111"
+        )
+        let secondRepository = repo(
+            id: UUIDv7.generate(),
+            name: "second",
+            stableKey: "2222222222222222"
+        )
+        let firstActivity = try RepositoryLocalActivity(
+            repositoryStableKey: firstRepository.stableKey,
+            lastQualifyingActivityAt: referenceDate.addingTimeInterval(-200),
+            continuousCoverageStartedAt: referenceDate.addingTimeInterval(
+                -AppPolicies.EntityRecency.applicationActivityHorizon - 1
+            ),
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
+        )
+        let secondActivity = try RepositoryLocalActivity(
+            repositoryStableKey: secondRepository.stableKey,
+            lastQualifyingActivityAt: referenceDate.addingTimeInterval(-100),
+            continuousCoverageStartedAt: referenceDate.addingTimeInterval(
+                -AppPolicies.EntityRecency.applicationActivityHorizon - 1
+            ),
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
+        )
+        let refreshedFirstActivity = try RepositoryLocalActivity(
+            repositoryStableKey: firstRepository.stableKey,
+            lastQualifyingActivityAt: referenceDate,
+            continuousCoverageStartedAt: firstActivity.continuousCoverageStartedAt,
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
+        )
+        let initialRequest = request(
+            repos: [firstRepository, secondRepository],
+            generation: 1,
+            localActivityHydrationDisposition: .authoritative,
+            repositoryLocalActivityByStableKey: [
+                firstRepository.stableKey: firstActivity,
+                secondRepository.stableKey: secondActivity,
+            ],
+            activityReferenceDate: referenceDate
+        )
+        let updatedRequest = request(
+            repos: [firstRepository, secondRepository],
+            generation: 2,
+            localActivityHydrationDisposition: .authoritative,
+            repositoryLocalActivityByStableKey: [
+                firstRepository.stableKey: refreshedFirstActivity,
+                secondRepository.stableKey: secondActivity,
+            ],
+            activityReferenceDate: referenceDate
+        )
+        let initial = try RepoExplorerProjectionWorker.project(initialRequest)
+        let secondRows = initial.materializationSnapshot
+            .rowIDsByRepoID[secondRepository.id, default: []]
+            .compactMap(initial.materializationSnapshot.row(id:))
+
+        let scoped = try #require(
+            RepoExplorerProjectionWorker.applyScopedChange(
+                .repositoryActivity(firstRepository.id),
+                request: updatedRequest,
+                previous: initial
+            )
+        )
+
+        #expect(scoped.repositoryActivityDispositionByRepoId[firstRepository.id] == .warm)
+        #expect(
+            scoped.repositoryActivityDispositionByRepoId[secondRepository.id]
+                == initial.repositoryActivityDispositionByRepoId[secondRepository.id]
+        )
+        #expect(
+            scoped.repositoryActivityTransitionAtByRepoId[firstRepository.id]
+                != initial.repositoryActivityTransitionAtByRepoId[firstRepository.id]
+        )
+        #expect(
+            scoped.repositoryActivityTransitionAtByRepoId[secondRepository.id]
+                == initial.repositoryActivityTransitionAtByRepoId[secondRepository.id]
+        )
+        #expect(
+            scoped.nextRepositoryActivityTransitionAt
+                == scoped.repositoryActivityTransitionAtByRepoId[secondRepository.id]
+        )
+        #expect(scoped.projection == initial.projection)
+        #expect(scoped.rowIndex == initial.rowIndex)
+        #expect(scoped.branchStatusByWorktreeId == initial.branchStatusByWorktreeId)
+        #expect(
+            scoped.materializationSnapshot
+                .rowIDsByRepoID[secondRepository.id, default: []]
+                .compactMap(scoped.materializationSnapshot.row(id:)) == secondRows
+        )
+    }
+
     @Test("authoritative activity classifies inactive and updating repositories off-main")
     func authoritativeActivityClassifiesInactiveAndUpdatingRepositories() throws {
         let repoId = UUIDv7.generate()

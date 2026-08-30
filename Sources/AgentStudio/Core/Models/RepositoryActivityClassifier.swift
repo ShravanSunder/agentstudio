@@ -60,7 +60,11 @@ package struct RepositoryActivityClassification: Equatable, Sendable {
     package let warmWorktreeIDs: Set<UUID>
     package let unknownWorktreeIDs: Set<UUID>
     package let locallyInactiveWorktreeIDs: Set<UUID>
-    package let nextTransitionAt: Date?
+    package let transitionAtByRepositoryID: [UUID: Date]
+
+    package var nextTransitionAt: Date? {
+        transitionAtByRepositoryID.values.min()
+    }
 }
 
 package enum RepositoryActivityClassifier {
@@ -74,7 +78,7 @@ package enum RepositoryActivityClassifier {
         var warmWorktreeIDs = Set<UUID>()
         var unknownWorktreeIDs = Set<UUID>()
         var locallyInactiveWorktreeIDs = Set<UUID>()
-        var nextTransitionAt: Date?
+        var transitionAtByRepositoryID: [UUID: Date] = [:]
 
         for repository in input.repositories {
             let worktreeIDs = Set(repository.worktreeStableKeysByID.keys)
@@ -109,7 +113,7 @@ package enum RepositoryActivityClassifier {
                     after: lastQualifyingActivityAt,
                     horizon: input.inactivityHorizon
                 )
-                nextTransitionAt = min(nextTransitionAt ?? transitionAt, transitionAt)
+                transitionAtByRepositoryID[repository.repositoryID] = transitionAt
                 continue
             }
 
@@ -123,7 +127,7 @@ package enum RepositoryActivityClassifier {
                     after: activity.continuousCoverageStartedAt,
                     horizon: input.inactivityHorizon
                 )
-                nextTransitionAt = min(nextTransitionAt ?? transitionAt, transitionAt)
+                transitionAtByRepositoryID[repository.repositoryID] = transitionAt
             } else {
                 dispositionByRepositoryID[repository.repositoryID] = .locallyInactive
                 locallyInactiveRepositoryIDs.insert(repository.repositoryID)
@@ -139,7 +143,7 @@ package enum RepositoryActivityClassifier {
             warmWorktreeIDs: warmWorktreeIDs,
             unknownWorktreeIDs: unknownWorktreeIDs,
             locallyInactiveWorktreeIDs: locallyInactiveWorktreeIDs,
-            nextTransitionAt: nextTransitionAt
+            transitionAtByRepositoryID: transitionAtByRepositoryID
         )
     }
 

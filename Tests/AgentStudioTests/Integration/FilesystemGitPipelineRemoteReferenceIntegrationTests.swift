@@ -170,6 +170,165 @@ struct FilesystemGitRemoteReferenceTests {
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(retainedStagingRefs.isEmpty)
     }
+
+    @Test("origin replacement restores authority only after promoting the replacement remote")
+    func originReplacementWaitsForDisposableRemotePromotion() async throws {
+        let repositories = try DisposableOriginReplacementRepositories()
+        defer { repositories.destroy() }
+        let sourceRepository = repositories.source
+        let fixtureRoot = repositories.fixtureRoot
+        let originalBareRemote = repositories.originalBareRemote
+        let replacementBareRemote = repositories.replacementBareRemote
+        let localClone = repositories.localClone
+
+        try "original\n".write(
+            to: sourceRepository.appending(path: "tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Original remote state"])
+        try FilesystemTestGitRepo.runGit(
+            at: fixtureRoot,
+            args: ["clone", "--bare", sourceRepository.path, originalBareRemote.path]
+        )
+        try FilesystemTestGitRepo.runGit(
+            at: fixtureRoot,
+            args: ["clone", originalBareRemote.path, localClone.path]
+        )
+        let originalCanonicalOID = try FilesystemTestGitRepo.runGit(
+            at: localClone,
+            args: ["rev-parse", "refs/remotes/origin/main"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        try "original\nreplacement\n".write(
+            to: sourceRepository.appending(path: "tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Replacement remote state"])
+        try FilesystemTestGitRepo.runGit(
+            at: fixtureRoot,
+            args: ["clone", "--bare", sourceRepository.path, replacementBareRemote.path]
+        )
+        let replacementOID = try FilesystemTestGitRepo.runGit(
+            at: sourceRepository,
+            args: ["rev-parse", "HEAD"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let provider = AgentStudioGitRemoteReferenceRefreshProvider(
+            client: SystemGitRemoteClient(configuration: .init(allowedProtocols: [.file]))
+        )
+        let authorityRecorder = DisposableRemoteAuthorityRecorder()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let actor = RemoteReferenceRefreshActor(
+            provider: provider,
+            onAuthorityUpdate: { update in
+                await authorityRecorder.record(update)
+            },
+            onPromotedRecomputation: { acceptance in
+                await authorityRecorder.recordRecomputation(acceptance)
+                return .completed
+            }
+        )
+        await actor.register(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            repositoryPath: localClone,
+            remoteName: "origin",
+            expectedOrigin: originalBareRemote.path
+        )
+        try FilesystemTestGitRepo.runGit(
+            at: localClone,
+            args: ["remote", "set-url", "origin", replacementBareRemote.path]
+        )
+        let replacementConfigurationWithOriginalRefs = try await provider.captureRemoteTrackingSnapshot(
+            repositoryPath: localClone,
+            remoteName: "origin"
+        )
+
+        #expect(replacementConfigurationWithOriginalRefs.configuredRemoteURL == replacementBareRemote.path)
+        #expect(replacementConfigurationWithOriginalRefs.references.map(\.oid) == [originalCanonicalOID])
+
+        await actor.setOrigin(repoId: repoId, expectedOrigin: replacementBareRemote.path)
+
+        #expect(await authorityRecorder.invalidationCount == 1)
+        #expect(await authorityRecorder.localAcceptanceOrigins == [originalBareRemote.path])
+        #expect(await authorityRecorder.promotedAcceptanceOrigins.isEmpty)
+        #expect(await authorityRecorder.recomputationOrigins.isEmpty)
+
+        await actor.setDemand(repositoryIds: [repoId])
+        await actor.waitUntilIdle()
+
+        let promotedCanonicalOID = try FilesystemTestGitRepo.runGit(
+            at: localClone,
+            args: ["rev-parse", "refs/remotes/origin/main"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(promotedCanonicalOID == replacementOID)
+        #expect(await authorityRecorder.localAcceptanceOrigins == [originalBareRemote.path])
+        #expect(await authorityRecorder.promotedAcceptanceOrigins == [replacementBareRemote.path])
+        #expect(await authorityRecorder.lastRepresentedWorktreeIds == [worktreeId])
+        #expect(await authorityRecorder.recomputationOrigins == [replacementBareRemote.path])
+        await actor.shutdown()
+    }
+}
+
+private struct DisposableOriginReplacementRepositories {
+    let source: URL
+    let fixtureRoot: URL
+    let originalBareRemote: URL
+    let replacementBareRemote: URL
+    let localClone: URL
+
+    init() throws {
+        source = try FilesystemTestGitRepo.create(named: "origin-replacement-source")
+        fixtureRoot = source.deletingLastPathComponent()
+        originalBareRemote = fixtureRoot.appending(
+            path: "origin-replacement-original-\(UUIDv7.generate().uuidString).git",
+            directoryHint: .isDirectory
+        )
+        replacementBareRemote = fixtureRoot.appending(
+            path: "origin-replacement-new-\(UUIDv7.generate().uuidString).git",
+            directoryHint: .isDirectory
+        )
+        localClone = fixtureRoot.appending(
+            path: "origin-replacement-clone-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+    }
+
+    func destroy() {
+        FilesystemTestGitRepo.destroy(source)
+        FilesystemTestGitRepo.destroy(originalBareRemote)
+        FilesystemTestGitRepo.destroy(replacementBareRemote)
+        FilesystemTestGitRepo.destroy(localClone)
+    }
+}
+
+private actor DisposableRemoteAuthorityRecorder {
+    private(set) var invalidationCount = 0
+    private(set) var localAcceptanceOrigins: [String] = []
+    private(set) var promotedAcceptanceOrigins: [String] = []
+    private(set) var recomputationOrigins: [String] = []
+    private(set) var lastRepresentedWorktreeIds: Set<UUID> = []
+
+    func record(_ update: RemoteReferenceAuthorityUpdate) {
+        switch update {
+        case .invalidated:
+            invalidationCount += 1
+        case .localAccepted(let acceptance):
+            localAcceptanceOrigins.append(acceptance.expectedOrigin)
+        case .promoted(let acceptance, let representedWorktreeIds):
+            promotedAcceptanceOrigins.append(acceptance.expectedOrigin)
+            lastRepresentedWorktreeIds = representedWorktreeIds
+        }
+    }
+
+    func recordRecomputation(_ acceptance: RemoteReferenceAcceptance) {
+        recomputationOrigins.append(acceptance.expectedOrigin)
+    }
 }
 
 private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProviding {

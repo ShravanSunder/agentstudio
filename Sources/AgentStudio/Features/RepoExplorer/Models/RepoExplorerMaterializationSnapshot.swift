@@ -403,6 +403,36 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         }.first
     }
 
+    func replacingRepositoryActivityDisposition(
+        repositoryID: UUID,
+        disposition: RepositoryActivityDisposition
+    ) -> Self {
+        guard
+            let rowID = rowIDsByRepoID[repositoryID]?.first(where: { rowID in
+                guard let row = row(id: rowID), case .groupHeader(let groupHeader) = row.presentation
+                else { return false }
+                return groupHeader.repoIDs == [repositoryID]
+            }),
+            let rowIndex = rowIndexByID[rowID],
+            case .groupHeader(var groupHeader) = rows[rowIndex].presentation,
+            groupHeader.repositoryActivityDisposition != disposition
+        else { return self }
+
+        groupHeader.repositoryActivityDisposition = disposition
+        var updatedRows = rows
+        let previousRow = rows[rowIndex]
+        updatedRows[rowIndex] = RepoExplorerMaterializedRow(
+            id: previousRow.id,
+            contentRevision: RepoExplorerRowContentRevision(
+                presentation: .groupHeader(groupHeader)
+            ),
+            layout: previousRow.layout,
+            representedRepoID: previousRow.representedRepoID,
+            representedWorktreeID: previousRow.representedWorktreeID
+        )
+        return Self(rows: updatedRows)
+    }
+
     static func build(
         rowIndex: RepoExplorerRowIndex,
         inputs: RepoExplorerMaterializationInputs

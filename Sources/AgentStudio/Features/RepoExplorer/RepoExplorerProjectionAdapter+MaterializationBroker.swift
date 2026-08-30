@@ -285,6 +285,8 @@ extension RepoExplorerProjectionAdapter {
                 )
                 return
             }
+            let previousRepositoryActivityTransitions = semanticBaselineResult?
+                .repositoryActivityTransitionAtByRepoId
             semanticBaselineSequence &+= 1
             semanticBaselineResult = result
             if case .published = completion {
@@ -296,6 +298,9 @@ extension RepoExplorerProjectionAdapter {
                 publishedResult = result
                 scheduleRecencyDeadline(for: result)
             } else {
+                if previousRepositoryActivityTransitions != result.repositoryActivityTransitionAtByRepoId {
+                    scheduleRecencyDeadline(for: result)
+                }
                 onProjectionSuppressed(result)
             }
         case .rejected, .superseded, .cancelled:

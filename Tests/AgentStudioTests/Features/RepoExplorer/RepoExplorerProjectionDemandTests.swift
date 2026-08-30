@@ -118,84 +118,6 @@ private final class RepoExplorerRealMaterializationHostFixture {
 }
 
 @MainActor
-private final class RepoExplorerLocalActivityProjectionFixture {
-    let atoms: CoreAtoms
-    let repo: Repo
-    let worktree: Worktree
-    let repositoryStableKey: String
-    let worktreeStableKey: String
-    let referenceDate: Date
-    let inactiveActivity: RepositoryLocalActivity
-    let capture: RepoExplorerProjectionInputCapture
-    let adapter: RepoExplorerProjectionAdapter
-    let host: RepoExplorerMaterializationHost
-
-    init(atoms: CoreAtoms) throws {
-        self.atoms = atoms
-        let fixedReferenceDate = Date(timeIntervalSince1970: 10_000_000)
-        referenceDate = fixedReferenceDate
-        let store = WorkspaceStore(
-            catalogAtom: atoms.workspaceRepositoryTopology,
-            graphAtom: atoms.workspacePane,
-            interactionAtom: atoms.workspaceTabLayout
-        )
-        repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-local-activity"))
-        worktree = try #require(repo.worktrees.first)
-        repositoryStableKey = try #require(
-            store.repositoryTopologyAtom.repositoryStableKey(for: repo.id)
-        )
-        worktreeStableKey = try #require(
-            store.repositoryTopologyAtom.worktreeStableKey(for: worktree.id)
-        )
-        atoms.repoCache.setRepoEnrichment(
-            .resolvedLocal(
-                repoId: repo.id,
-                identity: RemoteIdentityNormalizer.localIdentity(repoName: repo.name),
-                updatedAt: fixedReferenceDate
-            )
-        )
-        inactiveActivity = try RepositoryLocalActivity(
-            repositoryStableKey: repositoryStableKey,
-            lastQualifyingActivityAt: nil,
-            continuousCoverageStartedAt: fixedReferenceDate.addingTimeInterval(
-                -AppPolicies.EntityRecency.applicationActivityHorizon - 1
-            ),
-            updatedAt: fixedReferenceDate,
-            ownedPromotionAttemptID: nil,
-            ownedPromotionStartedAt: nil,
-            ownedPromotionUnsettled: false
-        )
-        atoms.repositoryLocalActivity.publishAuthoritative(
-            RepositoryLocalActivitySnapshot(
-                activityByRepositoryStableKey: [repositoryStableKey: inactiveActivity],
-                cursorByVolumeIdentifier: [:]
-            )
-        )
-        capture = RepoExplorerProjectionInputCapture(
-            store: store,
-            preferences: RepoExplorerSidebarPrefsAtom(),
-            repoCache: atoms.repoCache,
-            sidebarState: atoms.workspaceSidebarState,
-            sidebarCache: atoms.sidebarCache,
-            coreAtoms: atoms,
-            bridgeAttendanceSnapshot: { _ in nil },
-            latestPaneMessageSnapshot: { _ in nil }
-        )
-        adapter = RepoExplorerProjectionAdapter(
-            inputCapture: capture,
-            recencyNow: { fixedReferenceDate },
-            recencyDelay: AsyncDelay { _ in throw CancellationError() }
-        )
-        host = registerProjectionTestMaterializationHost(adapter: adapter)
-    }
-
-    func stop() {
-        host.detach()
-        adapter.stop()
-    }
-}
-
-@MainActor
 private func makeProjectionPreferences(atoms: CoreAtoms) -> RepoExplorerSidebarPrefsAtom {
     RepoExplorerSidebarPrefsAtom(sidebarState: atoms.workspaceSidebarState)
 }
@@ -365,92 +287,6 @@ struct RepoExplorerProjectionDemandTests {
 
             #expect(recorder.executionCount == baselineExecutionCount)
             #expect(adapter.publishedRevision == baselineRevision)
-        }
-    }
-
-    @MainActor
-    @Test("repository-local activity drives capture while launcher recency does not")
-    func repositoryLocalActivityOwnsActivityInvalidation() async throws {
-        try await withAsyncTestCoreAtoms { atoms in
-            let fixture = try RepoExplorerLocalActivityProjectionFixture(atoms: atoms)
-            defer { fixture.stop() }
-
-            fixture.adapter.updateDemand(isVisible: true, query: "")
-            for _ in 0..<1000
-            where fixture.adapter.publishedResult?.repositoryActivityDispositionByRepoId[fixture.repo.id]
-                != .locallyInactive
-            {
-                await Task.yield()
-            }
-            #expect(
-                fixture.adapter.publishedResult?.repositoryActivityDispositionByRepoId[fixture.repo.id]
-                    == .locallyInactive
-            )
-            #expect(
-                fixture.adapter.publishedResult?.materializationSnapshot.groupHeader(
-                    repoID: fixture.repo.id
-                )?
-                .repositoryActivityDisposition == .locallyInactive
-            )
-            let fullCaptureCountBeforeActivity = fixture.capture.fullCaptureCount
-
-            let warmActivity = try RepositoryLocalActivity(
-                repositoryStableKey: fixture.repositoryStableKey,
-                lastQualifyingActivityAt: fixture.referenceDate,
-                continuousCoverageStartedAt: fixture.inactiveActivity.continuousCoverageStartedAt,
-                updatedAt: fixture.referenceDate,
-                ownedPromotionAttemptID: nil,
-                ownedPromotionStartedAt: nil,
-                ownedPromotionUnsettled: false
-            )
-            atoms.repositoryLocalActivity.publishAuthoritative(
-                RepositoryLocalActivitySnapshot(
-                    activityByRepositoryStableKey: [fixture.repositoryStableKey: warmActivity],
-                    cursorByVolumeIdentifier: [:]
-                )
-            )
-            for _ in 0..<1000
-            where fixture.capture.fullCaptureCount == fullCaptureCountBeforeActivity {
-                await Task.yield()
-            }
-            #expect(fixture.capture.fullCaptureCount == fullCaptureCountBeforeActivity + 1)
-            let capturedRequest = try #require(fixture.adapter.cachedProjectionRequest)
-            #expect(
-                capturedRequest.repositoryLocalActivityByStableKey[fixture.repositoryStableKey]
-                    == warmActivity
-            )
-            #expect(
-                try RepoExplorerProjectionWorker.project(capturedRequest)
-                    .repositoryActivityDispositionByRepoId[fixture.repo.id] == .warm
-            )
-            for _ in 0..<2000
-            where fixture.adapter.publishedResult?.repositoryActivityDispositionByRepoId[fixture.repo.id]
-                != .warm
-            {
-                await Task.yield()
-            }
-            #expect(
-                fixture.adapter.publishedResult?.repositoryActivityDispositionByRepoId[fixture.repo.id]
-                    == .warm
-            )
-            #expect(
-                fixture.adapter.materializedProjection?.latestAcceptedValue?
-                    .repositoryActivityDispositionByRepoId[fixture.repo.id] == .warm
-            )
-            #expect(
-                fixture.adapter.materializedProjection?.latestAcceptedValue?.materializationSnapshot
-                    .groupHeader(repoID: fixture.repo.id)?.repositoryActivityDisposition == .warm
-            )
-            let fullCaptureCountBeforeLauncherRecency = fixture.capture.fullCaptureCount
-
-            try atoms.applicationEntityRecency.recordOpened(
-                repositoryStableKey: fixture.repositoryStableKey,
-                worktreeStableKey: fixture.worktreeStableKey,
-                at: fixture.referenceDate
-            )
-            for _ in 0..<100 { await Task.yield() }
-
-            #expect(fixture.capture.fullCaptureCount == fullCaptureCountBeforeLauncherRecency)
         }
     }
 
@@ -809,6 +645,7 @@ struct RepoExplorerProjectionDemandTests {
     func repositoryActivityDeadlineUsesGenerationCheckedOffMainWait() async throws {
         let initialDate = Date(timeIntervalSince1970: 100_000)
         let transitionDate = initialDate.addingTimeInterval(60)
+        let repositoryID = UUIDv7.generate()
         let dateBox = RepoExplorerRecencyDateBox(initialDate)
         let delayGate = RepoExplorerRecencyDelayGate()
         let adapter = RepoExplorerProjectionAdapter(
@@ -825,7 +662,7 @@ struct RepoExplorerProjectionDemandTests {
         adapter.observationRegistration = RepoExplorerObservationRegistration.make(
             isVisible: true,
             groupingMode: .repo,
-            repositoryIDs: [UUIDv7.generate()],
+            repositoryIDs: [repositoryID],
             worktreeIDs: [],
             paneIDs: [],
             tabIDs: []
@@ -834,7 +671,10 @@ struct RepoExplorerProjectionDemandTests {
         adapter.observationGeneration = 1
 
         adapter.scheduleRecencyDeadline(
-            for: repositoryActivityDeadlineResult(transitionAt: transitionDate)
+            for: repositoryActivityDeadlineResult(
+                repositoryID: repositoryID,
+                transitionAt: transitionDate
+            )
         )
         for _ in 0..<300 where await delayGate.waitCount == 0 { await Task.yield() }
         adapter.observationGeneration = 2
@@ -848,7 +688,10 @@ struct RepoExplorerProjectionDemandTests {
 
         dateBox.value = initialDate
         adapter.scheduleRecencyDeadline(
-            for: repositoryActivityDeadlineResult(transitionAt: transitionDate)
+            for: repositoryActivityDeadlineResult(
+                repositoryID: repositoryID,
+                transitionAt: transitionDate
+            )
         )
         for _ in 0..<300 where await delayGate.waitCount == 0 { await Task.yield() }
         dateBox.value = transitionDate
@@ -857,7 +700,7 @@ struct RepoExplorerProjectionDemandTests {
         #expect(currentWait.0 == .seconds(60))
         #expect(!currentWait.1)
         #expect(adapter.recencyReferenceDate == transitionDate)
-        #expect(adapter.pendingInvalidation.includesActivity)
+        #expect(adapter.pendingInvalidation.repositoryActivityIDs == [repositoryID])
     }
 
     @Test("By Pane observes demanded panes but not tab display")
@@ -952,7 +795,10 @@ struct RepoExplorerProjectionDemandTests {
         )
     }
 
-    private func repositoryActivityDeadlineResult(transitionAt: Date) -> RepoExplorerProjectionResult {
+    private func repositoryActivityDeadlineResult(
+        repositoryID: UUID,
+        transitionAt: Date
+    ) -> RepoExplorerProjectionResult {
         let empty = RepoExplorerProjectionResult.empty
         return RepoExplorerProjectionResult(
             generation: empty.generation,
@@ -972,7 +818,7 @@ struct RepoExplorerProjectionDemandTests {
             paneRowFactsByPaneId: [:],
             tabGroupFactsByTabId: empty.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: empty.repositoryActivityDispositionByRepoId,
-            nextRepositoryActivityTransitionAt: transitionAt,
+            repositoryActivityTransitionAtByRepoId: [repositoryID: transitionAt],
             semanticBaselineSequence: empty.semanticBaselineSequence
         )
     }

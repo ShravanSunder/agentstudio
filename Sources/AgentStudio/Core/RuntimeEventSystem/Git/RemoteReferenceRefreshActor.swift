@@ -271,7 +271,6 @@ package actor RemoteReferenceRefreshActor {
         failureDeadlineByRepoId.removeValue(forKey: repoId)
         currentnessRetryAtByRepoId.removeValue(forKey: repoId)
         invalidatingRepositoryIds.remove(repoId)
-        await establishLocalAcceptance(repoId: repoId)
         if expectedOrigin != nil, demandedRepositoryIds.contains(repoId) {
             pendingRepositoryIds.insert(repoId)
         }

@@ -10,7 +10,8 @@ struct RepoExplorerPendingInvalidation {
     var paneIDs = Set<UUID>()
     var tabIDs = Set<UUID>()
     var includesAttention = false
-    var includesActivity = false
+    var requiresActivityHydrationCapture = false
+    var repositoryActivityIDs = Set<UUID>()
 
     var isEmpty: Bool {
         !requiresStructuralCapture
@@ -20,7 +21,8 @@ struct RepoExplorerPendingInvalidation {
             && paneIDs.isEmpty
             && tabIDs.isEmpty
             && !includesAttention
-            && !includesActivity
+            && !requiresActivityHydrationCapture
+            && repositoryActivityIDs.isEmpty
     }
 
     mutating func insert(_ invalidation: RepoExplorerInputInvalidation) {
@@ -39,8 +41,10 @@ struct RepoExplorerPendingInvalidation {
             tabIDs.insert(tabID)
         case .attention:
             includesAttention = true
-        case .activity:
-            includesActivity = true
+        case .activityHydration:
+            requiresActivityHydrationCapture = true
+        case .repositoryActivity(let repositoryID):
+            repositoryActivityIDs.insert(repositoryID)
         }
     }
 }
@@ -132,6 +136,20 @@ extension RepoExplorerProjectionAdapter {
                     return
                 }
                 self.registerObservation(token, generation: generation)
+                let currentActivityHydrationDisposition =
+                    inputCapture.coreAtoms.repositoryLocalActivity.hydrationDisposition
+                if token == .activityHydration,
+                    self.cachedProjectionRequest?.localActivityHydrationDisposition
+                        == currentActivityHydrationDisposition
+                {
+                    return
+                }
+                if case .repositoryActivity = token,
+                    self.cachedProjectionRequest?.localActivityHydrationDisposition
+                        != currentActivityHydrationDisposition
+                {
+                    return
+                }
                 self.enqueueInvalidation(inputCapture.invalidation(for: token))
             }
         }
@@ -161,10 +179,13 @@ extension RepoExplorerProjectionAdapter {
             capturePresentationProjection()
             return
         }
-        if pending.includesActivity {
+        if pending.requiresActivityHydrationCapture {
             recencyReferenceDate = recencyNow()
             captureFullProjection(force: false)
             return
+        }
+        if !pending.repositoryActivityIDs.isEmpty {
+            recencyReferenceDate = recencyNow()
         }
         guard var request = cachedProjectionRequest else {
             captureFullProjection(force: false)
@@ -173,6 +194,7 @@ extension RepoExplorerProjectionAdapter {
 
         let invalidations =
             pending.repositoryIDs.map(RepoExplorerInputInvalidation.repository)
+            + pending.repositoryActivityIDs.map(RepoExplorerInputInvalidation.repositoryActivity)
             + pending.worktreeIDs.map(RepoExplorerInputInvalidation.worktree)
             + pending.paneIDs.map(RepoExplorerInputInvalidation.pane)
             + pending.tabIDs.map(RepoExplorerInputInvalidation.tab)
@@ -336,8 +358,9 @@ extension RepoExplorerProjectionAdapter {
             await MainActor.run {
                 guard let self, self.isDemanded, self.observationGeneration == generation else { return }
                 self.recencyReferenceDate = self.recencyNow()
-                if result.nextRepositoryActivityTransitionAt == nextDeadline {
-                    self.pendingInvalidation.insert(.activity)
+                for (repositoryID, transitionAt) in result.repositoryActivityTransitionAtByRepoId
+                where transitionAt == nextDeadline {
+                    self.pendingInvalidation.insert(.repositoryActivity(repositoryID))
                 }
                 for paneID in deadlinePaneIDs {
                     self.pendingInvalidation.insert(.pane(paneID))

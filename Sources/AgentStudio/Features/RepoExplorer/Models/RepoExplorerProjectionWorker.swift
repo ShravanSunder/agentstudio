@@ -5,6 +5,7 @@ import Foundation
 
 enum RepoExplorerScopedProjectionChange: Equatable, Hashable, Sendable {
     case repo(UUID)
+    case repositoryActivity(UUID)
     case worktreeFact(UUID)
     case pane(UUID)
     case tab(UUID)
@@ -224,8 +225,12 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
     let repositoryActivityDispositionByRepoId: [UUID: RepositoryActivityDisposition]
-    let nextRepositoryActivityTransitionAt: Date?
+    let repositoryActivityTransitionAtByRepoId: [UUID: Date]
     let semanticBaselineSequence: UInt64?
+
+    var nextRepositoryActivityTransitionAt: Date? {
+        repositoryActivityTransitionAtByRepoId.values.min()
+    }
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -263,7 +268,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             paneRowFactsByPaneId: [:],
             tabGroupFactsByTabId: [:],
             repositoryActivityDispositionByRepoId: [:],
-            nextRepositoryActivityTransitionAt: nil,
+            repositoryActivityTransitionAtByRepoId: [:],
             semanticBaselineSequence: nil
         )
     }()
@@ -284,6 +289,11 @@ actor RepoExplorerProjectionWorker {
             }
             let repositoryChanges = delta.changes.compactMap { change -> UUID? in
                 guard case .repo(let repositoryID) = change else { return nil }
+                return repositoryID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let repositoryActivityChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .repositoryActivity(let repositoryID) = change else { return nil }
                 return repositoryID
             }
             .sorted { $0.uuidString < $1.uuidString }
@@ -314,6 +324,16 @@ actor RepoExplorerProjectionWorker {
                 else {
                     return try project(delta.targetRequest)
                 }
+                result = updated
+            }
+            if !repositoryActivityChanges.isEmpty {
+                guard
+                    let updated = try applyScopedRepositoryActivityChanges(
+                        repositoryActivityChanges,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else { return try project(delta.targetRequest) }
                 result = updated
             }
             for worktreeID in worktreeChanges {
@@ -367,6 +387,12 @@ actor RepoExplorerProjectionWorker {
         switch change {
         case .repo(let repoId):
             return applyScopedRepoChange(repoId: repoId, request: request, previous: previous)
+        case .repositoryActivity(let repositoryID):
+            return applyScopedRepositoryActivityChange(
+                repositoryID: repositoryID,
+                request: request,
+                previous: previous
+            )
         case .worktreeFact(let worktreeId):
             return applyScopedWorktreeFactChange(
                 worktreeId: worktreeId,
@@ -485,7 +511,7 @@ actor RepoExplorerProjectionWorker {
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: activity.dispositionByRepositoryID,
-            nextRepositoryActivityTransitionAt: activity.nextTransitionAt,
+            repositoryActivityTransitionAtByRepoId: activity.transitionAtByRepositoryID,
             semanticBaselineSequence: nil
         )
     }
@@ -699,7 +725,7 @@ actor RepoExplorerProjectionWorker {
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
-            nextRepositoryActivityTransitionAt: previous.nextRepositoryActivityTransitionAt,
+            repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
             semanticBaselineSequence: nil
         )
     }
@@ -900,7 +926,7 @@ actor RepoExplorerProjectionWorker {
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
-            nextRepositoryActivityTransitionAt: previous.nextRepositoryActivityTransitionAt,
+            repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
             semanticBaselineSequence: nil
         )
     }
@@ -926,7 +952,7 @@ extension RepoExplorerProjectionResult {
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: repositoryActivityDispositionByRepoId,
-            nextRepositoryActivityTransitionAt: nextRepositoryActivityTransitionAt,
+            repositoryActivityTransitionAtByRepoId: repositoryActivityTransitionAtByRepoId,
             semanticBaselineSequence: semanticBaselineSequence
         )
     }
