@@ -725,6 +725,31 @@ Date: 2026-08-25
       retained Review remains available.
     - Status: owner-accepted placement and color checkpoint; not implemented.
 
+36. **Draft presentation and Escape preserve durable work**
+    - Canonical state language remains distinct: Draft is editable durable work
+      that is not output-eligible; Pending is a saved human annotation awaiting
+      acknowledged output; New is an unseen saved agent annotation.
+    - An active Draft editor uses the existing blue editing ring, a neutral
+      `Draft` label with no status dot, the Textarea body, and Revert/Save
+      controls. Blue identifies the active editing boundary, not Draft workflow
+      state.
+    - A closed durable Draft uses the normal annotation card and border, a
+      neutral `Draft` label with no status dot, its body preview, and the normal
+      Edit affordance that resumes the Draft. It does not use yellow tint, a blue
+      New dot, a dashed border, or `saved locally` explanatory copy. The thread
+      summary retains one neutral Draft cue when any contained annotation has a
+      Draft.
+    - First Escape from a dirty editor flushes and preserves the latest durable
+      Draft body as required, exits the Textarea, and presents the closed Draft
+      without a confirmation dialog. Revert is the explicit destructive action
+      that discards Draft changes.
+    - After the editor has closed, a subsequent Escape follows the existing
+      thread lifecycle and leaves/collapses the active thread. Save promotes the
+      Draft into the applicable saved state; Escape never implies Save.
+    - Status: owner-accepted visual and Escape checkpoint; not implemented as a
+      new design slice. Current behavior must be reconciled and proven against
+      this contract before completion is claimed.
+
 ## Scope classification
 
 - These are primarily BridgeWeb transient interaction, focus, component
