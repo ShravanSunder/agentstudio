@@ -131,7 +131,14 @@ export function WorktreeAnnotationThread(
 		interaction.activateSavedMessage({ threadId, ...props.rangeIdentity }, messageId);
 	};
 	const handleThreadClick = (event: ReactMouseEvent<HTMLElement>): void => {
-		activateRange();
+		const targetMessageId =
+			event.target instanceof Element
+				? event.target
+						.closest<HTMLElement>('[data-annotation-message-id]')
+						?.getAttribute('data-annotation-message-id')
+					: null;
+		if (targetMessageId === null || targetMessageId === undefined) activateRange();
+		else activateMessageRange(targetMessageId);
 		const targetOwnsInteraction =
 			event.target instanceof Element &&
 			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null;
