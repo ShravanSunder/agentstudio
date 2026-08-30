@@ -587,11 +587,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
 
         // Assert — successor admission is independent of operation 10's physical lifetime.
-        let successorStartedBeforePredecessorRelease = await waitForStartedComparisonCount(
-            2,
-            gate: comparisonGate
-        )
-        #expect(successorStartedBeforePredecessorRelease)
+        await comparisonGate.waitForStartedComparisonCount(2)
+        #expect(await comparisonGate.hasStartedComparisonCount(2))
 
         // Act — only the predecessor is released. Its late completion may clean its retiring
         // custody, but it cannot clear successor ownership or Review loading.
