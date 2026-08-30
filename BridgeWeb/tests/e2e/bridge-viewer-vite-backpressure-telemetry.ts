@@ -80,15 +80,7 @@ function telemetryRuntimeFailure(status: unknown, viewer: 'file' | 'review'): st
 	if (!isRecord(status) || !Array.isArray(status['recentSamples'])) return null;
 	const failures = status['recentSamples']
 		.filter(isTelemetryStatusSample)
-		.filter(
-			(sample) =>
-				sample.stringAttributes['agentstudio.bridge.viewer'] === viewer &&
-				(sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'] === 'timed_out' ||
-					sample.stringAttributes['agentstudio.bridge.phase'] ===
-						'render_disposition_admission_overloaded' ||
-					sample.stringAttributes['agentstudio.bridge.worker.session_state'] ===
-						'replacement_requested'),
-		)
+		.filter((sample) => isViewerRuntimeFailure(sample, viewer))
 		.slice(-4)
 		.map((sample) => ({
 			name: sample.name,
@@ -147,7 +139,7 @@ export function compactTelemetryDiagnostic(
 	}));
 }
 
-function backpressureTelemetryObservation(props: {
+export function backpressureTelemetryObservation(props: {
 	readonly expectedReceiptProducedCount: number | null;
 	readonly status: unknown;
 	readonly viewer: 'file' | 'review';
@@ -191,13 +183,8 @@ function backpressureTelemetryObservation(props: {
 		currentCount !== 0
 	)
 		return null;
-	const failureCount = samples.filter(
-		(sample) =>
-			sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'] === 'timed_out' ||
-			sample.stringAttributes['agentstudio.bridge.phase'] ===
-				'render_disposition_admission_overloaded' ||
-			sample.stringAttributes['agentstudio.bridge.worker.session_state'] ===
-				'replacement_requested',
+	const failureCount = samples.filter((sample) =>
+		isViewerRuntimeFailure(sample, props.viewer),
 	).length;
 	return {
 		currentCount,
@@ -238,6 +225,17 @@ function isTelemetryStatusSample(value: unknown): value is TelemetryStatusSample
 		typeof value['name'] === 'string' &&
 		isRecord(value['numericAttributes']) &&
 		isRecord(value['stringAttributes'])
+	);
+}
+
+function isViewerRuntimeFailure(sample: TelemetryStatusSample, viewer: 'file' | 'review'): boolean {
+	return (
+		sample.stringAttributes['agentstudio.bridge.viewer'] === viewer &&
+		(sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'] === 'timed_out' ||
+			sample.stringAttributes['agentstudio.bridge.phase'] ===
+				'render_disposition_admission_overloaded' ||
+			sample.stringAttributes['agentstudio.bridge.worker.session_state'] ===
+				'replacement_requested')
 	);
 }
 

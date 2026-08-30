@@ -6,10 +6,15 @@ struct BridgePaneProductMetadataProducerExecutionContext: Sendable {
     let session: BridgeProductSession
 }
 
+enum BridgeMetadataInterestBootstrapAdmission: Equatable, Sendable {
+    case afterBootstrap
+    case afterSourceAcceptance
+}
+
 struct BridgePaneProductMetadataProducerTaskLifecycle {
     private enum ProducerTaskKind: Sendable {
         case bootstrap
-        case interest
+        case interest(BridgeMetadataInterestBootstrapAdmission)
     }
 
     private struct BootstrapProducerTask: Sendable {
@@ -60,13 +65,14 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
     mutating func startInterestTask(
         subscriptionId: String,
         subscriptionKind: BridgeProductSubscriptionKind,
+        bootstrapAdmission: BridgeMetadataInterestBootstrapAdmission,
         executionContext: BridgePaneProductMetadataProducerExecutionContext,
         taskFinished: @escaping @Sendable (String, UUID, Bool) async -> Void,
         operation: @escaping @Sendable (BridgeTraceContext?) async throws -> Void
     ) {
         startTask(
             ProducerTaskStart(
-                kind: .interest,
+                kind: .interest(bootstrapAdmission),
                 subscriptionId: subscriptionId,
                 subscriptionKind: subscriptionKind,
                 executionContext: executionContext,
@@ -86,8 +92,13 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         let taskFinished = request.taskFinished
         let operation = request.operation
         let taskId = UUID()
-        let bootstrapPredecessor =
-            kind == .interest ? bootstrapTaskBySubscriptionId[subscriptionId]?.task : nil
+        let bootstrapPredecessor: Task<Void, Never>? =
+            switch kind {
+            case .bootstrap, .interest(.afterSourceAcceptance):
+                nil
+            case .interest(.afterBootstrap):
+                bootstrapTaskBySubscriptionId[subscriptionId]?.task
+            }
         let lifecycleTraceRecorder = lifecycleTraceRecorder
         let task = Task {
             let traceContext = BridgeTraceContextFactory.live.makeRootContext()

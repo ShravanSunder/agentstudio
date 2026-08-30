@@ -34,7 +34,7 @@ actor BridgePaneProductMetadataCoordinator {
     private var streamTransitionGeneration = 0
     var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
     var deferredOpenSubscriptionIds: Set<String> = []
-    private var deferredUpdateSubscriptionIds: Set<String> = []
+    var deferredUpdateSubscriptionIds: Set<String> = []
     var openedSourceSubscriptionIds: Set<String> = []
 
     init(
@@ -296,10 +296,19 @@ actor BridgePaneProductMetadataCoordinator {
                     producerTaskLifecycle.cancelInterestTasks(
                         subscriptionId: subscription.subscriptionId
                     )
-                    if openedSourceSubscriptionIds.contains(subscription.subscriptionId)
-                        || producerTaskLifecycle.hasBootstrapTask(
-                            subscriptionId: subscription.subscriptionId
-                        )
+                    let application = try? nativeApplicationRegistry.application(
+                        for: subscription.subscriptionKind
+                    )
+                    let bootstrapAdmission =
+                        application?.adapter.interestBootstrapAdmission ?? .afterBootstrap
+                    let sourceIsReady = openedSourceSubscriptionIds.contains(
+                        subscription.subscriptionId
+                    )
+                    let bootstrapIsRunning = producerTaskLifecycle.hasBootstrapTask(
+                        subscriptionId: subscription.subscriptionId
+                    )
+                    if sourceIsReady
+                        || (bootstrapIsRunning && bootstrapAdmission == .afterBootstrap)
                     {
                         deferredUpdateSubscriptionIds.remove(subscription.subscriptionId)
                         startSubscriptionUpdate(
@@ -308,6 +317,8 @@ actor BridgePaneProductMetadataCoordinator {
                             productAdmission: productAdmission,
                             foregroundWorkAdmission: foregroundWorkAdmission
                         )
+                    } else if bootstrapIsRunning {
+                        deferredUpdateSubscriptionIds.insert(subscription.subscriptionId)
                     } else {
                         deferredOpenSubscriptionIds.remove(subscription.subscriptionId)
                         startSubscriptionOpen(

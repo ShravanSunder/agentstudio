@@ -5,6 +5,28 @@ import Testing
 
 @Suite("Bridge metadata native application registry")
 struct BridgeMetadataNativeApplicationRegistryTests {
+    @Test("only File metadata admits interest after source acceptance")
+    func onlyFileMetadataOverlapsBootstrap() throws {
+        let registry = BridgePaneProductMetadataNativeApplicationRegistry.product
+
+        #expect(
+            try registry.application(for: .fileMetadata).adapter.interestBootstrapAdmission
+                == .afterSourceAcceptance
+        )
+        #expect(
+            try registry.application(for: .reviewMetadata).adapter.interestBootstrapAdmission
+                == .afterBootstrap
+        )
+        #expect(
+            try registry.application(for: .fileAnnotations).adapter.interestBootstrapAdmission
+                == .afterBootstrap
+        )
+        #expect(
+            try registry.application(for: .reviewAnnotations).adapter.interestBootstrapAdmission
+                == .afterBootstrap
+        )
+    }
+
     @Test("one bound fixture registration owns schema open update cancel and active close lifecycle")
     func boundFixtureRegistrationOwnsNativeLifecycle() async throws {
         let registration = AnyBridgeProductMetadataApplicationProtocol(FixtureLifecycleApplication.self)

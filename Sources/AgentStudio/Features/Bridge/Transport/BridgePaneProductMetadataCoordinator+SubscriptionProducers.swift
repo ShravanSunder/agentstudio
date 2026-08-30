@@ -46,6 +46,19 @@ struct BridgePaneProductMetadataNativeAdapter: Sendable {
     let open: Operation
     let update: Operation
     let cancel: Cancellation
+    let interestBootstrapAdmission: BridgeMetadataInterestBootstrapAdmission
+
+    init(
+        open: @escaping Operation,
+        update: @escaping Operation,
+        cancel: @escaping Cancellation,
+        interestBootstrapAdmission: BridgeMetadataInterestBootstrapAdmission = .afterBootstrap
+    ) {
+        self.open = open
+        self.update = update
+        self.cancel = cancel
+        self.interestBootstrapAdmission = interestBootstrapAdmission
+    }
 }
 
 struct BridgePaneProductMetadataNativeApplication: Sendable {
@@ -122,6 +135,7 @@ extension BridgePaneProductMetadataCoordinator {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) {
+        openedSourceSubscriptionIds.remove(subscription.subscriptionId)
         producerTaskLifecycle.startBootstrapTask(
             subscriptionId: subscription.subscriptionId,
             subscriptionKind: subscription.subscriptionKind,
@@ -158,6 +172,8 @@ extension BridgePaneProductMetadataCoordinator {
                 }
                 await self.recordSourceOpened(
                     subscriptionId: subscription.subscriptionId,
+                    activeStream: activeStream,
+                    productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission
                 )
             }
@@ -274,6 +290,14 @@ extension BridgePaneProductMetadataCoordinator {
             throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
         }
         await recordEnqueued(event, traceContext: traceContext)
+        if case .sourceAccepted = event {
+            await recordSourceOpened(
+                subscriptionId: subscription.subscriptionId,
+                activeStream: activeStream,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        }
     }
 
     private func openReviewMetadataSubscription(
@@ -364,9 +388,13 @@ extension BridgePaneProductMetadataCoordinator {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) {
+        let bootstrapAdmission =
+            (try? nativeApplicationRegistry.application(for: subscription.subscriptionKind))?
+            .adapter.interestBootstrapAdmission ?? .afterBootstrap
         producerTaskLifecycle.startInterestTask(
             subscriptionId: subscription.subscriptionId,
             subscriptionKind: subscription.subscriptionKind,
+            bootstrapAdmission: bootstrapAdmission,
             executionContext: .init(
                 foregroundWorkAdmission: foregroundWorkAdmission,
                 productAdmission: productAdmission,
@@ -443,13 +471,29 @@ extension BridgePaneProductMetadataCoordinator {
 
     private func recordSourceOpened(
         subscriptionId: String,
+        activeStream: ActiveStream,
+        productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) {
+    ) async {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            productAdmission.withValidAdmission({ true }) == true,
+            self.activeStream?.lease == activeStream.lease,
             subscriptionKindById[subscriptionId] != nil
         else { return }
         openedSourceSubscriptionIds.insert(subscriptionId)
         deferredOpenSubscriptionIds.remove(subscriptionId)
+        guard deferredUpdateSubscriptionIds.remove(subscriptionId) != nil,
+            let subscription = await activeStream.session.subscriptionSnapshot(
+                subscriptionId: subscriptionId
+            )
+        else { return }
+        producerTaskLifecycle.cancelInterestTasks(subscriptionId: subscriptionId)
+        startSubscriptionUpdate(
+            subscription,
+            activeStream: activeStream,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
     }
 
     func cancelRegisteredSource(
@@ -477,7 +521,8 @@ extension BridgePaneProductMetadataCoordinator {
         },
         cancel: { coordinator, subscriptionId in
             await coordinator.annotationSource.cancel(subscriptionID: subscriptionId)
-        }
+        },
+        interestBootstrapAdmission: .afterBootstrap
     )
 
     static let fileMetadataNativeAdapter = BridgePaneProductMetadataNativeAdapter(
@@ -501,7 +546,8 @@ extension BridgePaneProductMetadataCoordinator {
         },
         cancel: { coordinator, subscriptionId in
             await coordinator.fileMetadataSource.cancel(subscriptionId: subscriptionId)
-        }
+        },
+        interestBootstrapAdmission: .afterSourceAcceptance
     )
 
     static let reviewMetadataNativeAdapter = BridgePaneProductMetadataNativeAdapter(
@@ -525,6 +571,7 @@ extension BridgePaneProductMetadataCoordinator {
         },
         cancel: { coordinator, subscriptionId in
             await coordinator.reviewMetadataSource.cancel(subscriptionId: subscriptionId)
-        }
+        },
+        interestBootstrapAdmission: .afterBootstrap
     )
 }

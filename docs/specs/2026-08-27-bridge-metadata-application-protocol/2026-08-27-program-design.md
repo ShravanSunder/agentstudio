@@ -11,8 +11,8 @@ Specification:
 Bridge keeps its three physical routes and one pane communication worker. The
 metadata route becomes structurally generic: it validates delivery fields,
 then asks a statically registered application protocol to validate and type the
-application payload. File and Review register their existing event contracts
-without changing behavior.
+application payload. File and Review register their existing event contracts;
+all behavior remains unchanged except MAP-U9's File demand-admission timing.
 
 The same generic layer gains one bounded catalog-transfer primitive. Worktree
 Annotations uses it to continuously publish only session, thread, message, and
@@ -111,6 +111,7 @@ Bridge metadata transport
   Metadata application registry
     owns: subscription kind → typed application protocol and source binding
     consumes: generic envelope and application control payloads
+    owns: application-specific interest admission relative to source bootstrap
     changes when: an application protocol is added or removed
 
   Metadata catalog transfer
@@ -204,7 +205,10 @@ schema validation.
 Each language-specific `MetadataApplicationProtocol<Options, Interest, Event>`
 owns the Specification's full registration contract: kind, surface/source
 authority, options and initial-open conversion, empty/target interest state and
-delta accounting, event validation/generation, and native source lifecycle.
+delta accounting, and event validation/generation. The Swift native application
+registration additionally owns source lifecycle and whether admitted interest
+waits for complete bootstrap or may run after source acceptance while bootstrap
+continues.
 The registration adapts an existing native authority owner; it cannot create or
 widen pane, surface, worktree, provider, Review publication, mutation, or
 content authority. Generic admission runs before the registered adapter, and
@@ -248,7 +252,47 @@ open/update/cancel/close calls while the generic producer lifecycle continues
 to own task replacement, sequencing, and drain.
 
 File and Review registrations wrap their current schemas and event unions.
-They do not change wire literals or application behavior.
+They do not change wire literals. Application behavior is preserved except for
+the registered File admission policy required by MAP-U9.
+
+The native File registration selects `afterSourceAcceptance`. Review and both
+Worktree Annotation registrations select `afterBootstrap`. This is one native
+application policy carried by the existing static registration; it creates no
+second task owner, queue, scheduler, or transport state.
+
+For `afterBootstrap`, the shared producer lifecycle retains its current
+bootstrap-predecessor wait. For `afterSourceAcceptance`, the coordinator uses
+the existing File `sourceAccepted` event as the milestone. Only after that
+event is successfully enqueued under the current product and foreground
+admissions does the coordinator mark the subscription ready for overlapping
+interest.
+
+An interest committed before that milestone records the subscription ID in
+the coordinator's existing deferred-update set and starts no update task. The
+product session remains the sole owner of the latest committed interest
+snapshot. When the milestone arrives, the coordinator reads that current
+snapshot from the session and starts one update. A newer commit replaces the
+session snapshot and cancels any older interest task through existing
+lifecycle behavior; no second interest snapshot, queue, or revision owner is
+introduced.
+
+File's source already installs its subscription/source context before emitting
+`sourceAccepted`, appends each progressive tree window to the manifest before
+emission, and accepts descriptor demand only for current manifest members.
+Therefore overlap does not weaken admission: an interest update may run during
+enumeration, but only a path already present in the current manifest can reach
+descriptor refresh and publication. An accepted interest whose path is not yet
+a manifest member still updates the File source's current subscription; the
+existing per-window rerun observes it when a later window admits the member.
+Review and Annotation sources retain their complete-bootstrap predecessor
+because they do not expose the same progressive member-admission seam.
+
+Reset, cancellation, source or worker replacement, foreground revocation, and
+subscription retirement clear both the interest-ready marker and existing
+deferred-update ID through the coordinator's current lifecycle cleanup. A late
+acceptance or update from retired authority fails the existing product,
+foreground, subscription, source, and generation guards and cannot restore
+readiness.
 
 The current application-kind switches in Swift source construction, surface
 mapping, open/update conversion, empty-interest construction, delta accounting,
@@ -627,6 +671,43 @@ control result and subscription reset/end/error paths. File and Review source
 objects, events, and lifecycle semantics are preserved behind their
 registrations.
 
+### File first-selected-content admission
+
+```mermaid
+sequenceDiagram
+    participant Main as Main File surface
+    participant Worker as Communication worker
+    participant Lifecycle as Native producer lifecycle
+    participant File as File metadata source
+    participant Manifest as Current manifest index
+
+    File->>Manifest: install source authority
+    File-->>Worker: sourceAccepted
+    Worker->>Lifecycle: enqueue accepted; mark subscription interest-ready
+    Lifecycle->>Worker: read latest committed interest snapshot
+    File->>Manifest: append early tree window
+    File-->>Main: early tree window
+    Main->>Worker: select admitted path
+    Worker->>Lifecycle: commit File interest
+    Lifecycle->>Lifecycle: current source is interest-ready
+    Lifecycle->>File: update while later windows stream
+    File->>Manifest: validate current member
+    File-->>Main: descriptorReady
+    Main->>File: request selected content
+    File-->>Main: selected preview
+    File-->>Main: later tree windows continue
+```
+
+Changed edges: a pre-acceptance File interest records the existing deferred
+update ID; successful enqueue of the current File `sourceAccepted` event marks
+the subscription interest-ready, reads the latest session-owned snapshot, and
+starts the update without awaiting final bootstrap. Intentionally unchanged
+edges: generic interest commit ordering, session ownership of current
+interests, subscription/source/generation/foreground fences, manifest
+membership validation, descriptor publication, content request, and all
+result/error paths. Review and Worktree Annotation predecessor waits are
+intentionally unchanged.
+
 ### Annotation bootstrap and demand
 
 ```mermaid
@@ -784,6 +865,9 @@ replacement for both associations.
 | catalog commit while editor open | store retains ready/stale content and exact command overlay for retained session | content refresh replaces only after complete current response |
 | reset while bounded worker-to-main staging is incomplete | main candidate authority no longer matches | discard hidden candidate; retain active catalog visibly stale until replacement commit |
 | File/Review protocol registration mismatch | fixture/contract validation fails before application | hard-cut build is invalid; no compatibility fallback |
+| File interest arrives before source acceptance | coordinator retains the existing deferred-update ID while the product session owns the latest committed snapshot | successful current `sourceAccepted` enqueue reads and applies the latest snapshot exactly once; no interest is lost |
+| File interest arrives after source acceptance during tree bootstrap | registration admits overlap; File source accepts the newest interest but resolves only paths already present in the current source manifest | admitted paths publish normally; not-yet-admitted paths remain unresolved until a later window re-runs current interest |
+| source/reset/cancellation races overlapping File interest | existing product, foreground, source, subscription, generation, and manifest guards reject obsolete work | current source bootstrap or replacement remains the sole recovery owner |
 | pane/worker/source closes | existing cancellation and revocation fences retire producer, assembler, demand, and content attempts | fresh session bootstrap only |
 
 Ordering and atomicity rules:
@@ -810,6 +894,10 @@ Ordering and atomicity rules:
 - native-to-worker and worker-to-main catalog transfers both use bounded staging
   and final commit; React never observes either candidate;
 - only complete rich response swaps session content;
+- File bootstrap and File interest may overlap only after registered
+  `afterSourceAcceptance` admission; the session-owned latest interest,
+  coordinator interest-ready/deferred markers, manifest membership, and
+  existing authority fences form the consistency boundary;
 - exact command receipts may overlay presentation before either swap;
 - a surface holds at most one active and one candidate catalog, one rich query
   per existing controller policy, and one newest coalesced invalidation state.
@@ -865,6 +953,11 @@ Performance:
 - main-thread work per staging unit is bounded, React receives no wake per
   entry/window, and one lightweight final commit swaps active revision and
   publishes one presentation change.
+- ready-backend File and Review startup separately measures metadata, initial
+  selection, content-request start, response, and first usable preview; all
+  first-usable boundaries have a one-second budget;
+- File descriptor demand for an admitted early manifest member overlaps
+  remaining tree enumeration instead of paying full-bootstrap latency.
 
 Trust and validation:
 
@@ -941,13 +1034,13 @@ the development-browser proof.
 | --- | --- | --- |
 | MAP-R1, R2, R3 | generic raw envelope; static typed registries owning surface/source lifecycle, option/open and interest/delta transforms, schemas, and generation reader; preserved generic batching/barrier/transport state machine | fixture application plus schema/type and native/worker subscription integration |
 | MAP-R4, R5 | generic full-frame-measured writer, multi-waiter observation high-water, precedence-aware capacity-bounded candidate assembler, authority-bound active/stale catalog, bounded worker-to-main hidden staging | packing, concurrent observation, aggregate-capacity, and transfer state-machine tests including late superseded frames, replay rejection, reset, failure, and main-bank commit |
-| MAP-R6 | File/Review registrations wrap existing contracts and feed existing applicators | existing regression suites plus wire/application parity fixtures |
+| MAP-R6 | File/Review registrations wrap existing contracts and feed existing applicators; the File registration alone admits interest after successful current `sourceAccepted` enqueue, with the product session retaining newest pre-acceptance interest and current manifest membership preserving source truth | existing regression suites, wire/application parity fixtures, and deterministic pre-acceptance, member-admission, bootstrap-overlap, replacement, reset, cancellation, and foreground-revocation tests |
 | MAP-R7, R8 | service-generation-fenced lightweight SQLite catalog rows, common annotation authority, relationship applicator, existing store catalog/control/content banks | real repository, worker, store, recovery/session-selection, and browser catalog-only tests |
 | MAP-R9, R10 | existing control/rich projection demand, session-change revision coalescing, and discovery/recovery control invalidation | empty-demand control selection, demanded/undemanded rich content, control refresh, and equal/older/newer revision integration |
 | MAP-R11 | repository committed-change classification, full replacement, old/new reassociation publication, catalog/demand reconciliation | topology/reassociation races and restart proof |
 | MAP-R12 | unchanged exact command receipts and overlays independent of catalog/content convergence | delayed/failed replacement editor and Share tests |
 | MAP-R13 | existing pane/product/worker/source lifecycle retires writers, worker/main candidates, and content attempts while marking retained authority stale | replacement/reset/inactive/close integration |
-| MAP-R14 | body-free entries, prospective full-frame packing, bounded worker-to-main staging, one active+candidate per boundary, existing ack/backpressure | byte/window/port-unit telemetry, main-thread long-task measurement, and resource-state inspection |
+| MAP-R14 | body-free entries, prospective full-frame packing, bounded worker-to-main staging, one active+candidate per boundary, existing ack/backpressure, and File progressive-demand admission | byte/window/port-unit telemetry, main-thread long-task measurement, resource-state inspection, and enforced ready-backend real-worktree startup budgets |
 | MAP-R15 | identical protocol registrations behind URL-scheme and HTTP carriers | real Vite/Swift and packaged journeys |
 
 ## Deliberate limits and revisit signals

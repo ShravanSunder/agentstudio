@@ -173,6 +173,23 @@ partial, or mixed-revision annotation membership.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
 
+### MAP-U9 — Make first selected File and Review content usable promptly
+
+- Affected classes: human reviewer and Bridge application developer.
+- Need: With the development backend already ready, File and Review metadata,
+  initial selection, and the first selected preview become usable within one
+  second on the repository-owned real-worktree startup journey. Remaining
+  progressive metadata may continue streaming afterward and must not delay
+  content whose source authority and metadata member are already admitted.
+- Why: Early metadata is not useful when the selected content remains blocked
+  behind unrelated enumeration of the rest of a large worktree.
+- Evidence: owner confirmation and real-worktree measurements on 2026-08-30;
+  File metadata and selection completed within one second while File preview
+  required 1.44–1.82 seconds. Review completed within 0.43–0.51 seconds.
+- Authority: authorized.
+- Priority: must, assigned by the Agent Studio owner.
+- Hypothesis state: none.
+
 ## Goal boundary
 
 - Primary goal: make typed Bridge metadata applications register behind one
@@ -192,12 +209,14 @@ partial, or mixed-revision annotation membership.
   BridgeWeb communication-worker transport and subscription owners, Worktree
   Annotation repository/service/transport/store owners, and existing proof
   harnesses.
-- Protected surface: File and Review observable behavior, annotation durable
+- Protected surface: File and Review observable behavior except the authorized
+  first-selected-content latency correction in MAP-U9; annotation durable
   identities and persistence semantics, command behavior, output semantics,
   source placement, native pane authority, demand scheduling, render
   backpressure, and the three physical routes.
-- Non-goals: File or Review behavioral redesign; UI redesign; a new physical
-  route, port, queue, scheduler, atom, coordinator, or persistence boundary;
+- Non-goals: File or Review behavioral redesign beyond MAP-U9; UI redesign; a
+  new physical route, port, queue, scheduler, atom, coordinator, or persistence
+  boundary;
   dynamic runtime plugin discovery; application-defined executable code from
   the wire; thread/message-level annotation demand; delta-first annotation
   catalog replication; annotation database migration; a new authentication or
@@ -211,7 +230,9 @@ partial, or mixed-revision annotation membership.
   compatibility evidence; repository and Swift transport integration; real
   Vite/production-worker/Swift-backend/SQLite annotation journeys; reset,
   restart, delayed-content, and malformed-transfer cases; packaged File and
-  Review annotation interaction; current-head lint and aggregate tests.
+  Review annotation interaction; ready-backend real-worktree startup timing
+  for metadata and first selected content; current-head lint and aggregate
+  tests.
 
 ## Confirmed decisions
 
@@ -244,5 +265,6 @@ topology, association, bootstrap, and reset
   bounded complete catalog replacement
 
 File and Review
-  register current protocols without changing their behavior
+  register current protocols without changing their behavior except that
+  admitted File demand need not wait for unrelated remaining tree enumeration
 ```

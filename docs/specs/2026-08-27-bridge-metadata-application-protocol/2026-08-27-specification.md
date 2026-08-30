@@ -11,8 +11,9 @@ Program Design:
 A Bridge application developer can add a typed metadata subscription by
 defining and registering application contracts without adding application
 payload cases to generic stream, subscription, queue, acknowledgement,
-frame-bound, or backpressure logic. Existing File and Review metadata continues
-to behave exactly as before.
+frame-bound, or backpressure logic. Existing File and Review metadata behavior
+is preserved except for MAP-U9's explicit File demand-admission timing
+correction.
 
 Worktree Annotation consumers receive a lightweight, complete association
 catalog independently of rich content. The catalog answers what annotation
@@ -227,11 +228,23 @@ NOT change:
 - source, generation, publication, revision, or interest fences;
 - progressive File tree application;
 - atomic Review publication application;
-- content descriptor meaning or demand scheduling;
+- content descriptor meaning or demand scheduling, except that File descriptor
+  demand for an already admitted manifest member MUST be eligible while later
+  tree windows continue streaming and MUST NOT wait for full File bootstrap;
 - failure, reset, resync, or presentation behavior; or
 - native, Vite, and packaged route equivalence.
 
 Basis: MAP-U2.
+
+Review and Worktree Annotation demand MUST retain their existing bootstrap
+ordering. The File exception MUST preserve the same subscription, source,
+generation, admitted-manifest-membership, product-admission, and foreground
+work fences used after bootstrap. Demand for a path not yet admitted to the
+current manifest MUST remain pending or produce the existing unavailable
+outcome; it MUST NOT bypass source authority by guessing from the requested
+path.
+
+Basis: MAP-U2, MAP-U9.
 
 ### MAP-R7 — Worktree Annotation catalog contract
 
@@ -441,11 +454,19 @@ stream MUST NOT supersede or falsely fail one another. Advancing the observed
 stream high-water mark MUST settle every eligible wait whose target sequence is
 at or below that mark.
 
+Against an already-ready development backend, the repository-owned
+real-worktree startup journey MUST observe File and Review metadata, initial
+selection, and the first selected preview within one second of page navigation.
+The measurement MUST distinguish metadata readiness, selection, content-request
+start, content response, and first usable preview. Later progressive metadata
+MAY continue after that boundary. A fast HTTP response observed only after a
+long admission delay does not satisfy this requirement.
+
 If measurement later proves topology replacement cost unacceptable, a typed
 catalog-delta extension MAY be designed separately. This specification does not
 define delta/tombstone semantics.
 
-Basis: MAP-U5, MAP-U6.
+Basis: MAP-U5, MAP-U6, MAP-U9.
 
 ### MAP-R15 — Equivalent development and packaged contracts
 
@@ -583,13 +604,13 @@ This specification does not define:
 | --- | --- |
 | MAP-R1, MAP-R2, MAP-R3 | schema/type behavior and Swift/TypeScript transport integration proving unknown-to-typed validation, duplicate/unknown registration rejection, sequence/generation mismatch rejection, and no generic transport edit for a fixture application |
 | MAP-R4, MAP-R5 | automated transfer state-machine behavior for packing, multi-window commit, replay, supersession, reset, malformed/missing/duplicate/out-of-order windows, frame ceiling, and last-complete retention |
-| MAP-R6 | existing File and Review unit/integration/browser behavior plus wire fixture parity across the registry cutover |
+| MAP-R6 | existing File and Review unit/integration/browser behavior plus wire fixture parity across the registry cutover and deterministic proof that admitted File demand may run before remaining tree bootstrap finishes without weakening authority fences |
 | MAP-R7, MAP-R8 | repository/catalog projection and worker/store behavior proving normalized relationships, deterministic order, catalog-only state, and no false empty content |
 | MAP-R9, MAP-R10 | session-demand and coalescing behavior proving demanded refresh, undemanded no-fetch, equal/older suppression, and body-free metadata |
 | MAP-R11 | repository/Swift/worker integration for create/remove/reassociate, old/new worktree catalog replacement, stale rich-result rejection, and identity preservation |
 | MAP-R12 | browser behavior proving exact Save settlement and overlay retention while catalog/content replacement is delayed or fails |
 | MAP-R13 | worker replacement, reset/reconnect, inactive/reactivation, close/drain, and post-terminal rejection evidence |
-| MAP-R14 | frame/entry packing, active/candidate capacity inspection, message-edit transfer measurement, and metadata backpressure evidence |
+| MAP-R14 | frame/entry packing, active/candidate capacity inspection, message-edit transfer measurement, metadata backpressure evidence, and ready-backend real-worktree startup measurements with an enforced one-second File/Review first-usable budget |
 | MAP-R15 | real Vite + production comm worker + Swift development backend + SQLite journey and packaged WKWebView compatibility evidence |
 
 ## Traceability
@@ -603,4 +624,5 @@ MAP-U5 → MAP-R10, R14
 MAP-U6 → MAP-R4, R5, R11, R14
 MAP-U7 → MAP-R12
 MAP-U8 → MAP-R15
+MAP-U9 → MAP-R6, R14
 ```

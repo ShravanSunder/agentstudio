@@ -5,49 +5,6 @@ import Testing
 
 @Suite("Bridge product session protocol lifecycle admission")
 struct BridgePaneProductMetadataCoordinatorTests {
-    @Test("committed File interest waits for source bootstrap without cancelling it")
-    func committedFileInterestWaitsForSourceBootstrap() async throws {
-        // Arrange
-        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
-        let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        let lease = try await harness.admitMetadataFrames(through: 0)
-        let source = CoordinatorGatedFileMetadataSource()
-        let coordinator = BridgePaneProductMetadataCoordinator(
-            fileMetadataSource: source,
-            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
-            refreshWorkAdmissionSource: refreshWorkAdmission.source
-        )
-        await coordinator.install(
-            request: try coordinatorMetadataStreamRequest(),
-            lease: lease,
-            productAdmission: harness.productAdmission.context,
-            session: harness.session
-        )
-        let lifecycle = try coordinatorFileSubscriptionLifecycle()
-        await coordinator.apply(
-            .subscriptionOpened(lifecycle.opened),
-            productAdmission: harness.productAdmission.context
-        )
-        await source.waitUntilOpenStarted()
-
-        // Act
-        await coordinator.apply(
-            .subscriptionInterestsCommitted(
-                barrier: lifecycle.commitBarrier,
-                subscription: lifecycle.updated
-            ),
-            productAdmission: harness.productAdmission.context
-        )
-        await source.releaseOpen()
-        await source.waitUntilOpenFinished()
-        await source.waitUntilUpdateStarted()
-
-        // Assert
-        #expect(!(await source.openObservedCancellation))
-        #expect(await source.updateObservedOpenFinished)
-        await coordinator.uninstall(lease: lease)
-    }
-
     @Test("unavailable File source resets the accepted subscription and retires delivery")
     func unavailableFileSourceResetsAcceptedSubscription() async throws {
         // Arrange
