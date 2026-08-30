@@ -53,10 +53,14 @@ enum BridgeProductPackagedShareJourneyTestSupport {
 
     private struct ShareDOMSnapshot: Decodable {
         let allCount: Int
+        let animationStates: [String]
         let historyCount: Int
         let pendingCount: Int
         let otherSavedCommentsVisible: Bool
+        let shareEndingStyle: Bool
+        let shareOpen: Bool
         let shareVisible: Bool
+        let visibilityState: String
     }
 
     static func run(
@@ -71,6 +75,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         ) { hostedController in
             hostedController.loadApp()
             try await requirePackagedReviewReady(hostedController)
+            try await disableAnimationsForHiddenPackagedCarrier(hostedController.page)
             _ = try await seedReviewAnnotation(
                 controller: hostedController,
                 repositoryURL: harness.repositoryURL,
@@ -92,7 +97,11 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 $0.shareVisible && $0.historyCount == 1
             }
             try await clickButton(hostedController.page, label: "History (1)")
-            try await clickButton(hostedController.page, label: "Mark as not handled")
+            try await clickButton(
+                hostedController.page,
+                label: "Mark as not handled",
+                withinTestID: "worktree-annotation-share-shelf"
+            )
             let reviewAfterUnhandle = try await requireShareSnapshot(
                 hostedController.page,
                 stage: "review-unhandle"
@@ -115,6 +124,14 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 reviewPendingCount: reviewAfterUnhandle.pendingCount
             )
         }.value
+    }
+
+    private static func disableAnimationsForHiddenPackagedCarrier(_ page: WebPage) async throws {
+        _ = try await page.callJavaScript(
+            """
+            globalThis.BASE_UI_ANIMATIONS_DISABLED = true;
+            """
+        )
     }
 
     private static func makeJourneyHarness(
@@ -335,12 +352,20 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         guard found else { throw PackagedShareJourneyError.missingButton(label) }
     }
 
-    private static func clickButton(_ page: WebPage, label: String) async throws {
+    private static func clickButton(
+        _ page: WebPage,
+        label: String,
+        withinTestID: String? = nil
+    ) async throws {
         let clicked =
             try await page.callJavaScript(
                 """
                 const buttonLabel = String(label);
-                const button = Array.from(document.querySelectorAll('button')).find(
+                const containerTestID = String(withinTestID);
+                const container = containerTestID.length === 0
+                  ? document
+                  : document.querySelector(`[data-testid="${containerTestID}"]`);
+                const button = Array.from(container?.querySelectorAll('button') ?? []).find(
                   candidate =>
                     candidate.getAttribute('aria-label') === buttonLabel ||
                     candidate.textContent?.trim() === buttonLabel
@@ -349,7 +374,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 button.click();
                 return true;
                 """,
-                arguments: ["label": label]
+                arguments: ["label": label, "withinTestID": withinTestID ?? ""]
             ) as? Bool
         guard clicked == true else { throw PackagedShareJourneyError.missingButton(label) }
     }
@@ -400,12 +425,23 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             const integerIn = value => Number(value.match(/\\d+/)?.[0] ?? '0');
             return JSON.stringify({
               allCount: integerIn(textForPrefix('All')),
+              animationStates: Array.from(
+                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                  ?.getAnimations({ subtree: true }) ?? []
+              ).map(animation => `${animation.playState}:${animation.pending}`),
               historyCount: integerIn(textForPrefix('History (')),
               pendingCount: integerIn(textForPrefix('Pending')),
               otherSavedCommentsVisible:
                 document.querySelector('[aria-label="Other saved comments"]') !== null,
+              shareEndingStyle:
+                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                  ?.hasAttribute('data-ending-style') === true,
+              shareOpen:
+                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                  ?.hasAttribute('data-open') === true,
               shareVisible:
-                document.querySelector('[data-testid="worktree-annotation-share-mode"]') !== null
+                document.querySelector('[data-testid="worktree-annotation-share-mode"]') !== null,
+              visibilityState: document.visibilityState
             });
             """
         )
