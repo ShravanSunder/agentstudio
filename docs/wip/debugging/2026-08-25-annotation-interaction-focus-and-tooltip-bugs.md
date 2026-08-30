@@ -2,6 +2,42 @@
 
 Date: 2026-08-25
 
+## 2026-08-29 implementation checkpoint
+
+- Current implementation head: `e74acdd66` (`serialize annotation output
+  actions`), following `205099d09` (`fix bridge annotation shelf lifecycle`).
+- Share is a header-owned, 90%-width floating shelf below the File/Review
+  header. It uses the owned Popover primitive, 120 ms grouped translation,
+  bounded vertical overflow, below-header collision policy, and no canvas
+  reflow.
+- Pending/All are display scopes. Copy, Export, and History Repeat acquire one
+  exclusive output lease. A pending destination disables every competing
+  destination and locks shelf dismissal; only the active lease can release the
+  lock.
+- Cross-thread asynchronous editor exit is identity-guarded, so leaving thread
+  A cannot clear the newly activated exact message in thread B.
+- Review refresh chrome reserves one stable right-side slot across silent,
+  Updating, Update ready, and unavailable presentations, preserving the left
+  title geometry.
+- Independent source audit at `e74acdd66` found no blocking implementation
+  defect in the invalidated Share/history, cross-thread, motion/placement, or
+  refresh-title rows.
+- Fresh automated proof: `mise run test:bridge-web:check` exited 0; `mise run
+  test:bridge-web:unit` passed 322 files / 2,101 tests; `mise run
+  bridge-web-build` exited 0.
+- Fresh live Vite proof at the real current-worktree Review route confirmed:
+  90% shelf width at default and 900 px viewports; `data-side=bottom`; 120 ms
+  transition; unchanged header and code-canvas bounds; Pending/All switching;
+  outside-click focus preservation; and Escape/Close focus return to Share.
+- Remaining environment blockers are not product verdicts. Vitest Browser
+  cannot launch Chrome because the browser aborts before test collection. The
+  isolated native app builds, but LaunchServices reports
+  `kLSNoExecutableErr`; the direct-executable fallback exits immediately, so
+  fresh native observability and UI interaction proof cannot run in the
+  current macOS session.
+- Branch is intentionally not pushed while the owner-reported WindowServer
+  session problem remains active.
+
 ## Current todo
 
 1. **Reply requires two clicks and the annotation moves**
