@@ -189,6 +189,11 @@ final class RepoExplorerProjectionInputCapture {
         switch invalidation {
         case .structural, .presentation, .activityHydration:
             return nil
+        case .stableIdentity:
+            return captureStableIdentityChanges(
+                previous: previous,
+                referenceDate: referenceDate
+            )
         case .repositoryActivity(let repositoryID):
             return captureRepositoryActivity(
                 repositoryID,
@@ -229,6 +234,58 @@ final class RepoExplorerProjectionInputCapture {
                 referenceDate: referenceDate
             )
         }
+    }
+
+    func repositoryIDsWithChangedStableIdentity(
+        in previous: RepoExplorerProjectionRequest
+    ) -> Set<UUID> {
+        Set(
+            previous.snapshot.repos.compactMap { previousRepository in
+                guard
+                    let stableKey = store.repositoryTopologyAtom.repositoryStableKey(
+                        for: previousRepository.id
+                    )
+                else { return previousRepository.id }
+                guard stableKey == previousRepository.stableKey else { return previousRepository.id }
+                let worktreeIdentityChanged = previousRepository.worktrees.contains { worktree in
+                    store.repositoryTopologyAtom.worktreeStableKey(for: worktree.id)
+                        != previousRepository.worktreeStableKeysByID[worktree.id]
+                }
+                return worktreeIdentityChanged ? previousRepository.id : nil
+            })
+    }
+
+    private func captureStableIdentityChanges(
+        previous: RepoExplorerProjectionRequest,
+        referenceDate: Date
+    ) -> RepoExplorerScopedCapture? {
+        let changedRepositoryIDs = repositoryIDsWithChangedStableIdentity(in: previous)
+        guard !changedRepositoryIDs.isEmpty else { return unchangedScopedCapture(previous) }
+
+        var request = previous
+        var changes = Set<RepoExplorerScopedProjectionChange>()
+        var requiresFullProjection = false
+        var requiresObservationRetarget = false
+        for repositoryID in changedRepositoryIDs {
+            guard
+                let capture = captureRepositoryChange(
+                    repositoryID,
+                    previous: request,
+                    referenceDate: referenceDate
+                )
+            else { return nil }
+            request = capture.request
+            changes.formUnion(capture.changes)
+            requiresFullProjection = requiresFullProjection || capture.requiresFullProjection
+            requiresObservationRetarget =
+                requiresObservationRetarget || capture.requiresObservationRetarget
+        }
+        return RepoExplorerScopedCapture(
+            request: request,
+            changes: changes,
+            requiresFullProjection: requiresFullProjection,
+            requiresObservationRetarget: requiresObservationRetarget
+        )
     }
 
     private func captureRepositoryActivity(

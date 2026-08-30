@@ -1,9 +1,9 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
 
+@testable import AgentStudioCore
 @testable import AgentStudioRepoExplorer
 
 private final class RepoExplorerActivityExecutionRecorder: @unchecked Sendable {
@@ -192,6 +192,31 @@ private final class RepoExplorerLocalActivityProjectionFixture {
                 )
             ]
         )
+    }
+
+    func replaceStableIdentity(
+        repositoryStableKey: String,
+        worktreeStableKey: String
+    ) throws {
+        var repositoryStableKeysByID = store.repositoryTopologyAtom.repositoryStableKeysByID
+        repositoryStableKeysByID[repo.id] = repositoryStableKey
+        var worktreeStableKeysByID = store.repositoryTopologyAtom.worktreeStableKeysByID
+        worktreeStableKeysByID[worktree.id] = worktreeStableKey
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: store.repositoryTopologyAtom.repos,
+            watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+            unavailableRepositoryIDs: [],
+            stableIdentity: RepositoryTopologyStableIdentity(
+                repositoryStableKeysByID: repositoryStableKeysByID,
+                worktreeStableKeysByID: worktreeStableKeysByID,
+                watchedPathStableKeysByID: store.repositoryTopologyAtom.watchedPathStableKeysByID
+            )
+        )
+        guard case .prepared(let replacement) = preparation else {
+            Issue.record("expected stable identity replacement to prepare")
+            return
+        }
+        store.repositoryTopologyAtom.replaceTopology(replacement)
     }
 
     func waitForStableKey(
@@ -488,6 +513,104 @@ extension RepoExplorerProjectionDemandTests {
                     == deltaExecutionCountAfterReassociation + 1
             )
             #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+        }
+    }
+
+    @MainActor
+    @Test("map-only stable identity replacement retargets activity without another wake")
+    func mapOnlyStableIdentityReplacementRetargetsActivityIdentity() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            // Arrange
+            let fixture = try RepoExplorerLocalActivityProjectionFixture(atoms: atoms)
+            defer { fixture.stop() }
+            await fixture.startAndWait(for: .locallyInactive)
+
+            let replacementRepositoryStableKey = "bbbbbbbbbbbbbbbb"
+            let replacementWorktreeStableKey = replacementRepositoryStableKey
+            let replacementLastActivityAt = fixture.referenceDate.addingTimeInterval(-100)
+            let replacementWarmActivity = try fixture.warmActivity(
+                repositoryStableKey: replacementRepositoryStableKey,
+                lastQualifyingActivityAt: replacementLastActivityAt
+            )
+            fixture.publishActivities(
+                atoms: atoms,
+                activityByStableKey: [
+                    fixture.repositoryStableKey: fixture.inactiveActivity,
+                    replacementRepositoryStableKey: replacementWarmActivity,
+                    fixture.unrelatedRepositoryStableKey: fixture.unrelatedInactiveActivity,
+                ]
+            )
+            for _ in 0..<200 { await Task.yield() }
+            let fullCaptureCount = fixture.capture.fullCaptureCount
+            let scopedCaptureCount = fixture.capture.scopedCaptureCount
+            let replacementReferenceDate = fixture.referenceDate.addingTimeInterval(1000)
+            fixture.referenceDateClock.now = replacementReferenceDate
+
+            // Act
+            try fixture.replaceStableIdentity(
+                repositoryStableKey: replacementRepositoryStableKey,
+                worktreeStableKey: replacementWorktreeStableKey
+            )
+            await fixture.waitForStableKey(replacementRepositoryStableKey, disposition: .warm)
+
+            // Assert
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCount + 1)
+            #expect(
+                fixture.adapter.cachedProjectionRequest?.snapshot.repos.first(where: {
+                    $0.id == fixture.repo.id
+                })?.stableKey == replacementRepositoryStableKey
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?.snapshot.repos.first(where: {
+                    $0.id == fixture.repo.id
+                })?.worktreeStableKeysByID[fixture.worktree.id] == replacementWorktreeStableKey
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[fixture.repositoryStableKey] == nil
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[replacementRepositoryStableKey]
+                    == replacementWarmActivity
+            )
+            #expect(fixture.adapter.cachedProjectionRequest?.activityReferenceDate == replacementReferenceDate)
+            #expect(fixture.observesActivity(stableKey: replacementRepositoryStableKey))
+            #expect(!fixture.observesActivity(stableKey: fixture.repositoryStableKey))
+
+            let fullCaptureCountAfterReplacement = fixture.capture.fullCaptureCount
+            let scopedCaptureCountAfterReplacement = fixture.capture.scopedCaptureCount
+            let executionCountAfterReplacement = fixture.executionRecorder.executionCount
+            let publishedRevisionAfterReplacement = fixture.adapter.publishedRevision
+            let stableIdentityRevisionAfterReplacement =
+                fixture.store.repositoryTopologyAtom.stableIdentityRevision
+            try fixture.replaceStableIdentity(
+                repositoryStableKey: replacementRepositoryStableKey,
+                worktreeStableKey: replacementWorktreeStableKey
+            )
+            for _ in 0..<200 { await Task.yield() }
+
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCountAfterReplacement)
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCountAfterReplacement)
+            #expect(fixture.executionRecorder.executionCount == executionCountAfterReplacement)
+            #expect(fixture.adapter.publishedRevision == publishedRevisionAfterReplacement)
+            #expect(
+                fixture.store.repositoryTopologyAtom.stableIdentityRevision
+                    == stableIdentityRevisionAfterReplacement
+            )
+
+            fixture.store.repositoryTopologyAtom.applyValidatedRepositoryMetadata(
+                repositoryID: fixture.repo.id,
+                isFavorite: true,
+                note: nil,
+                tags: []
+            )
+
+            #expect(
+                fixture.store.repositoryTopologyAtom.stableIdentityRevision
+                    == stableIdentityRevisionAfterReplacement
+            )
         }
     }
 

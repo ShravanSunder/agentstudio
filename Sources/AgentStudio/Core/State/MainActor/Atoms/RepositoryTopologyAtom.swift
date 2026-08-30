@@ -136,6 +136,7 @@ package final class RepositoryTopologyAtom {
     package private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
     package private(set) var worktreePathIndexGeneration: UInt64 = 0
+    package private(set) var stableIdentityRevision = 0
 
     @ObservationIgnored private let repositoryFamily = AtomFamily<UUID, Repo>(
         telemetryLabel: "repository_topology_repository",
@@ -249,6 +250,9 @@ package final class RepositoryTopologyAtom {
         }
         if repositoriesChanged || watchedPathsChanged || stableIdentityChanged {
             rebuildEntityIndexes(from: replacement)
+        }
+        if stableIdentityChanged {
+            stableIdentityRevision &+= 1
         }
         if repositoriesChanged || unavailableRepositoriesChanged {
             scheduleWorktreePathIndexRebuild()

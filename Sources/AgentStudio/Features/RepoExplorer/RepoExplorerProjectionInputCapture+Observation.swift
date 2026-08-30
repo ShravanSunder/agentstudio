@@ -5,6 +5,7 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
     case demand
     case presentation
     case membership
+    case stableIdentity
     case repository(UUID)
     case worktree(UUID)
     case paneStructure(UUID)
@@ -19,6 +20,7 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
 enum RepoExplorerInputInvalidation: Equatable, Sendable {
     case structural
     case presentation
+    case stableIdentity
     case repository(UUID)
     case worktree(UUID)
     case pane(UUID)
@@ -62,6 +64,8 @@ extension RepoExplorerProjectionInputCapture {
             _ = store.repositoryTopologyAtom.repositoryIdsInOrder
             _ = store.paneAtom.graphAtom.paneIDs
             _ = store.tabShellAtom.orderedTabIds
+        case .stableIdentity:
+            _ = store.repositoryTopologyAtom.stableIdentityRevision
         case .repository(let repositoryID):
             _ = store.repositoryTopologyAtom.repo(repositoryID)
             _ = repoCache.repoEnrichment(for: repositoryID)
@@ -112,7 +116,9 @@ extension RepoExplorerProjectionInputCapture {
     func observationTokens(for request: RepoExplorerProjectionRequest) -> Set<RepoExplorerObservationToken> {
         let structuralPaneIDs = demandedPaneIDs(in: request.snapshot)
         let structuralTabIDs = demandedTabIDs(in: request.snapshot)
-        var tokens: Set<RepoExplorerObservationToken> = [.demand, .presentation, .membership]
+        var tokens: Set<RepoExplorerObservationToken> = [
+            .demand, .presentation, .membership, .stableIdentity,
+        ]
         tokens.formUnion(request.snapshot.repos.map { .repository($0.id) })
         tokens.formUnion(request.snapshot.repos.flatMap(\.worktrees).map { .worktree($0.id) })
         tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.paneStructure))
@@ -140,6 +146,8 @@ extension RepoExplorerProjectionInputCapture {
             .structural
         case .presentation:
             .presentation
+        case .stableIdentity:
+            .stableIdentity
         case .repository(let repositoryID):
             .repository(repositoryID)
         case .worktree(let worktreeID):

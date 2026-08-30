@@ -5,6 +5,7 @@ import Observation
 struct RepoExplorerPendingInvalidation {
     var requiresStructuralCapture = false
     var requiresPresentationCapture = false
+    var includesStableIdentity = false
     var repositoryIDs = Set<UUID>()
     var worktreeIDs = Set<UUID>()
     var paneIDs = Set<UUID>()
@@ -16,6 +17,7 @@ struct RepoExplorerPendingInvalidation {
     var isEmpty: Bool {
         !requiresStructuralCapture
             && !requiresPresentationCapture
+            && !includesStableIdentity
             && repositoryIDs.isEmpty
             && worktreeIDs.isEmpty
             && paneIDs.isEmpty
@@ -31,6 +33,8 @@ struct RepoExplorerPendingInvalidation {
             requiresStructuralCapture = true
         case .presentation:
             requiresPresentationCapture = true
+        case .stableIdentity:
+            includesStableIdentity = true
         case .repository(let repositoryID):
             repositoryIDs.insert(repositoryID)
         case .worktree(let worktreeID):
@@ -192,8 +196,17 @@ extension RepoExplorerProjectionAdapter {
             return
         }
 
+        let stableIdentityRepositoryIDs =
+            pending.includesStableIdentity
+            ? inputCapture.repositoryIDsWithChangedStableIdentity(in: request)
+            : []
+        if !stableIdentityRepositoryIDs.isEmpty {
+            recencyReferenceDate = recencyNow()
+        }
+        let remainingRepositoryIDs = pending.repositoryIDs.subtracting(stableIdentityRepositoryIDs)
         let invalidations =
-            pending.repositoryIDs.map(RepoExplorerInputInvalidation.repository)
+            (pending.includesStableIdentity ? [.stableIdentity] : [])
+            + remainingRepositoryIDs.map(RepoExplorerInputInvalidation.repository)
             + pending.repositoryActivityIDs.map(RepoExplorerInputInvalidation.repositoryActivity)
             + pending.worktreeIDs.map(RepoExplorerInputInvalidation.worktree)
             + pending.paneIDs.map(RepoExplorerInputInvalidation.pane)

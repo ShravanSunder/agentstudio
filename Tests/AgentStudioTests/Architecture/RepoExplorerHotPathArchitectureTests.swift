@@ -43,6 +43,29 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!captureActivitySlice.contains("snapshot.repos.first(where:"))
     }
 
+    @Test("Repo Explorer observes stable identity without reading identity maps")
+    func observesStableIdentityRevisionWithoutIdentityMapReads() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let observationSource = try String(
+            contentsOf: projectRoot.appending(
+                path:
+                    "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionInputCapture+Observation.swift"
+            ),
+            encoding: .utf8
+        )
+        let stableIdentitySlice = try #require(
+            observationSource.repoExplorerSlice(
+                from: "        case .stableIdentity:",
+                to: "        case .repository"
+            )
+        )
+
+        #expect(stableIdentitySlice.contains("repositoryTopologyAtom.stableIdentityRevision"))
+        #expect(!stableIdentitySlice.contains("repositoryStableKeysByID"))
+        #expect(!stableIdentitySlice.contains("worktreeStableKeysByID"))
+        #expect(!stableIdentitySlice.contains("watchedPathStableKeysByID"))
+    }
+
     @Test("RepoExplorer model files are pure and do not read atoms")
     func repoExplorerModelFilesDoNotReadAtoms() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
