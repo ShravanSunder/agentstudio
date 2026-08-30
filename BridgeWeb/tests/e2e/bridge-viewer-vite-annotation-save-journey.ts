@@ -721,6 +721,18 @@ export async function selectRangeForAnnotation(props: {
 	await props.page.mouse.down();
 	await props.page.mouse.move(endBounds.x + 4, endBounds.y + endBounds.height / 2, { steps: 4 });
 	await props.page.mouse.up();
+	if (props.surface === 'review') {
+		const selectionDiagnostic = await reviewRangeSelectionDiagnostic({
+			endBounds,
+			page: props.page,
+			startBounds,
+		});
+		if (selectionDiagnostic.selectedLineCount === 0) {
+			throw new Error(
+				`Review annotation drag did not establish Pierre selection: ${JSON.stringify(selectionDiagnostic)}`,
+			);
+		}
+	}
 	const endpointUtility = props.page.locator('[data-utility-button]').first();
 	await endpointUtility.waitFor({
 		state: 'visible',
@@ -737,6 +749,66 @@ interface AnnotationRangeBounds {
 	readonly width: number;
 	readonly x: number;
 	readonly y: number;
+}
+
+interface ReviewRangeSelectionDiagnostic {
+	readonly endHitPath: readonly string[];
+	readonly selectedLineCount: number;
+	readonly startHitPath: readonly string[];
+	readonly utilityButtonCount: number;
+}
+
+async function reviewRangeSelectionDiagnostic(props: {
+	readonly endBounds: AnnotationRangeBounds;
+	readonly page: Page;
+	readonly startBounds: AnnotationRangeBounds;
+}): Promise<ReviewRangeSelectionDiagnostic> {
+	return await props.page.evaluate(
+		({ endBounds, startBounds }): ReviewRangeSelectionDiagnostic => {
+			const queryComposedCount = (selector: string): number => {
+				const pending: Array<Document | ShadowRoot> = [document];
+				let count = 0;
+				while (pending.length > 0) {
+					const current = pending.shift();
+					if (current === undefined) break;
+					count += current.querySelectorAll(selector).length;
+					for (const descendant of current.querySelectorAll('*')) {
+						if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+					}
+				}
+				return count;
+			};
+			const hitPath = (bounds: AnnotationRangeBounds): readonly string[] => {
+				const point = { x: bounds.x + 4, y: bounds.y + bounds.height / 2 };
+				const path: string[] = [];
+				let currentRoot: Document | ShadowRoot = document;
+				while (true) {
+					const hit: Element | undefined = currentRoot.elementsFromPoint(point.x, point.y)[0];
+					if (hit === undefined) break;
+					path.push(
+						[
+							hit.tagName.toLowerCase(),
+							hit.getAttribute('data-column-number'),
+							hit.getAttribute('data-selected-line'),
+							hit.getAttribute('data-testid'),
+						]
+							.filter((part): part is string => part !== null)
+							.join(':'),
+					);
+					if (hit.shadowRoot === null) break;
+					currentRoot = hit.shadowRoot;
+				}
+				return path;
+			};
+			return {
+				endHitPath: hitPath(endBounds),
+				selectedLineCount: queryComposedCount('[data-selected-line]'),
+				startHitPath: hitPath(startBounds),
+				utilityButtonCount: queryComposedCount('[data-utility-button]'),
+			};
+		},
+		{ endBounds: props.endBounds, startBounds: props.startBounds },
+	);
 }
 
 async function reviewAdditionRangeBounds(props: {
