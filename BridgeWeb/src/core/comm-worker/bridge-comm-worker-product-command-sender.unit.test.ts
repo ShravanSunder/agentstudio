@@ -23,6 +23,10 @@ describe('Bridge comm worker product command sender', () => {
 			workerDerivationEpoch: (): number => 1,
 		} satisfies BridgeProductTransportSession;
 		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				reason: 'no-file-source-authority',
+				status: 'unavailable',
+			}),
 			onFileMetadataEvent: (): void => {},
 			productTransport,
 		});

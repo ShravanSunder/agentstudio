@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type {
 	BridgeProductMetadataApplicationEvent,
 	BridgeProductMetadataDataFrame,
@@ -124,7 +125,93 @@ describe('Bridge comm worker File metadata recovery', () => {
 		// Assert
 		await observedReplacementWindow.promise;
 	});
+
+	test('File activation reopens a source retired by metadata stream failure', async () => {
+		// Arrange
+		const firstEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+		const replacementEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+		const observedFailure = makeDeferred<void>();
+		let discoveryCount = 0;
+		let subscriptionCount = 0;
+		const subscriptions: readonly FileMetadataSubscription[] = [
+			fileSubscription('file-subscription-before-failure', firstEvents),
+			fileSubscription('file-subscription-after-failure', replacementEvents),
+		];
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => {
+				discoveryCount += 1;
+				return { source: currentFileSourceConfiguration, status: 'available' };
+			},
+			onFileMetadataEvent: (): void => {},
+			onFileMetadataFailure: (): void => observedFailure.resolve(),
+			productTransport: fileEpochTransport(),
+			subscribeFile: () => {
+				const subscription = subscriptions[subscriptionCount];
+				if (subscription === undefined) throw new Error('Unexpected third File subscription.');
+				subscriptionCount += 1;
+				return subscription;
+			},
+		});
+		await controller.ensureFileSource();
+		firstEvents.fail(new Error('File metadata stream ended'), true);
+		await observedFailure.promise;
+
+		// Act
+		await controller.sendProductControl(fileActiveViewerModeCommand());
+
+		// Assert
+		expect(discoveryCount).toBe(2);
+		expect(subscriptionCount).toBe(2);
+	});
+
+	test('File activation succeeds before best-effort source recovery fails', async () => {
+		// Arrange
+		const callOrder: string[] = [];
+		const baseTransport = fileEpochTransport();
+		const productTransport = {
+			...baseTransport,
+			call: async (...arguments_) => {
+				const method = arguments_[0];
+				if (method !== 'file.activeViewerMode.update') {
+					throw new Error(`Unexpected product call: ${method}.`);
+				}
+				callOrder.push('native-active-mode');
+				return null;
+			},
+		} satisfies BridgeProductTransportSession;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => {
+				callOrder.push('file-source-discovery');
+				throw new Error('File source recovery unavailable');
+			},
+			onFileMetadataEvent: (): void => {},
+			productTransport,
+		});
+
+		// Act
+		const result = await controller.sendProductControl(fileActiveViewerModeCommand());
+
+		// Assert
+		expect(result).toBeNull();
+		expect(callOrder).toEqual(['native-active-mode', 'file-source-discovery']);
+	});
 });
+
+function fileActiveViewerModeCommand(): Extract<
+	BridgeProductControlCommand,
+	{ readonly method: 'bridge.activeViewerMode.update' }
+> {
+	return {
+		method: 'bridge.activeViewerMode.update',
+		params: {
+			activeSource: null,
+			mode: 'file',
+			nativeSelectionRequestId: null,
+			sequence: 1,
+			sessionId: 'active-viewer-session',
+		},
+	};
+}
 
 function fileSubscription(
 	subscriptionId: string,
@@ -160,8 +247,10 @@ function fileEpochTransport(): BridgeProductTransportSession {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;
 		},
-		call: async (): Promise<never> => {
-			throw new Error('Unexpected product call.');
+		call: async (...arguments_) => {
+			const method = arguments_[0];
+			if (method === 'file.activeViewerMode.update') return null;
+			throw new Error(`Unexpected product call: ${method}.`);
 		},
 		openContent: (): never => {
 			throw new Error('Unexpected content open.');

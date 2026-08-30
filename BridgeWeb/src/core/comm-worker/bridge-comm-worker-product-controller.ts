@@ -757,9 +757,16 @@ export class BridgeCommWorkerProductController {
 			sequence: command.params.sequence,
 			sessionId: command.params.sessionId,
 		};
-		return command.params.mode === 'review'
-			? await this.#productTransport.call('review.activeViewerMode.update', request)
-			: await this.#productTransport.call('file.activeViewerMode.update', request);
+		if (command.params.mode === 'review') {
+			return await this.#productTransport.call('review.activeViewerMode.update', request);
+		}
+		const result = await this.#productTransport.call('file.activeViewerMode.update', request);
+		try {
+			await this.ensureFileSource();
+		} catch {
+			// Exact active-mode success remains independent of metadata-stream recovery.
+		}
+		return result;
 	}
 }
 
