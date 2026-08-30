@@ -718,10 +718,12 @@ Date: 2026-08-25
     - The group does not move or dim the canvas, disable Review/annotation
       interaction, steal focus, or force focus into an action. Its presence must
       not change header height or the stable left-side title geometry.
-    - Exact status colors remain open. The proposed neutral Updating, accent-blue
-      Update ready, and restrained-red Update unavailable treatments are not yet
-      owner-confirmed.
-    - Status: owner-accepted placement checkpoint; not implemented.
+    - Accepted semantic colors: `Updating…` uses neutral/muted chrome; `Update
+      ready` uses the primary blue accent; `Update unavailable` uses restrained
+      amber warning chrome. Red remains reserved for a failure of the current
+      usable state, which a failed background replacement is not because the
+      retained Review remains available.
+    - Status: owner-accepted placement and color checkpoint; not implemented.
 
 ## Scope classification
 
