@@ -226,6 +226,7 @@ struct DarwinCompositeFSEventContinuityTests {
     ) async throws {
         let fixture = try CompositeContinuityFixture(blockedFlushNumber: window.flushNumber)
         defer { fixture.streamFactory.allowBlockedFlush(result: true) }
+        try #require(await fixture.localStreamIsReady())
 
         let operationTask: Task<Bool, Never>
         switch window {
@@ -291,6 +292,7 @@ struct DarwinCompositeFSEventContinuityTests {
     func sharedFlushFailureRejectsPreparation() async throws {
         let fixture = try CompositeContinuityFixture(blockedFlushNumber: 1)
         defer { fixture.streamFactory.allowBlockedFlush(result: false) }
+        try #require(await fixture.localStreamIsReady())
         let prepareTask = Task { await fixture.prepare() }
 
         await fixture.streamFactory.waitUntilBlockedFlushBegins()
@@ -458,6 +460,14 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         barrier.deliveredEventIDByParticipant.first { participant, _ in
             participant.scopeKey.hasPrefix("shared:")
         }?.value
+    }
+
+    func localStreamIsReady() async -> Bool {
+        guard let barrier = await client.captureActivityBarrier() else { return false }
+        return barrier.bindings.contains { binding in
+            binding.worktreeId == worktreeId
+                && binding.participant.scopeKey.hasPrefix("local:")
+        }
     }
 }
 
