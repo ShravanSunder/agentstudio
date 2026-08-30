@@ -392,6 +392,22 @@ describe('worktree annotation Pierre integration', () => {
 			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
 
 			await act(async (): Promise<void> => {
+				await rendered.rerender(renderFilePanel(fileA));
+				await Promise.resolve();
+			});
+			await act(async (): Promise<void> => {
+				invokeGutterAdmission(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ start: 4, end: 4 },
+					fileA,
+				);
+				await Promise.resolve();
+			});
+			await expect
+				.element(rendered.getByRole('textbox', { name: 'Write an annotation in Markdown' }))
+				.toBeVisible();
+
+			await act(async (): Promise<void> => {
 				await rendered.rerender(renderFilePanel(fileCWithReusedPresentationIdentity));
 				await Promise.resolve();
 			});
