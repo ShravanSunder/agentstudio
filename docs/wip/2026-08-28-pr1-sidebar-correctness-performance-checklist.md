@@ -3,7 +3,7 @@
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
 Current implementation checkpoint: `c6e3fbd75` after final actor currentness correction and current-main integration
-Status: wrap-up in progress; final actor/main integration focused proof green, exact-final aggregate/review/publication open
+Status: wrap-up in progress; integrated aggregate green, final documentation-head aggregate/review/publication open
 
 ## Product Contract
 
@@ -46,7 +46,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Keep untouched persisted repositories unknown after restart until each repository receives a current-session checkpoint.
 - [x] Make repository Refresh preserve launcher/application-open recency.
 - [x] Reconcile the Program Design and exact `agentstudio-git` pin with PR1's conservative live self-event boundary; replay and durable exact provenance remain PR2.
-- [ ] Complete the exact-HEAD aggregate after the topology convergence test correction.
+- [x] Complete the exact-HEAD aggregate after the topology convergence test correction.
 - [ ] Complete the independent implementation review, push, and PR checks.
 
 ## Current Evidence
@@ -96,6 +96,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The post-format combined focused rerun passed 40/40 across five suites: `RemoteReferenceRefreshActorTests`, `RemoteReferenceRefreshRecomputationTests`, `GitWorkingDirectoryProjectorRemoteReferenceTests`, `RepositoryLocalActivityStoreTests`, and `FilesystemActorActivityTests`.
 - The exact-final review at `25c87c72e` found one remaining actor reentrancy gap: local snapshot acceptance could resume during an identity invalidation because its post-await registration check omitted shutdown and the active invalidation fence. The deterministic final-unregister interleaving failed red in 0.003 seconds, then passed green after both local-acceptance suspension points cut over to the actor's complete current-identity predicate. The complete remote actor/recomputation/projector set passed 28/28; `mise run lint` passed with SwiftLint 0 violations across 2,231 files, architecture lint and release verification green, and `git diff --check` clean.
 - Current `origin/main` at `fb026b36e` was merged into PR1 at `c6e3fbd75`. The sole conflict was the large Swift test runner: the resolved parallel inventory excludes both main's serial-owned packaged-journey suite and PR1's process-global suites, then runs each through its existing isolated owner. The merged CI runner, vendor wiring, remote actor, recomputation, and projector set passed 60/60; `mise run lint` and `git diff --check` passed before the merge commit.
+- Exact integrated `mise run test` at `39ed73b12` passed with exit code 0 in 480.15 seconds: SwiftLint reported 0 violations across 2,231 files; BridgeWeb unit 1,764, Node integration 19, browser 211 passed/5 skipped, and E2E 4 passed; the inherited website gate passed Astro check/build, Cloudflare build/discovery, 53 unit tests, 21 browser tests, and complete capture verification; all Swift prebuild, fast, large, serialized WebKit, and E2E lanes passed, including WebKit 243 and final E2E 6/6.
 - `mise run lint` passes after the reviewed correction with SwiftLint 0 violations, architecture lint OK, release-script verification green, and `git diff --check` clean.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
@@ -118,7 +119,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 | Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; extended native/OTLP population deferred to PR2 |
 | Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | Preserved lbim interaction | Automated green; live sidebar accepted by owner |
 | Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | Extended exact-lbim 5/20 populations | Deferred to PR2; not claimed by PR1 |
-| Exact final aggregate gate | Focused 94/94, focused topology 7/7, prior full aggregate green | `mise run test` on the final test-stability checkpoint | Pending rerun |
+| Exact final aggregate gate | Focused 94/94, focused topology 7/7, integrated full aggregate green | `mise run test` on the final test-stability checkpoint | Passed at `39ed73b12`; documentation-head confirmation pending |
 | Independent implementation review | Fourth fresh review found four defects; remediation focused proof is green | Fresh review of final corrected HEAD | Pending |
 | PR publication readiness | Local branch checkpoints and exact-final aggregate | Push, CI, comments, threads, and mergeability | Pending |
 
@@ -136,7 +137,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 PR1 is ready to open or update only after every hard-priority row above is complete and the following release packet exists:
 
 - [x] The final requirements-to-proof matrix covers branch visibility, cached chips, inactive annotation, refresh behavior, grouping modes, search, scrolling, focus, row geometry, and demand invariance; extended CPU targets are explicitly assigned to PR2.
-- [ ] `mise run format`, `mise run lint`, and `mise run test` pass on the exact final test-stability checkpoint.
+- [x] `mise run format`, `mise run lint`, and `mise run test` pass on the integrated final test-stability checkpoint.
 - [x] The preserved `lbim` app was rebuilt from `0e6c45e5e`, retained the existing data root, showed real branches and chips, and was accepted by the owner as stable.
 - [x] Exact-process 5/20 CPU populations and deeper marker-scoped Victoria tuning are deferred to PR2; PR1 makes no quantitative CPU-target claim.
 - [ ] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
