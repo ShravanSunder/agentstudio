@@ -158,6 +158,7 @@ Worktree Annotation application
 
   Existing annotation demand/query/content owners
     own: rich session loading, source authority, placement, and convergence
+
 ```
 
 Singular truth remains unchanged:
@@ -708,6 +709,110 @@ membership validation, descriptor publication, content request, and all
 result/error paths. Review and Worktree Annotation predecessor waits are
 intentionally unchanged.
 
+This admission correction is necessary but does not by itself complete
+MAP-U9. The independently cold verifier runs File and Review through different
+newly started Vite servers, empty cache roots, and Chromium lifecycles against
+one already-ready Swift backend. It currently measures File shell, metadata,
+and visible content at approximately 1.17, 1.37, and 1.46 seconds, and Review
+metadata and selected content at approximately 1.47 seconds. Once the shell is
+available, source acceptance follows in about one millisecond and selected
+content follows selection in roughly 50 milliseconds.
+
+The equal File-first and Review-first miss assigns the remaining pre-admission
+cost to the shared development application/CSS module graph. The generic
+transport, native metadata producer, HTTP content path, and communication
+worker remain downstream and do not gain a new preload, bundle, queue, route,
+or readiness responsibility. Tested worker-only bundling and bounded Vite
+configuration candidates did not satisfy the maximum and are not part of the
+target composition.
+
+The selected correction makes application loading activation-scoped. The
+application owns two ordinary dynamic mode entries rather than importing both
+mode components through the common `BridgeApp` graph. The File entry loads only
+the File mode. The Review entry resolves both the Review mode and the existing
+Review shell module before it exposes the mode component, preserving the
+shell-before-intake ordering for initial Review and later File-to-Review
+activation. The dev bootstrap no longer unconditionally preloads the Review
+shell for File-first navigation.
+
+`BridgeApp` remains the single owner of active mode, navigation admission,
+surface clients, and retained mode lifetime. Its initially mounted set contains
+only the route-selected mode. Activating the other mode adds that mode to the
+same retained set; after its module resolves, both modes remain mounted and the
+inactive host stays hidden and inert exactly as today. Module completion never
+changes the active mode or navigation state, so a late load after a rapid
+File→Review→File sequence cannot steal visibility or source authority.
+Context-switcher, native-selection, and Review-file-corner activation all use
+one application-owned activate-and-retain transition that admits the target
+mode into the retained set before committing it active; no activation path may
+rely on the previous eager two-mode mount.
+
+```mermaid
+sequenceDiagram
+    participant Route as Protocol router
+    participant App as BridgeApp
+    participant Loader as Application mode loader
+    participant Mode as Active File or Review mode
+    participant Runtime as Existing pane runtime
+    participant Store as Existing surface store
+
+    Route->>App: initial active mode
+    App->>Loader: render only selected lazy mode
+    alt File selected
+        Loader->>Loader: import File mode
+    else Review selected
+        par Review activation barrier
+            Loader->>Loader: import Review mode
+            Loader->>Loader: import Review shell
+        end
+    end
+    Loader-->>App: active component or load failure
+    App->>Mode: mount only if still selected/retained
+    Mode->>Runtime: existing source/intake activation
+    Runtime-->>Store: existing typed metadata patches
+    Store-->>Mode: existing usable presentation
+    Note over App,Mode: Later activation adds the other mode once; both remain retained thereafter
+```
+
+Changed edges: the protocol router's selected mode now determines the first
+mode import; common `BridgeApp` evaluation no longer imports or mounts the
+never-activated mode; Review shell loading moves from an unconditional dev
+bootstrap barrier to the Review mode entry; the initial retained-mode set
+contains only the active mode; every context, native, or Review-corner mode
+transition now passes through the same activate-and-retain edge. Intentionally
+unchanged edges: `BridgeApp` navigation and active-mode authority, pane runtime
+construction, File source and Review intake behavior after mode mount, surface
+stores, active/inactive host geometry, exact command routing, and packaged
+application semantics.
+
+| Mode load state | Owner and transition | Result and failure behavior |
+| --- | --- | --- |
+| unrequested | `BridgeApp` has never retained the mode | no module evaluation and no inactive mode effects |
+| loading | existing React/Vite module loading after initial route or activation adds the mode | current active-state authority controls visibility; overlapping loads cannot change navigation |
+| ready | dynamic entry resolves; Review resolves its shell barrier first | mode mounts through the existing retained host and uses existing source/intake paths |
+| failed | dynamic import rejects | rejection follows the existing page/module failure path; no runtime/source authority is installed by the failed mode, and reload retries with the current Vite graph |
+| retained | a ready mode has mounted once | later switches hide/inert rather than unmount it, preserving drafts, comments, selection, and surface state |
+
+No application module cache, readiness service, retry scheduler, route, worker,
+or transport state is added. Vite and the browser keep owning module caching and
+invalidation, so ordinary React Fast Refresh continues to update loaded local
+modules and a not-yet-loaded mode resolves current source when first activated.
+The packaged entry uses the same application mode entries and existing
+production worker; code splitting changes loading order, not product behavior
+or transport/application ownership.
+
+The structural falsifier remains the independently cold boundary: separate
+fresh Vite/cache/browser lifecycles for File and Review against one already-
+ready backend must each reach metadata, selection, and first selected preview
+below one second. Proof must additionally cover initial File and Review,
+File↔Review switching before and after mode resolution, rapid opposing
+activations, retained composer/draft continuity, ordinary Fast Refresh in the
+loaded mode, current-source loading for a previously inactive mode, packaged
+build chunk integrity, and packaged WKWebView File/Review behavior. Failure of
+either cold route or any retained-mode invariant rejects this realization; it
+does not authorize a warm substitute, whole-application bundle, or generic
+transport expansion.
+
 ### Annotation bootstrap and demand
 
 ```mermaid
@@ -1040,7 +1145,7 @@ the development-browser proof.
 | MAP-R11 | repository committed-change classification, full replacement, old/new reassociation publication, catalog/demand reconciliation | topology/reassociation races and restart proof |
 | MAP-R12 | unchanged exact command receipts and overlays independent of catalog/content convergence | delayed/failed replacement editor and Share tests |
 | MAP-R13 | existing pane/product/worker/source lifecycle retires writers, worker/main candidates, and content attempts while marking retained authority stale | replacement/reset/inactive/close integration |
-| MAP-R14 | body-free entries, prospective full-frame packing, bounded worker-to-main staging, one active+candidate per boundary, existing ack/backpressure, and File progressive-demand admission | byte/window/port-unit telemetry, main-thread long-task measurement, resource-state inspection, and enforced ready-backend real-worktree startup budgets |
+| MAP-R14 | body-free entries, prospective full-frame packing, bounded worker-to-main staging, one active+candidate per boundary, existing ack/backpressure, File progressive-demand admission, and application-owned activation-scoped File/Review mode entries with Review shell-before-intake ordering | byte/window/port-unit telemetry, main-thread long-task measurement, resource-state inspection, independently cold File/Review startup budgets, mode-load overlap/retention proof, ordinary Fast Refresh, and packaged WKWebView journeys |
 | MAP-R15 | identical protocol registrations behind URL-scheme and HTTP carriers | real Vite/Swift and packaged journeys |
 
 ## Deliberate limits and revisit signals
