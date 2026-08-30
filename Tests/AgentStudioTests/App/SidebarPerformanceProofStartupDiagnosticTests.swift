@@ -762,6 +762,10 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         #expect(combinedSource.contains("summary.repoPaths(in: controlRootURL) == [controlRootURL]"))
         #expect(combinedSource.contains("controlRootPresent: true"))
         #expect(combinedSource.contains("control_root_present"))
+        #expect(combinedSource.contains("unknownRepositoryCount"))
+        #expect(combinedSource.contains("unknownWorktreeCount"))
+        #expect(combinedSource.contains("unknown_repository_count"))
+        #expect(combinedSource.contains("unknown_worktree_count"))
         #expect(!diagnosticSource.contains("populateRealSizeTopology"))
     }
 

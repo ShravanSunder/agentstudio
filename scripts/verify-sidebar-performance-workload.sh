@@ -643,7 +643,7 @@ PY
 }
 
 strict_sidebar_fixture_ready_query() {
-  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count,agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.unclassified_repository_count,agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count,agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count,agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count,agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count,agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count,agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
 }
 
 load_strict_sidebar_fixture_ready() {
@@ -704,9 +704,10 @@ repository_count = exact_int("discovered_repository_count")
 worktree_count = exact_int("discovered_worktree_count")
 warm_repository_count = exact_int("warm_repository_count")
 inactive_repository_count = exact_int("inactive_repository_count")
+unknown_repository_count = exact_int("unknown_repository_count")
 warm_worktree_count = exact_int("warm_worktree_count")
 inactive_worktree_count = exact_int("inactive_worktree_count")
-unclassified_repository_count = exact_int("unclassified_repository_count")
+unknown_worktree_count = exact_int("unknown_worktree_count")
 cold_automatic_deadline_count = exact_int("cold_automatic_deadline_count")
 cold_local_automatic_source_start_count = exact_int("cold_local_automatic_source_start_count")
 cold_fsevent_local_completion_count = exact_int("cold_fsevent_local_completion_count")
@@ -726,8 +727,8 @@ if warm_repository_count <= 0 or inactive_repository_count <= 0:
     raise SystemExit("strict fixture requires positive warm and inactive repository counts")
 if warm_worktree_count <= 0 or inactive_worktree_count <= 0:
     raise SystemExit("strict fixture requires positive warm and inactive worktree counts")
-if unclassified_repository_count != 0:
-    raise SystemExit("strict fixture retains unclassified repositories")
+if unknown_repository_count <= 0 or unknown_worktree_count <= 0:
+    raise SystemExit("strict fixture requires positive unknown membership")
 if cold_automatic_deadline_count != 0 or cold_local_automatic_source_start_count != 0:
     raise SystemExit("strict fixture contains cold automatic work")
 if cold_fsevent_local_completion_count != 1:
@@ -750,8 +751,10 @@ values = {
     "STRICT_FIXTURE_WORKTREE_COUNT": worktree_count,
     "STRICT_FIXTURE_WARM_REPOSITORY_COUNT": warm_repository_count,
     "STRICT_FIXTURE_INACTIVE_REPOSITORY_COUNT": inactive_repository_count,
+    "STRICT_FIXTURE_UNKNOWN_REPOSITORY_COUNT": unknown_repository_count,
     "STRICT_FIXTURE_WARM_WORKTREE_COUNT": warm_worktree_count,
     "STRICT_FIXTURE_INACTIVE_WORKTREE_COUNT": inactive_worktree_count,
+    "STRICT_FIXTURE_UNKNOWN_WORKTREE_COUNT": unknown_worktree_count,
     "STRICT_FIXTURE_TAB_COUNT": tab_count,
     "STRICT_FIXTURE_PANE_COUNT": pane_count,
     "STRICT_FIXTURE_EXPECTED_SESSION_COUNT": expected_sessions,
@@ -1138,7 +1141,8 @@ capture_strict_population_loss() {
 
 strict_quiescence_signature_from_json() {
   local vector_json="${1:?missing quiescence vector}"
-  /usr/bin/python3 - "$vector_json" <<'PY'
+  local expected_unknown_worktree_count="${STRICT_FIXTURE_UNKNOWN_WORKTREE_COUNT:-}"
+  /usr/bin/python3 - "$vector_json" "$expected_unknown_worktree_count" <<'PY'
 import json
 import math
 import sys
@@ -1207,6 +1211,11 @@ if float(vector["cold_automatic_source_start_count"]) != 0:
     raise SystemExit("quiescence cold automatic source start was observed")
 unknown_worktree_count = float(vector["unknown_worktree_count"])
 unknown_background_only_count = float(vector["unknown_background_only_count"])
+raw_expected_unknown_worktree_count = sys.argv[2]
+if unknown_worktree_count <= 0:
+    raise SystemExit("quiescence requires positive unknown membership")
+if raw_expected_unknown_worktree_count and unknown_worktree_count != float(raw_expected_unknown_worktree_count):
+    raise SystemExit("quiescence unknown membership does not match the strict fixture")
 if unknown_background_only_count != unknown_worktree_count:
     raise SystemExit("quiescence unknown background classification is incomplete")
 if float(vector["git_background_only_automatic_count"]) != unknown_background_only_count:

@@ -39,12 +39,15 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         let worktreeID = UUIDv7.generate()
         await actor.setRepositoryFactAttention(
             activePaneWorktreeId: nil,
-            sidebarAttendedWorktreeIds: [worktreeID],
+            sidebarAttendedWorktreeIds: [],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
             warmAutomaticWorktreeIds: [worktreeID],
             backgroundOnlyAutomaticWorktreeIds: [worktreeID]
         )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await actor.waitForVisibilityAdmission()
         await bus.post(
             visibleTierRegistrationEnvelope(
                 seq: 1,
@@ -53,11 +56,23 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             )
         )
         #expect(await visibleTierWaitUntil { await actor.rootPathByWorktreeId[worktreeID] != nil })
+        #expect(await actor.lastProcessedSidebarVisibleWorktreeIds.isEmpty)
+        #expect(await actor.lastAcceptedStatusAtByWorktreeId[worktreeID] == nil)
+        #expect(await actor.worktreeTasks.isEmpty)
 
-        clock.advance(by: policy.visibleSidebarCadence)
+        await actor.setSidebarVisibleWorktrees([worktreeID])
+        #expect(await actor.sidebarVisibleWorktreeIds == [worktreeID])
+        #expect(await actor.pendingVisibilityDeltaWorktreeIds == [worktreeID])
+        await clock.waitForPendingSleepCount(atLeast: 2)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await actor.waitForVisibilityAdmission()
+        #expect(await actor.lastProcessedSidebarVisibleWorktreeIds == [worktreeID])
         #expect(await calls.isEmpty)
 
-        clock.advance(by: policy.backgroundCadence - policy.visibleSidebarCadence)
+        clock.advance(
+            by: policy.backgroundCadence
+                - AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
+        )
         #expect(await visibleTierWaitUntil { await calls.count == 1 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeID] == nil })
         let lastStart = try #require(await actor.lastAutomaticStartAtByWorktreeId[worktreeID])

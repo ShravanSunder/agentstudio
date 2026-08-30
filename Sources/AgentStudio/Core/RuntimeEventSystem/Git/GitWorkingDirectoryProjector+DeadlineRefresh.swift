@@ -233,13 +233,16 @@ extension GitWorkingDirectoryProjector {
                     && lastAcceptedStatusAtByWorktreeId[worktreeId] == nil
             })
         let runningVisibleCount = admittedDemandTierByWorktreeId.values.filter { $0 == .visibleSidebar }.count
+        let promptEligibleUncoveredWorktreeIds = uncoveredWorktreeIds.subtracting(
+            backgroundOnlyAutomaticWorktreeIds
+        )
         let promptAdmissionCount = min(
-            uncoveredWorktreeIds.count,
+            promptEligibleUncoveredWorktreeIds.count,
             max(0, refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count),
             max(0, refreshPolicy.visibleSidebarMaxConcurrent - runningVisibleCount)
         )
         let promptlyScheduledWorktreeIds = Set(
-            uncoveredWorktreeIds
+            promptEligibleUncoveredWorktreeIds
                 .sorted(by: { $0.uuidString < $1.uuidString })
                 .prefix(promptAdmissionCount)
         )

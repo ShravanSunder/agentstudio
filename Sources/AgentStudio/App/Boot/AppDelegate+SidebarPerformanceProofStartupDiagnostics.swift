@@ -91,9 +91,10 @@ import Observation
         let controlRootPresent: Bool
         let warmRepositoryCount: Int
         let inactiveRepositoryCount: Int
+        let unknownRepositoryCount: Int
         let warmWorktreeCount: Int
         let inactiveWorktreeCount: Int
-        let unclassifiedRepositoryCount: Int
+        let unknownWorktreeCount: Int
         let coldAutomaticDeadlineCount: Int
         let coldLocalAutomaticSourceStartCount: UInt64
         let coldFSEventLocalCompletionCount: Int
@@ -293,12 +294,14 @@ import Observation
                     fixtureEvidence.warmRepositoryCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count": .int(
                     fixtureEvidence.inactiveRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count": .int(
+                    fixtureEvidence.unknownRepositoryCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count": .int(
                     fixtureEvidence.warmWorktreeCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count": .int(
                     fixtureEvidence.inactiveWorktreeCount),
-                "agentstudio.startup_diagnostic.sidebar_proof.unclassified_repository_count": .int(
-                    fixtureEvidence.unclassifiedRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count": .int(
+                    fixtureEvidence.unknownWorktreeCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count": .int(
                     fixtureEvidence.coldAutomaticDeadlineCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count": .int(
@@ -425,6 +428,10 @@ import Observation
             }
             guard !activity.warmRepositoryIDs.isEmpty,
                 !activity.locallyInactiveRepositoryIDs.isEmpty,
+                !activity.unknownRepositoryIDs.isEmpty,
+                !activity.warmWorktreeIDs.isEmpty,
+                !activity.locallyInactiveWorktreeIDs.isEmpty,
+                !activity.unknownWorktreeIDs.isEmpty,
                 unclassifiedRepositoryCount == 0,
                 let gitDebt = await workspaceSurfaceCoordinator?
                     .gitLogicalDebtSnapshotForPerformanceProof()
@@ -450,9 +457,10 @@ import Observation
                 controlRootPresent: true,
                 warmRepositoryCount: activity.warmRepositoryIDs.count,
                 inactiveRepositoryCount: activity.locallyInactiveRepositoryIDs.count,
+                unknownRepositoryCount: activity.unknownRepositoryIDs.count,
                 warmWorktreeCount: activity.warmWorktreeIDs.count,
                 inactiveWorktreeCount: activity.locallyInactiveWorktreeIDs.count,
-                unclassifiedRepositoryCount: unclassifiedRepositoryCount,
+                unknownWorktreeCount: activity.unknownWorktreeIDs.count,
                 coldAutomaticDeadlineCount: gitDebt.inactiveAutomaticDeadlineCount,
                 coldLocalAutomaticSourceStartCount: gitDebt.inactiveAutomaticSourceStartCount,
                 coldFSEventLocalCompletionCount: coldProof.localCompletionCount,

@@ -14,10 +14,11 @@ struct SidebarPerformanceFixtureParserScriptTests {
             prefix + "discovered_repository_count": "121",
             prefix + "discovered_worktree_count": "147",
             prefix + "warm_repository_count": "1",
-            prefix + "inactive_repository_count": "120",
+            prefix + "inactive_repository_count": "119",
+            prefix + "unknown_repository_count": "1",
             prefix + "warm_worktree_count": "1",
-            prefix + "inactive_worktree_count": "146",
-            prefix + "unclassified_repository_count": "0",
+            prefix + "inactive_worktree_count": "145",
+            prefix + "unknown_worktree_count": "1",
             prefix + "cold_automatic_deadline_count": "0",
             prefix + "cold_local_automatic_source_start_count": "0",
             prefix + "cold_fsevent_local_completion_count": "1",
@@ -40,7 +41,23 @@ struct SidebarPerformanceFixtureParserScriptTests {
         #expect(accepted.stdout.contains("STRICT_FIXTURE_REPOSITORY_COUNT=121"))
         #expect(accepted.stdout.contains("STRICT_FIXTURE_PANE_COUNT=20"))
         #expect(accepted.stdout.contains("STRICT_FIXTURE_WARM_REPOSITORY_COUNT=1"))
-        #expect(accepted.stdout.contains("STRICT_FIXTURE_INACTIVE_REPOSITORY_COUNT=120"))
+        #expect(accepted.stdout.contains("STRICT_FIXTURE_INACTIVE_REPOSITORY_COUNT=119"))
+        #expect(accepted.stdout.contains("STRICT_FIXTURE_UNKNOWN_REPOSITORY_COUNT=1"))
+        #expect(accepted.stdout.contains("STRICT_FIXTURE_UNKNOWN_WORKTREE_COUNT=1"))
+
+        var missingUnknownRecord = record
+        missingUnknownRecord[prefix + "unknown_repository_count"] = "0"
+        missingUnknownRecord[prefix + "unknown_worktree_count"] = "0"
+        let missingUnknownData = try JSONSerialization.data(
+            withJSONObject: missingUnknownRecord,
+            options: [.sortedKeys]
+        )
+        let missingUnknownJSON = try #require(
+            String(data: missingUnknownData, encoding: .utf8)
+        )
+        let missingUnknown = try await runFixtureRecordContract(missingUnknownJSON)
+        #expect(missingUnknown.exitCode == 1)
+        #expect(missingUnknown.stderr.contains("strict fixture requires positive unknown membership"))
 
         var rejectedRecord = record
         rejectedRecord[prefix + "open_source_root_present"] = "false"
