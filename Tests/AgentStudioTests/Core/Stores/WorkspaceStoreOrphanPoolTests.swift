@@ -124,7 +124,7 @@ final class WorkspaceStoreOrphanPoolTests {
             paneAtom: store.paneAtom,
             managementLayerAtom: ManagementLayerAtom()
         )
-        #expect(arrangementView.activePaneId(forTab: tab.id) == nil)
+        #expect(arrangementView.activePaneId(forTab: tab.id) == pane2.id)
         #expect(arrangementView.activeVisiblePaneIds(forTab: tab.id) == [pane2.id])
     }
 
