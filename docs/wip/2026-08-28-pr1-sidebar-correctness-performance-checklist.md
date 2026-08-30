@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `0e6c45e5e`
-Status: wrap-up in progress; local aggregate green, review and publication open
+Current implementation checkpoint: `d6f1d6af1` plus one pending test-stability checkpoint
+Status: wrap-up in progress; focused correction green, exact-final aggregate/review/publication open
 
 ## Product Contract
 
@@ -42,7 +42,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Keep the extended five-tab/twenty-pane, zero-PTY fixture and reproducible PID-bound capture packet in PR2; it is not claimed as PR1 proof.
 - [x] Keep exact-`lbim` idle p99 below 10% and ordinary-action p95 below 20% populations in PR2; PR1 does not claim those targets were proven.
 - [x] Stop PR1 product changes after the accepted stable sidebar; marker-correlated residual tuning and FSEvents replay remain PR2 work.
-- [x] Complete the exact-HEAD aggregate at `0e6c45e5e` with exit code 0.
+- [ ] Complete the exact-HEAD aggregate after the topology convergence test correction.
 - [ ] Complete the independent implementation review, push, and PR checks.
 
 ## Current Evidence
@@ -78,6 +78,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The first recovered aggregate attempt passed lint, architecture, release, BridgeWeb unit 1,764/1,764, integration 19/19, and browser 211 passed/5 skipped, then exposed one PR1-relevant flaky proof gate: the native-table pilot compared baseline and doubled scale in separate sub-millisecond time blocks. Five exact pre-fix repetitions passed 3/5 and failed 2/5 even though every absolute p95 remained below 0.85 ms versus the unchanged 4 ms ceiling. The diagnostic now prepares both production-path runtimes and alternates baseline→doubled then doubled→baseline matched transactions before applying the unchanged 20% growth policy. The complete focused suite passed 7/7; five exact post-fix repetitions passed 5/5 with growth from -8.6% to +0.13%.
 - Exact-final `mise run test` at `0e6c45e5e` passed with exit code 0 in 480.24 seconds: BridgeWeb unit 1,764/1,764, integration 19/19, browser 211 passed/5 skipped, E2E 4/4, and all Swift fast, isolated, large, serialized WebKit, and serialized E2E lanes completed successfully.
 - The owner accepted the preserved `lbim` sidebar behavior as stable and suitable for PR1 wrap-up. Extended five-tab/twenty-pane capture, exact-process CPU populations, and deeper marker-scoped tuning are explicitly deferred to PR2 and are not represented as proven by PR1.
+- The documentation-only `d6f1d6af1` aggregate reproduced one test-bound failure after 313.65 seconds: the watched-folder removal integration exhausted 200 `Task.yield()` turns in 0.002 seconds before the asynchronous scan/result/event pipeline emitted `repoRemoved`. Product source was identical to green `0e6c45e5e`. The test now uses the suite's established 1,000-turn convergence bound without adding a sleep or changing product behavior; the focused `TopologyEventPipelineIntegrationTests` suite passed 7/7 in 0.033 seconds.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
@@ -96,7 +97,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 | Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; extended native/OTLP population deferred to PR2 |
 | Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | Preserved lbim interaction | Automated green; live sidebar accepted by owner |
 | Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | Extended exact-lbim 5/20 populations | Deferred to PR2; not claimed by PR1 |
-| Exact final aggregate gate | Focused 94/94 plus exact-final aggregate | `mise run test` at `0e6c45e5e` | Green; exit 0 in 480.24 seconds |
+| Exact final aggregate gate | Focused 94/94, focused topology 7/7, prior full aggregate green | `mise run test` on the final test-stability checkpoint | Pending rerun |
 | Independent implementation review | Three reviews produced and three remediation passes completed | Fresh review of final corrected HEAD | Authorized as part of PR1 wrap-up; pending |
 | PR publication readiness | Local branch checkpoints and exact-final aggregate | Push, CI, comments, threads, and mergeability | Pending |
 
@@ -114,7 +115,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 PR1 is ready to open or update only after every hard-priority row above is complete and the following release packet exists:
 
 - [x] The final requirements-to-proof matrix covers branch visibility, cached chips, inactive annotation, refresh behavior, grouping modes, search, scrolling, focus, row geometry, and demand invariance; extended CPU targets are explicitly assigned to PR2.
-- [x] `mise run format`, `mise run lint`, and `mise run test` pass on exact HEAD `0e6c45e5e`; the aggregate exited 0 in 480.24 seconds.
+- [ ] `mise run format`, `mise run lint`, and `mise run test` pass on the exact final test-stability checkpoint.
 - [x] The preserved `lbim` app was rebuilt from `0e6c45e5e`, retained the existing data root, showed real branches and chips, and was accepted by the owner as stable.
 - [x] Exact-process 5/20 CPU populations and deeper marker-scoped Victoria tuning are deferred to PR2; PR1 makes no quantitative CPU-target claim.
 - [ ] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
