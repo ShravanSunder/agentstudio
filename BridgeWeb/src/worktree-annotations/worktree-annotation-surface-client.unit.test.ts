@@ -198,6 +198,36 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.client.dispose();
 	});
 
+	test('ignores annotation convergence owned by the other retained viewer surface', () => {
+		// Arrange
+		const harness = createSurfaceClientHarness([], 'review');
+		const releaseSession = harness.client.acquireSession(sessionId);
+		harness.sentCommands.length = 0;
+		const initialProjection = harness.client.getSnapshot();
+
+		// Act
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(7, 12),
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		// Assert
+		expect(harness.client.getSnapshot()).toBe(initialProjection);
+		expect(harness.telemetrySamples).toEqual([]);
+		expect(harness.sentCommands).toEqual([]);
+		releaseSession();
+		harness.client.dispose();
+	});
+
 	test('records bounded catalog staging units and the final presentation publication', () => {
 		const harness = createSurfaceClientHarness();
 		const messages = catalogStagingMessages(7, 'fileView');
@@ -579,7 +609,8 @@ function createSurfaceClientHarness(
 			if (
 				!catalogStaged &&
 				message.kind === 'annotationProjectionConvergence' &&
-				message.state.kind === 'ready'
+				message.state.kind === 'ready' &&
+				message.surface === surface
 			) {
 				catalogStaged = true;
 				for (const catalogMessage of catalogStagingMessages(

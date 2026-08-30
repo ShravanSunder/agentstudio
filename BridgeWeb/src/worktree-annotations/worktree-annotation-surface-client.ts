@@ -171,6 +171,7 @@ export function createWorktreeAnnotationSurfaceClient(
 				return;
 			}
 			if (message.kind === 'annotationProjectionConvergence') {
+				if (message.surface !== surfaceClient.surface) return;
 				if (message.state.kind === 'ready') {
 					if (message.operationCorrelationId !== null) {
 						projectionStore.apply(
