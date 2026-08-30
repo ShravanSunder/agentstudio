@@ -88,6 +88,9 @@ export function recordWorktreeAnnotationLifecycleTelemetry(props: {
 		},
 		numericAttributes: {
 			'agentstudio.bridge.stage.attempt': props.stageAttempt ?? 0,
+			...(props.transport === 'local' && props.phase.startsWith('annotation_catalog_main_')
+				? { 'agentstudio.bridge.source.monotonic_ms': performance.now() }
+				: {}),
 			...(props.sourceGeneration === undefined
 				? {}
 				: { 'agentstudio.bridge.source.generation': props.sourceGeneration }),

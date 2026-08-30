@@ -2,6 +2,7 @@ import { chromium, type Page, type Request, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
+	annotationCatalogLongTasksOverlappingMainStaging,
 	beginAnnotationCatalogLongTaskObservation,
 	cloneSavedAnnotationMessages,
 	finishAnnotationCatalogLongTaskObservation,
@@ -508,7 +509,10 @@ async function runAnnotationBackpressureJourney(props: {
 		}
 		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
 			...catalogTransferTelemetry,
-			longTaskCountDelta: catalogLongTaskObservation.entries.length,
+			longTaskCountDelta: annotationCatalogLongTasksOverlappingMainStaging(
+				catalogLongTaskObservation,
+				catalogTransferTelemetry,
+			).length,
 			longTaskObservation: catalogLongTaskObservation,
 			undemandedSessionRichFetchCount: projectionQueries
 				.sessionIdsForOperation(catalogTransferTelemetry.operationCorrelationId)

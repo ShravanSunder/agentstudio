@@ -6,6 +6,8 @@ import { uuidv7 } from 'uuidv7';
 import { expect } from 'vitest';
 
 export interface AnnotationCatalogTransferTelemetryObservation {
+	readonly mainBeginStartTimeMilliseconds: number;
+	readonly mainCommitStartTimeMilliseconds: number;
 	readonly maximumUnitByteCount: number;
 	readonly operationCorrelationId: string;
 	readonly presentationRevisionAfter: number;
@@ -188,6 +190,8 @@ export async function waitForAnnotationCatalogCommit(props: {
 						'annotation_catalog_main_window',
 				);
 				if (begin.length !== 1 || windows.length < 2) return false;
+				const beginSample = begin[0];
+				if (beginSample === undefined) return false;
 				const commitWindowCount = numberAttribute(
 					commit,
 					'agentstudio.bridge.annotation.catalog.window.count',
@@ -231,6 +235,14 @@ export async function waitForAnnotationCatalogCommit(props: {
 				);
 				if (maximumUnitByteCount > 128 * 1024) return false;
 				observation = {
+					mainBeginStartTimeMilliseconds: numberAttribute(
+						beginSample,
+						'agentstudio.bridge.source.monotonic_ms',
+					),
+					mainCommitStartTimeMilliseconds: numberAttribute(
+						commit,
+						'agentstudio.bridge.source.monotonic_ms',
+					),
 					maximumUnitByteCount,
 					operationCorrelationId: operationId,
 					presentationRevisionAfter,
@@ -244,6 +256,19 @@ export async function waitForAnnotationCatalogCommit(props: {
 		.toBe(true);
 	if (observation === null) throw new Error('Large catalog Main telemetry did not converge.');
 	return observation;
+}
+
+export function annotationCatalogLongTasksOverlappingMainStaging(
+	observation: AnnotationCatalogLongTaskObservation,
+	transfer: AnnotationCatalogTransferTelemetryObservation,
+): readonly AnnotationCatalogLongTaskEntry[] {
+	return observation.entries.filter((entry) => {
+		const entryEndTimeMilliseconds = entry.startTimeMilliseconds + entry.durationMilliseconds;
+		return (
+			entry.startTimeMilliseconds <= transfer.mainCommitStartTimeMilliseconds &&
+			entryEndTimeMilliseconds >= transfer.mainBeginStartTimeMilliseconds
+		);
+	});
 }
 
 export async function beginAnnotationCatalogLongTaskObservation(page: Page): Promise<void> {

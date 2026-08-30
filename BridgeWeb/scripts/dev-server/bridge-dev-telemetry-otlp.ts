@@ -309,6 +309,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.review.refresh.retained_publication.count',
 	'agentstudio.bridge.review.refresh.source_lease.count',
 	'agentstudio.bridge.source.generation',
+	'agentstudio.bridge.source.monotonic_ms',
 	'agentstudio.bridge.stage.attempt',
 	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.render_disposition.accepted_count',
