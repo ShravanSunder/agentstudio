@@ -163,19 +163,21 @@ Date: 2026-08-25
    - Status: automated behavior verified and live Review verified; live Files
      owner acceptance remains blocked by current source availability.
 
-10. **Annotation keyboard shortcuts are not settled or implemented as one system**
+10. **Annotation keyboard shortcuts required one coherent system**
     - Confirmed: Command-Enter saves root, reply, and message-edit composers;
       plain Enter remains a newline while editing.
     - Confirmed interaction sequence: first Escape exits the editor while
       preserving the active thread; the next Escape leaves the thread,
       collapses history, and clears the yellow Pierre range.
-    - Existing native activation remains: Enter on a focused editable message
-      edits it; Enter or Space on a focused button activates that button.
-    - Open decision: whether Reply, Edit, Resolve, and Reopen receive additional
-      feature-local shortcuts or remain button-only.
+    - Annotation bodies are not sequential Tab stops; focused controls retain
+      standard Enter or Space activation.
+    - The feature-local shortcut decision is now settled by item 37: `R` and
+      `Control-R` reply to the active thread, while only `Control-E` edits an
+      exact pointer-activated editable human annotation.
     - Contract: labels, icons, tooltip copy, and displayed shortcut glyphs must
       share one typed local command descriptor rather than hard-coded strings.
-    - Status: design discussion open; no new shortcuts implemented.
+    - Status: design superseded and completed by item 37; implementation and
+      proof must reconcile the earlier shortcut behavior.
 
 11. **Expanded-thread animation must reveal one grouped sheet**
     - Expected: the row geometry opens over the app's 120 ms fast motion, then
@@ -314,11 +316,10 @@ Date: 2026-08-25
       owns only Edit. An active editor owns Revert and Save. Action identity,
       icon, accessible name, tooltip, and canonical shortcut copy come from one
       typed descriptor.
-    - Shortcuts: `R` and `Control-R` reply to the active thread. `E` and
-      `Control-E` edit the exact keyboard-focused human editable annotation.
-      Text input, content-editable surfaces, menus, text selection, and
-      system-modified chords retain authority. Tooltips show canonical `R`,
-      `E`, and `Command-Enter`; Control forms are aliases.
+    - Shortcut behavior at this implementation checkpoint used `R` and
+      `Control-R` for Reply plus `E` and `Control-E` for Edit. Item 37
+      supersedes its Edit target and binding: Edit is now `Control-E` only and
+      operates on an exact pointer-activated editable human annotation.
     - Visual treatment: quiet rounded owned shadcn buttons; no circular action
       chrome; Edit reveals on hover or keyboard focus; Resolve/Reopen and Save
       retain primary tint.
@@ -327,8 +328,9 @@ Date: 2026-08-25
       thread suite passes 25/25, geometry/focus passes 9/9, shortcut-spec unit
       coverage passes 6/6, and the seven-file annotation/Pierre set passes
       53/53 after the busy-Save accessible name and shortcut-owner corrections.
-    - Status: implemented and automated-browser verified; live visual owner
-      acceptance remains.
+    - Status: header/action ownership was implemented and automated-browser
+      verified; the shortcut subset is superseded by item 37 and requires code
+      reconciliation before current acceptance.
 
 19. **Active-thread spacing, header contrast, and metadata hierarchy need a
     final visual pass**
@@ -749,6 +751,30 @@ Date: 2026-08-25
     - Status: owner-accepted visual and Escape checkpoint; not implemented as a
       new design slice. Current behavior must be reconciled and proven against
       this contract before completion is claimed.
+
+37. **Annotation shortcuts use deliberate active context, not Tab focus**
+    - Annotation bodies and the yellow thread surface are not sequential Tab
+      stops. Tab remains available for actual controls and text editors, but
+      merely moving through those controls does not activate Pierre, clear New,
+      or change the active annotation context.
+    - A pointer click on the non-interactive annotation surface activates its
+      Pierre range and records the active thread. Clicking a specific annotation
+      body also records that exact message as the active message. Programmatic
+      focus may retain the active keyboard owner after Save without placing the
+      surface in the sequential Tab order.
+    - Reply shortcuts are plain `R` and `Control-R`. They operate on the active
+      thread. Edit is `Control-E` only; plain `E` has no annotation action.
+      `Control-E` edits only the exact active editable human annotation.
+    - If only the thread is active because the reviewer clicked thread padding
+      or its header, Reply remains available but Edit is a no-op; the product
+      must not guess the latest human annotation. Double-clicking an exact
+      editable human annotation continues to enter Edit directly.
+    - Textareas, content-editable surfaces, menus, system-modified chords, and
+      existing text selection retain key authority and block annotation
+      shortcuts. Actual focused controls retain standard Enter/Space activation.
+    - Status: owner-accepted no-Tab and shortcut checkpoint; not implemented as
+      a new design slice. Existing plain-E behavior must be removed or reconciled
+      before this contract is considered implemented.
 
 ## Scope classification
 
