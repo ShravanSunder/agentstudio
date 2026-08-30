@@ -5,6 +5,44 @@ import Testing
 
 @Suite("RepoExplorerHotPathArchitectureTests")
 struct RepoExplorerHotPathArchitectureTests {
+    @Test("Repo Explorer repository activity admission carries stable keys without fleet searches")
+    func repositoryActivityAdmissionCarriesStableKeysWithoutFleetSearches() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let observationSource = try String(
+            contentsOf: featureRoot.appending(
+                path: "RepoExplorerProjectionInputCapture+Observation.swift"
+            ),
+            encoding: .utf8
+        )
+        let captureSource = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerProjectionInputCapture.swift"),
+            encoding: .utf8
+        )
+        let observationActivitySlice = try #require(
+            observationSource.repoExplorerSlice(
+                from: "        case .repositoryActivity",
+                to: "    func observationTokens"
+            )
+        )
+        let captureActivitySlice = try #require(
+            captureSource.repoExplorerSlice(
+                from: "    private func captureRepositoryActivity(",
+                to: "    private func captureRepositoryChange("
+            )
+        )
+
+        #expect(
+            observationSource.contains(
+                "case repositoryActivity(repositoryID: UUID, stableKey: String)"
+            )
+        )
+        #expect(!observationActivitySlice.contains("snapshot.repos.first(where:"))
+        #expect(!captureActivitySlice.contains("snapshot.repos.first(where:"))
+    }
+
     @Test("RepoExplorer model files are pure and do not read atoms")
     func repoExplorerModelFilesDoNotReadAtoms() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

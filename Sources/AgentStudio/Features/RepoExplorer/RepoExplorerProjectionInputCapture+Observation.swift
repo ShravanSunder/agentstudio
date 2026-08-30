@@ -13,7 +13,7 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
     case tab(UUID)
     case attention
     case activityHydration
-    case repositoryActivity(UUID)
+    case repositoryActivity(repositoryID: UUID, stableKey: String)
 }
 
 enum RepoExplorerInputInvalidation: Equatable, Sendable {
@@ -91,28 +91,27 @@ extension RepoExplorerProjectionInputCapture {
             _ = coreAtoms.attendedPane.attendedPaneId
         case .activityHydration:
             _ = coreAtoms.repositoryLocalActivity.hydrationDisposition
-        case .repositoryActivity(let repositoryID):
-            guard
-                let repositoryStableKey = request?.snapshot.repos.first(where: {
-                    $0.id == repositoryID
-                })?.stableKey
-            else { return }
-            _ = coreAtoms.repositoryLocalActivity.activity(for: repositoryStableKey)
+        case .repositoryActivity(_, let stableKey):
+            _ = coreAtoms.repositoryLocalActivity.activity(for: stableKey)
         }
     }
 
     func observationTokens(for request: RepoExplorerProjectionRequest) -> Set<RepoExplorerObservationToken> {
         let structuralPaneIDs = demandedPaneIDs(in: request.snapshot)
         let structuralTabIDs = demandedTabIDs(in: request.snapshot)
-        var tokens: Set<RepoExplorerObservationToken> = [
-            .demand, .presentation, .membership, .activityHydration,
-        ]
+        var tokens: Set<RepoExplorerObservationToken> = [.demand, .presentation, .membership]
         tokens.formUnion(request.snapshot.repos.map { .repository($0.id) })
-        tokens.formUnion(request.snapshot.repos.map { .repositoryActivity($0.id) })
         tokens.formUnion(request.snapshot.repos.flatMap(\.worktrees).map { .worktree($0.id) })
         tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.paneStructure))
         tokens.formUnion(structuralTabIDs.map(RepoExplorerObservationToken.tabStructure))
-        if request.snapshot.groupingMode != .repo {
+        if request.snapshot.groupingMode == .repo {
+            tokens.insert(.activityHydration)
+            tokens.formUnion(
+                request.snapshot.repos.map {
+                    .repositoryActivity(repositoryID: $0.id, stableKey: $0.stableKey)
+                }
+            )
+        } else {
             tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.pane))
             tokens.insert(.attention)
         }
@@ -140,7 +139,7 @@ extension RepoExplorerProjectionInputCapture {
             .attention
         case .activityHydration:
             .activityHydration
-        case .repositoryActivity(let repositoryID):
+        case .repositoryActivity(let repositoryID, _):
             .repositoryActivity(repositoryID)
         }
     }

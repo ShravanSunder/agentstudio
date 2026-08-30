@@ -8,15 +8,24 @@ import Testing
 
 private final class RepoExplorerActivityExecutionRecorder: @unchecked Sendable {
     private let lock = NSLock()
+    private var storedExecutionCount = 0
     private var storedDeltaExecutionCount = 0
+
+    var executionCount: Int {
+        lock.withLock { storedExecutionCount }
+    }
 
     var deltaExecutionCount: Int {
         lock.withLock { storedDeltaExecutionCount }
     }
 
     func recordExecution(_ work: RepoExplorerProjectionWork) {
-        guard case .delta = work else { return }
-        lock.withLock { storedDeltaExecutionCount += 1 }
+        lock.withLock {
+            storedExecutionCount += 1
+            if case .delta = work {
+                storedDeltaExecutionCount += 1
+            }
+        }
     }
 }
 
@@ -38,7 +47,8 @@ private final class RepoExplorerLocalActivityProjectionFixture {
 
     init(
         atoms: CoreAtoms,
-        publishesAuthoritativeActivity: Bool = true
+        publishesAuthoritativeActivity: Bool = true,
+        groupingMode: RepoExplorerGroupingMode = .repo
     ) throws {
         let fixedReferenceDate = Date(timeIntervalSince1970: 10_000_000)
         referenceDate = fixedReferenceDate
@@ -94,9 +104,11 @@ private final class RepoExplorerLocalActivityProjectionFixture {
                 )
             )
         }
+        let preferences = RepoExplorerSidebarPrefsAtom()
+        preferences.setGroupingMode(groupingMode)
         capture = RepoExplorerProjectionInputCapture(
             store: store,
-            preferences: RepoExplorerSidebarPrefsAtom(),
+            preferences: preferences,
             repoCache: atoms.repoCache,
             sidebarState: atoms.workspaceSidebarState,
             sidebarCache: atoms.sidebarCache,
@@ -181,6 +193,61 @@ private final class RepoExplorerLocalActivityProjectionFixture {
 }
 
 extension RepoExplorerProjectionDemandTests {
+    @MainActor
+    @Test(
+        "non-repository grouping rejects repository activity and hydration before capture",
+        arguments: [RepoExplorerGroupingMode.pane, .tab]
+    )
+    func nonRepositoryGroupingRejectsRepositoryActivityBeforeCapture(
+        groupingMode: RepoExplorerGroupingMode
+    ) async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let fixture = try RepoExplorerLocalActivityProjectionFixture(
+                atoms: atoms,
+                publishesAuthoritativeActivity: false,
+                groupingMode: groupingMode
+            )
+            defer { fixture.stop() }
+
+            fixture.adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<2000
+            where fixture.adapter.publishedResult?.snapshot.groupingMode != groupingMode
+                || fixture.adapter.materializedProjection?.hasUnsettledProjectionTasks != false
+            {
+                await Task.yield()
+            }
+            let fullCaptureCount = fixture.capture.fullCaptureCount
+            let scopedCaptureCount = fixture.capture.scopedCaptureCount
+            let executionCount = fixture.executionRecorder.executionCount
+            let publishedRevision = fixture.adapter.publishedRevision
+
+            fixture.publishActivity(atoms: atoms, activity: fixture.inactiveActivity)
+            for _ in 0..<200 { await Task.yield() }
+            let warmActivity = try fixture.warmActivity(
+                lastQualifyingActivityAt: fixture.referenceDate.addingTimeInterval(-100)
+            )
+            fixture.publishActivity(atoms: atoms, activity: warmActivity)
+            for _ in 0..<200 { await Task.yield() }
+
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCount)
+            #expect(fixture.executionRecorder.executionCount == executionCount)
+            #expect(fixture.adapter.publishedRevision == publishedRevision)
+            #expect(fixture.adapter.cachedProjectionRequest?.repositoryLocalActivityByStableKey.isEmpty == true)
+            #expect(
+                fixture.adapter.publishedResult?.repositoryActivityTransitionAtByRepoId.isEmpty == true
+            )
+            #expect(fixture.adapter.recencyDeadlineTask == nil)
+            #expect(!fixture.adapter.observationTokens.contains(.activityHydration))
+            #expect(
+                !fixture.adapter.observationTokens.contains {
+                    if case .repositoryActivity = $0 { return true }
+                    return false
+                }
+            )
+        }
+    }
+
     @MainActor
     @Test("repository-local activity captures one repository delta")
     func repositoryLocalActivityCapturesOneRepositoryDelta() async throws {

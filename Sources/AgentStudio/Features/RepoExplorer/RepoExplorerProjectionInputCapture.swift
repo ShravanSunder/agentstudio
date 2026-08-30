@@ -71,13 +71,9 @@ final class RepoExplorerProjectionInputCapture {
         )
         let groupingMode = preferences.groupingMode
         let repositoryIDs = Set(repos.map(\.id))
-        let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
-        let repositoryLocalActivityByStableKey = Dictionary(
-            uniqueKeysWithValues: repos.compactMap { repository in
-                repositoryLocalActivity.activity(for: repository.stableKey).map {
-                    (repository.stableKey, $0)
-                }
-            }
+        let repositoryActivityInputs = captureRepositoryActivityInputs(
+            for: repos,
+            groupingMode: groupingMode
         )
         let snapshot = makeSidebarSnapshot(
             repos: repos,
@@ -111,8 +107,8 @@ final class RepoExplorerProjectionInputCapture {
             loadingPullRequestRepoIds: repositoryIDs.filter {
                 repoCache.isPullRequestLoading(forRepository: $0)
             },
-            localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
-            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
+            localActivityHydrationDisposition: repositoryActivityInputs.hydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryActivityInputs.activityByStableKey,
             repositoryFactUpdateProgressByRepoId: Dictionary(
                 uniqueKeysWithValues: repos.compactMap { repository in
                     repoCache.repositoryFactUpdateProgress(for: repository.id).map {
@@ -133,6 +129,16 @@ final class RepoExplorerProjectionInputCapture {
         let groupingMode = preferences.groupingMode
         let sortOrder = groupingMode == .tab ? previous.snapshot.sortOrder : preferences.sortOrder
         let groupingChanged = groupingMode != previous.snapshot.groupingMode
+        let repositoryActivityInputs =
+            groupingChanged
+            ? captureRepositoryActivityInputs(
+                for: previous.snapshot.repos,
+                groupingMode: groupingMode
+            )
+            : (
+                hydrationDisposition: previous.localActivityHydrationDisposition,
+                activityByStableKey: previous.repositoryLocalActivityByStableKey
+            )
         let paneFacts: [UUID: RepoExplorerPaneRowFacts]
         let tabFacts: [UUID: RepoExplorerTabGroupFacts]
         if groupingChanged {
@@ -167,7 +173,10 @@ final class RepoExplorerProjectionInputCapture {
             collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
             isFiltering: !query.isEmpty,
             paneRowFactsByPaneId: paneFacts,
-            tabGroupFactsByTabId: tabFacts
+            tabGroupFactsByTabId: tabFacts,
+            localActivityHydrationDisposition: repositoryActivityInputs.hydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryActivityInputs.activityByStableKey,
+            activityReferenceDate: groupingChanged ? referenceDate : previous.activityReferenceDate
         )
     }
 
@@ -223,11 +232,11 @@ final class RepoExplorerProjectionInputCapture {
         previous: RepoExplorerProjectionRequest,
         referenceDate: Date
     ) -> RepoExplorerScopedCapture? {
-        guard
-            let repositoryStableKey = previous.snapshot.repos.first(where: {
-                $0.id == repositoryID
-            })?.stableKey
-        else { return nil }
+        guard previous.snapshot.groupingMode == .repo,
+            let repositoryStableKey = store.repositoryTopologyAtom.repositoryStableKey(
+                for: repositoryID
+            )
+        else { return unchangedScopedCapture(previous) }
         var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
         activityByRepositoryStableKey[repositoryStableKey] =
             coreAtoms.repositoryLocalActivity.activity(for: repositoryStableKey)
@@ -238,6 +247,27 @@ final class RepoExplorerProjectionInputCapture {
             ),
             changes: [.repositoryActivity(repositoryID)],
             requiresFullProjection: false
+        )
+    }
+
+    private func captureRepositoryActivityInputs(
+        for repositories: [RepoPresentationItem],
+        groupingMode: RepoExplorerGroupingMode
+    ) -> (
+        hydrationDisposition: RepositoryLocalActivityHydrationDisposition,
+        activityByStableKey: [String: RepositoryLocalActivity]
+    ) {
+        guard groupingMode == .repo else { return (.pending, [:]) }
+        let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
+        return (
+            repositoryLocalActivity.hydrationDisposition,
+            Dictionary(
+                uniqueKeysWithValues: repositories.compactMap { repository in
+                    repositoryLocalActivity.activity(for: repository.stableKey).map {
+                        (repository.stableKey, $0)
+                    }
+                }
+            )
         )
     }
 

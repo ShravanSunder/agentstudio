@@ -385,16 +385,21 @@ package final class EagerDerivedAtom<
 
     private func applySourceInvalidation(invalidatedEpoch: UInt64) {
         guard !hasStopped, invalidatedEpoch == revocationEpoch.withLock({ $0 }) else { return }
-        retainedTask?.cancel()
-        let supersededPendingIntent = pendingIntent
-        pendingIntent = nil
-        if let supersededPendingIntent {
+        if activeIntent?.epoch != invalidatedEpoch {
+            retainedTask?.cancel()
+        }
+        if let supersededPendingIntent = pendingIntent,
+            supersededPendingIntent.epoch != invalidatedEpoch
+        {
+            pendingIntent = nil
             onProjectionCompletion(.superseded(supersededPendingIntent.identity))
         }
-        if let admittedIdentity {
+        if let admittedIdentity, admittedEpoch != invalidatedEpoch {
             freshness = .invalidated(admittedIdentity)
         }
-        revokeAwaitingCandidateIfNeeded()
+        if let awaitingCandidate, awaitingCandidate.epoch != invalidatedEpoch {
+            revokeAwaitingCandidateIfNeeded()
+        }
     }
 
     private func revokeAwaitingCandidateIfNeeded() {

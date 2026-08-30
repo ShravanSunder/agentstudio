@@ -485,6 +485,68 @@ struct EagerDerivedAtomTests {
     }
 
     @Test
+    func queuedSourceInvalidationPreservesSynchronouslyAdmittedNewEpochSuccessor() async {
+        let predecessorGate = EagerDerivedAtomProjectionGate()
+        let successorGate = EagerDerivedAtomProjectionGate()
+        defer {
+            predecessorGate.release()
+            successorGate.release()
+        }
+        let completionRecorder = EagerDerivedAtomCompletionRecorder()
+        let projectionCount = EagerDerivedAtomTestCounter()
+        let atom = makeEagerDerivedAtomTestNode(completionRecorder: completionRecorder)
+
+        atom.admit(
+            makeEagerDerivedAtomTestRequest(
+                identity: 1,
+                outputContent: 10,
+                gate: predecessorGate,
+                projectionCount: projectionCount
+            ))
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "pre-invalidation projection start",
+                wait: { await predecessorGate.waitUntilStarted() }
+            )
+        else { return }
+
+        atom.sourceDidInvalidate()
+        atom.admit(
+            makeEagerDerivedAtomTestRequest(
+                identity: 1,
+                outputContent: 11,
+                gate: successorGate,
+                projectionCount: projectionCount
+            ))
+        #expect(atom.freshness == .running(1))
+
+        predecessorGate.release()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "pre-invalidation projection revocation",
+                wait: { await completionRecorder.wait(for: .superseded(1)) }
+            ),
+            await requireEagerDerivedAtomTestEvent(
+                "new-epoch successor start",
+                wait: { await successorGate.waitUntilStarted() }
+            )
+        else { return }
+
+        successorGate.release()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "new-epoch successor publication",
+                wait: { await completionRecorder.wait(for: .published(1)) }
+            )
+        else { return }
+
+        #expect(atom.value?.content == 11)
+        #expect(atom.freshness == .current(1))
+        #expect(projectionCount.count == 2)
+        #expect(!atom.hasUnsettledProjectionTasks)
+    }
+
+    @Test
     func repeatedInvalidationKeepsOnlyTheStillStaleAdmissionInvalidated() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let successorGate = EagerDerivedAtomProjectionGate()
