@@ -2122,3 +2122,26 @@ full AgentStudio/login-session recovery or from a normal Terminal process
 outside the current AgentStudio host: focused Browser Mode, the 22-test backend
 integration, complete aggregate, fresh read-only Fable review, then push when
 Git/key/network services recover.
+
+## 2026-08-30 06:11 EDT — Aggregate UI failures reduced to one pending-close defect
+
+After the computer restart, real FSEvent integration passes 1/1 and focused
+File committed-preview Browser proof passes 6/6. The branch aggregate reached
+the complete Browser lane and exposed annotation UI regressions. Bridge lane
+restored spec-required exact-focused Enter and exact Edit targeting in
+`7571f3d7e`; its isolated inline-shell suite passes 9/9.
+
+Read-only diagnosis plus a four-file combined Browser run against the UI
+owner's current dirty patch reduced the prior failures to three Share output
+result cases; the other 51 tests passed. The remaining root cause is exact:
+`executeOutput` calls imperative `onClose` before its output pending lease is
+released, while the dirty `onOpenChange` change unconditionally calls
+`eventDetails.cancel()` whenever `isPending` is true. That cancels the tagged
+`imperative-action` close as well as user dismissal, leaving Share mounted
+after success/partial success.
+
+Required correction in the UI owner lane: cancel pending user dismissal, but
+allow the existing `lastCloseReasonRef.current === 'imperative-action'` close.
+Do not remove pending admission, weaken terminal semantics, or suppress the
+browser failure guard. Then rerun the Share surface file, the four combined
+annotation suites, complete Browser Mode, and the aggregate.
