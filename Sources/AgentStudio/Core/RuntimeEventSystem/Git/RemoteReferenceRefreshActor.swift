@@ -48,6 +48,7 @@ package actor RemoteReferenceRefreshActor {
     private var activeOperationsByRepoId: [UUID: RemoteReferenceActiveOperation] = [:]
     private var invalidatingRepositoryIds: Set<UUID> = []
     private var acceptedReferenceByRepoId: [UUID: RemoteReferenceAcceptance] = [:]
+    private var repositoryIdsWithResolvedOriginHistory: Set<UUID> = []
     private var lastSuccessfulFetchAtByRepoId: [UUID: Duration] = [:]
     private var failureDeadlineByRepoId: [UUID: Duration] = [:]
     private var currentnessRetryAtByRepoId: [UUID: Duration] = [:]
@@ -164,6 +165,7 @@ package actor RemoteReferenceRefreshActor {
         currentnessRetryAtByRepoId.removeValue(forKey: repoId)
         if registration.worktreeIds.isEmpty {
             registrationsByRepoId.removeValue(forKey: repoId)
+            repositoryIdsWithResolvedOriginHistory.remove(repoId)
             demandedRepositoryIds.remove(repoId)
             pendingRepositoryIds.remove(repoId)
             explicitRepositoryIds.remove(repoId)
@@ -204,6 +206,7 @@ package actor RemoteReferenceRefreshActor {
                 await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
                 settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
                 registrationsByRepoId.removeValue(forKey: repoId)
+                repositoryIdsWithResolvedOriginHistory.remove(repoId)
                 demandedRepositoryIds.remove(repoId)
                 pendingRepositoryIds.remove(repoId)
                 explicitRepositoryIds.remove(repoId)
@@ -261,6 +264,13 @@ package actor RemoteReferenceRefreshActor {
         guard var registration = registrationsByRepoId[repoId], registration.expectedOrigin != expectedOrigin else {
             return
         }
+        let acceptsInitialOriginDiscovery =
+            registration.expectedOrigin == nil
+            && expectedOrigin != nil
+            && !repositoryIdsWithResolvedOriginHistory.contains(repoId)
+        if registration.expectedOrigin != nil || expectedOrigin != nil {
+            repositoryIdsWithResolvedOriginHistory.insert(repoId)
+        }
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
         await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
         settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
@@ -271,6 +281,9 @@ package actor RemoteReferenceRefreshActor {
         failureDeadlineByRepoId.removeValue(forKey: repoId)
         currentnessRetryAtByRepoId.removeValue(forKey: repoId)
         invalidatingRepositoryIds.remove(repoId)
+        if acceptsInitialOriginDiscovery {
+            await establishLocalAcceptance(repoId: repoId)
+        }
         if expectedOrigin != nil, demandedRepositoryIds.contains(repoId) {
             pendingRepositoryIds.insert(repoId)
         }
@@ -319,6 +332,7 @@ package actor RemoteReferenceRefreshActor {
         demandedRepositoryIds.removeAll()
         pendingRepositoryIds.removeAll()
         explicitRepositoryIds.removeAll()
+        repositoryIdsWithResolvedOriginHistory.removeAll()
         for repoId in activeOperationsByRepoId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             await revokeActiveOperation(repoId: repoId)
         }

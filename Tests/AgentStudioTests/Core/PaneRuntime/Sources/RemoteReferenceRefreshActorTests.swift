@@ -504,6 +504,36 @@ struct RemoteReferenceRefreshActorTests {
         await actor.shutdown()
     }
 
+    @Test("initial origin discovery accepts local refs once but later rediscovery waits for fetch")
+    func initialOriginDiscoveryAcceptsLocalRefsOnlyOnce() async {
+        let fixture = RemoteReferenceRefreshFixture()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            onAuthorityUpdate: { update in
+                await fixture.acceptanceRecorder.record(update)
+            }
+        )
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: nil
+        )
+
+        await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originA)
+
+        #expect(await fixture.acceptanceRecorder.localAcceptanceOrigins == [fixture.originA])
+
+        await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: nil)
+        await fixture.provider.configureSnapshot(remoteURL: fixture.originB, references: [])
+        await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originB)
+
+        #expect(await fixture.acceptanceRecorder.localAcceptanceOrigins == [fixture.originA])
+        #expect(await fixture.provider.stageCount == 0)
+        await actor.shutdown()
+    }
+
     @Test("no demand performs no staged fetch")
     func noDemandPerformsNoStagedFetch() async {
         let fixture = RemoteReferenceRefreshFixture()
