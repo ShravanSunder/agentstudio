@@ -166,6 +166,56 @@ struct WorkspaceArrangementViewDerivedTests {
         #expect(activeLayout.paneRatio(firstActivePane.id) == 0.5)
         #expect(activeLayout.paneRatio(secondActivePane.id) == 0.5)
         #expect(activeLayout.dividerIds.count == 1)
+
+        let metrics = FlatTabStripMetrics.compute(
+            layout: activeLayout,
+            in: CGRect(x: 0, y: 0, width: 1000, height: 500),
+            dividerThickness: 8,
+            minimizedPaneIds: [],
+            collapsedPaneWidth: 0,
+            adjacentResizeTargeting: .renderedPanePair
+        )
+        let projectedDivider = try #require(metrics.dividerSegments.single)
+        #expect(
+            projectedDivider.resizeIntent
+                == .visiblePanePair(
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id
+                )
+        )
+
+        let command = FlatPaneDivider.resizeCommand(
+            for: projectedDivider.resizeIntent,
+            tabId: tab.id,
+            ratio: 0.3
+        )
+        #expect(
+            command
+                == .resizeVisiblePanePair(
+                    tabId: tab.id,
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id,
+                    ratio: 0.3
+                )
+        )
+
+        tabLayout.resizeVisiblePanePair(
+            tabId: tab.id,
+            leftPaneId: firstActivePane.id,
+            rightPaneId: secondActivePane.id,
+            ratio: 0.3,
+            residencyExcludedPaneIds: [backgroundedPane.id]
+        )
+        let updatedLayout = try #require(tabLayout.tab(tab.id)?.activeArrangement.layout)
+        #expect(
+            abs(
+                (updatedLayout.ratioForPanePair(
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id
+                ) ?? 0) - 0.3
+            ) < 0.001
+        )
+        #expect(updatedLayout.paneRatio(backgroundedPane.id) == layout.paneRatio(backgroundedPane.id))
     }
 
     @Test

@@ -307,6 +307,7 @@ struct FlatTabStripContainer: View {
                 tabId: tabId,
                 activePaneId: activePaneId,
                 minimizedPaneIds: minimizedPaneIds,
+                adjacentResizeTargeting: .renderedPanePair,
                 ordinalMap: state.mainOrdinalMap,
                 collapsedPaneWidth: state.effectiveCollapsedWidth,
                 arrangementInlineRenameState: arrangementInlineRenameState,

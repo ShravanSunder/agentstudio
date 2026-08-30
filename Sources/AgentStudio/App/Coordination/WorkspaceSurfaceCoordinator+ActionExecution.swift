@@ -273,11 +273,16 @@ extension WorkspaceSurfaceCoordinator {
             store.tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
 
         case .resizeVisiblePanePair(let tabId, let leftPaneId, let rightPaneId, let ratio):
+            let canonicalPaneIds = store.tabLayoutAtom.tab(tabId)?.activeArrangement.layout.paneIds ?? []
+            let residencyExcludedPaneIds = Set(canonicalPaneIds).subtracting(
+                store.paneAtom.activeResidencyPaneIds(in: canonicalPaneIds)
+            )
             store.tabLayoutAtom.resizeVisiblePanePair(
                 tabId: tabId,
                 leftPaneId: leftPaneId,
                 rightPaneId: rightPaneId,
-                ratio: ratio
+                ratio: ratio,
+                residencyExcludedPaneIds: residencyExcludedPaneIds
             )
 
         case .equalizePanes(let tabId):

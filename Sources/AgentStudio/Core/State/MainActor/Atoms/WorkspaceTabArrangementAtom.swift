@@ -38,7 +38,13 @@ package struct PaneDrawerMovePayload: Equatable {
 }
 
 extension WorkspaceTabArrangementAtom {
-    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    func resizeVisiblePanePair(
+        tabId: UUID,
+        leftPaneId: UUID,
+        rightPaneId: UUID,
+        ratio: Double,
+        residencyExcludedPaneIds: Set<UUID> = []
+    ) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("resizeVisiblePanePair: tab \(tabId) not found")
             return
@@ -46,9 +52,9 @@ extension WorkspaceTabArrangementAtom {
         let arrIndex = activeArrangementIndex(for: tabIndex)
         let arrangement = arrangementStates[tabIndex].arrangements[arrIndex]
         guard
-            PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+            PaneResizeVisibilityResolver.validatesRenderedPanePair(
                 layoutPaneIds: arrangement.layout.paneIds,
-                minimizedPaneIds: arrangement.minimizedPaneIds,
+                resizeExcludedPaneIds: arrangement.minimizedPaneIds.union(residencyExcludedPaneIds),
                 leftPaneId: leftPaneId,
                 rightPaneId: rightPaneId
             )
@@ -111,9 +117,9 @@ extension WorkspaceTabArrangementAtom {
         let arrangementIndex = activeArrangementIndex(for: tabIndex)
         guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
         else { return }
-        if PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+        if PaneResizeVisibilityResolver.validatesRenderedPanePair(
             layoutPaneIds: drawerView.layout.topRow.paneIds,
-            minimizedPaneIds: drawerView.minimizedPaneIds,
+            resizeExcludedPaneIds: drawerView.minimizedPaneIds,
             leftPaneId: leftPaneId,
             rightPaneId: rightPaneId
         ) {
@@ -123,9 +129,9 @@ extension WorkspaceTabArrangementAtom {
                 ratio: ratio
             )
         } else if let bottomRow = drawerView.layout.bottomRow,
-            PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+            PaneResizeVisibilityResolver.validatesRenderedPanePair(
                 layoutPaneIds: bottomRow.paneIds,
-                minimizedPaneIds: drawerView.minimizedPaneIds,
+                resizeExcludedPaneIds: drawerView.minimizedPaneIds,
                 leftPaneId: leftPaneId,
                 rightPaneId: rightPaneId
             )
