@@ -13,6 +13,22 @@ export interface AnnotationCatalogTransferTelemetryObservation {
 	readonly windowCount: number;
 }
 
+export interface AnnotationCatalogLongTaskEntry {
+	readonly durationMilliseconds: number;
+	readonly name: string;
+	readonly startTimeMilliseconds: number;
+}
+
+export interface AnnotationCatalogLongTaskPhase {
+	readonly name: string;
+	readonly startTimeMilliseconds: number;
+}
+
+export interface AnnotationCatalogLongTaskObservation {
+	readonly entries: readonly AnnotationCatalogLongTaskEntry[];
+	readonly phases: readonly AnnotationCatalogLongTaskPhase[];
+}
+
 export interface AnnotationProjectionQueryObservation {
 	readonly dispose: () => void;
 	readonly sessionIdsForOperation: (operationCorrelationId: string) => readonly string[];
@@ -238,9 +254,24 @@ export async function beginAnnotationCatalogLongTaskObservation(page: Page): Pro
 			const existingObserver = Reflect.get(existingState, 'observer');
 			if (existingObserver instanceof PerformanceObserver) existingObserver.disconnect();
 		}
-		const state = { count: 0, observer: null as PerformanceObserver | null };
+		const state = {
+			entries: [] as AnnotationCatalogLongTaskEntry[],
+			observer: null as PerformanceObserver | null,
+			phases: [
+				{
+					name: 'observer_started',
+					startTimeMilliseconds: performance.now(),
+				},
+			] as AnnotationCatalogLongTaskPhase[],
+		};
 		state.observer = new PerformanceObserver((entryList): void => {
-			state.count += entryList.getEntries().length;
+			state.entries.push(
+				...entryList.getEntries().map((entry) => ({
+					durationMilliseconds: entry.duration,
+					name: entry.name,
+					startTimeMilliseconds: entry.startTime,
+				})),
+			);
 		});
 		state.observer.observe({ entryTypes: ['longtask'] });
 		Reflect.set(window, key, state);
@@ -251,24 +282,52 @@ export async function beginAnnotationCatalogLongTaskObservation(page: Page): Pro
 	}
 }
 
-export async function finishAnnotationCatalogLongTaskObservation(page: Page): Promise<number> {
-	const count = await page.evaluate((key): number | null => {
+export async function markAnnotationCatalogLongTaskPhase(page: Page, name: string): Promise<void> {
+	const recorded = await page.evaluate(
+		([key, phaseName]): boolean => {
+			const state = Reflect.get(window, key);
+			if (typeof state !== 'object' || state === null) return false;
+			const phases = Reflect.get(state, 'phases');
+			if (!Array.isArray(phases)) return false;
+			phases.push({ name: phaseName, startTimeMilliseconds: performance.now() });
+			return true;
+		},
+		[annotationCatalogLongTaskObservationKey, name] as const,
+	);
+	if (!recorded) throw new Error('Large catalog Long Tasks observation was not active.');
+}
+
+export async function finishAnnotationCatalogLongTaskObservation(
+	page: Page,
+): Promise<AnnotationCatalogLongTaskObservation> {
+	const observation = await page.evaluate((key): AnnotationCatalogLongTaskObservation | null => {
 		const state = Reflect.get(window, key);
 		if (typeof state !== 'object' || state === null) return null;
 		const observer = Reflect.get(state, 'observer');
-		const recordedCount = Reflect.get(state, 'count');
-		if (!(observer instanceof PerformanceObserver) || typeof recordedCount !== 'number') {
+		const entries = Reflect.get(state, 'entries');
+		const phases = Reflect.get(state, 'phases');
+		if (
+			!(observer instanceof PerformanceObserver) ||
+			!Array.isArray(entries) ||
+			!Array.isArray(phases)
+		) {
 			return null;
 		}
-		const finalCount = recordedCount + observer.takeRecords().length;
+		entries.push(
+			...observer.takeRecords().map((entry) => ({
+				durationMilliseconds: entry.duration,
+				name: entry.name,
+				startTimeMilliseconds: entry.startTime,
+			})),
+		);
 		observer.disconnect();
 		Reflect.deleteProperty(window, key);
-		return finalCount;
+		return { entries, phases };
 	}, annotationCatalogLongTaskObservationKey);
-	if (count === null) {
+	if (observation === null) {
 		throw new Error('Large catalog Long Tasks observation was not active.');
 	}
-	return count;
+	return observation;
 }
 
 export async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {

@@ -6,8 +6,10 @@ import {
 	cloneSavedAnnotationMessages,
 	finishAnnotationCatalogLongTaskObservation,
 	latestAnnotationCatalogCommit,
+	markAnnotationCatalogLongTaskPhase,
 	observeAnnotationProjectionQueries,
 	settleBrowserFrames,
+	type AnnotationCatalogLongTaskObservation,
 	type AnnotationCatalogTransferTelemetryObservation,
 	waitForAnnotationCatalogCommit,
 } from './bridge-viewer-vite-annotation-catalog-performance.ts';
@@ -245,7 +247,9 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 				);
 				expect(
 					observations.catalogTelemetry.longTaskCountDelta,
-					'catalog-scoped long-task count',
+					`catalog-scoped long-task count: ${JSON.stringify(
+						observations.catalogTelemetry.longTaskObservation,
+					)}`,
 				).toBe(0);
 				expect(
 					observations.catalogTelemetry.undemandedSessionRichFetchCount,
@@ -350,6 +354,7 @@ interface AnnotationBackpressureJourneyObservations {
 
 interface AnnotationCatalogTelemetryObservation {
 	readonly longTaskCountDelta: number;
+	readonly longTaskObservation: AnnotationCatalogLongTaskObservation;
 	readonly maximumUnitByteCount: number;
 	readonly presentationRevisionAfter: number;
 	readonly presentationRevisionBefore: number;
@@ -478,12 +483,14 @@ async function runAnnotationBackpressureJourney(props: {
 		// An operation-scoped observer prevents earlier Review interactions from entering this gate.
 		await beginAnnotationCatalogLongTaskObservation(createdPage);
 		let catalogTransferTelemetry: AnnotationCatalogTransferTelemetryObservation;
-		let catalogLongTaskCount: number;
+		let catalogLongTaskObservation: AnnotationCatalogLongTaskObservation;
 		try {
 			messageIds.push(
 				await createAndSaveRoot({
 					body: rootBody,
 					milestones: props.milestones,
+					onPerformancePhase: async (phase): Promise<void> =>
+						await markAnnotationCatalogLongTaskPhase(createdPage, phase),
 					page: createdPage,
 				}),
 			);
@@ -491,15 +498,18 @@ async function runAnnotationBackpressureJourney(props: {
 				minimumCatalogRevisionExclusive: catalogBaseline.catalogRevision,
 				page: createdPage,
 			});
+			await markAnnotationCatalogLongTaskPhase(createdPage, 'catalog_commit_observed');
 			await settleBrowserFrames(createdPage, 2);
-			catalogLongTaskCount = await finishAnnotationCatalogLongTaskObservation(createdPage);
+			await markAnnotationCatalogLongTaskPhase(createdPage, 'settled_frames');
+			catalogLongTaskObservation = await finishAnnotationCatalogLongTaskObservation(createdPage);
 		} catch (error: unknown) {
 			await finishAnnotationCatalogLongTaskObservation(createdPage).catch((): void => {});
 			throw error;
 		}
 		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
 			...catalogTransferTelemetry,
-			longTaskCountDelta: catalogLongTaskCount,
+			longTaskCountDelta: catalogLongTaskObservation.entries.length,
+			longTaskObservation: catalogLongTaskObservation,
 			undemandedSessionRichFetchCount: projectionQueries
 				.sessionIdsForOperation(catalogTransferTelemetry.operationCorrelationId)
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
@@ -677,20 +687,24 @@ async function waitForReviewItemCount(props: {
 async function createAndSaveRoot(props: {
 	readonly body: string;
 	readonly milestones: AnnotationBackpressureMilestones;
+	readonly onPerformancePhase: (phase: string) => Promise<void>;
 	readonly page: Page;
 }): Promise<string> {
 	const composer = props.page.getByRole('textbox', { name: 'Write an annotation in Markdown' });
 	props.milestones.transition('root.create.waiting');
 	const createOutcome = waitForCommittedAnnotationOutcome(props.page, 'root.create');
 	await composer.fill(`${props.body} initial`);
+	await props.onPerformancePhase('root_create_fill_complete');
 	const created = await withBoundedTimeout(
 		createOutcome,
 		props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
 	);
+	await props.onPerformancePhase('root_create_committed');
 	props.milestones.transition('root.create.committed');
 	props.milestones.transition('root.flush.waiting');
 	const flushOutcome = waitForCommittedAnnotationOutcome(props.page, 'draft.flush');
 	await composer.fill(props.body);
+	await props.onPerformancePhase('root_flush_fill_complete');
 	assertSameMessage(
 		created,
 		await withBoundedTimeout(
@@ -698,10 +712,12 @@ async function createAndSaveRoot(props: {
 			props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
 		),
 	);
+	await props.onPerformancePhase('root_flush_committed');
 	props.milestones.transition('root.flush.committed');
 	props.milestones.transition('root.save.waiting');
 	const saveOutcome = waitForCommittedAnnotationOutcome(props.page, 'draft.save');
 	await props.page.getByRole('button', { name: 'Save annotation' }).click();
+	await props.onPerformancePhase('root_save_clicked');
 	assertSameMessage(
 		created,
 		await withBoundedTimeout(
@@ -709,6 +725,7 @@ async function createAndSaveRoot(props: {
 			props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
 		),
 	);
+	await props.onPerformancePhase('root_save_committed');
 	props.milestones.transition('root.save.committed');
 	props.milestones.transition('root.body.waiting');
 	await withBoundedTimeout(
@@ -718,6 +735,7 @@ async function createAndSaveRoot(props: {
 		}),
 		props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
 	);
+	await props.onPerformancePhase('root_body_visible');
 	props.milestones.transition('root.body.visible');
 	return created.messageId;
 }
