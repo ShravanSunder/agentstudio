@@ -22,10 +22,10 @@ extension FilesystemActor {
 
         recordRequiredFullGitRefresh(for: worktreeId, when: requiresFullGitRefresh)
 
-        let observedActivityPaths = Set(
+        let externallyObservedActivityPaths = Set(
             activityObservations.lazy.filter { !$0.isOwnEvent }.map(\.path)
         )
-        let ownedEventPaths = Set(
+        let processOwnedActivityPaths = Set(
             activityObservations.lazy.filter(\.isOwnEvent).map(\.path)
         )
         let ordinaryPathSet = Set(paths)
@@ -42,7 +42,8 @@ extension FilesystemActor {
             guard let root = roots[ownedPath.worktreeId] else { continue }
 
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                if observedActivityPaths.contains(rawPath),
+                if externallyObservedActivityPaths.contains(rawPath)
+                    || processOwnedActivityPaths.contains(rawPath),
                     let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
                 {
                     qualifyingRepositoryStableKeys.insert(repositoryStableKey)
@@ -71,7 +72,15 @@ extension FilesystemActor {
             case .ignoredByPolicy:
                 pendingChanges.suppressedIgnoredPathCount += 1
             }
-            if observedActivityPaths.contains(rawPath),
+            let isProcessOwnedActivity = processOwnedActivityPaths.contains(rawPath)
+            let isQualifyingOwnedGitMetadata =
+                isProcessOwnedActivity
+                && pathDisposition == .gitInternal
+                && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(
+                    ownedPath.relativePath
+                )
+            if externallyObservedActivityPaths.contains(rawPath)
+                || (isProcessOwnedActivity && !isQualifyingOwnedGitMetadata),
                 let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId],
                 RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
                     relativePath: ownedPath.relativePath,
@@ -80,11 +89,7 @@ extension FilesystemActor {
             {
                 qualifyingRepositoryStableKeys.insert(repositoryStableKey)
             }
-            if ownedEventPaths.contains(rawPath),
-                pathDisposition == .gitInternal,
-                RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(
-                    ownedPath.relativePath
-                ),
+            if isQualifyingOwnedGitMetadata,
                 let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
             {
                 coverageLostRepositoryStableKeys.insert(repositoryStableKey)

@@ -120,6 +120,11 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             performanceRecorder: performanceTraceRecorder,
             onAuthorityUpdate: { update in
                 await remoteReferenceAuthoritySink.send(update)
+            },
+            onPromotedRecomputation: { acceptance in
+                await remoteReferenceAuthoritySink.waitForRecomputation(
+                    authorityRevision: acceptance.authorityRevision
+                )
             }
         )
         self.remoteReferenceRefreshActor = remoteReferenceRefreshActor
@@ -138,6 +143,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         self.gitWorkingDirectoryProjector = gitWorkingDirectoryProjector
         remoteReferenceAuthoritySink.install { update in
             await gitWorkingDirectoryProjector.applyRemoteReferenceAuthorityUpdate(update)
+        } waitForRecomputation: { authorityRevision in
+            await gitWorkingDirectoryProjector.waitForRemoteReferenceRecomputation(
+                authorityRevision: authorityRevision
+            )
         }
         self.registrationValidator = GitWorktreeRegistrationValidator(
             discoveryProvider: registrationDiscoveryProvider
@@ -365,19 +374,31 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
 private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
     typealias Handler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
+    typealias RecomputationHandler = @Sendable (UInt64) async -> RepositoryFactSourceUpdateOutcome
 
     private let lock = NSLock()
     private var handler: Handler?
+    private var recomputationHandler: RecomputationHandler?
 
-    func install(_ handler: @escaping Handler) {
+    func install(
+        _ handler: @escaping Handler,
+        waitForRecomputation recomputationHandler: @escaping RecomputationHandler
+    ) {
         lock.lock()
         self.handler = handler
+        self.recomputationHandler = recomputationHandler
         lock.unlock()
     }
 
     func send(_ update: RemoteReferenceAuthorityUpdate) async {
         let handler = lock.withLock { self.handler }
         await handler?(update)
+    }
+
+    func waitForRecomputation(authorityRevision: UInt64) async -> RepositoryFactSourceUpdateOutcome {
+        let handler = lock.withLock { recomputationHandler }
+        guard let handler else { return .obsolete }
+        return await handler(authorityRevision)
     }
 }
 

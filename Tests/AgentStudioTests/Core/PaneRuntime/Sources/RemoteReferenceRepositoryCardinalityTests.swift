@@ -84,9 +84,12 @@ struct RemoteReferenceRepositoryCardinalityTests {
             directoryHint: .isDirectory
         )
         let origin = "https://example.com/owner/repository.git"
+        let statusGate = RepositoryCardinalityStatusGate()
         let actor = GitWorkingDirectoryProjector(
             bus: EventBus<RuntimeEnvelope>(),
-            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { rootPath in
+                await statusGate.status(for: rootPath, origin: origin)
+            },
             coalescingWindow: .zero
         )
         await actor.assertTopology(
@@ -137,18 +140,86 @@ struct RemoteReferenceRepositoryCardinalityTests {
             )
         )
 
-        await actor.applyRemoteReferenceAuthorityUpdate(
-            .promoted(
-                acceptance,
-                representedWorktreeIds: [linkedWorktreeId, primaryWorktreeId]
+        let recomputationTask = Task {
+            await actor.applyRemoteReferenceAuthorityUpdate(
+                .promoted(
+                    acceptance,
+                    representedWorktreeIds: [linkedWorktreeId, primaryWorktreeId]
+                )
             )
-        )
+            let outcome = await actor.waitForRemoteReferenceRecomputation(
+                authorityRevision: acceptance.authorityRevision
+            )
+            await statusGate.recordAggregateOutcome(outcome)
+            return outcome
+        }
+        await statusGate.waitForStartedCount(1)
 
-        #expect(
-            await actor.immediateRefreshWorktreeIds
-                == [primaryWorktreeId, linkedWorktreeId]
-        )
+        #expect(await statusGate.completedCount == 0)
+
+        await statusGate.releaseAll()
+        await statusGate.waitForCompletedCount(1)
+        #expect(await statusGate.aggregateOutcome == nil)
+        await statusGate.waitForStartedCount(2)
+        await statusGate.releaseAll()
+        #expect(await recomputationTask.value == .completed)
+        #expect(await statusGate.completedCount == 2)
+        #expect(await statusGate.startedRootPaths == [primaryRoot, linkedRoot])
         await actor.shutdown()
+    }
+}
+
+private actor RepositoryCardinalityStatusGate {
+    private var startedCount = 0
+    private(set) var startedRootPaths: Set<URL> = []
+    private(set) var completedCount = 0
+    private(set) var aggregateOutcome: RepositoryFactSourceUpdateOutcome?
+    private var startedCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var completedCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func status(for rootPath: URL, origin: String) async -> GitWorkingTreeStatus? {
+        startedCount += 1
+        startedRootPaths.insert(rootPath)
+        let readyWaiters = startedCountWaiters.filter { $0.count <= startedCount }
+        startedCountWaiters.removeAll { $0.count <= startedCount }
+        for waiter in readyWaiters { waiter.continuation.resume() }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+        completedCount += 1
+        let readyCompletionWaiters = completedCountWaiters.filter { $0.count <= completedCount }
+        completedCountWaiters.removeAll { $0.count <= completedCount }
+        for waiter in readyCompletionWaiters { waiter.continuation.resume() }
+        return GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+            branch: "main",
+            origin: origin
+        )
+    }
+
+    func waitForStartedCount(_ count: Int) async {
+        guard startedCount < count else { return }
+        await withCheckedContinuation { continuation in
+            startedCountWaiters.append((count, continuation))
+        }
+    }
+
+    func releaseAll() {
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations { continuation.resume() }
+    }
+
+    func waitForCompletedCount(_ count: Int) async {
+        guard completedCount < count else { return }
+        await withCheckedContinuation { continuation in
+            completedCountWaiters.append((count, continuation))
+        }
+    }
+
+    func recordAggregateOutcome(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        aggregateOutcome = outcome
     }
 }
 

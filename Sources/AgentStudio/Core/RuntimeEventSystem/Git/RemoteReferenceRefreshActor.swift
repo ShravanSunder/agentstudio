@@ -26,9 +26,12 @@ package struct RemoteReferenceAcceptance: Equatable, Sendable {
 
 package actor RemoteReferenceRefreshActor {
     package typealias AuthorityUpdateHandler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
+    package typealias PromotedRecomputationHandler =
+        @Sendable (RemoteReferenceAcceptance) async -> RepositoryFactSourceUpdateOutcome
 
     private let provider: any RemoteReferenceRefreshProviding
     private let onAuthorityUpdate: AuthorityUpdateHandler
+    private let onPromotedRecomputation: PromotedRecomputationHandler
     private let maximumConcurrentFetches: Int
     private let successfulResultFreshness: Duration
     private let automaticFailureBackoff: Duration
@@ -68,7 +71,8 @@ package actor RemoteReferenceRefreshActor {
         },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         performanceRecorder: (any RemoteReferencePerformanceRecording)? = nil,
-        onAuthorityUpdate: @escaping AuthorityUpdateHandler = { _ in }
+        onAuthorityUpdate: @escaping AuthorityUpdateHandler = { _ in },
+        onPromotedRecomputation: @escaping PromotedRecomputationHandler = { _ in .completed }
     ) {
         precondition(maximumConcurrentFetches > 0)
         precondition(successfulResultFreshness > .zero)
@@ -81,6 +85,7 @@ package actor RemoteReferenceRefreshActor {
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.performanceRecorder = performanceRecorder
         self.onAuthorityUpdate = onAuthorityUpdate
+        self.onPromotedRecomputation = onPromotedRecomputation
     }
 
     isolated deinit {
@@ -89,6 +94,7 @@ package actor RemoteReferenceRefreshActor {
             switch operation {
             case .staging(_, let task): task.cancel()
             case .promoting(_, _, let task): task.cancel()
+            case .recomputing: break
             }
         }
     }
@@ -284,6 +290,9 @@ package actor RemoteReferenceRefreshActor {
             guard !hasExplicitInterest(repoId: repoId) else { continue }
             explicitRepositoryIds.remove(repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: repoId)
+            if case .recomputing = activeOperationsByRepoId[repoId] {
+                continue
+            }
             await revokeActiveOperation(repoId: repoId)
         }
         pendingRepositoryIds.formUnion(repositoryIds.filter { registrationsByRepoId[$0] != nil })
@@ -525,13 +534,18 @@ package actor RemoteReferenceRefreshActor {
             lastSuccessfulFetchAtByRepoId[attempt.repoId] = monotonicNow()
             failureDeadlineByRepoId.removeValue(forKey: attempt.repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
-            explicitRepositoryIds.remove(attempt.repoId)
-            activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
             performanceAccumulator.increment(\.publicationPromoted)
             await onAuthorityUpdate(
                 .promoted(acceptance, representedWorktreeIds: registration.worktreeIds)
             )
-            settleExplicitUpdateAttempts(matching: attempt, outcome: .completed)
+            activeOperationsByRepoId[attempt.repoId] = .recomputing(attempt)
+            let recomputationOutcome = await onPromotedRecomputation(acceptance)
+            guard acceptsCurrentIdentity(attempt),
+                activeOperationsByRepoId[attempt.repoId]?.attempt.stagingId == attempt.stagingId
+            else { return }
+            explicitRepositoryIds.remove(attempt.repoId)
+            activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
+            settleExplicitUpdateAttempts(matching: attempt, outcome: recomputationOutcome)
             admitPendingAttempts()
             flushPerformanceSnapshot()
         }
@@ -596,6 +610,8 @@ package actor RemoteReferenceRefreshActor {
                 cleanupRetryAtByRepoId[repoId] =
                     monotonicNow() + AppPolicies.RemoteReferenceRefresh.capacityRecheckDelay
             }
+        case .recomputing:
+            break
         }
         activeOperationsByRepoId.removeValue(forKey: repoId)
         resumeIdleWaitersIfNeeded()
@@ -623,8 +639,11 @@ package actor RemoteReferenceRefreshActor {
     }
 
     private func accepts(_ attempt: RemoteReferenceAttempt) -> Bool {
+        hasEffectiveInterest(repoId: attempt.repoId) && acceptsCurrentIdentity(attempt)
+    }
+
+    private func acceptsCurrentIdentity(_ attempt: RemoteReferenceAttempt) -> Bool {
         guard !isShuttingDown, !invalidatingRepositoryIds.contains(attempt.repoId),
-            hasEffectiveInterest(repoId: attempt.repoId),
             let registration = registrationsByRepoId[attempt.repoId]
         else { return false }
         return registration.topologyGeneration == attempt.topologyGeneration
@@ -753,6 +772,8 @@ extension RemoteReferenceRefreshActor {
                     return stagedFetch.handle.repositoryCommonDirectory == repositoryCommonDirectory
                         ? stagedFetch.handle.stagingID
                         : nil
+                case .recomputing:
+                    return nil
                 }
             }
         )

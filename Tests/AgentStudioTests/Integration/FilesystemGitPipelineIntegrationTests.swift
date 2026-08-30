@@ -701,12 +701,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let expectedAheadCount = props.expectedAheadCount
         let expectedBehindCount = props.expectedBehindCount
         let expectedStatusReadCount = await provider.callCount + 1
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        guard let nextDeadline = clock.pendingSleepDeadlines.min() else {
-            Issue.record("periodic refresh should own an exact pending deadline")
-            return
+        while !clock.advanceToNextPendingSleep() {
+            await clock.waitForPendingSleepCount(atLeast: 1)
         }
-        clock.advance(to: nextDeadline)
         await provider.waitForCallCount(expectedStatusReadCount)
         await cacheReceipt.waitForSnapshot(
             aheadCount: expectedAheadCount,

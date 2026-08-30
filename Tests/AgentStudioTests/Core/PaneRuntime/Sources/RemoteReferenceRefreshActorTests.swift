@@ -646,7 +646,7 @@ struct RemoteReferenceRefreshActorTests {
     }
 }
 
-private final class RemoteReferencePerformanceRecorderSpy:
+final class RemoteReferencePerformanceRecorderSpy:
     RemoteReferencePerformanceRecording, @unchecked Sendable
 {
     private let lock = NSLock()
@@ -691,7 +691,7 @@ private final class RemoteReferencePerformanceRecorderSpy:
     }
 }
 
-private struct RemoteReferenceRefreshFixture {
+struct RemoteReferenceRefreshFixture {
     let repoId = UUIDv7.generate()
     let worktreeId = UUIDv7.generate()
     let repositoryPath = URL(filePath: "/tmp/remote-reference-refresh", directoryHint: .isDirectory)
@@ -715,7 +715,7 @@ private struct RemoteReferenceRefreshFixture {
     }
 }
 
-private actor RemoteReferenceAcceptanceRecorder {
+actor RemoteReferenceAcceptanceRecorder {
     private(set) var lastAcceptance: RemoteReferenceAcceptance?
     private(set) var lastWorktreeIds: Set<UUID> = []
     private(set) var acceptanceCount = 0
@@ -736,7 +736,7 @@ private actor RemoteReferenceAcceptanceRecorder {
     }
 }
 
-private actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
+actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
     private enum FakeError: Error {
         case cleanupFailed
         case promotionFailed

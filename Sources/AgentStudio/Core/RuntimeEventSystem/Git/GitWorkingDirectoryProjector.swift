@@ -110,6 +110,8 @@ package actor GitWorkingDirectoryProjector {
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
     var aggregatePerformance = GitWorkingDirectoryPerformanceAccumulator()
     var explicitRepositoryUpdateAttemptsById: [UUID: GitExplicitRepositoryUpdateAttempt] = [:]
+    var remoteReferenceRecomputationAttemptsByAuthorityRevision: [UInt64: GitRemoteReferenceRecomputationAttempt] = [:]
+    var remoteReferenceRecomputationLeasesByAuthorityRevision: [UInt64: RepositoryFactSourceUpdateLease] = [:]
     var isShuttingDown = false
 
     var queuedLogicalDebtCount: Int {
@@ -223,7 +225,7 @@ package actor GitWorkingDirectoryProjector {
         for task in tasksToAwait {
             await task.value
         }
-        settleAllExplicitRepositoryUpdates(.cancelled)
+        settleAllRepositoryRecomputations(.cancelled)
         for (worktreeId, rootPath) in rootPathByWorktreeId {
             (gitWorkingTreeProvider as? any GitExactCleanStatusProviding)?.retireExactCleanAuthority(
                 worktreeId: worktreeId,
@@ -463,7 +465,7 @@ package actor GitWorkingDirectoryProjector {
             return
         }
         if previousContext != nil, previousContext != context {
-            settleExplicitRepositoryUpdateTarget(
+            settleRepositoryRecomputationTarget(
                 worktreeId: worktreeId,
                 requiredIntentGeneration: nil,
                 outcome: .obsolete
@@ -531,7 +533,7 @@ package actor GitWorkingDirectoryProjector {
     }
 
     private func applyUnregistration(worktreeId: UUID, repoId: UUID) {
-        settleExplicitRepositoryUpdateTarget(
+        settleRepositoryRecomputationTarget(
             worktreeId: worktreeId,
             requiredIntentGeneration: nil,
             outcome: .obsolete
@@ -808,7 +810,7 @@ package actor GitWorkingDirectoryProjector {
         if let requiredIntentGeneration =
             refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[changeset.worktreeId]
         {
-            settleExplicitRepositoryUpdateTarget(
+            settleRepositoryRecomputationTarget(
                 worktreeId: changeset.worktreeId,
                 requiredIntentGeneration: requiredIntentGeneration,
                 outcome: .failed

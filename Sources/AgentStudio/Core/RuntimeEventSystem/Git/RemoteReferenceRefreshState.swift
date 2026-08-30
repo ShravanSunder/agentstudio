@@ -82,10 +82,11 @@ enum RemoteReferenceActiveOperation {
         GitStagedFetchResult,
         Task<RemoteReferencePromotionOutcome, Never>
     )
+    case recomputing(RemoteReferenceAttempt)
 
     var attempt: RemoteReferenceAttempt {
         switch self {
-        case .staging(let attempt, _), .promoting(let attempt, _, _): attempt
+        case .staging(let attempt, _), .promoting(let attempt, _, _), .recomputing(let attempt): attempt
         }
     }
 }

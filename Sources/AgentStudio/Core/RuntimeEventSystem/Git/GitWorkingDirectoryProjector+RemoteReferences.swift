@@ -26,13 +26,10 @@ extension GitWorkingDirectoryProjector {
             installRemoteReferenceAuthority(acceptance)
         case .promoted(let acceptance, let representedWorktreeIds):
             guard installRemoteReferenceAuthority(acceptance) else { return }
-            for worktreeId in representedWorktreeIds.sorted(by: { $0.uuidString < $1.uuidString })
-            where repoIdByWorktreeId[worktreeId] == acceptance.repoId {
-                enqueueImmediateRefreshIfRegistered(
-                    worktreeId: worktreeId,
-                    triggerSource: .remoteReferenceRefresh
-                )
-            }
+            beginRemoteReferenceRecomputation(
+                acceptance: acceptance,
+                representedWorktreeIds: representedWorktreeIds
+            )
         }
     }
 

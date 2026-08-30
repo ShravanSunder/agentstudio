@@ -159,6 +159,64 @@ struct FilesystemActorActivityTests {
         #expect(commit.cursorWatermarks.first?.lastEventID == 88)
     }
 
+    @Test("owned projected worktree mutations still qualify as local activity")
+    func ownedProjectedWorktreeMutationsQualifyAsLocalActivity() async throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "filesystem-owned-projected-activity-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let streamClient = DarwinFSEventStreamClient()
+        let activityCommitRecorder = FilesystemActivityCommitRecorder()
+        let activityProjector = RepositoryLocalActivityProjector { commit in
+            await activityCommitRecorder.record(commit)
+        }
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            repositoryLocalActivityProjector: activityProjector,
+            sleepClock: TestPushClock(),
+            debounceWindow: .seconds(60),
+            maxFlushLatency: .seconds(120)
+        )
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let repositoryStableKey = "5555555566666666"
+        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: fixtureRoot)
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: fixtureRoot)
+                ],
+                repositoryStableKeysByWorktreeId: [worktreeId: repositoryStableKey]
+            )
+        )
+        let changedPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixtureRoot)
+            .appending(path: "Sources/Edited.swift").path
+        streamClient.receiveLocalRawEvents(
+            worktreeId: worktreeId,
+            rawEvents: [
+                (
+                    path: changedPath,
+                    eventId: 89,
+                    flags: FSEventStreamEventFlags(
+                        kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagOwnEvent
+                    )
+                )
+            ]
+        )
+
+        await actor.shutdown()
+
+        let commit = try #require(await activityCommitRecorder.commits.first)
+        let update = try #require(commit.repositoryUpdates.first)
+        #expect(update.repositoryStableKey == repositoryStableKey)
+        #expect(update.qualifyingActivityAt != nil)
+        #expect(commit.cursorWatermarks.first?.lastEventID == 89)
+    }
+
     @Test("activity burst uses one existing filesystem drain checkpoint")
     func activityBurstUsesOneExistingFilesystemDrainCheckpoint() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
