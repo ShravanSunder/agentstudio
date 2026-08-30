@@ -496,20 +496,39 @@ struct RepoExplorerProjectionDemandTests {
                 bridgeAttendanceSnapshot: { _ in nil },
                 latestPaneMessageSnapshot: { _ in nil }
             )
-            let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
+            let adapter = RepoExplorerProjectionAdapter(
+                inputCapture: capture,
+                recencyDelay: AsyncDelay { _ in throw CancellationError() }
+            )
             defer { adapter.stop() }
             let host = registerProjectionTestMaterializationHost(adapter: adapter)
             defer { host.detach() }
 
             adapter.updateDemand(isVisible: true, query: "")
-            for _ in 0..<200 where adapter.publishedResult == nil { await Task.yield() }
+            for _ in 0..<400
+            where adapter.publishedResult == nil
+                || adapter.materializedProjection?.hasUnsettledProjectionTasks != false
+                || adapter.invalidationTask != nil
+                || !adapter.pendingInvalidation.isEmpty
+            {
+                await Task.yield()
+            }
             #expect(capture.fullCaptureCount == 1)
+            #expect(adapter.materializedProjection?.hasUnsettledProjectionTasks == false)
+            #expect(adapter.invalidationTask == nil)
+            #expect(adapter.pendingInvalidation.isEmpty)
+
+            let fullCaptureCountBeforeMembershipChange = capture.fullCaptureCount
+            let scopedCaptureCountBeforeMembershipChange = capture.scopedCaptureCount
 
             _ = store.createPane(title: "new membership")
-            for _ in 0..<300 where capture.fullCaptureCount < 2 { await Task.yield() }
+            for _ in 0..<300
+            where capture.fullCaptureCount == fullCaptureCountBeforeMembershipChange {
+                await Task.yield()
+            }
 
-            #expect(capture.fullCaptureCount == 2)
-            #expect(capture.scopedCaptureCount == 0)
+            #expect(capture.fullCaptureCount == fullCaptureCountBeforeMembershipChange + 1)
+            #expect(capture.scopedCaptureCount == scopedCaptureCountBeforeMembershipChange)
         }
     }
 
