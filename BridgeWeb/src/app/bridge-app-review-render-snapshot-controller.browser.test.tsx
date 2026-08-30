@@ -342,7 +342,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await Promise.resolve();
 		});
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Updating…');
 		expect(header.getBoundingClientRect().height).toBe(headerHeight);
 
@@ -361,7 +361,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await Promise.resolve();
 		});
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update ready');
 		const applyNow = rendered.getByRole('button', { name: 'Apply now' });
 		const installedReceiptsBeforeApply = harness.sentCommands.filter(
@@ -379,7 +379,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				)
 				.toBe(installedReceiptsBeforeApply + 1);
 			await expect
-				.poll(() => rendered.getByTestId('bridge-viewer-content-status').query())
+				.poll(() => rendered.getByTestId('bridge-review-refresh-header-group').query())
 				.toBeNull();
 			await settleRenderedReviewFrame();
 			await Promise.resolve();
@@ -457,7 +457,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		});
 
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update ready');
 		expect(canvas.hasAttribute('inert')).toBe(false);
 		expect(tree.hasAttribute('inert')).toBe(false);
@@ -558,7 +558,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await Promise.resolve();
 		});
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update ready');
 		const admissionsBeforeLeaving = harness.sentCommands.filter(
 			(command) => command.command === 'reviewPublicationInstallAdmit',
@@ -576,7 +576,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					).length,
 			)
 			.toBe(admissionsBeforeLeaving + 1);
-		expect(rendered.getByTestId('bridge-viewer-content-status').query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-refresh-header-group').query()).toBeNull();
 	});
 
 	test('routes retryable promoted failure through the canonical active comparison target', async () => {
@@ -641,7 +641,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await Promise.resolve();
 		});
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update unavailable');
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Retry' }).click();

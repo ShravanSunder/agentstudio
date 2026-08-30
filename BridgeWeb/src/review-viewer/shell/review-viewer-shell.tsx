@@ -35,7 +35,6 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import { WorktreeAnnotationShareSurface } from '../../worktree-annotations/worktree-annotation-output-controls.js';
 import { WorktreeAnnotationRecoveryWarning } from '../../worktree-annotations/worktree-annotation-recovery-warning.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
@@ -341,7 +340,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 				content={
 					<section
 						aria-label="Selected content"
-						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
+						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
 						data-testid="bridge-review-code-scroll"
 					>
 						<BridgeViewerContentHeader
@@ -350,7 +349,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 							statusText={statusText}
 							title={contentHeaderTitle}
 						/>
-						<WorktreeAnnotationShareSurface />
 						<BridgeReviewComparisonStatusBanner
 							onRetry={props.onRetryComparison}
 							state={props.comparisonPaneState}

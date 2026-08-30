@@ -21,7 +21,7 @@ const staticActionSpecs = {
 	editAnnotation: {
 		accessibleName: 'Edit annotation',
 		icon: Pencil,
-		shortcutKeycap: 'E',
+		shortcutKeycap: '⌃E',
 	},
 	reopenThread: {
 		accessibleName: 'Reopen annotation thread',
@@ -87,7 +87,8 @@ export function matchesWorktreeAnnotationActionShortcut(
 ): boolean {
 	if (event.altKey || event.metaKey || event.shiftKey) return false;
 	const expectedKey = actionId === 'editAnnotation' ? 'e' : 'r';
-	return event.key.toLowerCase() === expectedKey;
+	if (event.key.toLowerCase() !== expectedKey) return false;
+	return actionId === 'replyToThread' || event.ctrlKey;
 }
 
 export function worktreeAnnotationShortcutTargetOwnsTextInput(target: EventTarget | null): boolean {

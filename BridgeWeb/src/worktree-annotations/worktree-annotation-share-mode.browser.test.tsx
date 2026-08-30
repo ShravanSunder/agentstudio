@@ -1,11 +1,13 @@
-import { act, useState, type ReactElement } from 'react';
+import { act, useRef, useState, type ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
+import { BridgeViewerHeaderShelf } from '../app/bridge-viewer-header-shelf.js';
 import { Alert } from '../components/ui/alert.js';
+import { Popover } from '../components/ui/popover.js';
 import {
 	WorktreeAnnotationShareModeRow,
 	WorktreeAnnotationShareTrigger,
@@ -13,7 +15,7 @@ import {
 } from './worktree-annotation-share-mode.js';
 
 describe('worktree annotation Share comments presentation', () => {
-	test('uses the same secondary surface color as the loading status row', async () => {
+	test('uses the owned action surface without a route-local color', async () => {
 		const rendered = await render(
 			<div>
 				<Alert data-testid="loading-status-surface">Loading comparison…</Alert>
@@ -32,12 +34,11 @@ describe('worktree annotation Share comments presentation', () => {
 
 		const loadingSurface = rendered.getByTestId('loading-status-surface').element();
 		const shareSurface = rendered.getByRole('region', { name: 'Share comments' }).element();
-		expect(getComputedStyle(shareSurface).backgroundColor).toBe(
-			getComputedStyle(loadingSurface).backgroundColor,
-		);
+		expect(getComputedStyle(shareSurface).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+		expect(getComputedStyle(loadingSurface).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
 	});
 
-	test('opens one in-flow Pending/All row without selection or floating UI', async () => {
+	test('opens one floating Pending/All shelf without selection UI', async () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(<ShareModeFixture onCopy={onCopy} onExport={onExport} />);
@@ -75,7 +76,9 @@ describe('worktree annotation Share comments presentation', () => {
 		await expect.element(rendered.getByRole('button', { name: 'All comments, 11' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeEnabled();
-		expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
+		expect(document.querySelector('[data-slot="popover-content"]')).toBe(
+			rendered.getByTestId('worktree-annotation-share-shelf').element(),
+		);
 		expect(document.querySelector('[role="checkbox"]')).toBeNull();
 		expect(shareMode.element().querySelector('[data-slot="scroll-area"]')).toBeNull();
 		expect(shareMode.element().textContent).not.toContain('selected');
@@ -130,7 +133,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(onExport).not.toHaveBeenCalled();
 	});
 
-	test('retains in-flow failure feedback and compact geometry', async () => {
+	test('retains failure feedback inside the 90%-width floating shelf', async () => {
 		const rendered = await render(
 			<div className="w-[420px]">
 				<ShareModeFixture error="Export failed. No comments were handled." />
@@ -140,13 +143,13 @@ describe('worktree annotation Share comments presentation', () => {
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Share comments' }).click(),
 		);
-		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await expect
 			.element(rendered.getByRole('alert'))
 			.toHaveTextContent('Export failed. No comments were handled.');
-		expect(shareMode.element().getBoundingClientRect().width).toBe(420);
-		expect(getComputedStyle(shareMode.element()).position).not.toBe('fixed');
-		expect(getComputedStyle(shareMode.element()).position).not.toBe('absolute');
+		expect(
+			rendered.getByTestId('worktree-annotation-share-shelf').element().getBoundingClientRect()
+				.width,
+		).toBeCloseTo(378, 0);
 	});
 });
 
@@ -159,25 +162,34 @@ function ShareModeFixture(props: {
 }): ReactElement {
 	const [isOpen, setIsOpen] = useState(false);
 	const [scope, setScope] = useState<WorktreeAnnotationShareScope>('pending');
+	const headerRef = useRef<HTMLDivElement | null>(null);
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	return (
-		<div>
-			<WorktreeAnnotationShareTrigger disabled={false} onOpen={() => setIsOpen(true)} />
-			{isOpen ? (
-				<WorktreeAnnotationShareModeRow
-					error={props.error ?? null}
-					isOutputPending={false}
-					membership={{
-						allCount: props.allCount ?? 11,
-						kind: 'ready',
-						pendingCount: props.pendingCount ?? 4,
-					}}
-					onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
-					onDone={() => setIsOpen(false)}
-					onExport={(selectedScope) => props.onExport?.(selectedScope)}
-					onScopeChange={setScope}
-					scope={scope}
-				/>
-			) : null}
+		<div ref={headerRef} data-bridge-viewer-content-topbar="true">
+			<Popover onOpenChange={setIsOpen} open={isOpen}>
+				<WorktreeAnnotationShareTrigger buttonRef={triggerRef} disabled={false} open={isOpen} />
+				<BridgeViewerHeaderShelf
+					anchor={headerRef}
+					ariaLabel="Share comments"
+					finalFocus={triggerRef}
+					testId="worktree-annotation-share-shelf"
+				>
+					<WorktreeAnnotationShareModeRow
+						error={props.error ?? null}
+						isOutputPending={false}
+						membership={{
+							allCount: props.allCount ?? 11,
+							kind: 'ready',
+							pendingCount: props.pendingCount ?? 4,
+						}}
+						onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
+						onDone={() => setIsOpen(false)}
+						onExport={(selectedScope) => props.onExport?.(selectedScope)}
+						onScopeChange={setScope}
+						scope={scope}
+					/>
+				</BridgeViewerHeaderShelf>
+			</Popover>
 		</div>
 	);
 }

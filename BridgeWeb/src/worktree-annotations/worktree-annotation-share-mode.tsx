@@ -1,7 +1,8 @@
 import { Copy, FileJson2, List, Share2, X } from 'lucide-react';
-import type { KeyboardEvent, MouseEvent, ReactElement, ReactNode } from 'react';
+import type { MouseEvent, ReactElement, ReactNode, Ref } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
+import { PopoverTrigger } from '@/components/ui/popover.js';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
 
@@ -22,26 +23,32 @@ export type WorktreeAnnotationShareMembership =
 	| { readonly allCount: number; readonly kind: 'ready'; readonly pendingCount: number };
 
 export function WorktreeAnnotationShareTrigger(props: {
+	readonly buttonRef: Ref<HTMLButtonElement>;
 	readonly disabled: boolean;
-	readonly onOpen: () => void;
+	readonly open: boolean;
 }): ReactElement {
 	return (
 		<Tooltip>
-			<TooltipTrigger
+			<PopoverTrigger
 				render={
-					<BridgeViewerButton
-						ariaLabel="Share comments"
-						className={bridgeViewerChromeIconButtonClassName}
-						data-tooltip="Share comments"
-						disabled={props.disabled}
-						onClick={props.onOpen}
+					<TooltipTrigger
+						render={
+							<BridgeViewerButton
+								ariaLabel="Share comments"
+								ariaPressed={props.open}
+								buttonRef={props.buttonRef}
+								className={bridgeViewerChromeIconButtonClassName}
+								data-tooltip="Share comments"
+								disabled={props.disabled}
+							/>
+						}
 					/>
 				}
 			>
 				<BridgeViewerIcon>
 					<Share2 aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 				</BridgeViewerIcon>
-			</TooltipTrigger>
+			</PopoverTrigger>
 			<TooltipContent side="bottom">Share comments</TooltipContent>
 		</Tooltip>
 	);
@@ -73,17 +80,11 @@ export function WorktreeAnnotationShareModeRow(props: {
 		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.pendingCount);
 	const allCountLabel =
 		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.allCount);
-	const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-		if (event.key !== 'Escape') return;
-		event.preventDefault();
-		props.onDone();
-	};
-
 	return (
 		<BridgeViewerActionToolbar
 			ariaLabel="Share comments"
+			className="min-h-0 border-0 bg-transparent p-0 shadow-none"
 			testId="worktree-annotation-share-mode"
-			onKeyDown={handleKeyDown}
 		>
 			<div className="flex w-full flex-wrap items-center gap-2">
 				<div className="mr-auto flex items-center gap-1.5 text-[11px] font-medium text-[var(--bridge-text-primary)]">

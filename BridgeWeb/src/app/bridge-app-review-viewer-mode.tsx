@@ -52,7 +52,7 @@ import {
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
 import {
-	BridgeReviewRefreshHeaderAction,
+	BridgeReviewRefreshHeaderGroup,
 	bridgeReviewRefreshHeaderPresentation,
 } from './bridge-review-refresh-header-chrome.js';
 import {
@@ -399,13 +399,13 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 	});
 	const contentHeaderControls = (
 		<>
-			<BridgeReviewRefreshHeaderAction
-				action={refreshHeaderPresentation.action}
+			<BridgeReviewRefreshHeaderGroup
 				onApplyNow={(): void => void controller.applyReviewRefreshNow()}
 				onRetry={(): void => {
 					if (refreshRetryTarget !== null)
 						controller.updateReviewComparisonTarget(refreshRetryTarget);
 				}}
+				presentation={refreshHeaderPresentation}
 			/>
 			<WorktreeAnnotationShareHeaderControl />
 			<BridgeReviewComparisonControl
@@ -527,7 +527,7 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
-		reviewRefreshStatusText: refreshHeaderPresentation.statusText,
+		reviewRefreshStatusText: null,
 		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectedItemId,

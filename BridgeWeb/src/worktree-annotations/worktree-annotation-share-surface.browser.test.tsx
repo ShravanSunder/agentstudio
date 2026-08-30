@@ -19,6 +19,7 @@ vi.mock('sonner', () => ({
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
+import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
 	annotationHeadThreadId,
@@ -27,10 +28,7 @@ import {
 	annotationSessionSummary,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
-import {
-	WorktreeAnnotationShareHeaderControl,
-	WorktreeAnnotationShareSurface,
-} from './worktree-annotation-output-controls.js';
+import { WorktreeAnnotationShareHeaderControl } from './worktree-annotation-output-controls.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
@@ -55,6 +53,45 @@ describe('worktree annotation Share comments integrated surface', () => {
 		toastSpies.error.mockReset();
 		toastSpies.success.mockReset();
 		toastSpies.warning.mockReset();
+	});
+
+	test('opens a centered 90%-width header shelf without moving the code canvas', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface);
+		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
+		const codeCanvas = rendered.getByTestId('share-layout-code-canvas').element();
+		const codeCanvasTopBeforeOpen = codeCanvas.getBoundingClientRect().top;
+
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+
+		const shelf = rendered.getByTestId('worktree-annotation-share-shelf').element();
+		const headerBounds = header.getBoundingClientRect();
+		const shelfBounds = shelf.getBoundingClientRect();
+		expect(codeCanvas.getBoundingClientRect().top).toBe(codeCanvasTopBeforeOpen);
+		expect(shelfBounds.width).toBeCloseTo(headerBounds.width * 0.9, 0);
+		expect(shelfBounds.left - headerBounds.left).toBeCloseTo(headerBounds.width * 0.05, 0);
+		expect(getComputedStyle(shelf).transitionDuration).toBe('0.12s');
+		expect(document.querySelector('[data-slot="popover-content"]')).toBe(shelf);
+	});
+
+	test('dismisses the shelf on outside press without stealing outside focus', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface);
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Share comments' }).click(),
+		);
+		const outsideTarget = rendered.getByRole('button', { name: 'Code canvas target' });
+
+		await performBrowserAction(() => outsideTarget.click());
+
+		await expect
+			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.not.toBeInTheDocument();
+		expect(document.activeElement).toBe(outsideTarget.element());
 	});
 
 	test('presents unknown membership before the first complete projection', async () => {
@@ -258,7 +295,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		expect(toastSpies.success).not.toHaveBeenCalled();
 	});
 
-	test('keeps durable history in flow and exposes unhandle only for an eligible success', async () => {
+	test('keeps durable history in the Share shelf and exposes unhandle only for an eligible success', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, true);
@@ -267,7 +304,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		);
 
 		await expect.element(rendered.getByRole('button', { name: 'History (1)' })).toBeVisible();
-		expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
+		expect(document.querySelector('[data-slot="popover-content"]')).not.toBeNull();
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 		await expect.element(rendered.getByText('Clipboard Markdown · 3 annotations')).toBeVisible();
 		await performBrowserAction(() =>
@@ -292,7 +329,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 				rendered.getByRole('button', { name: 'Share comments' }).click(),
 			);
 
-			const shareLayoutOwner = rendered.getByTestId('worktree-annotation-share-surface').element();
+			const shareLayoutOwner = rendered.getByTestId('worktree-annotation-share-shelf').element();
 			expect(
 				shareLayoutOwner.contains(
 					rendered.getByRole('button', { name: 'Copy Markdown' }).element(),
@@ -398,10 +435,17 @@ function ShareSurfaceFixture(props: {
 	return (
 		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
 			{props.includeViewedControl === true ? <ViewedCommandTestControl /> : null}
-			<div data-testid="review-or-file-header">
-				<WorktreeAnnotationShareHeaderControl />
+			<div className="w-[600px]" data-testid="review-or-file-header">
+				<BridgeViewerContentHeader
+					controls={<WorktreeAnnotationShareHeaderControl />}
+					mode="review"
+					statusText={null}
+					title="Sources/First.swift"
+				/>
+				<button data-testid="share-layout-code-canvas" type="button">
+					Code canvas target
+				</button>
 			</div>
-			<WorktreeAnnotationShareSurface />
 		</WorktreeAnnotationSurfaceProvider>
 	);
 }
@@ -412,17 +456,13 @@ function ShareSurfaceGridFixture(props: {
 }): ReactElement {
 	return (
 		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
-			<div
-				className={
-					props.surfaceKind === 'fileView'
-						? 'grid h-96 grid-rows-[auto_auto_minmax(0,1fr)]'
-						: 'grid h-96 grid-rows-[auto_auto_auto_minmax(0,1fr)]'
-				}
-			>
-				<div data-testid="review-or-file-header">
-					<WorktreeAnnotationShareHeaderControl />
-				</div>
-				<WorktreeAnnotationShareSurface />
+			<div className="w-[600px]" data-testid="share-surface-grid-fixture">
+				<BridgeViewerContentHeader
+					controls={<WorktreeAnnotationShareHeaderControl />}
+					mode={props.surfaceKind === 'review' ? 'review' : 'file'}
+					statusText={null}
+					title="Sources/First.swift"
+				/>
 				{props.surfaceKind === 'review' ? <div>Comparison status</div> : null}
 				<div data-testid="share-layout-code-canvas">Code canvas</div>
 			</div>

@@ -9,6 +9,7 @@ import {
 
 import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
 import { BridgeViewerButton } from '../app/bridge-viewer-button.js';
+import { cn } from '../app/class-name.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import {
 	annotationOutputFeedback,
@@ -32,7 +33,9 @@ type WorktreeAnnotationOutputInspectionState =
 			readonly kind: 'ready';
 	  };
 
-export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
+export function WorktreeAnnotationOutputHistoryControl(props: {
+	readonly embedded?: boolean | undefined;
+}): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
@@ -94,7 +97,14 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 
 	return (
 		<Collapsible>
-			<section aria-label="Output history" className={bridgeViewerActionToolbarSurfaceClassName}>
+			<section
+				aria-label="Output history"
+				className={cn(
+					props.embedded === true
+						? 'mt-2 border-t border-[var(--bridge-border-subtle)] pt-1.5'
+						: bridgeViewerActionToolbarSurfaceClassName,
+				)}
+			>
 				<CollapsibleTrigger render={<BridgeViewerButton />}>
 					History ({history.length})
 				</CollapsibleTrigger>

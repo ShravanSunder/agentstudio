@@ -78,6 +78,7 @@ export function WorktreeAnnotationThread(
 			: null;
 	const isExpanded = threadExpansion !== null;
 	const rangeActive = interaction.activeThreadId === threadId;
+	const activeMessageId = rangeActive ? interaction.activeMessageId : null;
 	useLayoutEffect((): void => {
 		const threadFrame = threadFrameRef.current;
 		if (
@@ -124,6 +125,10 @@ export function WorktreeAnnotationThread(
 	const activateRange = (): void => {
 		if (props.rangeIdentity === undefined) return;
 		interaction.activateSavedThread({ threadId, ...props.rangeIdentity });
+	};
+	const activateMessageRange = (messageId: string): void => {
+		if (props.rangeIdentity === undefined) return;
+		interaction.activateSavedMessage({ threadId, ...props.rangeIdentity }, messageId);
 	};
 	const handleThreadClick = (event: ReactMouseEvent<HTMLElement>): void => {
 		activateRange();
@@ -177,7 +182,7 @@ export function WorktreeAnnotationThread(
 			<WorktreeAnnotationCommandButton
 				action="editAnnotation"
 				onClick={(event) => {
-					activateRange();
+					activateMessageRange(message.messageId);
 					interaction.startMessageEdit(threadId, message.messageId, event.currentTarget);
 				}}
 				preserveEditorFocus
@@ -241,7 +246,7 @@ export function WorktreeAnnotationThread(
 				isEditing={messageEditor !== null}
 				message={message}
 				onActivate={() => {
-					activateRange();
+					activateMessageRange(message.messageId);
 					if (message.authorKind === 'agent') {
 						void viewedController
 							.markMessagesViewed(message.sessionId, [
@@ -258,7 +263,7 @@ export function WorktreeAnnotationThread(
 				}}
 				onBeginEdit={(invoker) =>
 					interaction.shareMode.kind === 'open'
-						? activateRange()
+						? activateMessageRange(message.messageId)
 						: interaction.startMessageEdit(threadId, message.messageId, invoker)
 				}
 				onFinishEdit={() => {
@@ -298,6 +303,33 @@ export function WorktreeAnnotationThread(
 					event.stopPropagation();
 					startReply(event.currentTarget);
 					return;
+				}
+				if (
+					matchesWorktreeAnnotationActionShortcut(event, 'editAnnotation') &&
+					rangeActive &&
+					activeMessageId !== null &&
+					!threadEditorOwnsTextInput &&
+					!worktreeAnnotationShortcutTargetOwnsTextInput(event.target) &&
+					window.getSelection()?.isCollapsed !== false
+				) {
+					const activeMessage = visibleMessages.find(
+						(message) => message.messageId === activeMessageId,
+					);
+					if (
+						activeMessage?.authorKind === 'human' &&
+						activeMessage.status === 'editable' &&
+						canEditMessages
+					) {
+						const activeMessageElement = event.currentTarget.querySelector<HTMLElement>(
+							`[data-annotation-message-id="${CSS.escape(activeMessageId)}"]`,
+						);
+						if (activeMessageElement !== null) {
+							event.preventDefault();
+							event.stopPropagation();
+							interaction.startMessageEdit(threadId, activeMessageId, activeMessageElement);
+							return;
+						}
+					}
 				}
 				if (
 					event.target instanceof Element &&

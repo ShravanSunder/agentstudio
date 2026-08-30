@@ -6,7 +6,7 @@ import { render } from 'vitest-browser-react';
 import './bridge-app.css';
 import type { BridgeMainReviewRefreshPresentation } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import {
-	BridgeReviewRefreshHeaderAction,
+	BridgeReviewRefreshHeaderGroup,
 	bridgeReviewRefreshHeaderPresentation,
 } from './bridge-review-refresh-header-chrome.js';
 import { BridgeViewerContentHeader } from './bridge-viewer-content-header.js';
@@ -45,7 +45,7 @@ describe('Bridge Review refresh header chrome', () => {
 		]) {
 			// oxlint-disable-next-line no-await-in-loop -- Each case owns and unmounts one isolated browser document tree before the next case.
 			const rendered = await renderRefreshHeader(refreshPresentation, ['item-1']);
-			expect(rendered.getByTestId('bridge-viewer-content-status').query()).toBeNull();
+			expect(rendered.getByTestId('bridge-review-refresh-header-group').query()).toBeNull();
 			expect(rendered.getByRole('button', { name: 'Apply now' }).query()).toBeNull();
 			// oxlint-disable-next-line no-await-in-loop -- Sequential cleanup prevents duplicate global role matches between case trees.
 			await rendered.unmount();
@@ -64,8 +64,15 @@ describe('Bridge Review refresh header chrome', () => {
 		const rendered = await renderRefreshHeader(refreshPresentation, ['item-1']);
 
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Updating…');
+		expect(rendered.getByTestId('bridge-viewer-content-status').query()).toBeNull();
+		expect(
+			rendered
+				.getByTestId('bridge-review-refresh-header-group')
+				.element()
+				.querySelector('.lucide-loader-circle'),
+		).not.toBeNull();
 		expect(refreshPresentation.candidate?.startDisposition).toMatchObject({
 			presentationClass: { kind: 'ordinary' },
 		});
@@ -81,11 +88,32 @@ describe('Bridge Review refresh header chrome', () => {
 		});
 		const rendered = await renderRefreshHeader(refreshPresentation, ['item-1']);
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Updating…');
 
 		await rendered.rerender(refreshHeader(refreshPresentation, []));
-		expect(rendered.getByTestId('bridge-viewer-content-status').query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-refresh-header-group').query()).toBeNull();
+	});
+
+	test('groups Update ready with Apply now using the primary accent', async () => {
+		const rendered = await renderRefreshHeader(
+			candidatePresentation({
+				role: 'updateReady',
+				startDisposition: {
+					affectedStableFileIdentities: ['item-1'],
+					kind: 'sameSource',
+					presentationClass: { kind: 'promoted', reason: 'lines' },
+				},
+			}),
+			['item-1'],
+		);
+		const group = rendered.getByTestId('bridge-review-refresh-header-group').element();
+
+		expect(group.className).toContain('text-primary');
+		await expect.element(rendered.getByRole('button', { name: 'Apply now' })).toBeVisible();
+		expect(group.contains(rendered.getByRole('button', { name: 'Apply now' }).element())).toBe(
+			true,
+		);
 	});
 
 	test('renders retryable promoted failure through the owned button and preserves focus', async () => {
@@ -99,20 +127,23 @@ describe('Bridge Review refresh header chrome', () => {
 		const rendered = await render(
 			<BridgeViewerContentHeader
 				controls={
-					<BridgeReviewRefreshHeaderAction
-						action={headerPresentation.action}
+					<BridgeReviewRefreshHeaderGroup
 						onApplyNow={vi.fn()}
 						onRetry={onRetry}
+						presentation={headerPresentation}
 					/>
 				}
 				mode="review"
-				statusText={headerPresentation.statusText}
+				statusText={null}
 				title="Sources/First.swift"
 			/>,
 		);
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update unavailable');
+		expect(
+			rendered.getByTestId('bridge-review-refresh-header-group').element().className,
+		).toContain('text-warning');
 		const retry = rendered.getByRole('button', { name: 'Retry' });
 		retry.element().focus();
 		await retry.click();
@@ -121,7 +152,7 @@ describe('Bridge Review refresh header chrome', () => {
 
 		await rendered.rerender(refreshHeader(failurePresentation(false), ['item-1']));
 		await expect
-			.element(rendered.getByTestId('bridge-viewer-content-status'))
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update unavailable');
 		expect(rendered.getByRole('button', { name: 'Retry' }).query()).toBeNull();
 	});
@@ -146,14 +177,14 @@ function refreshHeader(
 	return (
 		<BridgeViewerContentHeader
 			controls={
-				<BridgeReviewRefreshHeaderAction
-					action={presentation.action}
+				<BridgeReviewRefreshHeaderGroup
 					onApplyNow={vi.fn()}
 					onRetry={vi.fn()}
+					presentation={presentation}
 				/>
 			}
 			mode="review"
-			statusText={presentation.statusText}
+			statusText={null}
 			title="Sources/First.swift"
 		/>
 	);
@@ -163,6 +194,7 @@ function candidatePresentation(props: {
 	readonly effectivePresentationClass?: NonNullable<
 		BridgeMainReviewRefreshPresentation['candidate']
 	>['effectivePresentationClass'];
+	readonly role?: NonNullable<BridgeMainReviewRefreshPresentation['candidate']>['role'];
 	readonly startDisposition: NonNullable<
 		BridgeMainReviewRefreshPresentation['candidate']
 	>['startDisposition'];
@@ -180,7 +212,7 @@ function candidatePresentation(props: {
 					? props.startDisposition.presentationClass
 					: { kind: 'ordinary' }),
 			identity: candidateIdentity,
-			role: 'provisional',
+			role: props.role ?? 'provisional',
 			startDisposition: props.startDisposition,
 		},
 		failure: null,

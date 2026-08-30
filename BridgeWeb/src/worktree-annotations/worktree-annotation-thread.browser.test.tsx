@@ -266,11 +266,11 @@ describe('worktree annotation inline thread', () => {
 	});
 
 	test.each([
-		{ expectedBody: 'Shortcut root.', keys: 'e', ordinal: 0 },
-		{ expectedBody: 'Shortcut reply.', keys: '{Control>}e{/Control}', ordinal: 1 },
+		{ expectedBody: 'Shortcut root.', ordinal: 0 },
+		{ expectedBody: 'Shortcut reply.', ordinal: 1 },
 	])(
-		'routes $keys to the exact focused editable annotation',
-		async ({ expectedBody, keys, ordinal }) => {
+		'routes Control-E to the exact pointer-activated editable annotation',
+		async ({ expectedBody, ordinal }) => {
 			const surface = new RecordingAnnotationBrowserSurface('fileView');
 			const rendered = await renderAnnotationProjection(surface);
 			await publishThreadMessages(surface, [
@@ -287,16 +287,37 @@ describe('worktree annotation inline thread', () => {
 			const targetAnnotation = rendered.getByTestId('worktree-annotation-message').all()[ordinal];
 			if (targetAnnotation === undefined)
 				throw new Error('Expected the shortcut annotation entry.');
+			expect(targetAnnotation.element().getAttribute('tabindex')).toBe('-1');
 
 			await act(async (): Promise<void> => {
-				targetAnnotation.element().focus();
-				await userEvent.keyboard(keys);
+				await userEvent.click(rendered.getByText(expectedBody).element());
+				await userEvent.keyboard('e');
+			});
+			expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).query()).toBeNull();
+			await act(async (): Promise<void> => {
+				await userEvent.keyboard('{Control>}e{/Control}');
 			});
 			await expect
 				.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
 				.toHaveValue(expectedBody);
 		},
 	);
+
+	test('does not guess an Edit target after thread-only pointer activation', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderLocatedAnnotationProjection(surface);
+		await publishThreadMessages(surface, [
+			makeSavedMessage({ body: 'Thread-only shortcut target.', messageId: rootMessageId }),
+		]);
+		const annotationFrame = rendered.getByTestId('worktree-annotation-thread').element();
+
+		await act(async (): Promise<void> => {
+			await userEvent.click(annotationFrame);
+			await userEvent.keyboard('{Control>}e{/Control}');
+		});
+
+		expect(rendered.getByRole('textbox', { name: 'Annotation Markdown' }).query()).toBeNull();
+	});
 
 	test.each(['r', '{Control>}r{/Control}'])(
 		'routes %s after a pointer activates the annotation frame',

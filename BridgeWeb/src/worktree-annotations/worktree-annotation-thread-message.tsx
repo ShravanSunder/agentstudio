@@ -13,10 +13,6 @@ import {
 import { Textarea } from '@/components/ui/textarea.js';
 
 import {
-	matchesWorktreeAnnotationActionShortcut,
-	worktreeAnnotationShortcutTargetOwnsTextInput,
-} from './worktree-annotation-action-spec.js';
-import {
 	browserWorktreeAnnotationDraftClock,
 	WorktreeAnnotationDraftScheduler,
 } from './worktree-annotation-draft-scheduler.js';
@@ -360,6 +356,7 @@ export function WorktreeAnnotationMessageEditor(
 			continueTimeline={props.continueTimeline}
 			draft={props.message.draft !== null}
 			editing={props.isEditing}
+			messageId={props.message.messageId}
 			metadata={
 				<>
 					<span className="font-medium text-comment-foreground">
@@ -401,31 +398,6 @@ export function WorktreeAnnotationMessageEditor(
 					)}
 				</>
 			}
-			onKeyDownCapture={(event) => {
-				const shortcutTargetIsBlocked =
-					worktreeAnnotationShortcutTargetOwnsTextInput(event.target) ||
-					window.getSelection()?.isCollapsed === false;
-				const beginsEditingFromEnter =
-					event.key === 'Enter' &&
-					!event.altKey &&
-					!event.ctrlKey &&
-					!event.metaKey &&
-					!event.shiftKey;
-				const beginsEditingFromShortcut = matchesWorktreeAnnotationActionShortcut(
-					event,
-					'editAnnotation',
-				);
-				if (
-					!messageCanBeginEditing ||
-					props.isEditing ||
-					event.target !== event.currentTarget ||
-					(!beginsEditingFromEnter && !beginsEditingFromShortcut) ||
-					shortcutTargetIsBlocked
-				)
-					return;
-				event.preventDefault();
-				props.onBeginEdit(event.currentTarget);
-			}}
 			timelineActions={props.timelineActions}
 		>
 			{props.isEditing && messageCanBeginEditing ? (

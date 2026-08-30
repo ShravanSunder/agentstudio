@@ -26,6 +26,7 @@ export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly embedded?: boolean | undefined;
 	readonly editing?: boolean | undefined;
 	readonly metadata: ReactNode;
+	readonly messageId?: string | undefined;
 	readonly onBlurCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
 	readonly onClickCapture?: ((event: MouseEvent<HTMLElement>) => void) | undefined;
 	readonly onFocusCapture?: ((event: FocusEvent<HTMLElement>) => void) | undefined;
@@ -46,6 +47,7 @@ export function WorktreeAnnotationInlineSurface(
 				data-annotation-active={props.active === true ? 'true' : 'false'}
 				data-annotation-draft={props.draft === true ? 'present' : 'absent'}
 				data-annotation-editing={props.editing === true ? 'true' : 'false'}
+				data-annotation-message-id={props.messageId}
 				data-testid="worktree-annotation-message"
 				data-worktree-annotation-interaction
 				onBlurCapture={props.onBlurCapture}
@@ -83,13 +85,14 @@ export function WorktreeAnnotationInlineSurface(
 			data-annotation-active={props.active === true ? 'true' : 'false'}
 			data-annotation-draft={props.draft === true ? 'present' : 'absent'}
 			data-annotation-editing={props.editing === true ? 'true' : 'false'}
+			data-annotation-message-id={props.messageId}
 			data-testid="worktree-annotation-message"
 			data-worktree-annotation-interaction
 			onBlurCapture={props.onBlurCapture}
 			onClickCapture={props.onClickCapture}
 			onFocusCapture={props.onFocusCapture}
 			onKeyDownCapture={props.onKeyDownCapture}
-			tabIndex={0}
+			tabIndex={-1}
 		>
 			<Avatar aria-label={authorLabel}>
 				<AvatarFallback>{authorInitial}</AvatarFallback>

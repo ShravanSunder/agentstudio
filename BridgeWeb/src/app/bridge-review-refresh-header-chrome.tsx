@@ -1,7 +1,14 @@
+import { CircleIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import type { BridgeMainReviewRefreshPresentation } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import { BridgeViewerButton } from './bridge-viewer-button.js';
+import {
+	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSegmentButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
+} from './bridge-viewer-chrome.js';
+import { cn } from './class-name.js';
 
 export type BridgeReviewRefreshHeaderPresentation =
 	| { readonly action: null; readonly statusText: null }
@@ -48,7 +55,67 @@ export function bridgeReviewRefreshHeaderPresentation(props: {
 	return { action: null, statusText: null };
 }
 
-export function BridgeReviewRefreshHeaderAction(props: {
+export function BridgeReviewRefreshHeaderGroup(props: {
+	readonly onApplyNow: () => void;
+	readonly onRetry: () => void;
+	readonly presentation: BridgeReviewRefreshHeaderPresentation;
+}): ReactElement | null {
+	if (props.presentation.statusText === null) return null;
+	const presentationClassName =
+		props.presentation.statusText === 'Updating…'
+			? 'text-muted-foreground'
+			: props.presentation.statusText === 'Update ready'
+				? 'text-primary'
+				: 'text-warning';
+	return (
+		<div
+			className={cn(bridgeViewerChromeSegmentedControlClassName, presentationClassName)}
+			data-testid="bridge-review-refresh-header-group"
+		>
+			<span
+				aria-atomic="true"
+				aria-live="polite"
+				className="inline-flex h-5 items-center gap-1 px-1.5 text-[11px] font-medium leading-none"
+				role="status"
+			>
+				<BridgeReviewRefreshStatusIcon statusText={props.presentation.statusText} />
+				{props.presentation.statusText}
+			</span>
+			<BridgeReviewRefreshHeaderAction
+				action={props.presentation.action}
+				onApplyNow={props.onApplyNow}
+				onRetry={props.onRetry}
+			/>
+		</div>
+	);
+}
+
+function BridgeReviewRefreshStatusIcon(props: {
+	readonly statusText: Exclude<BridgeReviewRefreshHeaderPresentation['statusText'], null>;
+}): ReactElement {
+	switch (props.statusText) {
+		case 'Updating…':
+			return (
+				<LoaderCircleIcon
+					aria-hidden="true"
+					className={cn(
+						bridgeViewerChromeLucideIconClassName,
+						'animate-spin motion-reduce:animate-none',
+					)}
+				/>
+			);
+		case 'Update ready':
+			return <CircleIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />;
+		case 'Update unavailable':
+			return (
+				<TriangleAlertIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			);
+		default:
+			return assertNeverRefreshStatus(props.statusText);
+	}
+}
+
+function BridgeReviewRefreshHeaderAction(props: {
 	readonly action: BridgeReviewRefreshHeaderPresentation['action'];
 	readonly onApplyNow: () => void;
 	readonly onRetry: () => void;
@@ -56,13 +123,21 @@ export function BridgeReviewRefreshHeaderAction(props: {
 	switch (props.action) {
 		case 'applyNow':
 			return (
-				<BridgeViewerButton ariaLabel="Apply now" onClick={props.onApplyNow}>
+				<BridgeViewerButton
+					ariaLabel="Apply now"
+					className={bridgeViewerChromeSegmentButtonClassName}
+					onClick={props.onApplyNow}
+				>
 					Apply now
 				</BridgeViewerButton>
 			);
 		case 'retry':
 			return (
-				<BridgeViewerButton ariaLabel="Retry" onClick={props.onRetry}>
+				<BridgeViewerButton
+					ariaLabel="Retry"
+					className={bridgeViewerChromeSegmentButtonClassName}
+					onClick={props.onRetry}
+				>
 					Retry
 				</BridgeViewerButton>
 			);
@@ -71,6 +146,10 @@ export function BridgeReviewRefreshHeaderAction(props: {
 		default:
 			return assertNeverRefreshHeaderAction(props.action);
 	}
+}
+
+function assertNeverRefreshStatus(status: never): never {
+	throw new Error(`Unexpected Review refresh status: ${JSON.stringify(status)}`);
 }
 
 function promotedPresentationAffectsAttention(props: {

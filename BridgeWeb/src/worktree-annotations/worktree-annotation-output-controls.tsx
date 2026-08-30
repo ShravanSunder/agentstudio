@@ -1,6 +1,9 @@
-import { useState, type ReactElement } from 'react';
+import { useCallback, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
+import { Popover } from '@/components/ui/popover.js';
+
+import { BridgeViewerHeaderShelf } from '../app/bridge-viewer-header-shelf.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
@@ -23,47 +26,87 @@ export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
 	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
 	const membershipUnknown = projection.revision === null;
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const lastCloseReasonRef = useRef<string | null>(null);
+	const [isOutputPending, setIsOutputPending] = useState(false);
+	const isOpen = interaction.shareMode.kind === 'open';
+	const headerAnchor = useCallback(
+		(): Element | null =>
+			triggerRef.current?.closest('[data-bridge-viewer-content-topbar="true"]') ??
+			triggerRef.current,
+		[],
+	);
+	const closeShareMode = useCallback((): void => {
+		lastCloseReasonRef.current = 'imperative-action';
+		interaction.closeShareMode();
+	}, [interaction]);
 	if (selection.activeSessionId === null && !membershipUnknown) return null;
 	return (
-		<WorktreeAnnotationShareTrigger
-			disabled={
-				interaction.shareMode.kind === 'open' ||
-				(!membershipUnknown && !selection.capabilities.canOutput)
-			}
-			onOpen={interaction.openShareMode}
-		/>
+		<Popover
+			modal={false}
+			onOpenChange={(nextOpen, eventDetails): void => {
+				if (nextOpen) {
+					lastCloseReasonRef.current = null;
+					interaction.openShareMode();
+					return;
+				}
+				if (isOutputPending) return;
+				lastCloseReasonRef.current = eventDetails.reason;
+				interaction.closeShareMode();
+			}}
+			open={isOpen}
+		>
+			<WorktreeAnnotationShareTrigger
+				buttonRef={triggerRef}
+				disabled={!membershipUnknown && !selection.capabilities.canOutput}
+				open={isOpen}
+			/>
+			<BridgeViewerHeaderShelf
+				anchor={headerAnchor}
+				ariaLabel="Share comments"
+				finalFocus={(): false | HTMLElement | null =>
+					lastCloseReasonRef.current === 'outside-press' ? false : triggerRef.current
+				}
+				testId="worktree-annotation-share-shelf"
+			>
+				<WorktreeAnnotationShareSurfaceContent
+					isPending={isOutputPending}
+					onClose={closeShareMode}
+					onPendingChange={setIsOutputPending}
+				/>
+			</BridgeViewerHeaderShelf>
+		</Popover>
 	);
 }
 
-export function WorktreeAnnotationShareSurface(): ReactElement {
-	return (
-		<div className="min-h-0" data-testid="worktree-annotation-share-surface">
-			<WorktreeAnnotationShareSurfaceContent />
-		</div>
-	);
-}
-
-function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
+function WorktreeAnnotationShareSurfaceContent(props: {
+	readonly isPending: boolean;
+	readonly onClose: () => void;
+	readonly onPendingChange: (pending: boolean) => void;
+}): ReactElement | null {
 	const client = useWorktreeAnnotationSurfaceClient();
 	const interaction = useWorktreeAnnotationInteraction();
 	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
 	const viewedController = useWorktreeAnnotationViewedController();
 	const [error, setError] = useState<string | null>(null);
-	const [isPending, setIsPending] = useState(false);
-	if (interaction.shareMode.kind === 'closed') return null;
+	const displayedScopeRef = useRef<WorktreeAnnotationShareScope>('pending');
+	if (interaction.shareMode.kind === 'open') {
+		displayedScopeRef.current = interaction.shareMode.scope;
+	}
+	const displayedScope = displayedScopeRef.current;
 	if (projection.revision === null) {
 		return (
 			<WorktreeAnnotationShareModeRow
 				error={null}
-				isOutputPending={false}
+				isOutputPending={props.isPending}
 				isOutputReady={false}
 				membership={{ kind: 'unknown' }}
 				onCopy={ignoreUnknownOutput}
-				onDone={interaction.closeShareMode}
+				onDone={props.onClose}
 				onExport={ignoreUnknownOutput}
 				onScopeChange={interaction.setShareScope}
-				scope={interaction.shareMode.scope}
+				scope={displayedScope}
 			/>
 		);
 	}
@@ -73,7 +116,7 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 	);
 	if (session === undefined) return null;
 	const shared = deriveWorktreeAnnotationShareProjection({
-		scope: interaction.shareMode.scope,
+		scope: displayedScope,
 		threads: projection.threads.filter((thread) =>
 			thread.messages.some(({ sessionId }) => sessionId === session.sessionId),
 		),
@@ -101,8 +144,8 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 		outputKind: 'clipboardMarkdown' | 'jsonFile',
 		scope: WorktreeAnnotationShareScope,
 	): Promise<void> => {
-		if (isPending) return;
-		setIsPending(true);
+		if (props.isPending) return;
+		props.onPendingChange(true);
 		setError(null);
 		try {
 			const outcome = await client.execute({
@@ -139,7 +182,7 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 				else if (feedback.severity === 'error') toast.error(feedback.message);
 				else toast(feedback.message);
 			}
-			if (feedback.closeInteraction) interaction.closeShareMode();
+			if (feedback.closeInteraction) props.onClose();
 			else setError(feedback.message);
 			void client
 				.execute({ kind: 'output.history', sessionId: session.sessionId })
@@ -147,23 +190,23 @@ function WorktreeAnnotationShareSurfaceContent(): ReactElement | null {
 		} catch (caught: unknown) {
 			setError(caught instanceof Error ? caught.message : 'Output failed.');
 		} finally {
-			setIsPending(false);
+			props.onPendingChange(false);
 		}
 	};
 	return (
 		<>
 			<WorktreeAnnotationShareModeRow
 				error={error}
-				isOutputPending={isPending}
+				isOutputPending={props.isPending}
 				isOutputReady={isOutputReady}
 				membership={{ allCount: shared.allCount, kind: 'ready', pendingCount: shared.pendingCount }}
 				onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
-				onDone={interaction.closeShareMode}
+				onDone={props.onClose}
 				onExport={(scope) => void executeOutput('jsonFile', scope)}
 				onScopeChange={interaction.setShareScope}
-				scope={interaction.shareMode.scope}
+				scope={displayedScope}
 			/>
-			<WorktreeAnnotationOutputHistoryControl />
+			<WorktreeAnnotationOutputHistoryControl embedded />
 		</>
 	);
 }

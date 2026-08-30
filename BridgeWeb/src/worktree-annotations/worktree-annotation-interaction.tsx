@@ -75,9 +75,14 @@ export interface WorktreeAnnotationPendingRootComposer {
 }
 
 export interface WorktreeAnnotationInteractionController {
+	readonly activeMessageId: string | null;
 	readonly activeThreadId: string | null;
 	readonly admitPendingRootComposer: (composer: WorktreeAnnotationPendingRootComposer) => void;
 	readonly activateSavedThread: (identity: WorktreeAnnotationSavedRangeIdentity) => void;
+	readonly activateSavedMessage: (
+		identity: WorktreeAnnotationSavedRangeIdentity,
+		messageId: string,
+	) => void;
 	readonly clearPendingRootComposer: () => void;
 	readonly clearRangePresentation: () => void;
 	readonly closeShareMode: () => void;
@@ -116,6 +121,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 }): ReactElement {
 	const [pierreRangePresentation, setPierreRangePresentation] =
 		useState<WorktreeAnnotationPierreRangePresentation>({ kind: 'none' });
+	const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 	const [pendingRootComposer, setPendingRootComposer] =
 		useState<WorktreeAnnotationPendingRootComposer | null>(null);
 	const [threadExpansion, setThreadExpansion] = useState<WorktreeAnnotationThreadExpansion>({
@@ -128,6 +134,14 @@ export function WorktreeAnnotationInteractionProvider(props: {
 
 	const activateSavedThread = useCallback(
 		(identity: WorktreeAnnotationSavedRangeIdentity): void => {
+			setActiveMessageId(null);
+			setPierreRangePresentation({ ...identity, kind: 'savedThread' });
+		},
+		[],
+	);
+	const activateSavedMessage = useCallback(
+		(identity: WorktreeAnnotationSavedRangeIdentity, messageId: string): void => {
+			setActiveMessageId(messageId);
 			setPierreRangePresentation({ ...identity, kind: 'savedThread' });
 		},
 		[],
@@ -184,9 +198,11 @@ export function WorktreeAnnotationInteractionProvider(props: {
 		[],
 	);
 	const setPendingRange = useCallback((itemId: string, range: WorktreeAnnotationRange): void => {
+		setActiveMessageId(null);
 		setPierreRangePresentation({ itemId, kind: 'pending', range });
 	}, []);
 	const clearRangePresentation = useCallback((): void => {
+		setActiveMessageId(null);
 		setPierreRangePresentation((currentPresentation) =>
 			currentPresentation.kind === 'none' ? currentPresentation : { kind: 'none' },
 		);
@@ -330,6 +346,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 	}, [leaveThread, pierreRangePresentation, threadExpansion]);
 	const controller = useMemo<WorktreeAnnotationInteractionController>(
 		() => ({
+			activeMessageId,
 			activeThreadId:
 				threadExpansion.kind === 'open'
 					? threadExpansion.threadId
@@ -337,6 +354,7 @@ export function WorktreeAnnotationInteractionProvider(props: {
 						? pierreRangePresentation.threadId
 						: null,
 			admitPendingRootComposer,
+			activateSavedMessage,
 			activateSavedThread,
 			clearPendingRootComposer,
 			clearRangePresentation,
@@ -364,7 +382,9 @@ export function WorktreeAnnotationInteractionProvider(props: {
 			threadExpansion,
 		}),
 		[
+			activeMessageId,
 			admitPendingRootComposer,
+			activateSavedMessage,
 			activateSavedThread,
 			clearPendingRootComposer,
 			clearRangePresentation,
