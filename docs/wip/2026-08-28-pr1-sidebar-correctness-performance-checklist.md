@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `c6e3fbd75` after final actor currentness correction and current-main integration
-Status: wrap-up in progress; integrated aggregate green, final documentation-head aggregate/review/publication open
+Current implementation source checkpoint: `c6e3fbd75` after final actor currentness correction and current-main integration
+Status: local aggregate and independent review complete; PR #320 CI/comments/threads/mergeability open
 
 ## Product Contract
 
@@ -97,6 +97,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - The exact-final review at `25c87c72e` found one remaining actor reentrancy gap: local snapshot acceptance could resume during an identity invalidation because its post-await registration check omitted shutdown and the active invalidation fence. The deterministic final-unregister interleaving failed red in 0.003 seconds, then passed green after both local-acceptance suspension points cut over to the actor's complete current-identity predicate. The complete remote actor/recomputation/projector set passed 28/28; `mise run lint` passed with SwiftLint 0 violations across 2,231 files, architecture lint and release verification green, and `git diff --check` clean.
 - Current `origin/main` at `fb026b36e` was merged into PR1 at `c6e3fbd75`. The sole conflict was the large Swift test runner: the resolved parallel inventory excludes both main's serial-owned packaged-journey suite and PR1's process-global suites, then runs each through its existing isolated owner. The merged CI runner, vendor wiring, remote actor, recomputation, and projector set passed 60/60; `mise run lint` and `git diff --check` passed before the merge commit.
 - Exact integrated `mise run test` at `39ed73b12` passed with exit code 0 in 480.15 seconds: SwiftLint reported 0 violations across 2,231 files; BridgeWeb unit 1,764, Node integration 19, browser 211 passed/5 skipped, and E2E 4 passed; the inherited website gate passed Astro check/build, Cloudflare build/discovery, 53 unit tests, 21 browser tests, and complete capture verification; all Swift prebuild, fast, large, serialized WebKit, and E2E lanes passed, including WebKit 243 and final E2E 6/6.
+- The exact documentation successor `3936ca69c` also completed `mise run test` with observed exit code 0 after its one Bridge Vite hydration timeout passed the exact isolated witness 1/1 and the unchanged aggregate completed. The final fresh-context review of `origin/main...3936ca69c` returned `No findings`, verified the actor/currentness, activity-authority, recomputation-custody, refresh-recency, mainline test-runner integration, and proof boundaries, and left only GitHub publication state uncovered.
 - `mise run lint` passes after the reviewed correction with SwiftLint 0 violations, architecture lint OK, release-script verification green, and `git diff --check` clean.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
@@ -119,9 +120,9 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 | Search/group/scroll/render create no source demand | Coordinator, pipeline, and projection demand tests | Action populations with source-call invariance | Automated green; extended native/OTLP population deferred to PR2 |
 | Rows, scroll, focus, and root/child context menu remain stable | Native-table row-height/materializer/menu suites | Preserved lbim interaction | Automated green; live sidebar accepted by owner |
 | Idle p99 below 10%; ordinary actions p95 below 20% | Verifier/parser/sampler contracts | Extended exact-lbim 5/20 populations | Deferred to PR2; not claimed by PR1 |
-| Exact final aggregate gate | Focused 94/94, focused topology 7/7, integrated full aggregate green | `mise run test` on the final test-stability checkpoint | Passed at `39ed73b12`; documentation-head confirmation pending |
-| Independent implementation review | Fourth fresh review found four defects; remediation focused proof is green | Fresh review of final corrected HEAD | Pending |
-| PR publication readiness | Local branch checkpoints and exact-final aggregate | Push, CI, comments, threads, and mergeability | Pending |
+| Exact final aggregate gate | Focused 94/94, focused topology 7/7, integrated and documentation-successor full aggregates green | `mise run test` on the final publication candidate | Passed locally; final proof-record-head confirmation required before merge |
+| Independent implementation review | Final fresh-context complete review returned no findings | Final corrected source plus proof review | Passed at `3936ca69c` |
+| PR publication readiness | Branch pushed and PR #320 opened on the tested candidate | CI, comments, threads, mergeability, quiet poll, and exact-head confirmation | In progress |
 
 ## Non-Goals
 
@@ -140,6 +141,6 @@ PR1 is ready to open or update only after every hard-priority row above is compl
 - [x] `mise run format`, `mise run lint`, and `mise run test` pass on the integrated final test-stability checkpoint.
 - [x] The preserved `lbim` app was rebuilt from `0e6c45e5e`, retained the existing data root, showed real branches and chips, and was accepted by the owner as stable.
 - [x] Exact-process 5/20 CPU populations and deeper marker-scoped Victoria tuning are deferred to PR2; PR1 makes no quantitative CPU-target claim.
-- [ ] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
+- [x] An independent implementation review finds no blocking correctness, UX, architecture, performance, or proof defect; accepted findings are remediated and re-proven.
 - [ ] The branch is pushed, the PR description contains the proof matrix and exact commands, and GitHub checks, comments, review threads, and mergeability are all green.
 - [ ] A beta release is proposed only from merged `main` through the repository tag-driven release flow; PR1 work never tags or releases directly from this branch.
