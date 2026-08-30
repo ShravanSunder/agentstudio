@@ -423,16 +423,12 @@ import Observation
             }
             await workspaceSurfaceCoordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
             let activity = await strictSidebarRepositoryActivityClassification()
-            let unclassifiedRepositoryCount = activity.dispositionByRepositoryID.values.count {
-                $0 == .unclassified
-            }
             guard !activity.warmRepositoryIDs.isEmpty,
                 !activity.locallyInactiveRepositoryIDs.isEmpty,
                 !activity.unknownRepositoryIDs.isEmpty,
                 !activity.warmWorktreeIDs.isEmpty,
                 !activity.locallyInactiveWorktreeIDs.isEmpty,
                 !activity.unknownWorktreeIDs.isEmpty,
-                unclassifiedRepositoryCount == 0,
                 let gitDebt = await workspaceSurfaceCoordinator?
                     .gitLogicalDebtSnapshotForPerformanceProof()
             else {

@@ -766,6 +766,7 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         #expect(combinedSource.contains("unknownWorktreeCount"))
         #expect(combinedSource.contains("unknown_repository_count"))
         #expect(combinedSource.contains("unknown_worktree_count"))
+        #expect(!diagnosticSource.contains("unclassifiedRepositoryCount"))
         #expect(!diagnosticSource.contains("populateRealSizeTopology"))
     }
 
