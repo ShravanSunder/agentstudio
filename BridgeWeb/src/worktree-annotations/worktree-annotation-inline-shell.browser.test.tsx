@@ -425,8 +425,16 @@ describe('worktree annotation inline shell', () => {
 		const rendered = await renderInlineShell(surface);
 		await publishTwoMessageThread(surface);
 
-		await expect.element(rendered.getByRole('button', { name: 'Edit annotation' })).toBeVisible();
-		const editButton = rendered.getByRole('button', { name: 'Edit annotation' }).element();
+		const latestMessage = rendered
+			.getByText('Latest message.')
+			.element()
+			.closest<HTMLElement>('[data-testid="worktree-annotation-message"]');
+		const editButton = latestMessage?.querySelector<HTMLButtonElement>(
+			'button[aria-label="Edit annotation"]',
+		);
+		if (editButton === null || editButton === undefined) {
+			throw new Error('Expected the visible latest message Edit action.');
+		}
 		await performBrowserAction(async (): Promise<void> => {
 			await userEvent.click(editButton);
 			await userEvent.unhover(editButton);

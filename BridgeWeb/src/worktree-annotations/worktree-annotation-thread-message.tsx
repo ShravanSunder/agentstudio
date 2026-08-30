@@ -398,6 +398,22 @@ export function WorktreeAnnotationMessageEditor(
 					)}
 				</>
 			}
+			onKeyDownCapture={(event) => {
+				if (
+					!messageCanBeginEditing ||
+					props.isEditing ||
+					event.target !== event.currentTarget ||
+					event.key !== 'Enter' ||
+					event.altKey ||
+					event.ctrlKey ||
+					event.metaKey ||
+					event.shiftKey ||
+					window.getSelection()?.isCollapsed === false
+				)
+					return;
+				event.preventDefault();
+				props.onBeginEdit(event.currentTarget);
+			}}
 			timelineActions={props.timelineActions}
 		>
 			{props.isEditing && messageCanBeginEditing ? (
