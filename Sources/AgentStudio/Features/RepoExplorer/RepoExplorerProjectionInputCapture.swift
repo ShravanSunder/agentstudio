@@ -196,7 +196,11 @@ final class RepoExplorerProjectionInputCapture {
                 referenceDate: referenceDate
             )
         case .repository(let repositoryID):
-            return captureRepositoryChange(repositoryID, previous: previous)
+            return captureRepositoryChange(
+                repositoryID,
+                previous: previous,
+                referenceDate: referenceDate
+            )
         case .worktree(let worktreeID):
             return captureWorktreeChange(worktreeID, previous: previous)
         case .pane(let paneID):
@@ -273,7 +277,8 @@ final class RepoExplorerProjectionInputCapture {
 
     private func captureRepositoryChange(
         _ repositoryID: UUID,
-        previous: RepoExplorerProjectionRequest
+        previous: RepoExplorerProjectionRequest,
+        referenceDate: Date
     ) -> RepoExplorerScopedCapture? {
         guard let repositoryIndex = previous.snapshot.repos.firstIndex(where: { $0.id == repositoryID }),
             let repository = store.repositoryTopologyAtom.repo(repositoryID),
@@ -292,6 +297,15 @@ final class RepoExplorerProjectionInputCapture {
         var repoEnrichment = previous.snapshot.repoEnrichmentSnapshotByRepoId
         let previousRepoEnrichment = repoEnrichment[repositoryID]
         repoEnrichment[repositoryID] = repoCache.repoEnrichment(for: repositoryID)
+        let repositoryActivityIdentityChanged =
+            previous.snapshot.groupingMode == .repo
+            && previousRepository.stableKey != updatedRepository.stableKey
+        var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
+        if repositoryActivityIdentityChanged {
+            activityByRepositoryStableKey[previousRepository.stableKey] = nil
+            activityByRepositoryStableKey[updatedRepository.stableKey] =
+                coreAtoms.repositoryLocalActivity.activity(for: updatedRepository.stableKey)
+        }
         let request = captureRepositoryRuntimeFacts(
             repositoryID,
             worktreeIDs: updatedRepository.worktrees.map(\.id),
@@ -299,7 +313,11 @@ final class RepoExplorerProjectionInputCapture {
                 snapshot: previous.snapshot.replacing(
                     repos: repositories,
                     repoEnrichmentByRepoId: repoEnrichment
-                )
+                ),
+                repositoryLocalActivityByStableKey: activityByRepositoryStableKey,
+                activityReferenceDate: repositoryActivityIdentityChanged
+                    ? referenceDate
+                    : previous.activityReferenceDate
             )
         )
         let repositoryPresentationChanged = previousRepository != updatedRepository
@@ -309,13 +327,17 @@ final class RepoExplorerProjectionInputCapture {
             != request.repositoryFactUpdateProgressByRepoId[repositoryID]
         let worktreeChanges = Set(
             updatedRepository.worktrees.map { RepoExplorerScopedProjectionChange.worktreeFact($0.id) })
-        let changes = worktreeChanges.union(
+        var changes = worktreeChanges.union(
             repositoryPresentationChanged || progressChanged ? [.repo(repositoryID)] : []
         )
+        if repositoryActivityIdentityChanged {
+            changes.insert(.repositoryActivity(repositoryID))
+        }
         return RepoExplorerScopedCapture(
             request: request,
             changes: changes,
-            requiresFullProjection: repoEnrichmentChanged
+            requiresFullProjection: repoEnrichmentChanged,
+            requiresObservationRetarget: repositoryActivityIdentityChanged
         )
     }
 

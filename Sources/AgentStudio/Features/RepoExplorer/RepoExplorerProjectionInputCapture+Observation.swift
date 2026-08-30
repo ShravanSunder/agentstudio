@@ -32,6 +32,19 @@ struct RepoExplorerScopedCapture: Sendable {
     let request: RepoExplorerProjectionRequest
     let changes: Set<RepoExplorerScopedProjectionChange>
     let requiresFullProjection: Bool
+    let requiresObservationRetarget: Bool
+
+    init(
+        request: RepoExplorerProjectionRequest,
+        changes: Set<RepoExplorerScopedProjectionChange>,
+        requiresFullProjection: Bool,
+        requiresObservationRetarget: Bool = false
+    ) {
+        self.request = request
+        self.changes = changes
+        self.requiresFullProjection = requiresFullProjection
+        self.requiresObservationRetarget = requiresObservationRetarget
+    }
 }
 
 extension RepoExplorerProjectionInputCapture {

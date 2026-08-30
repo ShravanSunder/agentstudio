@@ -30,7 +30,17 @@ private final class RepoExplorerActivityExecutionRecorder: @unchecked Sendable {
 }
 
 @MainActor
+private final class RepoExplorerActivityReferenceDate {
+    var now: Date
+
+    init(now: Date) {
+        self.now = now
+    }
+}
+
+@MainActor
 private final class RepoExplorerLocalActivityProjectionFixture {
+    let store: WorkspaceStore
     let repo: Repo
     let worktree: Worktree
     let repositoryStableKey: String
@@ -42,6 +52,7 @@ private final class RepoExplorerLocalActivityProjectionFixture {
     let unrelatedInactiveActivity: RepositoryLocalActivity
     let capture: RepoExplorerProjectionInputCapture
     let executionRecorder: RepoExplorerActivityExecutionRecorder
+    let referenceDateClock: RepoExplorerActivityReferenceDate
     let adapter: RepoExplorerProjectionAdapter
     let host: RepoExplorerMaterializationHost
 
@@ -52,7 +63,8 @@ private final class RepoExplorerLocalActivityProjectionFixture {
     ) throws {
         let fixedReferenceDate = Date(timeIntervalSince1970: 10_000_000)
         referenceDate = fixedReferenceDate
-        let store = WorkspaceStore(
+        referenceDateClock = RepoExplorerActivityReferenceDate(now: fixedReferenceDate)
+        store = WorkspaceStore(
             catalogAtom: atoms.workspaceRepositoryTopology,
             graphAtom: atoms.workspacePane,
             interactionAtom: atoms.workspaceTabLayout
@@ -119,7 +131,7 @@ private final class RepoExplorerLocalActivityProjectionFixture {
         executionRecorder = RepoExplorerActivityExecutionRecorder()
         adapter = RepoExplorerProjectionAdapter(
             inputCapture: capture,
-            recencyNow: { fixedReferenceDate },
+            recencyNow: { [referenceDateClock] in referenceDateClock.now },
             recencyDelay: AsyncDelay { _ in throw CancellationError() },
             project: { [executionRecorder] work throws(CancellationError) in
                 executionRecorder.recordExecution(work)
@@ -136,12 +148,22 @@ private final class RepoExplorerLocalActivityProjectionFixture {
     }
 
     func publishActivity(atoms: CoreAtoms, activity: RepositoryLocalActivity) {
+        publishActivities(
+            atoms: atoms,
+            activityByStableKey: [
+                repositoryStableKey: activity,
+                unrelatedRepositoryStableKey: unrelatedInactiveActivity,
+            ]
+        )
+    }
+
+    func publishActivities(
+        atoms: CoreAtoms,
+        activityByStableKey: [String: RepositoryLocalActivity]
+    ) {
         atoms.repositoryLocalActivity.publishAuthoritative(
             RepositoryLocalActivitySnapshot(
-                activityByRepositoryStableKey: [
-                    repositoryStableKey: activity,
-                    unrelatedRepositoryStableKey: unrelatedInactiveActivity,
-                ],
+                activityByRepositoryStableKey: activityByStableKey,
                 cursorByVolumeIdentifier: [:]
             )
         )
@@ -157,7 +179,53 @@ private final class RepoExplorerLocalActivityProjectionFixture {
         }
     }
 
+    func reassociateRepository(to relocatedPath: URL) -> RepositoryReassociationResult {
+        store.reassociateRepo(
+            repo.id,
+            to: relocatedPath,
+            discoveredWorktrees: [
+                Worktree(
+                    repoId: repo.id,
+                    name: relocatedPath.lastPathComponent,
+                    path: relocatedPath,
+                    isMainWorktree: true
+                )
+            ]
+        )
+    }
+
+    func waitForStableKey(
+        _ stableKey: String,
+        disposition: RepositoryActivityDisposition
+    ) async {
+        for _ in 0..<2000
+        where adapter.cachedProjectionRequest?.snapshot.repos.first(where: {
+            $0.id == repo.id
+        })?.stableKey != stableKey
+            || adapter.publishedResult?.repositoryActivityDispositionByRepoId[repo.id]
+                != disposition
+        {
+            await Task.yield()
+        }
+    }
+
+    func observesActivity(stableKey: String) -> Bool {
+        adapter.observationTokens.contains(
+            .repositoryActivity(repositoryID: repo.id, stableKey: stableKey)
+        )
+    }
+
     func warmActivity(lastQualifyingActivityAt: Date) throws -> RepositoryLocalActivity {
+        try warmActivity(
+            repositoryStableKey: repositoryStableKey,
+            lastQualifyingActivityAt: lastQualifyingActivityAt
+        )
+    }
+
+    func warmActivity(
+        repositoryStableKey: String,
+        lastQualifyingActivityAt: Date
+    ) throws -> RepositoryLocalActivity {
         try RepositoryLocalActivity(
             repositoryStableKey: repositoryStableKey,
             lastQualifyingActivityAt: lastQualifyingActivityAt,
@@ -188,6 +256,13 @@ private final class RepoExplorerLocalActivityProjectionFixture {
             ownedPromotionAttemptID: nil,
             ownedPromotionStartedAt: nil,
             ownedPromotionUnsettled: false
+        )
+    }
+
+    func inactiveActivity(repositoryStableKey: String) throws -> RepositoryLocalActivity {
+        try Self.inactiveActivity(
+            repositoryStableKey: repositoryStableKey,
+            referenceDate: referenceDate
         )
     }
 }
@@ -305,6 +380,114 @@ extension RepoExplorerProjectionDemandTests {
                         fixture.adapter.publishedResult?.materializationSnapshot.row(id: $0)
                     } == unrelatedRows
             )
+        }
+    }
+
+    @MainActor
+    @Test("repository reassociation retargets activity facts, deadline, and observation")
+    func repositoryReassociationRetargetsActivityIdentity() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let fixture = try RepoExplorerLocalActivityProjectionFixture(atoms: atoms)
+            defer { fixture.stop() }
+            await fixture.startAndWait(for: .locallyInactive)
+
+            let relocatedPath = URL(filePath: "/tmp/repo-explorer-relocated-local-activity")
+            let relocatedStableKey = StableKey.fromPath(relocatedPath)
+            let relocatedLastActivityAt = fixture.referenceDate.addingTimeInterval(-100)
+            let relocatedWarmActivity = try fixture.warmActivity(
+                repositoryStableKey: relocatedStableKey,
+                lastQualifyingActivityAt: relocatedLastActivityAt
+            )
+            fixture.publishActivities(
+                atoms: atoms,
+                activityByStableKey: [
+                    fixture.repositoryStableKey: fixture.inactiveActivity,
+                    relocatedStableKey: relocatedWarmActivity,
+                    fixture.unrelatedRepositoryStableKey: fixture.unrelatedInactiveActivity,
+                ]
+            )
+            for _ in 0..<200 { await Task.yield() }
+            let fullCaptureCount = fixture.capture.fullCaptureCount
+            let reassociationReferenceDate = fixture.referenceDate.addingTimeInterval(1000)
+            fixture.referenceDateClock.now = reassociationReferenceDate
+            let reassociationResult = fixture.reassociateRepository(to: relocatedPath)
+            guard case .accepted = reassociationResult else {
+                Issue.record("expected repository reassociation to be accepted")
+                return
+            }
+
+            await fixture.waitForStableKey(relocatedStableKey, disposition: .warm)
+
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            let expectedExpiration = relocatedLastActivityAt.addingTimeInterval(
+                AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+            let expectedTransition = Date(
+                timeIntervalSinceReferenceDate: expectedExpiration.timeIntervalSinceReferenceDate.nextUp
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[fixture.repositoryStableKey] == nil
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[relocatedStableKey] == relocatedWarmActivity
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?.activityReferenceDate
+                    == reassociationReferenceDate
+            )
+            #expect(
+                fixture.adapter.publishedResult?
+                    .repositoryActivityTransitionAtByRepoId[fixture.repo.id] == expectedTransition
+            )
+            #expect(fixture.observesActivity(stableKey: relocatedStableKey))
+            #expect(!fixture.observesActivity(stableKey: fixture.repositoryStableKey))
+
+            let scopedCaptureCountAfterReassociation = fixture.capture.scopedCaptureCount
+            let deltaExecutionCountAfterReassociation = fixture.executionRecorder.deltaExecutionCount
+            let oldKeyWarmActivity = try fixture.warmActivity(
+                lastQualifyingActivityAt: fixture.referenceDate
+            )
+            fixture.publishActivities(
+                atoms: atoms,
+                activityByStableKey: [
+                    fixture.repositoryStableKey: oldKeyWarmActivity,
+                    relocatedStableKey: relocatedWarmActivity,
+                    fixture.unrelatedRepositoryStableKey: fixture.unrelatedInactiveActivity,
+                ]
+            )
+            for _ in 0..<200 { await Task.yield() }
+
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCountAfterReassociation)
+            #expect(
+                fixture.executionRecorder.deltaExecutionCount == deltaExecutionCountAfterReassociation
+            )
+
+            let relocatedInactiveActivity = try fixture.inactiveActivity(
+                repositoryStableKey: relocatedStableKey
+            )
+            fixture.publishActivities(
+                atoms: atoms,
+                activityByStableKey: [
+                    fixture.repositoryStableKey: oldKeyWarmActivity,
+                    relocatedStableKey: relocatedInactiveActivity,
+                    fixture.unrelatedRepositoryStableKey: fixture.unrelatedInactiveActivity,
+                ]
+            )
+            for _ in 0..<2000
+            where fixture.adapter.publishedResult?
+                .repositoryActivityDispositionByRepoId[fixture.repo.id] != .locallyInactive
+            {
+                await Task.yield()
+            }
+
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCountAfterReassociation + 1)
+            #expect(
+                fixture.executionRecorder.deltaExecutionCount
+                    == deltaExecutionCountAfterReassociation + 1
+            )
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
         }
     }
 

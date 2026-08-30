@@ -201,6 +201,7 @@ extension RepoExplorerProjectionAdapter {
             + (pending.includesAttention ? [.attention] : [])
         var changes = Set<RepoExplorerScopedProjectionChange>()
         var requiresFullProjection = false
+        var requiresObservationRetarget = false
         for invalidation in invalidations {
             guard
                 let capture = inputCapture.captureScoped(
@@ -212,9 +213,18 @@ extension RepoExplorerProjectionAdapter {
                 captureFullProjection(force: false)
                 return
             }
-            request = capture.request
+            if capture.requiresObservationRetarget {
+                recencyReferenceDate = recencyNow()
+                request = capture.request.replacing(
+                    activityReferenceDate: recencyReferenceDate
+                )
+            } else {
+                request = capture.request
+            }
             changes.formUnion(capture.changes)
             requiresFullProjection = requiresFullProjection || capture.requiresFullProjection
+            requiresObservationRetarget =
+                requiresObservationRetarget || capture.requiresObservationRetarget
         }
         refreshProjection(
             request: request,
@@ -223,6 +233,9 @@ extension RepoExplorerProjectionAdapter {
             scopedChanges: changes,
             requiresFullProjection: requiresFullProjection
         )
+        if requiresObservationRetarget {
+            installObservationTokens()
+        }
     }
 
     private func captureFullProjection(force: Bool) {
