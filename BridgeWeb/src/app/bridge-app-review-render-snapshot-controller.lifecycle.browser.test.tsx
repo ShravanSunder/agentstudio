@@ -25,6 +25,7 @@ import {
 	reviewIntakeReadyRequestIds,
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
+import { createBridgeReviewWorkerPierreCourier } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
@@ -110,6 +111,47 @@ describe('useBridgeReviewRenderSnapshotController lifecycle Browser Mode', () =>
 		expect(laterSelectCommand?.epoch).toBeGreaterThan(retryEpoch);
 		expect(laterViewportCommand?.epoch).toBeGreaterThan(retryEpoch);
 		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
+	});
+
+	test('renews Review intake readiness when the publication integration lifetime changes', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const initialPierreCourier = createBridgeReviewWorkerPierreCourier();
+		const replacementPierreCourier = createBridgeReviewWorkerPierreCourier();
+		const rendered = await render(
+			<ReviewIntakeLifecycleProbe
+				pierreCourier={initialPierreCourier}
+				reviewClient={harness.reviewClient}
+			/>,
+		);
+		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
+		const initialRequestId = requireDefined(
+			reviewIntakeReadyRequestIds(harness.lifecycleStore)[0],
+			'Expected an initial Review intake-ready request.',
+		);
+		await act(async (): Promise<void> => {
+			harness.lifecycleStore.ackRequest({
+				acknowledgedAtSequence: 1,
+				requestId: initialRequestId,
+			});
+			await Promise.resolve();
+		});
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.rerender(
+				<ReviewIntakeLifecycleProbe
+					pierreCourier={replacementPierreCourier}
+					reviewClient={harness.reviewClient}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		// Assert
+		const intakeReadyCommands = reviewIntakeReadyCommands(harness.sentCommands);
+		expect(intakeReadyCommands).toHaveLength(2);
+		expect(intakeReadyCommands[1]?.epoch).toBeGreaterThan(intakeReadyCommands[0]?.epoch ?? 0);
 	});
 
 	test('bounds unacknowledged Review intake-ready delivery attempts', async () => {

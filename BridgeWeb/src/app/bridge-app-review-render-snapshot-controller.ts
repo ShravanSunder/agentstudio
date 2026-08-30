@@ -300,6 +300,11 @@ export function useBridgeReviewRenderSnapshotController(
 			});
 		});
 		const unsubscribeLifecycle = props.reviewClient.lifecycle.subscribe(settleWorkerRequests);
+		beginBridgeReviewIntakeReadyDelivery({
+			attemptRef: reviewIntakeReadyAttemptRef,
+			client: props.reviewClient,
+			workerEpochRef,
+		});
 		return (): void => {
 			if (reviewPublicationIntegrationRef.current === reviewPublicationIntegration) {
 				reviewPublicationIntegrationRef.current = null;
@@ -320,13 +325,6 @@ export function useBridgeReviewRenderSnapshotController(
 	]);
 	useEffect((): void => {
 		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
-	}, [props.reviewClient]);
-	useEffect((): void => {
-		beginBridgeReviewIntakeReadyDelivery({
-			attemptRef: reviewIntakeReadyAttemptRef,
-			client: props.reviewClient,
-			workerEpochRef,
-		});
 	}, [props.reviewClient]);
 	const clearSelectedReviewItemId = useCallback((): void => {
 		displayStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
@@ -805,17 +803,12 @@ function beginBridgeReviewIntakeReadyDelivery(props: {
 	readonly client: BridgePaneSurfaceClient;
 	readonly workerEpochRef: MutableRefObject<number>;
 }): void {
-	let attempt = props.attemptRef.current;
-	if (attempt?.client !== props.client) {
-		attempt = {
-			attemptCount: 0,
-			client: props.client,
-			requestId: null,
-			state: 'idle',
-		};
-		props.attemptRef.current = attempt;
-	}
-	if (attempt.state !== 'idle') return;
+	props.attemptRef.current = {
+		attemptCount: 0,
+		client: props.client,
+		requestId: null,
+		state: 'idle',
+	};
 	startBridgeReviewIntakeReadyAttempt(props);
 }
 

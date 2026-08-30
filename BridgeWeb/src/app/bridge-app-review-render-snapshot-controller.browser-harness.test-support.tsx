@@ -67,11 +67,12 @@ export function ReviewDirectDisplayProbe(props: {
 }
 
 export function ReviewIntakeLifecycleProbe(props: {
+	readonly pierreCourier?: ReturnType<typeof createBridgeReviewWorkerPierreCourier>;
 	readonly reviewClient: BridgePaneSurfaceClient;
 }): ReactElement {
-	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const defaultPierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const controller = useBridgeReviewRenderSnapshotController({
-		pierreCourier,
+		pierreCourier: props.pierreCourier ?? defaultPierreCourier,
 		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 		reviewClient: props.reviewClient,
 	});
