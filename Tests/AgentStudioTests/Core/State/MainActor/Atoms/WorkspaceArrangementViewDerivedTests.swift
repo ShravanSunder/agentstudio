@@ -112,6 +112,63 @@ struct WorkspaceArrangementViewDerivedTests {
     }
 
     @Test
+    func activeLayout_excludesBackgroundedCanonicalSegments() throws {
+        let firstActivePane = makePane(id: UUIDv7.generate())
+        let backgroundedPane = Pane(
+            id: UUIDv7.generate(),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(),
+            residency: .backgrounded
+        )
+        let secondActivePane = makePane(id: UUIDv7.generate())
+        let layout = Layout(
+            panes: [
+                .init(paneId: firstActivePane.id, ratio: 0.25),
+                .init(paneId: backgroundedPane.id, ratio: 0.5),
+                .init(paneId: secondActivePane.id, ratio: 0.25),
+            ],
+            dividerIds: [UUIDv7.generate(), UUIDv7.generate()]
+        )
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: firstActivePane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [firstActivePane.id, backgroundedPane.id, secondActivePane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(firstActivePane)
+        paneAtom.addPane(backgroundedPane)
+        paneAtom.addPane(secondActivePane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        let activeLayout = try #require(derived.activeLayout(forTab: tab.id))
+
+        #expect(activeLayout.paneIds == [firstActivePane.id, secondActivePane.id])
+        #expect(activeLayout.paneRatio(firstActivePane.id) == 0.5)
+        #expect(activeLayout.paneRatio(secondActivePane.id) == 0.5)
+        #expect(activeLayout.dividerIds.count == 1)
+    }
+
+    @Test
     func drawerVisiblePaneIds_derivesMinimizedVisibilityFromManagementState() {
         let parentPane = makePane(id: UUIDv7.generate())
         let drawerPaneA = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
