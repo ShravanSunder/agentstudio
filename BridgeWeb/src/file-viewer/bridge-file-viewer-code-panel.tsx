@@ -124,7 +124,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						});
 			const pendingComposerAnnotation =
 				pendingAnnotationComposer === null ||
-				!fileAnnotationIdentityMatchesItem(pendingAnnotationComposer, item)
+				!fileAnnotationComposerMatchesItem(pendingAnnotationComposer, item)
 					? null
 					: filePierreAnnotationForExistingCodeViewComposer({
 							editToken: pendingAnnotationComposer.editToken,
@@ -309,7 +309,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		const composerMatchesDisplayedFile =
 			pendingAnnotationComposer !== null &&
 			selectedItem !== null &&
-			fileAnnotationIdentityMatchesItem(pendingAnnotationComposer, selectedItem);
+			fileAnnotationComposerMatchesItem(pendingAnnotationComposer, selectedItem);
 		const selectionMatchesDisplayedFile =
 			annotationRangePresentation.kind === 'none' ||
 			(selectedItem !== null && annotationRangePresentation.itemId === selectedItem.id);
@@ -489,6 +489,18 @@ function fileAnnotationIdentityMatchesItem(
 		identity.fileId === item.bridgeMetadata.itemId &&
 		identity.path === item.bridgeMetadata.displayPath &&
 		identity.sourceDescriptorId === item.bridgeMetadata.sourceDescriptorId
+	);
+}
+
+function fileAnnotationComposerMatchesItem(
+	composer: PendingFileAnnotationComposer,
+	item: BridgeFileViewerSelectedCodeViewItem,
+): boolean {
+	return (
+		composer.codeViewItemId === item.id &&
+		composer.fileId === item.bridgeMetadata.itemId &&
+		composer.path === item.bridgeMetadata.displayPath &&
+		(composer.committed || composer.sourceDescriptorId === item.bridgeMetadata.sourceDescriptorId)
 	);
 }
 

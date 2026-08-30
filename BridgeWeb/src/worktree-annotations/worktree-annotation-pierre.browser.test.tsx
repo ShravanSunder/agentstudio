@@ -407,6 +407,154 @@ describe('worktree annotation Pierre integration', () => {
 		}
 	});
 
+	test('keeps a committed File root preview across same-file descriptor replacement until projection reconciliation', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+		const predecessorFile = makeFileItem();
+		const successorFile = makeFileItem({ sourceDescriptorId: 'descriptor-file-2' });
+		const renderFilePanel = (
+			selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem,
+		): ReactElement => (
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{
+						displayItem: null,
+						fileId: selectedCodeViewItem.bridgeMetadata.itemId,
+						path: selectedCodeViewItem.bridgeMetadata.displayPath,
+						status: 'ready',
+					}}
+					renderFulfillmentCoordinator={{
+						observePostRender: (): void => {},
+						reconcilePublication: (): void => {},
+					}}
+					selectedCodeViewItem={selectedCodeViewItem}
+					totalHeightPixels={null}
+				/>
+			</WorktreeAnnotationSurfaceProvider>
+		);
+
+		try {
+			const rendered = await render(renderFilePanel(predecessorFile));
+			await settleBrowserCondition(
+				(): boolean => appliedOptions.at(-1)?.onLineSelectionEnd !== undefined,
+				'Expected File Pierre selection callback.',
+			);
+			await act(async (): Promise<void> => {
+				invokeGutterAdmission(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ start: 4, end: 4 },
+					predecessorFile,
+				);
+				await Promise.resolve();
+			});
+			await act(async (): Promise<void> => {
+				await rendered
+					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
+					.fill('Saved before the File refresh settles.');
+				await rendered.getByRole('button', { name: 'Save annotation' }).click();
+			});
+			await settleBrowserCondition(
+				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
+				'Expected File Save to create a durable root draft.',
+			);
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'root.create');
+				await settleBrowserCondition(
+					(): boolean =>
+						surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+					'Expected the root receipt to continue directly to draft.save.',
+				);
+			});
+			await act(async (): Promise<void> => {
+				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelector(
+						'[data-testid="worktree-annotation-committed-pending-projection"]',
+					) !== null,
+				'Expected the exact Save receipt to present the committed File preview.',
+			);
+			const committedPreview = document.querySelector<HTMLElement>(
+				'[data-testid="worktree-annotation-committed-pending-projection"]',
+			);
+			if (committedPreview === null) throw new Error('Expected committed File preview.');
+			expect(document.activeElement).toBe(committedPreview);
+
+			await act(async (): Promise<void> => {
+				await rendered.rerender(renderFilePanel(successorFile));
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			expect(committedPreview.isConnected).toBe(true);
+			expect(document.activeElement).toBe(committedPreview);
+			expect(committedPreview.textContent).toContain('Saved before the File refresh settles.');
+			expect(
+				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+			).toHaveLength(0);
+
+			await act(async (): Promise<void> => {
+				surface.publishProjectionState({
+					expectedThreadCount: 1,
+					revision: 2,
+					sessions: [annotationSessionSummary({ revision: 2, sessionId: annotationSessionId })],
+				});
+				surface.publishThread({
+					context: {
+						diffSide: null,
+						endLine: 4,
+						path: 'Sources/App/View.swift',
+						placement: 'exact',
+						resolution: 'open',
+						scope: 'located',
+						sourceIdentity: 'descriptor-file-2',
+						sourceRole: 'file',
+						startLine: 4,
+						threadId: annotationHeadThreadId,
+					},
+					message: {
+						...annotationMessage({
+							messageId: '00000000-0000-7000-8000-000000000031',
+							sessionRevision: 2,
+							threadId: annotationHeadThreadId,
+						}),
+						draft: null,
+						savedBody: 'Saved before the File refresh settles.',
+						savedRevision: 1,
+					},
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 1 &&
+					document.querySelector(
+						'[data-testid="worktree-annotation-committed-pending-projection"]',
+					) === null,
+				'Expected the authoritative saved thread to replace the committed preview exactly once.',
+			);
+			const savedThread = document.querySelector<HTMLElement>(
+				'[data-testid="worktree-annotation-thread"]',
+			);
+			if (savedThread === null) throw new Error('Expected reconciled saved File thread.');
+			expect(savedThread.textContent).toContain('Saved before the File refresh settles.');
+			expect(savedThread.contains(document.activeElement)).toBe(true);
+		} finally {
+			CodeView.prototype.setOptions = originalSetOptions;
+		}
+	});
+
 	test('keeps two File threads on one line in distinct Pierre annotation rows', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		await render(
