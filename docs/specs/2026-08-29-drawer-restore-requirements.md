@@ -1,6 +1,6 @@
 # Foreground and Background Drawer Restore — Requirements
 
-Date: 2026-08-29  
+Date: 2026-08-29
 Artifact: `Requirements` (Requirements-only; the separate Specification is deferred)
 
 ## Identity and authority
@@ -115,7 +115,7 @@ Failure expectation: deferred panes remain present in the restored model and
 become eligible for later foregrounding; they are not silently removed or
 rewritten as a side effect of ordering.
 
-Basis: U1, O1, current startup classification and scheduling evidence.  
+Basis: U1, O1, current startup classification and scheduling evidence.
 Proof slot: V1 — automated ordering/state evidence plus a bounded startup
 interaction or runtime observation at the user-visible boundary.
 
@@ -134,7 +134,7 @@ Failure expectation: a missing child, orphaned child, or silently empty drawer
 is a failed restore outcome, not an acceptable fallback for a valid saved
 composition.
 
-Basis: U2, O2, current background/reactivation and SQLite bridge evidence.  
+Basis: U2, O2, current background/reactivation and SQLite bridge evidence.
 Proof slot: V2 — persistence/state inspection across a fresh store/process
 boundary and an integration journey that backgrounds, saves, reloads, and
 foregrounds the family.
@@ -154,7 +154,7 @@ Failure expectation: reactivation must not synthesize a default arrangement,
 reorder children, clear the active child, or unminimize a child merely because
 the process restarted.
 
-Basis: U2, U3, O2, O3, and the persisted drawer/tab arrangement model.  
+Basis: U2, U3, O2, O3, and the persisted drawer/tab arrangement model.
 Proof slot: V3 — before/after state comparison through SQLite/store
 integration, including arrangements with reordered children, splits,
 minimized children, and a non-first active child.
@@ -172,7 +172,7 @@ the same stored drawer family and arrangement.
 Failure expectation: a retryable mount/geometry condition is not treated as
 proof that the pane or drawer graph is invalid.
 
-Basis: U1–U3, O1–O3, current deferred-host behavior.  
+Basis: U1–U3, O1–O3, current deferred-host behavior.
 Proof slot: V4 — automated deferred-state transition evidence followed by a
 runtime or integration observation of successful later foregrounding.
 
