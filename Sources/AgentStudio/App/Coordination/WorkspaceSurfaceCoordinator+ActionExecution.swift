@@ -379,7 +379,7 @@ extension WorkspaceSurfaceCoordinator {
         case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
             let layoutDirection = bridgeDirection(direction)
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-            store.mutationCoordinator.reactivatePane(
+            let didReactivate = store.mutationCoordinator.reactivatePane(
                 paneId,
                 inTab: targetTabId,
                 at: targetPaneId,
@@ -387,10 +387,8 @@ extension WorkspaceSurfaceCoordinator {
                 position: position,
                 sizingMode: .halveTarget
             )
-            viewRegistry.ensureSlot(for: paneId)
-            if viewRegistry.view(for: paneId) == nil, let pane = store.paneAtom.pane(paneId) {
-                ensureTerminalPaneView(pane)
-            }
+            guard didReactivate else { break }
+            restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .purgeOrphanedPane(let paneId):
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }

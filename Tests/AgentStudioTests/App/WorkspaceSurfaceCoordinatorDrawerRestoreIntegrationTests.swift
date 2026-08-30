@@ -36,6 +36,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     private struct RestoredDrawerHarness {
+        let sqliteBackend: WorkspaceSQLiteStoreBackend
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let coordinator: WorkspaceSurfaceCoordinator
@@ -282,6 +283,55 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test
+    func freshStoreReactivationMountsForegroundDrawerFamilyExactlyOnce() async throws {
+        let harness = try await makeRestoredDrawerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        #expect(harness.store.mutationCoordinator.backgroundPane(harness.parentPaneID))
+        #expect((await harness.store.flushAsync()).succeeded)
+
+        let restoredStore = WorkspaceStore(
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: harness.sqliteBackend)
+        )
+        _ = await restoredStore.loadCanonicalComposition()
+        let restoredViewRegistry = ViewRegistry()
+        let restoredSurfaceManager = DrawerRestoreCapturingSurfaceManager()
+        let restoredWindowLifecycleStore = WindowLifecycleAtom()
+        let restoredCoordinator = WorkspaceSurfaceCoordinator(
+            store: restoredStore,
+            viewRegistry: restoredViewRegistry,
+            runtime: SessionRuntime(store: restoredStore),
+            surfaceManager: restoredSurfaceManager,
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: restoredWindowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
+        )
+        restoredCoordinator.sessionConfig = fixtureSessionConfiguration
+        restoredCoordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration
+        )
+        restoredWindowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        restoredWindowLifecycleStore.recordLaunchLayoutSettled()
+
+        restoredCoordinator.execute(
+            .reactivatePane(
+                paneId: harness.parentPaneID,
+                targetTabId: harness.tabID,
+                targetPaneId: harness.parentPaneID,
+                direction: .right
+            )
+        )
+
+        #expect(
+            restoredSurfaceManager.createdPaneIds == [
+                harness.parentPaneID,
+                harness.firstDrawerPaneID,
+            ]
+        )
+        #expect(!restoredSurfaceManager.createdPaneIds.contains(harness.secondDrawerPaneID))
+    }
+
+    @Test
     func closeUndoFreshRestoreThenSelectDrawerPane_retriesPreparedFailure() async throws {
         let harness = try await makeRestoredDrawerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -438,6 +488,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
 
         return RestoredDrawerHarness(
+            sqliteBackend: fixture.backend,
             store: restoredStore,
             viewRegistry: restoredViewRegistry,
             coordinator: restoredCoordinator,
