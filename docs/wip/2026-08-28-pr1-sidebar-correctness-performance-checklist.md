@@ -2,7 +2,7 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current checkpoint: `05daa220d`
+Current checkpoint: `92ce38c13`
 Status: not PR-ready
 
 ## Product Contract
@@ -37,7 +37,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - [x] Preserve canonical topology membership through source assertion; bulk reconciliation no longer re-probes and silently unregisters owned worktrees.
 - [x] Keep repository stable-key enrichment metadata-only; it no longer unregisters and re-registers unchanged filesystem roots or erases their pending Git baseline.
 - [x] Rerun focused Git-demand, cache-convergence, projection, materialization, row-height, and mounted-row tests.
-- [ ] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
+- [x] Relaunch the same `lbim` data root without resetting watch folders, tabs, panes, or beta/production state.
 - [ ] Capture PID-bound visual proof for By Repo, By Pane, and By Tab showing real branches and cached chips; prove search and scrolling do not collapse, clip, overlap, or move rows.
 - [ ] Populate or verify the complete `open-source` and `project-dev` roots with exactly five tabs, twenty pane models, and zero debug-owned PTYs.
 - [ ] Run exact-`lbim` process CPU populations: settled idle p99 below 10%; search/clear, grouping, hide/show, and tab switching p95 below 20% (release ceiling below 25% only where the owner explicitly accepts it).
@@ -59,6 +59,10 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - `dc9d38b3a` replaces the insufficient stable-ID workaround with behavioral geometry ownership: the RED proof reproduced 63-point content inside a prematurely shortened 44-point native row; 28/28 native table tests and 27/27 worktree-row tests pass.
 - `0e9a6f29f` separates one required missing-cache baseline from recurring local-Git cadence. Unknown attended worktrees receive one correctness read; only open/active or authoritatively warm worktrees retain automatic deadlines. Coordinator/pacing tests pass 11/11 and demand integration passes 2/2.
 - `05daa220d` raises the bounded FSEvent ingress capacity from 64 to 512. The real-size RED/green test holds one filesystem plus one activity batch for 148 worktrees without manufactured overflow; the complete FSEvent stream suite passes 29/29.
+- `a1234ae2b` keeps coverage-maturing unknown repositories on local background cadence without granting visible-tier, Remote, or Forge demand. The combined classifier, demand, projector, OTLP, strict-verifier, and real Git-pipeline run passed 52/52.
+- `92ce38c13` exposes the production unknown/background-only proof seam and makes the strict verifier reject unknown-to-visible, unknown-to-Remote, unknown-to-Forge, or incomplete background projection. The settlement verifier passed 17/17 after formatting; `mise run lint` passed with 0 SwiftLint violations, architecture lint OK, and release-script checks green.
+- Exact Debug `lbim` PID `16674` relaunched against the preserved data root and showed stable By Repo branches, chips, and content-driven 44/63/70-point rows. The real root context menu remained open over chip-bearing rows. The root-plus-child menu geometry regression suite passed 4/4; live child-hover proof remains open.
+- The final aggregate gate is externally blocked after a WindowServer restart. BridgeWeb headless Chrome aborted before executing any browser test on two consecutive runs. The Swift fast process then reproduced system pasteboard failure: every AppKit pasteboard-backed drag decode returned `nil`, followed by a Swift Testing signal-6 abort while rendering an invalid `NSPasteboard`. LaunchServices subsequently rejected the freshly built Debug bundle with `kLSNoExecutableErr`, and the direct-executable fallback exited immediately. No product, test-topology, or proof-gate workaround was applied.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
 - `60426e83c` process-isolates source-declared large suites that retain MainActor, OTLP/NIO, AppKit, or real FSEvents process-global runtime state. The parallel and nonparallel large lanes both exclude the same exact suite set and run each excluded suite through a fresh Swift Testing helper process.
 - The periodic Git integration fixture now settles visibility admission before registration, derives the next provider call count dynamically, and advances the injected clock to the actual scheduler deadline. The focused leaf passed 1/1 and the complete `FilesystemGitPipelineIntegrationTests` suite passed 7/7.
