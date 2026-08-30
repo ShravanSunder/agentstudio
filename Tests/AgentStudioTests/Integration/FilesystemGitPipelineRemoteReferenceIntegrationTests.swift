@@ -56,8 +56,11 @@ struct FilesystemGitRemoteReferenceTests {
                 openWorktreeIds: [worktreeId],
                 repositoryIdByWorktreeId: [worktreeId: repoId],
                 warmRepositoryIds: [repoId],
+                unknownRepositoryIds: [],
                 locallyInactiveRepositoryIds: [],
                 warmAutomaticWorktreeIds: [worktreeId],
+                unknownWorktreeIds: [],
+                backgroundOnlyAutomaticWorktreeIds: [],
                 locallyInactiveWorktreeIds: []
             )
         )

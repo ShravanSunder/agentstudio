@@ -105,11 +105,9 @@ extension GitWorkingDirectoryProjector {
         sidebarAttendedWorktreeIds: Set<UUID>,
         visibleActiveTabWorktreeIds: Set<UUID>,
         openWorktreeIds: Set<UUID>,
-        warmAutomaticWorktreeIds: Set<UUID>? = nil
+        warmAutomaticWorktreeIds: Set<UUID>? = nil,
+        backgroundOnlyAutomaticWorktreeIds: Set<UUID>
     ) {
-        if let warmAutomaticWorktreeIds {
-            setAutomaticEligibleWorktrees(warmAutomaticWorktreeIds)
-        }
         let previousAttentionWorktreeIds =
             activeWorktreeIds
             .union(sidebarVisibleWorktreeIds)
@@ -125,13 +123,38 @@ extension GitWorkingDirectoryProjector {
         self.activePaneWorktreeId = activePaneWorktreeId
         activeWorktreeIds = nextOpenWorktreeIds
         sidebarVisibleWorktreeIds = sidebarAttendedWorktreeIds
+        let previousBackgroundOnlyAutomaticWorktreeIds =
+            self.backgroundOnlyAutomaticWorktreeIds
+        self.backgroundOnlyAutomaticWorktreeIds = backgroundOnlyAutomaticWorktreeIds
+        if let warmAutomaticWorktreeIds {
+            setAutomaticEligibleWorktrees(warmAutomaticWorktreeIds)
+        }
+        let cadenceChangedWorktreeIds =
+            previousBackgroundOnlyAutomaticWorktreeIds
+            .symmetricDifference(backgroundOnlyAutomaticWorktreeIds)
+        for worktreeId in cadenceChangedWorktreeIds
+        where registeredContext(for: worktreeId) != nil && isAutomaticEligible(worktreeId: worktreeId) {
+            automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            scheduleAutomaticRefresh(
+                worktreeId: worktreeId,
+                missingBaseline: lastAcceptedStatusAtByWorktreeId[worktreeId] == nil,
+                allowsPromptMissingBaseline: !backgroundOnlyAutomaticWorktreeIds.contains(
+                    worktreeId
+                )
+            )
+        }
 
         for worktreeId in noLongerAttendedWorktreeIds {
             tierEligibleWorktreeIds.remove(worktreeId)
         }
         for worktreeId in newlyAttendedWorktreeIds {
             if isAutomaticEligible(worktreeId: worktreeId) {
-                scheduleAutomaticRefresh(worktreeId: worktreeId, allowsPromptMissingBaseline: true)
+                scheduleAutomaticRefresh(
+                    worktreeId: worktreeId,
+                    allowsPromptMissingBaseline: !backgroundOnlyAutomaticWorktreeIds.contains(
+                        worktreeId
+                    )
+                )
             } else {
                 enqueueAttendedMissingBaselineIfNeeded(worktreeId: worktreeId)
             }

@@ -421,7 +421,8 @@ struct PrimarySidebarPipelineIntegrationTests {
             activePaneWorktreeId: activePaneWorktreeId,
             sidebarAttendedWorktreeIds: worktreeIds,
             visibleActiveTabWorktreeIds: [],
-            openWorktreeIds: worktreeIds
+            openWorktreeIds: worktreeIds,
+            backgroundOnlyAutomaticWorktreeIds: []
         )
     }
 

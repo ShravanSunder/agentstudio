@@ -39,8 +39,11 @@ struct FilesystemFetchHeadGitPipelineIntegrationTests {
                 openWorktreeIds: [],
                 repositoryIdByWorktreeId: [worktreeId: repoId],
                 warmRepositoryIds: [repoId],
+                unknownRepositoryIds: [],
                 locallyInactiveRepositoryIds: [],
                 warmAutomaticWorktreeIds: [worktreeId],
+                unknownWorktreeIds: [],
+                backgroundOnlyAutomaticWorktreeIds: [],
                 locallyInactiveWorktreeIds: []
             )
         )

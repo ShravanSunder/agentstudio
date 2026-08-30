@@ -220,7 +220,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             sidebarAttendedWorktreeIds: snapshot.sidebarAttendedWorktreeIds,
             visibleActiveTabWorktreeIds: snapshot.visibleActiveTabWorktreeIds,
             openWorktreeIds: snapshot.openWorktreeIds,
-            warmAutomaticWorktreeIds: snapshot.warmAutomaticWorktreeIds
+            warmAutomaticWorktreeIds: snapshot.automaticLocalGitWorktreeIds,
+            backgroundOnlyAutomaticWorktreeIds: snapshot.backgroundOnlyAutomaticWorktreeIds
         )
         await remoteReferenceRefreshActor.setDemand(repositoryIds: snapshot.demandedRepositoryIds)
         await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)

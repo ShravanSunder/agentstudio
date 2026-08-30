@@ -7,6 +7,68 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector visible tier")
 struct GitWorkingDirectoryProjectorVisibleTierTests {
+    @Test("sidebar-visible unknown worktree keeps background baseline and cadence")
+    func sidebarVisibleUnknownWorktreeKeepsBackgroundBaselineAndCadence() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = VisibleTierCallRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(50),
+            visibleSidebarCadence: .milliseconds(100),
+            openPaneCadence: .milliseconds(200),
+            backgroundCadence: .milliseconds(400),
+            backgroundStripeCount: 1
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let callNumber = await calls.record(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                branch: "call-\(callNumber)",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let worktreeID = UUIDv7.generate()
+        await actor.setRepositoryFactAttention(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: [worktreeID],
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: [],
+            warmAutomaticWorktreeIds: [worktreeID],
+            backgroundOnlyAutomaticWorktreeIds: [worktreeID]
+        )
+        await bus.post(
+            visibleTierRegistrationEnvelope(
+                seq: 1,
+                worktreeId: worktreeID,
+                rootPath: URL(fileURLWithPath: "/tmp/unknown-background-\(worktreeID.uuidString)")
+            )
+        )
+        #expect(await visibleTierWaitUntil { await actor.rootPathByWorktreeId[worktreeID] != nil })
+
+        clock.advance(by: policy.visibleSidebarCadence)
+        #expect(await calls.isEmpty)
+
+        clock.advance(by: policy.backgroundCadence - policy.visibleSidebarCadence)
+        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeID] == nil })
+        let lastStart = try #require(await actor.lastAutomaticStartAtByWorktreeId[worktreeID])
+        let nextDeadline = try #require(
+            await actor.automaticRefreshDeadlineByWorktreeId[worktreeID]
+        )
+        #expect(nextDeadline >= lastStart + policy.backgroundCadence)
+
+        await actor.shutdown()
+    }
+
     @Test("automatic registration wave waits for process start pacing")
     func automaticRegistrationWaveWaitsForProcessStartPacing() async throws {
         let bus = EventBus<RuntimeEnvelope>()

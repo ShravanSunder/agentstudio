@@ -91,7 +91,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 activePaneWorktreeId: worktreeId,
                 sidebarAttendedWorktreeIds: [worktreeId],
                 visibleActiveTabWorktreeIds: [],
-                openWorktreeIds: [worktreeId]
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
             )
 
             let resolved = await eventually("repo enrichment should resolve from projector origin") {
@@ -156,7 +157,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 activePaneWorktreeId: worktreeId,
                 sidebarAttendedWorktreeIds: [worktreeId],
                 visibleActiveTabWorktreeIds: [],
-                openWorktreeIds: [worktreeId]
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
             )
 
             let resolved = await eventually("local-only repo enrichment should resolve") {
@@ -276,7 +278,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 activePaneWorktreeId: worktreeId,
                 sidebarAttendedWorktreeIds: [worktreeId],
                 visibleActiveTabWorktreeIds: [],
-                openWorktreeIds: [worktreeId]
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
             )
             _ = await bus.post(
                 .system(

@@ -190,6 +190,7 @@ extension GitWorkingDirectoryProjector {
 
     func demandTier(for worktreeId: UUID) -> GitDemandTier {
         if activePaneWorktreeId == worktreeId { return .activePane }
+        if backgroundOnlyAutomaticWorktreeIds.contains(worktreeId) { return .background }
         if sidebarVisibleWorktreeIds.contains(worktreeId) { return .visibleSidebar }
         if activeWorktreeIds.contains(worktreeId) { return .openPane }
         return .background

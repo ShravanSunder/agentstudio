@@ -67,6 +67,7 @@ package actor GitWorkingDirectoryProjector {
     var activePaneWorktreeId: UUID?
     var sidebarVisibleWorktreeIds: Set<UUID> = []
     var automaticEligibleWorktreeIds: Set<UUID>?
+    var backgroundOnlyAutomaticWorktreeIds: Set<UUID> = []
     var inactiveAutomaticSourceStartCount: UInt64 = 0
     var repoIdByWorktreeId: [UUID: UUID] = [:]
     var lastKnownOriginByRepoId: [UUID: String] = [:]
@@ -265,6 +266,7 @@ package actor GitWorkingDirectoryProjector {
         activePaneWorktreeId = nil
         sidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
         automaticEligibleWorktreeIds = nil
+        backgroundOnlyAutomaticWorktreeIds.removeAll(keepingCapacity: false)
         inactiveAutomaticSourceStartCount = 0
         repoIdByWorktreeId.removeAll(keepingCapacity: false)
         lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
@@ -551,6 +553,7 @@ package actor GitWorkingDirectoryProjector {
         activeWorktreeIds.remove(worktreeId)
         sidebarVisibleWorktreeIds.remove(worktreeId)
         automaticEligibleWorktreeIds?.remove(worktreeId)
+        backgroundOnlyAutomaticWorktreeIds.remove(worktreeId)
         lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
         pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
         if activePaneWorktreeId == worktreeId {

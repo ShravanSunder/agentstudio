@@ -31,7 +31,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             sidebarAttendedWorktreeIds: [worktreeID],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
-            warmAutomaticWorktreeIds: []
+            warmAutomaticWorktreeIds: [],
+            backgroundOnlyAutomaticWorktreeIds: []
         )
         await actor.assertTopology(
             FilesystemTopologyAssertion(
@@ -52,7 +53,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             sidebarAttendedWorktreeIds: [worktreeID],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
-            warmAutomaticWorktreeIds: []
+            warmAutomaticWorktreeIds: [],
+            backgroundOnlyAutomaticWorktreeIds: []
         )
         #expect(await providerCallCount.value == 1)
 
@@ -61,7 +63,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             sidebarAttendedWorktreeIds: [worktreeID],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
-            warmAutomaticWorktreeIds: [worktreeID]
+            warmAutomaticWorktreeIds: [worktreeID],
+            backgroundOnlyAutomaticWorktreeIds: []
         )
         #expect(await providerCallCount.value == 1)
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] != nil)
@@ -71,7 +74,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             sidebarAttendedWorktreeIds: [worktreeID],
             visibleActiveTabWorktreeIds: [],
             openWorktreeIds: [],
-            warmAutomaticWorktreeIds: []
+            warmAutomaticWorktreeIds: [],
+            backgroundOnlyAutomaticWorktreeIds: []
         )
 
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] == nil)

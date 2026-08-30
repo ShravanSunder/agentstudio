@@ -53,9 +53,12 @@ struct RepositoryFactDemandCoordinatorTests {
 
         let snapshot = try #require(await receiver.receivedSnapshots().last)
         #expect(snapshot.sidebarAttendedWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
-        #expect(snapshot.warmRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
+        #expect(snapshot.warmRepositoryIds.isEmpty)
+        #expect(snapshot.unknownRepositoryIds == [warmRepositoryID, inactiveRepositoryID])
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
         #expect(snapshot.warmAutomaticWorktreeIds.isEmpty)
+        #expect(snapshot.unknownWorktreeIds == [warmWorktreeID, inactiveWorktreeID])
+        #expect(snapshot.backgroundOnlyAutomaticWorktreeIds.isEmpty)
         #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
         #expect(snapshot.demandedRepositoryIds.isEmpty)
     }
@@ -86,7 +89,48 @@ struct RepositoryFactDemandCoordinatorTests {
         #expect(snapshot.sidebarAttendedWorktreeIds == input.sidebarAttendedWorktreeIds)
         #expect(snapshot.warmRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
         #expect(snapshot.locallyInactiveRepositoryIds.isEmpty)
-        #expect(snapshot.warmAutomaticWorktreeIds == Set(input.activePaneWorktreeId.map { [$0] } ?? []))
+        #expect(snapshot.unknownRepositoryIds.isEmpty)
+        #expect(snapshot.warmAutomaticWorktreeIds == Set(input.repositoryIdByWorktreeId.keys))
+        #expect(snapshot.unknownWorktreeIds.isEmpty)
+        #expect(snapshot.backgroundOnlyAutomaticWorktreeIds.isEmpty)
+        #expect(
+            snapshot.forgeDemandedWorktreeIds
+                == input.sidebarAttendedWorktreeIds.union(input.visibleActiveTabWorktreeIds)
+        )
+        #expect(snapshot.demandedRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
+    }
+
+    @Test("settled unavailable activity admits unknown worktrees only to local background work")
+    func unavailableActivityUsesOnlyLocalBackgroundEligibility() async throws {
+        let receiver = RepositoryFactDemandReceiverProbe()
+        let coordinator = RepositoryFactDemandCoordinator(
+            wallClockNow: RepositoryFactDemandWallClock(referenceDate).read,
+            delivery: { snapshot in
+                await receiver.receive(snapshot)
+            }
+        )
+        let baseInput = try makeDemandInput(seed: 21)
+        let input = RepositoryFactDemandInput(
+            activePaneWorktreeId: nil,
+            sidebarAttendedWorktreeIds: baseInput.sidebarAttendedWorktreeIds,
+            visibleActiveTabWorktreeIds: baseInput.visibleActiveTabWorktreeIds,
+            openWorktreeIds: [],
+            repositoryIdByWorktreeId: baseInput.repositoryIdByWorktreeId,
+            activityTopology: baseInput.activityTopology,
+            localActivityHydrationDisposition: .unavailable
+        )
+
+        coordinator.accept(input)
+        await coordinator.waitUntilIdle()
+
+        let snapshot = try #require(await receiver.receivedSnapshots().last)
+        let everyWorktreeID = Set(input.repositoryIdByWorktreeId.keys)
+        #expect(snapshot.warmRepositoryIds.isEmpty)
+        #expect(snapshot.unknownRepositoryIds == Set(input.repositoryIdByWorktreeId.values))
+        #expect(snapshot.warmAutomaticWorktreeIds.isEmpty)
+        #expect(snapshot.unknownWorktreeIds == everyWorktreeID)
+        #expect(snapshot.backgroundOnlyAutomaticWorktreeIds == everyWorktreeID)
+        #expect(snapshot.automaticLocalGitWorktreeIds == everyWorktreeID)
         #expect(snapshot.forgeDemandedWorktreeIds.isEmpty)
         #expect(snapshot.demandedRepositoryIds.isEmpty)
     }
@@ -107,6 +151,8 @@ struct RepositoryFactDemandCoordinatorTests {
 
         let snapshot = try #require(await receiver.receivedSnapshots().last)
         #expect(snapshot.warmAutomaticWorktreeIds == input.openWorktreeIds)
+        #expect(snapshot.unknownWorktreeIds.isEmpty)
+        #expect(snapshot.backgroundOnlyAutomaticWorktreeIds.isEmpty)
         #expect(
             snapshot.forgeDemandedWorktreeIds
                 == input.sidebarAttendedWorktreeIds.union(input.visibleActiveTabWorktreeIds)
@@ -295,6 +341,7 @@ struct RepositoryFactDemandCoordinatorTests {
                 openWorktreeId: repositoryId,
             ],
             warmRepositoryIds: [repositoryId],
+            unknownRepositoryIds: [],
             locallyInactiveRepositoryIds: [],
             warmAutomaticWorktreeIds: [
                 activeWorktreeId,
@@ -302,6 +349,8 @@ struct RepositoryFactDemandCoordinatorTests {
                 activeTabWorktreeId,
                 openWorktreeId,
             ],
+            unknownWorktreeIds: [],
+            backgroundOnlyAutomaticWorktreeIds: [],
             locallyInactiveWorktreeIds: []
         )
     }

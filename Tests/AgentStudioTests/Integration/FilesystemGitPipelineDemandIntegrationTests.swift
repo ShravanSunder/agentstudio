@@ -30,14 +30,16 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             origin: "git@github.com:askluna/agent-studio.git"
         )
         let gitProvider = DemandIntegrationGitStatusProvider(status: expectedStatus)
+        let remoteReferenceProvider = DemandIntegrationRemoteReferenceProvider()
+        let forgeProvider = DemandIntegrationForgeProvider(
+            expectedBranch: "feature/sidebar-admission"
+        )
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: DemandIntegrationRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: gitProvider,
-            remoteReferenceRefreshProvider: DemandIntegrationRemoteReferenceProvider(),
-            forgeStatusProvider: DemandIntegrationForgeProvider(
-                expectedBranch: "feature/sidebar-admission"
-            ),
+            remoteReferenceRefreshProvider: remoteReferenceProvider,
+            forgeStatusProvider: forgeProvider,
             fseventStreamClient: DemandIntegrationSilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
@@ -75,7 +77,7 @@ struct FilesystemGitPipelineDemandIntegrationTests {
                 openWorktreeIds: [],
                 repositoryIdByWorktreeId: [worktree.id: repository.id],
                 activityTopology: [activityTopology],
-                localActivityHydrationDisposition: .pending,
+                localActivityHydrationDisposition: .unavailable,
                 repositoryLocalActivityByStableKey: [:]
             )
         )
@@ -93,6 +95,8 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         #expect(baselinePublished)
         let enrichment = try #require(repoCache.worktreeEnrichment(for: worktree.id))
         #expect(enrichment.branch == "feature/sidebar-admission")
+        #expect(await remoteReferenceProvider.currentStageFetchCallCount() == 0)
+        #expect(await forgeProvider.currentCallCount() == 0)
 
         try expectCompleteSidebarBaseline(
             repoCache: repoCache,

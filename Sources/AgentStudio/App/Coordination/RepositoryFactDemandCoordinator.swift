@@ -51,8 +51,11 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
     let openWorktreeIds: Set<UUID>
     let repositoryIdByWorktreeId: [UUID: UUID]
     let warmRepositoryIds: Set<UUID>
+    let unknownRepositoryIds: Set<UUID>
     let locallyInactiveRepositoryIds: Set<UUID>
     let warmAutomaticWorktreeIds: Set<UUID>
+    let unknownWorktreeIds: Set<UUID>
+    let backgroundOnlyAutomaticWorktreeIds: Set<UUID>
     let locallyInactiveWorktreeIds: Set<UUID>
     let automaticRemoteAndForgeWorktreeIds: Set<UUID>
 
@@ -63,8 +66,11 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
         openWorktreeIds: Set<UUID>,
         repositoryIdByWorktreeId: [UUID: UUID],
         warmRepositoryIds: Set<UUID>,
+        unknownRepositoryIds: Set<UUID>,
         locallyInactiveRepositoryIds: Set<UUID>,
         warmAutomaticWorktreeIds: Set<UUID>,
+        unknownWorktreeIds: Set<UUID>,
+        backgroundOnlyAutomaticWorktreeIds: Set<UUID>,
         locallyInactiveWorktreeIds: Set<UUID>,
         automaticRemoteAndForgeWorktreeIds: Set<UUID>? = nil
     ) {
@@ -74,8 +80,11 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
         self.openWorktreeIds = openWorktreeIds
         self.repositoryIdByWorktreeId = repositoryIdByWorktreeId
         self.warmRepositoryIds = warmRepositoryIds
+        self.unknownRepositoryIds = unknownRepositoryIds
         self.locallyInactiveRepositoryIds = locallyInactiveRepositoryIds
         self.warmAutomaticWorktreeIds = warmAutomaticWorktreeIds
+        self.unknownWorktreeIds = unknownWorktreeIds
+        self.backgroundOnlyAutomaticWorktreeIds = backgroundOnlyAutomaticWorktreeIds
         self.locallyInactiveWorktreeIds = locallyInactiveWorktreeIds
         self.automaticRemoteAndForgeWorktreeIds =
             automaticRemoteAndForgeWorktreeIds ?? warmAutomaticWorktreeIds
@@ -88,10 +97,17 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
         openWorktreeIds: [],
         repositoryIdByWorktreeId: [:],
         warmRepositoryIds: [],
+        unknownRepositoryIds: [],
         locallyInactiveRepositoryIds: [],
         warmAutomaticWorktreeIds: [],
+        unknownWorktreeIds: [],
+        backgroundOnlyAutomaticWorktreeIds: [],
         locallyInactiveWorktreeIds: []
     )
+
+    var automaticLocalGitWorktreeIds: Set<UUID> {
+        warmAutomaticWorktreeIds.union(backgroundOnlyAutomaticWorktreeIds)
+    }
 
     var forgeDemandedWorktreeIds: Set<UUID> {
         sidebarAttendedWorktreeIds
@@ -111,7 +127,7 @@ struct RepositoryFactDemandSnapshot: Equatable, Sendable {
         if let activePaneWorktreeId {
             worktreeIds.insert(activePaneWorktreeId)
         }
-        return worktreeIds.intersection(warmAutomaticWorktreeIds)
+        return worktreeIds.intersection(automaticLocalGitWorktreeIds)
     }
 }
 
@@ -276,26 +292,24 @@ final class RepositoryFactDemandCoordinator {
         _ input: RepositoryFactDemandInput,
         referenceDate: Date
     ) async -> (snapshot: RepositoryFactDemandSnapshot, nextTransitionAt: Date?) {
+        let classifierOpenWorktreeIds = input.openWorktreeIds.union(
+            input.activePaneWorktreeId.map { [$0] } ?? []
+        )
         let activity = RepositoryActivityClassifier.classify(
             RepositoryActivityClassificationInput(
                 repositories: input.activityTopology,
-                openWorktreeIDs: input.openWorktreeIds,
+                openWorktreeIDs: classifierOpenWorktreeIds,
                 localActivityHydrationDisposition: input.localActivityHydrationDisposition,
                 repositoryLocalActivityByStableKey: input.repositoryLocalActivityByStableKey,
                 referenceDate: referenceDate,
                 inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
             )
         )
-        let automaticRemoteAndForgeWorktreeIds: Set<UUID> =
-            input.localActivityHydrationDisposition == .authoritative
-            ? activity.warmWorktreeIDs
-            : activity.warmWorktreeIDs.intersection(input.openWorktreeIds)
-        let automaticLocalGitWorktreeIds: Set<UUID> =
-            input.localActivityHydrationDisposition == .authoritative
-            ? activity.warmWorktreeIDs
-            : activity.warmWorktreeIDs.intersection(
-                input.openWorktreeIds.union(input.activePaneWorktreeId.map { [$0] } ?? [])
-            )
+        let automaticRemoteAndForgeWorktreeIds = activity.warmWorktreeIDs
+        let backgroundOnlyAutomaticWorktreeIds =
+            input.localActivityHydrationDisposition == .pending
+            ? Set<UUID>()
+            : activity.unknownWorktreeIDs
         return (
             RepositoryFactDemandSnapshot(
                 activePaneWorktreeId: input.activePaneWorktreeId,
@@ -304,8 +318,11 @@ final class RepositoryFactDemandCoordinator {
                 openWorktreeIds: input.openWorktreeIds,
                 repositoryIdByWorktreeId: input.repositoryIdByWorktreeId,
                 warmRepositoryIds: activity.warmRepositoryIDs,
+                unknownRepositoryIds: activity.unknownRepositoryIDs,
                 locallyInactiveRepositoryIds: activity.locallyInactiveRepositoryIDs,
-                warmAutomaticWorktreeIds: automaticLocalGitWorktreeIds,
+                warmAutomaticWorktreeIds: activity.warmWorktreeIDs,
+                unknownWorktreeIds: activity.unknownWorktreeIDs,
+                backgroundOnlyAutomaticWorktreeIds: backgroundOnlyAutomaticWorktreeIds,
                 locallyInactiveWorktreeIds: activity.locallyInactiveWorktreeIDs,
                 automaticRemoteAndForgeWorktreeIds: automaticRemoteAndForgeWorktreeIds
             ),

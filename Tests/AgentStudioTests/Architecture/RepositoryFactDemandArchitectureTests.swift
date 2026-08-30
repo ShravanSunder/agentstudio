@@ -101,7 +101,16 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(pipelineSource.contains("func setRepositoryFactDemand(_ snapshot:"))
         #expect(pipelineSource.contains("filesystemActor.setRepositoryFactAttention("))
         #expect(pipelineSource.contains("gitWorkingDirectoryProjector.setRepositoryFactAttention("))
-        #expect(pipelineSource.contains("warmAutomaticWorktreeIds: snapshot.warmAutomaticWorktreeIds"))
+        #expect(
+            pipelineSource.contains(
+                "warmAutomaticWorktreeIds: snapshot.automaticLocalGitWorktreeIds"
+            )
+        )
+        #expect(
+            pipelineSource.contains(
+                "backgroundOnlyAutomaticWorktreeIds: snapshot.backgroundOnlyAutomaticWorktreeIds"
+            )
+        )
         #expect(pipelineSource.contains("forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)"))
         #expect(workspaceDemandSource.contains("repositoryFactDemandCoordinator.accept(input)"))
         #expect(demandCoordinatorSource.contains("@concurrent nonisolated private static func classify("))
