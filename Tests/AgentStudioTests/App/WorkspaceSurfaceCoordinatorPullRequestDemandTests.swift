@@ -187,10 +187,115 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
         }
     }
 
+    @Test("same-ID stable identity replacement retargets repository fact demand")
+    func sameIDStableIdentityReplacementRetargetsRepositoryFactDemand() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            // Arrange
+            let store = WorkspaceStore()
+            let repository = store.addRepo(
+                at: URL(fileURLWithPath: "/tmp/pr-demand-replaced-stable-identity")
+            )
+            let worktree = try #require(repository.worktrees.first)
+            let originalStableKey = "aaaaaaaaaaaaaaaa"
+            let replacementStableKey = "bbbbbbbbbbbbbbbb"
+            let originalPreparation = RepositoryTopologyReplacement.prepare(
+                repositories: store.repositoryTopologyAtom.repos,
+                watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+                unavailableRepositoryIDs: [],
+                stableIdentity: RepositoryTopologyStableIdentity(
+                    repositoryStableKeysByID: [repository.id: originalStableKey],
+                    worktreeStableKeysByID: [worktree.id: originalStableKey],
+                    watchedPathStableKeysByID: store.repositoryTopologyAtom.watchedPathStableKeysByID
+                )
+            )
+            guard case .prepared(let originalReplacement) = originalPreparation else {
+                Issue.record("expected original stable identity to prepare")
+                return
+            }
+            store.repositoryTopologyAtom.replaceTopology(originalReplacement)
+
+            let referenceDate = Date()
+            coreAtoms.repositoryLocalActivity.publishAuthoritative(
+                RepositoryLocalActivitySnapshot(
+                    activityByRepositoryStableKey: [
+                        originalStableKey: try RepositoryLocalActivity(
+                            repositoryStableKey: originalStableKey,
+                            lastQualifyingActivityAt: referenceDate,
+                            continuousCoverageStartedAt: referenceDate.addingTimeInterval(-1),
+                            updatedAt: referenceDate,
+                            ownedPromotionAttemptID: nil,
+                            ownedPromotionStartedAt: nil,
+                            ownedPromotionUnsettled: false
+                        )
+                    ],
+                    cursorByVolumeIdentifier: [:]
+                )
+            )
+
+            let source = PullRequestDemandRecordingFilesystemSource()
+            let windowLifecycle = WindowLifecycleAtom()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: PullRequestDemandSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: gitStatusPhysicalGate
+                ),
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
+                filesystemSource: source,
+                windowLifecycleStore: windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let owningWindowId = UUIDv7.generate()
+            windowLifecycle.recordWindowRegistered(owningWindowId)
+            windowLifecycle.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: owningWindowId
+            )
+
+            // Act
+            coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
+
+            // Assert
+            #expect(await source.waitForLastSnapshot([worktree.id]))
+            #expect(await source.lastFactDemandSnapshot?.warmRepositoryIds == [repository.id])
+
+            let replacementPreparation = RepositoryTopologyReplacement.prepare(
+                repositories: store.repositoryTopologyAtom.repos,
+                watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+                unavailableRepositoryIDs: [],
+                stableIdentity: RepositoryTopologyStableIdentity(
+                    repositoryStableKeysByID: [repository.id: replacementStableKey],
+                    worktreeStableKeysByID: [worktree.id: replacementStableKey],
+                    watchedPathStableKeysByID: store.repositoryTopologyAtom.watchedPathStableKeysByID
+                )
+            )
+            guard case .prepared(let identityReplacement) = replacementPreparation else {
+                Issue.record("expected replacement stable identity to prepare")
+                return
+            }
+
+            // Act
+            store.repositoryTopologyAtom.replaceTopology(identityReplacement)
+
+            // Assert
+            #expect(await source.waitForLastSnapshot([]))
+            #expect(await source.lastFactDemandSnapshot?.unknownRepositoryIds == [repository.id])
+            #expect(await source.lastFactDemandSnapshot?.warmRepositoryIds.isEmpty == true)
+
+            await coordinator.shutdown()
+        }
+    }
+
 }
 
 private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
     private var demandSnapshots: [Set<UUID>] = []
+    private var factDemandSnapshots: [RepositoryFactDemandSnapshot] = []
     private var snapshotWaiters: [UUID: AsyncStream<Set<UUID>>.Continuation] = [:]
     private var suspendedSnapshot: Set<UUID>?
     private var suspendedSnapshotContinuation: CheckedContinuation<Void, Never>?
@@ -198,6 +303,7 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
 
     var snapshotCount: Int { demandSnapshots.count }
     var lastSnapshot: Set<UUID>? { demandSnapshots.last }
+    var lastFactDemandSnapshot: RepositoryFactDemandSnapshot? { factDemandSnapshots.last }
 
     func start() async {}
     func shutdown() async {}
@@ -222,6 +328,7 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
     }
 
     func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
+        factDemandSnapshots.append(snapshot)
         await setPullRequestDemandWorktrees(snapshot.forgeDemandedWorktreeIds)
     }
 

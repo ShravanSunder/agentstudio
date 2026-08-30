@@ -157,12 +157,12 @@ package final class RepositoryTopologyAtom {
     @ObservationIgnored private var repositoriesByID: [UUID: Repo] = [:]
     @ObservationIgnored private var worktreesByID: [UUID: Worktree] = [:]
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
-    @ObservationIgnored package private(set) var repositoryStableKeysByID: [UUID: String] = [:]
-    @ObservationIgnored package private(set) var worktreeStableKeysByID: [UUID: String] = [:]
-    @ObservationIgnored package private(set) var watchedPathStableKeysByID: [UUID: String] = [:]
-    @ObservationIgnored private var repositoryIDsByStableKey: [String: UUID] = [:]
-    @ObservationIgnored private var worktreeIDsByStableKey: [String: UUID] = [:]
-    @ObservationIgnored private var watchedPathIDsByStableKey: [String: UUID] = [:]
+    package private(set) var repositoryStableKeysByID: [UUID: String] = [:]
+    package private(set) var worktreeStableKeysByID: [UUID: String] = [:]
+    package private(set) var watchedPathStableKeysByID: [UUID: String] = [:]
+    private var repositoryIDsByStableKey: [String: UUID] = [:]
+    private var worktreeIDsByStableKey: [String: UUID] = [:]
+    private var watchedPathIDsByStableKey: [String: UUID] = [:]
     @ObservationIgnored private var orderedRepositoryIDs: [UUID] = []
     @ObservationIgnored private var orderedWorktreeIDs: [UUID] = []
     @ObservationIgnored private var worktreePathAmbiguityReporter: (@MainActor () -> Void)?
@@ -283,25 +283,21 @@ package final class RepositoryTopologyAtom {
     }
 
     package func repo(stableKey: String) -> Repo? {
-        _ = orderedMembershipRevisionAtom.value
         guard let repositoryID = repositoryIDsByStableKey[stableKey] else { return nil }
         return repo(repositoryID)
     }
 
     package func worktree(stableKey: String) -> Worktree? {
-        _ = orderedMembershipRevisionAtom.value
         guard let worktreeID = worktreeIDsByStableKey[stableKey] else { return nil }
         return worktree(worktreeID)
     }
 
     package func repositoryStableKey(for repositoryID: UUID) -> String? {
-        _ = orderedMembershipRevisionAtom.value
-        return repositoryStableKeysByID[repositoryID]
+        repositoryStableKeysByID[repositoryID]
     }
 
     package func worktreeStableKey(for worktreeID: UUID) -> String? {
-        _ = orderedMembershipRevisionAtom.value
-        return worktreeStableKeysByID[worktreeID]
+        worktreeStableKeysByID[worktreeID]
     }
 
     func watchedPath(stableKey: String) -> WatchedPath? {
@@ -441,18 +437,24 @@ package final class RepositoryTopologyAtom {
         repositoriesByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
         worktreesByID = Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) })
         watchedPathsByID = Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0) })
-        repositoryStableKeysByID = replacement.repositoryStableKeysByID
-        worktreeStableKeysByID = replacement.worktreeStableKeysByID
-        watchedPathStableKeysByID = replacement.watchedPathStableKeysByID
-        repositoryIDsByStableKey = Dictionary(
-            uniqueKeysWithValues: replacement.repositoryStableKeysByID.map { ($0.value, $0.key) }
-        )
-        worktreeIDsByStableKey = Dictionary(
-            uniqueKeysWithValues: replacement.worktreeStableKeysByID.map { ($0.value, $0.key) }
-        )
-        watchedPathIDsByStableKey = Dictionary(
-            uniqueKeysWithValues: replacement.watchedPathStableKeysByID.map { ($0.value, $0.key) }
-        )
+        if repositoryStableKeysByID != replacement.repositoryStableKeysByID {
+            repositoryStableKeysByID = replacement.repositoryStableKeysByID
+            repositoryIDsByStableKey = Dictionary(
+                uniqueKeysWithValues: replacement.repositoryStableKeysByID.map { ($0.value, $0.key) }
+            )
+        }
+        if worktreeStableKeysByID != replacement.worktreeStableKeysByID {
+            worktreeStableKeysByID = replacement.worktreeStableKeysByID
+            worktreeIDsByStableKey = Dictionary(
+                uniqueKeysWithValues: replacement.worktreeStableKeysByID.map { ($0.value, $0.key) }
+            )
+        }
+        if watchedPathStableKeysByID != replacement.watchedPathStableKeysByID {
+            watchedPathStableKeysByID = replacement.watchedPathStableKeysByID
+            watchedPathIDsByStableKey = Dictionary(
+                uniqueKeysWithValues: replacement.watchedPathStableKeysByID.map { ($0.value, $0.key) }
+            )
+        }
     }
 
     private func synchronizeEntityFamilies() {
