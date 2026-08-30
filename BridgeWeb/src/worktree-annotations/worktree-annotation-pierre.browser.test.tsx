@@ -521,6 +521,18 @@ describe('worktree annotation Pierre integration', () => {
 			).toHaveLength(0);
 
 			await act(async (): Promise<void> => {
+				surface.publishUnavailable();
+				await Promise.resolve();
+			});
+
+			expect(committedPreview.isConnected).toBe(true);
+			expect(document.activeElement).toBe(committedPreview);
+			expect(committedPreview.textContent).toContain('Saved before the File refresh settles.');
+			expect(
+				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+			).toHaveLength(0);
+
+			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
 					expectedThreadCount: 1,
 					revision: 2,

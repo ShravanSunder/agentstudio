@@ -261,6 +261,18 @@ export class RecordingAnnotationBrowserSurface {
 		});
 	}
 
+	publishUnavailable(retryable = true): void {
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: null,
+			state: { catalogAuthorityRetired: false, kind: 'unavailable', retryable },
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+	}
+
 	publishHealth(requestId: string, status: 'degraded' | 'ready'): void {
 		this.#publish({
 			direction: 'serverWorkerToMain',

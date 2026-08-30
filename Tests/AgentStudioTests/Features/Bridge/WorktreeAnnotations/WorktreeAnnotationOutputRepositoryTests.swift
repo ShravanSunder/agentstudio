@@ -68,11 +68,11 @@ struct WorktreeAnnotationOutputRepositoryTests {
     func historicalV1InspectionAndRepeatPreserveExactBytes() throws {
         let fixture = try makeOutputRepositoryFixture()
         let prepared = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
-        #expect(
-            try fixture.repository.markPreparedOutputAttemptsUnknown(
-                now: Date(timeIntervalSince1970: 4)
-            ).canonicalResult == 1
+        let unknown = try fixture.repository.markPreparedOutputAttemptsUnknown(
+            now: Date(timeIntervalSince1970: 4)
         )
+        #expect(unknown.canonicalResult == 1)
+        let unknownRevision = try contentSessionRevision(unknown)
         let v2SnapshotJSONString = try #require(String(data: fixture.snapshotJSON, encoding: .utf8))
         let v1SnapshotJSONString = v2SnapshotJSONString.replacingOccurrences(
             of: "\"formatVersion\":2",
@@ -100,12 +100,14 @@ struct WorktreeAnnotationOutputRepositoryTests {
         #expect(inspected.attempt.exactBytes == historicalExactBytes)
 
         let repeatedAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(92))
-        let repeated = try fixture.repository.repeatOutputAttempt(
+        let repeatedMutation = try fixture.repository.repeatOutputAttempt(
             sourceAttemptID: prepared.attempt.id,
             repeatedAttemptID: repeatedAttemptID,
             destinationPath: nil,
             now: Date(timeIntervalSince1970: 5)
-        ).canonicalResult
+        )
+        let repeated = repeatedMutation.canonicalResult
+        #expect(try contentSessionRevision(repeatedMutation) == unknownRevision + 1)
         #expect(repeated.attempt.formatVersion == 1)
         #expect(repeated.attempt.exactBytes == historicalExactBytes)
 
