@@ -41,8 +41,9 @@ package struct WorkspaceArrangementViewDerived {
             return nil
         }
 
+        let activePaneIds = Set(paneAtom.activeResidencyPaneIds(in: canonicalLayout.paneIds))
         let activePaneIndexes = canonicalLayout.panes.indices.filter { index in
-            isActivePane(canonicalLayout.panes[index].paneId)
+            activePaneIds.contains(canonicalLayout.panes[index].paneId)
         }
         let activePanes = activePaneIndexes.map { canonicalLayout.panes[$0] }
         let activeDividerIDs = activePaneIndexes.dropFirst().map { index in
@@ -71,16 +72,19 @@ package struct WorkspaceArrangementViewDerived {
             let drawerView = drawerView(forParent: parentPaneId)
         else { return [] }
         return visiblePaneIds(
-            layoutPaneIds: drawerView.layout.paneIds.filter(isActivePane),
+            layoutPaneIds: paneAtom.activeResidencyPaneIds(in: drawerView.layout.paneIds),
             minimizedPaneIds: drawerView.minimizedPaneIds
         )
     }
 
     package func activePaneId(forTab tabId: UUID) -> UUID? {
-        guard let activePaneId = tabLayoutAtom.tab(tabId)?.activeArrangement.activePaneId,
-            isActivePane(activePaneId)
-        else { return nil }
-        return activePaneId
+        guard let activeArrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else {
+            return nil
+        }
+        return paneAtom.activeResidencyPaneId(
+            preferred: activeArrangement.activePaneId,
+            in: activeArrangement.layout.paneIds
+        )
     }
 
     package func activeMinimizedPaneIds(forTab tabId: UUID) -> Set<UUID> {

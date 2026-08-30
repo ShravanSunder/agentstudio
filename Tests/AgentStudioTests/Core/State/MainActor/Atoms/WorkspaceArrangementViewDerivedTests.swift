@@ -169,6 +169,47 @@ struct WorkspaceArrangementViewDerivedTests {
     }
 
     @Test
+    func activePaneId_fallsBackToFirstActiveResidencyLayoutPane() {
+        var backgroundedCanonicalPane = makePane(id: UUIDv7.generate())
+        backgroundedCanonicalPane.residency = .backgrounded
+        let activeFallbackPane = makePane(id: UUIDv7.generate())
+        let layout = Layout(paneId: backgroundedCanonicalPane.id)
+            .inserting(
+                paneId: activeFallbackPane.id,
+                at: backgroundedCanonicalPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: backgroundedCanonicalPane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [backgroundedCanonicalPane.id, activeFallbackPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(backgroundedCanonicalPane)
+        paneAtom.addPane(activeFallbackPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        #expect(derived.activePaneId(forTab: tab.id) == activeFallbackPane.id)
+        #expect(tabLayout.tab(tab.id)?.activePaneId == backgroundedCanonicalPane.id)
+    }
+
+    @Test
     func drawerVisiblePaneIds_derivesMinimizedVisibilityFromManagementState() {
         let parentPane = makePane(id: UUIDv7.generate())
         let drawerPaneA = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)

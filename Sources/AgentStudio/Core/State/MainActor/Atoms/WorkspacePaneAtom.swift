@@ -79,6 +79,20 @@ package final class WorkspacePaneAtom {
         paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
+    package func activeResidencyPaneIds(in orderedPaneIds: [UUID]) -> [UUID] {
+        derived.activeResidencyPaneIds(in: orderedPaneIds)
+    }
+
+    package func activeResidencyPaneId(
+        preferred preferredPaneId: UUID?,
+        in orderedPaneIds: [UUID]
+    ) -> UUID? {
+        derived.activeResidencyPaneId(
+            preferred: preferredPaneId,
+            in: orderedPaneIds
+        )
+    }
+
     package func addPane(_ pane: Pane) {
         var admittedPane = pane
         admittedPane.metadata.updateFacets(
