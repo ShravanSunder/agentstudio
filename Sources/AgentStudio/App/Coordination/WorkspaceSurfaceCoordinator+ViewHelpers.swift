@@ -381,7 +381,11 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
-            teardownView(for: paneId, shouldUnregisterRuntime: false)
+            teardownView(
+                for: paneId,
+                shouldUnregisterRuntime: false,
+                surfaceDisposition: .permanent(.repairReplacement)
+            )
             guard createViewForRepair(for: pane) != nil else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
@@ -420,12 +424,15 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     /// Teardown views for all drawer panes owned by a parent pane.
-    func teardownDrawerPanes(for parentPaneId: UUID) {
+    func teardownDrawerPanes(
+        for parentPaneId: UUID,
+        surfaceDisposition: TerminalSurfaceTeardownDisposition
+    ) {
         guard let pane = store.paneAtom.pane(parentPaneId),
             let drawer = pane.drawer
         else { return }
         for drawerPaneId in drawer.paneIds {
-            teardownView(for: drawerPaneId)
+            teardownView(for: drawerPaneId, surfaceDisposition: surfaceDisposition)
         }
     }
 

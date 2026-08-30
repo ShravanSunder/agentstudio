@@ -226,7 +226,8 @@ package enum AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "terminal.activity.close_reason",
         "terminal.activity.source",
-    ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
+    ]).union(RendererLifecycleOTLPProjectionKeys.stringAttributeKeys)
+        .union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys)
@@ -660,7 +661,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.latest_rows",
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
-    ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
+    ]).union(RendererLifecycleOTLPProjectionKeys.numericAttributeKeys)
+        .union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
@@ -774,7 +776,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_agent_settled_candidate",
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
-    ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+    ]).union(RendererLifecycleOTLPProjectionKeys.booleanAttributeKeys)
+        .union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)

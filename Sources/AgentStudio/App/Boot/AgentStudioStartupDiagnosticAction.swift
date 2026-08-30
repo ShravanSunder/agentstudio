@@ -24,6 +24,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case sidebarPerformanceProof = "sidebar-performance-proof"
             case repoExplorerKeyMutationProof = "repo-explorer-key-mutation-proof"
             case repoExplorerInteractionProof = "repo-explorer-interaction-proof"
+            case rendererLifecycleContinuity = "renderer-lifecycle-continuity"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -79,6 +80,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "repoExplorerKeyMutationProof"
             case .repoExplorerInteractionProof:
                 "repoExplorerInteractionProof"
+            case .rendererLifecycleContinuity:
+                "rendererLifecycleContinuity"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

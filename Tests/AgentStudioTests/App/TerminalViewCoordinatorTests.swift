@@ -97,7 +97,7 @@ extension WebKitSerializedTests {
             bridgeController.handleBridgeReady()
             #expect(bridgeController.isBridgeReady == true)
 
-            coordinator.teardownView(for: pane.id)
+            coordinator.teardownView(for: pane.id, surfaceDisposition: .permanent(.explicitRemoval))
 
             #expect(bridgeController.isBridgeReady == false)
             #expect(coordinator.pendingBridgePaneRetirementCount == 1)
@@ -119,7 +119,10 @@ extension WebKitSerializedTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
             harness.coordinator.registerHostedView(mountedView: terminalView, for: paneId)
 
-            harness.coordinator.teardownView(for: paneId)
+            harness.coordinator.teardownView(
+                for: paneId,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
 
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
             #expect(harness.viewRegistry.view(for: paneId) == nil)
@@ -186,7 +189,10 @@ extension WebKitSerializedTests {
             await provider.failNextLifecycleAcknowledgementThenHoldRetries()
 
             // Act
-            harness.coordinator.teardownView(for: pane.id)
+            harness.coordinator.teardownView(
+                for: pane.id,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
             _ = await provider.waitForLifecycleAcknowledgement(count: 2)
             let restoredWhileRetiring = harness.coordinator.createViewForContent(pane: pane)
 
@@ -222,7 +228,10 @@ extension WebKitSerializedTests {
             var replayIterator = replayProbe.makeAsyncIterator()
             #expect((await replayIterator.next())?.seq == 2)
 
-            harness.coordinator.teardownView(for: pane.id)
+            harness.coordinator.teardownView(
+                for: pane.id,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
             await harness.coordinator.drainBridgePaneRetirements()
         }
 
@@ -274,8 +283,16 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) is BridgeRuntime)
 
             // Act
-            harness.coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: false)
-            harness.coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: true)
+            harness.coordinator.teardownView(
+                for: pane.id,
+                shouldUnregisterRuntime: false,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
+            harness.coordinator.teardownView(
+                for: pane.id,
+                shouldUnregisterRuntime: true,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
             await harness.coordinator.drainBridgePaneRetirements()
 
             // Assert

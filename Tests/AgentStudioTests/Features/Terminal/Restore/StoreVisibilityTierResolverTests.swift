@@ -8,6 +8,31 @@ import Testing
 @Suite(.serialized)
 struct StoreVisibilityTierResolverTests {
     @Test
+    func tier_marksPaneHidden_whenNoTabIsActive() {
+        let store = WorkspaceStore()
+        let pane = store.createPane()
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: pane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksInactiveTabPaneHidden() {
+        let store = WorkspaceStore()
+        let firstPane = store.createPane()
+        let firstTab = Tab(paneId: firstPane.id)
+        store.appendTab(firstTab)
+        let secondPane = store.createPane()
+        let secondTab = Tab(paneId: secondPane.id)
+        store.appendTab(secondTab)
+        store.setActiveTab(firstTab.id)
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: firstPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: secondPane.id)) == .p1Hidden)
+    }
+
+    @Test
     func tier_marksOnlyZoomSourcePaneVisible_whenTabIsZoomed() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
@@ -156,5 +181,41 @@ struct StoreVisibilityTierResolverTests {
         let resolver = StoreVisibilityTierResolver(store: store)
 
         #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksMinimizedDrawerChildHidden() throws {
+        let store = WorkspaceStore()
+        let parentPane = store.createPane()
+        store.appendTab(Tab(paneId: parentPane.id))
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.minimizeDrawerPane(drawerPane.id, in: parentPane.id))
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksDrawerChildrenHidden_whenParentPaneIsMinimized() throws {
+        let store = WorkspaceStore()
+        let parentPane = store.createPane()
+        let siblingPane = store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        store.insertPane(
+            siblingPane.id,
+            inTab: tab.id,
+            at: parentPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.minimizePane(parentPane.id, inTab: tab.id))
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: parentPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: siblingPane.id)) == .p0Visible)
     }
 }

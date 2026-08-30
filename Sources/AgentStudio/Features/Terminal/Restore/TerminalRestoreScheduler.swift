@@ -72,11 +72,11 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
         }
 
         guard
-            let pane = store.paneAtom.pane(paneId.uuid),
-            let parentPaneId = pane.parentPaneId,
+            let paneFacts = store.paneAtom.graphAtom.paneStructuralFacts(paneId.uuid),
+            let parentPaneId = paneFacts.parentPaneID,
             activeTab.activePaneIds.contains(parentPaneId),
-            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
-            drawer.isExpanded,
+            !activeTab.activeMinimizedPaneIds.contains(parentPaneId),
+            store.paneAtom.isDrawerExpanded(for: parentPaneId),
             let drawerView = drawerView(forParent: parentPaneId, in: store),
             drawerView.layout.contains(paneId.uuid),
             !drawerView.minimizedPaneIds.contains(paneId.uuid)
@@ -88,14 +88,16 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
     }
 
     private func hasActiveResidency(_ paneId: PaneId) -> Bool {
-        guard let store, let pane = store.paneAtom.pane(paneId.uuid) else { return false }
-        return pane.residency == .active
+        guard let store,
+            let facts = store.paneAtom.graphAtom.paneStructuralFacts(paneId.uuid)
+        else { return false }
+        return facts.residency == .active
     }
 
     private func expandedDrawerActivePaneIds(in store: WorkspaceStore, activeTab: Tab) -> Set<UUID> {
         Set(
             activeTab.activePaneIds.compactMap { paneId in
-                guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
+                guard store.paneAtom.isDrawerExpanded(for: paneId) else {
                     return nil
                 }
                 return drawerView(forParent: paneId, in: store)?.activeChildId
@@ -106,9 +108,9 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
     private func drawerView(forParent parentPaneId: UUID, in store: WorkspaceStore) -> DrawerView? {
         guard
             let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            let drawer = store.paneAtom.pane(parentPaneId)?.drawer
+            let drawerID = store.paneAtom.graphAtom.paneStructuralFacts(parentPaneId)?.ownedDrawerID
         else { return nil }
 
-        return tab.activeArrangement.drawerViews[drawer.drawerId]
+        return tab.activeArrangement.drawerViews[drawerID]
     }
 }

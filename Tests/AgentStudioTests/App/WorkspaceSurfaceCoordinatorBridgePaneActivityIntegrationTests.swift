@@ -293,7 +293,8 @@ extension WebKitSerializedTests {
 
             harness.coordinator.teardownView(
                 for: harness.bridgePane.id,
-                shouldUnregisterRuntime: false
+                shouldUnregisterRuntime: false,
+                surfaceDisposition: .permanent(.explicitRemoval)
             )
 
             #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .loadedHidden)
@@ -330,7 +331,8 @@ extension WebKitSerializedTests {
 
             harness.coordinator.teardownView(
                 for: harness.bridgePane.id,
-                shouldUnregisterRuntime: true
+                shouldUnregisterRuntime: true,
+                surfaceDisposition: .permanent(.explicitRemoval)
             )
 
             #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .closed)

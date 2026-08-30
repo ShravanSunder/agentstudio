@@ -141,6 +141,9 @@ extension AppDelegate {
         workspaceSurfaceCoordinator.bindPullRequestDemand(
             toOwningWindowId: workspaceWindowId
         )
+        workspaceSurfaceCoordinator.bindRendererVisibility(
+            toOwningWindowId: workspaceWindowId
+        )
         return mainWindowController
     }
 }

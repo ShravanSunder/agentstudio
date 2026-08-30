@@ -505,6 +505,8 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
             printf "diagnostic=%s\\n" "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" >> "\(fixture.url("launched-env").path)"
             printf "watch_folder=%s\\n" "${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}" >> "\(fixture.url("launched-env").path)"
+            printf "renderer_phase=%s\\n" "${AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE:-}" >> "\(fixture.url("launched-env").path)"
+            printf "renderer_manifest=%s\\n" "${AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST:-}" >> "\(fixture.url("launched-env").path)"
             printf "ipc_no_auth=%s\\n" "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" >> "\(fixture.url("launched-env").path)"
             printf "ipc_escrow=%s\\n" "${AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW:-}" >> "\(fixture.url("launched-env").path)"
             sleep 30
@@ -548,6 +550,8 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 "AGENTSTUDIO_RESTORE_TRACE": "1",
                 "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
                 "AGENTSTUDIO_STARTUP_WATCH_FOLDER": fixture.url("watch-folder").path,
+                "AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE": "restart",
+                "AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST": "/tmp/renderer-restart-manifest.json",
                 "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
                 "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
                 "ZMX_DIR": "/tmp/hostile-zmx-dir",
@@ -576,6 +580,8 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             fixture.url("launched-env"), containing: "ipc_escrow=1", timeoutSeconds: 5)
         let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
         try expectDirectExecutableFallbackLaunchEnvironment(launchedEnv, hostileDataRoot: hostileDataRoot)
+        #expect(launchedEnv.contains("renderer_phase=restart"))
+        #expect(launchedEnv.contains("renderer_manifest=/tmp/renderer-restart-manifest.json"))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
     }
 
@@ -593,15 +599,19 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             """
         )
 
+        var environment = try launchServicesDiagnosticEnvironment(
+            fixture: fixture,
+            openArgsURL: openArgsURL,
+            launchedAppURL: launchedAppURL,
+            stateFile: stateFile
+        )
+        environment["AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE"] = "restart"
+        environment["AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST"] =
+            "/tmp/renderer-restart-manifest.json"
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
-            environment: try launchServicesDiagnosticEnvironment(
-                fixture: fixture,
-                openArgsURL: openArgsURL,
-                launchedAppURL: launchedAppURL,
-                stateFile: stateFile
-            )
+            environment: environment
         )
 
         #expect(result.exitCode == 0)
@@ -617,6 +627,10 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(openArgs.split(separator: "\n").contains("-g"))
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER="))
+        #expect(openArgs.contains("AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE=restart"))
+        #expect(
+            openArgs.contains(
+                "AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST=/tmp/renderer-restart-manifest.json"))
         #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
         #expect(openArgs.contains("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1"))
         #expect(openArgs.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))

@@ -5,6 +5,159 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("renderer delivery and projection accounting keeps deltas separate from current lifecycle state")
+    func rendererDeliveryAndProjectionAccounting() {
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+        let surfaceID = UUIDv7.generate()
+
+        recorder.recordRendererVisibilityDelivery(
+            surfaceID: surfaceID,
+            visible: true,
+            outcome: .applied
+        )
+        recorder.recordRendererVisibilityDelivery(
+            surfaceID: surfaceID,
+            visible: true,
+            outcome: .equal
+        )
+        recorder.recordRendererVisibilityProjection(
+            trigger: .observedChange,
+            applied: 1,
+            equal: 2,
+            missing: 3,
+            failed: 4,
+            duration: .milliseconds(5)
+        )
+
+        let snapshot = recorder.rendererLifecycleSnapshot()
+        #expect(snapshot.visibilityDeliveryTotal == 1)
+        #expect(snapshot.visibilityEqualSuppressedTotal == 1)
+        #expect(snapshot.projectionEvaluationTotal == 1)
+        #expect(snapshot.projectionEvaluatedSurfaceTotal == 7)
+        #expect(snapshot.projectionChangedSurfaceTotal == 1)
+        #expect(snapshot.projectionEqualSurfaceTotal == 2)
+        #expect(snapshot.sampleSequence == 3)
+        #expect(snapshot.isValid)
+    }
+
+    @Test("renderer lifecycle flows through the recorder, scrub projection, and metric mapping")
+    func rendererLifecycleFlowsThroughRecorderProjectionAndMetrics() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let sink = RendererLifecycleRecordingTraceSink()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "renderer-lifecycle-integration",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 908,
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in sink },
+                makeOTLPSink: { _ in sink }
+            ),
+            timeUnixNano: { 116 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: runtime,
+            processMemorySampleWait: { false }
+        )
+        let surfaceID = UUIDv7.generate()
+
+        recorder.recordRendererCreated(surfaceID: surfaceID, active: 0, hidden: 1, closeUndo: 0)
+        recorder.recordRendererVisibilityDelivery(surfaceID: surfaceID, visible: false, outcome: .applied)
+        recorder.recordRendererVisibilityDelivery(surfaceID: surfaceID, visible: false, outcome: .equal)
+        recorder.recordRendererVisibilityProjection(
+            trigger: .membershipChange,
+            applied: 1,
+            equal: 1,
+            missing: 0,
+            failed: 0,
+            duration: .milliseconds(2)
+        )
+        recorder.recordRendererPermanentlyReleased(
+            surfaceID: surfaceID,
+            reason: "repair_replacement",
+            active: 0,
+            hidden: 0,
+            closeUndo: 0
+        )
+        recorder.recordRendererDeinitialized(surfaceID: surfaceID)
+        try await recorder.drain()
+
+        let records = await sink.recordedRecords()
+        let rendererRecords = records.filter { $0.body == "performance.renderer.lifecycle" }
+        let projections = rendererRecords.map(AgentStudioOTLPTraceProjection.project)
+        let metricEvents = projections.compactMap(AgentStudioOTLPPerformanceMetricEvent.init(record:))
+        let counterLabels = metricEvents.flatMap(\.measurements).compactMap { measurement -> String? in
+            guard case .counter(let sample) = measurement else { return nil }
+            return sample.label
+        }
+        let finalSnapshot = recorder.rendererLifecycleSnapshot()
+
+        #expect(rendererRecords.count == 6)
+        #expect(metricEvents.count == 6)
+        #expect(projections.allSatisfy { $0.attributes["agentstudio.performance.renderer.surface_id"] == nil })
+        #expect(counterLabels.contains("agentstudio_performance_renderer_created_delta"))
+        #expect(counterLabels.contains("agentstudio_performance_renderer_visibility_delivery_delta"))
+        #expect(counterLabels.contains("agentstudio_performance_renderer_visibility_equal_suppressed_delta"))
+        #expect(counterLabels.contains("agentstudio_performance_renderer_projection_evaluation_delta"))
+        #expect(counterLabels.contains("agentstudio_performance_renderer_release_delta"))
+        #expect(counterLabels.contains("agentstudio_performance_renderer_free_delta"))
+        #expect(finalSnapshot.liveCurrent == 0)
+        #expect(finalSnapshot.managerOwnedCurrent == 0)
+        #expect(finalSnapshot.orphanCandidateCurrent == 0)
+        #expect(finalSnapshot.isValid)
+    }
+
+    @Test("renderer lifecycle conservation exposes the release-to-free orphan interval")
+    func rendererLifecycleConservationExposesReleaseToFreeInterval() {
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+        let surfaceID = UUIDv7.generate()
+
+        recorder.recordRendererCreated(
+            surfaceID: surfaceID,
+            active: 0,
+            hidden: 1,
+            closeUndo: 0
+        )
+        let owned = recorder.rendererLifecycleSnapshot()
+        recorder.recordRendererPermanentlyReleased(
+            surfaceID: surfaceID,
+            reason: "repair_replacement",
+            active: 0,
+            hidden: 0,
+            closeUndo: 0
+        )
+        let released = recorder.rendererLifecycleSnapshot()
+        recorder.recordRendererDeinitialized(surfaceID: surfaceID)
+        let freed = recorder.rendererLifecycleSnapshot()
+
+        #expect(owned.liveCurrent == 1)
+        #expect(owned.managerOwnedCurrent == 1)
+        #expect(owned.orphanCandidateCurrent == 0)
+        #expect(released.permanentReleaseTotal == 1)
+        #expect(released.liveCurrent == 1)
+        #expect(released.managerOwnedCurrent == 0)
+        #expect(released.orphanCandidateCurrent == 1)
+        #expect(freed.deinitializedFreeTotal == 1)
+        #expect(freed.liveCurrent == 0)
+        #expect(freed.orphanCandidateCurrent == 0)
+        #expect(freed.sampleSequence == 3)
+    }
+
+    @Test("renderer lifecycle invalid negative orphan is preserved rather than clamped")
+    func rendererLifecycleNegativeOrphanIsPreserved() {
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+
+        recorder.recordRendererDeinitialized(surfaceID: UUIDv7.generate())
+        let snapshot = recorder.rendererLifecycleSnapshot()
+
+        #expect(snapshot.liveCurrent == -1)
+        #expect(snapshot.orphanCandidateCurrent == -1)
+        #expect(!snapshot.isValid)
+    }
+
     @Test("pane association boot reconciliation records only aggregate counts")
     func paneAssociationBootReconciliationRecordsScrubbedCounts() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()
@@ -584,6 +737,26 @@ private final class AttributeEvaluationCounter: @unchecked Sendable {
     func attributes() -> [String: AgentStudioTraceValue] {
         lock.withLock { evaluationCountStorage += 1 }
         return ["agentstudio.performance.git.running.count": .int(1)]
+    }
+}
+
+private actor RendererLifecycleRecordingTraceSink: AgentStudioTraceSink {
+    private var records: [AgentStudioTraceRecord] = []
+
+    func record(_ record: AgentStudioTraceRecord) {
+        records.append(record)
+    }
+
+    func flush() {}
+
+    func shutdown() {}
+
+    func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+        .empty
+    }
+
+    func recordedRecords() -> [AgentStudioTraceRecord] {
+        records
     }
 }
 

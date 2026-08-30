@@ -593,11 +593,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     }
 
     private func restartSurface() {
-        guard let oldSurfaceId = surfaceId else { return }
-
-        // Destroy old surface
-        SurfaceManager.shared.destroy(oldSurfaceId)
-        removeSurface()
+        guard surfaceId != nil else { return }
 
         // Request coordinator to recreate the surface
         onRepairRequested?(paneId)
@@ -694,7 +690,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     func terminateProcess() {
         guard isProcessRunning, let surfaceId else { return }
         isProcessRunning = false
-        SurfaceManager.shared.destroy(surfaceId)
+        SurfaceManager.shared.permanentlyRelease(surfaceId, reason: .explicitTermination)
         self.surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
         hasObservedEffectiveTerminationDelivery = false
@@ -781,9 +777,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     package override func becomeFirstResponder() -> Bool {
         if let surface = ghosttySurface, let window {
-            if let surfaceId {
-                SurfaceManager.shared.setFocus(surfaceId, focused: true)
-            }
             RestoreTrace.log(
                 "TerminalPaneMountView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
             return window.makeFirstResponder(surface)
@@ -792,9 +785,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     }
 
     package override func resignFirstResponder() -> Bool {
-        if let surfaceId {
-            SurfaceManager.shared.setFocus(surfaceId, focused: false)
-        }
+        ghosttySurface?.requestManagedFocus(false)
         RestoreTrace.log(
             "TerminalPaneMountView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
         return super.resignFirstResponder()

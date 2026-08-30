@@ -101,7 +101,10 @@ extension WebKitSerializedTests {
             #expect(mountedBridgeView?.controller.bridgePaneState == acceptedState)
             #expect(coordinator.runtimeForPane(paneID) is BridgeRuntime)
 
-            coordinator.teardownView(for: acceptedPane.id)
+            coordinator.teardownView(
+                for: acceptedPane.id,
+                surfaceDisposition: .permanent(.explicitRemoval)
+            )
             await coordinator.shutdown()
         }
     }

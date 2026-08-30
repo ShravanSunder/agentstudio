@@ -8,6 +8,11 @@ import GhosttyKit
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
+    enum TerminalSurfaceTeardownDisposition {
+        case closeUndo
+        case permanent(SurfacePermanentReleaseReason)
+    }
+
     enum ViewTeardownReplayEvictionPolicy {
         case schedule
         case callerManaged
@@ -46,11 +51,13 @@ extension WorkspaceSurfaceCoordinator {
         mountedView: NSView & PaneMountedContent,
         for paneId: UUID
     ) -> PaneHostView {
+        let priorHost = viewRegistry.view(for: paneId)
         let host = PaneHostView(paneId: paneId)
         host.onAttachedToWindow = { [weak self] attachedPaneId in
             self?.handlePaneHostAttachedToWindow(attachedPaneId)
         }
         host.mountContentView(mountedView)
+        priorHost?.removeFromSuperview()
         viewRegistry.register(host, for: paneId)
         return host
     }
@@ -326,7 +333,7 @@ extension WorkspaceSurfaceCoordinator {
                 "Failed to attach floating terminal surface \(surfaceID) to pane \(pane.id)"
             )
             rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
-            surfaceManager.destroy(surfaceID)
+            _ = surfaceManager.permanentlyRelease(surfaceID, reason: .creationRollback)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
@@ -396,7 +403,11 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
-    func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+    func teardownView(
+        for paneId: UUID,
+        shouldUnregisterRuntime: Bool = true,
+        surfaceDisposition: TerminalSurfaceTeardownDisposition
+    ) {
         if shouldUnregisterRuntime {
             closeBridgePaneActivityAuthority(for: paneId)
         }
@@ -411,7 +422,12 @@ extension WorkspaceSurfaceCoordinator {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
-            surfaceManager.detach(surfaceId, reason: .close)
+            switch surfaceDisposition {
+            case .closeUndo:
+                surfaceManager.detach(surfaceId, reason: .close)
+            case .permanent(let reason):
+                _ = surfaceManager.permanentlyRelease(surfaceId, reason: reason)
+            }
         }
 
         if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {
@@ -459,6 +475,9 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func unregisterHostedView(for paneId: UUID) {
+        let retiringHost = viewRegistry.view(for: paneId)
+        retiringHost?.unmountContentView()
+        retiringHost?.removeFromSuperview()
         viewRegistry.unregister(paneId)
         recoverZoomCompanionAfterResourceLoss(for: paneId)
     }
@@ -567,29 +586,22 @@ extension WorkspaceSurfaceCoordinator {
     ) -> TerminalPaneMountView? {
         let runtimePaneId = PaneId(existingUUID: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
-        if let undone = surfaceManager.undoClose() {
-            if undone.metadata.paneId == pane.id {
-                let view = TerminalPaneMountView(
-                    worktree: worktree,
-                    repo: repo,
-                    restoredSurfaceId: undone.id,
-                    paneId: pane.id,
-                    performanceTraceRecorder: performanceTraceRecorder
-                )
-                surfaceManager.attach(undone.id, to: pane.id)
-                view.displaySurface(undone.surface)
-                registerHostedView(mountedView: view, for: pane.id)
-                registerTerminalRuntimeIfNeeded(for: pane)
-                runtime.markRunning(pane.id)
-                registerPaneFilesystemContextIfNeeded(for: pane)
-                Self.logger.info("Restored view from undo for pane \(pane.id)")
-                return view
-            } else {
-                Self.logger.warning(
-                    "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
-                )
-                surfaceManager.requeueUndo(undone.id)
-            }
+        if let undone = surfaceManager.restoreClosedSurface(forPaneID: pane.id) {
+            let view = TerminalPaneMountView(
+                worktree: worktree,
+                repo: repo,
+                restoredSurfaceId: undone.id,
+                paneId: pane.id,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+            surfaceManager.attach(undone.id, to: pane.id)
+            view.displaySurface(undone.surface)
+            registerHostedView(mountedView: view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
+            runtime.markRunning(pane.id)
+            registerPaneFilesystemContextIfNeeded(for: pane)
+            Self.logger.info("Restored view from undo for pane \(pane.id)")
+            return view
         }
 
         Self.logger.info("Creating fresh view for pane \(pane.id)")

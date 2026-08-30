@@ -232,14 +232,14 @@ extension WorkspaceSurfaceCoordinator {
 
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
         guard let pane = store.paneAtom.pane(paneId) else {
-            teardownView(for: paneId)
+            teardownView(for: paneId, surfaceDisposition: .permanent(.creationRollback))
             viewRegistry.retireSlot(for: paneId)
             return
         }
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
             let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            teardownView(for: paneId)
+            teardownView(for: paneId, surfaceDisposition: .permanent(.creationRollback))
             store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
             if let drawerId {
                 store.tabArrangementAtom.removeDrawerPaneView(drawerId: drawerId, drawerPaneId: paneId, inTab: tabId)
@@ -249,8 +249,8 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let drawerChildIds = pane.drawer?.paneIds ?? []
-        teardownDrawerPanes(for: paneId)
-        teardownView(for: paneId)
+        teardownDrawerPanes(for: paneId, surfaceDisposition: .permanent(.creationRollback))
+        teardownView(for: paneId, surfaceDisposition: .permanent(.creationRollback))
         store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
         store.mutationCoordinator.removePane(paneId)
         for drawerPaneId in drawerChildIds {

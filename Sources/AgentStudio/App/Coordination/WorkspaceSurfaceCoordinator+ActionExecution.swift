@@ -395,7 +395,7 @@ extension WorkspaceSurfaceCoordinator {
         case .purgeOrphanedPane(let paneId):
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             retireZoomCompanion(forSourcePane: paneId)
-            teardownView(for: paneId)
+            teardownView(for: paneId, surfaceDisposition: .permanent(.explicitRemoval))
             store.paneAtom.purgeOrphanedPane(paneId)
             viewRegistry.retireSlot(for: paneId)
 
@@ -515,7 +515,7 @@ extension WorkspaceSurfaceCoordinator {
                     focusVisiblePaneHost(parentPaneId)
                 }
             }
-            teardownView(for: drawerPaneId)
+            teardownView(for: drawerPaneId, surfaceDisposition: .closeUndo)
             store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
             if let tabId, let drawerId = drawerBeforeRemoval?.drawerId {
                 store.tabArrangementAtom.removeDrawerPaneView(
@@ -687,8 +687,8 @@ extension WorkspaceSurfaceCoordinator {
             // Pane models remain alive for undo; only their hosts are torn down.
             closingPaneIds = tab.allPaneIds
             for paneId in tab.allPaneIds {
-                teardownDrawerPanes(for: paneId)
-                teardownView(for: paneId)
+                teardownDrawerPanes(for: paneId, surfaceDisposition: .closeUndo)
+                teardownView(for: paneId, surfaceDisposition: .closeUndo)
             }
         } else {
             closingPaneIds = []
@@ -723,7 +723,11 @@ extension WorkspaceSurfaceCoordinator {
             }
 
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
-                teardownView(for: pane.id)
+                _ = surfaceManager.permanentlyReleaseClosedSurface(
+                    forPaneID: pane.id,
+                    reason: .explicitRemoval
+                )
+                teardownView(for: pane.id, surfaceDisposition: .permanent(.explicitRemoval))
                 store.mutationCoordinator.removePane(pane.id)
                 viewRegistry.retireSlot(for: pane.id)
                 Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
@@ -824,7 +828,7 @@ extension WorkspaceSurfaceCoordinator {
             if let parentPaneId = closingPane.parentPaneId {
                 execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             } else {
-                teardownView(for: paneId)
+                teardownView(for: paneId, surfaceDisposition: .closeUndo)
                 store.mutationCoordinator.removePane(paneId)
                 viewRegistry.retireSlot(for: paneId)
             }
@@ -834,8 +838,8 @@ extension WorkspaceSurfaceCoordinator {
 
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         retireZoomCompanion(forSourcePane: paneId)
-        teardownDrawerPanes(for: paneId)
-        teardownView(for: paneId)
+        teardownDrawerPanes(for: paneId, surfaceDisposition: .closeUndo)
+        teardownView(for: paneId, surfaceDisposition: .closeUndo)
         viewRegistry.retireSlot(for: paneId)
 
         for drawerPaneId in drawerChildIds {

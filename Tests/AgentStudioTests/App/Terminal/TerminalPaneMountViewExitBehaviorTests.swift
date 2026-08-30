@@ -376,6 +376,26 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
     }
 
+    @Test("restart delegates repair exactly once without removing or destroying the current surface")
+    func restartDelegatesRepairWithoutPredestroyingSurface() throws {
+        let surfaceID = UUIDv7.generate()
+        let paneID = UUIDv7.generate()
+        let mountView = TerminalPaneMountView(
+            restoredSurfaceId: surfaceID,
+            paneId: paneID,
+            title: "Terminal"
+        )
+        var repairRequests: [UUID] = []
+        mountView.onRepairRequested = { repairRequests.append($0) }
+        mountView.applyHealthUpdateForTesting(.dead)
+        let overlay = try #require(mountView.errorOverlay)
+
+        overlay.onRestart?()
+
+        #expect(repairRequests == [paneID])
+        #expect(mountView.surfaceId == surfaceID)
+    }
+
     @Test("controller subscribes before view load and unregisters on teardown")
     func controller_subscribesBeforeViewLoad_andUnregistersOnTeardown() async {
         var harness: PaneTabControllerHarness? = makePaneTabControllerHarness()

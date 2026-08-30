@@ -867,19 +867,12 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
             path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift"
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let reusedBranchStart = try #require(
-            source.range(of: "if undone.metadata.paneId == pane.id {")
-        )
-        let mismatchBranchStart = try #require(
-            source.range(
-                of: "} else {",
-                range: reusedBranchStart.upperBound..<source.endIndex
-            )
-        )
-        let reusedBranch = String(source[reusedBranchStart.lowerBound..<mismatchBranchStart.lowerBound])
 
-        #expect(reusedBranch.contains("registerPaneFilesystemContextIfNeeded(for: pane)"))
-        #expect(!reusedBranch.contains("syncFilesystemRootsAndActivity"))
+        #expect(source.contains("surfaceManager.restoreClosedSurface(forPaneID: pane.id)"))
+        #expect(source.contains("registerPaneFilesystemContextIfNeeded(for: pane)"))
+        #expect(!source.contains("if undone.metadata.paneId == pane.id"))
+        #expect(!source.contains("surfaceManager.requeueUndo"))
+        #expect(!source.contains("syncFilesystemRootsAndActivity"))
     }
 
     @Test("fresh createView registers runtime before createSurface")
@@ -926,6 +919,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         #expect(created == nil)
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
+
 }
 
 @MainActor

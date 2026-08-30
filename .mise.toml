@@ -703,6 +703,18 @@ run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 description = "Run one marker-scoped terminal-title and pane-observation proof"
 run = "/bin/bash scripts/verify-title-pane-performance-workload.sh --proof"
 
+[tasks.verify-renderer-lifecycle-continuity]
+description = "Run the isolated 20-surface renderer lifecycle continuity proof"
+run = "/bin/bash scripts/verify-renderer-lifecycle-continuity.sh"
+
+[tasks.verify-renderer-lifecycle-native-ui]
+description = "Run the foreground native renderer lifecycle continuity proof"
+run = "AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1 /bin/bash scripts/verify-renderer-lifecycle-continuity.sh"
+
+[tasks.verify-renderer-lifecycle-soak]
+description = "Run the isolated fixed 20-surface renderer lifecycle soak certification"
+run = "/bin/bash scripts/verify-renderer-lifecycle-soak.sh"
+
 [tasks."perf:report"]
 description = "Compare completed marker-scoped AgentStudio performance windows"
 run = "/bin/bash scripts/perf-report.sh"

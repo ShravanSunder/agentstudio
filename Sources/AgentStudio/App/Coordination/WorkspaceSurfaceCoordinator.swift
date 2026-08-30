@@ -19,9 +19,42 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     @discardableResult
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView?
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason)
-    func undoClose() -> ManagedSurface?
-    func requeueUndo(_ surfaceId: UUID)
+    func restoreClosedSurface(forPaneID paneID: UUID) -> ManagedSurface?
     func destroy(_ surfaceId: UUID)
+    func permanentlyRelease(
+        _ surfaceId: UUID,
+        reason: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult
+    func permanentlyReleaseClosedSurface(
+        forPaneID paneID: UUID,
+        reason: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult
+    func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?)
+    func reconcileAttachedVisibility(
+        _ visibilityForPaneID: (UUID) -> Bool
+    ) -> SurfaceVisibilityReconciliationResult
+}
+
+extension WorkspaceSurfaceManaging {
+    func restoreClosedSurface(forPaneID _: UUID) -> ManagedSurface? { nil }
+
+    func permanentlyRelease(
+        _: UUID,
+        reason _: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult { .notOwned }
+
+    func permanentlyReleaseClosedSurface(
+        forPaneID _: UUID,
+        reason _: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult { .notOwned }
+
+    func setAttachedBindingsChangeHandler(_: (() -> Void)?) {}
+
+    func reconcileAttachedVisibility(
+        _: (UUID) -> Bool
+    ) -> SurfaceVisibilityReconciliationResult {
+        SurfaceVisibilityReconciliationResult(applied: 0, equal: 0, missing: 0, failed: 0)
+    }
 }
 
 extension SurfaceManager: WorkspaceSurfaceManaging {}
@@ -107,6 +140,8 @@ final class WorkspaceSurfaceCoordinator {
     var pullRequestDemandInFlightWorktreeIds: Set<UUID>?
     var pendingPullRequestDemandWorktreeIds: Set<UUID>?
     var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
+    var rendererVisibilityOwningWindowId: UUID?
+    var rendererVisibilityObservationGeneration: UInt64 = 0
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
@@ -225,6 +260,8 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask?.cancel()
         bridgePaneActivityObservationGeneration &+= 1
         pullRequestDemandObservationGeneration &+= 1
+        rendererVisibilityObservationGeneration &+= 1
+        surfaceManager.setAttachedBindingsChangeHandler(nil)
         pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
@@ -240,8 +277,10 @@ final class WorkspaceSurfaceCoordinator {
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
         pullRequestDemandObservationGeneration &+= 1
+        rendererVisibilityObservationGeneration &+= 1
+        surfaceManager.setAttachedBindingsChangeHandler(nil)
         for paneId in viewRegistry.allBridgeViews.keys {
-            teardownView(for: paneId)
+            teardownView(for: paneId, surfaceDisposition: .permanent(.explicitRemoval))
         }
         let activePaneEventIngressTask = paneEventIngressTask
         let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask

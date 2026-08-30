@@ -166,6 +166,18 @@ struct AgentStudioStartupDiagnosticActionParsingTests {
         #expect(action.commandName == "repoExplorerInteractionProof")
     }
 
+    @Test("startup diagnostic action parses renderer lifecycle continuity command")
+    func parsesRendererLifecycleContinuityCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " renderer-lifecycle-continuity "
+            ]))
+
+        #expect(action.kind == .rendererLifecycleContinuity)
+        #expect(action.commandName == "rendererLifecycleContinuity")
+        #expect(!action.suppressesAutomaticLaunchPaneRestore)
+    }
+
     @Test("startup diagnostic action parses TCC upgrade probe command")
     func parsesTCCUpgradeProbeCommand() throws {
         let action = try #require(

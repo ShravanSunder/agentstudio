@@ -124,6 +124,8 @@ extension AppDelegate {
                     await self.runRepoExplorerKeyMutationProofDiagnostic(action: action)
                 case .repoExplorerInteractionProof:
                     await self.runRepoExplorerInteractionProofDiagnostic(action: action)
+                case .rendererLifecycleContinuity:
+                    await self.runRendererLifecycleContinuityDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {

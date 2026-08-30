@@ -103,19 +103,51 @@ package struct ManagedSurface {
     package internal(set) var metadata: SurfaceMetadata
     var state: SurfaceState
     var health: SurfaceHealth
+    package internal(set) var lastDeliveredVisibility: Bool?
 
     init(
         id: UUID = UUIDv7.generate(),
         surface: Ghostty.SurfaceView,
         metadata: SurfaceMetadata,
-        state: SurfaceState = .hidden
+        state: SurfaceState = .hidden,
+        lastDeliveredVisibility: Bool? = nil
     ) {
         self.id = id
         self.surface = surface
         self.metadata = metadata
         self.state = state
         self.health = .healthy
+        self.lastDeliveredVisibility = lastDeliveredVisibility
     }
+}
+
+// MARK: - Renderer Lifecycle Results
+
+package struct SurfaceVisibilityReconciliationResult: Equatable {
+    package let applied: Int
+    package let equal: Int
+    package let missing: Int
+    package let failed: Int
+
+    package init(applied: Int, equal: Int, missing: Int, failed: Int) {
+        self.applied = applied
+        self.equal = equal
+        self.missing = missing
+        self.failed = failed
+    }
+}
+
+package enum SurfacePermanentReleaseReason: String, Equatable, Sendable {
+    case repairReplacement = "repair_replacement"
+    case explicitTermination = "explicit_termination"
+    case explicitRemoval = "explicit_removal"
+    case undoExpired = "undo_expired"
+    case creationRollback = "creation_rollback"
+}
+
+package enum SurfacePermanentReleaseResult: Equatable {
+    case released
+    case notOwned
 }
 
 // MARK: - Undo Entry

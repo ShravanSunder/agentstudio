@@ -340,6 +340,7 @@ extension Ghostty {
         private(set) var error: Error?
         weak var terminalRuntime: TerminalRuntime?
         weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+        package weak var focusRequester: (any SurfaceFocusRequesting)?
         let appCommandDispatcher: any AppCommandDispatching
         let mouseVisibilityToken = UUID()
         // MARK: - Initialization
@@ -465,24 +466,40 @@ extension Ghostty {
             }
         }
 
+        package init(
+            bareManagedSurfaceID: UUID,
+            appCommandDispatcher: any AppCommandDispatching,
+            performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        ) {
+            self.managedSurfaceID = bareManagedSurfaceID
+            self.hostConfigSnapshot = GhosttyHostConfigSnapshot(configHandle: nil)
+            self.appCommandDispatcher = appCommandDispatcher
+            self.performanceTraceRecorder = performanceTraceRecorder
+            super.init(frame: .zero)
+        }
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
 
-        deinit {
-            let mouseVisibilityToken = self.mouseVisibilityToken
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
-                }
-            } else {
-                Task { @MainActor in
-                    GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
-                }
-            }
+        isolated deinit {
+            GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
             if let surface {
                 ghostty_surface_free(surface)
+                performanceTraceRecorder?.recordRendererDeinitialized(
+                    surfaceID: managedSurfaceID
+                )
             }
+        }
+
+        @discardableResult
+        package func requestManagedFocus(_ focused: Bool) -> Bool {
+            guard let focusRequester else { return false }
+            return focusRequester.requestFocus(
+                surfaceID: managedSurfaceID,
+                viewIdentity: ObjectIdentifier(self),
+                focused: focused
+            )
         }
 
         /// Called when the title changes (from App callback)
@@ -534,9 +551,7 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if result {
                 focused = true
-                if let surface {
-                    ghostty_surface_set_focus(surface, true)
-                }
+                requestManagedFocus(true)
                 applyMouseVisibility(isVisible: terminalRuntime?.isMouseVisible ?? true)
                 logSurfaceSnapshot(reason: "becomeFirstResponder")
             }
@@ -547,9 +562,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                requestManagedFocus(false)
                 applyMouseVisibility(isVisible: true)
                 logSurfaceSnapshot(reason: "resignFirstResponder")
             }
@@ -578,9 +591,7 @@ extension Ghostty {
                     isFocused: focused,
                     isAttachedToWindow: false
                 )
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                requestManagedFocus(false)
                 wasDetachedFromWindow = true
             }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")

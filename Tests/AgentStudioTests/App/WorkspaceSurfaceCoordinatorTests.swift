@@ -388,7 +388,10 @@ struct WorkspaceSurfaceCoordinatorTests {
         harness.coordinator.registerRuntime(runtime)
 
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) != nil)
-        harness.coordinator.teardownView(for: runtimePaneId.uuid)
+        harness.coordinator.teardownView(
+            for: runtimePaneId.uuid,
+            surfaceDisposition: .permanent(.explicitRemoval)
+        )
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
 

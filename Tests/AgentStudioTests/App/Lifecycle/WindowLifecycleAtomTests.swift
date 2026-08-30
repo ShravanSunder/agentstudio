@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -98,6 +100,32 @@ struct WindowLifecycleAtomTests {
 
         // Assert
         #expect(atom.presentationFacts(for: windowId) == originalFacts)
+    }
+
+    @Test("equal window presentation facts do not invalidate observers")
+    func equalWindowPresentationFactsDoNotInvalidateObservers() {
+        // Arrange
+        let atom = WindowLifecycleAtom()
+        let windowId = UUID()
+        let invalidationCount = Mutex(0)
+        atom.recordWindowRegistered(windowId)
+        let facts = WindowPresentationFacts(
+            isVisible: true,
+            isMiniaturized: false,
+            isOccluded: false
+        )
+        atom.recordWindowPresentation(facts, for: windowId)
+        withObservationTracking {
+            _ = atom.presentationFacts(for: windowId)
+        } onChange: {
+            invalidationCount.withLock { $0 += 1 }
+        }
+
+        // Act
+        atom.recordWindowPresentation(facts, for: windowId)
+
+        // Assert
+        #expect(invalidationCount.withLock { $0 } == 0)
     }
 
     @Test("tracks registered and key window identity")

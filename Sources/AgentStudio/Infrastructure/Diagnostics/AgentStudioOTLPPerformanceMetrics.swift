@@ -184,7 +184,11 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             return AgentStudioOTLPPerformanceMetricSample(
                 eventName: record.body,
                 label: metricLabel,
-                dimensions: dimensions,
+                dimensions: Self.metricDimensions(
+                    for: metricLabel,
+                    eventName: record.body,
+                    eventDimensions: dimensions
+                ),
                 value: numericValue
             )
         }
@@ -289,6 +293,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
         appendPaneAssociationOutcomeDimension(record: record, dimensions: &dimensions)
         appendAtomDimensions(record: record, dimensions: &dimensions)
+        appendRendererDimensions(record: record, dimensions: &dimensions)
         appendRepoExplorerKeyedWakeDimensions(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimensions(record: record, dimensions: &dimensions)
@@ -437,6 +442,47 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome))
     }
 
+    private static func appendRendererDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.renderer.lifecycle" else { return }
+        let boundedDimensions: [(name: String, key: String, values: Set<String>)] = [
+            (
+                "event_kind",
+                "agentstudio.performance.renderer.event.kind",
+                [
+                    "created", "manager_population", "permanent_release", "deinitialized_free",
+                    "visibility_delivery", "projection_evaluation",
+                ]
+            ),
+            (
+                "release_reason",
+                "agentstudio.performance.renderer.release.reason",
+                [
+                    "repair_replacement", "explicit_termination", "explicit_removal", "undo_expired",
+                    "creation_rollback",
+                ]
+            ),
+            (
+                "visibility_outcome",
+                "agentstudio.performance.renderer.visibility.outcome",
+                ["applied", "equal", "failed", "missing"]
+            ),
+            (
+                "projection_trigger",
+                "agentstudio.performance.renderer.projection.trigger",
+                ["initial_bind", "membership_change", "observed_change"]
+            ),
+        ]
+        for dimension in boundedDimensions {
+            guard case .string(let value) = record.attributes[dimension.key],
+                dimension.values.contains(value)
+            else { continue }
+            dimensions.append(.init(name: dimension.name, value: value))
+        }
+    }
+
     private static func appendTerminalAccumulatorApplyOutcomeDimension(
         record: AgentStudioOTLPProjectedLogRecord,
         dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
@@ -544,9 +590,51 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         return .gauge(sample)
     }
 
+    private static func metricDimensions(
+        for metricLabel: String,
+        eventName: String,
+        eventDimensions: [AgentStudioOTLPPerformanceMetricDimension]
+    ) -> [AgentStudioOTLPPerformanceMetricDimension] {
+        guard eventName == "performance.renderer.lifecycle",
+            rendererSnapshotMetricLabels.contains(metricLabel)
+        else { return eventDimensions }
+        return eventDimensions.filter { $0.name == "event" }
+    }
+
+    private static let rendererSnapshotMetricLabels: Set<String> = [
+        "agentstudio_performance_renderer_active_current",
+        "agentstudio_performance_renderer_close_undo_current",
+        "agentstudio_performance_renderer_created_total",
+        "agentstudio_performance_renderer_free_total",
+        "agentstudio_performance_renderer_hidden_current",
+        "agentstudio_performance_renderer_lifecycle_valid",
+        "agentstudio_performance_renderer_live_current",
+        "agentstudio_performance_renderer_manager_owned_current",
+        "agentstudio_performance_renderer_orphan_candidate_current",
+        "agentstudio_performance_renderer_projection_changed_surface_total",
+        "agentstudio_performance_renderer_projection_equal_surface_total",
+        "agentstudio_performance_renderer_projection_evaluated_surface_total",
+        "agentstudio_performance_renderer_projection_evaluation_total",
+        "agentstudio_performance_renderer_release_total",
+        "agentstudio_performance_renderer_sample_sequence",
+        "agentstudio_performance_renderer_visibility_delivery_total",
+        "agentstudio_performance_renderer_visibility_equal_suppressed_total",
+    ]
+
     private static let counterMetricLabels: Set<String> = [
         "agentstudio_performance_filesystem_affected_key_request_count",
         "agentstudio_performance_filesystem_full_reconciliation_request_count",
+        "agentstudio_performance_renderer_created_delta",
+        "agentstudio_performance_renderer_free_delta",
+        "agentstudio_performance_renderer_projection_changed_surface_delta",
+        "agentstudio_performance_renderer_projection_equal_surface_delta",
+        "agentstudio_performance_renderer_projection_evaluated_surface_delta",
+        "agentstudio_performance_renderer_projection_evaluation_delta",
+        "agentstudio_performance_renderer_projection_failed_surface_delta",
+        "agentstudio_performance_renderer_projection_missing_surface_delta",
+        "agentstudio_performance_renderer_release_delta",
+        "agentstudio_performance_renderer_visibility_delivery_delta",
+        "agentstudio_performance_renderer_visibility_equal_suppressed_delta",
         "agentstudio_performance_terminal_accumulator_equal_suppressed_count",
         "agentstudio_performance_terminal_accumulator_follow_up_drain_count",
         "agentstudio_performance_terminal_accumulator_mainactor_task_count",

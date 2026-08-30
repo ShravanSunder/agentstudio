@@ -47,7 +47,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
-        let window = NSWindow(
+        let window = WorkspaceWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -82,6 +82,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
+        window.didCompleteOrdering = { [weak self] in
+            self?.synchronizeWindowPresentationFacts()
+        }
         window.delegate = self
         applicationLifecycleMonitor.installFirstDisplayCommitScheduler { [weak window] completion in
             guard let window else { return }
@@ -183,7 +186,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     func shutdown() {
         guard !hasShutdown else { return }
         hasShutdown = true
+        clearWorkspaceWindowOrderingCallback()
         splitViewController?.shutdown()
+    }
+
+    isolated deinit {
+        clearWorkspaceWindowOrderingCallback()
     }
 
     func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
@@ -204,6 +212,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             isMiniaturized: window.isMiniaturized,
             isOccluded: !window.occlusionState.contains(.visible)
         )
+    }
+
+    private func clearWorkspaceWindowOrderingCallback() {
+        (window as? WorkspaceWindow)?.didCompleteOrdering = nil
     }
 
     // MARK: - Frame Validation

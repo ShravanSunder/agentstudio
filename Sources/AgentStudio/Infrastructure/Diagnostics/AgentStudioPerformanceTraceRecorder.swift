@@ -147,6 +147,84 @@ package enum AgentStudioFocusResponderChangeReason: String, Sendable {
     case parkedCleared = "parked_cleared"
 }
 
+package struct RendererLifecyclePerformanceSnapshot: Equatable, Sendable {
+    package let successfulCreatedTotal: Int
+    package let permanentReleaseTotal: Int
+    package let deinitializedFreeTotal: Int
+    package let visibilityDeliveryTotal: Int
+    package let visibilityEqualSuppressedTotal: Int
+    package let projectionEvaluationTotal: Int
+    package let projectionEvaluatedSurfaceTotal: Int
+    package let projectionChangedSurfaceTotal: Int
+    package let projectionEqualSurfaceTotal: Int
+    package let activeCurrent: Int
+    package let hiddenCurrent: Int
+    package let closeUndoCurrent: Int
+    package let liveCurrent: Int
+    package let managerOwnedCurrent: Int
+    package let orphanCandidateCurrent: Int
+    package let sampleSequence: Int
+
+    package var isValid: Bool {
+        liveCurrent >= 0
+            && managerOwnedCurrent >= 0
+            && orphanCandidateCurrent >= 0
+            && managerOwnedCurrent <= liveCurrent
+    }
+}
+
+package enum RendererVisibilityDeliveryOutcome: String, Equatable, Sendable {
+    case applied
+    case equal
+    case failed
+    case missing
+}
+
+package enum RendererVisibilityProjectionTrigger: String, Equatable, Sendable {
+    case initialBind = "initial_bind"
+    case membershipChange = "membership_change"
+    case observedChange = "observed_change"
+}
+
+private struct RendererLifecyclePerformanceState {
+    var successfulCreatedTotal = 0
+    var permanentReleaseTotal = 0
+    var deinitializedFreeTotal = 0
+    var visibilityDeliveryTotal = 0
+    var visibilityEqualSuppressedTotal = 0
+    var projectionEvaluationTotal = 0
+    var projectionEvaluatedSurfaceTotal = 0
+    var projectionChangedSurfaceTotal = 0
+    var projectionEqualSurfaceTotal = 0
+    var activeCurrent = 0
+    var hiddenCurrent = 0
+    var closeUndoCurrent = 0
+    var sampleSequence = 0
+
+    var snapshot: RendererLifecyclePerformanceSnapshot {
+        let liveCurrent = successfulCreatedTotal - deinitializedFreeTotal
+        let managerOwnedCurrent = activeCurrent + hiddenCurrent + closeUndoCurrent
+        return RendererLifecyclePerformanceSnapshot(
+            successfulCreatedTotal: successfulCreatedTotal,
+            permanentReleaseTotal: permanentReleaseTotal,
+            deinitializedFreeTotal: deinitializedFreeTotal,
+            visibilityDeliveryTotal: visibilityDeliveryTotal,
+            visibilityEqualSuppressedTotal: visibilityEqualSuppressedTotal,
+            projectionEvaluationTotal: projectionEvaluationTotal,
+            projectionEvaluatedSurfaceTotal: projectionEvaluatedSurfaceTotal,
+            projectionChangedSurfaceTotal: projectionChangedSurfaceTotal,
+            projectionEqualSurfaceTotal: projectionEqualSurfaceTotal,
+            activeCurrent: activeCurrent,
+            hiddenCurrent: hiddenCurrent,
+            closeUndoCurrent: closeUndoCurrent,
+            liveCurrent: liveCurrent,
+            managerOwnedCurrent: managerOwnedCurrent,
+            orphanCandidateCurrent: liveCurrent - managerOwnedCurrent,
+            sampleSequence: sampleSequence
+        )
+    }
+}
+
 package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
@@ -208,6 +286,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
+        case rendererLifecycle = "performance.renderer.lifecycle"
         case processMallocZone = "performance.process.malloc_zone"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
         case sidebarFilterInput = "performance.sidebar.filter_input"
@@ -241,6 +320,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var topologyLookupAdmission = TopologyLookupTraceAdmission()
     private var paneAssociationAdmission = PaneAssociationTraceAdmission()
+    private var rendererLifecycleState = RendererLifecyclePerformanceState()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
     private var recordedStartupLaunchInstant: ContinuousClock.Instant
@@ -378,6 +458,235 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                 "agentstudio.performance.focus.responder_change.reason": .string(reason.rawValue)
             ]
         )
+    }
+
+    package func recordRendererCreated(
+        surfaceID: UUID,
+        active: Int,
+        hidden: Int,
+        closeUndo: Int
+    ) {
+        let snapshot = lock.withLock {
+            rendererLifecycleState.successfulCreatedTotal += 1
+            rendererLifecycleState.activeCurrent = active
+            rendererLifecycleState.hiddenCurrent = hidden
+            rendererLifecycleState.closeUndoCurrent = closeUndo
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(
+            snapshot,
+            eventKind: "created",
+            surfaceID: surfaceID,
+            createdDelta: 1
+        )
+    }
+
+    package func recordRendererManagerPopulation(
+        active: Int,
+        hidden: Int,
+        closeUndo: Int
+    ) {
+        let snapshot = lock.withLock {
+            rendererLifecycleState.activeCurrent = active
+            rendererLifecycleState.hiddenCurrent = hidden
+            rendererLifecycleState.closeUndoCurrent = closeUndo
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(snapshot, eventKind: "manager_population")
+    }
+
+    package func recordRendererPermanentlyReleased(
+        surfaceID: UUID,
+        reason: String,
+        active: Int,
+        hidden: Int,
+        closeUndo: Int
+    ) {
+        let snapshot = lock.withLock {
+            rendererLifecycleState.permanentReleaseTotal += 1
+            rendererLifecycleState.activeCurrent = active
+            rendererLifecycleState.hiddenCurrent = hidden
+            rendererLifecycleState.closeUndoCurrent = closeUndo
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(
+            snapshot,
+            eventKind: "permanent_release",
+            surfaceID: surfaceID,
+            releaseReason: reason,
+            releaseDelta: 1
+        )
+    }
+
+    package func recordRendererDeinitialized(surfaceID: UUID) {
+        let snapshot = lock.withLock {
+            rendererLifecycleState.deinitializedFreeTotal += 1
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(
+            snapshot,
+            eventKind: "deinitialized_free",
+            surfaceID: surfaceID,
+            deinitializedFreeDelta: 1
+        )
+    }
+
+    package func recordRendererVisibilityDelivery(
+        surfaceID: UUID,
+        visible: Bool,
+        outcome: RendererVisibilityDeliveryOutcome
+    ) {
+        let deliveryDelta = outcome == .applied ? 1 : 0
+        let equalSuppressedDelta = outcome == .equal ? 1 : 0
+        let snapshot = lock.withLock {
+            rendererLifecycleState.visibilityDeliveryTotal += deliveryDelta
+            rendererLifecycleState.visibilityEqualSuppressedTotal += equalSuppressedDelta
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(
+            snapshot,
+            eventKind: "visibility_delivery",
+            surfaceID: surfaceID,
+            visibilityOutcome: outcome.rawValue,
+            requestedVisibility: visible,
+            visibilityDeliveryDelta: deliveryDelta,
+            visibilityEqualSuppressedDelta: equalSuppressedDelta
+        )
+    }
+
+    package func recordRendererVisibilityProjection(
+        trigger: RendererVisibilityProjectionTrigger,
+        applied: Int,
+        equal: Int,
+        missing: Int,
+        failed: Int,
+        duration: Duration
+    ) {
+        let evaluated = applied + equal + failed
+        let snapshot = lock.withLock {
+            rendererLifecycleState.projectionEvaluationTotal += 1
+            rendererLifecycleState.projectionEvaluatedSurfaceTotal += evaluated
+            rendererLifecycleState.projectionChangedSurfaceTotal += applied
+            rendererLifecycleState.projectionEqualSurfaceTotal += equal
+            rendererLifecycleState.sampleSequence += 1
+            return rendererLifecycleState.snapshot
+        }
+        recordRendererLifecycleSnapshot(
+            snapshot,
+            eventKind: "projection_evaluation",
+            projectionTrigger: trigger.rawValue,
+            projectionEvaluationDelta: 1,
+            projectionEvaluatedSurfaceDelta: evaluated,
+            projectionChangedSurfaceDelta: applied,
+            projectionEqualSurfaceDelta: equal,
+            projectionMissingSurfaceDelta: missing,
+            projectionFailedSurfaceDelta: failed,
+            elapsedMilliseconds: Self.milliseconds(from: duration)
+        )
+    }
+
+    package func rendererLifecycleSnapshot() -> RendererLifecyclePerformanceSnapshot {
+        lock.withLock { rendererLifecycleState.snapshot }
+    }
+
+    private func recordRendererLifecycleSnapshot(
+        _ snapshot: RendererLifecyclePerformanceSnapshot,
+        eventKind: String,
+        surfaceID: UUID? = nil,
+        releaseReason: String? = nil,
+        visibilityOutcome: String? = nil,
+        projectionTrigger: String? = nil,
+        requestedVisibility: Bool? = nil,
+        createdDelta: Int = 0,
+        releaseDelta: Int = 0,
+        deinitializedFreeDelta: Int = 0,
+        visibilityDeliveryDelta: Int = 0,
+        visibilityEqualSuppressedDelta: Int = 0,
+        projectionEvaluationDelta: Int = 0,
+        projectionEvaluatedSurfaceDelta: Int = 0,
+        projectionChangedSurfaceDelta: Int = 0,
+        projectionEqualSurfaceDelta: Int = 0,
+        projectionMissingSurfaceDelta: Int = 0,
+        projectionFailedSurfaceDelta: Int = 0,
+        elapsedMilliseconds: Double? = nil
+    ) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.renderer.event.kind": .string(eventKind),
+            "agentstudio.performance.renderer.created.delta": .int(createdDelta),
+            "agentstudio.performance.renderer.created.total": .int(snapshot.successfulCreatedTotal),
+            "agentstudio.performance.renderer.release.delta": .int(releaseDelta),
+            "agentstudio.performance.renderer.release.total": .int(snapshot.permanentReleaseTotal),
+            "agentstudio.performance.renderer.free.delta": .int(deinitializedFreeDelta),
+            "agentstudio.performance.renderer.free.total": .int(snapshot.deinitializedFreeTotal),
+            "agentstudio.performance.renderer.visibility.delivery.delta": .int(visibilityDeliveryDelta),
+            "agentstudio.performance.renderer.visibility.delivery.total": .int(snapshot.visibilityDeliveryTotal),
+            "agentstudio.performance.renderer.visibility.equal_suppressed.delta": .int(
+                visibilityEqualSuppressedDelta
+            ),
+            "agentstudio.performance.renderer.visibility.equal_suppressed.total": .int(
+                snapshot.visibilityEqualSuppressedTotal
+            ),
+            "agentstudio.performance.renderer.projection.evaluation.delta": .int(projectionEvaluationDelta),
+            "agentstudio.performance.renderer.projection.evaluation.total": .int(
+                snapshot.projectionEvaluationTotal
+            ),
+            "agentstudio.performance.renderer.projection.evaluated_surface.delta": .int(
+                projectionEvaluatedSurfaceDelta
+            ),
+            "agentstudio.performance.renderer.projection.evaluated_surface.total": .int(
+                snapshot.projectionEvaluatedSurfaceTotal
+            ),
+            "agentstudio.performance.renderer.projection.changed_surface.delta": .int(
+                projectionChangedSurfaceDelta
+            ),
+            "agentstudio.performance.renderer.projection.changed_surface.total": .int(
+                snapshot.projectionChangedSurfaceTotal
+            ),
+            "agentstudio.performance.renderer.projection.equal_surface.delta": .int(
+                projectionEqualSurfaceDelta
+            ),
+            "agentstudio.performance.renderer.projection.equal_surface.total": .int(
+                snapshot.projectionEqualSurfaceTotal
+            ),
+            "agentstudio.performance.renderer.projection.missing_surface.delta": .int(
+                projectionMissingSurfaceDelta
+            ),
+            "agentstudio.performance.renderer.projection.failed_surface.delta": .int(
+                projectionFailedSurfaceDelta
+            ),
+            "agentstudio.performance.renderer.active.current": .int(snapshot.activeCurrent),
+            "agentstudio.performance.renderer.hidden.current": .int(snapshot.hiddenCurrent),
+            "agentstudio.performance.renderer.close_undo.current": .int(snapshot.closeUndoCurrent),
+            "agentstudio.performance.renderer.live.current": .int(snapshot.liveCurrent),
+            "agentstudio.performance.renderer.manager_owned.current": .int(snapshot.managerOwnedCurrent),
+            "agentstudio.performance.renderer.orphan_candidate.current": .int(snapshot.orphanCandidateCurrent),
+            "agentstudio.performance.renderer.lifecycle.valid": .bool(snapshot.isValid),
+            "agentstudio.performance.renderer.sample.sequence": .int(snapshot.sampleSequence),
+        ]
+        if let surfaceID {
+            attributes["agentstudio.performance.renderer.surface_id"] = .string(surfaceID.uuidString)
+        }
+        if let releaseReason {
+            attributes["agentstudio.performance.renderer.release.reason"] = .string(releaseReason)
+        }
+        if let visibilityOutcome {
+            attributes["agentstudio.performance.renderer.visibility.outcome"] = .string(visibilityOutcome)
+        }
+        if let projectionTrigger {
+            attributes["agentstudio.performance.renderer.projection.trigger"] = .string(projectionTrigger)
+        }
+        if let requestedVisibility {
+            attributes["agentstudio.performance.renderer.visibility.requested_visible"] = .bool(requestedVisibility)
+        }
+        if let elapsedMilliseconds {
+            attributes["agentstudio.performance.elapsed_ms"] = .double(elapsedMilliseconds)
+        }
+        record(.rendererLifecycle, attributes: attributes)
     }
 
     package func recordRepoAndWorktreeLookup(

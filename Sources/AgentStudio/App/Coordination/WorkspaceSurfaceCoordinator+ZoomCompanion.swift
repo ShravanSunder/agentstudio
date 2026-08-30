@@ -37,7 +37,10 @@ extension WorkspaceSurfaceCoordinator {
     private func retireZoomCompanionResources(
         _ companion: ZoomCompanionMetadata
     ) {
-        teardownView(for: companion.companionPaneId)
+        teardownView(
+            for: companion.companionPaneId,
+            surfaceDisposition: .permanent(.explicitRemoval)
+        )
         retireBridgePaneActivityAuthority(for: companion.companionPaneId)
         viewRegistry.retireSlot(for: companion.companionPaneId)
     }
@@ -219,7 +222,7 @@ extension WorkspaceSurfaceCoordinator {
         viewRegistry.ensureSlot(for: companionPaneId)
         _ = createZoomCompanionBridgePaneView(for: companionPane, state: companionState)
         guard viewerSurfaceRequest(continuity.surface, companionPaneId) else {
-            teardownView(for: companionPaneId)
+            teardownView(for: companionPaneId, surfaceDisposition: .permanent(.explicitRemoval))
             retireBridgePaneActivityAuthority(for: companionPaneId)
             viewRegistry.retireSlot(for: companionPaneId)
             store.panePresentationAtom.markZoomCompanionLost(

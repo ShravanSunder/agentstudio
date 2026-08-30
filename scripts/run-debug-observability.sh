@@ -778,6 +778,8 @@ if [ ! -x "$binary_path" ]; then
 fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+renderer_lifecycle_phase="${AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE:-}"
+renderer_lifecycle_restart_manifest="${AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST:-}"
 if [ -n "${AGENTSTUDIO_TRACE_TAGS:-}" ]; then
   trace_tags="$AGENTSTUDIO_TRACE_TAGS"
 elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
@@ -892,6 +894,12 @@ fi
 if [ -n "$startup_watch_folder" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
 fi
+if [ -n "$renderer_lifecycle_phase" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE=$renderer_lifecycle_phase")
+fi
+if [ -n "$renderer_lifecycle_restart_manifest" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST=$renderer_lifecycle_restart_manifest")
+fi
 if [ -n "$tcc_probe_repeat_count" ]; then
   open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
 fi
@@ -942,6 +950,12 @@ if [ -n "$startup_diagnostic_action" ]; then
 fi
 if [ -n "$startup_watch_folder" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
+fi
+if [ -n "$renderer_lifecycle_phase" ]; then
+  direct_launch_env+=("AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE=$renderer_lifecycle_phase")
+fi
+if [ -n "$renderer_lifecycle_restart_manifest" ]; then
+  direct_launch_env+=("AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST=$renderer_lifecycle_restart_manifest")
 fi
 if [ -n "$tcc_probe_repeat_count" ]; then
   direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")

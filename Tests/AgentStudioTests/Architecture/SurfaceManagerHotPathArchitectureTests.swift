@@ -69,6 +69,85 @@ struct SurfaceManagerHotPathArchitectureTests {
         )
         #expect(recorderAssignmentRange.lowerBound < initialSizeSyncRange.lowerBound)
     }
+
+    @Test("manager collections are excluded from Observation and attach never asserts visibility")
+    func managerCollectionsAreIgnoredAndAttachNeverAssertsVisibility() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
+            ),
+            encoding: .utf8
+        )
+
+        for collectionName in [
+            "activeSurfaces",
+            "hiddenSurfaces",
+            "undoStack",
+            "surfaceHealth",
+            "surfaceViewToId",
+        ] {
+            let ignoredInternalDeclaration = "@ObservationIgnored var \(collectionName)"
+            let ignoredPrivateDeclaration = "@ObservationIgnored private var \(collectionName)"
+            #expect(
+                source.contains(ignoredInternalDeclaration)
+                    || source.contains(ignoredPrivateDeclaration)
+            )
+        }
+
+        let attachBody = try #require(
+            source.slice(
+                from: "package func attach(_ surfaceId: UUID, to paneId: UUID)",
+                to: "/// Detach a surface from its container"
+            )
+        )
+        #expect(!attachBody.contains("visible: true"))
+        #expect(!attachBody.contains("ghostty_surface_set_occlusion"))
+    }
+
+    @Test("native focus writes live only in the renderer delivery owner")
+    func nativeFocusWritesLiveOnlyInRendererDeliveryOwner() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let surfaceManagerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
+            ),
+            encoding: .utf8
+        )
+        let surfaceViewSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift"
+            ),
+            encoding: .utf8
+        )
+        let deliverySource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceRendererStateDelivery.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(!surfaceManagerSource.contains("ghostty_surface_set_focus"))
+        #expect(!surfaceViewSource.contains("ghostty_surface_set_focus"))
+        #expect(deliverySource.contains("ghostty_surface_set_focus"))
+    }
+
+    @Test("surface deinit is MainActor isolated and frees synchronously")
+    func surfaceDeinitIsIsolatedAndFreesSynchronously() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift"
+            ),
+            encoding: .utf8
+        )
+        let deinitBody = try #require(
+            source.slice(from: "isolated deinit", to: "/// Called when the title changes")
+        )
+
+        #expect(deinitBody.contains("ghostty_surface_free(surface)"))
+        #expect(!deinitBody.contains("Task {"))
+    }
 }
 
 extension String {

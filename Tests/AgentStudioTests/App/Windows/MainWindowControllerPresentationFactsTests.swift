@@ -17,6 +17,67 @@ struct MainWindowControllerPresentationFactsTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("workspace window reports the post-order visible state exactly once")
+    func workspaceWindowReportsPostOrderVisibleStateExactlyOnce() {
+        // Arrange
+        let window = WorkspaceWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        var observedVisibility: [Bool] = []
+        window.didCompleteOrdering = { [weak window] in
+            guard let window else { return }
+            observedVisibility.append(window.isVisible)
+        }
+
+        // Act
+        window.orderFront(nil)
+        window.orderOut(nil)
+
+        // Assert
+        #expect(observedVisibility == [true, false])
+    }
+
+    @Test("controller shutdown clears ordering ingress and unrelated windows stay isolated")
+    func controllerShutdownClearsOrderingIngressAndUnrelatedWindowsStayIsolated() async throws {
+        try await withPresentationFactsWindowHarness { harness in
+            // Arrange
+            harness.window.orderOut(nil)
+            let hiddenFacts = try #require(
+                harness.windowLifecycleStore.presentationFacts(for: harness.windowId)
+            )
+            let unrelatedWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+
+            // Act — an unrelated instance has no ingress into this controller.
+            unrelatedWindow.orderFront(nil)
+            unrelatedWindow.orderOut(nil)
+
+            // Assert
+            #expect(
+                harness.windowLifecycleStore.presentationFacts(for: harness.windowId)
+                    == hiddenFacts
+            )
+
+            // Act — shutdown clears the exact workspace-window callback.
+            harness.controller.shutdown()
+            harness.window.orderFront(nil)
+
+            // Assert
+            #expect(harness.window.isVisible)
+            #expect(
+                harness.windowLifecycleStore.presentationFacts(for: harness.windowId)
+                    == hiddenFacts
+            )
+        }
+    }
+
     @Test("real window delegate ingress publishes presentation facts under the supplied UUID")
     func realWindowDelegateIngressPublishesPresentationFactsUnderSuppliedUUID() async throws {
         await withPresentationFactsWindowHarness { harness in
@@ -24,14 +85,8 @@ struct MainWindowControllerPresentationFactsTests {
             #expect(harness.windowLifecycleStore.registeredWindowIds.contains(harness.windowId))
             #expect(harness.windowLifecycleStore.presentationFacts(for: UUID()) == nil)
 
-            // Act — publish the real NSWindow properties through a real delegate callback.
+            // Act — the real ordering entry point must publish without a surrogate delegate callback.
             harness.window.orderFront(nil)
-            harness.controller.windowDidChangeOcclusionState(
-                Notification(
-                    name: NSWindow.didChangeOcclusionStateNotification,
-                    object: harness.window
-                )
-            )
 
             // Assert
             #expect(
@@ -39,14 +94,8 @@ struct MainWindowControllerPresentationFactsTests {
                     == presentationFacts(of: harness.window)
             )
 
-            // Act — transition the actual NSWindow to hidden and publish again.
+            // Act — transition the actual NSWindow to hidden through the same ordering boundary.
             harness.window.orderOut(nil)
-            harness.controller.windowDidChangeOcclusionState(
-                Notification(
-                    name: NSWindow.didChangeOcclusionStateNotification,
-                    object: harness.window
-                )
-            )
 
             // Assert
             #expect(harness.window.isVisible == false)

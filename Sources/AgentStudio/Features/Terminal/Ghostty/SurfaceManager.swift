@@ -73,23 +73,28 @@ package final class SurfaceManager {
 
     /// Delay scheduler for time-dependent operations (e.g. undo expiration).
     private let delayScheduler: AsyncDelay
+    private let now: @MainActor () -> Date
+    let rendererStateDelivery: any SurfaceRendererStateDelivery
 
     // MARK: - Private State
 
     /// Surfaces attached to visible containers
-    private var activeSurfaces: [UUID: ManagedSurface] = [:]
+    @ObservationIgnored var activeSurfaces: [UUID: ManagedSurface] = [:]
 
     /// Surfaces detached but kept alive (hidden terminals)
-    private var hiddenSurfaces: [UUID: ManagedSurface] = [:]
+    @ObservationIgnored var hiddenSurfaces: [UUID: ManagedSurface] = [:]
 
     /// Recently closed surfaces for undo
-    private var undoStack: [SurfaceUndoEntry] = []
+    @ObservationIgnored private var undoStack: [SurfaceUndoEntry] = []
 
     /// Health state cache
-    private var surfaceHealth: [UUID: SurfaceHealth] = [:]
+    @ObservationIgnored private var surfaceHealth: [UUID: SurfaceHealth] = [:]
 
     /// Map from SurfaceView to UUID for notification handling
-    private var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
+    @ObservationIgnored var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
+
+    @ObservationIgnored
+    package var onAttachedBindingsChanged: (([UUID: UUID]) -> Void)?
 
     /// Async stream of live CWD updates from managed surfaces.
     private let cwdChangeContinuation: AsyncStream<SurfaceCWDChangeEvent>.Continuation
@@ -101,21 +106,27 @@ package final class SurfaceManager {
     /// Checkpoint file URL
     private let checkpointURL: URL
 
-    private weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var appCommandDispatcher: (any AppCommandDispatching)?
 
     // MARK: - Initialization
 
-    private init(
+    package init(
         undoTTL: TimeInterval = 300,
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
-        clock: (any Clock<Duration> & Sendable)? = nil
+        delayScheduler: AsyncDelay = .taskSleep,
+        now: @escaping @MainActor () -> Date = Date.init,
+        rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.undoTTL = undoTTL
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
-        delayScheduler = clock.map(AsyncDelay.clock) ?? .taskSleep
+        self.delayScheduler = delayScheduler
+        self.now = now
+        self.rendererStateDelivery = rendererStateDelivery
+        self.performanceTraceRecorder = performanceTraceRecorder
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
         let appSupport = AppDataPaths.rootDirectory()
@@ -202,39 +213,69 @@ package final class SurfaceManager {
                 continue
             }
 
-            // Success - create managed surface
-            let managed = ManagedSurface(
-                id: managedSurfaceID,
-                surface: surfaceView,
-                metadata: metadata,
-                state: .hidden
-            )
-
-            // Register in collections
-            hiddenSurfaces[managed.id] = managed
-            surfaceHealth[managed.id] = .healthy
-            surfaceViewToId[ObjectIdentifier(surfaceView)] = managed.id
-            RestoreTrace.log(
-                "SurfaceManager.createSurface success surface=\(managed.id) pane=\(metadata.paneId?.uuidString ?? "nil") frame=\(NSStringFromRect(surfaceView.frame))"
-            )
-
-            // Subscribe to this surface's notifications
-            subscribeToSurfaceNotifications(surfaceView)
-
-            // Update counts
-            updateCounts()
-
-            // Notify delegate
-            lifecycleDelegate?.surfaceDidCreate(managed)
-
-            logger.info("Surface created: \(managed.id)")
-            return .success(managed)
+            switch acceptCreatedSurface(surfaceView, metadata: metadata) {
+            case .success(let managed):
+                RestoreTrace.log(
+                    "SurfaceManager.createSurface success surface=\(managed.id) pane=\(metadata.paneId?.uuidString ?? "nil") frame=\(NSStringFromRect(surfaceView.frame))"
+                )
+                logger.info("Surface created: \(managed.id)")
+                return .success(managed)
+            case .failure(let error):
+                logger.error("Surface creation could not establish initial renderer state")
+                if attempt == maxCreationRetries {
+                    return .failure(error)
+                }
+            }
         }
 
         RestoreTrace.log(
             "SurfaceManager.createSurface failed pane=\(metadata.paneId?.uuidString ?? "nil") retries=\(maxCreationRetries)"
         )
         return .failure(.creationFailed(retries: maxCreationRetries))
+    }
+
+    package func acceptCreatedSurface(
+        _ surfaceView: Ghostty.SurfaceView,
+        metadata: SurfaceMetadata
+    ) -> Result<ManagedSurface, SurfaceError> {
+        let surfaceID = surfaceView.managedSurfaceID
+        guard managedSurface(for: surfaceID) == nil else {
+            return .failure(.operationFailed("surface identity is already manager-owned"))
+        }
+
+        var managed = ManagedSurface(
+            id: surfaceID,
+            surface: surfaceView,
+            metadata: metadata,
+            state: .hidden
+        )
+        guard rendererStateDelivery.deliverVisibility(false, to: surfaceView) else {
+            return .failure(.operationFailed("initial hidden renderer state delivery failed"))
+        }
+        _ = rendererStateDelivery.deliverFocus(false, to: surfaceView)
+        managed.lastDeliveredVisibility = false
+
+        surfaceView.focusRequester = self
+        hiddenSurfaces[surfaceID] = managed
+        surfaceHealth[surfaceID] = .healthy
+        surfaceViewToId[ObjectIdentifier(surfaceView)] = surfaceID
+        subscribeToSurfaceNotifications(surfaceView)
+        updateCounts(recordLifecyclePopulation: false)
+        if surfaceView.surface != nil {
+            performanceTraceRecorder?.recordRendererCreated(
+                surfaceID: surfaceID,
+                active: activeSurfaces.count,
+                hidden: hiddenSurfaces.count,
+                closeUndo: undoStack.count
+            )
+            performanceTraceRecorder?.recordRendererVisibilityDelivery(
+                surfaceID: surfaceID,
+                visible: false,
+                outcome: .applied
+            )
+        }
+        lifecycleDelegate?.surfaceDidCreate(managed)
+        return .success(managed)
     }
 
     // MARK: - Surface Attachment
@@ -247,16 +288,16 @@ package final class SurfaceManager {
     @discardableResult
     package func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
         RestoreTrace.log("SurfaceManager.attach requested surface=\(surfaceId) pane=\(paneId)")
+        expireDueUndoEntries()
+        let previousBindings = attachedBindings()
         // Check hidden surfaces first
         if var managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
             managed.state = .active(paneId: paneId)
-            managed.metadata.lastActiveAt = Date()
+            managed.metadata.lastActiveAt = now()
             activeSurfaces[surfaceId] = managed
 
-            // Resume rendering
-            setOcclusion(surfaceId, visible: true)
-
             updateCounts()
+            notifyAttachedBindingsChanged(from: previousBindings)
             logger.info("Surface attached: \(surfaceId) to pane \(paneId)")
             RestoreTrace.log("SurfaceManager.attach fromHidden surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
@@ -269,12 +310,11 @@ package final class SurfaceManager {
 
             var managed = entry.surface
             managed.state = .active(paneId: paneId)
-            managed.metadata.lastActiveAt = Date()
+            managed.metadata.lastActiveAt = now()
             activeSurfaces[surfaceId] = managed
 
-            setOcclusion(surfaceId, visible: true)
-
             updateCounts()
+            notifyAttachedBindingsChanged(from: previousBindings)
             logger.info("Surface restored from undo: \(surfaceId)")
             RestoreTrace.log("SurfaceManager.attach fromUndo surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
@@ -284,8 +324,9 @@ package final class SurfaceManager {
         if let managed = activeSurfaces[surfaceId] {
             var updated = managed
             updated.state = .active(paneId: paneId)
-            updated.metadata.lastActiveAt = Date()
+            updated.metadata.lastActiveAt = now()
             activeSurfaces[surfaceId] = updated
+            notifyAttachedBindingsChanged(from: previousBindings)
             RestoreTrace.log("SurfaceManager.attach alreadyActive surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
         }
@@ -300,7 +341,7 @@ package final class SurfaceManager {
     ///   - surfaceId: ID of the surface to detach
     ///   - reason: Why the surface is being detached
     package func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
-        guard var managed = activeSurfaces.removeValue(forKey: surfaceId) else {
+        guard activeSurfaces[surfaceId] != nil else {
             logger.warning("Surface not found for detach: \(surfaceId)")
             RestoreTrace.log("SurfaceManager.detach missing surface=\(surfaceId) reason=\(String(describing: reason))")
             return
@@ -308,8 +349,13 @@ package final class SurfaceManager {
         RestoreTrace.log("SurfaceManager.detach begin surface=\(surfaceId) reason=\(String(describing: reason))")
 
         // Pause rendering
-        setOcclusion(surfaceId, visible: false)
-        setFocus(surfaceId, focused: false)
+        _ = deliverVisibility(surfaceId, visible: false)
+
+        let previousBindings = attachedBindings()
+        guard var managed = activeSurfaces.removeValue(forKey: surfaceId) else {
+            logger.error("Surface disappeared during synchronous detach: \(surfaceId)")
+            return
+        }
 
         let previousPaneAttachmentId: UUID?
         if case .active(let cid) = managed.state {
@@ -329,13 +375,14 @@ package final class SurfaceManager {
                 surfaceID: surfaceId,
                 paneID: previousPaneAttachmentId
             )
-            let expiresAt = Date().addingTimeInterval(undoTTL)
+            let closedAt = now()
+            let expiresAt = closedAt.addingTimeInterval(undoTTL)
             managed.state = .pendingUndo(expiresAt: expiresAt)
 
             var entry = SurfaceUndoEntry(
                 surface: managed,
                 previousPaneAttachmentId: previousPaneAttachmentId,
-                closedAt: Date(),
+                closedAt: closedAt,
                 expiresAt: expiresAt
             )
             entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
@@ -350,6 +397,7 @@ package final class SurfaceManager {
         }
 
         updateCounts()
+        notifyAttachedBindingsChanged(from: previousBindings)
         RestoreTrace.log("SurfaceManager.detach end surface=\(surfaceId) reason=\(String(describing: reason))")
     }
 
@@ -357,6 +405,7 @@ package final class SurfaceManager {
 
     /// Move a surface from one container to another
     func move(_ surfaceId: UUID, to targetPaneId: UUID) {
+        let previousBindings = attachedBindings()
         guard var managed = activeSurfaces[surfaceId] ?? hiddenSurfaces.removeValue(forKey: surfaceId) else {
             logger.warning("Surface not found for move: \(surfaceId)")
             return
@@ -367,17 +416,18 @@ package final class SurfaceManager {
         }
 
         managed.state = .active(paneId: targetPaneId)
-        managed.metadata.lastActiveAt = Date()
+        managed.metadata.lastActiveAt = now()
         activeSurfaces[surfaceId] = managed
 
-        setOcclusion(surfaceId, visible: true)
         updateCounts()
+        notifyAttachedBindingsChanged(from: previousBindings)
 
         logger.info("Surface moved: \(surfaceId) to \(targetPaneId)")
     }
 
     /// Swap two surfaces between containers
     func swap(_ surfaceA: UUID, with surfaceB: UUID) {
+        let previousBindings = attachedBindings()
         guard var managedA = activeSurfaces[surfaceA],
             var managedB = activeSurfaces[surfaceB],
             case .active(let containerA) = managedA.state,
@@ -392,20 +442,25 @@ package final class SurfaceManager {
 
         activeSurfaces[surfaceA] = managedA
         activeSurfaces[surfaceB] = managedB
+        notifyAttachedBindingsChanged(from: previousBindings)
 
         logger.info("Surfaces swapped: \(surfaceA) <-> \(surfaceB)")
     }
 
     // MARK: - Undo
 
-    /// Restore the most recently closed surface
-    /// - Returns: The restored surface if available
-    package func undoClose() -> ManagedSurface? {
-        guard let entry = undoStack.popLast() else {
-            logger.info("Nothing to undo")
+    package func restoreClosedSurface(forPaneID paneID: UUID) -> ManagedSurface? {
+        expireDueUndoEntries()
+        guard
+            let entryIndex = undoStack.lastIndex(where: {
+                $0.previousPaneAttachmentId == paneID && $0.expiresAt > now()
+            })
+        else {
+            logger.info("No eligible closed surface for pane: \(paneID)")
             return nil
         }
 
+        let entry = undoStack.remove(at: entryIndex)
         entry.expirationTask?.cancel()
 
         var managed = entry.surface
@@ -414,84 +469,77 @@ package final class SurfaceManager {
         hiddenSurfaces[managed.id] = managed
 
         updateCounts()
-        logger.info("Surface undo: \(managed.id)")
+        logger.info("Surface restored for pane: \(paneID), surface: \(managed.id)")
         return managed
-    }
-
-    /// Re-queue a surface onto the undo stack after it was popped by `undoClose()`.
-    /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
-    /// Re-queued entries are inserted at the oldest position so they don't immediately
-    /// re-poison the next undo pop with the same mismatch.
-    package func requeueUndo(_ surfaceId: UUID) {
-        guard
-            var managed = activeSurfaces.removeValue(forKey: surfaceId) ?? hiddenSurfaces.removeValue(forKey: surfaceId)
-        else {
-            logger.warning("Cannot requeue surface \(surfaceId) for undo — surface not found")
-            return
-        }
-
-        let previousPaneAttachmentId: UUID?
-        if case .active(let paneId) = managed.state {
-            previousPaneAttachmentId = paneId
-            setOcclusion(surfaceId, visible: false)
-        } else {
-            previousPaneAttachmentId = nil
-        }
-
-        let expiresAt = Date().addingTimeInterval(undoTTL)
-        managed.state = .pendingUndo(expiresAt: expiresAt)
-
-        if let existingEntryIndex = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
-            let existingEntry = undoStack.remove(at: existingEntryIndex)
-            existingEntry.expirationTask?.cancel()
-        }
-
-        var entry = SurfaceUndoEntry(
-            surface: managed,
-            previousPaneAttachmentId: previousPaneAttachmentId,
-            closedAt: Date(),
-            expiresAt: expiresAt
-        )
-        entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
-        undoStack.insert(entry, at: 0)
-
-        updateCounts()
-        logger.info("Surface requeued for undo: \(surfaceId)")
     }
 
     /// Check if there are surfaces that can be restored
     var canUndo: Bool {
-        !undoStack.isEmpty
+        expireDueUndoEntries()
+        return !undoStack.isEmpty
     }
 
     // MARK: - Surface Destruction
 
-    /// Permanently destroy a surface
-    package func destroy(_ surfaceId: UUID) {
+    @discardableResult
+    package func permanentlyRelease(
+        _ surfaceId: UUID,
+        reason: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult {
+        let previousBindings = attachedBindings()
         detachTerminalLocalActions(surfaceID: surfaceId, paneID: paneId(for: surfaceId))
-        // Remove from all collections
-        if let managed = activeSurfaces.removeValue(forKey: surfaceId) {
-            lifecycleDelegate?.surfaceWillDestroy(managed)
-            surfaceViewToId.removeValue(forKey: ObjectIdentifier(managed.surface))
-        } else if let managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
-            lifecycleDelegate?.surfaceWillDestroy(managed)
-            surfaceViewToId.removeValue(forKey: ObjectIdentifier(managed.surface))
-        }
-
-        // Remove from undo stack
-        if let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
-            let entry = undoStack.remove(at: idx)
+        let managed: ManagedSurface
+        if activeSurfaces[surfaceId] != nil {
+            _ = deliverVisibility(surfaceId, visible: false)
+            guard let active = activeSurfaces.removeValue(forKey: surfaceId) else {
+                return .notOwned
+            }
+            managed = active
+        } else if let hidden = hiddenSurfaces.removeValue(forKey: surfaceId) {
+            managed = hidden
+        } else if let index = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
+            let entry = undoStack.remove(at: index)
             entry.expirationTask?.cancel()
-            lifecycleDelegate?.surfaceWillDestroy(entry.surface)
-            surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
+            managed = entry.surface
+        } else {
+            return .notOwned
         }
 
-        // Remove health tracking
+        managed.surface.focusRequester = nil
+        lifecycleDelegate?.surfaceWillDestroy(managed)
+        surfaceViewToId.removeValue(forKey: ObjectIdentifier(managed.surface))
         surfaceHealth.removeValue(forKey: surfaceId)
 
-        updateCounts()
-        logger.info("Surface destroyed: \(surfaceId)")
-        // Surface.deinit will clean up PTY when ARC releases it
+        updateCounts(recordLifecyclePopulation: false)
+        performanceTraceRecorder?.recordRendererPermanentlyReleased(
+            surfaceID: surfaceId,
+            reason: reason.rawValue,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count
+        )
+        notifyAttachedBindingsChanged(from: previousBindings)
+        logger.info("Surface permanently released: \(surfaceId), reason: \(reason.rawValue)")
+        return .released
+    }
+
+    @discardableResult
+    package func permanentlyReleaseClosedSurface(
+        forPaneID paneID: UUID,
+        reason: SurfacePermanentReleaseReason
+    ) -> SurfacePermanentReleaseResult {
+        guard
+            let surfaceID = undoStack.last(where: {
+                $0.previousPaneAttachmentId == paneID
+            })?.surface.id
+        else {
+            return .notOwned
+        }
+        return permanentlyRelease(surfaceID, reason: reason)
+    }
+
+    package func destroy(_ surfaceId: UUID) {
+        _ = permanentlyRelease(surfaceId, reason: .explicitRemoval)
     }
 
     // MARK: - Surface Queries
@@ -612,6 +660,7 @@ package final class SurfaceManager {
 }
 
 extension SurfaceManager: TerminalSurfaceCommandDispatching {}
+extension SurfaceManager: SurfaceFocusRequesting {}
 
 // MARK: - Health Monitoring
 
@@ -774,43 +823,6 @@ extension SurfaceManager {
         // The container can show error state and offer restart
     }
 
-    // MARK: - Occlusion Control
-
-    private func setOcclusion(_ surfaceId: UUID, visible: Bool) {
-        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-            let surface = managed.surface.surface
-        else {
-            return
-        }
-        ghostty_surface_set_occlusion(surface, visible)
-    }
-
-    /// Set focus state for a surface
-    func setFocus(_ surfaceId: UUID, focused: Bool) {
-        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-            let surface = managed.surface.surface
-        else {
-            RestoreTrace.log(
-                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) known=\((activeSurfaces[surfaceId] != nil) || (hiddenSurfaces[surfaceId] != nil))"
-            )
-            return
-        }
-        ghostty_surface_set_focus(surface, focused)
-        RestoreTrace.log("SurfaceManager.setFocus surface=\(surfaceId) focused=\(focused)")
-    }
-
-    /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.
-    /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern.
-    package func syncFocus(activeSurfaceId: UUID?) {
-        RestoreTrace.log(
-            "SurfaceManager.syncFocus activeSurface=\(activeSurfaceId?.uuidString ?? "nil") activeCount=\(activeSurfaces.count)"
-        )
-        for (id, managed) in activeSurfaces {
-            guard let surface = managed.surface.surface else { continue }
-            ghostty_surface_set_focus(surface, id == activeSurfaceId)
-            RestoreTrace.log("SurfaceManager.syncFocus set surface=\(id) focused=\(id == activeSurfaceId)")
-        }
-    }
 }
 
 // MARK: - Undo Expiration
@@ -820,7 +832,7 @@ extension SurfaceManager {
     private func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
         let delayScheduler = self.delayScheduler
         return Task { @MainActor [weak self, delayScheduler] in
-            let delay = date.timeIntervalSinceNow
+            let delay = date.timeIntervalSince(self?.now() ?? date)
             if delay > 0 {
                 try? await delayScheduler.wait(.seconds(delay))
             }
@@ -832,19 +844,19 @@ extension SurfaceManager {
     }
 
     private func expireUndoEntry(_ surfaceId: UUID) {
-        guard let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) else {
-            return
-        }
-
-        let entry = undoStack.remove(at: idx)
+        guard undoStack.contains(where: { $0.surface.id == surfaceId && $0.expiresAt <= now() }) else { return }
         logger.info("Undo entry expired, destroying surface: \(surfaceId)")
-        detachTerminalLocalActions(surfaceID: surfaceId, paneID: nil)
+        permanentlyRelease(surfaceId, reason: .undoExpired)
+    }
 
-        // Destroy the surface
-        lifecycleDelegate?.surfaceWillDestroy(entry.surface)
-        surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
-        surfaceHealth.removeValue(forKey: surfaceId)
-        // ARC will clean up the surface
+    private func expireDueUndoEntries() {
+        let currentTime = now()
+        let dueSurfaceIDs = undoStack.compactMap { entry in
+            entry.expiresAt <= currentTime ? entry.surface.id : nil
+        }
+        for surfaceID in dueSurfaceIDs {
+            _ = permanentlyRelease(surfaceID, reason: .undoExpired)
+        }
     }
 }
 
@@ -852,9 +864,29 @@ extension SurfaceManager {
 
 extension SurfaceManager {
 
-    private func updateCounts() {
+    private func updateCounts(recordLifecyclePopulation: Bool = true) {
         activeSurfaceCount = activeSurfaces.count
         hiddenSurfaceCount = hiddenSurfaces.count
+        if recordLifecyclePopulation {
+            performanceTraceRecorder?.recordRendererManagerPopulation(
+                active: activeSurfaces.count,
+                hidden: hiddenSurfaces.count,
+                closeUndo: undoStack.count
+            )
+        }
+    }
+
+    private func attachedBindings() -> [UUID: UUID] {
+        activeSurfaces.reduce(into: [:]) { bindings, entry in
+            guard case .active(let paneID) = entry.value.state else { return }
+            bindings[entry.key] = paneID
+        }
+    }
+
+    private func notifyAttachedBindingsChanged(from previousBindings: [UUID: UUID]) {
+        let currentBindings = attachedBindings()
+        guard currentBindings != previousBindings else { return }
+        onAttachedBindingsChanged?(currentBindings)
     }
 
     /// Reverse-lookup: surfaceId → paneId.
