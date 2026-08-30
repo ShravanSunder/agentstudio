@@ -347,7 +347,7 @@ package actor RemoteReferenceRefreshActor {
                 remoteName: registration.remoteName
             )
             guard snapshot.configuredRemoteURL == expectedOrigin,
-                accepts(registration: registration)
+                acceptsCurrentIdentity(registration)
             else { return }
             do {
                 try await provider.cleanupAbandonedStagedFetches(
@@ -360,7 +360,7 @@ package actor RemoteReferenceRefreshActor {
             } catch {
                 // Recovery cleanup is independent of otherwise valid local authority.
             }
-            guard accepts(registration: registration) else { return }
+            guard acceptsCurrentIdentity(registration) else { return }
             let acceptance = RemoteReferenceAcceptance(
                 repoId: repoId,
                 expectedOrigin: expectedOrigin,
@@ -665,8 +665,10 @@ package actor RemoteReferenceRefreshActor {
             && registration.remoteName == attempt.remoteName
     }
 
-    private func accepts(registration: RemoteReferenceRegistration) -> Bool {
-        guard let current = registrationsByRepoId[registration.repoId] else { return false }
+    private func acceptsCurrentIdentity(_ registration: RemoteReferenceRegistration) -> Bool {
+        guard !isShuttingDown, !invalidatingRepositoryIds.contains(registration.repoId),
+            let current = registrationsByRepoId[registration.repoId]
+        else { return false }
         return current.topologyGeneration == registration.topologyGeneration
             && current.expectedOrigin == registration.expectedOrigin
             && current.repositoryPath == registration.repositoryPath

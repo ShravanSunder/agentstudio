@@ -336,6 +336,44 @@ struct RemoteReferenceRefreshActorTests {
         await actor.shutdown()
     }
 
+    @Test("final unregister rejects local acceptance resumed during identity invalidation")
+    func finalUnregisterRejectsSuspendedLocalAcceptance() async {
+        let fixture = RemoteReferenceRefreshFixture(suspendCapture: true)
+        let invalidationGate = RemoteReferenceInvalidationGate()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            onAuthorityUpdate: { update in
+                await fixture.acceptanceRecorder.record(update)
+                if case .invalidated = update {
+                    await invalidationGate.suspendInvalidation()
+                }
+            }
+        )
+        let registrationTask = Task {
+            await actor.register(
+                repoId: fixture.repoId,
+                worktreeId: fixture.worktreeId,
+                repositoryPath: fixture.repositoryPath,
+                remoteName: "origin",
+                expectedOrigin: fixture.originA
+            )
+        }
+        await fixture.provider.waitUntilCaptureSuspended()
+
+        let unregisterTask = Task {
+            await actor.unregister(worktreeId: fixture.worktreeId, repoId: fixture.repoId)
+        }
+        await invalidationGate.waitUntilInvalidationSuspended()
+        await fixture.provider.releaseCapture()
+        await registrationTask.value
+
+        #expect(await fixture.acceptanceRecorder.localInstallationCount == 0)
+
+        await invalidationGate.releaseInvalidation()
+        await unregisterTask.value
+        await actor.shutdown()
+    }
+
     @Test("genuine promotion failure retries only at the source failure floor")
     func genuineFailureUsesSourceBackoff() async {
         let fixture = RemoteReferenceRefreshFixture(promotionFailuresRemaining: 1)
@@ -701,12 +739,14 @@ struct RemoteReferenceRefreshFixture {
     let acceptanceRecorder = RemoteReferenceAcceptanceRecorder()
 
     init(
+        suspendCapture: Bool = false,
         suspendStaging: Bool = false,
         suspendPromotion: Bool = false,
         cleanupFailuresRemaining: Int = 0,
         promotionFailuresRemaining: Int = 0
     ) {
         provider = RemoteReferenceRefreshProviderFake(
+            suspendCapture: suspendCapture,
             suspendStaging: suspendStaging,
             suspendPromotion: suspendPromotion,
             cleanupFailuresRemaining: cleanupFailuresRemaining,
@@ -743,15 +783,18 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
         case promotionRevoked
     }
 
+    private let suspendCapture: Bool
     private let suspendStaging: Bool
     private let suspendPromotion: Bool
     private var cleanupFailuresRemaining: Int
     private var promotionFailuresRemaining: Int
+    private var captureSuspensionWaiters: [CheckedContinuation<Void, Never>] = []
     private var stageStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var stageSuspensionWaiters: [CheckedContinuation<Void, Never>] = []
     private var promotionSuspensionWaiters: [CheckedContinuation<Void, Never>] = []
     private var cleanupCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var stageCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var captureContinuation: CheckedContinuation<Void, Never>?
     private var stageContinuation: CheckedContinuation<Void, Never>?
     private var promotionContinuation: CheckedContinuation<Void, Never>?
     private var promotionWasRevoked = false
@@ -763,11 +806,13 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
     private(set) var promotionMutationCount = 0
 
     init(
+        suspendCapture: Bool,
         suspendStaging: Bool,
         suspendPromotion: Bool,
         cleanupFailuresRemaining: Int,
         promotionFailuresRemaining: Int
     ) {
+        self.suspendCapture = suspendCapture
         self.suspendStaging = suspendStaging
         self.suspendPromotion = suspendPromotion
         self.cleanupFailuresRemaining = cleanupFailuresRemaining
@@ -779,6 +824,14 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
         remoteName: String
     ) async throws -> GitRemoteTrackingSnapshot {
         captureCount += 1
+        if suspendCapture {
+            await withCheckedContinuation { continuation in
+                captureContinuation = continuation
+                let waiters = captureSuspensionWaiters
+                captureSuspensionWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
+            }
+        }
         return GitRemoteTrackingSnapshot(
             repositoryPath: repositoryPath,
             repositoryCommonDirectory: repositoryPath.appending(path: ".git"),
@@ -861,6 +914,18 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
         await withCheckedContinuation { continuation in
             stageStartedWaiters.append(continuation)
         }
+    }
+
+    func waitUntilCaptureSuspended() async {
+        guard captureContinuation == nil else { return }
+        await withCheckedContinuation { continuation in
+            captureSuspensionWaiters.append(continuation)
+        }
+    }
+
+    func releaseCapture() {
+        captureContinuation?.resume()
+        captureContinuation = nil
     }
 
     func releaseStage() {

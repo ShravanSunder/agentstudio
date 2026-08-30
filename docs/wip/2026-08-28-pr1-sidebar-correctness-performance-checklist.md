@@ -2,8 +2,8 @@
 
 Date: 2026-08-28
 Branch: `fix/demand-admission-regression`
-Current implementation checkpoint: `43f6511f4` plus final reviewed correctness remediation pending checkpoint
-Status: wrap-up in progress; final remediation focused proof green, exact-final aggregate/review/publication open
+Current implementation checkpoint: `25c87c72e` plus final reviewed local-acceptance correction pending checkpoint
+Status: wrap-up in progress; final actor currentness correction green, main integration/aggregate/review/publication open
 
 ## Product Contract
 
@@ -94,6 +94,7 @@ PR1 uses the existing `RepositoryLocalActivityAtom`, store, and projector. It do
 - Exact aggregate `mise run test` at `43f6511f4` passed with exit code 0 in 469.70 seconds: SwiftLint reported 0 violations across 2,230 files; BridgeWeb unit 1,764/1,764, integration 19/19, browser 211 passed/5 skipped, and E2E 4/4 passed; all Swift prebuild, fast, large, serialized WebKit, and serialized E2E lanes passed; final E2E passed 6/6 across three suites.
 - The final fresh review found three remaining fail-closed gaps: several topology identity paths suspended in authority invalidation before marking the repository invalidating; projector invalidation/shutdown could retain an unjoined recomputation lease; and same-key repository activity authority survived observation-scope replacement until a later checkpoint. Identity invalidation is now centralized and active before its first await; invalidation/shutdown retire every repository-keyed recomputation revision; and activity scope replacement synchronously revokes only affected current-session authority while preserving persisted facts and rejecting late pre-revocation commits. Focused Git lifecycle proof passes 27/27 across three suites; activity store/actor proof passes 13/13 across two suites.
 - The post-format combined focused rerun passed 40/40 across five suites: `RemoteReferenceRefreshActorTests`, `RemoteReferenceRefreshRecomputationTests`, `GitWorkingDirectoryProjectorRemoteReferenceTests`, `RepositoryLocalActivityStoreTests`, and `FilesystemActorActivityTests`.
+- The exact-final review at `25c87c72e` found one remaining actor reentrancy gap: local snapshot acceptance could resume during an identity invalidation because its post-await registration check omitted shutdown and the active invalidation fence. The deterministic final-unregister interleaving failed red in 0.003 seconds, then passed green after both local-acceptance suspension points cut over to the actor's complete current-identity predicate. The complete remote actor/recomputation/projector set passed 28/28; `mise run lint` passed with SwiftLint 0 violations across 2,231 files, architecture lint and release verification green, and `git diff --check` clean.
 - `mise run lint` passes after the reviewed correction with SwiftLint 0 violations, architecture lint OK, release-script verification green, and `git diff --check` clean.
 - Push was not attempted after the WindowServer restart, per owner direction. The local branch remains the only publication source until the host and Git signing/network path recover.
 - Active-root probes also exposed shared-parent UserDropped/KernelDropped fanout. The canonical design currently requires immediate fail-closed recovery; changing it to fingerprint-recovered Git currentness while activity becomes Unknown is a separate design amendment, not a silent PR1 implementation change.
