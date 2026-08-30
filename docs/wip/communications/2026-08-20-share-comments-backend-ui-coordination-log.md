@@ -2065,3 +2065,31 @@ complete BridgeWeb aggregate green with 2,086/2,086 unit tests, 1/1 stress E2E,
 8/8 ordinary Vite E2E, and all lint/architecture/format/typecheck/product
 contracts passing in 177.13 seconds. Comparison-control UI and unrelated
 review-subject/PR2/WIP files remain uncommitted and were not included.
+
+## 2026-08-29 21:21 EDT — File committed-preview remediation checkpointed
+
+The Bridge lane committed `2165ea06b fix(bridge): retain committed File
+annotation through refresh` and `d439c9628 test(bridge): prove uncommitted File
+descriptor fence`. Only
+`BridgeWeb/src/file-viewer/bridge-file-viewer-code-panel.tsx` and
+`BridgeWeb/src/worktree-annotations/worktree-annotation-pierre.browser.test.tsx`
+were staged. Concurrent UI files remain untouched.
+
+The correction preserves an exact Save-receipt-backed File root preview across
+a same-logical-file `sourceDescriptorId` replacement while keeping strict
+descriptor equality for uncommitted composers. Authoritative rich projection
+still owns retirement through the existing `onSaved` path. The focused browser
+witness covers receipt-before-projection, successor descriptor, preview/focus
+continuity, saved-thread reconciliation, and an independent uncommitted
+descriptor-only rejection.
+
+Fresh local proof: BridgeWeb typecheck, scoped type-aware lint/format, and diff
+checks pass; 322 unit files / 2,101 tests pass. One fresh-context read-only
+delegate found the remediation sound and no introduced blocker. Required
+Browser Mode and real-backend integration proof remain unexecuted because the
+post-WindowServer host environment aborts Chrome with `SIGABRT` before test
+collection and rejects FSEvent registration with `streamStartFailed`, including
+outside the sandbox. Fable could not initialize because npm DNS was unavailable.
+Do not treat these environment failures as product results; rerun the focused
+browser suite, backend integration, complete aggregate, and fresh Fable review
+when the host services recover.
