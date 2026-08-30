@@ -2,11 +2,13 @@ import { chromium, type Page, type Request, type Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
+	beginAnnotationCatalogLongTaskObservation,
 	cloneSavedAnnotationMessages,
+	finishAnnotationCatalogLongTaskObservation,
 	latestAnnotationCatalogCommit,
 	observeAnnotationProjectionQueries,
-	requireLongTaskCount,
 	settleBrowserFrames,
+	type AnnotationCatalogTransferTelemetryObservation,
 	waitForAnnotationCatalogCommit,
 } from './bridge-viewer-vite-annotation-catalog-performance.ts';
 import {
@@ -241,15 +243,29 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 				expect(observations.catalogTelemetry.presentationRevisionAfter).toBe(
 					observations.catalogTelemetry.presentationRevisionBefore + 1,
 				);
-				expect(observations.catalogTelemetry.longTaskCountDelta).toBe(0);
-				expect(observations.catalogTelemetry.undemandedSessionRichFetchCount).toBe(0);
-				expect(observations.fileTelemetry.currentCount).toBe(0);
+				expect(
+					observations.catalogTelemetry.longTaskCountDelta,
+					'catalog-scoped long-task count',
+				).toBe(0);
+				expect(
+					observations.catalogTelemetry.undemandedSessionRichFetchCount,
+					'undemanded-session rich-fetch count',
+				).toBe(0);
+				expect(observations.fileTelemetry.currentCount, 'File outstanding publication count').toBe(
+					0,
+				);
 				expect(observations.fileTelemetry.highWaterMark).toBe(1);
-				expect(observations.reviewTelemetry.currentCount).toBe(0);
+				expect(
+					observations.reviewTelemetry.currentCount,
+					'Review outstanding publication count',
+				).toBe(0);
 				expect(observations.reviewTelemetry.highWaterMark).toBeGreaterThan(0);
 				expect(observations.reviewTelemetry.highWaterMark).toBeLessThanOrEqual(12);
 				expect(observations.reviewTelemetry.receiptProducedCount).toBeGreaterThan(0);
-				expect(observations.reviewTelemetry.receiptPendingCount).toBe(0);
+				expect(
+					observations.reviewTelemetry.receiptPendingCount,
+					'Review pending receipt count',
+				).toBe(0);
 				expect(observations.reviewTelemetry.receiptHighWaterMark).toBeGreaterThan(0);
 				expect(observations.reviewTelemetry.receiptHighWaterMark).toBeLessThanOrEqual(6_144);
 				expect(observations.reviewTelemetry.maximumReceiptPendingAgeMilliseconds).toBeLessThan(
@@ -262,7 +278,7 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 					renderReceiptLeaseMilliseconds,
 				);
 				expect(observations.reviewTelemetry.responseBeforeOwnerEffectObserved).toBe(true);
-				expect(observations.reviewTelemetry.failureCount).toBe(0);
+				expect(observations.reviewTelemetry.failureCount, 'Review runtime failure count').toBe(0);
 				milestones.transition('assertions.complete');
 			} catch (error: unknown) {
 				if (server !== null) {
@@ -458,23 +474,32 @@ async function runAnnotationBackpressureJourney(props: {
 		const bodies = [rootBody, ...replies.map((reply) => reply.body)];
 		const messageIds: string[] = [];
 		const catalogBaseline = await latestAnnotationCatalogCommit(createdPage);
-		const longTaskBaseline = await requireLongTaskCount(createdPage);
-		messageIds.push(
-			await createAndSaveRoot({
-				body: rootBody,
-				milestones: props.milestones,
+		// The production probe is cumulative and PerformanceObserver delivery is asynchronous.
+		// An operation-scoped observer prevents earlier Review interactions from entering this gate.
+		await beginAnnotationCatalogLongTaskObservation(createdPage);
+		let catalogTransferTelemetry: AnnotationCatalogTransferTelemetryObservation;
+		let catalogLongTaskCount: number;
+		try {
+			messageIds.push(
+				await createAndSaveRoot({
+					body: rootBody,
+					milestones: props.milestones,
+					page: createdPage,
+				}),
+			);
+			catalogTransferTelemetry = await waitForAnnotationCatalogCommit({
+				minimumCatalogRevisionExclusive: catalogBaseline.catalogRevision,
 				page: createdPage,
-			}),
-		);
-		const catalogTransferTelemetry = await waitForAnnotationCatalogCommit({
-			minimumCatalogRevisionExclusive: catalogBaseline.catalogRevision,
-			page: createdPage,
-		});
-		await settleBrowserFrames(createdPage, 2);
-		const longTaskCountAfterCatalog = await requireLongTaskCount(createdPage);
+			});
+			await settleBrowserFrames(createdPage, 2);
+			catalogLongTaskCount = await finishAnnotationCatalogLongTaskObservation(createdPage);
+		} catch (error: unknown) {
+			await finishAnnotationCatalogLongTaskObservation(createdPage).catch((): void => {});
+			throw error;
+		}
 		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
 			...catalogTransferTelemetry,
-			longTaskCountDelta: longTaskCountAfterCatalog - longTaskBaseline,
+			longTaskCountDelta: catalogLongTaskCount,
 			undemandedSessionRichFetchCount: projectionQueries
 				.sessionIdsForOperation(catalogTransferTelemetry.operationCorrelationId)
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())

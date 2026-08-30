@@ -18,6 +18,8 @@ export interface AnnotationProjectionQueryObservation {
 	readonly sessionIdsForOperation: (operationCorrelationId: string) => readonly string[];
 }
 
+const annotationCatalogLongTaskObservationKey = 'bridgeAnnotationCatalogLongTaskObservation';
+
 interface TelemetryStatusSample {
 	readonly name: string;
 	readonly numericAttributes: Readonly<Record<string, number>>;
@@ -228,22 +230,45 @@ export async function waitForAnnotationCatalogCommit(props: {
 	return observation;
 }
 
-export async function requireLongTaskCount(page: Page): Promise<number> {
-	const observation = await page.evaluate(
-		(): { readonly count: number | null; readonly supported: boolean } => {
-			const supported = PerformanceObserver.supportedEntryTypes.includes('longtask');
-			const probe = Reflect.get(window, '__bridgeFrameJankProbe');
-			const longTask =
-				typeof probe === 'object' && probe !== null ? Reflect.get(probe, 'long_task') : null;
-			const count =
-				typeof longTask === 'object' && longTask !== null ? Reflect.get(longTask, 'count') : null;
-			return { count: typeof count === 'number' ? count : null, supported };
-		},
-	);
-	if (!observation.supported || observation.count === null) {
-		throw new Error('Large catalog proof requires the production Long Tasks probe.');
+export async function beginAnnotationCatalogLongTaskObservation(page: Page): Promise<void> {
+	const supported = await page.evaluate((key): boolean => {
+		if (!PerformanceObserver.supportedEntryTypes.includes('longtask')) return false;
+		const existingState = Reflect.get(window, key);
+		if (typeof existingState === 'object' && existingState !== null) {
+			const existingObserver = Reflect.get(existingState, 'observer');
+			if (existingObserver instanceof PerformanceObserver) existingObserver.disconnect();
+		}
+		const state = { count: 0, observer: null as PerformanceObserver | null };
+		state.observer = new PerformanceObserver((entryList): void => {
+			state.count += entryList.getEntries().length;
+		});
+		state.observer.observe({ entryTypes: ['longtask'] });
+		Reflect.set(window, key, state);
+		return true;
+	}, annotationCatalogLongTaskObservationKey);
+	if (!supported) {
+		throw new Error('Large catalog proof requires Long Tasks observation support.');
 	}
-	return observation.count;
+}
+
+export async function finishAnnotationCatalogLongTaskObservation(page: Page): Promise<number> {
+	const count = await page.evaluate((key): number | null => {
+		const state = Reflect.get(window, key);
+		if (typeof state !== 'object' || state === null) return null;
+		const observer = Reflect.get(state, 'observer');
+		const recordedCount = Reflect.get(state, 'count');
+		if (!(observer instanceof PerformanceObserver) || typeof recordedCount !== 'number') {
+			return null;
+		}
+		const finalCount = recordedCount + observer.takeRecords().length;
+		observer.disconnect();
+		Reflect.deleteProperty(window, key);
+		return finalCount;
+	}, annotationCatalogLongTaskObservationKey);
+	if (count === null) {
+		throw new Error('Large catalog Long Tasks observation was not active.');
+	}
+	return count;
 }
 
 export async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {
