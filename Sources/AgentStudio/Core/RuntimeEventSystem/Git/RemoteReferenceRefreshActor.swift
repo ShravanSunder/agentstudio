@@ -94,7 +94,7 @@ package actor RemoteReferenceRefreshActor {
             switch operation {
             case .staging(_, let task): task.cancel()
             case .promoting(_, _, let task): task.cancel()
-            case .recomputing: break
+            case .applyingPromotedAuthority, .recomputing: break
             }
         }
     }
@@ -290,7 +290,7 @@ package actor RemoteReferenceRefreshActor {
             guard !hasExplicitInterest(repoId: repoId) else { continue }
             explicitRepositoryIds.remove(repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: repoId)
-            if case .recomputing = activeOperationsByRepoId[repoId] {
+            if activeOperationsByRepoId[repoId]?.retainsCustodyAfterDemandContraction == true {
                 continue
             }
             await revokeActiveOperation(repoId: repoId)
@@ -535,13 +535,19 @@ package actor RemoteReferenceRefreshActor {
             failureDeadlineByRepoId.removeValue(forKey: attempt.repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
             performanceAccumulator.increment(\.publicationPromoted)
+            activeOperationsByRepoId[attempt.repoId] = .applyingPromotedAuthority(attempt)
             await onAuthorityUpdate(
                 .promoted(acceptance, representedWorktreeIds: registration.worktreeIds)
             )
+            guard acceptsCurrentIdentity(attempt),
+                case .applyingPromotedAuthority(let activeAttempt) = activeOperationsByRepoId[attempt.repoId],
+                activeAttempt.stagingId == attempt.stagingId
+            else { return }
             activeOperationsByRepoId[attempt.repoId] = .recomputing(attempt)
             let recomputationOutcome = await onPromotedRecomputation(acceptance)
             guard acceptsCurrentIdentity(attempt),
-                activeOperationsByRepoId[attempt.repoId]?.attempt.stagingId == attempt.stagingId
+                case .recomputing(let activeAttempt) = activeOperationsByRepoId[attempt.repoId],
+                activeAttempt.stagingId == attempt.stagingId
             else { return }
             explicitRepositoryIds.remove(attempt.repoId)
             activeOperationsByRepoId.removeValue(forKey: attempt.repoId)
@@ -610,7 +616,7 @@ package actor RemoteReferenceRefreshActor {
                 cleanupRetryAtByRepoId[repoId] =
                     monotonicNow() + AppPolicies.RemoteReferenceRefresh.capacityRecheckDelay
             }
-        case .recomputing:
+        case .applyingPromotedAuthority, .recomputing:
             break
         }
         activeOperationsByRepoId.removeValue(forKey: repoId)
@@ -772,7 +778,7 @@ extension RemoteReferenceRefreshActor {
                     return stagedFetch.handle.repositoryCommonDirectory == repositoryCommonDirectory
                         ? stagedFetch.handle.stagingID
                         : nil
-                case .recomputing:
+                case .applyingPromotedAuthority, .recomputing:
                     return nil
                 }
             }

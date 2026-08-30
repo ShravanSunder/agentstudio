@@ -74,6 +74,77 @@ struct RemoteReferenceRefreshRecomputationTests {
         #expect(performanceRecorder.settlements.last?.physicalActive == 0)
         await actor.shutdown()
     }
+
+    @Test("origin replacement during authority application cannot resurrect physical custody")
+    func originReplacementDuringAuthorityApplicationCannotResurrectCustody() async throws {
+        let fixture = RemoteReferenceRefreshFixture()
+        let authorityGate = RemoteReferenceAuthorityApplicationGate()
+        let performanceRecorder = RemoteReferencePerformanceRecorderSpy()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            performanceRecorder: performanceRecorder,
+            onAuthorityUpdate: { update in
+                guard case .promoted = update else { return }
+                await authorityGate.waitForRelease()
+            }
+        )
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: fixture.repoId,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+        await authorityGate.waitUntilEntered()
+
+        await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originB)
+        await authorityGate.release()
+
+        #expect(await lease.settlement() == .obsolete)
+        await actor.waitUntilIdle()
+        #expect(performanceRecorder.settlements.last?.physicalActive == 0)
+        await actor.shutdown()
+    }
+
+    @Test("shutdown during authority application cannot resurrect physical custody")
+    func shutdownDuringAuthorityApplicationCannotResurrectCustody() async throws {
+        let fixture = RemoteReferenceRefreshFixture()
+        let authorityGate = RemoteReferenceAuthorityApplicationGate()
+        let performanceRecorder = RemoteReferencePerformanceRecorderSpy()
+        let actor = RemoteReferenceRefreshActor(
+            provider: fixture.provider,
+            performanceRecorder: performanceRecorder,
+            onAuthorityUpdate: { update in
+                guard case .promoted = update else { return }
+                await authorityGate.waitForRelease()
+            }
+        )
+        await actor.register(
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            repositoryPath: fixture.repositoryPath,
+            remoteName: "origin",
+            expectedOrigin: fixture.originA
+        )
+        let admission = await actor.startExplicitRepositoryUpdate(
+            repoId: fixture.repoId,
+            attemptId: UUIDv7.generate()
+        )
+        let lease = try #require(admission.acceptedLease)
+        await authorityGate.waitUntilEntered()
+
+        await actor.shutdown()
+        await authorityGate.release()
+
+        #expect(await lease.settlement() == .cancelled)
+        await actor.waitUntilIdle()
+        #expect(performanceRecorder.settlements.last?.physicalActive == 0)
+    }
 }
 
 private actor RemoteReferenceRecomputationGate {
@@ -100,6 +171,34 @@ private actor RemoteReferenceRecomputationGate {
 
     func release(with outcome: RepositoryFactSourceUpdateOutcome) {
         releaseContinuation?.resume(returning: outcome)
+        releaseContinuation = nil
+    }
+}
+
+private actor RemoteReferenceAuthorityApplicationGate {
+    private var hasEntered = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func waitForRelease() async {
+        hasEntered = true
+        let waiters = entryWaiters
+        entryWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !hasEntered else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
         releaseContinuation = nil
     }
 }
