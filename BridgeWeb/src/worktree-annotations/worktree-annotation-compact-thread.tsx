@@ -136,7 +136,7 @@ export function WorktreeAnnotationThread(
 				? event.target
 						.closest<HTMLElement>('[data-annotation-message-id]')
 						?.getAttribute('data-annotation-message-id')
-					: null;
+				: null;
 		if (targetMessageId === null || targetMessageId === undefined) activateRange();
 		else activateMessageRange(targetMessageId);
 		const targetOwnsInteraction =
