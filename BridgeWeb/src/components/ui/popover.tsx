@@ -19,6 +19,7 @@ function PopoverContent({
 	align = 'center',
 	alignOffset = 0,
 	motion = 'default',
+	positionerClassName,
 	side = 'bottom',
 	sideOffset = 4,
 	...props
@@ -26,7 +27,10 @@ function PopoverContent({
 	Pick<
 		PopoverPrimitive.Positioner.Props,
 		'align' | 'alignOffset' | 'anchor' | 'side' | 'sideOffset'
-	> & { readonly motion?: 'default' | 'shelf' }): ReactElement {
+	> & {
+		readonly motion?: 'default' | 'shelf';
+		readonly positionerClassName?: string;
+	}): ReactElement {
 	return (
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
@@ -35,7 +39,7 @@ function PopoverContent({
 				anchor={anchor}
 				side={side}
 				sideOffset={sideOffset}
-				className="isolate z-50"
+				className={cn('isolate z-50', positionerClassName)}
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"

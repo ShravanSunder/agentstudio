@@ -15,11 +15,12 @@ export function BridgeViewerHeaderShelf(props: BridgeViewerHeaderShelfProps): Re
 		<PopoverContent
 			align="center"
 			anchor={props.anchor}
-			className="w-[calc(var(--anchor-width)*0.9)] max-w-[var(--available-width)] gap-0 p-2"
+			className="mx-auto w-[90%] max-w-[var(--available-width)] gap-0 p-2"
 			data-testid={props.testId}
 			finalFocus={props.finalFocus}
 			initialFocus
 			motion="shelf"
+			positionerClassName="w-[var(--anchor-width)]"
 			side="bottom"
 			sideOffset={0}
 		>
