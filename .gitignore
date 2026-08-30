@@ -33,8 +33,19 @@ xcuserdata/
 node_modules/
 .pnpm-store/
 .vite/
+# Local credentials and Cloudflare operator environment
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+/.cloudflare/
 BridgeWeb/dist/
 BridgeWeb/.vitest-attachments/
+web/.astro/
+web/.cloudflare
+web/dist/
+web/.wrangler/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
 #   mise run bridge-web-build

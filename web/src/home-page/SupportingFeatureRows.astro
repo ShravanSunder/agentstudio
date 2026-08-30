@@ -1,0 +1,134 @@
+---
+import { Image } from "astro:assets";
+
+import gitContextFilesImage from "@/assets/captures/git-context-files.png";
+import gitContextFilesPhoneImage from "@/assets/captures/git-context-files-phone.png";
+import layoutPaneZoomImage from "@/assets/captures/layout-pane-zoom.png";
+import layoutPaneZoomPhoneImage from "@/assets/captures/layout-pane-zoom-phone.png";
+import layoutSavedImage from "@/assets/captures/layout-saved.png";
+import layoutSavedPhoneImage from "@/assets/captures/layout-saved-phone.png";
+import sidebarNavigationPhoneImage from "@/assets/captures/sidebar-navigation-phone.png";
+import sidebarNavigationImage from "@/assets/captures/sidebar-navigation.png";
+import taskDrawerToolsPhoneImage from "@/assets/captures/task-drawer-tools-phone.png";
+import taskDrawerToolsImage from "@/assets/captures/task-drawer-tools.png";
+import sessionRestorePoster from "@/assets/media/session-restore-poster.jpg";
+import sessionRestoreVideoUrl from "@/assets/media/session-restore.mp4?url";
+import { marketingCopy } from "@/marketing-copy";
+import PersistenceProof from "@/product-plate/PersistenceProof.astro";
+
+import ScrollAutoplayVideo from "./ScrollAutoplayVideo.astro";
+import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
+
+const mediaByFeatureId = {
+  navigation: {
+    image: sidebarNavigationImage,
+    phoneImage: sidebarNavigationPhoneImage,
+  },
+  "task-tools": {
+    image: taskDrawerToolsImage,
+    phoneImage: taskDrawerToolsPhoneImage,
+  },
+  "git-context": {
+    image: gitContextFilesImage,
+    phoneImage: gitContextFilesPhoneImage,
+  },
+} as const;
+---
+
+<section class="feature-details px-page-inline pt-section" aria-labelledby="feature-details-title">
+  <div class="section-heading mb-content max-w-section-heading">
+    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
+      {marketingCopy.featureDetails.eyebrow}
+    </p>
+    <h2
+      id="feature-details-title"
+      class="mt-3.5 mb-5 font-display text-section-title font-extrabold"
+    >
+      {marketingCopy.featureDetails.headline}
+    </h2>
+    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
+      {marketingCopy.featureDetails.description}
+    </p>
+  </div>
+
+  <div>
+    {
+      marketingCopy.featureDetails.items.map((item) => (
+        <article class="py-[clamp(48px,5vw,76px)] max-phone:py-10">
+          <ScrollMaterialSurface class="feature-detail grid grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)] gap-1 border p-1 max-lg:grid-cols-1">
+            <div class="scroll-material-pane feature-detail__pane feature-detail__copy flex flex-col items-stretch justify-center rounded-material-pane border border-line p-[clamp(28px,3.5vw,52px)] max-lg:contents">
+              <div class="scroll-material-pane-compact feature-detail__title max-w-[440px] max-lg:order-1 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
+                <h3 class="m-0 font-display text-feature-title font-semibold text-ink">
+                  {item.title.beforeAccent}
+                  <span class="text-primary">{item.title.accent}</span>
+                  {item.title.afterAccent}
+                </h3>
+              </div>
+              <div class="scroll-material-pane-compact feature-detail__description mt-12 max-w-[440px] max-lg:order-3 max-lg:mt-0 max-lg:max-w-none max-lg:rounded-material-pane max-lg:border max-lg:border-line max-lg:p-7 max-phone:p-5">
+                <p class="m-0 text-marketing-body text-ink-secondary max-phone:text-sm max-phone:leading-normal">
+                  {item.summary}
+                </p>
+                <p class="mt-3 mb-0 text-[17px] leading-[1.55] text-ink-muted max-phone:text-sm max-phone:leading-normal">
+                  {item.detail}
+                </p>
+              </div>
+            </div>
+
+            <div
+              class:list={[
+                "scroll-material-pane feature-detail__pane feature-detail__media min-w-0 overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2",
+                { "flex items-center": item.id === "persistence" },
+              ]}
+            >
+              {item.id === "persistence" ? (
+                <ScrollAutoplayVideo
+                  accessibilityLabel="Agent Studio persistent session restore demonstration"
+                  fallbackText="This browser cannot play the session restore video."
+                  poster={sessionRestorePoster}
+                  source={sessionRestoreVideoUrl}
+                  data-session-restore-video
+                  class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
+                />
+              ) : item.id === "arrangements" ? (
+                <PersistenceProof
+                  beforeImage={layoutSavedImage}
+                  restoredImage={layoutPaneZoomImage}
+                  beforePhoneImage={layoutSavedPhoneImage}
+                  restoredPhoneImage={layoutPaneZoomPhoneImage}
+                  beforeLabel={item.savedArrangementLabel}
+                  restoredLabel={item.paneZoomLabel}
+                  beforeImageDescription={item.savedArrangementImageDescription}
+                  restoredImageDescription={item.paneZoomImageDescription}
+                  accessibilityLabel="Workspace layout presentation"
+                />
+              ) : (
+                <picture class="block overflow-clip rounded-control">
+                  {
+                    mediaByFeatureId[item.id].phoneImage !== undefined && (
+                      <source
+                        media="(max-width: 620px)"
+                        srcset={mediaByFeatureId[item.id].phoneImage?.src}
+                        width={mediaByFeatureId[item.id].phoneImage?.width}
+                        height={mediaByFeatureId[item.id].phoneImage?.height}
+                      />
+                    )
+                  }
+                  <Image
+                    src={mediaByFeatureId[item.id].image}
+                    alt={item.imageDescription}
+                    widths={[720, 1080, 1440, 2160]}
+                    sizes="(max-width: 900px) 100vw, 62vw"
+                    format="png"
+                    loading="lazy"
+                    decoding="async"
+                    class="block h-auto w-full"
+                  />
+                </picture>
+              )}
+            </div>
+          </ScrollMaterialSurface>
+        </article>
+      ))
+    }
+  </div>
+</section>

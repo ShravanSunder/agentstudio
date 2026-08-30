@@ -7,7 +7,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("ManagementLayerMonitor")
+@Suite("ManagementLayerMonitor", .serialized)
 struct ManagementLayerMonitorTests {
     @Test("management layer publication settles command refresh after invalidation")
     func managementLayerPublicationSettlesCommandRefreshAfterInvalidation() async {

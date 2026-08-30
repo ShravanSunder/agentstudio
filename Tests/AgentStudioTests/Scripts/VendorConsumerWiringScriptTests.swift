@@ -234,7 +234,11 @@ struct VendorConsumerWiringScriptTests {
 
         // Act / Assert
         #expect(setupTask.contains("flag \"--use-local-vendors\""))
-        #expect(setupTask.contains("depends = [\"bridge-web-install\", \"install-hooks\"]"))
+        #expect(
+            setupTask.contains(
+                "depends = [\"bridge-web-install\", \"web-install\", \"install-hooks\"]"
+            )
+        )
         #expect(!setupTask.contains("depends = [\"copy-xcframework\""))
         #expect(setupTask.contains("vendor-worktree.sh\" setup-local"))
         #expect(setupTask.contains("vendor-worktree.sh\" setup-shared"))
