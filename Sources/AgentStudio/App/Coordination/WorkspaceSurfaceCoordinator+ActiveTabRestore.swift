@@ -9,8 +9,9 @@ extension WorkspaceSurfaceCoordinator {
         let clock = ContinuousClock()
         let restoreStart = clock.now
         guard let activeTab = store.tabLayoutAtom.activeTab else { return }
+        let visiblePaneIDs = foregroundVisiblePaneIDs(in: activeTab)
         if !windowLifecycleStore.isLaunchLayoutSettled {
-            let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
+            let hasPreparingPlaceholder = visiblePaneIDs.contains { paneId in
                 viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
             }
             guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
@@ -30,25 +31,20 @@ extension WorkspaceSurfaceCoordinator {
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         if viewRegistry.isInitialRestorePending {
-            let activePaneIDs = activeTab.activePaneIds.map(PaneId.init(existingUUID:))
-            _ = preparedContentVisibilitySignalHandler(activePaneIDs)
+            _ = preparedContentVisibilitySignalHandler(
+                visiblePaneIDs.map(PaneId.init(existingUUID:))
+            )
             RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(activeTab.activePaneIds.count)"
+                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count)"
             )
             return
         }
 
-        let visiblePaneIds = TerminalRestoreScheduler.order(
-            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
-            resolver: visibilityTierResolver
-        )
-        .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
-        .map(\.uuid)
         let resolvedPaneFramesByTabId = [
             activeTab.id: resolveInitialFrames(for: activeTab, in: terminalContainerBounds)
         ]
         restoreMissingVisibleViews(
-            visiblePaneIds,
+            visiblePaneIDs,
             in: activeTab,
             resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
             forceFailedPlaceholderRetry: forceWhenBoundsExist
@@ -59,10 +55,19 @@ extension WorkspaceSurfaceCoordinator {
             attributes: [
                 "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
                 "agentstudio.performance.pane_view_restore.pane.count": .int(activeTab.allPaneIds.count),
-                "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIds.count),
+                "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIDs.count),
                 "agentstudio.performance.pane_view_restore.tab.count": .int(1),
             ]
         )
+    }
+
+    private func foregroundVisiblePaneIDs(in activeTab: Tab) -> [UUID] {
+        TerminalRestoreScheduler.order(
+            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
+            resolver: visibilityTierResolver
+        )
+        .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
+        .map(\.uuid)
     }
 
     private func restoreMissingVisibleViews(

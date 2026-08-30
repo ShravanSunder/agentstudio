@@ -23,6 +23,11 @@ struct TerminalPlaceholderPublication: Equatable, Sendable {
 /// one accepted composition generation.
 @MainActor
 final class WorkspacePreparedContentMountCoordinator {
+    private struct MountPhase {
+        let terminalScheduler: TerminalActivationScheduler
+        let nonterminalOwner: NonterminalContentMountOwner
+    }
+
     private enum Lifecycle {
         case idle
         case mounting
@@ -31,9 +36,9 @@ final class WorkspacePreparedContentMountCoordinator {
 
     private let cohort: WorkspacePreparedContentMountCohort
     private let viewRegistry: ViewRegistry
-    private let terminalScheduler: TerminalActivationScheduler
     private let terminalActivationReleaseGate: TerminalActivationReleaseGate
-    private let nonterminalOwner: NonterminalContentMountOwner
+    private let phases: [MountPhase]
+    private let terminalSchedulersByPaneID: [PaneId: TerminalActivationScheduler]
     private var lifecycle = Lifecycle.idle
     private var didPublishTerminalPlaceholders = false
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
@@ -46,37 +51,57 @@ final class WorkspacePreparedContentMountCoordinator {
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
         nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort
     ) {
-        // Hidden Bridge panes stay outside the startup ledger so a later reveal
-        // falls through to the existing steady-state content mount owner.
+        // Deferred panes stay outside the startup ledger so later demand falls
+        // through to the existing steady-state content mount owner.
         let startupCohort = WorkspacePreparedContentMountCohort(
             generation: cohort.generation,
             terminalActivationInput: cohort.terminalActivationInput,
             nonterminalContentMountInput: NonterminalContentMountInput(
-                entries: cohort.nonterminalContentMountInput.entries.filter {
-                    guard $0.visibilityPriority == .hidden else { return true }
-                    guard case .bridgePanel = $0.content else { return true }
-                    return false
-                }
+                entries: cohort.nonterminalContentMountInput.entries.filter { $0.visibilityPriority != .hidden }
             )
         )
-        self.cohort = startupCohort
+        let foregroundCohort = WorkspacePreparedContentMountCohort(
+            generation: startupCohort.generation,
+            terminalActivationInput: TerminalActivationInput(
+                entries: startupCohort.terminalActivationInput.entries.filter {
+                    $0.visibilityPriority != .hidden
+                }
+            ),
+            nonterminalContentMountInput: startupCohort.nonterminalContentMountInput
+        )
+        let mainCohort = Self.partition(foregroundCohort, selectingDrawerEntries: false)
+        let drawerCohort = Self.partition(foregroundCohort, selectingDrawerEntries: true)
+        self.cohort = foregroundCohort
         self.viewRegistry = viewRegistry
         let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
         self.terminalActivationReleaseGate = terminalActivationReleaseGate
-        terminalScheduler = TerminalActivationScheduler(
-            cohort: TerminalActivationCohort(
-                generation: startupCohort.generation,
-                input: startupCohort.terminalActivationInput
-            ),
-            admissionPort: terminalAdmissionPort,
-            releaseSignal: terminalActivationReleaseGate
+        let phaseCohorts = [mainCohort, drawerCohort]
+        let phases = phaseCohorts.map { phaseCohort in
+            MountPhase(
+                terminalScheduler: TerminalActivationScheduler(
+                    cohort: TerminalActivationCohort(
+                        generation: phaseCohort.generation,
+                        input: phaseCohort.terminalActivationInput
+                    ),
+                    admissionPort: terminalAdmissionPort,
+                    releaseSignal: terminalActivationReleaseGate
+                ),
+                nonterminalOwner: NonterminalContentMountOwner(
+                    generation: phaseCohort.generation,
+                    input: phaseCohort.nonterminalContentMountInput,
+                    admissionPort: nonterminalAdmissionPort
+                )
+            )
+        }
+        self.phases = phases
+        terminalSchedulersByPaneID = Dictionary(
+            uniqueKeysWithValues: zip(phaseCohorts, phases).flatMap { phaseCohort, phase in
+                phaseCohort.terminalActivationInput.entries.map {
+                    ($0.paneID, phase.terminalScheduler)
+                }
+            }
         )
-        nonterminalOwner = NonterminalContentMountOwner(
-            generation: startupCohort.generation,
-            input: startupCohort.nonterminalContentMountInput,
-            admissionPort: nonterminalAdmissionPort
-        )
-        viewRegistry.installPreparedContentMountCohort(startupCohort)
+        viewRegistry.installPreparedContentMountCohort(foregroundCohort)
     }
 
     func holdTerminalActivationUntilReleased() async {
@@ -88,7 +113,8 @@ final class WorkspacePreparedContentMountCoordinator {
     }
 
     func terminalActivationDeferralOutcome() async -> StartupDeferralOutcome? {
-        await terminalScheduler.recordedActivationDeferralOutcome()
+        guard let firstPhase = phases.first else { return nil }
+        return await firstPhase.terminalScheduler.recordedActivationDeferralOutcome()
     }
 
     func mount() async -> WorkspacePreparedContentMountSettlement {
@@ -103,12 +129,30 @@ final class WorkspacePreparedContentMountCoordinator {
             lifecycle = .mounting
         }
 
-        async let terminal = terminalScheduler.activate()
-        async let nonterminal = nonterminalOwner.mount()
+        var terminalOutcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome] = [:]
+        var nonterminalOutcomesByPaneID: [PaneId: NonterminalContentMountOutcome] = [:]
+        for phase in phases {
+            async let terminal = phase.terminalScheduler.activate()
+            async let nonterminal = phase.nonterminalOwner.mount()
+            let phaseTerminal = await terminal
+            let phaseNonterminal = await nonterminal
+            terminalOutcomesByPaneID.merge(phaseTerminal.outcomesByPaneID) { _, _ in
+                preconditionFailure("terminal pane admitted by multiple restore phases")
+            }
+            nonterminalOutcomesByPaneID.merge(phaseNonterminal.outcomesByPaneID) { _, _ in
+                preconditionFailure("nonterminal pane admitted by multiple restore phases")
+            }
+        }
         let settlement = WorkspacePreparedContentMountSettlement(
             generation: cohort.generation,
-            terminal: await terminal,
-            nonterminal: await nonterminal
+            terminal: TerminalActivationSettlement(
+                generation: cohort.generation,
+                outcomesByPaneID: terminalOutcomesByPaneID
+            ),
+            nonterminal: NonterminalContentMountSettlement(
+                generation: cohort.generation,
+                outcomesByPaneID: nonterminalOutcomesByPaneID
+            )
         )
         requireCompleteSettlement(settlement)
         viewRegistry.completeInitialRestore()
@@ -155,7 +199,10 @@ final class WorkspacePreparedContentMountCoordinator {
         paneID: PaneId,
         to priority: TerminalActivationVisibilityPriority
     ) async -> TerminalActivationPromotionResult {
-        await terminalScheduler.promote(paneID: paneID, to: priority)
+        guard let terminalScheduler = terminalSchedulersByPaneID[paneID] else {
+            return .paneNotFound
+        }
+        return await terminalScheduler.promote(paneID: paneID, to: priority)
     }
 
     func handleVisibilitySignals(for paneIDs: [PaneId]) -> Set<PaneId> {
@@ -186,9 +233,13 @@ final class WorkspacePreparedContentMountCoordinator {
             }
         }
         if !terminalPaneIDsToPromote.isEmpty {
-            Task { [terminalScheduler] in
+            let terminalSchedulersByPaneID = terminalSchedulersByPaneID
+            Task {
                 for paneID in terminalPaneIDsToPromote {
-                    _ = await terminalScheduler.promote(paneID: paneID, to: .activeVisible)
+                    _ = await terminalSchedulersByPaneID[paneID]?.promote(
+                        paneID: paneID,
+                        to: .activeVisible
+                    )
                 }
             }
         }
@@ -247,5 +298,29 @@ final class WorkspacePreparedContentMountCoordinator {
             Set(settlement.nonterminal.outcomesByPaneID.keys)
                 == Set(cohort.nonterminalContentMountInput.entries.map(\.paneID))
         )
+    }
+
+    private static func partition(
+        _ cohort: WorkspacePreparedContentMountCohort,
+        selectingDrawerEntries: Bool
+    ) -> WorkspacePreparedContentMountCohort {
+        WorkspacePreparedContentMountCohort(
+            generation: cohort.generation,
+            terminalActivationInput: TerminalActivationInput(
+                entries: cohort.terminalActivationInput.entries.filter {
+                    isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
+                }
+            ),
+            nonterminalContentMountInput: NonterminalContentMountInput(
+                entries: cohort.nonterminalContentMountInput.entries.filter {
+                    isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
+                }
+            )
+        )
+    }
+
+    private static func isDrawerPlacement(_ placement: TerminalHostPlacementIdentity) -> Bool {
+        if case .drawer = placement { return true }
+        return false
     }
 }

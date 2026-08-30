@@ -140,6 +140,41 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test
+    func boundsSettlementSignalsPreparingForegroundDrawerWithoutArrangementMutation() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let parentPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let tab = Tab(paneId: parentPane.id, name: "Bounds repair")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+        if harness.store.pane(parentPane.id)?.drawer?.isExpanded == false {
+            harness.store.toggleDrawer(for: parentPane.id)
+        }
+        harness.viewRegistry.beginInitialRestore()
+        var signalledPaneIDs: [PaneId] = []
+        harness.coordinator.preparedContentVisibilitySignalHandler = { paneIDs in
+            signalledPaneIDs = paneIDs
+            return Set(paneIDs)
+        }
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        #expect(signalledPaneIDs == [parentPane.id, drawerPane.id].map(PaneId.init(existingUUID:)))
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
+    }
+
+    @Test
     func expandDrawerPane_retriesMinimizedPaneAfterPreparedActivationFailure() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
