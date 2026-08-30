@@ -324,6 +324,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let targetPane = makeWebviewPane(harness.store, title: "Target")
         let tab = Tab(paneId: targetPane.id)
         harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
 
         let backgroundPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Background")
         harness.store.setResidency(.backgrounded, for: backgroundPane.id)
