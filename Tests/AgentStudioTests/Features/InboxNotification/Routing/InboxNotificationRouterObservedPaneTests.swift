@@ -473,25 +473,14 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 4
             )
         )
-        _ = await fixture.bus.post(
-            runtimeEnvelope(
-                paneId: paneId,
-                event: .terminal(.secureInputChanged(false)),
-                seq: 5
-            )
+        try #require(
+            await waitForEnvelopeTrace(
+                sequence: 4,
+                router: fixture.router,
+                outputFileURL: outputFileURL
+            ),
+            "router should handle and trace the ordering sentinel"
         )
-        await assertEventuallyAsync("router should consume the ordering sentinel") {
-            let diagnostics = await fixture.bus.diagnosticsSnapshot()
-            return diagnostics.activeSubscribers.contains { subscriber in
-                subscriber.subscriberName == "InboxNotificationRouter"
-                    && subscriber.pendingDeliveryCount == 0
-            }
-        }
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("barrier event should prove pane observation events were consumed") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"agentstudio.envelope.seq\":4") == true
-        }
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         await stop(fixture)
 
@@ -855,6 +844,28 @@ struct InboxNotificationRouterObservedPaneTests {
 
     private static func countOccurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
+    }
+
+    private func waitForEnvelopeTrace(
+        sequence: Int,
+        router: InboxNotificationRouter,
+        outputFileURL: URL
+    ) async -> Bool {
+        let expectedSequence = "\"agentstudio.envelope.seq\":\(sequence)"
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            await router.flushTraceRecords()
+            if (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains(expectedSequence) == true
+            {
+                return true
+            }
+            await Task.yield()
+        }
+        await router.flushTraceRecords()
+        return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+            .contains(expectedSequence) == true
     }
 
     func stop(_ fixture: Fixture) async {
