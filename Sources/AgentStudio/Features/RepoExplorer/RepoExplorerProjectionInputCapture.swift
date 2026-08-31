@@ -263,6 +263,29 @@ final class RepoExplorerProjectionInputCapture {
         guard !changedRepositoryIDs.isEmpty else { return unchangedScopedCapture(previous) }
 
         var request = previous
+        if previous.snapshot.groupingMode == .repo {
+            var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
+            let previousStableKeysByRepositoryID = Dictionary(
+                uniqueKeysWithValues: previous.snapshot.repos.map { ($0.id, $0.stableKey) }
+            )
+            for repositoryID in changedRepositoryIDs {
+                guard let previousStableKey = previousStableKeysByRepositoryID[repositoryID] else { return nil }
+                activityByRepositoryStableKey[previousStableKey] = nil
+            }
+            for repositoryID in changedRepositoryIDs {
+                guard
+                    let stableKey = store.repositoryTopologyAtom.repositoryStableKey(
+                        for: repositoryID
+                    )
+                else { return nil }
+                activityByRepositoryStableKey[stableKey] =
+                    coreAtoms.repositoryLocalActivity.activity(for: stableKey)
+            }
+            request = previous.replacing(
+                repositoryLocalActivityByStableKey: activityByRepositoryStableKey,
+                activityReferenceDate: referenceDate
+            )
+        }
         var changes = Set<RepoExplorerScopedProjectionChange>()
         var requiresFullProjection = false
         var requiresObservationRetarget = false
@@ -271,7 +294,8 @@ final class RepoExplorerProjectionInputCapture {
                 let capture = captureRepositoryChange(
                     repositoryID,
                     previous: request,
-                    referenceDate: referenceDate
+                    referenceDate: referenceDate,
+                    retargetRepositoryActivityIdentity: false
                 )
             else { return nil }
             request = capture.request
@@ -335,7 +359,8 @@ final class RepoExplorerProjectionInputCapture {
     private func captureRepositoryChange(
         _ repositoryID: UUID,
         previous: RepoExplorerProjectionRequest,
-        referenceDate: Date
+        referenceDate: Date,
+        retargetRepositoryActivityIdentity: Bool = true
     ) -> RepoExplorerScopedCapture? {
         guard let repositoryIndex = previous.snapshot.repos.firstIndex(where: { $0.id == repositoryID }),
             let repository = store.repositoryTopologyAtom.repo(repositoryID),
@@ -358,7 +383,7 @@ final class RepoExplorerProjectionInputCapture {
             previous.snapshot.groupingMode == .repo
             && previousRepository.stableKey != updatedRepository.stableKey
         var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
-        if repositoryActivityIdentityChanged {
+        if repositoryActivityIdentityChanged, retargetRepositoryActivityIdentity {
             activityByRepositoryStableKey[previousRepository.stableKey] = nil
             activityByRepositoryStableKey[updatedRepository.stableKey] =
                 coreAtoms.repositoryLocalActivity.activity(for: updatedRepository.stableKey)

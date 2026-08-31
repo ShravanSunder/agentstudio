@@ -198,10 +198,20 @@ private final class RepoExplorerLocalActivityProjectionFixture {
         repositoryStableKey: String,
         worktreeStableKey: String
     ) throws {
+        try replaceStableIdentities(
+            repositoryStableKeysByID: [repo.id: repositoryStableKey],
+            worktreeStableKeysByID: [worktree.id: worktreeStableKey]
+        )
+    }
+
+    func replaceStableIdentities(
+        repositoryStableKeysByID replacementsByRepositoryID: [UUID: String],
+        worktreeStableKeysByID replacementsByWorktreeID: [UUID: String]
+    ) throws {
         var repositoryStableKeysByID = store.repositoryTopologyAtom.repositoryStableKeysByID
-        repositoryStableKeysByID[repo.id] = repositoryStableKey
+        repositoryStableKeysByID.merge(replacementsByRepositoryID) { _, replacement in replacement }
         var worktreeStableKeysByID = store.repositoryTopologyAtom.worktreeStableKeysByID
-        worktreeStableKeysByID[worktree.id] = worktreeStableKey
+        worktreeStableKeysByID.merge(replacementsByWorktreeID) { _, replacement in replacement }
         let preparation = RepositoryTopologyReplacement.prepare(
             repositories: store.repositoryTopologyAtom.repos,
             watchedPaths: store.repositoryTopologyAtom.watchedPaths,
@@ -235,8 +245,12 @@ private final class RepoExplorerLocalActivityProjectionFixture {
     }
 
     func observesActivity(stableKey: String) -> Bool {
+        observesActivity(repositoryID: repo.id, stableKey: stableKey)
+    }
+
+    func observesActivity(repositoryID: UUID, stableKey: String) -> Bool {
         adapter.observationTokens.contains(
-            .repositoryActivity(repositoryID: repo.id, stableKey: stableKey)
+            .repositoryActivity(repositoryID: repositoryID, stableKey: stableKey)
         )
     }
 
@@ -610,6 +624,115 @@ extension RepoExplorerProjectionDemandTests {
             #expect(
                 fixture.store.repositoryTopologyAtom.stableIdentityRevision
                     == stableIdentityRevisionAfterReplacement
+            )
+        }
+    }
+
+    @MainActor
+    @Test("two-repository stable identity permutation preserves both final activity identities")
+    func stableIdentityPermutationPreservesBothFinalActivityIdentities() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            // Arrange
+            let fixture = try RepoExplorerLocalActivityProjectionFixture(atoms: atoms)
+            defer { fixture.stop() }
+            let unrelatedWorktree = try #require(fixture.unrelatedRepo.worktrees.first)
+            let warmLastActivityAt = fixture.referenceDate.addingTimeInterval(-100)
+            let warmActivity = try fixture.warmActivity(
+                lastQualifyingActivityAt: warmLastActivityAt
+            )
+            fixture.publishActivities(
+                atoms: atoms,
+                activityByStableKey: [
+                    fixture.repositoryStableKey: warmActivity,
+                    fixture.unrelatedRepositoryStableKey: fixture.unrelatedInactiveActivity,
+                ]
+            )
+            await fixture.startAndWait(for: .warm)
+            let fullCaptureCount = fixture.capture.fullCaptureCount
+            let scopedCaptureCount = fixture.capture.scopedCaptureCount
+            let permutationReferenceDate = fixture.referenceDate.addingTimeInterval(1000)
+            fixture.referenceDateClock.now = permutationReferenceDate
+
+            // Act
+            try fixture.replaceStableIdentities(
+                repositoryStableKeysByID: [
+                    fixture.repo.id: fixture.unrelatedRepositoryStableKey,
+                    fixture.unrelatedRepo.id: fixture.repositoryStableKey,
+                ],
+                worktreeStableKeysByID: [
+                    fixture.worktree.id: fixture.unrelatedRepositoryStableKey,
+                    unrelatedWorktree.id: fixture.repositoryStableKey,
+                ]
+            )
+            for _ in 0..<2000
+            where fixture.adapter.publishedResult?
+                .repositoryActivityDispositionByRepoId[fixture.repo.id] != .locallyInactive
+                || fixture.adapter.publishedResult?
+                    .repositoryActivityDispositionByRepoId[fixture.unrelatedRepo.id] != .warm
+            {
+                await Task.yield()
+            }
+
+            // Assert
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            #expect(fixture.capture.scopedCaptureCount == scopedCaptureCount + 1)
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[fixture.repositoryStableKey] == warmActivity
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?
+                    .repositoryLocalActivityByStableKey[fixture.unrelatedRepositoryStableKey]
+                    == fixture.unrelatedInactiveActivity
+            )
+            #expect(
+                fixture.adapter.publishedResult?
+                    .repositoryActivityDispositionByRepoId[fixture.repo.id] == .locallyInactive
+            )
+            #expect(
+                fixture.adapter.publishedResult?
+                    .repositoryActivityDispositionByRepoId[fixture.unrelatedRepo.id] == .warm
+            )
+            let expectedExpiration = warmLastActivityAt.addingTimeInterval(
+                AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+            let expectedTransition = Date(
+                timeIntervalSinceReferenceDate: expectedExpiration.timeIntervalSinceReferenceDate.nextUp
+            )
+            #expect(
+                fixture.adapter.publishedResult?
+                    .repositoryActivityTransitionAtByRepoId[fixture.repo.id] == nil
+            )
+            #expect(
+                fixture.adapter.publishedResult?
+                    .repositoryActivityTransitionAtByRepoId[fixture.unrelatedRepo.id]
+                    == expectedTransition
+            )
+            #expect(
+                fixture.adapter.cachedProjectionRequest?.activityReferenceDate
+                    == permutationReferenceDate
+            )
+            #expect(
+                fixture.observesActivity(
+                    repositoryID: fixture.repo.id,
+                    stableKey: fixture.unrelatedRepositoryStableKey
+                )
+            )
+            #expect(
+                fixture.observesActivity(
+                    repositoryID: fixture.unrelatedRepo.id,
+                    stableKey: fixture.repositoryStableKey
+                )
+            )
+            #expect(
+                !fixture.observesActivity(
+                    repositoryID: fixture.repo.id,
+                    stableKey: fixture.repositoryStableKey
+                )
+                    && !fixture.observesActivity(
+                        repositoryID: fixture.unrelatedRepo.id,
+                        stableKey: fixture.unrelatedRepositoryStableKey
+                    )
             )
         }
     }
