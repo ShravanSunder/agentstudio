@@ -7,7 +7,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite("DarwinCompositeFSEventContinuity")
+@Suite("DarwinCompositeFSEventContinuity", .serialized)
 struct DarwinCompositeFSEventContinuityTests {
     @Test("unchanged shared ancestor ambiguity resolves without full Git fallback")
     func unchangedAncestorAmbiguityResolvesWithoutFallback() async throws {
