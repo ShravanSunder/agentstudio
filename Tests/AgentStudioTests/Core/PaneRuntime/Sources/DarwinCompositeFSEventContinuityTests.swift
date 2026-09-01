@@ -346,6 +346,7 @@ private typealias CompositeRegularFileOpened =
 
 private final class CompositeContinuityFixture: @unchecked Sendable {
     let client: DarwinFSEventStreamClient
+    let localStreamFactory = CompositeLocalStreamFactory()
     let streamFactory: CompositeFlushStreamFactory
     let worktreeId = UUIDv7.generate()
     let worktreeRoot: URL
@@ -403,6 +404,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
 
         streamFactory = CompositeFlushStreamFactory(blockedFlushNumber: blockedFlushNumber)
         client = DarwinFSEventStreamClient(
+            localStreamFactory: localStreamFactory.makeStream,
             sharedExactItemStreamFactory: streamFactory.makeStream,
             sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader(
                 regularFileOpened: regularFileOpened
@@ -469,6 +471,22 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
                 && binding.participant.scopeKey.hasPrefix("local:")
         }
     }
+}
+
+private final class CompositeLocalStreamFactory: @unchecked Sendable {
+    func makeStream(
+        request _: DarwinLocalFSEventStreamRequest
+    ) -> (any DarwinLocalFSEventStreamLifetime)? {
+        CompositeLocalStreamLifetime()
+    }
+}
+
+private final class CompositeLocalStreamLifetime:
+    DarwinLocalFSEventStreamLifetime, @unchecked Sendable
+{
+    func flush() -> Bool { true }
+    func retire() {}
+    func scheduleRetirement() {}
 }
 
 private final class CompositeFingerprintGate: @unchecked Sendable {

@@ -1,6 +1,53 @@
 import CoreServices
 import Foundation
 
+package struct DarwinLocalFSEventRawEvent: @unchecked Sendable {
+    package let path: String
+    package let eventId: FSEventStreamEventId
+    package let flags: FSEventStreamEventFlags
+
+    package init(
+        path: String,
+        eventId: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags
+    ) {
+        self.path = path
+        self.eventId = eventId
+        self.flags = flags
+    }
+}
+
+package struct DarwinLocalFSEventStreamRequest: @unchecked Sendable {
+    package let worktreeId: UUID
+    package let lifecycleGeneration: UInt64
+    package let watchedPaths: [String]
+    package let privateStagingExclusionPaths: [String]
+    package let eventHandler: @Sendable ([DarwinLocalFSEventRawEvent]) -> Void
+
+    package init(
+        worktreeId: UUID,
+        lifecycleGeneration: UInt64,
+        watchedPaths: [String],
+        privateStagingExclusionPaths: [String],
+        eventHandler: @escaping @Sendable ([DarwinLocalFSEventRawEvent]) -> Void
+    ) {
+        self.worktreeId = worktreeId
+        self.lifecycleGeneration = lifecycleGeneration
+        self.watchedPaths = watchedPaths
+        self.privateStagingExclusionPaths = privateStagingExclusionPaths
+        self.eventHandler = eventHandler
+    }
+}
+
+package protocol DarwinLocalFSEventStreamLifetime: Sendable {
+    func flush() -> Bool
+    func retire()
+    func scheduleRetirement()
+}
+
+package typealias DarwinLocalFSEventStreamFactory =
+    @Sendable (DarwinLocalFSEventStreamRequest) -> (any DarwinLocalFSEventStreamLifetime)?
+
 package struct DarwinFSEventStreamFlushCompletion: Equatable, Sendable {
     package let shouldTeardown: Bool
     package let isCurrent: Bool
@@ -68,7 +115,9 @@ package final class DarwinFSEventStreamLifecycleGate: @unchecked Sendable {
     }
 }
 
-package final class DarwinFSEventNativeStreamLifetime: @unchecked Sendable {
+package final class DarwinFSEventNativeStreamLifetime:
+    DarwinLocalFSEventStreamLifetime, @unchecked Sendable
+{
     private let lifecycleGate = DarwinFSEventStreamLifecycleGate()
     private let stream: FSEventStreamRef
     private let queue: DispatchQueue

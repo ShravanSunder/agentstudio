@@ -3,18 +3,6 @@ import AgentStudioInfrastructure
 import CoreServices
 import Foundation
 
-private final class CallbackContext {
-    weak var client: DarwinFSEventStreamClient?
-    let worktreeId: UUID
-    let lifecycleGeneration: UInt64
-
-    init(client: DarwinFSEventStreamClient, worktreeId: UUID, lifecycleGeneration: UInt64) {
-        self.client = client
-        self.worktreeId = worktreeId
-        self.lifecycleGeneration = lifecycleGeneration
-    }
-}
-
 private struct StreamRegistration: @unchecked Sendable {
     let lifecycleGeneration: UInt64
     let participant: FSEventParticipant
@@ -22,7 +10,7 @@ private struct StreamRegistration: @unchecked Sendable {
     let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
     let observationScopes: [AgentStudioGit.GitStatusObservationScope]
     let watchedPaths: [String]
-    let streamLifetime: DarwinFSEventNativeStreamLifetime
+    let streamLifetime: any DarwinLocalFSEventStreamLifetime
 }
 
 private struct CompositeStreamRetention {
@@ -41,37 +29,6 @@ private struct LocalEventClassificationInput {
 package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanContinuityWitness,
     @unchecked Sendable
 {
-    private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, ids in
-        guard let info else { return }
-
-        let context = Unmanaged<CallbackContext>.fromOpaque(info).takeUnretainedValue()
-        guard let client = context.client else { return }
-
-        let pathArray = unsafeBitCast(paths, to: CFArray.self)
-        let pathCount = CFArrayGetCount(pathArray)
-        let boundedCount = min(Int(count), pathCount)
-        var changedPaths: [String] = []
-        var rawEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)] = []
-        changedPaths.reserveCapacity(boundedCount)
-        rawEvents.reserveCapacity(boundedCount)
-        for index in 0..<boundedCount {
-            let value = CFArrayGetValueAtIndex(pathArray, index)
-            guard let value else { continue }
-            let path = unsafeBitCast(value, to: CFString.self) as String
-            changedPaths.append(path)
-            rawEvents.append((path: path, eventId: ids[index], flags: flags[index]))
-        }
-        client.ingressPerformanceAccumulator.recordLocalRawCallback(eventCount: rawEvents.count)
-        client.emitRawEvents(
-            worktreeId: context.worktreeId,
-            lifecycleGeneration: context.lifecycleGeneration,
-            rawEvents: rawEvents,
-            ordinaryPaths: changedPaths
-        )
-    }
-
-    private static let defaultLatency: CFTimeInterval = 0.1
-
     let lifecycleLock = NSLock()
     private var hasShutdown = false
     var hasStoppedActivityAdmission = false
@@ -80,12 +37,15 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     private var latestEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
     let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
+    private let localStreamFactory: DarwinLocalFSEventStreamFactory
     let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
     private let sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader
     private let ingressPerformanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
 
     package init(
         bufferedFineBatchCapacity: Int = AppPolicies.FilesystemIngress.bufferedFineBatchCapacity,
+        localStreamFactory: @escaping DarwinLocalFSEventStreamFactory =
+            DarwinLocalFSEventNativeStream.start,
         sharedExactItemStreamFactory: @escaping DarwinSharedExactItemStreamFactory =
             DarwinSharedExactItemNativeStream.start,
         sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader = .init()
@@ -100,6 +60,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             }
         )
         self.continuityLedger = continuityLedger
+        self.localStreamFactory = localStreamFactory
         self.ingressBuffer = ingressBuffer
         self.ingressPerformanceAccumulator = ingressPerformanceAccumulator
         self.sharedExactItemFingerprintReader = sharedExactItemFingerprintReader
@@ -520,81 +481,46 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         observationScopes: [AgentStudioGit.GitStatusObservationScope],
         watchedPaths: [String]
     ) -> StreamRegistration? {
-        let callbackContext = CallbackContext(
-            client: self,
-            worktreeId: worktreeId,
-            lifecycleGeneration: lifecycleGeneration
-        )
-        let callbackContextPtr = Unmanaged.passRetained(callbackContext).toOpaque()
-        var streamContext = FSEventStreamContext(
-            version: 0,
-            info: callbackContextPtr,
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
-        let watchPaths = watchedPaths.map { $0 as NSString } as CFArray
         guard
             let volumeSystemNumber = watchedPaths.first.flatMap(
                 DarwinFSEventBindingPlanner.volumeSystemNumber(for:)
             )
         else {
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
             return nil
         }
         guard
-            let stream = FSEventStreamCreate(
-                kCFAllocatorDefault,
-                Self.callback,
-                &streamContext,
-                watchPaths,
-                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-                Self.defaultLatency,
-                DarwinFSEventStreamConfiguration.continuityFlags
+            let streamLifetime = localStreamFactory(
+                DarwinLocalFSEventStreamRequest(
+                    worktreeId: worktreeId,
+                    lifecycleGeneration: lifecycleGeneration,
+                    watchedPaths: watchedPaths,
+                    privateStagingExclusionPaths:
+                        DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
+                            observationScopes: observationScopes
+                        ),
+                    eventHandler: { [weak self] localRawEvents in
+                        guard let self else { return }
+                        let rawEvents = localRawEvents.map { event in
+                            (path: event.path, eventId: event.eventId, flags: event.flags)
+                        }
+                        ingressPerformanceAccumulator.recordLocalRawCallback(
+                            eventCount: rawEvents.count
+                        )
+                        emitRawEvents(
+                            worktreeId: worktreeId,
+                            lifecycleGeneration: lifecycleGeneration,
+                            rawEvents: rawEvents,
+                            ordinaryPaths: localRawEvents.map(\.path)
+                        )
+                    }
+                )
             )
         else {
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
             return nil
         }
-
-        if observationIdentity != nil {
-            guard
-                DarwinFSEventStreamConfiguration.installPrivateStagingExclusions(
-                    DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
-                        observationScopes: observationScopes
-                    ),
-                    on: stream
-                )
-            else {
-                FSEventStreamInvalidate(stream)
-                FSEventStreamRelease(stream)
-                Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
-                return nil
-            }
-        }
-
-        let queue = DispatchQueue(
-            label: "com.agentstudio.fsevents.\(worktreeId.uuidString)",
-            qos: .utility
-        )
-        FSEventStreamSetDispatchQueue(stream, queue)
         if let observationIdentity {
             continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
         }
-        guard FSEventStreamStart(stream) else {
-            continuityLedger.unregister(registrationId: worktreeId)
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
-            return nil
-        }
-        let streamLifetime = DarwinFSEventNativeStreamLifetime(
-            stream: stream,
-            queue: queue,
-            releaseCallbackContext: {
-                Unmanaged<CallbackContext>.fromOpaque(callbackContextPtr).release()
-            }
-        )
 
         return StreamRegistration(
             lifecycleGeneration: lifecycleGeneration,
