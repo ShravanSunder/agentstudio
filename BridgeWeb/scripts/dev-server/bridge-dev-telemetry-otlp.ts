@@ -93,6 +93,7 @@ const elapsedHistogramBounds = [
 const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.activation.cause',
 	'agentstudio.bridge.activation.from_viewer',
+	'agentstudio.bridge.anchor_restore.phase',
 	'agentstudio.bridge.comparison.attempt.status',
 	'agentstudio.bridge.comparison.package_match',
 	'agentstudio.bridge.comparison.pane_state',
@@ -135,9 +136,12 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.rpc.method_class',
 	'agentstudio.bridge.selection.origin',
 	'agentstudio.bridge.slice',
+	'agentstudio.bridge.scroll.offset',
+	'agentstudio.bridge.scroll.reason',
 	'agentstudio.bridge.surface',
 	'agentstudio.bridge.telemetry.drop_reason',
 	'agentstudio.bridge.transport',
+	'agentstudio.bridge.tree_path_count_bucket',
 	'agentstudio.bridge.viewer',
 	'agentstudio.bridge.viewer.ttfi_variant',
 	'agentstudio.bridge.worker.action',
@@ -154,6 +158,16 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 ]);
 
 const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySet<string>>([
+	[
+		'agentstudio.bridge.anchor_restore.phase',
+		new Set([
+			'capture',
+			'direct_restore',
+			'path_order_restore',
+			'raf_restore',
+			'scroll_to_path_reveal',
+		]),
+	],
 	[
 		'agentstudio.bridge.activation.cause',
 		new Set(['context_switcher', 'native_request', 'review_file_corner']),
@@ -248,6 +262,22 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 		'agentstudio.bridge.worker.semantic_class',
 		new Set(['demand', 'lifecycle_control', 'settlement', 'urgent_action']),
 	],
+	['agentstudio.bridge.scroll.offset', new Set(['nearest', 'none', 'top', 'unknown'])],
+	[
+		'agentstudio.bridge.scroll.reason',
+		new Set([
+			'anchor_workaround',
+			'append_reveal',
+			'clicked_selection',
+			'search_match',
+			'selected_path_effect',
+			'selection_sync',
+		]),
+	],
+	[
+		'agentstudio.bridge.tree_path_count_bucket',
+		new Set(['empty', 'small', 'medium', 'large', 'huge']),
+	],
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
@@ -257,7 +287,11 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.annotation.catalog.unit.byte_count',
 	'agentstudio.bridge.annotation.catalog.window.count',
 	'agentstudio.bridge.annotation.catalog.window.ordinal',
+	'agentstudio.bridge.anchor_restore.call.count',
+	'agentstudio.bridge.anchor_restore.direct_scroll_top_write.count',
+	'agentstudio.bridge.anchor_restore.synthetic_scroll.count',
 	'agentstudio.bridge.content.byte_length',
+	'agentstudio.bridge.content.body_registry_commit_ms',
 	'agentstudio.bridge.content.byte_count',
 	'agentstudio.bridge.content.chunk_byte_count',
 	'agentstudio.bridge.content.chunk_count',
@@ -339,6 +373,10 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.visible_item.count',
 	'agentstudio.bridge.visible_publisher.skipped.count',
 	'agentstudio.bridge.visible_row.count',
+	'agentstudio.bridge.worktree_file.tree.current_row.count',
+	'agentstudio.bridge.worktree_file.tree.descriptor.count',
+	'agentstudio.bridge.worktree_file.tree.incoming_frame.count',
+	'agentstudio.bridge.worktree_file.tree.window.row.count',
 	'agentstudio.bridge.worker.handler_duration_ms',
 	'agentstudio.bridge.worker.native_bootstrap_install.count',
 	'agentstudio.bridge.worker.patch_count',
@@ -361,7 +399,9 @@ const bridgeDevBooleanAttributeKeys = new Set<string>([
 	'agentstudio.bridge.already_selected',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
+	'agentstudio.bridge.focus',
 	'agentstudio.bridge.refreshing.review',
+	'agentstudio.bridge.row_mounted',
 	'agentstudio.bridge.scroll.active',
 	'agentstudio.bridge.selected',
 	'agentstudio.bridge.viewer.active',

@@ -228,9 +228,6 @@ describe('bridge viewer telemetry adapter flushing', () => {
 					'agentstudio.bridge.viewer': 'review',
 				}),
 				numericAttributes: {
-					'agentstudio.bridge.hover_to_render.max_ms': 21,
-					'agentstudio.bridge.hover_to_render.p95_ms': 21,
-					'agentstudio.bridge.hover_to_render.sample.count': 3,
 					'agentstudio.bridge.visible_item.count': 16,
 				},
 				booleanAttributes: {
@@ -306,9 +303,6 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 				'agentstudio.bridge.viewer': 'review',
 			},
 			numericAttributes: {
-				'agentstudio.bridge.hover_to_render.max_ms': 7,
-				'agentstudio.bridge.hover_to_render.p95_ms': 7,
-				'agentstudio.bridge.hover_to_render.sample.count': 1,
 				'agentstudio.bridge.visible_item.count': 14,
 			},
 			booleanAttributes: {
