@@ -16,10 +16,7 @@ import {
 	type BridgeActiveViewerSource,
 } from '../core/comm-worker/bridge-product-control-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
-import type {
-	BridgeWorkerHealthEvent,
-	BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { createBridgePaneTelemetryWorkerFactory } from '../core/telemetry-worker/bridge-pane-telemetry-worker-factory.js';
 import {
 	createBridgePaneTelemetryWorkerSession,
@@ -69,8 +66,16 @@ import {
 	bridgeViewerActivationPrewarm,
 	type BridgeViewerActivationPrewarmState,
 } from './bridge-viewer-activation-prewarm.js';
+import {
+	activeViewerModeRetryAttemptAvailable,
+	bridgeActiveViewerSourcesEqual,
+	createBridgeActiveViewerModeSessionId,
+	resolveBridgeWorkerActiveViewerModeRequestResolvers,
+	resolvePendingBridgeWorkerActiveViewerModeRequests,
+} from './bridge-viewer-active-mode-signal.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
+import { useBridgeViewerContextFocusHandoff } from './bridge-viewer-context-focus-handoff.js';
 import { useBridgeCommWorkerSessionTelemetry } from './use-bridge-comm-worker-session-telemetry.js';
 
 export interface BridgeAppProps {
@@ -194,6 +199,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		new Map(),
 	);
 	const activeViewerModeSettledResultsRef = useRef<Map<string, boolean>>(new Map());
+	const requestContextSwitcherFocusHandoff = useBridgeViewerContextFocusHandoff(activeViewerMode);
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
 		bridgeReadyCallbacksRef.current.add(callback);
 		if (isBridgeReadyGateOpenRef.current) {
@@ -240,6 +246,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			return activation;
 		},
 		[telemetryRecorder],
+	);
+	const activateViewerModeFromContextSwitcher = useCallback(
+		(viewerMode: BridgeViewerMode): void => {
+			requestContextSwitcherFocusHandoff(viewerMode);
+			activateViewerMode(viewerMode, 'context_switcher');
+		},
+		[activateViewerMode, requestContextSwitcherFocusHandoff],
 	);
 	const openReviewFileInFileViewer = useCallback(
 		(path: string): void => {
@@ -839,7 +852,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						viewerContextSwitcher={
 							<BridgeViewerContextSwitcher
 								mode={activeViewerMode}
-								onModeChange={activateViewerMode}
+								onModeChange={activateViewerModeFromContextSwitcher}
 							/>
 						}
 						{...(rememberedFileNavigationCommand === undefined
@@ -874,7 +887,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						viewerContextSwitcher={
 							<BridgeViewerContextSwitcher
 								mode={activeViewerMode}
-								onModeChange={activateViewerMode}
+								onModeChange={activateViewerModeFromContextSwitcher}
 							/>
 						}
 						{...(rememberedReviewNavigationCommand === undefined
@@ -912,17 +925,6 @@ function createDefaultBridgePaneRuntime(): BridgePaneRuntime {
 	return createBridgePaneRuntime();
 }
 
-function bridgeActiveViewerSourcesEqual(
-	left: BridgeActiveViewerSource | null,
-	right: BridgeActiveViewerSource | null,
-): boolean {
-	return (
-		left?.protocol === right?.protocol &&
-		left?.streamId === right?.streamId &&
-		left?.generation === right?.generation
-	);
-}
-
 function bridgeAppNavigationCommandIsAdmitted(
 	state: BridgeAppNavigationAdmissionState,
 	command: BridgeProductNavigationCommand,
@@ -940,59 +942,4 @@ function bridgeAppNavigationCommandIsAdmitted(
 		admittedTarget?.commandId === command.commandId &&
 		admittedTarget.bindingRevision === command.bindingRevision
 	);
-}
-
-function createBridgeActiveViewerModeSessionId(): string {
-	return `active-viewer-${crypto.randomUUID()}`;
-}
-
-function activeViewerModeRetryAttemptAvailable(props: {
-	readonly retryAttemptsBySignalKey: Map<string, number>;
-	readonly signalKey: string;
-}): boolean {
-	const currentAttemptCount = props.retryAttemptsBySignalKey.get(props.signalKey) ?? 0;
-	if (currentAttemptCount >= 3) {
-		return false;
-	}
-	props.retryAttemptsBySignalKey.set(props.signalKey, currentAttemptCount + 1);
-	return true;
-}
-
-function resolveBridgeWorkerActiveViewerModeRequestResolvers(props: {
-	readonly messages: readonly BridgeWorkerServerToMainMessage[];
-	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
-	readonly settledResultsByRequestId: Map<string, boolean>;
-}): void {
-	for (const message of props.messages) {
-		if (message.kind !== 'health' || message.requestId === undefined) {
-			continue;
-		}
-		const resolve = props.resolversByRequestId.get(message.requestId);
-		if (resolve === undefined) {
-			props.settledResultsByRequestId.set(
-				message.requestId,
-				bridgeWorkerActiveViewerModeHealthDidSend(message),
-			);
-			continue;
-		}
-		props.resolversByRequestId.delete(message.requestId);
-		resolve(bridgeWorkerActiveViewerModeHealthDidSend(message));
-	}
-}
-
-function bridgeWorkerActiveViewerModeHealthDidSend(message: BridgeWorkerHealthEvent): boolean {
-	if (message.status === 'ready') {
-		return true;
-	}
-	return message.deliveryStatus === 'unknownAfterDispatch';
-}
-
-function resolvePendingBridgeWorkerActiveViewerModeRequests(props: {
-	readonly didSend: boolean;
-	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
-}): void {
-	for (const resolve of props.resolversByRequestId.values()) {
-		resolve(props.didSend);
-	}
-	props.resolversByRequestId.clear();
 }
