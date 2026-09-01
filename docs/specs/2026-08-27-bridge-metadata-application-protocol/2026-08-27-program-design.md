@@ -12,7 +12,8 @@ Bridge keeps its three physical routes and one pane communication worker. The
 metadata route becomes structurally generic: it validates delivery fields,
 then asks a statically registered application protocol to validate and type the
 application payload. File and Review register their existing event contracts;
-all behavior remains unchanged except MAP-U9's File demand-admission timing.
+all behavior remains unchanged except MAP-U9's complete first-pane and mode-
+switch performance correction, including File's progressive demand admission.
 
 The same generic layer gains one bounded catalog-transfer primitive. Worktree
 Annotations uses it to continuously publish only session, thread, message, and
@@ -710,108 +711,243 @@ result/error paths. Review and Worktree Annotation predecessor waits are
 intentionally unchanged.
 
 This admission correction is necessary but does not by itself complete
-MAP-U9. The independently cold verifier runs File and Review through different
-newly started Vite servers, empty cache roots, and Chromium lifecycles against
-one already-ready Swift backend. It currently measures File shell, metadata,
-and visible content at approximately 1.17, 1.37, and 1.46 seconds, and Review
-metadata and selected content at approximately 1.47 seconds. Once the shell is
-available, source acceptance follows in about one millisecond and selected
-content follows selection in roughly 50 milliseconds.
+MAP-U9. The repository-owned verifier currently starts its File and Review
+clocks immediately before page navigation, which is the correct development
+start boundary. Its approximately 1.4-second File and Review results are real
+first-pane failures, not excluded frontend setup. A command-only clock that
+begins after React and the communication worker are ready would hide the pane,
+page, module, handshake, and worker delay that the reviewer experiences.
 
-The equal File-first and Review-first miss assigns the remaining pre-admission
-cost to the shared development application/CSS module graph. The generic
-transport, native metadata producer, HTTP content path, and communication
-worker remain downstream and do not gain a new preload, bundle, queue, route,
-or readiness responsibility. Tested worker-only bundling and bounded Vite
-configuration candidates did not satisfy the maximum and are not part of the
-target composition.
+### Complete first-pane and mode-switch measurement
 
-The selected correction makes application loading activation-scoped. The
-application owns two ordinary dynamic mode entries rather than importing both
-mode components through the common `BridgeApp` graph. The File entry loads only
-the File mode. The Review entry resolves both the Review mode and the existing
-Review shell module before it exposes the mode component, preserving the
-shell-before-intake ordering for initial Review and later File-to-Review
-activation. The dev bootstrap no longer unconditionally preloads the Review
-shell for File-first navigation.
-
-`BridgeApp` remains the single owner of active mode, navigation admission,
-surface clients, and retained mode lifetime. Its initially mounted set contains
-only the route-selected mode. Activating the other mode adds that mode to the
-same retained set; after its module resolves, both modes remain mounted and the
-inactive host stays hidden and inert exactly as today. Module completion never
-changes the active mode or navigation state, so a late load after a rapid
-File→Review→File sequence cannot steal visibility or source authority.
-Context-switcher, native-selection, and Review-file-corner activation all use
-one application-owned activate-and-retain transition that admits the target
-mode into the retained set before committing it active; no activation path may
-rely on the previous eager two-mode mount.
+The accepted design uses one user-perceived clock with carrier-specific start
+points. It does not create a frontend readiness state:
 
 ```mermaid
 sequenceDiagram
-    participant Route as Protocol router
+    participant User as User or proof driver
+    participant Host as Native pane host or ready Vite server
+    participant Page as WKWebView or browser page
     participant App as BridgeApp
-    participant Loader as Application mode loader
-    participant Mode as Active File or Review mode
-    participant Runtime as Existing pane runtime
-    participant Store as Existing surface store
+    participant Worker as Communication worker
+    participant Native as Existing native product session
+    participant Mode as File or Review presentation
 
-    Route->>App: initial active mode
-    App->>Loader: render only selected lazy mode
-    alt File selected
-        Loader->>Loader: import File mode
-    else Review selected
-        par Review activation barrier
-            Loader->>Loader: import Review mode
-            Loader->>Loader: import Review shell
-        end
-    end
-    Loader-->>App: active component or load failure
-    App->>Mode: mount only if still selected/retained
-    Mode->>Runtime: existing source/intake activation
-    Runtime-->>Store: existing typed metadata patches
-    Store-->>Mode: existing usable presentation
-    Note over App,Mode: Later activation adds the other mode once; both remain retained thereafter
+    Note over Host: Host/server process is already running; outside clock
+    User->>Host: open File/Review or navigate URL (T0)
+    Host->>Page: create or navigate page
+    Page->>App: load assets and mount React
+    App->>Worker: handshake and install current bootstrap
+    Worker-->>App: current worker ready
+    App->>Worker: admit requested File/Review operation
+    Worker->>Native: existing control, metadata, and content work
+    Native-->>Worker: source, metadata, and selected content
+    Worker-->>Mode: bounded current presentation
+    Mode->>Mode: commit and paint usable frame (T1)
+    Mode-->>User: requested pane visible and interactive
 ```
 
-Changed edges: the protocol router's selected mode now determines the first
-mode import; common `BridgeApp` evaluation no longer imports or mounts the
-never-activated mode; Review shell loading moves from an unconditional dev
-bootstrap barrier to the Review mode entry; the initial retained-mode set
-contains only the active mode; every context, native, or Review-corner mode
-transition now passes through the same activate-and-retain edge. Intentionally
-unchanged edges: `BridgeApp` navigation and active-mode authority, pane runtime
-construction, File source and Review intake behavior after mode mount, surface
-stores, active/inactive host geometry, exact command routing, and packaged
-application semantics.
+For the native first-pane journey, T0 is the user action or application command
+that opens the first File or Review pane. Pane creation, WKWebView creation or
+navigation, packaged asset loading, React mount, page handshake, product-
+session bootstrap, communication-worker startup, source/metadata/content work,
+and paint are inside the clock. The already-running macOS application and its
+pre-existing worktree context are outside it.
 
-| Mode load state | Owner and transition | Result and failure behavior |
+The current native capture occurs too late: `BridgePaneController` creates the
+viewer-open epoch/root trace while constructing bootstrap artifacts, after the
+App command has already resolved context, created pane state, and entered view
+construction. The target moves ownership to the accepted App action without
+creating durable state:
+
+```text
+current
+  AppCommandDispatcher
+    → PaneTabViewController.executeBridgeSurfaceCommand
+    → WorkspaceActionExecutor.openBridge{Files,Review}InNewTab
+    → WorkspaceSurfaceCoordinator.openBridgePane
+    → createViewForContent → createBridgePaneView
+    → BridgePaneController.makeBootstrapArtifacts
+        creates viewer-open epoch/root trace                       [too late]
+
+target
+  PaneTabViewController.executeBridgeSurfaceCommand
+    creates ephemeral viewer-open epoch/root trace at accepted action [T0]
+    → WorkspaceActionExecutor                                     [changed: carry]
+    → WorkspaceSurfaceCoordinator.openBridgePane                  [changed: carry]
+    → createViewForContent → createBridgePaneView                 [changed: carry]
+    → BridgePaneController                                        [changed: consume]
+    → makeBootstrapArtifacts                                      [changed: transport only]
+    → page handshake                                              [preserved]
+    → time_to_first_interaction + selected-preview paint           [T1]
+```
+
+The anchor is an immutable call-scoped value. It is not written to
+`BridgePaneState`, SQLite, an atom, a coordinator map, or another store. Restore,
+repair, automatic diagnostic creation, and other non-user pane construction
+pass no user-open anchor and cannot enter the native user-action cohort. If pane
+admission or view creation fails before the handshake, the initiating attempt
+is recorded as failed/abandoned by the App-side proof owner rather than emitted
+later as a successful shortened browser sample. The existing page handshake is
+the only cross-WebView carrier; bootstrap no longer chooses T0.
+
+For the development first-pane journey, the Vite and Swift development-server
+processes must already be listening before the sample. T0 is browser navigation
+to the File or Review URL. Every page, module, React, handshake, worker,
+source/metadata/content, and paint step after navigation is inside the clock.
+Compilation and server process startup before they listen are outside it.
+
+For Review-to-File and File-to-Review, T0 is the initiating action or admitted
+navigation command in the already-running pane. T1 is the same usable-paint
+condition as first pane. A retained target may reuse existing current state,
+but proof must not prime a target solely to improve the measured result.
+
+### One correlation joins each complete clock to existing phases
+
+First-pane correlation must exist before React. The existing viewer-open
+telemetry anchor already carries an open epoch and root traceparent through the
+page handshake, then emits
+`performance.bridge.viewer.time_to_first_interaction` from the first painted,
+interactive File or Review presentation. The native pane-open owner captures
+that anchor at the initiating open action before pane or WKWebView work and
+threads it through the existing telemetry bootstrap. The development proof
+driver creates one immutable attempt record and captures navigation T0 before
+`page.goto`, then admits only telemetry from the exact page/handshake session
+created by that navigation. It does not ask `BridgeApp` to reconstruct an
+earlier timestamp or require a pre-navigation browser session to exist.
+
+`BridgeApp` remains the owner of in-page File/Review navigation admission and
+its existing monotonic activation sequence. Each File-to-Review or Review-to-
+File operation receives one stable activation sequence at its T0. Retries,
+source arrival, and intermediate renders retain that sequence; they do not mint
+a replacement measurement. Native navigation command IDs and worker request
+IDs retain their existing correctness jobs and are not reinterpreted as the
+performance identity.
+
+The resulting measurement identity is one closed union: a first-pane sample is
+keyed by its existing viewer-open trace/telemetry session, while a switch sample
+is keyed by that page session plus activation sequence. Existing telemetry phase
+events carry the applicable key where they currently omit it. No new transport,
+telemetry service, event family, or persistent correlation store is introduced.
+Both keys are scrubbed and export no path, item, publication, or annotation
+identity.
+
+Every switch ingress uses one changed `BridgeApp` activation edge:
+
+```text
+context switcher ────────────────┐
+Review file-corner action ───────┼─→ beginViewerActivation
+nativeSurfaceSelectionRequest ───┤      sequence + start + cause + target
+incoming active-mode change ─────┘               │
+                                                  ├─→ navigation admission
+                                                  ├─→ File mode telemetry input
+                                                  └─→ Review mode telemetry input
+```
+
+Today native selection and incoming-mode effects can update navigation state
+without `activateViewerMode`, and only File receives the activation fields.
+The target removes those bypasses: all genuine mode changes create or reuse the
+single `BridgeViewerActivation` value before committing the target active. Both
+mode owners receive it. Their interactive-tree and selected-preview paint
+owners key once-per-activation guards by its sequence, so retained modes can
+emit a new warm T1 without remounting. A retry keeps the same sequence; a newer
+activation marks the prior attempt superseded; a late tree/content paint whose
+sequence is not current is rejected and cannot close either sample. First-pane
+cold TTFI continues to use the pre-React viewer-open anchor and does not mint a
+second activation clock merely because initial navigation arrives.
+
+| Phase | Existing owner and observation | Correlation rule |
 | --- | --- | --- |
-| unrequested | `BridgeApp` has never retained the mode | no module evaluation and no inactive mode effects |
-| loading | existing React/Vite module loading after initial route or activation adds the mode | current active-state authority controls visibility; overlapping loads cannot change navigation |
-| ready | dynamic entry resolves; Review resolves its shell barrier first | mode mounts through the existing retained host and uses existing source/intake paths |
-| failed | dynamic import rejects | rejection follows the existing page/module failure path; no runtime/source authority is installed by the failed mode, and reload retries with the current Vite graph |
-| retained | a ready mode has mounted once | later switches hide/inert rather than unmount it, preserving drafts, comments, selection, and surface state |
+| T0 first pane | native pane-open owner or development proof driver | capture viewer-open trace/epoch or navigation start before pane/page work |
+| page and application | existing WKWebView/browser navigation and `BridgeApp` mount | elapsed under the same first-pane sample; not a readiness prerequisite |
+| handshake and worker | existing page handshake and current `BridgePaneCommWorkerSession` ready health | retain the first-pane key; replacement before T1 fails the attempt |
+| T0 mode switch | existing `viewer_activation_requested` / navigation admission | capture page session plus activation sequence at the initiating action/command |
+| source established | existing File source-accepted or Review source/publication apply | applicable sample key plus current source generation |
+| metadata installed | existing File display status or `review_metadata_apply` | applicable sample key plus current source/publication |
+| initial selection | existing `selection_commit` | applicable sample key |
+| content delivery | existing content request/response and `file_open_ready` or Review materialization phases | applicable sample key plus current demand identity |
+| T1 usable paint | existing `time_to_first_interaction` plus File terminal ready-paint or Review `selected_content_painted`, verified against the active non-inert host | close the sample at the later matching interactive-tree and selected-preview paint |
 
-No application module cache, readiness service, retry scheduler, route, worker,
-or transport state is added. Vite and the browser keep owning module caching and
-invalidation, so ordinary React Fast Refresh continues to update loaded local
-modules and a not-yet-loaded mode resolves current source when first activated.
-The packaged entry uses the same application mode entries and existing
-production worker; code splitting changes loading order, not product behavior
-or transport/application ownership.
+The T1 verifier checks behavior, not only event presence: the requested host is
+active and not inert, source and metadata are current, one current item is
+selected, its preview is visible after a completed animation frame, and the
+reading/navigation controls are enabled. A shell mount, worker-ready event,
+HTTP response, content-ready patch, or hidden/offscreen render cannot close the
+sample alone.
 
-The structural falsifier remains the independently cold boundary: separate
-fresh Vite/cache/browser lifecycles for File and Review against one already-
-ready backend must each reach metadata, selection, and first selected preview
-below one second. Proof must additionally cover initial File and Review,
-File↔Review switching before and after mode resolution, rapid opposing
-activations, retained composer/draft continuity, ordinary Fast Refresh in the
-loaded mode, current-source loading for a previously inactive mode, packaged
-build chunk integrity, and packaged WKWebView File/Review behavior. Failure of
-either cold route or any retained-mode invariant rejects this realization; it
-does not authorize a warm substitute, whole-application bundle, or generic
-transport expansion.
+### Measurement state and failure handling
+
+```mermaid
+stateDiagram-v2
+    [*] --> HostReady: native app or dev servers running
+    HostReady --> MeasuringFirstPane: open action or URL navigation / T0
+    MeasuringFirstPane --> Interactive: matching usable paint / T1
+    Interactive --> MeasuringSwitch: File↔Review action or command / T0
+    MeasuringSwitch --> Interactive: matching target usable paint / T1
+    MeasuringFirstPane --> Failed: timeout, terminal error, worker/session replacement, or missing marker
+    MeasuringSwitch --> Failed: timeout, terminal error, supersession, worker/session replacement, or missing marker
+    Failed --> HostReady: fresh independent attempt
+```
+
+The proof driver serializes measured actions, so an overlapping user command is
+not normal sample input. If one nevertheless supersedes the measured operation,
+the attempt is recorded as failed rather than removed. Timeout, terminal error,
+worker or product-session replacement, missing correlation, stale generation,
+or a page that never becomes usable are likewise visible failures. A failure
+cannot disappear from percentile input through filtering.
+
+Each of the four semantic journeys—first File, first Review, Review-to-File,
+and File-to-Review—is reduced independently. Each uses at least three
+independent launches and at least 100 measured attempts per launch, following
+the existing local-first proof model. The reducer reports nearest-rank p95 and
+p99 per launch, pooled across launches, and the worst launch; it also reports
+failure count and raw bounded samples. Every launch, the pooled result, and the
+worst-launch result must satisfy p95 at most 600 milliseconds and p99 at most
+1,000 milliseconds with zero discarded or unreported attempts. Development
+and packaged/native carrier results remain separate; one cannot average away
+the other's failure.
+
+First-pane attempts use a fresh pane/page lifecycle in which the target mode
+has not already been evaluated by that page. Switch attempts start from a
+fully interactive source mode and do not artificially prewarm the target.
+Normal shared native worktree observation and ordinary platform caches remain
+part of the declared fixture rather than being silently cleared or primed.
+
+### Measurement is the admitted precursor to the performance correction
+
+The total SLO is authoritative; phase timings are diagnostic. The implementation
+loop captures a baseline, ranks the p95/p99 contribution of page/application,
+handshake/worker, source/metadata, selection/content, and commit/paint, and then
+changes only the existing owner of the largest confirmed tail. The corresponding
+focused deterministic regression is added before the correction, followed by
+all four real distributions. A fast internal phase does not receive a separate
+product budget merely to make the total appear explained.
+
+Current evidence places most of the approximately 1.4-second miss before File
+or Review source/content convergence, but it does not yet authorize a specific
+Vite HTML transform, alternate page, preload, bundle, readiness service, or
+generic transport change. Correlation and percentile reduction diagnose and
+prove the miss; they do not satisfy the latency obligation by themselves.
+
+The current structural realization therefore ends at a hard evidence gate. A
+bounded implementation slice may complete the native T0 handoff, switch
+correlation, T1 semantics, and multi-sample reducer, then capture the four
+complete-clock baselines. It must return those marker-correlated results to
+Program Design before changing product-loading, application-composition,
+transport, native source, content, or render ownership. Program Design then
+selects the smallest evidence-supported correction, records its current-to-
+target owner/call/state/failure delta and deletion test, and only that corrected
+design can authorize the performance implementation slice. The current
+File/Review mode-entry checkpoint remains candidate evidence; it is neither
+discarded nor treated as the selected solution.
+
+The structural falsifier is the complete first-pane boundary, not an internal
+command clock: if native first File or Review, ready-server development File or
+Review navigation, or either mode switch misses the percentile budgets, the
+final realization is rejected. It does not authorize moving the clock after
+React, worker readiness, source acceptance, or metadata installation. Until the
+evidence-selected correction is added above, MAP-R14 remains deliberately
+design-incomplete and no complete delivery plan is planning-ready.
 
 ### Annotation bootstrap and demand
 
@@ -1058,9 +1194,12 @@ Performance:
 - main-thread work per staging unit is bounded, React receives no wake per
   entry/window, and one lightweight final commit swaps active revision and
   publishes one presentation change.
-- ready-backend File and Review startup separately measures metadata, initial
-  selection, content-request start, response, and first usable preview; all
-  first-usable boundaries have a one-second budget;
+- native first-pane and ready-server development navigation measure the full
+  open-to-usable path, including pane/page, modules, React, handshake, worker,
+  source, metadata, selection, content, commit, and paint;
+- first File, first Review, Review-to-File, and File-to-Review distributions
+  independently enforce p95 at most 600 milliseconds and p99 at most 1,000
+  milliseconds without discarding failed attempts;
 - File descriptor demand for an admitted early manifest member overlaps
   remaining tree enumeration instead of paying full-bootstrap latency.
 
@@ -1108,6 +1247,35 @@ The proof pyramid has distinct jobs:
 | Browser integration | production React and comm worker observe catalog before gated content, Save immediate settlement, demanded-only refresh, reset/restart |
 | Packaged product | URL-scheme transport, WKWebView lifecycle, File/Review annotations, focus/editor continuity, output membership and effects |
 
+MAP-U9 performance proof follows production owners rather than the annotation
+functional journey below:
+
+```text
+development first pane
+  Vite listening + Swift development server listening       [outside clock]
+  → page navigation                                          [T0]
+  → production React + communication worker + Swift backend
+  → matching File or Review usable paint                     [T1]
+
+native first pane
+  Agent Studio running + worktree context available          [outside clock]
+  → user opens File or Review pane                            [T0]
+  → real WKWebView + packaged assets + production worker
+  → matching File or Review usable paint                     [T1]
+
+mode switch
+  source mode already interactive
+  → user action or admitted navigation command               [T0]
+  → existing retained/activation/source/content owners
+  → matching target-mode usable paint                        [T1]
+```
+
+The proof harness may drive the action and observe markers, but it may not
+replace React, the communication worker, Swift product session, Git/source
+owner, content route, render store, or paint boundary. Page or server setup
+needed to establish the stated precondition is completed before T0 and reported
+separately. It is not subtracted from a clock that has already started.
+
 The real development-browser journey is:
 
 ```text
@@ -1145,7 +1313,7 @@ the development-browser proof.
 | MAP-R11 | repository committed-change classification, full replacement, old/new reassociation publication, catalog/demand reconciliation | topology/reassociation races and restart proof |
 | MAP-R12 | unchanged exact command receipts and overlays independent of catalog/content convergence | delayed/failed replacement editor and Share tests |
 | MAP-R13 | existing pane/product/worker/source lifecycle retires writers, worker/main candidates, and content attempts while marking retained authority stale | replacement/reset/inactive/close integration |
-| MAP-R14 | body-free entries, prospective full-frame packing, bounded worker-to-main staging, one active+candidate per boundary, existing ack/backpressure, File progressive-demand admission, and application-owned activation-scoped File/Review mode entries with Review shell-before-intake ordering | byte/window/port-unit telemetry, main-thread long-task measurement, resource-state inspection, independently cold File/Review startup budgets, mode-load overlap/retention proof, ordinary Fast Refresh, and packaged WKWebView journeys |
+| MAP-R14 | catalog capacity, staging, acknowledgement/backpressure, and File progressive-demand admission are realized; the performance correction is partial at the operation-correlated measurement precursor, exact native T0 handoff, and all-ingress switch propagation, with a required Program Design re-entry after baseline evidence selects the correction owner/mechanism | byte/window/port-unit telemetry, main-thread long-task measurement, phase-correlated raw samples, three-launch nearest-rank p95/p99 reduction for first File, first Review, Review-to-File, and File-to-Review in development and native/packaged carriers; final performance proof remains a gap until the evidence-selected correction is designed and implemented |
 | MAP-R15 | identical protocol registrations behind URL-scheme and HTTP carriers | real Vite/Swift and packaged journeys |
 
 ## Deliberate limits and revisit signals

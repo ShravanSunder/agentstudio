@@ -173,19 +173,31 @@ partial, or mixed-revision annotation membership.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
 
-### MAP-U9 — Make first selected File and Review content usable promptly
+### MAP-U9 — Make the complete first File and Review pane usable promptly
 
 - Affected classes: human reviewer and Bridge application developer.
-- Need: With the development backend already ready, File and Review metadata,
-  initial selection, and the first selected preview become usable within one
-  second on the repository-owned real-worktree startup journey. Remaining
-  progressive metadata may continue streaming afterward and must not delay
-  content whose source authority and metadata member are already admitted.
-- Why: Early metadata is not useful when the selected content remains blocked
-  behind unrelated enumeration of the rest of a large worktree.
-- Evidence: owner confirmation and real-worktree measurements on 2026-08-30;
-  File metadata and selection completed within one second while File preview
-  required 1.44–1.82 seconds. Review completed within 0.43–0.51 seconds.
+- Need: From the user action that opens the first File or Review pane in the
+  native application, the complete pane experience becomes visible and
+  interactive at p95 no later than 600 milliseconds and p99 no later than
+  1,000 milliseconds. In the Vite development system, the equivalent clock
+  starts when browser navigation begins after the Vite and Swift development
+  servers are already listening. Both clocks include WebView or page loading,
+  application-module loading, React mount, Bridge handshake, communication-
+  worker startup, source establishment, metadata, initial selection, selected
+  content, and the first usable painted frame. File-to-Review and Review-to-
+  File switches satisfy the same percentile budgets from the initiating user
+  action or command. Remaining progressive metadata may continue afterward
+  and must not delay content whose source authority and metadata member are
+  already admitted.
+- Why: A fast command after React and the communication worker are already
+  running does not make the product feel fast when the user still waits for
+  the pane, WebView, application, worker, metadata, or first preview. The
+  budget is meaningful only over the complete user-perceived opening and
+  switching journeys.
+- Evidence: owner confirmation on 2026-09-01 and repository-owned real-
+  worktree measurements on 2026-08-30 and 2026-09-01. Independently cold File
+  and Review page-navigation journeys required approximately 1.4 seconds and
+  therefore fail the confirmed first-pane p99 boundary.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -210,10 +222,10 @@ partial, or mixed-revision annotation membership.
   Annotation repository/service/transport/store owners, and existing proof
   harnesses.
 - Protected surface: File and Review observable behavior except the authorized
-  first-selected-content latency correction in MAP-U9; annotation durable
-  identities and persistence semantics, command behavior, output semantics,
-  source placement, native pane authority, demand scheduling, render
-  backpressure, and the three physical routes.
+  complete first-pane and mode-switch latency correction in MAP-U9; annotation
+  durable identities and persistence semantics, command behavior, output
+  semantics, source placement, native pane authority, demand scheduling,
+  render backpressure, and the three physical routes.
 - Non-goals: File or Review behavioral redesign beyond MAP-U9; UI redesign; a
   new physical route, port, queue, scheduler, atom, coordinator, or persistence
   boundary;
@@ -230,9 +242,9 @@ partial, or mixed-revision annotation membership.
   compatibility evidence; repository and Swift transport integration; real
   Vite/production-worker/Swift-backend/SQLite annotation journeys; reset,
   restart, delayed-content, and malformed-transfer cases; packaged File and
-  Review annotation interaction; ready-backend real-worktree startup timing
-  for metadata and first selected content; current-head lint and aggregate
-  tests.
+  Review annotation interaction; complete native-open and ready-server Vite
+  navigation timing for first File, first Review, Review-to-File, and File-to-
+  Review usability; current-head lint and aggregate tests.
 
 ## Confirmed decisions
 

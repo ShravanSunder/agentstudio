@@ -12,8 +12,8 @@ A Bridge application developer can add a typed metadata subscription by
 defining and registering application contracts without adding application
 payload cases to generic stream, subscription, queue, acknowledgement,
 frame-bound, or backpressure logic. Existing File and Review metadata behavior
-is preserved except for MAP-U9's explicit File demand-admission timing
-correction.
+is preserved except for MAP-U9's complete first-pane and mode-switch
+performance correction, including explicit File demand-admission timing.
 
 Worktree Annotation consumers receive a lightweight, complete association
 catalog independently of rich content. The catalog answers what annotation
@@ -74,6 +74,17 @@ Outside this contract
   consumers until commit.
 - **Rich annotation content**: bodies, drafts, immutable origin, current
   placement, output membership details, history, or output bytes.
+- **First-pane journey**: the complete interval from the native user action
+  that opens File or Review, or from development browser navigation after the
+  Vite and Swift development servers are listening, through the first usable
+  painted File or Review pane.
+- **Mode-switch journey**: the interval from an action or command that changes
+  an already running Bridge pane between File and Review through the first
+  usable painted target mode.
+- **Usable painted pane**: the requested mode is visibly active and not inert;
+  its current source and metadata are installed, one current item is selected,
+  the selected preview is visible in a completed animation frame, and controls
+  required to read and navigate the pane accept input.
 
 ## Normative requirements
 
@@ -454,13 +465,42 @@ stream MUST NOT supersede or falsely fail one another. Advancing the observed
 stream high-water mark MUST settle every eligible wait whose target sequence is
 at or below that mark.
 
-Against an already-ready development backend, the repository-owned
-real-worktree startup journey MUST observe File and Review metadata, initial
-selection, and the first selected preview within one second of page navigation.
-The measurement MUST distinguish metadata readiness, selection, content-request
-start, content response, and first usable preview. Later progressive metadata
-MAY continue after that boundary. A fast HTTP response observed only after a
-long admission delay does not satisfy this requirement.
+The complete first-pane and mode-switch journeys MUST satisfy these independent
+real-worktree latency distributions:
+
+| Semantic journey | Native start boundary | Development start boundary | p95 | p99 |
+| --- | --- | --- | ---: | ---: |
+| first File | user action that opens the File pane | browser File navigation after both servers listen | at most 600 ms | at most 1,000 ms |
+| first Review | user action that opens the Review pane | browser Review navigation after both servers listen | at most 600 ms | at most 1,000 ms |
+| Review to File | initiating user action or accepted navigation command | same | at most 600 ms | at most 1,000 ms |
+| File to Review | initiating user action or accepted navigation command | same | at most 600 ms | at most 1,000 ms |
+
+Native and development distributions MUST be reduced and accepted separately
+for each semantic journey. One carrier's samples MUST NOT be pooled with or
+average away failure in the other carrier.
+
+Native first-pane measurement MUST include pane and WKWebView creation or
+navigation, packaged asset loading, React mount, Bridge handshake, product-
+session bootstrap, communication-worker startup, source establishment,
+metadata, initial selection, selected-content delivery and preparation, and the
+first usable painted frame. Development first-pane measurement MUST include
+the equivalent work after browser navigation, including Vite-served HTML, CSS,
+and JavaScript loading. Starting the macOS application, compiling or launching
+the Vite server, and starting the Swift development-server process before it is
+listening are outside these interaction clocks.
+
+Every accepted measurement MUST preserve one operation correlation from its
+start boundary through admission, source, metadata, selection, content request,
+content response, presentation commit, and usable paint. Each phase MUST expose
+its elapsed contribution so a fast downstream command cannot conceal slow pane
+or application startup. Timed-out, failed, superseded, missing-marker, or
+readiness-invalid attempts MUST remain visible to proof and MUST NOT be silently
+discarded from the acceptance result.
+
+Later progressive metadata MAY continue after the usable-paint boundary. A
+fast command, HTTP response, or content render observed only after a long pane,
+page, module, handshake, worker, source, or admission delay does not satisfy
+this requirement.
 
 If measurement later proves topology replacement cost unacceptable, a typed
 catalog-delta extension MAY be designed separately. This specification does not
@@ -610,7 +650,7 @@ This specification does not define:
 | MAP-R11 | repository/Swift/worker integration for create/remove/reassociate, old/new worktree catalog replacement, stale rich-result rejection, and identity preservation |
 | MAP-R12 | browser behavior proving exact Save settlement and overlay retention while catalog/content replacement is delayed or fails |
 | MAP-R13 | worker replacement, reset/reconnect, inactive/reactivation, close/drain, and post-terminal rejection evidence |
-| MAP-R14 | frame/entry packing, active/candidate capacity inspection, message-edit transfer measurement, metadata backpressure evidence, and ready-backend real-worktree startup measurements with an enforced one-second File/Review first-usable budget |
+| MAP-R14 | frame/entry packing, active/candidate capacity inspection, message-edit transfer measurement, metadata backpressure evidence, and marker-correlated real-worktree distributions for complete native first-pane, ready-server Vite navigation, Review-to-File, and File-to-Review journeys enforcing the p95/p99 budgets without discarding failed attempts |
 | MAP-R15 | real Vite + production comm worker + Swift development backend + SQLite journey and packaged WKWebView compatibility evidence |
 
 ## Traceability
