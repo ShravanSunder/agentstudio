@@ -165,7 +165,6 @@ package actor RemoteReferenceRefreshActor {
         currentnessRetryAtByRepoId.removeValue(forKey: repoId)
         if registration.worktreeIds.isEmpty {
             registrationsByRepoId.removeValue(forKey: repoId)
-            repositoryIdsWithResolvedOriginHistory.remove(repoId)
             demandedRepositoryIds.remove(repoId)
             pendingRepositoryIds.remove(repoId)
             explicitRepositoryIds.remove(repoId)
@@ -206,7 +205,6 @@ package actor RemoteReferenceRefreshActor {
                 await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
                 settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
                 registrationsByRepoId.removeValue(forKey: repoId)
-                repositoryIdsWithResolvedOriginHistory.remove(repoId)
                 demandedRepositoryIds.remove(repoId)
                 pendingRepositoryIds.remove(repoId)
                 explicitRepositoryIds.remove(repoId)
