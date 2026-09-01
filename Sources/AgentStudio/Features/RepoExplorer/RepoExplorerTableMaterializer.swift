@@ -81,6 +81,8 @@ final class RepoExplorerTableMaterializer: NSObject,
     private weak var contextMenuSessionCell: RepoExplorerTableRowCell?
     private var contextMenuSessionBindingIdentity: RepoExplorerTableRowBindingIdentity?
     private var contextMenuSessionOpeningRowHeight: CGFloat?
+    private var contextMenuDeferredReloadRowIDs: Set<RepoExplorerRowID> = []
+    private var contextMenuDeferredHeightRowIDs: Set<RepoExplorerRowID> = []
     private var trackedContextMenuIdentities: Set<ObjectIdentifier> = []
     private var contextMenuSessionReleaseTask: Task<Void, Never>?
     private var contextMenuSessionSequence: UInt64 = 0
@@ -494,15 +496,28 @@ final class RepoExplorerTableMaterializer: NSObject,
         scrollView.layoutSubtreeIfNeeded()
         tableView.layoutSubtreeIfNeeded()
         let represented = representedRowIndexes()
-        let visibleReloadRows = pendingReloadRows.intersection(represented)
+        var visibleReloadRows = pendingReloadRows.intersection(represented)
+        var immediateHeightRows = pendingHeightRows
+        if let protectedRowID = contextMenuSessionBindingIdentity?.rowID,
+            let protectedRowIndex = snapshot?.rowIndexByID[protectedRowID]
+        {
+            if visibleReloadRows.contains(protectedRowIndex) {
+                visibleReloadRows.remove(protectedRowIndex)
+                contextMenuDeferredReloadRowIDs.insert(protectedRowID)
+            }
+            if immediateHeightRows.contains(protectedRowIndex) {
+                immediateHeightRows.remove(protectedRowIndex)
+                contextMenuDeferredHeightRowIDs.insert(protectedRowID)
+            }
+        }
         if !visibleReloadRows.isEmpty {
             tableView.reloadData(
                 forRowIndexes: visibleReloadRows,
                 columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
             )
         }
-        if !pendingHeightRows.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)
+        if !immediateHeightRows.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: immediateHeightRows)
         }
         rebindRepresentedCells()
         pendingReloadRows.removeAll()
@@ -567,23 +582,38 @@ final class RepoExplorerTableMaterializer: NSObject,
         contextMenuSessionReleaseTask?.cancel()
         contextMenuSessionReleaseTask = nil
         contextMenuSessionCell?.cancelContextMenuTracking()
+        contextMenuDeferredReloadRowIDs.removeAll(keepingCapacity: false)
+        contextMenuDeferredHeightRowIDs.removeAll(keepingCapacity: false)
         releaseContextMenuSession()
     }
 
     private func releaseContextMenuSession() {
         let releasedRowID = contextMenuSessionBindingIdentity?.rowID
         let anchor = currentTopVisibleAnchor
+        let reloadReleasedRow = releasedRowID.map(contextMenuDeferredReloadRowIDs.contains) ?? false
+        let remeasureReleasedRow = releasedRowID.map(contextMenuDeferredHeightRowIDs.contains) ?? false
+        let hadOpeningRowHeight = contextMenuSessionOpeningRowHeight != nil
         contextMenuSessionCell = nil
         contextMenuSessionBindingIdentity = nil
         contextMenuSessionOpeningRowHeight = nil
         trackedContextMenuIdentities.removeAll(keepingCapacity: false)
+        contextMenuDeferredReloadRowIDs.removeAll(keepingCapacity: false)
+        contextMenuDeferredHeightRowIDs.removeAll(keepingCapacity: false)
         contextMenuSessionReleaseTask = nil
         guard !isDetached, let releasedRowID,
             let releasedRowIndex = snapshot?.rowIndexByID[releasedRowID]
         else { return }
         heightByRowID[releasedRowID] = nil
         updateTableFrame()
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: releasedRowIndex))
+        if reloadReleasedRow {
+            tableView.reloadData(
+                forRowIndexes: IndexSet(integer: releasedRowIndex),
+                columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+            )
+        }
+        if remeasureReleasedRow || hadOpeningRowHeight {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: releasedRowIndex))
+        }
         scrollView.layoutSubtreeIfNeeded()
         tableView.layoutSubtreeIfNeeded()
         if let anchor {

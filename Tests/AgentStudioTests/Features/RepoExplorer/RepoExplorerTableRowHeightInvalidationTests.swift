@@ -51,6 +51,9 @@ struct RepoExplorerTableRowHeightInvalidationTests {
                 as? RepoExplorerTableRowCell
         )
         let openingCellIdentity = ObjectIdentifier(openingCell)
+        let openingRowViewIdentity = try #require(
+            tableView.rowView(atRow: rowIndex, makeIfNecessary: false).map(ObjectIdentifier.init)
+        )
         let openingBinding = try #require(openingCell.currentBindingIdentity)
         let openingAnchor = try #require(materializer.currentTopVisibleAnchor)
         let rootMenu = NSMenu()
@@ -85,6 +88,10 @@ struct RepoExplorerTableRowHeightInvalidationTests {
                 as? RepoExplorerTableRowCell
         )
         #expect(ObjectIdentifier(trackedCell) == openingCellIdentity)
+        #expect(
+            tableView.rowView(atRow: rowIndex, makeIfNecessary: false).map(ObjectIdentifier.init)
+                == openingRowViewIdentity
+        )
         #expect(trackedCell.currentBindingIdentity == openingBinding)
         #expect(materializer.currentTopVisibleAnchor == openingAnchor)
 
