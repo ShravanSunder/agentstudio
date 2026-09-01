@@ -535,13 +535,19 @@ extension WorkspaceSurfaceCoordinator {
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
-            if let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded,
-                let activeDrawerPaneId =
-                    arrangementView.drawerView(forParent: paneId)?.activeChildId
-                    ?? drawer.paneIds.first
+            guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
+                focusVisiblePaneHost(paneId)
+                break
+            }
+            let visibleDrawerPaneIds = arrangementView.drawerVisiblePaneIds(forParent: paneId)
+            for drawerPaneId in visibleDrawerPaneIds {
+                reattachForViewSwitch(paneId: drawerPaneId)
+            }
+            if let activeDrawerPaneId =
+                arrangementView.drawerView(forParent: paneId)?.activeChildId
+                ?? visibleDrawerPaneIds.first
+                ?? drawer.paneIds.first
             {
-                reattachForViewSwitch(paneId: activeDrawerPaneId)
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else {
                 focusVisiblePaneHost(paneId)

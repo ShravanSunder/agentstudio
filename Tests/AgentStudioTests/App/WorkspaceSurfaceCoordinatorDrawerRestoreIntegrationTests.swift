@@ -143,6 +143,43 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         #expect(config.initialFrame != nil)
     }
 
+    @Test("opening a deferred drawer restores every visible arranged child")
+    func toggleDrawer_restoresEveryVisibleArrangedChild() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let parentPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let tab = Tab(paneId: parentPane.id, name: "Deferred multi-pane drawer")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        harness.store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        if harness.store.pane(parentPane.id)?.drawer?.isExpanded == true {
+            harness.store.toggleDrawer(for: parentPane.id)
+        }
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
+
+        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
+        #expect(
+            Set(harness.surfaceManager.createdPaneIds)
+                == Set([
+                    firstDrawerPane.id,
+                    secondDrawerPane.id,
+                ])
+        )
+        #expect(harness.surfaceManager.createdPaneIds.count == 2)
+    }
+
     @Test
     func boundsSettlementSignalsPreparingForegroundDrawerWithoutArrangementMutation() throws {
         let harness = makeHarness()
