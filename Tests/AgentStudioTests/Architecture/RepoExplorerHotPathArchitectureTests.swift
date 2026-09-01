@@ -214,7 +214,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(materializer.contains("pendingReloadRows.intersection(represented)"))
         #expect(
             materializer.contains(
-                "tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)"
+                "tableView.noteHeightOfRows(withIndexesChanged: immediateHeightRows)"
             )
         )
         #expect(materializer.contains("membership.anchorFallbacks.targetRowID("))
