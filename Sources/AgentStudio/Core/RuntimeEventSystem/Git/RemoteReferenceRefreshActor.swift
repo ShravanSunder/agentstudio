@@ -48,7 +48,7 @@ package actor RemoteReferenceRefreshActor {
     private var activeOperationsByRepoId: [UUID: RemoteReferenceActiveOperation] = [:]
     private var invalidatingRepositoryIds: Set<UUID> = []
     private var acceptedReferenceByRepoId: [UUID: RemoteReferenceAcceptance] = [:]
-    private var repositoryIdsWithResolvedOriginHistory: Set<UUID> = []
+    private var lastAcceptedOriginByRepoId: [UUID: String] = [:]
     private var lastSuccessfulFetchAtByRepoId: [UUID: Duration] = [:]
     private var failureDeadlineByRepoId: [UUID: Duration] = [:]
     private var currentnessRetryAtByRepoId: [UUID: Duration] = [:]
@@ -262,13 +262,10 @@ package actor RemoteReferenceRefreshActor {
         guard var registration = registrationsByRepoId[repoId], registration.expectedOrigin != expectedOrigin else {
             return
         }
-        let acceptsInitialOriginDiscovery =
+        let acceptsLocalOriginDiscovery =
             registration.expectedOrigin == nil
             && expectedOrigin != nil
-            && !repositoryIdsWithResolvedOriginHistory.contains(repoId)
-        if registration.expectedOrigin != nil || expectedOrigin != nil {
-            repositoryIdsWithResolvedOriginHistory.insert(repoId)
-        }
+            && (lastAcceptedOriginByRepoId[repoId] == nil || lastAcceptedOriginByRepoId[repoId] == expectedOrigin)
         let nextGeneration = nextTopologyGeneration(repoId: repoId)
         await beginIdentityInvalidation(repoId: repoId, topologyGeneration: nextGeneration)
         settleExplicitUpdateAttempts(repoId: repoId, outcome: .obsolete)
@@ -279,7 +276,7 @@ package actor RemoteReferenceRefreshActor {
         failureDeadlineByRepoId.removeValue(forKey: repoId)
         currentnessRetryAtByRepoId.removeValue(forKey: repoId)
         invalidatingRepositoryIds.remove(repoId)
-        if acceptsInitialOriginDiscovery {
+        if acceptsLocalOriginDiscovery {
             await establishLocalAcceptance(repoId: repoId)
         }
         if expectedOrigin != nil, demandedRepositoryIds.contains(repoId) {
@@ -330,7 +327,7 @@ package actor RemoteReferenceRefreshActor {
         demandedRepositoryIds.removeAll()
         pendingRepositoryIds.removeAll()
         explicitRepositoryIds.removeAll()
-        repositoryIdsWithResolvedOriginHistory.removeAll()
+        lastAcceptedOriginByRepoId.removeAll()
         for repoId in activeOperationsByRepoId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             await revokeActiveOperation(repoId: repoId)
         }
@@ -380,6 +377,7 @@ package actor RemoteReferenceRefreshActor {
                 snapshot: snapshot
             )
             acceptedReferenceByRepoId[repoId] = acceptance
+            lastAcceptedOriginByRepoId[repoId] = expectedOrigin
             performanceAccumulator.increment(\.publicationLocalAccepted)
             await onAuthorityUpdate(.localAccepted(acceptance))
         } catch {
@@ -549,6 +547,7 @@ package actor RemoteReferenceRefreshActor {
                 snapshot: stagedFetch.snapshot
             )
             acceptedReferenceByRepoId[attempt.repoId] = acceptance
+            lastAcceptedOriginByRepoId[attempt.repoId] = attempt.expectedOrigin
             lastSuccessfulFetchAtByRepoId[attempt.repoId] = monotonicNow()
             failureDeadlineByRepoId.removeValue(forKey: attempt.repoId)
             currentnessRetryAtByRepoId.removeValue(forKey: attempt.repoId)
