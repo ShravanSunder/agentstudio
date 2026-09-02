@@ -35,6 +35,14 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         let tempDir: URL
     }
 
+    private struct StartupTabSwitchHarness {
+        let harness: Harness
+        let startupPaneID: UUID
+        let startupTabID: UUID
+        let selectedPaneIDsInRestoreOrder: [UUID]
+        let selectedTabID: UUID
+    }
+
     private struct RestoredDrawerHarness {
         let sqliteBackend: WorkspaceSQLiteStoreBackend
         let store: WorkspaceStore
@@ -78,6 +86,128 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             windowLifecycleStore: windowLifecycleStore,
             surfaceManager: surfaceManager,
             tempDir: tempDir
+        )
+    }
+
+    private func makeStartupTabSwitchOwner(
+        harness: Harness,
+        panes: [Pane],
+        placements: [TerminalHostPlacementIdentity]
+    ) throws -> WorkspacePreparedContentMountCoordinator {
+        precondition(panes.count == placements.count)
+        let generation = WorkspaceContentMountGeneration()
+        let descriptors = try zip(panes, placements).enumerated().map { index, entry in
+            try preparedDrawerTerminalDescriptor(
+                pane: entry.0,
+                visibilityPriority: index == 0 ? .activeVisible : .hidden,
+                hostPlacement: entry.1
+            )
+        }
+        return WorkspacePreparedContentMountCoordinator(
+            cohort: WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: descriptors),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            ),
+            viewRegistry: harness.viewRegistry,
+            terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+                generation: generation,
+                initialFramesByPaneID: [:],
+                viewRegistry: harness.viewRegistry,
+                mountHandler: harness.coordinator
+            ),
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: generation,
+                coordinator: harness.coordinator
+            )
+        )
+    }
+
+    private func makeStartupTabSwitchHarness() throws -> StartupTabSwitchHarness {
+        let harness = makeHarness()
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let startupPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let selectedPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let selectedSiblingPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let startupTab = Tab(paneId: startupPane.id, name: "Startup")
+        let selectedTab = Tab(paneId: selectedPane.id, name: "Selected during startup")
+        harness.store.appendTab(startupTab)
+        harness.store.appendTab(selectedTab)
+        harness.store.setActiveTab(startupTab.id)
+        _ = harness.store.insertPane(
+            selectedSiblingPane.id,
+            inTab: selectedTab.id,
+            at: selectedPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+        harness.store.setActivePane(selectedPane.id, inTab: selectedTab.id)
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: selectedPane.id))
+        let secondDrawerPane = try #require(harness.store.addDrawerPane(to: selectedPane.id))
+        harness.store.setActiveDrawerPane(secondDrawerPane.id, in: selectedPane.id)
+        if harness.store.pane(selectedPane.id)?.drawer?.isExpanded == false {
+            harness.store.toggleDrawer(for: selectedPane.id)
+        }
+        let acceptedSelectedPane = try #require(harness.store.pane(selectedPane.id))
+        let acceptedFirstDrawerPane = try #require(harness.store.pane(firstDrawerPane.id))
+        let acceptedSecondDrawerPane = try #require(harness.store.pane(secondDrawerPane.id))
+        let selectedDrawerID = try #require(acceptedSelectedPane.drawer?.drawerId)
+        let owner = try makeStartupTabSwitchOwner(
+            harness: harness,
+            panes: [
+                startupPane,
+                acceptedSelectedPane,
+                selectedSiblingPane,
+                acceptedFirstDrawerPane,
+                acceptedSecondDrawerPane,
+            ],
+            placements: [
+                .tab(tabID: startupTab.id),
+                .tab(tabID: selectedTab.id),
+                .tab(tabID: selectedTab.id),
+                .drawer(
+                    tabID: selectedTab.id,
+                    parentPaneID: PaneId(existingUUID: selectedPane.id),
+                    drawerID: selectedDrawerID
+                ),
+                .drawer(
+                    tabID: selectedTab.id,
+                    parentPaneID: PaneId(existingUUID: selectedPane.id),
+                    drawerID: selectedDrawerID
+                ),
+            ]
+        )
+        harness.viewRegistry.beginInitialRestore()
+        harness.coordinator.preparedContentVisibilitySignalHandler = { paneIDs in
+            owner.handleVisibilitySignals(for: paneIDs)
+        }
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+        return StartupTabSwitchHarness(
+            harness: harness,
+            startupPaneID: startupPane.id,
+            startupTabID: startupTab.id,
+            selectedPaneIDsInRestoreOrder: [
+                selectedPane.id,
+                selectedSiblingPane.id,
+                secondDrawerPane.id,
+                firstDrawerPane.id,
+            ],
+            selectedTabID: selectedTab.id
         )
     }
 
@@ -178,6 +308,30 @@ struct WorkspaceDrawerRestoreIntegrationTests {
                 ])
         )
         #expect(harness.surfaceManager.createdPaneIds.count == 2)
+    }
+
+    @Test("tab selection during initial restore mounts unowned main before visible drawer children")
+    func selectTabDuringInitialRestore_mountsUnownedMainBeforeDrawerChildren() throws {
+        // Arrange
+        let context = try makeStartupTabSwitchHarness()
+        let harness = context.harness
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        // Act
+        harness.coordinator.execute(.selectTab(tabId: context.selectedTabID))
+
+        // Assert
+        #expect(harness.viewRegistry.isInitialRestorePending)
+        #expect(harness.surfaceManager.createdPaneIds == context.selectedPaneIDsInRestoreOrder)
+        for paneID in context.selectedPaneIDsInRestoreOrder {
+            #expect(harness.surfaceManager.createdConfigsByPaneId[paneID]?.initialFrame != nil)
+        }
+        #expect(!harness.surfaceManager.createdPaneIds.contains(context.startupPaneID))
+
+        harness.coordinator.execute(.selectTab(tabId: context.startupTabID))
+
+        #expect(harness.viewRegistry.isInitialRestorePending)
+        #expect(!harness.surfaceManager.createdPaneIds.contains(context.startupPaneID))
     }
 
     @Test
