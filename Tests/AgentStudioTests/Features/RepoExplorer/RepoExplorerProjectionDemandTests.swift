@@ -331,6 +331,7 @@ struct RepoExplorerProjectionDemandTests {
             let recorder = RepoExplorerProjectionExecutionRecorder()
             let adapter = RepoExplorerProjectionAdapter(
                 inputCapture: capture,
+                recencyDelay: AsyncDelay { _ in throw CancellationError() },
                 project: { work throws(CancellationError) in
                     recorder.recordExecution(work)
                     do {
