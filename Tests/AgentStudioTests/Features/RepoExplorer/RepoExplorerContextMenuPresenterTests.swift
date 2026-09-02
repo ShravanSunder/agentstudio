@@ -46,6 +46,7 @@ struct RepoExplorerContextMenuPresenterTests {
                 LocalActionSpec.revealInFinder.actionSpec.label,
                 LocalActionSpec.copyPath.actionSpec.label,
             ])
+        #expect(menu.items.allSatisfy { $0.image == nil })
     }
 
     @Test("nested menu targets its stable row and fails closed after removal")
@@ -81,11 +82,13 @@ struct RepoExplorerContextMenuPresenterTests {
 
         let rowID = RepoExplorerRowID.group(groupID: "repo-activity")
         let menu = try #require(materializer.makeContextMenu(forRowID: rowID))
-        let paneMenu = try #require(
+        let paneMenuItem = try #require(
             menu.items.first(where: {
                 $0.title == LocalActionSpec.goToPane.actionSpec.label
-            })?.submenu
+            })
         )
+        let paneMenu = try #require(paneMenuItem.submenu)
+        #expect(paneMenuItem.image == nil)
         paneMenu.performActionForItem(at: 0)
         #expect(focusedPaneIDs == [paneID])
 

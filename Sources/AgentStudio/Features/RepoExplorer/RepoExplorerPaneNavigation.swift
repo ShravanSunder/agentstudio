@@ -3,13 +3,6 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
-package struct RepoExplorerPanePresentation: Identifiable {
-    let destination: RepoExplorerPaneDestination
-    let label: String
-
-    package var id: UUID { destination.paneId }
-}
-
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader

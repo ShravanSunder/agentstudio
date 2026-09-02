@@ -53,10 +53,10 @@ final class RepoExplorerContextMenuPresenter: NSObject {
             to: menu
         )
         if let path = group.semanticRepoPath {
-            addLocalAction(.revealInFinder, rowID: rowID, to: menu) {
+            addLocalAction(.revealInFinder, rowID: rowID, showsIcon: false, to: menu) {
                 PathActions.revealInFinder(path)
             }
-            addLocalAction(.copyPath, rowID: rowID, to: menu) {
+            addLocalAction(.copyPath, rowID: rowID, showsIcon: false, to: menu) {
                 PathActions.copyPath(path)
             }
         }
@@ -188,7 +188,8 @@ final class RepoExplorerContextMenuPresenter: NSObject {
         }
         addSubmenu(
             submenu,
-            actionSpec: LocalActionSpec.goToPane.actionSpec,
+            title: LocalActionSpec.goToPane.actionSpec.label,
+            icon: nil,
             to: menu
         )
     }
@@ -196,13 +197,14 @@ final class RepoExplorerContextMenuPresenter: NSObject {
     private func addLocalAction(
         _ action: LocalActionSpec,
         rowID: RepoExplorerRowID,
+        showsIcon: Bool = true,
         to menu: NSMenu,
         perform: @escaping () -> Void
     ) {
         let actionSpec = action.actionSpec
         addAction(
             title: actionSpec.label,
-            icon: actionSpec.icon,
+            icon: showsIcon ? actionSpec.icon : nil,
             isEnabled: true,
             rowID: rowID,
             to: menu,
@@ -238,8 +240,17 @@ final class RepoExplorerContextMenuPresenter: NSObject {
     }
 
     private func addSubmenu(_ submenu: NSMenu, actionSpec: ActionSpec, to menu: NSMenu) {
-        let item = NSMenuItem(title: actionSpec.label, action: nil, keyEquivalent: "")
-        item.image = image(for: actionSpec.icon, accessibilityDescription: actionSpec.label)
+        addSubmenu(submenu, title: actionSpec.label, icon: actionSpec.icon, to: menu)
+    }
+
+    private func addSubmenu(
+        _ submenu: NSMenu,
+        title: String,
+        icon: CommandIcon?,
+        to menu: NSMenu
+    ) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.image = image(for: icon, accessibilityDescription: title)
         item.submenu = submenu
         menu.addItem(item)
     }

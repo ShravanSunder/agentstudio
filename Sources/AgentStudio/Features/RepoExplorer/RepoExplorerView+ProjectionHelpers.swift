@@ -358,19 +358,6 @@ extension RepoExplorerView {
         return group.repos.first
     }
 
-    func panePresentation(for destination: RepoExplorerPaneDestination) -> RepoExplorerPanePresentation {
-        RepoExplorerPanePresentation(
-            destination: destination,
-            label: destination.label
-        )
-    }
-
-    func panePresentations(
-        _ destinations: [RepoExplorerPaneDestination]
-    ) -> [RepoExplorerPanePresentation] {
-        destinations.map(panePresentation(for:))
-    }
-
     func focusPane(_ paneId: UUID) {
         commandDispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
     }
