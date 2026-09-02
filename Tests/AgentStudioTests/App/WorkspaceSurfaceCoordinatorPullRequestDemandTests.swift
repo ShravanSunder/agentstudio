@@ -185,7 +185,33 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
             let demand = try #require(await source.lastFactDemandSnapshot)
             #expect(demand.activePaneWorktreeId == visibleWorktree.id)
             #expect(demand.visibleActiveTabWorktreeIds == [visibleWorktree.id])
+            #expect(demand.openWorktreeIds == [visibleWorktree.id])
+            #expect(demand.warmRepositoryIds == [visibleRepository.id])
+            #expect(demand.localGitAttentionWorktreeIds == [visibleWorktree.id])
             #expect(demand.forgeDemandedWorktreeIds == [visibleWorktree.id])
+
+            #expect(
+                store.mutationCoordinator.reactivatePane(
+                    backgroundedPane.id,
+                    inTab: tab.id,
+                    at: visiblePane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            for _ in 0..<400
+            where await source.lastFactDemandSnapshot?.openWorktreeIds
+                != [visibleWorktree.id, backgroundedWorktree.id]
+            {
+                await Task.yield()
+            }
+            let reactivatedDemand = try #require(await source.lastFactDemandSnapshot)
+            #expect(reactivatedDemand.openWorktreeIds == [visibleWorktree.id, backgroundedWorktree.id])
+            #expect(
+                reactivatedDemand.warmRepositoryIds
+                    == [visibleRepository.id, backgroundedRepository.id]
+            )
 
             await coordinator.shutdown()
         }
