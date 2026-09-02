@@ -73,7 +73,7 @@ struct FilesystemActorFilteringTests {
 
         let gitignoreContents = """
             *.log
-            build/
+            build/*
             !build/include.log
             """
         try gitignoreContents.write(

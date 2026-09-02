@@ -612,7 +612,7 @@ struct BridgePackagedProductJourneyScriptTests {
 
         #expect(runnerDigestFunction == verifierDigestFunction)
         #expect(runnerDigestFunction.contains("printf 'baseline\\0%s\\0'"))
-        #expect(runnerDigestFunction.contains("ls-files -z"))
+        #expect(runnerDigestFunction.contains("ls-files -s -z"))
         #expect(runnerDigestFunction.contains("hash-object --"))
     }
 
