@@ -605,7 +605,13 @@ enum WorkspaceCompositionPreparer {
         var nonterminalEntries: [(sourceIndex: Int, descriptor: NonterminalContentMountDescriptor)] = []
 
         for (sourceIndex, pane) in panes.enumerated() {
+            guard pane.residency.isActive else { continue }
             guard let tabID = tabIDByPaneID[pane.id], let tab = tabsByID[tabID] else {
+                continue
+            }
+            if case .drawerChild(let parentPaneID) = pane.kind,
+                panesByID[parentPaneID]?.residency.isActive != true
+            {
                 continue
             }
             guard

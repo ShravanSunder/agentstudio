@@ -32,6 +32,7 @@ struct FlatPaneStripContent: View {
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let adjacentResizeTargeting: FlatTabStripMetrics.AdjacentResizeTargeting
     let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
     let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -61,7 +62,8 @@ struct FlatPaneStripContent: View {
                 in: CGRect(origin: .zero, size: geometry.size),
                 dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
-                collapsedPaneWidth: collapsedPaneWidth
+                collapsedPaneWidth: collapsedPaneWidth,
+                adjacentResizeTargeting: adjacentResizeTargeting
             )
             // swiftlint:disable:next redundant_discardable_let
             let _ = RestoreTrace.log(

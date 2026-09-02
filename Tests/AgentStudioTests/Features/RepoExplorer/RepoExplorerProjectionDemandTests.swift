@@ -373,6 +373,131 @@ struct RepoExplorerProjectionDemandTests {
     }
 
     @MainActor
+    @Test("By Pane follows residency-only background and reactivation")
+    func byPaneFollowsResidencyOnlyLifecycle() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repository = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-pane-residency"))
+            let worktree = try #require(repository.worktrees.first)
+            let visiblePane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "visible",
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            let residencyPane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "residency",
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            let tab = Tab(paneId: visiblePane.id)
+            store.appendTab(tab)
+            #expect(
+                store.insertPane(
+                    residencyPane.id,
+                    inTab: tab.id,
+                    at: visiblePane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repository.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: repository.name),
+                    updatedAt: Date()
+                )
+            )
+            let preferences = RepoExplorerSidebarPrefsAtom()
+            preferences.setGroupingMode(.pane)
+            let capture = RepoExplorerProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                repoCache: atoms.repoCache,
+                sidebarState: atoms.workspaceSidebarState,
+                sidebarCache: atoms.sidebarCache,
+                coreAtoms: atoms,
+                bridgeAttendanceSnapshot: { _ in nil },
+                latestPaneMessageSnapshot: { _ in nil }
+            )
+            let adapter = RepoExplorerProjectionAdapter(
+                inputCapture: capture,
+                recencyDelay: AsyncDelay { _ in throw CancellationError() }
+            )
+            defer { adapter.stop() }
+            let host = registerProjectionTestMaterializationHost(adapter: adapter)
+            defer { host.detach() }
+
+            adapter.updateDemand(isVisible: true, query: "")
+            for _ in 0..<400
+            where !Self.renderedPaneIDs(in: adapter.publishedResult).isSuperset(
+                of: [visiblePane.id, residencyPane.id]
+            ) {
+                await Task.yield()
+            }
+            #expect(
+                Self.renderedPaneIDs(in: adapter.publishedResult)
+                    == [visiblePane.id, residencyPane.id]
+            )
+
+            #expect(store.mutationCoordinator.backgroundPane(residencyPane.id))
+            for _ in 0..<400
+            where Self.renderedPaneIDs(in: adapter.publishedResult).contains(residencyPane.id) {
+                await Task.yield()
+            }
+            #expect(Self.renderedPaneIDs(in: adapter.publishedResult) == [visiblePane.id])
+            #expect(adapter.publishedResult?.paneRowFactsByPaneId[residencyPane.id] == nil)
+            #expect(adapter.observationTokens.contains(.paneStructure(residencyPane.id)))
+            #expect(!adapter.observationTokens.contains(.pane(residencyPane.id)))
+            let backgroundedRevision = adapter.publishedRevision
+
+            #expect(
+                store.mutationCoordinator.reactivatePane(
+                    residencyPane.id,
+                    inTab: tab.id,
+                    at: visiblePane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            for _ in 0..<400
+            where adapter.publishedRevision == backgroundedRevision
+                || !Self.renderedPaneIDs(in: adapter.publishedResult).contains(residencyPane.id)
+            {
+                await Task.yield()
+            }
+
+            #expect(adapter.publishedRevision == backgroundedRevision + 1)
+            #expect(
+                Self.renderedPaneIDs(in: adapter.publishedResult)
+                    == [visiblePane.id, residencyPane.id]
+            )
+            #expect(adapter.publishedResult?.paneRowFactsByPaneId[residencyPane.id] != nil)
+        }
+    }
+
+    private static func renderedPaneIDs(
+        in result: RepoExplorerProjectionResult?
+    ) -> Set<UUID> {
+        Set(
+            result?.rowIndex.entries.compactMap { entry in
+                switch entry {
+                case .resolvedPaneRow(_, let identity, _): identity.paneId
+                case .unassociatedPaneRow(let destination): destination.paneId
+                case .sectionHeader, .loadingSectionHeader, .loadingRepoRow,
+                    .resolvedGroupHeader, .resolvedWorktreeRow, .topologyFault:
+                    nil
+                }
+            } ?? []
+        )
+    }
+
+    @MainActor
     @Test("sort and grouping changes reuse adapter topology and add only demanded registrations")
     func presentationChangesReuseTopologyCapture() async throws {
         try await withAsyncTestCoreAtoms { atoms in

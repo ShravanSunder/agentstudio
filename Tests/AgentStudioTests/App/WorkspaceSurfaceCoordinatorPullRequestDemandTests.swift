@@ -109,6 +109,88 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
         }
     }
 
+    @Test("backgrounded canonical pane does not create visible repository fact demand")
+    func backgroundedCanonicalPaneIsExcludedFromVisibleDemand() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore()
+            let visibleRepository = store.addRepo(
+                at: URL(fileURLWithPath: "/tmp/repository-demand-visible-pane")
+            )
+            let visibleWorktree = try #require(visibleRepository.worktrees.first)
+            let visiblePane = store.createPane(
+                launchDirectory: visibleWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: visibleRepository.id,
+                    worktreeId: visibleWorktree.id,
+                    cwd: visibleWorktree.path
+                )
+            )
+            let backgroundedRepository = store.addRepo(
+                at: URL(fileURLWithPath: "/tmp/repository-demand-backgrounded-pane")
+            )
+            let backgroundedWorktree = try #require(backgroundedRepository.worktrees.first)
+            let backgroundedPane = store.createPane(
+                launchDirectory: backgroundedWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: backgroundedRepository.id,
+                    worktreeId: backgroundedWorktree.id,
+                    cwd: backgroundedWorktree.path
+                )
+            )
+            let tab = Tab(paneId: visiblePane.id)
+            store.appendTab(tab)
+            #expect(
+                store.insertPane(
+                    backgroundedPane.id,
+                    inTab: tab.id,
+                    at: visiblePane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            store.setActivePane(backgroundedPane.id, inTab: tab.id)
+            #expect(store.mutationCoordinator.backgroundPane(backgroundedPane.id))
+            #expect(store.tab(tab.id)?.activePaneId == backgroundedPane.id)
+            coreAtoms.workspaceSidebarState.setSidebarCollapsed(true)
+
+            let source = PullRequestDemandRecordingFilesystemSource()
+            let windowLifecycle = WindowLifecycleAtom()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: PullRequestDemandSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: gitStatusPhysicalGate
+                ),
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
+                filesystemSource: source,
+                windowLifecycleStore: windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let owningWindowId = UUIDv7.generate()
+            windowLifecycle.recordWindowRegistered(owningWindowId)
+            windowLifecycle.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: owningWindowId
+            )
+
+            coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
+            await coordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
+
+            let demand = try #require(await source.lastFactDemandSnapshot)
+            #expect(demand.activePaneWorktreeId == visibleWorktree.id)
+            #expect(demand.visibleActiveTabWorktreeIds == [visibleWorktree.id])
+            #expect(demand.forgeDemandedWorktreeIds == [visibleWorktree.id])
+
+            await coordinator.shutdown()
+        }
+    }
+
     @Test("repository fact demand classifies activity through sealed topology identity")
     func repositoryFactDemandUsesSealedTopologyIdentity() async throws {
         try await withAsyncTestCoreAtoms { coreAtoms in

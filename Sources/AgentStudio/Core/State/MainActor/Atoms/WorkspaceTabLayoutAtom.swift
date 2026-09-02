@@ -235,12 +235,19 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
 
-    package func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    package func resizeVisiblePanePair(
+        tabId: UUID,
+        leftPaneId: UUID,
+        rightPaneId: UUID,
+        ratio: Double,
+        residencyExcludedPaneIds: Set<UUID> = []
+    ) {
         arrangementAtom.resizeVisiblePanePair(
             tabId: tabId,
             leftPaneId: leftPaneId,
             rightPaneId: rightPaneId,
-            ratio: ratio
+            ratio: ratio,
+            residencyExcludedPaneIds: residencyExcludedPaneIds
         )
     }
 

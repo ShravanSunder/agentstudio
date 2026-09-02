@@ -77,6 +77,14 @@ package enum TerminalActivationTerminalOutcome: Equatable, Sendable {
 package struct TerminalActivationSettlement: Equatable, Sendable {
     package let generation: WorkspaceContentMountGeneration
     package let outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
+    ) {
+        self.generation = generation
+        self.outcomesByPaneID = outcomesByPaneID
+    }
 }
 
 struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {

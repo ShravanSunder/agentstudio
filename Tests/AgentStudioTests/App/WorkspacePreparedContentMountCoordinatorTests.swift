@@ -250,6 +250,79 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         #expect(terminalPort.admissions.filter { $0.descriptor.paneID == failedDescriptor.paneID }.count == 1)
         #expect(registry.isInitialRestorePending == false)
     }
+
+    @Test("foreground main settles before drawer admission and hidden content stays deferred")
+    func foregroundMainSettlesBeforeDrawerAdmissionAndHiddenContentStaysDeferred() async throws {
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let tabID = UUIDv7.generate()
+        let parentPaneID = PaneId(existingUUID: UUIDv7.generate())
+        let drawerID = UUIDv7.generate()
+        let mainTerminal = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Main terminal",
+            visibilityPriority: .activeVisible,
+            hostPlacement: .tab(tabID: tabID)
+        )
+        let mainNonterminal = makePreparedContentCoordinatorNonterminalDescriptor(
+            title: "Main webview",
+            visibilityPriority: .visible,
+            hostPlacement: .tab(tabID: tabID)
+        )
+        let drawerNonterminal = makePreparedContentCoordinatorNonterminalDescriptor(
+            title: "Drawer webview",
+            visibilityPriority: .activeVisible,
+            hostPlacement: .drawer(
+                tabID: tabID,
+                parentPaneID: parentPaneID,
+                drawerID: drawerID
+            )
+        )
+        let hiddenNonterminal = makePreparedContentCoordinatorNonterminalDescriptor(
+            title: "Hidden webview",
+            visibilityPriority: .hidden,
+            hostPlacement: .tab(tabID: tabID)
+        )
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [mainTerminal]),
+            nonterminalContentMountInput: NonterminalContentMountInput(
+                entries: [mainNonterminal, drawerNonterminal, hiddenNonterminal]
+            )
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = SuspendedPreparedContentTerminalPort()
+        let nonterminalPort = SignallingPreparedContentNonterminalPort(
+            signalPaneID: mainNonterminal.paneID
+        )
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: nonterminalPort
+        )
+        let mountTask = Task { @MainActor in
+            await coordinator.mount()
+        }
+
+        await terminalPort.waitUntilAdmissionStarts()
+        await nonterminalPort.waitUntilSignalMountCompletes()
+
+        #expect(nonterminalPort.descriptors.map(\.paneID) == [mainNonterminal.paneID])
+
+        terminalPort.finish(with: .ready(surfaceID: UUIDv7.generate()))
+        let settlement = await mountTask.value
+
+        #expect(
+            nonterminalPort.descriptors.map(\.paneID)
+                == [mainNonterminal.paneID, drawerNonterminal.paneID]
+        )
+        #expect(Set(settlement.terminal.outcomesByPaneID.keys) == [mainTerminal.paneID])
+        #expect(
+            Set(settlement.nonterminal.outcomesByPaneID.keys)
+                == [mainNonterminal.paneID, drawerNonterminal.paneID]
+        )
+        #expect(registry.preparedContentMountState(for: hiddenNonterminal.paneID, generation: generation) == nil)
+    }
 }
 
 @MainActor
@@ -349,12 +422,38 @@ private final class RecordingPreparedContentNonterminalPort: NonterminalContentM
 }
 
 @MainActor
+private final class SignallingPreparedContentNonterminalPort: NonterminalContentMountAdmissionPort {
+    private let signalPaneID: PaneId
+    private let signalMountCompleted = AsyncStream<Void>.makeStream()
+    private(set) var descriptors: [NonterminalContentMountDescriptor] = []
+
+    init(signalPaneID: PaneId) {
+        self.signalPaneID = signalPaneID
+    }
+
+    func mount(_ descriptor: NonterminalContentMountDescriptor) -> NonterminalContentMountAdmissionResult {
+        descriptors.append(descriptor)
+        if descriptor.paneID == signalPaneID {
+            signalMountCompleted.continuation.yield()
+        }
+        return .mounted
+    }
+
+    func waitUntilSignalMountCompletes() async {
+        var iterator = signalMountCompleted.stream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+}
+
+@MainActor
 private func makePreparedContentCoordinatorGeneration() throws -> WorkspaceContentMountGeneration {
     WorkspaceContentMountGeneration()
 }
 
 private func makePreparedContentCoordinatorTerminalDescriptor(
-    title: String = "Prepared Coordinator Terminal"
+    title: String = "Prepared Coordinator Terminal",
+    visibilityPriority: TerminalActivationVisibilityPriority = .activeVisible,
+    hostPlacement: TerminalHostPlacementIdentity = .tab(tabID: UUIDv7.generate())
 ) -> TerminalActivationDescriptor {
     let launchDirectory = URL(filePath: "/tmp/prepared-content-coordinator")
     let terminalState = TerminalState(
@@ -372,7 +471,30 @@ private func makePreparedContentCoordinatorTerminalDescriptor(
     )
     return TerminalActivationDescriptor(
         pane: pane,
-        visibilityPriority: .activeVisible,
-        hostPlacement: .tab(tabID: UUIDv7.generate())
+        visibilityPriority: visibilityPriority,
+        hostPlacement: hostPlacement
+    )
+}
+
+private func makePreparedContentCoordinatorNonterminalDescriptor(
+    title: String,
+    visibilityPriority: TerminalActivationVisibilityPriority,
+    hostPlacement: TerminalHostPlacementIdentity
+) -> NonterminalContentMountDescriptor {
+    let pane = Pane(
+        id: UUIDv7.generate(),
+        content: .webview(
+            WebviewState(
+                url: URL(string: "https://example.com")!,
+                title: title,
+                showNavigation: false
+            )
+        ),
+        metadata: PaneMetadata(title: title)
+    )
+    return NonterminalContentMountDescriptor(
+        content: .webview(pane),
+        visibilityPriority: visibilityPriority,
+        hostPlacement: hostPlacement
     )
 }

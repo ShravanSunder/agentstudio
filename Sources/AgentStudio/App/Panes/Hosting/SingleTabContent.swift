@@ -77,6 +77,7 @@ struct SingleTabContent: View {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
+        let arrangementView = atom(\.arrangementView)
         let tab = workspaceTab.tab(tabId)
         let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tabId)
         // swiftlint:disable:next redundant_discardable_let
@@ -90,14 +91,14 @@ struct SingleTabContent: View {
                     )
                     .background(AppStyles.Shell.PaneChrome.background)
                     .transition(.identity)
-                } else {
+                } else if let activeLayout = arrangementView.activeLayout(forTab: tabId) {
                     FlatTabStripContainer(
-                        layout: tab.layout,
+                        layout: activeLayout,
                         octiconLoader: octiconLoader,
                         tabId: tabId,
-                        activePaneId: tab.activePaneId,
-                        minimizedPaneIds: tab.activeMinimizedPaneIds,
-                        visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: tabId),
+                        activePaneId: arrangementView.activePaneId(forTab: tabId),
+                        minimizedPaneIds: arrangementView.activeMinimizedPaneIds(forTab: tabId),
+                        visiblePaneIds: arrangementView.activeVisiblePaneIds(forTab: tabId),
                         arrangementInlineRenameState: arrangementInlineRenameState,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
@@ -116,6 +117,8 @@ struct SingleTabContent: View {
                     )
                     .background(AppStyles.Shell.PaneChrome.background)
                     .transition(.identity)
+                } else {
+                    EmptyArrangementPlaceholderView()
                 }
             }
         }

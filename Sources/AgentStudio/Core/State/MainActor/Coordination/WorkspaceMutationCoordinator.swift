@@ -45,15 +45,10 @@ package final class WorkspaceMutationCoordinator {
         }
     }
 
-    private struct BackgroundedDrawerPayload {
-        let drawerViewsByArrangementId: [UUID: DrawerView]
-    }
-
     let repositoryTopologyAtom: RepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
-    private var backgroundedDrawerPayloadsByPaneId: [UUID: BackgroundedDrawerPayload] = [:]
 
     private var workspaceTab: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(
@@ -99,20 +94,6 @@ package final class WorkspaceMutationCoordinator {
                 .warning("backgroundPane: pane \(paneId) not found")
             return false
         }
-        let removedDrawerIds = Set([backgroundedPane.drawer?.drawerId].compactMap(\.self))
-        let removedPaneIds = Set([paneId] + (backgroundedPane.drawer?.paneIds ?? []))
-        if let drawer = backgroundedPane.drawer, !drawer.paneIds.isEmpty {
-            backgroundedDrawerPayloadsByPaneId[paneId] = BackgroundedDrawerPayload(
-                drawerViewsByArrangementId: drawerViewsByArrangementId(
-                    drawerId: drawer.drawerId,
-                    parentPaneId: paneId
-                )
-            )
-        } else {
-            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
-        }
-        workspaceTabArrangementAtom.removePaneReferences(removedPaneIds, removingDrawerIds: removedDrawerIds)
-        removeEmptyTabs()
         workspacePaneAtom.setResidency(.backgrounded, for: paneId)
         for drawerPaneId in backgroundedPane.drawer?.paneIds ?? [] {
             workspacePaneAtom.setResidency(.backgrounded, for: drawerPaneId)
@@ -138,6 +119,14 @@ package final class WorkspaceMutationCoordinator {
             return false
         }
 
+        if workspaceTab.tabContaining(paneId: paneId) != nil {
+            workspacePaneAtom.setResidency(.active, for: paneId)
+            for drawerPaneId in pane.drawer?.paneIds ?? [] {
+                workspacePaneAtom.setResidency(.active, for: drawerPaneId)
+            }
+            return true
+        }
+
         guard
             workspaceTabArrangementAtom.insertPane(
                 paneId,
@@ -157,16 +146,13 @@ package final class WorkspaceMutationCoordinator {
             for drawerPaneId in drawer.paneIds {
                 workspacePaneAtom.setResidency(.active, for: drawerPaneId)
             }
-            let payload = backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
             workspaceTabArrangementAtom.restoreDrawerPaneViews(
                 drawerId: drawer.drawerId,
                 parentPaneId: paneId,
                 drawerPaneIds: drawer.paneIds,
-                drawerViewsByArrangementId: payload?.drawerViewsByArrangementId ?? [:],
+                drawerViewsByArrangementId: [:],
                 inTab: tabId
             )
-        } else {
-            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
         }
         return true
     }
@@ -354,15 +340,6 @@ package final class WorkspaceMutationCoordinator {
             tabId: tabId,
             anchorPaneId: anchorPaneId,
             direction: direction
-        )
-    }
-
-    private func drawerViewsByArrangementId(drawerId: UUID, parentPaneId: UUID) -> [UUID: DrawerView] {
-        guard let tab = workspaceTab.tabContaining(paneId: parentPaneId) else { return [:] }
-        return Dictionary(
-            uniqueKeysWithValues: tab.arrangements.compactMap { arrangement in
-                arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
-            }
         )
     }
 

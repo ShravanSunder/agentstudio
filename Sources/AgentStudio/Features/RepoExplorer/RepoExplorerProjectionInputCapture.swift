@@ -681,13 +681,15 @@ final class RepoExplorerProjectionInputCapture {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let allPaneIDs = workspaceTab.tabs.flatMap(\.allPaneIds)
+        let presentedPaneIDs = workspaceTab.tabs.flatMap(\.activePaneIds).filter { paneID in
+            store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.residency == .active
+        }
         let facts = Dictionary(
-            uniqueKeysWithValues: allPaneIDs.compactMap { paneID in
+            uniqueKeysWithValues: presentedPaneIDs.compactMap { paneID in
                 capturePaneFact(paneID: paneID, now: now).map { (paneID, $0) }
             }
         )
-        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIDs))
+        paneDisplayTitleCache.retainOnly(paneIds: Set(presentedPaneIDs))
         return facts
     }
 

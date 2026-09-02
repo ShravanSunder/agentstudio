@@ -62,7 +62,8 @@ extension WorkspaceSurfaceCoordinator {
         let sidebarIsAttended =
             windowPresentation == .visible
             && !atom(\.workspaceSidebarState).sidebarCollapsed
-        let activePaneWorktreeId = store.tabLayoutAtom.activeTab?.activePaneId
+        let activePaneWorktreeId = store.tabLayoutAtom.activeTabId
+            .flatMap { arrangementView.activePaneId(forTab: $0) }
             .flatMap { associationByPaneId[$0]?.worktreeId }
         let repositoryIDs = topology.repositoryIdsInOrder
         var worktreeStableKeysByRepositoryID: [UUID: [UUID: String]] = [:]
@@ -119,8 +120,10 @@ extension WorkspaceSurfaceCoordinator {
         windowPresentation: PullRequestDemandProjection.WindowPresentation,
         associationByPaneId: [UUID: PaneRepositoryAssociation]
     ) -> Set<UUID> {
-        guard let activeTab = store.tabLayoutAtom.activeTab else { return [] }
-        let activeLayoutPaneIds = Set(activeTab.activeArrangement.layout.paneIds)
+        guard let activeTabId = store.tabLayoutAtom.activeTabId,
+            let activeLayout = arrangementView.activeLayout(forTab: activeTabId)
+        else { return [] }
+        let activeLayoutPaneIds = Set(activeLayout.paneIds)
         var relevantPaneIds = activeLayoutPaneIds
         let expandedDrawerProjection: (UUID) -> PullRequestDemandProjection.ExpandedDrawer? = { parentPaneId in
             guard self.store.paneAtom.isDrawerExpanded(for: parentPaneId),
@@ -135,13 +138,13 @@ extension WorkspaceSurfaceCoordinator {
         }
         let expandedDrawers = activeLayoutPaneIds.compactMap(expandedDrawerProjection)
         let expandedDrawer = expandedDrawers.first
-        let zoom = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id).map { presentation in
+        let zoom = store.panePresentationAtom.zoomPresentation(forTab: activeTabId).map { presentation in
             let companionWorktreeId: UUID? = {
                 guard case .retainedVisible(let companionPaneId) = presentation.viewerPresentation,
                     let companion = store.panePresentationAtom.zoomCompanion(
                         forSourcePane: presentation.sourcePaneId
                     ),
-                    companion.owningTabId == activeTab.id,
+                    companion.owningTabId == activeTabId,
                     companion.companionPaneId == companionPaneId
                 else { return nil }
                 return companion.resolvedWorktreeId
@@ -161,7 +164,7 @@ extension WorkspaceSurfaceCoordinator {
                 windowPresentation: windowPresentation,
                 sidebarWorktreeIds: [],
                 activeLayoutPaneIds: activeLayoutPaneIds,
-                minimizedLayoutPaneIds: activeTab.activeArrangement.minimizedPaneIds,
+                minimizedLayoutPaneIds: arrangementView.activeMinimizedPaneIds(forTab: activeTabId),
                 isManagementLayerActive: atom(\.managementLayer).isActive,
                 expandedDrawer: expandedDrawer,
                 zoom: zoom,

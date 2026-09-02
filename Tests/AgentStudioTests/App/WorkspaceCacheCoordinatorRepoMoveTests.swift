@@ -201,8 +201,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.pane(pane.id)?.residency == .active)
     }
 
-    @Test("same-path re-association restores non-layout orphaned panes as backgrounded")
-    func reassociationRestoresBackgroundedResidencyForNonLayoutPanes() {
+    @Test("same-path re-association preserves backgrounded pane scheduling")
+    func reassociationPreservesBackgroundedPaneScheduling() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -238,7 +238,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
                 event: .topology(.repoRemoved(repoPath: oldRepoPath))
             )
         )
-        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
+        #expect(workspaceStore.pane(pane.id)?.residency == .backgrounded)
 
         let rediscoveredWorktree = Worktree(
             repoId: repo.id,

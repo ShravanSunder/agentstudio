@@ -114,7 +114,8 @@ extension RepoExplorerProjectionInputCapture {
     }
 
     func observationTokens(for request: RepoExplorerProjectionRequest) -> Set<RepoExplorerObservationToken> {
-        let structuralPaneIDs = demandedPaneIDs(in: request.snapshot)
+        let structuralPaneIDs = store.tabLayoutAtom.allPaneIds
+        let presentedPaneIDs = demandedPaneIDs(in: request.snapshot)
         let structuralTabIDs = demandedTabIDs(in: request.snapshot)
         var tokens: Set<RepoExplorerObservationToken> = [
             .demand, .presentation, .membership, .stableIdentity,
@@ -131,7 +132,7 @@ extension RepoExplorerProjectionInputCapture {
                 }
             )
         } else {
-            tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.pane))
+            tokens.formUnion(presentedPaneIDs.map(RepoExplorerObservationToken.pane))
             tokens.insert(.attention)
         }
         if request.snapshot.groupingMode == .tab {

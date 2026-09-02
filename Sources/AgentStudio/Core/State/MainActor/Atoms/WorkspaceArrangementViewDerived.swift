@@ -23,20 +23,41 @@ package struct WorkspaceArrangementViewDerived {
     }
 
     package func activeVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
-        guard let arrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else {
-            workspaceArrangementViewLogger.warning("activeVisiblePaneIds: tab \(tabId) not found")
+        guard let activeLayout = activeLayout(forTab: tabId) else {
             return []
         }
         return visiblePaneIds(
-            layoutPaneIds: arrangement.layout.paneIds,
-            minimizedPaneIds: arrangement.minimizedPaneIds
+            layoutPaneIds: activeLayout.paneIds,
+            minimizedPaneIds: activeMinimizedPaneIds(forTab: tabId)
         )
+    }
+
+    /// The active arrangement projected for rendering. Canonical layouts retain
+    /// backgrounded pane references so their arrangement survives a restart;
+    /// rendering must not give those deferred panes a visual slot.
+    package func activeLayout(forTab tabId: UUID) -> Layout? {
+        guard let canonicalLayout = tabLayoutAtom.tab(tabId)?.activeArrangement.layout else {
+            workspaceArrangementViewLogger.warning("activeLayout: tab \(tabId) not found")
+            return nil
+        }
+
+        let activePaneIds = Set(paneAtom.activeResidencyPaneIds(in: canonicalLayout.paneIds))
+        let activePaneIndexes = canonicalLayout.panes.indices.filter { index in
+            activePaneIds.contains(canonicalLayout.panes[index].paneId)
+        }
+        let activePanes = activePaneIndexes.map { canonicalLayout.panes[$0] }
+        let activeDividerIDs = activePaneIndexes.dropFirst().map { index in
+            canonicalLayout.dividerIds[index - 1]
+        }
+
+        return Layout(panes: activePanes, dividerIds: activeDividerIDs)
     }
 
     package func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
             let paneFacts = paneAtom.graphAtom.paneStructuralFacts(parentPaneId),
+            isActivePane(parentPaneId),
             let drawerID = paneFacts.ownedDrawerID
         else { return nil }
         if let drawerView = tab.activeArrangement.drawerViews[drawerID] {
@@ -51,17 +72,25 @@ package struct WorkspaceArrangementViewDerived {
             let drawerView = drawerView(forParent: parentPaneId)
         else { return [] }
         return visiblePaneIds(
-            layoutPaneIds: drawerView.layout.paneIds,
+            layoutPaneIds: paneAtom.activeResidencyPaneIds(in: drawerView.layout.paneIds),
             minimizedPaneIds: drawerView.minimizedPaneIds
         )
     }
 
-    func activePaneId(forTab tabId: UUID) -> UUID? {
-        tabLayoutAtom.tab(tabId)?.activeArrangement.activePaneId
+    package func activePaneId(forTab tabId: UUID) -> UUID? {
+        guard let activeArrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else {
+            return nil
+        }
+        return paneAtom.activeResidencyPaneId(
+            preferred: activeArrangement.activePaneId,
+            in: activeArrangement.layout.paneIds
+        )
     }
 
-    func activeMinimizedPaneIds(forTab tabId: UUID) -> Set<UUID> {
-        tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds ?? []
+    package func activeMinimizedPaneIds(forTab tabId: UUID) -> Set<UUID> {
+        let minimizedPaneIds = tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds ?? []
+        guard let activeLayout = activeLayout(forTab: tabId) else { return [] }
+        return minimizedPaneIds.intersection(Set(activeLayout.paneIds))
     }
 
     private func visiblePaneIds(
@@ -70,5 +99,9 @@ package struct WorkspaceArrangementViewDerived {
     ) -> [UUID] {
         guard !managementLayerAtom.isActive else { return layoutPaneIds }
         return layoutPaneIds.filter { !minimizedPaneIds.contains($0) }
+    }
+
+    private func isActivePane(_ paneID: UUID) -> Bool {
+        paneAtom.graphAtom.paneStructuralFacts(paneID)?.residency.isActive == true
     }
 }

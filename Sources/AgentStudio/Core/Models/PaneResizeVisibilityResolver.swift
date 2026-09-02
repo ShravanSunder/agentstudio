@@ -42,9 +42,9 @@ enum PaneResizeVisibilityResolver {
         return nil
     }
 
-    static func validatesCollapsedRunPair(
+    static func validatesRenderedPanePair(
         layoutPaneIds: [UUID],
-        minimizedPaneIds: Set<UUID>,
+        resizeExcludedPaneIds: Set<UUID>,
         leftPaneId: UUID,
         rightPaneId: UUID
     ) -> Bool {
@@ -53,12 +53,11 @@ enum PaneResizeVisibilityResolver {
             let leftIndex = layoutPaneIds.firstIndex(of: leftPaneId),
             let rightIndex = layoutPaneIds.firstIndex(of: rightPaneId),
             leftIndex < rightIndex,
-            !minimizedPaneIds.contains(leftPaneId),
-            !minimizedPaneIds.contains(rightPaneId),
-            rightIndex - leftIndex > 1
+            !resizeExcludedPaneIds.contains(leftPaneId),
+            !resizeExcludedPaneIds.contains(rightPaneId)
         else { return false }
 
-        return layoutPaneIds[(leftIndex + 1)..<rightIndex].allSatisfy { minimizedPaneIds.contains($0) }
+        return layoutPaneIds[(leftIndex + 1)..<rightIndex].allSatisfy { resizeExcludedPaneIds.contains($0) }
     }
 
     static func keyboardPair(
