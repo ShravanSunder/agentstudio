@@ -17,6 +17,7 @@ import {
 	writeWorktreeDevServerProofArtifact,
 } from './artifacts.ts';
 import { clearVerifierBrowser, installVerifierBrowser } from './browser-session.ts';
+import { collectBridgeDevelopmentCompleteJourneyLaunch } from './complete-journey-collector.ts';
 import { performanceOnlyMode } from './config.ts';
 import {
 	fileToReviewHandoffFixtureRelativePath,
@@ -200,6 +201,25 @@ export async function runBridgeViewerWorktreeDevServerStartupSurfaceVerifier(
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			surface,
 		};
+	} finally {
+		clearVerifierBrowser();
+		try {
+			await closeAllWorktreeFileSurfaces();
+		} finally {
+			await browser.close();
+		}
+	}
+}
+
+export async function runBridgeViewerWorktreeDevServerCompleteJourneyLaunch(props: {
+	readonly attemptCount: number;
+	readonly launchId: string;
+	readonly sourceHead: string;
+}): Promise<Awaited<ReturnType<typeof collectBridgeDevelopmentCompleteJourneyLaunch>>> {
+	const browser = await chromium.launch({ headless: true });
+	installVerifierBrowser(browser);
+	try {
+		return await collectBridgeDevelopmentCompleteJourneyLaunch(props);
 	} finally {
 		clearVerifierBrowser();
 		try {

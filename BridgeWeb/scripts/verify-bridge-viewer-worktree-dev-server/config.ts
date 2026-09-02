@@ -34,7 +34,22 @@ export const performanceOnlyMode = process.env['BRIDGE_VIEWER_WORKTREE_PERFORMAN
 
 export const startupOnlyMode = process.env['BRIDGE_VIEWER_WORKTREE_STARTUP_ONLY'] === '1';
 
+export const completeJourneyMode = process.env['BRIDGE_VIEWER_WORKTREE_COMPLETE_JOURNEY'] === '1';
+
+export const completeJourneyAttemptCount = completeJourneyAttemptCountFromEnvironment(
+	process.env['BRIDGE_VIEWER_WORKTREE_COMPLETE_JOURNEY_ATTEMPTS'],
+);
+
 export const execFileAsync = promisify(execFile);
+
+function completeJourneyAttemptCountFromEnvironment(rawValue: string | undefined): number {
+	if (rawValue === undefined) return 100;
+	const parsedValue = Number(rawValue);
+	if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+		throw new Error('BRIDGE_VIEWER_WORKTREE_COMPLETE_JOURNEY_ATTEMPTS must be a positive integer.');
+	}
+	return parsedValue;
+}
 
 export const fileToReviewHandoffFixtureRelativePath =
 	'BridgeWeb/src/test-fixtures/worktree-file-to-review-handoff-canary.txt';

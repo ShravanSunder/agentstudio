@@ -28,13 +28,16 @@ describe('Bridge Viewer startup load timing', () => {
 		// Act / Assert
 		expect(functionStart).toBeGreaterThanOrEqual(0);
 		expect(functionEnd).toBeGreaterThan(functionStart);
-		expect(source).toContain('navigateToWorktreeDevServerFileShell');
+		expect(source).toContain("page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded'");
+		expect(source).toContain('waitForBridgeHandshakeWorkerMilliseconds');
 		expect(source).not.toContain('reloadWorktreeDevServerPage');
 	});
 
 	test('requires every causal File startup milestone', () => {
 		// Arrange
 		const completeTiming = {
+			pageLoadToHandshakeWorker: summarizeInteractionSamples([20]),
+			pageLoadToPageApplication: summarizeInteractionSamples([10]),
 			pageLoadToContentReady: summarizeInteractionSamples([80]),
 			pageLoadToContentRequestStarted: summarizeInteractionSamples([50]),
 			pageLoadToContentResponseStarted: summarizeInteractionSamples([60]),
@@ -213,7 +216,11 @@ describe('Bridge Viewer startup load timing', () => {
 		expect(registeredVerifierSource).toContain('/__bridge-product/health');
 		expect(
 			registeredVerifierSource.indexOf('bridgeProductBackendStartupTimeoutMilliseconds'),
-		).toBeLessThan(registeredVerifierSource.indexOf('if (performanceOnlyMode || startupOnlyMode)'));
+		).toBeLessThan(
+			registeredVerifierSource.indexOf(
+				'if (completeJourneyMode || performanceOnlyMode || startupOnlyMode)',
+			),
+		);
 	});
 
 	test('uses the one prebuilt owned backend instead of asking Vite to build it again', async () => {
@@ -234,6 +241,7 @@ describe('Bridge Viewer startup load timing', () => {
 		expect(performanceVerifierSource).toMatch(
 			/startOwnedBridgeDevelopmentServer[\s\S]*BRIDGE_WEB_DEV_BACKEND_ORIGIN[\s\S]*createViteServer/u,
 		);
-		expect(performanceVerifierSource).toContain('optimizeDeps: { noDiscovery: true }');
+		expect(performanceVerifierSource).toContain('runAllOwnedCleanupOperations');
+		expect(performanceVerifierSource).not.toContain('middlewareMode: true');
 	});
 });

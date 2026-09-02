@@ -67,6 +67,30 @@ struct FilesystemPathFilterTests {
         #expect(!filter.isIgnored(relativePath: "filea.txt"))
     }
 
+    @Test("ignored directory patterns suppress descendant filesystem events")
+    func ignoredDirectoryPatternSuppressesDescendants() throws {
+        let rootPath = try makeRootWithGitIgnore(lines: [".build-*"])
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+
+        #expect(filter.classify(relativePath: ".build-agent-1") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".build-agent-1/.slot-claim") == .ignoredByPolicy)
+    }
+
+    @Test("descendant negation cannot bypass an ignored parent directory")
+    func descendantNegationCannotBypassIgnoredParent() throws {
+        let rootPath = try makeRootWithGitIgnore(
+            lines: [
+                ".build-*",
+                "!.build-agent-1/.slot-claim",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+
+        #expect(filter.classify(relativePath: ".build-agent-1/.slot-claim") == .ignoredByPolicy)
+    }
+
     @Test("missing .gitignore falls back to empty ignore policy")
     func missingGitIgnoreFallsBackToEmptyPolicy() throws {
         let rootPath = try makeEmptyRoot()

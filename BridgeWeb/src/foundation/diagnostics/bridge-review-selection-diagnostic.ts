@@ -1,4 +1,5 @@
 export interface BridgeReviewSelectionDiagnostic {
+	commWorkerSessionReadyFirstObservedAtEpochMilliseconds?: number;
 	fileModeSendAttemptCount?: number;
 	fileModeSendSynchronousFailureCount?: number;
 	initialSelectionRequestedCount: number;
@@ -9,12 +10,14 @@ export interface BridgeReviewSelectionDiagnostic {
 	latestReviewSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
 	latestReviewSelectLifecycleState?: BridgeSelectLifecycleState;
 	nativeBootstrapInstallAcceptedCount?: number;
+	nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds?: number;
 	nativeBootstrapInstallAttemptCount?: number;
 	nativeBootstrapInstallCount?: number;
 	nativeBootstrapInstallRejectedCount?: number;
 	queuedCommandCount?: number;
 	replacementRequestCount?: number;
 	pageReadyState?: BridgePageReadyState;
+	pageReadyFirstObservedAtEpochMilliseconds?: number;
 	selectionScheduledCount: number;
 	selectionFirstFrameReachedCount: number;
 	selectionSecondFrameReachedCount: number;
@@ -135,6 +138,9 @@ export function recordBridgePageReadyState(state: BridgePageReadyState): void {
 	if (diagnostic === null) return;
 	diagnostic.fileModeSendAttemptCount ??= 0;
 	diagnostic.fileModeSendSynchronousFailureCount ??= 0;
+	if (state === 'ready') {
+		diagnostic.pageReadyFirstObservedAtEpochMilliseconds ??= Date.now();
+	}
 	diagnostic.pageReadyState = state;
 }
 
@@ -168,6 +174,9 @@ export function recordBridgePaneCommWorkerSessionDiagnosticSnapshot(
 	diagnostic.nativeBootstrapInstallCount = snapshot.nativeBootstrapInstallCount;
 	diagnostic.queuedCommandCount = snapshot.queuedCommandCount;
 	diagnostic.replacementRequestCount = snapshot.replacementRequestCount;
+	if (snapshot.state === 'ready') {
+		diagnostic.commWorkerSessionReadyFirstObservedAtEpochMilliseconds ??= Date.now();
+	}
 	diagnostic.sessionState = snapshot.state;
 	for (const observer of bridgePaneCommWorkerSessionDiagnosticObservers) {
 		observer(snapshot);
@@ -191,6 +200,9 @@ export function recordBridgePaneRuntimeDiagnosticSnapshot(
 	diagnostic.nativeBootstrapInstallAcceptedCount = snapshot.nativeBootstrapInstallAcceptedCount;
 	diagnostic.nativeBootstrapInstallAttemptCount = snapshot.nativeBootstrapInstallAttemptCount;
 	diagnostic.nativeBootstrapInstallRejectedCount = snapshot.nativeBootstrapInstallRejectedCount;
+	if (snapshot.nativeBootstrapInstallAcceptedCount > 0) {
+		diagnostic.nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds ??= Date.now();
+	}
 }
 
 export function readBridgeReviewSelectionDiagnostic(): BridgeReviewSelectionDiagnostic | null {

@@ -25,7 +25,7 @@
 		"test:browser:integration": "vitest --config vitest.browser.config.ts run --project integration-browser --tags-filter=!stress",
 		"test:browser:stress": "vitest --config vitest.browser.config.ts run --project integration-browser --tags-filter=stress",
 		"test:dev-server": "node --experimental-strip-types scripts/verify-bridge-viewer-dev-server.ts",
-		"test:dev-server:worktree": "pnpm run build:swift-dev-server && node --experimental-strip-types scripts/verify-bridge-viewer-worktree-dev-server.ts",
+		"test:dev-server:worktree": "pnpm run build:swift-dev-server && node --experimental-strip-types scripts/run-verify-bridge-viewer-worktree-dev-server.ts",
 		"test:e2e": "pnpm run build:swift-dev-server && pnpm run test:e2e:prepared",
 		"test:e2e:prepared": "pnpm run test:e2e:prepared:stress && pnpm run test:e2e:prepared:ordinary",
 		"test:e2e:prepared:ordinary": "vitest --config vitest.e2e.config.ts run --exclude tests/e2e/bridge-viewer-vite-annotation-backpressure.e2e.test.ts",

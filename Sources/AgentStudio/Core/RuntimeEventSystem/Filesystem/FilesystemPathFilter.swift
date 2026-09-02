@@ -76,9 +76,22 @@ package struct FilesystemPathFilter: Sendable {
         let normalizedPath = Self.normalized(relativePath: relativePath)
         guard !normalizedPath.isEmpty, normalizedPath != "." else { return false }
 
+        let pathComponents = normalizedPath.split(separator: "/")
+        for componentCount in 1...pathComponents.count {
+            let candidatePath = pathComponents.prefix(componentCount).joined(separator: "/")
+            if rulesIgnoreExactPath(candidatePath) {
+                // Git cannot re-include a descendant while an ancestor directory
+                // remains excluded, so an ignored prefix is terminal for this path.
+                return true
+            }
+        }
+        return false
+    }
+
+    private func rulesIgnoreExactPath(_ relativePath: String) -> Bool {
         var ignored = false
         for rule in ignoredRules {
-            if rule.matches(relativePath: normalizedPath) {
+            if rule.matches(relativePath: relativePath) {
                 ignored = !rule.isNegated
             }
         }

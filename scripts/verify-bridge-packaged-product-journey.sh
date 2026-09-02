@@ -7,9 +7,31 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 GIT_BIN=/usr/bin/git
 SHASUM_BIN=/usr/bin/shasum
 
-if [ "${1:-}" = "--dry-run" ]; then
+dry_run=false
+complete_journey=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    --complete-journey)
+      complete_journey=true
+      shift
+      ;;
+    *)
+      echo "usage: verify-bridge-packaged-product-journey.sh [--dry-run] [--complete-journey]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ "$dry_run" = true ]; then
   cat <<'DRY_RUN'
 dry-run ok: binds bundle/executable/assets to the current candidate
+dry-run ok: interactive verification mode preserves the existing live semantic and visual proof
+dry-run ok: complete journey cohort mode validates exactly 3 stopped isolated launches and raw receipts
+dry-run ok: complete journey cohort mode reduces four native journeys with exact pane telemetry proof
 dry-run ok: uses one persistent authenticated semantic IPC session
 dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
@@ -27,11 +49,6 @@ dry-run ok: does not embed desktop automation
 dry-run ok: interprets raw one-row comparison geometry
 DRY_RUN
   exit 0
-fi
-
-if [ "$#" -ne 0 ]; then
-  echo "usage: verify-bridge-packaged-product-journey.sh [--dry-run]" >&2
-  exit 2
 fi
 
 decode_state_value() {
@@ -75,6 +92,9 @@ final_path=""
 tracked_path=""
 reviewed_branch_name=""
 comparison_target_name=""
+journey_mode=""
+complete_journey_attempt_count=""
+source_head=""
 
 if [ ! -f "$JOURNEY_STATE_FILE" ]; then
   echo "Bridge packaged journey state is missing: $JOURNEY_STATE_FILE" >&2
@@ -85,6 +105,9 @@ while IFS='=' read -r key raw_value; do
   value="$(decode_state_value "$raw_value")"
   case "$key" in
     AGENTSTUDIO_BRIDGE_JOURNEY_STATUS) journey_status="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_MODE) journey_mode="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_COMPLETE_ATTEMPT_COUNT) complete_journey_attempt_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_SOURCE_HEAD) source_head="$value" ;;
     JOURNEY_ROOT) journey_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT) journey_data_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE) observability_state_file="$value" ;;
@@ -102,13 +125,20 @@ while IFS='=' read -r key raw_value; do
   esac
 done <"$JOURNEY_STATE_FILE"
 
-if [ "$journey_status" != "running" ]; then
-  echo "Bridge packaged journey is not running: ${journey_status:-<missing>}" >&2
-  exit 1
-fi
-if [ ! -f "$observability_state_file" ]; then
-  echo "Bridge packaged journey observability state is missing: ${observability_state_file:-<missing>}" >&2
-  exit 1
+if [ "$complete_journey" = true ]; then
+  if [ "$journey_mode" != "complete-journey" ] || [ "$journey_status" != "cohort_ready" ]; then
+    echo "Bridge packaged complete journey cohort is not ready: ${journey_status:-<missing>}" >&2
+    exit 1
+  fi
+else
+  if [ "$journey_status" != "running" ]; then
+    echo "Bridge packaged journey is not running: ${journey_status:-<missing>}" >&2
+    exit 1
+  fi
+  if [ ! -f "$observability_state_file" ]; then
+    echo "Bridge packaged journey observability state is missing: ${observability_state_file:-<missing>}" >&2
+    exit 1
+  fi
 fi
 if [ ! -d "$fixture_root/.git" ]; then
   echo "Bridge packaged journey fixture is not a Git worktree: ${fixture_root:-<missing>}" >&2
@@ -172,6 +202,195 @@ for required_path in "$early_path" "$middle_path" "$final_path" "$tracked_path";
     exit 1
   fi
 done
+
+if [ "$complete_journey" = true ]; then
+  if [ "$journey_data_root" != "$journey_root/app-data" ]; then
+    echo "Bridge packaged complete journey data root is not isolated inside its journey" >&2
+    exit 1
+  fi
+  case "$complete_journey_attempt_count" in
+    ''|*[!0-9]*)
+      echo "Bridge packaged complete journey attempt count is invalid" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$complete_journey_attempt_count" -le 0 ]; then
+    echo "Bridge packaged complete journey attempt count must be positive" >&2
+    exit 1
+  fi
+  case "$source_head" in
+    ''|*[!0-9a-f]*)
+      echo "Bridge packaged complete journey source HEAD is invalid" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#source_head}" -ne 40 ]; then
+    echo "Bridge packaged complete journey source HEAD is invalid" >&2
+    exit 1
+  fi
+  if [ "$source_head" != "$($GIT_BIN -C "$PROJECT_ROOT" rev-parse HEAD)" ]; then
+    echo "Bridge packaged complete journey source HEAD no longer matches the current candidate" >&2
+    exit 1
+  fi
+
+  for launch_number in 1 2 3; do
+    launch_id="native-launch-$launch_number"
+    receipt_path="$journey_root/$launch_id.json"
+    observability_state_path="$journey_root/$launch_id-observability.env"
+    if [ ! -f "$receipt_path" ] || [ ! -f "$observability_state_path" ]; then
+      echo "Bridge packaged complete journey is missing $launch_id receipt or state" >&2
+      exit 1
+    fi
+    launch_pid="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_PID=//p' "$observability_state_path" | tail -1)")"
+    case "$launch_pid" in
+      ''|*[!0-9]*)
+        echo "Bridge packaged complete journey $launch_id PID is invalid" >&2
+        exit 1
+        ;;
+    esac
+    if kill -0 "$launch_pid" >/dev/null 2>&1; then
+      echo "Bridge packaged complete journey $launch_id exact PID is still live" >&2
+      exit 1
+    fi
+  done
+
+  candidate_state_path="$journey_root/native-launch-1-observability.env"
+  candidate_app="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_APP=//p' "$candidate_state_path" | tail -1)")"
+  candidate_executable="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=//p' "$candidate_state_path" | tail -1)")"
+  if [ -z "$candidate_app" ] || [ -z "$candidate_executable" ] || [ ! -x "$candidate_executable" ]; then
+    echo "Bridge packaged complete journey candidate identity is incomplete" >&2
+    exit 1
+  fi
+  /usr/bin/codesign --verify --deep --strict "$candidate_app"
+  packaged_bridge_web="$candidate_app/Contents/Resources/AgentStudio_AgentStudio.bundle/BridgeWeb/app"
+  source_bridge_web="$PROJECT_ROOT/Sources/AgentStudio/Resources/BridgeWeb/app"
+  if ! cmp -s "$source_bridge_web/agentstudio-app-assets.json" "$packaged_bridge_web/agentstudio-app-assets.json"; then
+    echo "Bridge packaged complete journey asset manifest does not match the current source build" >&2
+    exit 1
+  fi
+  audit_file="$PROJECT_ROOT/tmp/bridge-web-assets/latest-app-asset-audit.json"
+  if [ ! -f "$audit_file" ]; then
+    echo "Bridge packaged complete journey asset audit is missing" >&2
+    exit 1
+  fi
+  audit_commit="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git"]["commit"])' "$audit_file")"
+  if [ "$audit_commit" != "$source_head" ]; then
+    echo "Bridge packaged complete journey asset audit does not match its source HEAD" >&2
+    exit 1
+  fi
+
+  reducer_input="$journey_root/native-complete-journey-input.json"
+  reducer_output="$PROJECT_ROOT/tmp/bridge-complete-journey-native/$(basename "$journey_root")/bridge-complete-journey-native.json"
+  /usr/bin/python3 - "$journey_root" "$journey_data_root" "$source_head" \
+    "$expected_fixture_digest" "$complete_journey_attempt_count" "$reducer_input" <<'PY'
+import json
+import os
+import plistlib
+import shlex
+import sys
+
+journey_root, data_root, source_head, fixture_hash, raw_attempt_count, output_path = sys.argv[1:]
+attempt_count = int(raw_attempt_count)
+launches = []
+candidate_identity = None
+
+
+def read_state(path):
+    values = {}
+    with open(path, "r", encoding="utf-8") as state_file:
+        for line in state_file:
+            key, separator, raw_value = line.rstrip("\n").partition("=")
+            if not separator:
+                continue
+            decoded = shlex.split(raw_value)
+            values[key] = decoded[0] if decoded else ""
+    return values
+
+
+for launch_number in (1, 2, 3):
+    launch_id = f"native-launch-{launch_number}"
+    receipt_path = os.path.join(journey_root, f"{launch_id}.json")
+    state_path = os.path.join(journey_root, f"{launch_id}-observability.env")
+    state = read_state(state_path)
+    if state.get("AGENTSTUDIO_OBSERVABILITY_STATUS") != "running":
+        raise SystemExit(f"{launch_id} did not record a running candidate")
+    if state.get("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD") != "launchservices":
+        raise SystemExit(f"{launch_id} was not launched through LaunchServices")
+    expected_data_root = os.path.join(data_root, launch_id)
+    if os.path.realpath(state.get("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", "")) != os.path.realpath(expected_data_root):
+        raise SystemExit(f"{launch_id} did not use its isolated app-data root")
+    marker = state.get("AGENTSTUDIO_OBSERVABILITY_MARKER", "")
+    proof_token = state.get("AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN", "")
+    if not marker or not proof_token:
+        raise SystemExit(f"{launch_id} is missing marker/proof binding")
+    app_path = state.get("AGENTSTUDIO_OBSERVABILITY_APP", "")
+    executable_path = state.get("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE", "")
+    expected_executable = os.path.join(app_path, "Contents", "MacOS", "AgentStudio")
+    if not app_path or os.path.realpath(executable_path) != os.path.realpath(expected_executable):
+        raise SystemExit(f"{launch_id} candidate app/executable identity is invalid")
+    identity = (os.path.realpath(app_path), os.path.realpath(executable_path))
+    if candidate_identity is None:
+        candidate_identity = identity
+    elif candidate_identity != identity:
+        raise SystemExit("native launches did not use one exact packaged candidate")
+    plist_path = os.path.join(app_path, "Contents", "Info.plist")
+    with open(plist_path, "rb") as plist_file:
+        service_version = plistlib.load(plist_file).get("CFBundleShortVersionString")
+    if not isinstance(service_version, str) or not service_version:
+        raise SystemExit(f"{launch_id} candidate service version is missing")
+    with open(receipt_path, "r", encoding="utf-8") as receipt_file:
+        receipt = json.load(receipt_file)
+    if receipt.get("launchId") != launch_id:
+        raise SystemExit(f"{launch_id} raw receipt identity mismatch")
+    attempts = receipt.get("attemptsByJourney")
+    expected_journeys = {"firstFile", "firstReview", "fileToReview", "reviewToFile"}
+    if not isinstance(attempts, dict) or set(attempts) != expected_journeys:
+        raise SystemExit(f"{launch_id} raw receipt has an invalid journey catalog")
+    if any(not isinstance(attempts[journey], list) or len(attempts[journey]) != attempt_count for journey in expected_journeys):
+        raise SystemExit(f"{launch_id} raw receipt attempt count mismatch")
+    launches.append({
+        "launchId": launch_id,
+        "receipt": receipt,
+        "telemetryMarker": marker,
+        "telemetryServiceVersion": service_version,
+    })
+
+with open(output_path, "w", encoding="utf-8") as output_file:
+    json.dump(
+        {"launches": launches, "sourceHead": source_head, "worktreeHash": fixture_hash},
+        output_file,
+        separators=(",", ":"),
+    )
+    output_file.write("\n")
+os.chmod(output_path, 0o600)
+PY
+
+  reducer_status=0
+  node --experimental-strip-types \
+    "$PROJECT_ROOT/BridgeWeb/scripts/reduce-bridge-complete-journey-native.ts" \
+    --input "$reducer_input" \
+    --output "$reducer_output" || reducer_status=$?
+  /bin/rm -f "$reducer_input"
+  if [ "$reducer_status" -ne 0 ]; then
+    echo "Bridge packaged complete journey evidence missed a required cohort gate" >&2
+    echo "artifact preserved at: $reducer_output" >&2
+    exit "$reducer_status"
+  fi
+
+  diagnostic_only="$(
+    /usr/bin/python3 -c \
+      'import json,sys; print("true" if json.load(open(sys.argv[1], encoding="utf-8"))["diagnosticOnly"] else "false")' \
+      "$reducer_output"
+  )"
+  if [ "$diagnostic_only" = true ]; then
+    echo "Bridge packaged complete journey DIAGNOSTIC ONLY - no SLO claim"
+  else
+    echo "Bridge packaged complete journey cohort PASS"
+  fi
+  echo "artifact=$reducer_output"
+  echo "fixture=$fixture_root"
+  exit 0
+fi
 
 state_status=""
 state_pid=""

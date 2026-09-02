@@ -125,6 +125,8 @@ export interface ReviewWorkerQueueWaitProof {
 }
 
 export interface WorktreeStartupLoadTimingProof {
+	readonly pageLoadToHandshakeWorker: WorktreeInteractionDurationSummary;
+	readonly pageLoadToPageApplication: WorktreeInteractionDurationSummary;
 	readonly pageLoadToContentReady: WorktreeInteractionDurationSummary;
 	readonly pageLoadToContentRequestStarted: WorktreeInteractionDurationSummary;
 	readonly pageLoadToContentResponseStarted: WorktreeInteractionDurationSummary;
@@ -136,6 +138,8 @@ export interface WorktreeStartupLoadTimingProof {
 }
 
 export interface ReviewStartupLoadTimingProof {
+	readonly pageLoadToHandshakeWorker: WorktreeInteractionDurationSummary;
+	readonly pageLoadToPageApplication: WorktreeInteractionDurationSummary;
 	readonly pageLoadToMetadata: WorktreeInteractionDurationSummary;
 	readonly pageLoadToSelectedContentReady: WorktreeInteractionDurationSummary;
 }
@@ -396,6 +400,8 @@ export function worktreeStartupLoadTimingSatisfied(
 ): boolean {
 	return (
 		proof.startupLoadTiming !== undefined &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToPageApplication) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToHandshakeWorker) &&
 		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToShellMounted) &&
 		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToSourceAccepted) &&
 		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToMetadata) &&
@@ -412,6 +418,8 @@ export function reviewStartupLoadTimingSatisfied(
 ): boolean {
 	return (
 		proof.reviewStartupLoadTiming !== undefined &&
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToPageApplication) &&
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToHandshakeWorker) &&
 		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToMetadata) &&
 		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToSelectedContentReady)
 	);

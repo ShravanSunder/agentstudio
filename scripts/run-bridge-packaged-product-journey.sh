@@ -11,12 +11,15 @@ OBSERVABILITY_STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$DEFAULT_OBSER
 JOURNEY_STATE_FILE="${AGENTSTUDIO_BRIDGE_PACKAGED_JOURNEY_STATE_FILE:-$DEFAULT_JOURNEY_STATE_FILE}"
 GIT_BIN="${AGENTSTUDIO_BRIDGE_PACKAGED_PRODUCT_JOURNEY_GIT_BIN:-/usr/bin/git}"
 SHASUM_BIN="${AGENTSTUDIO_BRIDGE_PACKAGED_PRODUCT_JOURNEY_SHASUM_BIN:-/usr/bin/shasum}"
+LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
+PROCESS_SIGNAL_COMMAND=kill
 
 dry_run=false
+complete_journey=false
 
 usage() {
   cat <<'USAGE'
-Usage: run-bridge-packaged-product-journey.sh [--dry-run]
+Usage: run-bridge-packaged-product-journey.sh [--dry-run] [--complete-journey]
 
 Creates the disposable current-run fixture and delegates the packaged app launch
 to the standard AgentStudio debug observability runner. The launched app and its
@@ -28,6 +31,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)
       dry_run=true
+      shift
+      ;;
+    --complete-journey)
+      complete_journey=true
       shift
       ;;
     -h|--help)
@@ -52,6 +59,10 @@ if [ "$dry_run" = true ]; then
   echo "dry-run contract: seeds a designated default and an explicit symbolic comparison target"
   echo "dry-run contract: prepares same-tree target and shared-base movement without changing fixture bytes"
   echo "dry-run contract: preserves the fixture and app for verification"
+  echo "dry-run contract: interactive verification mode preserves the existing single live app journey"
+  echo "dry-run contract: complete journey cohort mode uses exactly 3 independent LaunchServices launches"
+  echo "dry-run contract: complete journey cohort mode records 100 attempts per journey by default"
+  echo "dry-run contract: complete journey cohort mode isolates app data, preserves raw receipts, and stops only each exact PID"
   exit 0
 fi
 
@@ -65,6 +76,10 @@ if [ ! -x "$GIT_BIN" ]; then
 fi
 if [ ! -x "$SHASUM_BIN" ]; then
   echo "fixture SHA-256 executable is not available: $SHASUM_BIN" >&2
+  exit 1
+fi
+if [ ! -x "$LSOF_BIN" ]; then
+  echo "process attribution executable is not available: $LSOF_BIN" >&2
   exit 1
 fi
 
@@ -93,6 +108,43 @@ write_state_value() {
   local key="${1:?missing state key}"
   local value="${2:-}"
   printf '%s=%q\n' "$key" "$value"
+}
+
+state_value() {
+  local state_file="${1:?missing state file}"
+  local key="${2:?missing state key}"
+  local raw_value
+  raw_value="$(sed -n "s/^${key}=//p" "$state_file" | tail -1)"
+  decode_state_value "$raw_value"
+}
+
+process_executable_path() {
+  local exact_pid="${1:?missing exact PID}"
+  "$LSOF_BIN" -a -p "$exact_pid" -d txt -Fn 2>/dev/null \
+    | awk '/^n/ && !found { print substr($0, 2); found = 1 }'
+}
+
+terminate_exact_launch_pid() {
+  local exact_pid="${1:?missing exact PID}"
+  local expected_executable="${2:?missing expected executable}"
+  local actual_executable
+  actual_executable="$(process_executable_path "$exact_pid")"
+  if [ -z "$actual_executable" ] \
+    || [ "$(realpath "$actual_executable")" != "$(realpath "$expected_executable")" ]; then
+    echo "refusing to terminate PID whose executable does not match the recorded candidate: $exact_pid" >&2
+    return 1
+  fi
+  "$PROCESS_SIGNAL_COMMAND" -TERM "$exact_pid"
+  local wait_attempt=1
+  while "$PROCESS_SIGNAL_COMMAND" -0 "$exact_pid" >/dev/null 2>&1 \
+    && [ "$wait_attempt" -le 120 ]; do
+    sleep 1
+    wait_attempt=$((wait_attempt + 1))
+  done
+  if "$PROCESS_SIGNAL_COMMAND" -0 "$exact_pid" >/dev/null 2>&1; then
+    echo "exact packaged candidate PID did not exit after termination: $exact_pid" >&2
+    return 1
+  fi
 }
 
 sha256_for_file() {
@@ -152,6 +204,25 @@ final_relative_path="tree/group-07/segment-03/file-255.swift"
 early_baseline_sha256=""
 middle_baseline_sha256=""
 final_baseline_sha256=""
+complete_journey_attempt_count="${AGENTSTUDIO_BRIDGE_COMPLETE_JOURNEY_ATTEMPTS:-100}"
+source_head="$(/usr/bin/git -C "$PROJECT_ROOT" rev-parse HEAD)"
+journey_mode=interactive
+active_launch_pid=""
+active_launch_executable=""
+
+if [ "$complete_journey" = true ]; then
+  journey_mode=complete-journey
+  case "$complete_journey_attempt_count" in
+    ''|*[!0-9]*)
+      echo "complete journey attempt count must be a positive integer" >&2
+      exit 2
+      ;;
+  esac
+  if [ "$complete_journey_attempt_count" -le 0 ] || [ "$complete_journey_attempt_count" -gt 10000 ]; then
+    echo "complete journey attempt count must be between 1 and 10000" >&2
+    exit 2
+  fi
+fi
 
 write_receipt() {
   local status="${1:?missing journey status}"
@@ -163,6 +234,9 @@ write_receipt() {
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_SCHEMA_VERSION 1
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_STATUS "$status"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_REASON "$reason"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_MODE "$journey_mode"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_COMPLETE_ATTEMPT_COUNT "$complete_journey_attempt_count"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_SOURCE_HEAD "$source_head"
     write_state_value DEBUG_CODE "$debug_code"
     write_state_value JOURNEY_ROOT "$journey_root"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT "$runtime_data_root"
@@ -199,6 +273,10 @@ record_unexpected_failure() {
   local exit_code="$1"
   local line_number="$2"
   trap - ERR
+  if [ -n "$active_launch_pid" ] \
+    && "$PROCESS_SIGNAL_COMMAND" -0 "$active_launch_pid" >/dev/null 2>&1; then
+    terminate_exact_launch_pid "$active_launch_pid" "$active_launch_executable" || true
+  fi
   journey_status=failed
   journey_reason="unexpected_failure_line_${line_number}_exit_${exit_code}"
   write_receipt "$journey_status" "$journey_reason" || true
@@ -286,6 +364,125 @@ journey_status=fixture_ready
 write_receipt "$journey_status" ""
 
 unset AGENTSTUDIO_IPC_UNSAFE_NO_AUTH
+if [ "$complete_journey" = true ]; then
+  for launch_number in 1 2 3; do
+    launch_id="native-launch-$launch_number"
+    launch_data_root="$runtime_data_root/$launch_id"
+    launch_config_path="$launch_data_root/bridge-complete-journey/config.json"
+    launch_receipt_path="$launch_data_root/bridge-complete-journey/native-launch.json"
+    preserved_receipt_path="$journey_root/$launch_id.json"
+    launch_state_file="$journey_root/$launch_id-observability.env"
+    mkdir -p "$(dirname "$launch_config_path")"
+    printf '{"enabled":true,"mode":"native","attemptCount":%s,"launchId":"%s"}\n' \
+      "$complete_journey_attempt_count" "$launch_id" >"$launch_config_path"
+    chmod 600 "$launch_config_path"
+
+    runner_arguments=(--detach)
+    if [ "$launch_number" -gt 1 ]; then
+      runner_arguments+=(--skip-build)
+    fi
+    if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
+      AGENTSTUDIO_DEBUG_DATA_DIR="$launch_data_root" \
+      AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
+      AGENTSTUDIO_STARTUP_WATCH_FOLDER="$fixture_root" \
+      AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-product-paint-correlation \
+      AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$launch_state_file" \
+      "$STANDARD_DEBUG_RUNNER" "${runner_arguments[@]}"; then
+      journey_status=launch_failed
+      journey_reason="${launch_id}_standard_debug_observability_runner_failed"
+      write_receipt "$journey_status" "$journey_reason"
+      exit 1
+    fi
+
+    active_launch_pid="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_PID)"
+    active_launch_executable="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
+    launch_status="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_STATUS)"
+    launch_method="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD)"
+    recorded_launch_data_root="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+    if [ "$launch_status" != "running" ] || [ "$launch_method" != "launchservices" ]; then
+      echo "$launch_id did not start as a strict LaunchServices candidate" >&2
+      exit 1
+    fi
+    if [ "$recorded_launch_data_root" != "$launch_data_root" ]; then
+      echo "$launch_id did not start with its isolated application data root" >&2
+      exit 1
+    fi
+    case "$active_launch_pid" in
+      ''|*[!0-9]*)
+        echo "$launch_id observability state is missing a numeric PID" >&2
+        exit 1
+        ;;
+    esac
+    if [ -z "$active_launch_executable" ] || [ ! -x "$active_launch_executable" ]; then
+      echo "$launch_id observability state is missing its executable identity" >&2
+      exit 1
+    fi
+
+    receipt_wait_attempt=1
+    receipt_wait_limit="${AGENTSTUDIO_BRIDGE_COMPLETE_JOURNEY_RECEIPT_WAIT_ATTEMPTS:-7200}"
+    case "$receipt_wait_limit" in
+      ''|*[!0-9]*)
+        echo "complete journey receipt wait attempts must be a positive integer" >&2
+        exit 2
+        ;;
+    esac
+    if [ "$receipt_wait_limit" -le 0 ]; then
+      echo "complete journey receipt wait attempts must be positive" >&2
+      exit 2
+    fi
+    while [ ! -f "$launch_receipt_path" ] && [ "$receipt_wait_attempt" -le "$receipt_wait_limit" ]; do
+      if ! "$PROCESS_SIGNAL_COMMAND" -0 "$active_launch_pid" >/dev/null 2>&1; then
+        echo "$launch_id exited before producing its complete journey receipt" >&2
+        exit 1
+      fi
+      sleep 1
+      receipt_wait_attempt=$((receipt_wait_attempt + 1))
+    done
+    if [ ! -f "$launch_receipt_path" ]; then
+      echo "$launch_id did not produce its complete journey receipt within the bounded wait" >&2
+      exit 1
+    fi
+    /usr/bin/python3 - "$launch_receipt_path" "$launch_id" "$complete_journey_attempt_count" <<'PY'
+import json
+import sys
+
+receipt_path, expected_launch_id, raw_attempt_count = sys.argv[1:]
+expected_attempt_count = int(raw_attempt_count)
+with open(receipt_path, "r", encoding="utf-8") as receipt_file:
+    receipt = json.load(receipt_file)
+if receipt.get("launchId") != expected_launch_id:
+    raise SystemExit(f"{expected_launch_id} receipt launch identity mismatch")
+attempts = receipt.get("attemptsByJourney")
+expected_journeys = {"firstFile", "firstReview", "fileToReview", "reviewToFile"}
+if not isinstance(attempts, dict) or set(attempts) != expected_journeys:
+    raise SystemExit(f"{expected_launch_id} receipt must contain exactly four journey arrays")
+for journey in sorted(expected_journeys):
+    values = attempts.get(journey)
+    if not isinstance(values, list) or len(values) != expected_attempt_count:
+        raise SystemExit(f"{expected_launch_id} {journey} attempt count mismatch")
+PY
+    /usr/bin/ditto "$launch_receipt_path" "$preserved_receipt_path"
+    chmod 600 "$preserved_receipt_path"
+
+    launch_pid="$active_launch_pid"
+    launch_executable="$active_launch_executable"
+    terminate_exact_launch_pid "$launch_pid" "$launch_executable"
+    active_launch_pid=""
+    active_launch_executable=""
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$launch_state_file" \
+      "$STANDARD_DEBUG_RUNNER" --preflight-idle
+  done
+
+  journey_status=cohort_ready
+  journey_reason=""
+  write_receipt "$journey_status" "$journey_reason"
+  trap - ERR
+  echo "Bridge packaged complete journey cohort is ready for verification."
+  echo "fixture preserved at: $fixture_root"
+  echo "journey state: $JOURNEY_STATE_FILE"
+  exit 0
+fi
+
 if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
   AGENTSTUDIO_DEBUG_DATA_DIR="$runtime_data_root" \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
