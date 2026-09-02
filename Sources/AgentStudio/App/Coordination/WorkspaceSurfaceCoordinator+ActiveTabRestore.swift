@@ -9,8 +9,9 @@ extension WorkspaceSurfaceCoordinator {
         let clock = ContinuousClock()
         let restoreStart = clock.now
         guard let activeTab = store.tabLayoutAtom.activeTab else { return }
+        let visiblePaneIDs = foregroundVisiblePaneIDs(in: activeTab)
         if !windowLifecycleStore.isLaunchLayoutSettled {
-            let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
+            let hasPreparingPlaceholder = visiblePaneIDs.contains { paneId in
                 viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
             }
             guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
@@ -29,26 +30,27 @@ extension WorkspaceSurfaceCoordinator {
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
+        let paneIDsToRestore: [UUID]
         if viewRegistry.isInitialRestorePending {
-            let activePaneIDs = activeTab.activePaneIds.map(PaneId.init(existingUUID:))
-            _ = preparedContentVisibilitySignalHandler(activePaneIDs)
-            RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(activeTab.activePaneIds.count)"
+            let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(
+                visiblePaneIDs.map(PaneId.init(existingUUID:))
             )
-            return
+            RestoreTrace.log(
+                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
+            )
+            paneIDsToRestore = visiblePaneIDs.filter {
+                !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
+            }
+            guard !paneIDsToRestore.isEmpty else { return }
+        } else {
+            paneIDsToRestore = visiblePaneIDs
         }
 
-        let visiblePaneIds = TerminalRestoreScheduler.order(
-            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
-            resolver: visibilityTierResolver
-        )
-        .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
-        .map(\.uuid)
         let resolvedPaneFramesByTabId = [
             activeTab.id: resolveInitialFrames(for: activeTab, in: terminalContainerBounds)
         ]
         restoreMissingVisibleViews(
-            visiblePaneIds,
+            paneIDsToRestore,
             in: activeTab,
             resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
             forceFailedPlaceholderRetry: forceWhenBoundsExist
@@ -59,10 +61,26 @@ extension WorkspaceSurfaceCoordinator {
             attributes: [
                 "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
                 "agentstudio.performance.pane_view_restore.pane.count": .int(activeTab.allPaneIds.count),
-                "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIds.count),
+                "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIDs.count),
                 "agentstudio.performance.pane_view_restore.tab.count": .int(1),
             ]
         )
+    }
+
+    private func foregroundVisiblePaneIDs(in activeTab: Tab) -> [UUID] {
+        let orderedVisiblePaneIDs = TerminalRestoreScheduler.order(
+            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
+            resolver: visibilityTierResolver
+        )
+        .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
+        .map(\.uuid)
+        let mainPaneIDs = orderedVisiblePaneIDs.filter {
+            store.paneAtom.pane($0)?.parentPaneId == nil
+        }
+        let drawerPaneIDs = orderedVisiblePaneIDs.filter {
+            store.paneAtom.pane($0)?.parentPaneId != nil
+        }
+        return mainPaneIDs + drawerPaneIDs
     }
 
     private func restoreMissingVisibleViews(

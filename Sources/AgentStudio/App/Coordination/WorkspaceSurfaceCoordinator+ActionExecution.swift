@@ -273,11 +273,16 @@ extension WorkspaceSurfaceCoordinator {
             store.tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
 
         case .resizeVisiblePanePair(let tabId, let leftPaneId, let rightPaneId, let ratio):
+            let canonicalPaneIds = store.tabLayoutAtom.tab(tabId)?.activeArrangement.layout.paneIds ?? []
+            let residencyExcludedPaneIds = Set(canonicalPaneIds).subtracting(
+                store.paneAtom.activeResidencyPaneIds(in: canonicalPaneIds)
+            )
             store.tabLayoutAtom.resizeVisiblePanePair(
                 tabId: tabId,
                 leftPaneId: leftPaneId,
                 rightPaneId: rightPaneId,
-                ratio: ratio
+                ratio: ratio,
+                residencyExcludedPaneIds: residencyExcludedPaneIds
             )
 
         case .equalizePanes(let tabId):
@@ -379,7 +384,7 @@ extension WorkspaceSurfaceCoordinator {
         case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
             let layoutDirection = bridgeDirection(direction)
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-            store.mutationCoordinator.reactivatePane(
+            let didReactivate = store.mutationCoordinator.reactivatePane(
                 paneId,
                 inTab: targetTabId,
                 at: targetPaneId,
@@ -387,16 +392,14 @@ extension WorkspaceSurfaceCoordinator {
                 position: position,
                 sizingMode: .halveTarget
             )
-            viewRegistry.ensureSlot(for: paneId)
-            if viewRegistry.view(for: paneId) == nil, let pane = store.paneAtom.pane(paneId) {
-                ensureTerminalPaneView(pane)
-            }
+            guard didReactivate else { break }
+            restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .purgeOrphanedPane(let paneId):
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             retireZoomCompanion(forSourcePane: paneId)
             teardownView(for: paneId, surfaceDisposition: .permanent(.explicitRemoval))
-            store.paneAtom.purgeOrphanedPane(paneId)
+            _ = store.mutationCoordinator.removePane(paneId)
             viewRegistry.retireSlot(for: paneId)
 
         case .enterDrawer,
@@ -532,13 +535,19 @@ extension WorkspaceSurfaceCoordinator {
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
-            if let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded,
-                let activeDrawerPaneId =
-                    arrangementView.drawerView(forParent: paneId)?.activeChildId
-                    ?? drawer.paneIds.first
+            guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
+                focusVisiblePaneHost(paneId)
+                break
+            }
+            let visibleDrawerPaneIds = arrangementView.drawerVisiblePaneIds(forParent: paneId)
+            for drawerPaneId in visibleDrawerPaneIds {
+                reattachForViewSwitch(paneId: drawerPaneId)
+            }
+            if let activeDrawerPaneId =
+                arrangementView.drawerView(forParent: paneId)?.activeChildId
+                ?? visibleDrawerPaneIds.first
+                ?? drawer.paneIds.first
             {
-                reattachForViewSwitch(paneId: activeDrawerPaneId)
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else {
                 focusVisiblePaneHost(paneId)

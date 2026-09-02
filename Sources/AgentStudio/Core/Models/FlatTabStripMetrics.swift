@@ -2,6 +2,11 @@ import CoreGraphics
 import Foundation
 
 package struct FlatTabStripMetrics {
+    package enum AdjacentResizeTargeting {
+        case canonicalDivider
+        case renderedPanePair
+    }
+
     package struct PaneSegment: Hashable {
         package let paneId: UUID
         package let frame: CGRect
@@ -35,7 +40,8 @@ package struct FlatTabStripMetrics {
         in bounds: CGRect,
         dividerThickness: CGFloat,
         minimizedPaneIds: Set<UUID>,
-        collapsedPaneWidth: CGFloat
+        collapsedPaneWidth: CGFloat,
+        adjacentResizeTargeting: AdjacentResizeTargeting = .canonicalDivider
     ) -> Self {
         guard !layout.panes.isEmpty, !bounds.isEmpty else {
             return Self(paneSegments: [], dividerSegments: [], allMinimized: false)
@@ -111,7 +117,8 @@ package struct FlatTabStripMetrics {
             let resizeIntent = resizeIntent(
                 layout: layout,
                 dividerIndex: index,
-                minimizedPaneIds: minimizedPaneIds
+                minimizedPaneIds: minimizedPaneIds,
+                adjacentResizeTargeting: adjacentResizeTargeting
             )
             let resizeWidths = resizeWidths(
                 intent: resizeIntent,
@@ -185,7 +192,8 @@ package struct FlatTabStripMetrics {
     private static func resizeIntent(
         layout: Layout,
         dividerIndex: Int,
-        minimizedPaneIds: Set<UUID>
+        minimizedPaneIds: Set<UUID>,
+        adjacentResizeTargeting: AdjacentResizeTargeting
     ) -> DividerSegment.ResizeIntent {
         guard
             let pair = PaneResizeVisibilityResolver.pairAroundDivider(
@@ -198,7 +206,12 @@ package struct FlatTabStripMetrics {
         let leftPaneId = layout.panes[dividerIndex].paneId
         let rightPaneId = layout.panes[dividerIndex + 1].paneId
         if pair.leftPaneId == leftPaneId, pair.rightPaneId == rightPaneId {
-            return .structural(splitId: layout.dividerIds[dividerIndex])
+            switch adjacentResizeTargeting {
+            case .canonicalDivider:
+                return .structural(splitId: layout.dividerIds[dividerIndex])
+            case .renderedPanePair:
+                return .visiblePanePair(leftPaneId: leftPaneId, rightPaneId: rightPaneId)
+            }
         }
         return .visiblePanePair(leftPaneId: pair.leftPaneId, rightPaneId: pair.rightPaneId)
     }
