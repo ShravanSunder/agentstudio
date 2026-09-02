@@ -718,6 +718,91 @@ first-pane failures, not excluded frontend setup. A command-only clock that
 begins after React and the communication worker are ready would hide the pane,
 page, module, handshake, and worker delay that the reviewer experiences.
 
+### Review demand roles reach native admission through the existing subscription
+
+The Review communication-worker scheduler is the sole owner of current
+selected, visible, nearby, speculative, and background membership. React sends
+selection, viewport, and hover facts; it does not derive or publish another
+role map. Every ledger path that changes active membership—including internal
+release, rejection, retry, publication settlement, and refill—projects its
+complete current-intent, current-generation active set into one atomic
+replacement of the existing Review metadata subscription interests. The set
+contains at most the existing twelve logical positions:
+
+```text
+current
+  React selection / viewport / hover
+    → communication-worker highest-role reducer              [preserved]
+    → Review 3-reserved + 9-dynamic ledger                   [preserved]
+    → content preparation and native open                    [preserved]
+    → native demand authority sees no committed role
+        and classifies the request as unspecified            [gap]
+
+target
+  React selection / viewport / hover
+    → communication-worker highest-role reducer              [preserved]
+    → Review 3-reserved + 9-dynamic ledger                   [preserved]
+    → final current-intent active snapshot for every refill  [added]
+    → existing product controller replaces Review interests [added]
+    → existing subscription.update commits the snapshot      [added]
+    → scheduler records newest authority-scoped promise      [added]
+    → pre-native open loops until newest promise settles     [changed]
+    → native demand authority classifies the same role       [changed]
+    → existing Git/content/render path                       [preserved]
+
+  result: existing typed content result or existing Review metadata failure
+  evidence: communication-worker demand scheduler and product controller;
+            native BridgePaneProductContentDemandAuthority
+```
+
+The projection maps `selected` to the existing `foreground` subscription lane,
+`visible` to `visible`, `nearby` to `nearby`, `speculative` to `speculative`,
+and `background` to `idle`. It sends active logical positions rather than the
+complete background catalog, so the subscription interest ceiling cannot
+truncate later traversal and native receives only roles for work that may open
+content now.
+
+The Review ledger invokes one scheduling-owned active-membership callback after
+every reconciliation, including reconciliations it initiates internally while
+settling an attempt. The callback excludes lifecycle-retained published records
+whose `intentCurrent` is false. Those records remain only so exact render
+receipts release their original positions; they cannot become interests under
+a replacement source or subscription authority.
+
+The product controller replaces all projected lanes before issuing one
+subscription update. Its existing desired-signature equality gate suppresses
+equal snapshots, and its existing serialized interest-update promise preserves
+update order. The scheduler stores the newest promise for the current Review
+subscription authority. Before calling the existing synchronous content-open
+entry, a not-yet-native request reads and awaits that promise, then rereads it;
+it may proceed only when the settled promise remains newest. A pre-native role
+change or refill therefore advances the barrier. A later change after the
+request reaches native updates later admission truth but does not cancel,
+restart, or duplicate the started response.
+
+An interest-update rejection terminalizes that subscription authority's
+barrier. Waiting opens fail without proceeding as `unspecified`, queued updates
+cannot continue on that subscription, and the product controller uses the
+existing Review subscription cancel/reopen lifecycle to create a new authority
+with an empty interest map. The scheduler recomputes and publishes a fresh
+current-intent snapshot after replacement metadata is admitted. Existing
+Review failure presentation may retain the last usable display while recovery
+continues. Pane close uses the existing subscription and content
+cancellation/drain lifecycle.
+
+The existing `metadataInterestUpdate` command remains supported only as a
+request to publish and await the scheduler's current authoritative snapshot.
+Its caller-supplied lane and item membership is validated at ingress but does
+not mutate production interest state. The deleted React interest runtime is
+not restored and worker-derived membership does not loop through Main.
+
+No new protocol, route, port, queue, scheduler, cache, store, atom,
+coordinator, timeout, or compatibility path is introduced. The barrier is one
+promise slot and authority identity inside the existing scheduler; the active
+snapshot callback extends the existing Review ledger. The later
+carrier-specific capacity decision also remains: packaged/custom-scheme
+transport uses twelve physical responses and Vite HTTP uses four.
+
 ### Complete first-pane and mode-switch measurement
 
 The accepted design uses one user-perceived clock with carrier-specific start
@@ -1108,6 +1193,10 @@ replacement for both associations.
 | File/Review protocol registration mismatch | fixture/contract validation fails before application | hard-cut build is invalid; no compatibility fallback |
 | File interest arrives before source acceptance | coordinator retains the existing deferred-update ID while the product session owns the latest committed snapshot | successful current `sourceAccepted` enqueue reads and applies the latest snapshot exactly once; no interest is lost |
 | File interest arrives after source acceptance during tree bootstrap | registration admits overlap; File source accepts the newest interest but resolves only paths already present in the current source manifest | admitted paths publish normally; not-yet-admitted paths remain unresolved until a later window re-runs current interest |
+| Review active-role interest update fails before content open | authority-scoped latest-commit promise rejects; waiting opens and later queued updates cannot use that subscription | existing Review subscription cancellation/reopen creates a new authority with empty interests; scheduler recomputes a fresh snapshot; retained display may remain, but no open proceeds as unspecified |
+| Review role changes before content reaches native | ledger publishes a newer complete current-intent snapshot and advances the scheduler's promise barrier | waiting open loops through the newer promise and opens once with the newest committed role |
+| Review role changes after content reached native | worker updates the next active interest snapshot without retiring the current logical record or response | the started response settles normally; later opens use the newest committed role |
+| Review worker/source replacement retains old published records | ledger marks old records noncurrent but retains their exact receipt/position ownership | active-interest projection excludes them; new subscription opens empty and receives only freshly recomputed current-intent membership; old receipts still settle exactly |
 | source/reset/cancellation races overlapping File interest | existing product, foreground, source, subscription, generation, and manifest guards reject obsolete work | current source bootstrap or replacement remains the sole recovery owner |
 | pane/worker/source closes | existing cancellation and revocation fences retire producer, assembler, demand, and content attempts | fresh session bootstrap only |
 
@@ -1139,6 +1228,13 @@ Ordering and atomicity rules:
   `afterSourceAcceptance` admission; the session-owned latest interest,
   coordinator interest-ready/deferred markers, manifest membership, and
   existing authority fences form the consistency boundary;
+- the Review ledger's current-intent active snapshot is the only role
+  projection into native admission; every reconciliation and internal refill
+  advances one authority-scoped latest-commit promise, each pre-native open
+  loops until the newest promise settles, and already-started responses survive
+  later role changes;
+- lifecycle-retained old-generation published records remain exact receipt and
+  position owners but are excluded from new-authority subscription interests;
 - exact command receipts may overlay presentation before either swap;
 - a surface holds at most one active and one candidate catalog, one rich query
   per existing controller policy, and one newest coalesced invalidation state.
@@ -1307,7 +1403,7 @@ the development-browser proof.
 | --- | --- | --- |
 | MAP-R1, R2, R3 | generic raw envelope; static typed registries owning surface/source lifecycle, option/open and interest/delta transforms, schemas, and generation reader; preserved generic batching/barrier/transport state machine | fixture application plus schema/type and native/worker subscription integration |
 | MAP-R4, R5 | generic full-frame-measured writer, multi-waiter observation high-water, precedence-aware capacity-bounded candidate assembler, authority-bound active/stale catalog, bounded worker-to-main hidden staging | packing, concurrent observation, aggregate-capacity, and transfer state-machine tests including late superseded frames, replay rejection, reset, failure, and main-bank commit |
-| MAP-R6 | File/Review registrations wrap existing contracts and feed existing applicators; the File registration alone admits interest after successful current `sourceAccepted` enqueue, with the product session retaining newest pre-acceptance interest and current manifest membership preserving source truth | existing regression suites, wire/application parity fixtures, and deterministic pre-acceptance, member-admission, bootstrap-overlap, replacement, reset, cancellation, and foreground-revocation tests |
+| MAP-R6 | File/Review registrations wrap existing contracts and feed existing applicators; the File registration alone admits interest after successful current `sourceAccepted` enqueue, with the product session retaining newest pre-acceptance interest and current manifest membership preserving source truth; the worker-owned Review reducer projects current-intent active demand through one existing subscription-interest replacement, and an authority-scoped latest-commit promise gates every pre-native open without a React-owned duplicate | existing regression suites, wire/application parity fixtures, deterministic File pre-acceptance/member/bootstrap/replacement tests, and Review worker-runtime proof for every refill, five-role projection, equality suppression, newest-update-before-open ordering, stale-command non-mutation, pre/post-native role changes, rejected-update retirement/reopen, stale-publication exclusion, and exact old-receipt settlement |
 | MAP-R7, R8 | service-generation-fenced lightweight SQLite catalog rows, common annotation authority, relationship applicator, existing store catalog/control/content banks | real repository, worker, store, recovery/session-selection, and browser catalog-only tests |
 | MAP-R9, R10 | existing control/rich projection demand, session-change revision coalescing, and discovery/recovery control invalidation | empty-demand control selection, demanded/undemanded rich content, control refresh, and equal/older/newer revision integration |
 | MAP-R11 | repository committed-change classification, full replacement, old/new reassociation publication, catalog/demand reconciliation | topology/reassociation races and restart proof |
