@@ -29,6 +29,89 @@ struct BridgePackagedCompleteJourneyScriptTests {
             #expect(output.contains("exactly 3 independent LaunchServices launches"))
             #expect(output.contains("100 attempts per journey by default"))
         }
+        #expect(
+            cohort.stdout.contains(
+                "complete journey cohort mode materializes the pinned real Agent Studio fixture repository"
+            )
+        )
+        #expect(
+            cohort.stdout.contains(
+                "verifies exact fixture base and head commit identities before launch"
+            )
+        )
+        #expect(
+            cohort.stdout.contains(
+                "never falls back to the synthetic fixture"
+            )
+        )
+    }
+
+    @Test("complete journey binds the pinned real repository before any timed launch")
+    func completeJourneyBindsPinnedRealRepositoryBeforeLaunch() throws {
+        let runner = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+        let verifier = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        for requiredRunnerToken in [
+            "FIXTURE_REPOSITORY_URL",
+            "FIXTURE_BASE_REF",
+            "FIXTURE_BASE_SHA",
+            "FIXTURE_HEAD_REF",
+            "FIXTURE_HEAD_SHA",
+            "pinned-real-worktree",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_BASE_SHA",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_HEAD_SHA",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_FILE_COUNT",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_DIFF_HUNK_COUNT",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_CHANGED_CONTENT_LINE_COUNT",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_CHANGED_CONTENT_BYTE_COUNT",
+        ] {
+            #expect(runner.contains(requiredRunnerToken), "missing \(requiredRunnerToken)")
+        }
+
+        #expect(
+            runner.contains(
+                "https://github.com/askluna/fork-for-fixture-agentstudio.git"
+            )
+        )
+        #expect(
+            runner.contains("246c9a81c256ded9431620ae9c8cd99f4a27622d")
+        )
+        #expect(
+            runner.contains("40441ec0ad71c48bdc9d8611c2308ed788f65216")
+        )
+        #expect(verifier.contains("AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_IDENTITY"))
+        #expect(verifier.contains("pinned-real-worktree"))
+    }
+
+    @Test("whole-fixture digest preserves pinned Git submodule entries")
+    func wholeFixtureDigestPreservesGitlinks() throws {
+        for scriptPath in [
+            "scripts/run-bridge-packaged-product-journey.sh",
+            "scripts/verify-bridge-packaged-product-journey.sh",
+        ] {
+            let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            #expect(source.contains(#"ls-files -s -z"#))
+            #expect(source.contains(#"if [ "$index_mode" = 160000 ]; then"#))
+            #expect(source.contains(#"content_oid="$index_oid""#))
+        }
+    }
+
+    @Test("Review fixture counts preserve the product's uncollapsed rename items")
+    func reviewFixtureCountsDoNotCollapseRenames() throws {
+        for scriptPath in [
+            "scripts/run-bridge-packaged-product-journey.sh",
+            "scripts/verify-bridge-packaged-product-journey.sh",
+        ] {
+            let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            #expect(source.contains(#""diff", "--no-renames", "--name-only", "-z""#))
+            #expect(source.contains(#"diff --no-renames --name-only"#))
+        }
     }
 
     @Test("runner isolates three launches and terminates only each recorded exact PID")

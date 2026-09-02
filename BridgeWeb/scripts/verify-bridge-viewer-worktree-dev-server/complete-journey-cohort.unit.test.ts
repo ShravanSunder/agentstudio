@@ -152,7 +152,7 @@ function makeNativeLaunchEvidence(
 ): BridgeCompleteJourneyLaunchEvidence {
 	return {
 		cacheState: 'fresh-isolated-app-data' as const,
-		fixtureIdentity: 'packaged-disposable-worktree' as const,
+		fixtureIdentity: 'pinned-real-worktree' as const,
 		sourceHead: 'a'.repeat(40),
 		telemetryMarker: `marker-${launchId}`,
 		telemetryServiceVersion: 'packaged-debug',

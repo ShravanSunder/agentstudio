@@ -160,7 +160,7 @@ export function reduceBridgeCompleteJourneyNativeInput(
 				attempts: launch.receipt.attemptsByJourney[journey].map(normalizeAttempt),
 				evidence: {
 					cacheState: 'fresh-isolated-app-data',
-					fixtureIdentity: 'packaged-disposable-worktree',
+					fixtureIdentity: 'pinned-real-worktree',
 					sourceHead: input.sourceHead,
 					telemetry: nativeTelemetryEvidence(launch.receipt.telemetryProof),
 					telemetryMarker: launch.telemetryMarker,

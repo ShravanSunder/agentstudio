@@ -34,7 +34,10 @@ export interface BridgeCompleteJourneyLaunch {
 
 export interface BridgeCompleteJourneyLaunchEvidence {
 	readonly cacheState: 'fresh-empty-vite-cache' | 'fresh-isolated-app-data';
-	readonly fixtureIdentity: 'current-worktree' | 'packaged-disposable-worktree';
+	readonly fixtureIdentity:
+		| 'current-worktree'
+		| 'packaged-disposable-worktree'
+		| 'pinned-real-worktree';
 	readonly sourceHead: string;
 	readonly telemetryMarker: string;
 	readonly telemetryServiceVersion: string;
@@ -201,7 +204,9 @@ function validateBridgeCompleteJourneyLaunchEvidence(
 	if (
 		evidence === undefined ||
 		!['fresh-empty-vite-cache', 'fresh-isolated-app-data'].includes(evidence.cacheState) ||
-		!['current-worktree', 'packaged-disposable-worktree'].includes(evidence.fixtureIdentity) ||
+		!['current-worktree', 'packaged-disposable-worktree', 'pinned-real-worktree'].includes(
+			evidence.fixtureIdentity,
+		) ||
 		!/^[0-9a-f]{40}$/u.test(evidence.sourceHead) ||
 		evidence.telemetryMarker.length === 0 ||
 		evidence.telemetryServiceVersion.length === 0 ||
