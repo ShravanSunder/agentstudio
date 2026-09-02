@@ -20,10 +20,6 @@ struct BridgeDevelopmentServerConfiguration: Sendable {
         )
     }
 
-    var reviewSharedContentRootURL: URL {
-        dataRoot.appending(path: "bridge-review-content", directoryHint: .isDirectory)
-    }
-
     init(
         dataRoot: URL,
         paneID: UUID,

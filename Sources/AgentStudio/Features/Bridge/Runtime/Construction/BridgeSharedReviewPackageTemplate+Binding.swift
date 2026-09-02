@@ -47,7 +47,7 @@ extension BridgeSharedReviewPackageTemplate {
                 additions: package.summary.additions,
                 deletions: package.summary.deletions
             ),
-            retainedByteCount: retainedMetadataByteCount + backing.capturedByteCount,
+            retainedByteCount: retainedMetadataByteCount + backing.retainedByteCount,
             itemTemplates: templates,
             backing: backing
         )

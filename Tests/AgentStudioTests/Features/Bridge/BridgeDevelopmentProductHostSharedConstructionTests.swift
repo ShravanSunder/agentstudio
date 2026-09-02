@@ -743,15 +743,9 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         _ = handles
         _ = freshnessKey
         sharedCaptureCount += 1
-        let directoryURL = FileManager.default.temporaryDirectory.appending(
-            path: "bridge-development-shared-review-\(UUIDv7.generate().uuidString)"
-        )
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         return BridgeSharedReviewContentBacking(
             artifactIdentity: UUIDv7.generate(),
-            directoryURL: directoryURL,
-            sourceByIdentity: [:],
-            capturedByteCount: 0
+            sourceByIdentity: [:]
         )
     }
 

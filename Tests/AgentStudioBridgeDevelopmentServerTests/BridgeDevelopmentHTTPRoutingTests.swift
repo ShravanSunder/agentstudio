@@ -171,8 +171,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
     }
 
     @MainActor
-    @Test("first Review bootstrap stores shared content under the isolated data root")
-    func firstReviewBootstrapUsesIsolatedSharedContentRoot() async throws {
+    @Test("first Review bootstrap does not create eager shared content files")
+    func firstReviewBootstrapDoesNotCreateEagerSharedContentFiles() async throws {
         // Arrange
         let repositoryURL = try FilesystemTestGitRepo.create(
             named: "bridge-development-http-review-bootstrap"
@@ -208,16 +208,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
                 }
             }
 
-            let sharedContentRoot = dataRoot.appending(
-                path: "bridge-review-content",
-                directoryHint: .isDirectory
-            )
-            let capturedArtifactURLs = try FileManager.default.contentsOfDirectory(
-                at: sharedContentRoot,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-            #expect(!capturedArtifactURLs.isEmpty)
+            let sharedContentRoot = dataRoot.appending(path: "bridge-review-content")
+            #expect(!FileManager.default.fileExists(atPath: sharedContentRoot.path))
         }
     }
 
@@ -427,7 +419,6 @@ private func makeHTTPDevelopmentServerHarness(
         source: composition.productSource,
         worktreeAnnotationStore: composition.worktreeAnnotationStore,
         worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
-        reviewSharedContentRootURL: configuration.reviewSharedContentRootURL,
         contributionTargetCommit: { target in
             composition.applyContributionTarget(target)
         }

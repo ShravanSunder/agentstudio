@@ -69,30 +69,6 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
-        reviewSharedContentRootURL: URL,
-        contributionTargetCommit:
-            @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
-            BridgePaneStateMutationResult
-    ) async throws {
-        try await self.init(
-            source: source,
-            worktreeAnnotationStore: worktreeAnnotationStore,
-            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
-            contributionTargetCommit: contributionTargetCommit,
-            makeReviewProvider: { repositoryPath, gitReadContext in
-                BridgeReviewSourceProviderFactory.gitProvider(
-                    repositoryPath: repositoryPath,
-                    gitReadContext: gitReadContext,
-                    sharedContentRootURL: reviewSharedContentRootURL
-                )
-            }
-        )
-    }
-
-    package init(
-        source: BridgeDevelopmentProductSource,
-        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
-        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,

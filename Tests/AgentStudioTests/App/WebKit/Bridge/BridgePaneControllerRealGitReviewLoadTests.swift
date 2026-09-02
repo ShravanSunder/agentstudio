@@ -30,7 +30,6 @@ extension WebKitSerializedTests {
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
-                harness.removeSharedContentRoot()
             }
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let metadataEventsTask = Task { @MainActor in
@@ -111,7 +110,6 @@ extension WebKitSerializedTests {
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
-            #expect(harness.sharedContentBackingChildren().isEmpty)
         }
 
         @Test("a real contribution publishes complete dirty state and excludes target-only movement")
@@ -123,7 +121,6 @@ extension WebKitSerializedTests {
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
-                harness.removeSharedContentRoot()
             }
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let initialEventsTask = Task { @MainActor in
@@ -221,7 +218,6 @@ extension WebKitSerializedTests {
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
-            #expect(harness.sharedContentBackingChildren().isEmpty)
         }
     }
 }
@@ -353,19 +349,15 @@ private struct RealGitReviewLoadHarness {
     let productProvider: BridgePaneProductSchemeProvider
     let reviewDataClient: AgentStudioGitBridgeReviewDataClient<LibGit2AgentStudioGitLocalClient>
     let reviewSourceProvider: BridgeGitReviewSourceProvider
-    let sharedContentRootURL: URL
 
     static func make(repositoryURL: URL) async throws -> Self {
         let paneId = UUIDv7.generate()
         let gitReadContext = makeBridgeGitReadContext(rootURL: repositoryURL)
         let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator()
-        let sharedContentRootURL = FileManager.default.temporaryDirectory
-            .appending(path: "bridge-real-git-review-content-\(UUIDv7.generate().uuidString)")
         let reviewDataClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryURL,
             client: LibGit2AgentStudioGitLocalClient(),
-            gitReadContext: gitReadContext,
-            sharedContentRootURL: sharedContentRootURL
+            gitReadContext: gitReadContext
         )
         let reviewSourceProvider = BridgeGitReviewSourceProvider(client: reviewDataClient)
         let controller = BridgePaneController(
@@ -417,20 +409,8 @@ private struct RealGitReviewLoadHarness {
             productAdmission: productAdmission,
             productProvider: productProvider,
             reviewDataClient: reviewDataClient,
-            reviewSourceProvider: reviewSourceProvider,
-            sharedContentRootURL: sharedContentRootURL
+            reviewSourceProvider: reviewSourceProvider
         )
-    }
-
-    func sharedContentBackingChildren() -> [URL] {
-        (try? FileManager.default.contentsOfDirectory(
-            at: sharedContentRootURL,
-            includingPropertiesForKeys: nil
-        )) ?? []
-    }
-
-    func removeSharedContentRoot() {
-        try? FileManager.default.removeItem(at: sharedContentRootURL)
     }
 
     func openReviewMetadataSubscription() async throws -> BridgeProductProducerLease {

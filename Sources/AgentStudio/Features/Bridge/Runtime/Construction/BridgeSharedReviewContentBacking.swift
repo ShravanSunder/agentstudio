@@ -1,5 +1,4 @@
 import AgentStudioGit
-import CryptoKit
 import Foundation
 
 struct BridgeSharedReviewContentIdentity: Hashable, Sendable {
@@ -8,42 +7,30 @@ struct BridgeSharedReviewContentIdentity: Hashable, Sendable {
     let contentHash: String
 }
 
-struct BridgeSharedReviewCapturedContentDescriptor: Sendable {
-    let fileName: String
-    let byteCount: Int
-    let declaredContentHash: String
-    let declaredContentHashAlgorithm: String
-    let integritySHA256: String
-}
-
-enum BridgeSharedReviewImmutableContentSource: Sendable {
-    case gitObject(
+enum BridgeSharedReviewContentSource: Sendable {
+    case gitTarget(
         target: GitDiffTarget,
         path: String,
         declaredContentHash: String,
         declaredContentHashAlgorithm: String
     )
-    case capturedFile(BridgeSharedReviewCapturedContentDescriptor)
 }
 
 enum BridgeSharedReviewContentBackingError: Error, Equatable, Sendable {
     case invalidated
     case missingLocator
     case digestMismatch
-    case invalidBackingPath
-    case fileReadFailed
-    case fileWriteFailed
 }
 
 final class BridgeSharedReviewContentBacking: @unchecked Sendable {
     final class ReadLease: @unchecked Sendable {
-        let source: BridgeSharedReviewImmutableContentSource
+        let source: BridgeSharedReviewContentSource
         private let backing: BridgeSharedReviewContentBacking
         private let lock = NSLock()
         private var isSettled = false
 
         fileprivate init(
-            source: BridgeSharedReviewImmutableContentSource,
+            source: BridgeSharedReviewContentSource,
             backing: BridgeSharedReviewContentBacking
         ) {
             self.source = source
@@ -62,7 +49,7 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
     }
 
     private struct State {
-        var sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewImmutableContentSource]
+        var sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewContentSource]
         var isAcceptingReads: Bool
         var activeReadCount: Int
         var cleanupTask: Task<Void, Never>?
@@ -72,20 +59,32 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
     }
 
     let artifactIdentity: UUID
-    let directoryURL: URL
-    let capturedByteCount: Int
+    let retainedByteCount: Int
     private let lock = NSLock()
     private var state: State
 
     init(
         artifactIdentity: UUID,
-        directoryURL: URL,
-        sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewImmutableContentSource],
-        capturedByteCount: Int
+        sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewContentSource]
     ) {
         self.artifactIdentity = artifactIdentity
-        self.directoryURL = directoryURL
-        self.capturedByteCount = capturedByteCount
+        retainedByteCount = sourceByIdentity.reduce(0) { partialResult, entry in
+            let identity = entry.key
+            let sourceByteCount: Int
+            switch entry.value {
+            case .gitTarget(_, let path, let declaredContentHash, let declaredContentHashAlgorithm):
+                sourceByteCount =
+                    path.utf8.count
+                    + declaredContentHash.utf8.count
+                    + declaredContentHashAlgorithm.utf8.count
+            }
+            return partialResult
+                + identity.itemIdentity.utf8.count
+                + identity.role.rawValue.utf8.count
+                + identity.contentHash.utf8.count
+                + sourceByteCount
+                + 96
+        }
         state = State(
             sourceByIdentity: sourceByIdentity,
             isAcceptingReads: true,
@@ -107,7 +106,7 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
 
     func source(
         for identity: BridgeSharedReviewContentIdentity
-    ) throws -> BridgeSharedReviewImmutableContentSource {
+    ) throws -> BridgeSharedReviewContentSource {
         try lock.withLock {
             guard state.isAcceptingReads else {
                 throw BridgeSharedReviewContentBackingError.invalidated
@@ -169,12 +168,6 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
         }
     }
 
-    static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data)
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
-
     private func settleRead() {
         lock.withLock {
             precondition(state.activeReadCount > 0)
@@ -187,7 +180,6 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
 
     private func scheduleCleanupLocked() {
         guard state.cleanupTask == nil else { return }
-        let directoryURL = self.directoryURL
         let uninstallOperations = state.uninstallOperations
         state.uninstallOperations.removeAll(keepingCapacity: false)
         // Cleanup must not run on the construction coordinator actor.
@@ -196,7 +188,6 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
             for uninstallOperation in uninstallOperations {
                 await uninstallOperation()
             }
-            try? FileManager.default.removeItem(at: directoryURL)
             completeCleanup()
         }
     }

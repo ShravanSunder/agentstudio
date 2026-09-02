@@ -6,8 +6,8 @@ import Testing
 
 @Suite("Bridge prepared contribution shared construction")
 struct BridgePreparedContributionSharedConstructionTests {
-    @Test("content-only contribution capture constructs a fresh immutable artifact")
-    func contentOnlyContributionCaptureConstructsFreshImmutableArtifact() async throws {
+    @Test("content-only contribution capture advances metadata and retains demanded content")
+    func contentOnlyContributionCaptureAdvancesMetadataAndRetainsDemandedContent() async throws {
         let predecessorContent = "head-a"
         let successorContent = "head-b"
         let fixture = try BridgeSharedReviewConstructionFixture.make(
@@ -26,6 +26,12 @@ struct BridgePreparedContributionSharedConstructionTests {
         let predecessor = try await fixture.firstBinder.acquire(predecessorRequest)
         let predecessorItem = try #require(predecessor.result.package.itemsById.values.first)
         let predecessorHandle = try #require(predecessorItem.contentRoles.head)
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let cache = BridgeReviewContentLoaderCache(provider: fixture.firstProvider)
+        let demandedPredecessor = try await cache.load(
+            handle: predecessorHandle,
+            productAdmission: productAdmission.context
+        )
 
         await fixture.gitClient.replaceContributionDiffSnapshot(
             contributionSnapshot(
@@ -47,11 +53,13 @@ struct BridgePreparedContributionSharedConstructionTests {
         let successor = try await fixture.firstBinder.acquire(successorRequest)
         let successorItem = try #require(successor.result.package.itemsById.values.first)
         let successorHandle = try #require(successorItem.contentRoles.head)
-        let loadedPredecessor = try await fixture.firstProvider.loadContent(
-            BridgeContentLoadRequest(handle: predecessorHandle, requestedGeneration: 1)
+        let loadedPredecessor = try await cache.load(
+            handle: predecessorHandle,
+            productAdmission: productAdmission.context
         )
-        let loadedSuccessor = try await fixture.firstProvider.loadContent(
-            BridgeContentLoadRequest(handle: successorHandle, requestedGeneration: 2)
+        let loadedSuccessor = try await cache.load(
+            handle: successorHandle,
+            productAdmission: productAdmission.context
         )
 
         #expect(
@@ -60,16 +68,19 @@ struct BridgePreparedContributionSharedConstructionTests {
         )
         #expect(predecessorItem.headContentHash == gitBlobSHA1ContentHash(predecessorContent))
         #expect(successorItem.headContentHash == gitBlobSHA1ContentHash(successorContent))
+        #expect(demandedPredecessor.data == Data(predecessorContent.utf8))
         #expect(loadedPredecessor.data == Data(predecessorContent.utf8))
         #expect(loadedSuccessor.data == Data(successorContent.utf8))
 
+        await cache.closeAndDrain()
+        productAdmission.close()
         await successor.artifactPin.releaseAndWait()
         await predecessor.artifactPin.releaseAndWait()
         await assertPreparedContributionConstructionDrained(fixture)
     }
 
-    @Test("membership and path-side contribution capture constructs a fresh immutable artifact")
-    func membershipAndPathSideContributionCaptureConstructsFreshImmutableArtifact() async throws {
+    @Test("membership and path-side contribution capture constructs fresh shared metadata")
+    func membershipAndPathSideContributionCaptureConstructsFreshSharedMetadata() async throws {
         let predecessorPath = "Sources/App.swift"
         let successorPath = "Sources/New.swift"
         let predecessorContent = "head-a"
@@ -176,7 +187,6 @@ private func assertPreparedContributionConstructionDrained(
     _ fixture: BridgeSharedReviewConstructionFixture
 ) async {
     await fixture.waitUntilConstructionEntryIsRemoved()
-    await fixture.waitUntilBackingDirectoryIsEmpty()
     let snapshot = await fixture.coordinator.snapshot()
     #expect(snapshot.entryCount == 0)
     #expect(snapshot.leaseCount == 0)

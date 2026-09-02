@@ -16,7 +16,6 @@ enum AgentStudioBridgeDevelopmentServerMain {
                 worktreeAnnotationStore: coreComposition.worktreeAnnotationStore,
                 worktreeAnnotationOutputCoordinator:
                     coreComposition.worktreeAnnotationOutputCoordinator,
-                reviewSharedContentRootURL: configuration.reviewSharedContentRootURL,
                 contributionTargetCommit: { target in
                     coreComposition.applyContributionTarget(target)
                 }
