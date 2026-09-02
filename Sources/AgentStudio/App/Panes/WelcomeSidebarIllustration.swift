@@ -149,11 +149,7 @@ struct WelcomeSidebarIllustration: View {
                     iconColor: ghosttyColor,
                     branchStatus: ghosttyMainStatus,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -166,11 +162,7 @@ struct WelcomeSidebarIllustration: View {
                     iconColor: ghosttyColor,
                     branchStatus: gpuRendererStatus,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -183,11 +175,7 @@ struct WelcomeSidebarIllustration: View {
                     iconColor: ghosttyColor,
                     branchStatus: fixKeybindsStatus,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }
@@ -215,11 +203,7 @@ struct WelcomeSidebarIllustration: View {
                     iconColor: uvColor,
                     branchStatus: uvMainStatus,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -232,11 +216,7 @@ struct WelcomeSidebarIllustration: View {
                     iconColor: uvColor,
                     branchStatus: fixResolverStatus,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }

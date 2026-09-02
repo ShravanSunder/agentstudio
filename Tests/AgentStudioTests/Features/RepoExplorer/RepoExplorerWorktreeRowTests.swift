@@ -447,62 +447,71 @@ struct RepoExplorerWorktreeRowTests {
 
     @Test("favorite visibility policy guards inline and context-menu actions")
     func favoriteVisibilityPolicyGuardsEveryAction() throws {
-        let source = try String(
+        let rowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
+        let menuSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
+            encoding: .utf8
+        )
 
-        #expect(source.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
-        #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
-        #expect(source.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
-        #expect(!source.contains(".help(favoriteActionSpec.helpText)"))
+        #expect(rowSource.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
+        #expect(menuSource.contains("showsFavoriteControl: favoriteControlVisibility.showsContextMenuAction"))
+        #expect(rowSource.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
+        #expect(!rowSource.contains(".help(favoriteActionSpec.helpText)"))
     }
 
     @Test("context menu exposes creation destinations at the top level")
     func contextMenuGroupsCreationActionsByDestination() throws {
         let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("LocalActionSpec.createNewInPane.actionSpec"))
-        #expect(source.contains("LocalActionSpec.createNewInTab.actionSpec"))
+        #expect(source.contains("action: .createNewInPane"))
+        #expect(source.contains("action: .createNewInTab"))
         #expect(!source.contains("LocalActionSpec.createNew.actionSpec"))
         #expect(!source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
         #expect(!source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.goToPane.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openNewTerminalInTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
         #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
         #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
         #expect(!source.contains("contextMenuCommand(.openWorktree)"))
-        let createNewInPaneOffset = try #require(
-            source.range(of: "LocalActionSpec.createNewInPane.actionSpec")?.lowerBound
-        )
-        let createNewInTabOffset = try #require(
-            source.range(of: "LocalActionSpec.createNewInTab.actionSpec")?.lowerBound
-        )
+        let createNewInPaneOffset = try #require(source.range(of: "action: .createNewInPane")?.lowerBound)
+        let createNewInTabOffset = try #require(source.range(of: "action: .createNewInTab")?.lowerBound)
         let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
         #expect(createNewInTabOffset < createNewInPaneOffset)
         #expect(createNewInPaneOffset < goToPaneOffset)
     }
 
+    @Test("materialized SwiftUI rows do not own contextual menu lifetime")
+    func materializedSwiftUIRowsDoNotOwnContextMenus() throws {
+        for path in [
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+        ] {
+            let source = try String(contentsOfFile: path, encoding: .utf8)
+            #expect(!source.contains(".contextMenu {"))
+        }
+    }
+
     @Test("context menu uses shared content labels for both creation destinations")
     func contextMenuUsesSharedContentLabels() throws {
         let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openReviewInNewTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openFilesInNewTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeReview)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeFiles)"))
+        #expect(
+            source.contains(
+                "RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: command.command)"
+            )
+        )
+        #expect(source.contains("?? actionSpec.label"))
     }
 
     @Test("context menu labels use the same content vocabulary in tabs and panes")
@@ -525,25 +534,6 @@ struct RepoExplorerWorktreeRowTests {
         #expect(
             RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .showBridgeFiles) == "Files"
         )
-    }
-
-    @Test("repository header menu contains only pane navigation and path actions")
-    func repositoryHeaderMenuUsesExactAllowedActions() throws {
-        let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
-            encoding: .utf8
-        )
-
-        let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
-        let revealOffset = try #require(source.range(of: "LocalActionSpec.revealInFinder.actionSpec")?.lowerBound)
-        let copyOffset = try #require(source.range(of: "LocalActionSpec.copyPath.actionSpec")?.lowerBound)
-        #expect(goToPaneOffset < revealOffset)
-        #expect(revealOffset < copyOffset)
-        #expect(source.contains("PathActions.revealInFinder(repo.repoPath)"))
-        #expect(source.contains("PathActions.copyPath(repo.repoPath)"))
-        #expect(!source.contains("Refresh Worktrees"))
-        #expect(!source.contains("Remove Repo"))
-        #expect(!source.contains("createNew"))
     }
 
     @Test("pane rows use the shared secondary metadata styling")

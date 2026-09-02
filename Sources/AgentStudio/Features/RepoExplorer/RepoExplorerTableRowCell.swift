@@ -100,18 +100,9 @@ struct RepoExplorerTableRowHostingRoot: View {
 final class RepoExplorerTableRowCell: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("repo-explorer-hosted-row")
 
-    private struct DeferredBinding {
-        let row: RepoExplorerMaterializedRow
-        let visibleGeneration: UInt64
-        let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
-    }
-
     let hostingView: NSHostingView<RepoExplorerTableRowHostingRoot>
     private let slot: RepoExplorerTableRowSlot
     private var reuseSequence: UInt64 = 0
-    private var trackedMenuIdentities: Set<ObjectIdentifier> = []
-    private var deferredBinding: DeferredBinding?
-    private var deferredBindingApplicationTask: Task<Void, Never>?
 
     var currentBindingIdentity: RepoExplorerTableRowBindingIdentity? {
         slot.binding?.identity
@@ -165,17 +156,6 @@ final class RepoExplorerTableRowCell: NSTableCellView {
         {
             return currentBinding.identity
         }
-        if let currentBinding = slot.binding,
-            !trackedMenuIdentities.isEmpty || deferredBindingApplicationTask != nil,
-            currentBinding.identity.rowID == row.id
-        {
-            deferredBinding = DeferredBinding(
-                row: row,
-                visibleGeneration: visibleGeneration,
-                commandPresentationSnapshot: commandPresentationSnapshot
-            )
-            return currentBinding.identity
-        }
         return installBinding(
             row: row,
             visibleGeneration: visibleGeneration,
@@ -220,42 +200,8 @@ final class RepoExplorerTableRowCell: NSTableCellView {
     }
 
     func clearBindingForReuse() {
-        cancelContextMenuTracking()
         slot.clear()
         setAccessibilityLabel(nil)
-    }
-
-    func beginContextMenuTracking(_ menuIdentity: ObjectIdentifier) {
-        guard slot.binding != nil else { return }
-        deferredBindingApplicationTask?.cancel()
-        deferredBindingApplicationTask = nil
-        trackedMenuIdentities.insert(menuIdentity)
-    }
-
-    func endContextMenuTracking(_ menuIdentity: ObjectIdentifier) {
-        guard trackedMenuIdentities.remove(menuIdentity) != nil else { return }
-        guard trackedMenuIdentities.isEmpty, deferredBinding != nil else { return }
-        deferredBindingApplicationTask?.cancel()
-        deferredBindingApplicationTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, !Task.isCancelled, self.trackedMenuIdentities.isEmpty,
-                let deferredBinding = self.deferredBinding
-            else { return }
-            self.deferredBindingApplicationTask = nil
-            self.deferredBinding = nil
-            _ = self.installBinding(
-                row: deferredBinding.row,
-                visibleGeneration: deferredBinding.visibleGeneration,
-                commandPresentationSnapshot: deferredBinding.commandPresentationSnapshot
-            )
-        }
-    }
-
-    func cancelContextMenuTracking() {
-        trackedMenuIdentities.removeAll(keepingCapacity: false)
-        deferredBindingApplicationTask?.cancel()
-        deferredBindingApplicationTask = nil
-        deferredBinding = nil
     }
 
     @discardableResult

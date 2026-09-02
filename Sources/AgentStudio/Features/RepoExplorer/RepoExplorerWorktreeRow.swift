@@ -1,7 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
-import AppKit
 import SwiftUI
 
 package enum RepoExplorerCheckoutIconKind {
@@ -174,16 +173,8 @@ package struct RepoExplorerWorktreeRow: View {
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isFavorite = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
-    var panePresentations: [RepoExplorerPanePresentation] = []
     var onToggleFavorite: () -> Void = {}
     let onOpen: () -> Void
-    let onOpenNew: () -> Void
-    let onReview: () -> Void
-    let onOpenFiles: () -> Void
-    var onOpenReviewInNewTab: () -> Void = {}
-    var onOpenFilesInNewTab: () -> Void = {}
-    let onOpenInPane: () -> Void
-    var onFocusPane: (UUID) -> Void = { _ in }
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
@@ -201,16 +192,8 @@ package struct RepoExplorerWorktreeRow: View {
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isFavorite: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
-        panePresentations: [RepoExplorerPanePresentation] = [],
         onToggleFavorite: @escaping () -> Void = {},
-        onOpen: @escaping () -> Void,
-        onOpenNew: @escaping () -> Void,
-        onReview: @escaping () -> Void,
-        onOpenFiles: @escaping () -> Void,
-        onOpenReviewInNewTab: @escaping () -> Void = {},
-        onOpenFilesInNewTab: @escaping () -> Void = {},
-        onOpenInPane: @escaping () -> Void,
-        onFocusPane: @escaping (UUID) -> Void = { _ in }
+        onOpen: @escaping () -> Void
     ) {
         self.octiconLoader = octiconLoader
         self.worktree = worktree
@@ -224,16 +207,8 @@ package struct RepoExplorerWorktreeRow: View {
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isFavorite = isFavorite
         self.commandPresentation = commandPresentation
-        self.panePresentations = panePresentations
         self.onToggleFavorite = onToggleFavorite
         self.onOpen = onOpen
-        self.onOpenNew = onOpenNew
-        self.onReview = onReview
-        self.onOpenFiles = onOpenFiles
-        self.onOpenReviewInNewTab = onOpenReviewInNewTab
-        self.onOpenFilesInNewTab = onOpenFilesInNewTab
-        self.onOpenInPane = onOpenInPane
-        self.onFocusPane = onFocusPane
     }
 
     package var body: some View {
@@ -264,180 +239,6 @@ package struct RepoExplorerWorktreeRow: View {
         .onTapGesture(count: 2) {
             guard inlineOpenWorktree?.isEnabled == true else { return }
             onOpen()
-        }
-        .contextMenu {
-            if hasNewTabCommands {
-                Menu {
-                    if let openNewTerminal = commandPresentation.contextMenuCommand(.openNewTerminalInTab) {
-                        Button {
-                            onOpenNew()
-                        } label: {
-                            worktreeContextMenuLabel(for: openNewTerminal)
-                        }
-                        .disabled(!openNewTerminal.isEnabled)
-                    }
-
-                    if let openReviewInNewTab =
-                        commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab)
-                    {
-                        Button {
-                            onOpenReviewInNewTab()
-                        } label: {
-                            worktreeContextMenuLabel(for: openReviewInNewTab)
-                        }
-                        .disabled(!openReviewInNewTab.isEnabled)
-                    }
-
-                    if let openFilesInNewTab =
-                        commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab)
-                    {
-                        Button {
-                            onOpenFilesInNewTab()
-                        } label: {
-                            worktreeContextMenuLabel(for: openFilesInNewTab)
-                        }
-                        .disabled(!openFilesInNewTab.isEnabled)
-                    }
-                } label: {
-                    menuLabel(actionSpec: LocalActionSpec.createNewInTab.actionSpec)
-                }
-            }
-
-            if hasCurrentTabCommands {
-                Menu {
-                    if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
-                        Button {
-                            onOpenInPane()
-                        } label: {
-                            worktreeContextMenuLabel(for: openWorktreeInPane)
-                        }
-                        .disabled(!openWorktreeInPane.isEnabled)
-                    }
-
-                    if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
-                        Button {
-                            onReview()
-                        } label: {
-                            worktreeContextMenuLabel(for: showBridgeReview)
-                        }
-                        .disabled(!showBridgeReview.isEnabled)
-                    }
-
-                    if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
-                        Button {
-                            onOpenFiles()
-                        } label: {
-                            worktreeContextMenuLabel(for: showBridgeFiles)
-                        }
-                        .disabled(!showBridgeFiles.isEnabled)
-                    }
-                } label: {
-                    menuLabel(actionSpec: LocalActionSpec.createNewInPane.actionSpec)
-                }
-            }
-
-            if !panePresentations.isEmpty {
-                Menu(LocalActionSpec.goToPane.actionSpec.label) {
-                    RepoExplorerPaneDestinationMenuContent(
-                        presentations: panePresentations,
-                        onFocusPane: onFocusPane
-                    )
-                }
-            }
-
-            Divider()
-
-            if favoriteControlVisibility.showsContextMenuAction,
-                let favoritePresentation = commandPresentation.contextMenuCommand(favoriteCommand)
-            {
-                let favoriteActionSpec = favoritePresentation.commandSpec
-                Button {
-                    onToggleFavorite()
-                } label: {
-                    HStack {
-                        favoriteActionSpec.icon.swiftUIImage(loader: octiconLoader)
-                        Text(favoriteActionSpec.label)
-                    }
-                }
-                .disabled(!favoritePresentation.isEnabled)
-            }
-
-            Menu {
-                Button {
-                    openInCursor()
-                } label: {
-                    menuLabel(actionSpec: LocalActionSpec.openInCursor.actionSpec)
-                }
-
-                Button {
-                    openInVSCode()
-                } label: {
-                    menuLabel(actionSpec: LocalActionSpec.openInVSCode.actionSpec)
-                }
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInEditorMenu.actionSpec)
-            }
-
-            Divider()
-
-            Button {
-                PathActions.revealInFinder(worktree.path)
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.revealInFinder.actionSpec)
-            }
-
-            Button {
-                PathActions.copyPath(worktree.path)
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
-            }
-        }
-    }
-
-    private var hasCurrentTabCommands: Bool {
-        commandPresentation.contextMenuCommand(.openWorktreeInPane) != nil
-            || commandPresentation.contextMenuCommand(.showBridgeReview) != nil
-            || commandPresentation.contextMenuCommand(.showBridgeFiles) != nil
-    }
-
-    private var hasNewTabCommands: Bool {
-        commandPresentation.contextMenuCommand(.openNewTerminalInTab) != nil
-            || commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab) != nil
-            || commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab) != nil
-    }
-
-    private func openInCursor() {
-        ExternalWorkspaceOpener.openInCursor(worktree.path)
-    }
-
-    private func openInVSCode() {
-        ExternalWorkspaceOpener.openInVSCode(worktree.path)
-    }
-
-    @ViewBuilder
-    private func worktreeContextMenuLabel(for command: RepoExplorerPresentedCommand) -> some View {
-        menuLabel(
-            actionSpec: command.commandSpec.actionSpec,
-            labelOverride: RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: command.command)
-        )
-    }
-
-    @ViewBuilder
-    private func menuLabel(actionSpec: ActionSpec, labelOverride: String? = nil) -> some View {
-        let label = labelOverride ?? actionSpec.label
-        switch actionSpec.icon {
-        case .system(let systemSymbol):
-            Label(label, systemImage: systemSymbol.rawValue)
-        case .octicon(let octiconSymbol):
-            if let image = octiconLoader.image(named: octiconSymbol.rawValue) {
-                Label {
-                    Text(label)
-                } icon: {
-                    Image(nsImage: image)
-                }
-            } else {
-                Label(label, systemImage: "questionmark.square.dashed")
-            }
         }
     }
 }

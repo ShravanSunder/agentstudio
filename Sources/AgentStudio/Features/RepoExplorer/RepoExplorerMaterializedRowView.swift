@@ -77,26 +77,6 @@ struct RepoExplorerMaterializedRowView: View {
             )
             .padding(.top, AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding)
             .padding(.bottom, AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding)
-            .contextMenu {
-                if !group.paneDestinations.isEmpty {
-                    Menu(LocalActionSpec.goToPane.actionSpec.label) {
-                        RepoExplorerPaneDestinationMenuContent(
-                            presentations: group.paneDestinations.map {
-                                RepoExplorerPanePresentation(destination: $0, label: $0.label)
-                            },
-                            onFocusPane: onFocusPane
-                        )
-                    }
-                }
-                if let path = group.semanticRepoPath {
-                    Button(LocalActionSpec.revealInFinder.actionSpec.label) {
-                        PathActions.revealInFinder(path)
-                    }
-                    Button(LocalActionSpec.copyPath.actionSpec.label) {
-                        PathActions.copyPath(path)
-                    }
-                }
-            }
         case .worktree(let worktree):
             let isFavorite =
                 commandPresentationSnapshot.favoriteStateByRepositoryID[
@@ -125,36 +105,14 @@ struct RepoExplorerMaterializedRowView: View {
                 bridgeCommandResolution: worktree.bridgeCommandResolution,
                 isFavorite: isFavorite,
                 commandPresentation: commandPresentation,
-                panePresentations: worktree.paneDestinations.map {
-                    RepoExplorerPanePresentation(destination: $0, label: $0.label)
-                },
                 onToggleFavorite: {
                     dispatch(
                         isFavorite ? .removeRepoFavorite : .addRepoFavorite,
-                        surface: .inlineControl,
                         from: commandPresentation
                     )
                 },
                 onOpen: {
-                    dispatch(.openWorktree, surface: .inlineControl, from: commandPresentation)
-                },
-                onOpenNew: {
-                    dispatch(.openNewTerminalInTab, surface: .contextMenu, from: commandPresentation)
-                },
-                onReview: {
-                    dispatch(.showBridgeReview, surface: .contextMenu, from: commandPresentation)
-                },
-                onOpenFiles: {
-                    dispatch(.showBridgeFiles, surface: .contextMenu, from: commandPresentation)
-                },
-                onOpenReviewInNewTab: {
-                    dispatch(.openBridgeReviewInNewTab, surface: .contextMenu, from: commandPresentation)
-                },
-                onOpenFilesInNewTab: {
-                    dispatch(.openBridgeFilesInNewTab, surface: .contextMenu, from: commandPresentation)
-                },
-                onOpenInPane: {
-                    dispatch(.openWorktreeInPane, surface: .contextMenu, from: commandPresentation)
+                    dispatch(.openWorktree, from: commandPresentation)
                 }
             )
         case .pane(let pane):
@@ -200,13 +158,9 @@ struct RepoExplorerMaterializedRowView: View {
 
     private func dispatch(
         _ command: AppCommand,
-        surface: AppCommandSurface,
         from presentation: RepoExplorerWorktreeCommandPresentation
     ) {
-        let presentedCommand =
-            surface == .inlineControl
-            ? presentation.inlineCommand(command)
-            : presentation.contextMenuCommand(command)
+        let presentedCommand = presentation.inlineCommand(command)
         guard let request = presentedCommand?.request else { return }
         onCommandRequest(request)
     }

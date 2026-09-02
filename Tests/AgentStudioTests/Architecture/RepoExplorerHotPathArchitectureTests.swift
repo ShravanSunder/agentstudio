@@ -214,7 +214,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(materializer.contains("pendingReloadRows.intersection(represented)"))
         #expect(
             materializer.contains(
-                "tableView.noteHeightOfRows(withIndexesChanged: immediateHeightRows)"
+                "tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)"
             )
         )
         #expect(materializer.contains("membership.anchorFallbacks.targetRowID("))
@@ -230,6 +230,39 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!materializer.contains("snapshot.rows.filter"))
         #expect(!materializer.contains("snapshot.rows.enumerated"))
         #expect(!materializer.contains("for row in snapshot.rows"))
+    }
+
+    @Test("native table owns Repo Explorer contextual-menu lifetime")
+    func nativeTableOwnsContextMenuLifetime() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureRoot = projectRoot.appending(
+            path: "Sources/AgentStudio/Features/RepoExplorer"
+        )
+        let materializer = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerTableMaterializer.swift"),
+            encoding: .utf8
+        )
+        let presenter = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerContextMenuPresenter.swift"),
+            encoding: .utf8
+        )
+        let renderer = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerMaterializedRowView.swift"),
+            encoding: .utf8
+        )
+        let worktreeRow = try String(
+            contentsOf: featureRoot.appending(path: "RepoExplorerWorktreeRow.swift"),
+            encoding: .utf8
+        )
+
+        #expect(materializer.contains("private let tableView = RepoExplorerTableView()"))
+        #expect(materializer.contains("contextMenuPresenter?.makeMenu("))
+        #expect(presenter.contains("override func menu(for event: NSEvent) -> NSMenu?"))
+        #expect(presenter.contains("isRowCurrent(rowID)"))
+        #expect(!materializer.contains("NSMenu.didBeginTrackingNotification"))
+        #expect(!materializer.contains("NSMenu.didEndTrackingNotification"))
+        #expect(!renderer.contains(".contextMenu {"))
+        #expect(!worktreeRow.contains(".contextMenu {"))
     }
 
     @Test("production presentation host is the sole live Repo Explorer row owner")

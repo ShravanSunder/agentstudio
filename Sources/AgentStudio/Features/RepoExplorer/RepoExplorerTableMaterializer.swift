@@ -55,7 +55,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         let height: CGFloat
     }
 
-    private let tableView = NSTableView()
+    private let tableView = RepoExplorerTableView()
     private let scrollView: NSScrollView
     private let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
     private let octiconLoader: OcticonLoader
@@ -63,6 +63,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     private let measureVisibleRowHeight: VisibleRowHeightMeasurer
     private let onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     private let observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
+    private var contextMenuPresenter: RepoExplorerContextMenuPresenter?
     private var snapshot: RepoExplorerMaterializationSnapshot?
     private var visibleGeneration: UInt64?
     private var viewportTask: Task<Void, Never>?
@@ -77,15 +78,6 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
     private var boundsObserver: NSObjectProtocol?
-    private var menuTrackingObservers: [NSObjectProtocol] = []
-    private weak var contextMenuSessionCell: RepoExplorerTableRowCell?
-    private var contextMenuSessionBindingIdentity: RepoExplorerTableRowBindingIdentity?
-    private var contextMenuSessionOpeningRowHeight: CGFloat?
-    private var contextMenuDeferredReloadRowIDs: Set<RepoExplorerRowID> = []
-    private var contextMenuDeferredHeightRowIDs: Set<RepoExplorerRowID> = []
-    private var trackedContextMenuIdentities: Set<ObjectIdentifier> = []
-    private var contextMenuSessionReleaseTask: Task<Void, Never>?
-    private var contextMenuSessionSequence: UInt64 = 0
     private var isDetached = false
     private var isDemandActive = true
 
@@ -118,6 +110,17 @@ final class RepoExplorerTableMaterializer: NSObject,
         view = scrollView
         super.init()
 
+        contextMenuPresenter = RepoExplorerContextMenuPresenter(
+            octiconLoader: octiconLoader,
+            interactions: interactions,
+            isRowCurrent: { [weak self] rowID in
+                self?.snapshot?.rowIndexByID[rowID] != nil
+            }
+        )
+        tableView.contextMenuProvider = { [weak self] rowIndex in
+            self?.makeContextMenu(forRowAt: rowIndex)
+        }
+
         scrollView.drawsBackground = false
         tableView.headerView = nil
         tableView.backgroundColor = .clear
@@ -141,12 +144,20 @@ final class RepoExplorerTableMaterializer: NSObject,
                 self?.boundsDidChange()
             }
         }
-        observeMenuTracking()
         updateTableFrame()
     }
 
-    isolated deinit {
-        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
+    func makeContextMenu(forRowID rowID: RepoExplorerRowID) -> NSMenu? {
+        guard let rowIndex = snapshot?.rowIndexByID[rowID] else { return nil }
+        return makeContextMenu(forRowAt: rowIndex)
+    }
+
+    private func makeContextMenu(forRowAt rowIndex: Int) -> NSMenu? {
+        guard let row = snapshot?.rows[safe: rowIndex] else { return nil }
+        return contextMenuPresenter?.makeMenu(
+            for: row,
+            commandPresentationSnapshot: acceptedCommandPresentationSnapshot
+        )
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -182,11 +193,6 @@ final class RepoExplorerTableMaterializer: NSObject,
             )
             hostedCellCreationCount += 1
         }
-        if contextMenuSessionCell === cell,
-            contextMenuSessionBindingIdentity?.rowID != row.id
-        {
-            cancelContextMenuSession()
-        }
         cell.bind(
             row: row,
             visibleGeneration: visibleGeneration,
@@ -210,11 +216,6 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     func resolvedHeight(forRowAt rowIndex: Int) -> CGFloat {
         guard let row = snapshot?.rows[safe: rowIndex] else { return tableView.rowHeight }
-        if contextMenuSessionBindingIdentity?.rowID == row.id,
-            let contextMenuSessionOpeningRowHeight
-        {
-            return contextMenuSessionOpeningRowHeight
-        }
         let fallbackHeight = max(row.layout.metrics.minimumHeight, row.layout.metrics.fallbackHeight)
         guard row.layout.requiresVisibleWidthMeasurement,
             representedRowIndexes().contains(rowIndex)
@@ -337,7 +338,6 @@ final class RepoExplorerTableMaterializer: NSObject,
     func detach() {
         guard !isDetached else { return }
         isDetached = true
-        cancelContextMenuSession()
         invalidateScheduledViewportPublication()
         clearRepresentedCellsForReuse()
         clearViewportDemand()
@@ -345,69 +345,13 @@ final class RepoExplorerTableMaterializer: NSObject,
             NotificationCenter.default.removeObserver(boundsObserver)
             self.boundsObserver = nil
         }
-        menuTrackingObservers.forEach(NotificationCenter.default.removeObserver)
-        menuTrackingObservers.removeAll(keepingCapacity: false)
+        tableView.contextMenuProvider = nil
+        contextMenuPresenter = nil
         tableView.dataSource = nil
         tableView.delegate = nil
         scrollView.documentView = nil
         snapshot = nil
         heightByRowID.removeAll(keepingCapacity: false)
-    }
-
-    func menuDidBeginTracking(_ menuIdentity: ObjectIdentifier, clickedRow: Int) {
-        guard !isDetached else { return }
-        if let contextMenuSessionCell, let contextMenuSessionBindingIdentity {
-            guard contextMenuSessionCell.currentBindingIdentity == contextMenuSessionBindingIdentity
-            else {
-                cancelContextMenuSession()
-                return
-            }
-            contextMenuSessionSequence &+= 1
-            contextMenuSessionReleaseTask?.cancel()
-            contextMenuSessionReleaseTask = nil
-            trackedContextMenuIdentities.insert(menuIdentity)
-            contextMenuSessionCell.beginContextMenuTracking(menuIdentity)
-            return
-        }
-        guard clickedRow >= 0, clickedRow < tableView.numberOfRows,
-            let cell = tableView.view(
-                atColumn: 0,
-                row: clickedRow,
-                makeIfNecessary: false
-            ) as? RepoExplorerTableRowCell,
-            let bindingIdentity = cell.currentBindingIdentity
-        else { return }
-
-        contextMenuSessionCell = cell
-        contextMenuSessionBindingIdentity = bindingIdentity
-        contextMenuSessionOpeningRowHeight = tableView.rect(ofRow: clickedRow).height
-        trackedContextMenuIdentities = [menuIdentity]
-        contextMenuSessionSequence &+= 1
-        cell.beginContextMenuTracking(menuIdentity)
-    }
-
-    func menuDidEndTracking(_ menuIdentity: ObjectIdentifier) {
-        guard !isDetached, let contextMenuSessionCell,
-            let contextMenuSessionBindingIdentity,
-            contextMenuSessionCell.currentBindingIdentity == contextMenuSessionBindingIdentity
-        else {
-            cancelContextMenuSession()
-            return
-        }
-        guard trackedContextMenuIdentities.remove(menuIdentity) != nil else { return }
-        contextMenuSessionCell.endContextMenuTracking(menuIdentity)
-        guard trackedContextMenuIdentities.isEmpty else { return }
-
-        contextMenuSessionReleaseTask?.cancel()
-        let scheduledSequence = contextMenuSessionSequence
-        contextMenuSessionReleaseTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, !Task.isCancelled,
-                self.contextMenuSessionSequence == scheduledSequence,
-                self.trackedContextMenuIdentities.isEmpty
-            else { return }
-            self.releaseContextMenuSession()
-        }
     }
 
     func scroll(to rowID: RepoExplorerRowID, offset: CGFloat) {
@@ -496,28 +440,15 @@ final class RepoExplorerTableMaterializer: NSObject,
         scrollView.layoutSubtreeIfNeeded()
         tableView.layoutSubtreeIfNeeded()
         let represented = representedRowIndexes()
-        var visibleReloadRows = pendingReloadRows.intersection(represented)
-        var immediateHeightRows = pendingHeightRows
-        if let protectedRowID = contextMenuSessionBindingIdentity?.rowID,
-            let protectedRowIndex = snapshot?.rowIndexByID[protectedRowID]
-        {
-            if visibleReloadRows.contains(protectedRowIndex) {
-                visibleReloadRows.remove(protectedRowIndex)
-                contextMenuDeferredReloadRowIDs.insert(protectedRowID)
-            }
-            if immediateHeightRows.contains(protectedRowIndex) {
-                immediateHeightRows.remove(protectedRowIndex)
-                contextMenuDeferredHeightRowIDs.insert(protectedRowID)
-            }
-        }
+        let visibleReloadRows = pendingReloadRows.intersection(represented)
         if !visibleReloadRows.isEmpty {
             tableView.reloadData(
                 forRowIndexes: visibleReloadRows,
                 columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
             )
         }
-        if !immediateHeightRows.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: immediateHeightRows)
+        if !pendingHeightRows.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)
         }
         rebindRepresentedCells()
         pendingReloadRows.removeAll()
@@ -544,81 +475,6 @@ final class RepoExplorerTableMaterializer: NSObject,
         }
         guard let targetRowID else { return }
         scroll(to: targetRowID, offset: anchor.offset)
-    }
-
-    private func observeMenuTracking() {
-        menuTrackingObservers = [
-            NotificationCenter.default.addObserver(
-                forName: NSMenu.didBeginTrackingNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let menu = notification.object as? NSMenu else { return }
-                let menuIdentity = ObjectIdentifier(menu)
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.menuDidBeginTracking(
-                        menuIdentity,
-                        clickedRow: self.tableView.clickedRow
-                    )
-                }
-            },
-            NotificationCenter.default.addObserver(
-                forName: NSMenu.didEndTrackingNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let menu = notification.object as? NSMenu else { return }
-                let menuIdentity = ObjectIdentifier(menu)
-                MainActor.assumeIsolated {
-                    self?.menuDidEndTracking(menuIdentity)
-                }
-            },
-        ]
-    }
-
-    private func cancelContextMenuSession() {
-        contextMenuSessionSequence &+= 1
-        contextMenuSessionReleaseTask?.cancel()
-        contextMenuSessionReleaseTask = nil
-        contextMenuSessionCell?.cancelContextMenuTracking()
-        contextMenuDeferredReloadRowIDs.removeAll(keepingCapacity: false)
-        contextMenuDeferredHeightRowIDs.removeAll(keepingCapacity: false)
-        releaseContextMenuSession()
-    }
-
-    private func releaseContextMenuSession() {
-        let releasedRowID = contextMenuSessionBindingIdentity?.rowID
-        let anchor = currentTopVisibleAnchor
-        let reloadReleasedRow = releasedRowID.map(contextMenuDeferredReloadRowIDs.contains) ?? false
-        let remeasureReleasedRow = releasedRowID.map(contextMenuDeferredHeightRowIDs.contains) ?? false
-        let hadOpeningRowHeight = contextMenuSessionOpeningRowHeight != nil
-        contextMenuSessionCell = nil
-        contextMenuSessionBindingIdentity = nil
-        contextMenuSessionOpeningRowHeight = nil
-        trackedContextMenuIdentities.removeAll(keepingCapacity: false)
-        contextMenuDeferredReloadRowIDs.removeAll(keepingCapacity: false)
-        contextMenuDeferredHeightRowIDs.removeAll(keepingCapacity: false)
-        contextMenuSessionReleaseTask = nil
-        guard !isDetached, let releasedRowID,
-            let releasedRowIndex = snapshot?.rowIndexByID[releasedRowID]
-        else { return }
-        heightByRowID[releasedRowID] = nil
-        updateTableFrame()
-        if reloadReleasedRow {
-            tableView.reloadData(
-                forRowIndexes: IndexSet(integer: releasedRowIndex),
-                columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
-            )
-        }
-        if remeasureReleasedRow || hadOpeningRowHeight {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: releasedRowIndex))
-        }
-        scrollView.layoutSubtreeIfNeeded()
-        tableView.layoutSubtreeIfNeeded()
-        if let anchor {
-            scroll(to: anchor.rowID, offset: anchor.offset)
-        }
     }
 
     private func scroll(toRowAt rowIndex: Int, offset: CGFloat) {
@@ -824,25 +680,13 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private func updateTableFrame() {
         let fallbackContentHeight = snapshot?.fallbackContentHeight ?? 0
-        let trackedRowID = contextMenuSessionBindingIdentity?.rowID
         let visibleMeasurementDelta = heightByRowID.reduce(into: CGFloat.zero) { delta, entry in
             guard let row = snapshot?.row(id: entry.key) else { return }
-            guard row.id != trackedRowID else { return }
             delta += max(0, entry.value.height - row.layout.metrics.fallbackHeight)
-        }
-        let trackedRowHeightDelta: CGFloat
-        if let trackedRowID,
-            let trackedRow = snapshot?.row(id: trackedRowID),
-            let contextMenuSessionOpeningRowHeight
-        {
-            trackedRowHeightDelta =
-                contextMenuSessionOpeningRowHeight - trackedRow.layout.metrics.fallbackHeight
-        } else {
-            trackedRowHeightDelta = 0
         }
         let documentHeight = max(
             scrollView.contentView.bounds.height,
-            fallbackContentHeight + visibleMeasurementDelta + trackedRowHeightDelta
+            fallbackContentHeight + visibleMeasurementDelta
         )
         tableView.frame = NSRect(
             x: 0,
