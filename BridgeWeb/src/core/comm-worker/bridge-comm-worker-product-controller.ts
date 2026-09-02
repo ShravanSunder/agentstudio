@@ -7,6 +7,7 @@ import {
 	type BridgeCommWorkerAnnotationProjectionPublication,
 	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
+import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
 import {
 	bridgeProductWorktreeAnnotationDecodedCommandResultSchema,
 	type BridgeProductReviewAnnotationPublicationIdentity,
@@ -25,7 +26,6 @@ import {
 import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
-import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contracts.js';
 
 type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
@@ -59,6 +59,14 @@ export interface BridgeCommWorkerFileMetadataDemand {
 	readonly nearbyPaths: readonly string[];
 	readonly selectedPath: string | null;
 	readonly visiblePaths: readonly string[];
+}
+
+export interface BridgeCommWorkerReviewActiveDemandSnapshot {
+	readonly activeDemand: readonly {
+		readonly itemId: string;
+		readonly role: BridgeCommWorkerDemandMember['role'];
+	}[];
+	readonly workerDerivationEpoch: number;
 }
 
 export class BridgeCommWorkerProductController {
@@ -285,6 +293,7 @@ export class BridgeCommWorkerProductController {
 		}
 		const subscription = this.#reviewSubscription;
 		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
 		this.#reviewDesiredInterestSignature = null;
 		this.#reviewInterestUpdate = Promise.resolve();
 		this.#reviewRecoveryPublicationId = null;
@@ -416,8 +425,27 @@ export class BridgeCommWorkerProductController {
 		} satisfies BridgeCommWorkerAnnotationProjectionDemand);
 	}
 
-	async updateReviewMetadataInterests(request: BridgeWorkerMetadataInterestRequest): Promise<void> {
-		this.#replaceReviewInterestLane(request.lane, request.itemIds ?? []);
+	async replaceReviewMetadataInterestsFromActiveDemand(
+		snapshot: BridgeCommWorkerReviewActiveDemandSnapshot,
+	): Promise<void> {
+		if (snapshot.workerDerivationEpoch !== this.#reviewWorkerDerivationEpoch) {
+			throw new Error('Bridge Review demand interests belong to a retired worker authority.');
+		}
+		this.#reviewInterestItemIdsByLane.clear();
+		const itemIdsByLane = new Map<ReviewMetadataInterestLane, string[]>();
+		for (const { itemId, role } of snapshot.activeDemand) {
+			const lane = reviewMetadataInterestLaneForDemandRole(role);
+			const itemIds = itemIdsByLane.get(lane) ?? [];
+			itemIds.push(itemId);
+			itemIdsByLane.set(lane, itemIds);
+		}
+		for (const [lane, itemIds] of itemIdsByLane) {
+			this.#reviewInterestItemIdsByLane.set(lane, itemIds);
+		}
+		await this.#commitReviewMetadataInterests();
+	}
+
+	async #commitReviewMetadataInterests(): Promise<void> {
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
 		if (this.#reviewSubscription === null) {
 			this.ensureReviewMetadata();
@@ -434,13 +462,17 @@ export class BridgeCommWorkerProductController {
 		const nextUpdate = this.#reviewInterestUpdate
 			.catch((): void => {})
 			.then(async (): Promise<void> => {
-				if (subscription !== this.#reviewSubscription) return;
+				if (subscription !== this.#reviewSubscription) {
+					throw new Error(
+						'Bridge Review metadata interest update belongs to a retired Review interest authority.',
+					);
+				}
 				try {
 					await subscription.update({ interests });
 				} catch (error) {
 					if (subscription === this.#reviewSubscription) {
-						this.#reviewDesiredInterestSignature = null;
 						this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+						await this.#recoverReviewMetadataInterestUpdateFailure(subscription);
 					}
 					throw error;
 				}
@@ -449,13 +481,24 @@ export class BridgeCommWorkerProductController {
 		await nextUpdate;
 	}
 
-	#replaceReviewInterestLane(lane: ReviewMetadataInterestLane, itemIds: readonly string[]): void {
-		const uniqueItemIds = [...new Set(itemIds)];
-		if (uniqueItemIds.length === 0) {
-			this.#reviewInterestItemIdsByLane.delete(lane);
-			return;
+	async #recoverReviewMetadataInterestUpdateFailure(
+		subscription: ReviewMetadataSubscription,
+	): Promise<void> {
+		if (subscription !== this.#reviewSubscription) return;
+		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
+		this.#reviewDesiredInterestSignature = null;
+		this.#reviewInterestUpdate = Promise.resolve();
+		try {
+			await subscription.cancel();
+		} catch {
+			// The replacement subscription supersedes failed interest authority locally.
 		}
-		this.#reviewInterestItemIdsByLane.set(lane, uniqueItemIds);
+		try {
+			this.ensureReviewMetadata();
+		} catch {
+			// ensureReviewMetadata publishes the typed failure through the injected callback.
+		}
 	}
 
 	async #consumeReviewMetadataEvents(
@@ -493,6 +536,7 @@ export class BridgeCommWorkerProductController {
 		} catch (error) {
 			if (subscription === this.#reviewSubscription) {
 				this.#reviewSubscription = null;
+				this.#reviewInterestItemIdsByLane.clear();
 				this.#reviewDesiredInterestSignature = null;
 				this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 				if (
@@ -512,6 +556,7 @@ export class BridgeCommWorkerProductController {
 		if (subscription === this.#reviewSubscription) {
 			const error = new Error('Bridge Review metadata subscription ended unexpectedly.');
 			this.#reviewSubscription = null;
+			this.#reviewInterestItemIdsByLane.clear();
 			this.#reviewDesiredInterestSignature = null;
 			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
@@ -535,6 +580,7 @@ export class BridgeCommWorkerProductController {
 		}
 		if (subscription !== this.#reviewSubscription) return;
 		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
 		this.#reviewDesiredInterestSignature = null;
 		this.#reviewInterestUpdate = Promise.resolve();
 		if (!shouldReopen) return;
@@ -796,6 +842,21 @@ const reviewMetadataInterestLanePriority: readonly ReviewMetadataInterestLane[] 
 	'speculative',
 	'idle',
 ];
+
+function reviewMetadataInterestLaneForDemandRole(
+	role: BridgeCommWorkerDemandMember['role'],
+): ReviewMetadataInterestLane {
+	switch (role) {
+		case 'selected':
+			return 'foreground';
+		case 'visible':
+		case 'nearby':
+		case 'speculative':
+			return role;
+		case 'background':
+			return 'idle';
+	}
+}
 
 function reviewMetadataInterestsInPriorityOrder(
 	itemIdsByLane: ReadonlyMap<ReviewMetadataInterestLane, readonly string[]>,

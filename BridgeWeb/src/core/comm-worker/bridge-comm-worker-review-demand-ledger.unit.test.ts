@@ -140,6 +140,27 @@ describe('Bridge comm worker Review published-position ownership', () => {
 		expect(ledger.releasePublished(exactQueuedReceipt)).toBe(false);
 	});
 
+	test('publishes the final current active snapshot after an internal refill', () => {
+		// Arrange
+		const activeSnapshots: string[][] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			onCurrentActiveDemandChanged: (activeDemand): void => {
+				activeSnapshots.push(activeDemand.map(({ itemId }) => itemId));
+			},
+			start: () => ({ cancel: () => {}, updateRole: () => {} }),
+		});
+		const initial = ledger.reconcile(reviewMembership(13));
+		const releasedAdmission = initial.active[3];
+		if (releasedAdmission === undefined) throw new Error('Expected a dynamic Review admission.');
+
+		// Act
+		ledger.release(releasedAdmission.itemId, releasedAdmission.attemptToken, 'resident');
+
+		// Assert
+		expect(activeSnapshots.at(-1)).toContain('background-10');
+		expect(activeSnapshots.at(-1)).toHaveLength(12);
+	});
+
 	test('releases an exact queued publication while 1,699-item Review demand is suspended', () => {
 		// Arrange
 		const observations: Array<{ readonly currentCount: number; readonly phase: string }> = [];
@@ -309,6 +330,37 @@ describe('Bridge comm worker Review published-position ownership', () => {
 		expect(startedItemIds.filter((itemId) => itemId === oldReleasedAdmission.itemId)).toHaveLength(
 			1,
 		);
+	});
+
+	test('excludes retained old-generation publications from current active demand', () => {
+		// Arrange
+		const activeSnapshots: string[][] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			onCurrentActiveDemandChanged: (activeDemand): void => {
+				activeSnapshots.push(activeDemand.map(({ itemId }) => itemId));
+			},
+			start: () => ({ cancel: () => {}, updateRole: () => {} }),
+		});
+		ledger.updateGeneration(1);
+		const firstGeneration = ledger.reconcile(reviewMembership(12));
+		for (const admission of firstGeneration.active) {
+			ledger.markPublished(
+				admission.itemId,
+				admission.attemptToken,
+				renderReceiptIdentity(admission.itemId, admission.attemptToken),
+			);
+			ledger.release(admission.itemId, admission.attemptToken, 'resident');
+		}
+
+		// Act
+		ledger.updateGeneration(2);
+		ledger.reconcile(
+			reviewMembership(13).map((member) => ({ ...member, itemId: `new-${member.itemId}` })),
+		);
+
+		// Assert
+		expect(firstGeneration.active).toHaveLength(12);
+		expect(activeSnapshots.at(-1)).toEqual([]);
 	});
 
 	test('starts same-item successor demand after the old generation receives queued', () => {

@@ -78,25 +78,25 @@ describe('Bridge comm worker product controller', () => {
 		});
 
 		// Act
-		await controller.updateReviewMetadataInterests({
-			itemIds: ['item-selected'],
-			lane: 'foreground',
-			protocol: 'review',
+		controller.ensureReviewMetadata();
+		await controller.replaceReviewMetadataInterestsFromActiveDemand({
+			activeDemand: [{ itemId: 'item-selected', role: 'selected' }],
+			workerDerivationEpoch: 1,
 		});
-		await controller.updateReviewMetadataInterests({
-			itemIds: ['item-selected', 'item-visible'],
-			lane: 'visible',
-			protocol: 'review',
+		await controller.replaceReviewMetadataInterestsFromActiveDemand({
+			activeDemand: [
+				{ itemId: 'item-selected', role: 'selected' },
+				{ itemId: 'item-visible', role: 'visible' },
+			],
+			workerDerivationEpoch: 1,
 		});
-		await controller.updateReviewMetadataInterests({
-			itemIds: [],
-			lane: 'foreground',
-			protocol: 'review',
+		await controller.replaceReviewMetadataInterestsFromActiveDemand({
+			activeDemand: [{ itemId: 'item-visible', role: 'visible' }],
+			workerDerivationEpoch: 1,
 		});
-		await controller.updateReviewMetadataInterests({
-			itemIds: [],
-			lane: 'visible',
-			protocol: 'review',
+		await controller.replaceReviewMetadataInterestsFromActiveDemand({
+			activeDemand: [],
+			workerDerivationEpoch: 1,
 		});
 		const sourceAcceptedEvent = {
 			eventKind: 'review.sourceAccepted',
@@ -112,19 +112,16 @@ describe('Bridge comm worker product controller', () => {
 
 		// Assert
 		expect(reviewEpoch).toBe(1);
-		expect(subscriptionOptions).toEqual({
-			interests: [{ itemIds: ['item-selected'], lane: 'foreground' }],
-		});
+		expect(subscriptionOptions).toEqual({ interests: [] });
 		expect(updates).toEqual([
+			{ interests: [{ itemIds: ['item-selected'], lane: 'foreground' }] },
 			{
 				interests: [
 					{ itemIds: ['item-selected'], lane: 'foreground' },
 					{ itemIds: ['item-visible'], lane: 'visible' },
 				],
 			},
-			{
-				interests: [{ itemIds: ['item-selected', 'item-visible'], lane: 'visible' }],
-			},
+			{ interests: [{ itemIds: ['item-visible'], lane: 'visible' }] },
 			{ interests: [] },
 		]);
 		expect(observedEvents).toEqual([sourceAcceptedEvent]);
@@ -160,16 +157,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 
 		// Act
-		await controller.updateReviewMetadataInterests({
-			itemIds: [],
-			lane: 'foreground',
-			protocol: 'review',
-		});
-		await controller.updateReviewMetadataInterests({
-			itemIds: [],
-			lane: 'visible',
-			protocol: 'review',
-		});
+		controller.ensureReviewMetadata();
 
 		// Assert
 		expect(subscribeReviewCallCount).toBe(1);
@@ -177,7 +165,7 @@ describe('Bridge comm worker product controller', () => {
 		expect(subscriptionOptions).toEqual({ interests: [] });
 	});
 
-	test('cancels and reopens Review with the same interests after application failure', async () => {
+	test('cancels and reopens Review with empty interests after application failure', async () => {
 		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const secondEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const subscriptionOptions: BridgeProductSubscriptionOptions<'review.metadata'>[] = [];
@@ -225,10 +213,10 @@ describe('Bridge comm worker product controller', () => {
 				return subscription;
 			},
 		});
-		await controller.updateReviewMetadataInterests({
-			itemIds: ['item-selected'],
-			lane: 'foreground',
-			protocol: 'review',
+		controller.ensureReviewMetadata();
+		await controller.replaceReviewMetadataInterestsFromActiveDemand({
+			activeDemand: [{ itemId: 'item-selected', role: 'selected' }],
+			workerDerivationEpoch: 1,
 		});
 
 		firstEvents.push(
@@ -246,10 +234,7 @@ describe('Bridge comm worker product controller', () => {
 
 		expect(cancelCount).toBe(1);
 		expect(reviewEpoch).toBe(2);
-		expect(subscriptionOptions).toEqual([
-			{ interests: [{ itemIds: ['item-selected'], lane: 'foreground' }] },
-			{ interests: [{ itemIds: ['item-selected'], lane: 'foreground' }] },
-		]);
+		expect(subscriptionOptions).toEqual([{ interests: [] }, { interests: [] }]);
 	});
 
 	test('does not send a Review publication receipt after worker metadata application', async () => {

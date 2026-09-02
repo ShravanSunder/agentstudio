@@ -12,6 +12,7 @@ import {
 } from './bridge-comm-worker-reconciler.js';
 import {
 	createBridgeCommWorkerReviewDemandLedger,
+	type BridgeCommWorkerReviewCurrentActiveDemand,
 	type BridgeCommWorkerReviewDemandStartHandle,
 } from './bridge-comm-worker-review-demand-ledger.js';
 import {
@@ -51,6 +52,10 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: WorkerContentPreparationPump;
 	readonly recordPreparationCompletion: (completion: Promise<void>) => void;
+	readonly replaceReviewMetadataInterests?: (snapshot: {
+		readonly activeDemand: readonly BridgeCommWorkerReviewCurrentActiveDemand[];
+		readonly workerDerivationEpoch: number;
+	}) => Promise<void>;
 	readonly requestPreparationDrain: () => void;
 	readonly scheduleRetryWake?: (delayMilliseconds: number, wake: () => void) => void;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -60,6 +65,7 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 
 export interface BridgeCommWorkerReviewDemandScheduling {
 	readonly applyPublishedDisposition: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
+	readonly publishCurrentMetadataInterests: () => Promise<void>;
 	readonly resume: () => void;
 	readonly scheduleDemandExecution: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
@@ -193,9 +199,48 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	let latestSchedulingStore: BridgeCommWorkerStore | null = null;
 	let latestSchedulingEpoch: number | null = null;
 	let currentMembershipByItemId = new Map<string, BridgeCommWorkerDemandMember>();
+	let currentActiveDemand: readonly BridgeCommWorkerReviewCurrentActiveDemand[] = [];
 	let previousFirstVisibleOrderedIndex: number | null = null;
 	const retryAttemptByItemId = new Map<string, number>();
+	let latestMetadataInterestCommit: {
+		readonly promise: Promise<void>;
+		readonly workerDerivationEpoch: number;
+	} | null = null;
+	const publishCurrentMetadataInterests = (): Promise<void> => {
+		if (!props.usesProductTransport || props.replaceReviewMetadataInterests === undefined) {
+			return Promise.resolve();
+		}
+		const workerDerivationEpoch = activeWorkerDerivationEpoch;
+		if (workerDerivationEpoch === null) {
+			return Promise.reject(
+				new Error('Bridge Review metadata interests have no current worker authority.'),
+			);
+		}
+		const promise = props.replaceReviewMetadataInterests({
+			activeDemand: currentActiveDemand,
+			workerDerivationEpoch,
+		});
+		latestMetadataInterestCommit = { promise, workerDerivationEpoch };
+		void promise.catch((): void => {});
+		return promise;
+	};
+	const waitForLatestMetadataInterestCommit = async (): Promise<void> => {
+		while (true) {
+			const pendingCommit = latestMetadataInterestCommit;
+			if (pendingCommit === null) return;
+			await pendingCommit.promise;
+			if (
+				pendingCommit === latestMetadataInterestCommit &&
+				pendingCommit.workerDerivationEpoch === activeWorkerDerivationEpoch
+			) {
+				return;
+			}
+		}
+	};
 	const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+		...(props.replaceReviewMetadataInterests === undefined
+			? {}
+			: { beforeOpenContent: waitForLatestMetadataInterestCommit }),
 		openContent: props.openReviewContent,
 		resolveBodyRegistry: () => latestSchedulingStore?.reviewBodyRegistry,
 	});
@@ -221,6 +266,10 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 				}),
 		resolvePreparationIdentity: (itemId): string =>
 			reviewItemPreparationIdentity({ itemId, source: reviewRuntimeSource }),
+		onCurrentActiveDemandChanged: (activeDemand): void => {
+			currentActiveDemand = activeDemand;
+			void publishCurrentMetadataInterests().catch((): void => {});
+		},
 		start: (admission): BridgeCommWorkerReviewDemandStartHandle => {
 			const store = latestSchedulingStore;
 			const epoch = latestSchedulingEpoch;
@@ -579,6 +628,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 
 	return {
 		applyPublishedDisposition: (receipt): boolean => reviewDemandLedger.releasePublished(receipt),
+		publishCurrentMetadataInterests,
 		resume,
 		scheduleDemandExecution: reconcileDemandExecutionFromRequest,
 		scheduleMetadataReset,
@@ -588,9 +638,9 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			reviewRuntimeSource = source;
 		},
 		updateWorkerDerivationEpoch: (workerDerivationEpoch: number): void => {
+			activeWorkerDerivationEpoch = workerDerivationEpoch;
 			reviewDemandLedger.updateGeneration(workerDerivationEpoch);
 			retryAttemptByItemId.clear();
-			activeWorkerDerivationEpoch = workerDerivationEpoch;
 		},
 	};
 }

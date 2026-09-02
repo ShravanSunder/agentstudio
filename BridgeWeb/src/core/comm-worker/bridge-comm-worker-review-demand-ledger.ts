@@ -20,6 +20,11 @@ export interface BridgeCommWorkerReviewDemandAdmission {
 	readonly signal: AbortSignal;
 }
 
+export interface BridgeCommWorkerReviewCurrentActiveDemand {
+	readonly itemId: string;
+	readonly role: BridgeCommWorkerDemandMember['role'];
+}
+
 export interface BridgeCommWorkerReviewDemandStartHandle {
 	readonly cancel: () => void;
 	readonly pause?: () => void;
@@ -74,6 +79,9 @@ interface ActiveBridgeCommWorkerReviewDemandRecord {
 
 export function createBridgeCommWorkerReviewDemandLedger(props: {
 	readonly now?: () => number;
+	readonly onCurrentActiveDemandChanged?: (
+		activeDemand: readonly BridgeCommWorkerReviewCurrentActiveDemand[],
+	) => void;
 	readonly observeOutstandingPublications?: (
 		observation: BridgeWorkerOutstandingPublicationObservation,
 	) => void;
@@ -156,6 +164,21 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 		});
 		return admission;
 	};
+	const currentActiveAdmissions = (): readonly BridgeCommWorkerReviewDemandAdmission[] =>
+		[...activeRecordsByItemId.values()].map((record) => ({
+			attemptToken: record.attemptToken,
+			itemId: record.itemId,
+			positionKind: record.positionKind,
+			role: record.role,
+			signal: record.abortController.signal,
+		}));
+	const publishCurrentActiveDemand = (): void => {
+		props.onCurrentActiveDemandChanged?.(
+			[...activeRecordsByItemId.values()]
+				.filter(({ intentCurrent }) => intentCurrent)
+				.map(({ itemId, role }) => ({ itemId, role })),
+		);
+	};
 
 	const reconcile = (
 		membership: readonly BridgeCommWorkerDemandMember[],
@@ -177,14 +200,10 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 				!retryWaitingAttemptTokenByItemId.has(member.itemId),
 		);
 		if (suspended) {
+			const active = currentActiveAdmissions();
+			publishCurrentActiveDemand();
 			return {
-				active: [...activeRecordsByItemId.values()].map((record) => ({
-					attemptToken: record.attemptToken,
-					itemId: record.itemId,
-					positionKind: record.positionKind,
-					role: record.role,
-					signal: record.abortController.signal,
-				})),
+				active,
 				started: [],
 				wanted: pendingMembers,
 			};
@@ -212,14 +231,10 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			startedItemIds.add(member.itemId);
 			availableDynamicPositions -= 1;
 		}
+		const active = currentActiveAdmissions();
+		publishCurrentActiveDemand();
 		return {
-			active: [...activeRecordsByItemId.values()].map((record) => ({
-				attemptToken: record.attemptToken,
-				itemId: record.itemId,
-				positionKind: record.positionKind,
-				role: record.role,
-				signal: record.abortController.signal,
-			})),
+			active,
 			started: startedAdmissions,
 			wanted: pendingMembers.filter((member) => !startedItemIds.has(member.itemId)),
 		};
@@ -233,6 +248,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 				completedItemIds.delete(itemId);
 				retryWaitingAttemptTokenByItemId.delete(itemId);
 				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
+				publishCurrentActiveDemand();
 				return;
 			}
 			const shouldCancelActiveAttempt =
@@ -247,6 +263,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			completedItemIds.delete(itemId);
 			retryWaitingAttemptTokenByItemId.delete(itemId);
 			latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
+			publishCurrentActiveDemand();
 		},
 		markRetryReady: (itemId, attemptToken): boolean => {
 			const waitingAttemptToken = retryWaitingAttemptTokenByItemId.get(itemId);
@@ -292,7 +309,10 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			const activeRecord = activeRecordsByItemId.get(itemId);
 			if (activeRecord?.attemptToken !== attemptToken) return false;
 			if (activeRecord.publishedReceiptIdentity !== null && disposition !== 'teardown') {
-				if (disposition === 'invalidated') activeRecord.intentCurrent = false;
+				if (disposition === 'invalidated') {
+					activeRecord.intentCurrent = false;
+					publishCurrentActiveDemand();
+				}
 				return true;
 			}
 			const wasPublished = activeRecord.publishedReceiptIdentity !== null;
@@ -302,9 +322,13 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			}
 			if (disposition === 'invalidated') {
 				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
+				publishCurrentActiveDemand();
 				return true;
 			}
-			if (disposition === 'teardown') return true;
+			if (disposition === 'teardown') {
+				publishCurrentActiveDemand();
+				return true;
+			}
 			if (disposition === 'retryWait') retryWaitingAttemptTokenByItemId.set(itemId, attemptToken);
 			else completedItemIds.add(itemId);
 			reconcile(latestMembership);
@@ -353,6 +377,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			}
 			activeRecordsByItemId.delete(itemId);
 			observeOutstandingPublications('render_publication_outstanding_changed', 'released');
+			publishCurrentActiveDemand();
 			return true;
 		},
 	};

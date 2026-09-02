@@ -38,6 +38,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 	readonly productControlTimeoutMilliseconds: number;
 	readonly productController: BridgeCommWorkerProductController | null;
 	readonly productTransport: BridgeProductTransportSession | undefined;
+	readonly publishReviewMetadataInterests: () => Promise<void>;
 	readonly reviewMetadataApplicator: BridgeCommWorkerReviewMetadataApplicator | null;
 	readonly sendProductControl: BridgeCommWorkerProductControlSender;
 	readonly setActiveComparisonTargetsRequestId: (requestId: string | null) => void;
@@ -141,15 +142,11 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 			});
 	}
 	if (metadataInterestUpdateCommand !== null && shouldUpdateReviewMetadataInterests) {
-		const activeProductController = props.productController;
 		void sendBridgeCommWorkerActionWithTimeout({
 			send:
-				activeProductController === null
+				props.productController === null
 					? rejectUninstalledReviewMetadataInterestUpdate
-					: (): Promise<void> =>
-							activeProductController.updateReviewMetadataInterests(
-								metadataInterestUpdateCommand.request,
-							),
+					: props.publishReviewMetadataInterests,
 			timeoutMilliseconds: props.productControlTimeoutMilliseconds,
 		})
 			.then((): void => {

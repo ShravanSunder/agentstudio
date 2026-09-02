@@ -251,7 +251,11 @@ type ReviewMetadataSubscription = BridgeProductMetadataApplicationSubscription<
 	typeof bridgeProductReviewMetadataApplicationProtocol
 >;
 
-export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorkerReviewProductTestSource {
+export function createBridgeCommWorkerReviewProductTestSource(
+	props: {
+		readonly updateReviewMetadata?: ReviewMetadataSubscription['update'];
+	} = {},
+): BridgeCommWorkerReviewProductTestSource {
 	const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 	let currentWorkerDerivationEpoch = 0;
 	let currentSnapshot: ReviewProductTestSnapshot | null = null;
@@ -265,7 +269,7 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		events,
 		subscriptionId: 'review-product-test-subscription',
 		subscriptionKind: 'review.metadata',
-		update: async (): Promise<void> => {},
+		update: props.updateReviewMetadata ?? (async (): Promise<void> => {}),
 	};
 	const productTransport: BridgeProductTransportSession = {
 		bumpWorkerDerivationEpoch: (surface): number => {

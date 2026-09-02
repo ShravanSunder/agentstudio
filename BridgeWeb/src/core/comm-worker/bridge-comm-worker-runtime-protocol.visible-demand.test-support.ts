@@ -101,6 +101,10 @@ export async function drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent(props:
 				},
 			);
 		}
+		// A drain may start an async fetch whose external continuation schedules the next drain.
+		// Observe that microtask-owned continuation before deciding the runtime is quiescent.
+		// oxlint-disable-next-line no-await-in-loop -- Quiescence requires the post-drain continuation boundary.
+		await flushBridgeWorkerRuntimeContinuations();
 		const contentCompletions = props.pendingContentCompletions();
 		if (drainFailure !== null) throw drainFailure;
 		if (contentCompletions.length > 0) {

@@ -2,7 +2,10 @@ import { describe, expect, test } from 'vitest';
 
 import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
-import { createBridgeCommWorkerReviewDemandLedger } from './bridge-comm-worker-review-demand-ledger.js';
+import {
+	createBridgeCommWorkerReviewDemandLedger,
+	type BridgeCommWorkerReviewCurrentActiveDemand,
+} from './bridge-comm-worker-review-demand-ledger.js';
 import {
 	createBridgeCommWorkerReviewDemandScheduling,
 	createBridgeCommWorkerVisibleSourceChurnDedupeState,
@@ -18,6 +21,7 @@ import {
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
@@ -655,6 +659,8 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 		const rows = itemIds.map((itemId, index) => ({ id: itemId, index, parentId: null }));
 		const deferredStreamsByItemId = new Map<string, DeferredReviewContentStream[]>();
 		const signalsByItemId = new Map<string, AbortSignal[]>();
+		const activeDemandSnapshots: Array<readonly BridgeCommWorkerReviewCurrentActiveDemand[]> = [];
+		const refillInterestCommit = createBridgeProductDeferred<void>();
 		let requestedPreparationDrainCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
@@ -688,10 +694,16 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			port: dispatch.port,
 			pump,
 			recordPreparationCompletion: () => {},
+			replaceReviewMetadataInterests: ({ activeDemand }): Promise<void> => {
+				activeDemandSnapshots.push(activeDemand);
+				return activeDemand.some(({ itemId }) => itemId === 'item-13')
+					? refillInterestCommit.promise
+					: Promise.resolve();
+			},
 			requestPreparationDrain: (): void => {
 				requestedPreparationDrainCount += 1;
 			},
-			usesProductTransport: false,
+			usesProductTransport: true,
 		});
 		scheduling.updateRuntimeSource({
 			contentItems,
@@ -700,6 +712,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows,
 		});
+		scheduling.updateWorkerDerivationEpoch(7);
 		scheduling.resume();
 		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
 		pump.runUntilBudget();
@@ -750,6 +763,15 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			),
 		).toBe(true);
 		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(activeDemandSnapshots.at(-1)).toHaveLength(12);
+		expect(activeDemandSnapshots.at(-1)).toContainEqual({
+			itemId: 'item-13',
+			role: 'background',
+		});
+		expect(deferredStreamsByItemId.has('item-13')).toBe(false);
+		refillInterestCommit.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(deferredStreamsByItemId.get('item-13')).toHaveLength(2);

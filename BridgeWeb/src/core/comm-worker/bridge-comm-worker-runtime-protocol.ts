@@ -303,6 +303,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		recordPreparationCompletion: (completion: Promise<void>): void => {
 			preparationCompletions.push(completion);
 		},
+		replaceReviewMetadataInterests: (snapshot): Promise<void> => {
+			const controller = productController;
+			if (controller === null) {
+				return Promise.reject(
+					new Error('Bridge Review demand interests have no installed product controller.'),
+				);
+			}
+			return controller.replaceReviewMetadataInterestsFromActiveDemand(snapshot);
+		},
 		requestPreparationDrain,
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		usesProductTransport: productTransport !== undefined,
@@ -883,6 +892,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			productControlTimeoutMilliseconds,
 			productController,
 			productTransport,
+			publishReviewMetadataInterests: reviewDemandScheduling.publishCurrentMetadataInterests,
 			reviewMetadataApplicator,
 			sendProductControl,
 			setActiveComparisonTargetsRequestId: (requestId): void => {
