@@ -27,6 +27,18 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("same-tree target and shared-base movement"))
     }
 
+    @Test("complete cohort requests and verifies foreground LaunchServices activation")
+    func completeCohortRequiresForegroundLaunchServicesActivation() throws {
+        let source = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1"))
+        #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
+        #expect(source.contains(#"[ "$launch_activation_mode" != "foreground" ]"#))
+    }
+
     @Test("verifier dry-run declares artifact IPC Victoria and visual proof owners")
     func verifierDryRunDeclaresProofOwners() throws {
         let fixture = try LauncherScriptFixture()

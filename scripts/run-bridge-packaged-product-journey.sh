@@ -584,6 +584,7 @@ if [ "$complete_journey" = true ]; then
       runner_arguments+=(--skip-build)
     fi
     if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
+      AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1 \
       AGENTSTUDIO_DEBUG_DATA_DIR="$launch_data_root" \
       AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
       AGENTSTUDIO_STARTUP_WATCH_FOLDER="$fixture_root" \
@@ -600,9 +601,16 @@ if [ "$complete_journey" = true ]; then
     active_launch_executable="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
     launch_status="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_STATUS)"
     launch_method="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD)"
+    launch_activation_mode="$(
+      state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE
+    )"
     recorded_launch_data_root="$(state_value "$launch_state_file" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
     if [ "$launch_status" != "running" ] || [ "$launch_method" != "launchservices" ]; then
       echo "$launch_id did not start as a strict LaunchServices candidate" >&2
+      exit 1
+    fi
+    if [ "$launch_activation_mode" != "foreground" ]; then
+      echo "$launch_id did not request foreground LaunchServices activation" >&2
       exit 1
     fi
     if [ "$recorded_launch_data_root" != "$launch_data_root" ]; then
