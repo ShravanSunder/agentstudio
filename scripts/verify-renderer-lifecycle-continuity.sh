@@ -27,6 +27,7 @@ RESTART_MANIFEST="$PROOF_ROOT/restart-manifest.json"
 TRACE_NAME=""
 STATE_FILE=""
 APP_PID=""
+APP_PROOF_LAUNCH=""
 INITIAL_PID=""
 INITIAL_EXECUTABLE=""
 INITIAL_ZMX_DIR=""
@@ -67,7 +68,7 @@ for result in results:
     except (KeyError, IndexError, TypeError, ValueError):
         pass
 if not values:
-    raise SystemExit("required renderer lifecycle metric is missing")
+    raise SystemExit(1)
 print(max(values))
 PY
 }
@@ -115,6 +116,10 @@ launch_phase() {
   APP_PID="$(decode_state AGENTSTUDIO_OBSERVABILITY_PID)"
   case "$APP_PID" in
     ""|*[!0-9]*) echo "renderer lifecycle state missing numeric PID for $phase" >&2; exit 1 ;;
+  esac
+  APP_PROOF_LAUNCH="$(decode_state AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN)"
+  case "$APP_PROOF_LAUNCH" in
+    ""|*[!A-Za-z0-9_.-]*) echo "renderer lifecycle state missing safe proof launch identity for $phase" >&2; exit 1 ;;
   esac
   local recorded_executable
   local running_executable
@@ -182,7 +187,7 @@ wait_for_exact_process_exit() {
 renderer_metric() {
   local label="${1:?missing renderer metric label}"
   local selector
-  selector='service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$TRACE_NAME"'",process.pid="'"$APP_PID"'",event="performance.renderer.lifecycle"'
+  selector='service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$TRACE_NAME"'",agent.proof.launch="'"$APP_PROOF_LAUNCH"'",event="performance.renderer.lifecycle"'
   query_metric "max($label{$selector})"
 }
 
@@ -197,27 +202,30 @@ verify_phase_ledger() {
   local created_total release_total free_total active_current hidden_current live_current
   local manager_owned_current close_undo_current orphan_current lifecycle_valid sample_sequence
   local visibility_total visibility_equal_total projection_total
-  created_total="$(renderer_metric agentstudio_performance_renderer_created_total)"
-  release_total="$(renderer_metric agentstudio_performance_renderer_release_total)"
-  free_total="$(renderer_metric agentstudio_performance_renderer_free_total)"
-  active_current="$(renderer_metric agentstudio_performance_renderer_active_current)"
-  hidden_current="$(renderer_metric agentstudio_performance_renderer_hidden_current)"
-  live_current="$(renderer_metric agentstudio_performance_renderer_live_current)"
-  manager_owned_current="$(renderer_metric agentstudio_performance_renderer_manager_owned_current)"
-  close_undo_current="$(renderer_metric agentstudio_performance_renderer_close_undo_current)"
-  orphan_current="$(renderer_metric agentstudio_performance_renderer_orphan_candidate_current)"
-  lifecycle_valid="$(renderer_metric agentstudio_performance_renderer_lifecycle_valid)"
-  sample_sequence="$(renderer_metric agentstudio_performance_renderer_sample_sequence)"
-  visibility_total="$(renderer_metric agentstudio_performance_renderer_visibility_delivery_total)"
-  visibility_equal_total="$(renderer_metric agentstudio_performance_renderer_visibility_equal_suppressed_total)"
-  projection_total="$(renderer_metric agentstudio_performance_renderer_projection_evaluation_total)"
-
-  /usr/bin/python3 - \
+  local phase_ledger_deadline phase_ledger_result last_phase_ledger_failure
+  phase_ledger_deadline=$((SECONDS + 120))
+  last_phase_ledger_failure="required renderer lifecycle metric is missing"
+  while [ "$SECONDS" -lt "$phase_ledger_deadline" ]; do
+    if created_total="$(renderer_metric agentstudio_performance_renderer_created_total)" &&
+      release_total="$(renderer_metric agentstudio_performance_renderer_release_total)" &&
+      free_total="$(renderer_metric agentstudio_performance_renderer_free_total)" &&
+      active_current="$(renderer_metric agentstudio_performance_renderer_active_current)" &&
+      hidden_current="$(renderer_metric agentstudio_performance_renderer_hidden_current)" &&
+      live_current="$(renderer_metric agentstudio_performance_renderer_live_current)" &&
+      manager_owned_current="$(renderer_metric agentstudio_performance_renderer_manager_owned_current)" &&
+      close_undo_current="$(renderer_metric agentstudio_performance_renderer_close_undo_current)" &&
+      orphan_current="$(renderer_metric agentstudio_performance_renderer_orphan_candidate_current)" &&
+      lifecycle_valid="$(renderer_metric agentstudio_performance_renderer_lifecycle_valid)" &&
+      sample_sequence="$(renderer_metric agentstudio_performance_renderer_sample_sequence)" &&
+      visibility_total="$(renderer_metric agentstudio_performance_renderer_visibility_delivery_total)" &&
+      visibility_equal_total="$(renderer_metric agentstudio_performance_renderer_visibility_equal_suppressed_total)" &&
+      projection_total="$(renderer_metric agentstudio_performance_renderer_projection_evaluation_total)" &&
+      phase_ledger_result="$(/usr/bin/python3 - \
     "$phase" "$expected_created" "$expected_released" "$expected_freed" \
     "$created_total" "$release_total" "$free_total" "$active_current" "$hidden_current" \
     "$live_current" "$manager_owned_current" "$close_undo_current" "$orphan_current" \
     "$lifecycle_valid" "$sample_sequence" "$visibility_total" "$visibility_equal_total" \
-    "$projection_total" <<'PY'
+    "$projection_total" 2>&1 <<'PY'
 import sys
 (
     phase, expected_created, expected_released, expected_freed,
@@ -259,13 +267,25 @@ print(
     f"freed={freed:.0f} live={live:.0f} visibility={visibility:.0f} projection={projection:.0f}"
 )
 PY
+)"
+    then
+      printf '%s\n' "$phase_ledger_result"
+      return 0
+    fi
+    if [ -n "${phase_ledger_result:-}" ]; then
+      last_phase_ledger_failure="$phase_ledger_result"
+    fi
+    /bin/sleep 1
+  done
+  echo "$last_phase_ledger_failure" >&2
+  return 1
 }
 
 launch_phase initial
 INITIAL_PID="$APP_PID"
 INITIAL_EXECUTABLE="$(decode_state AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
 INITIAL_ZMX_DIR="$(decode_state AGENTSTUDIO_OBSERVABILITY_ZMX_DIR)"
-wait_for_diagnostic_completion initial 420
+wait_for_diagnostic_completion initial 780
 wait_for_exact_process_exit
 verify_phase_ledger initial
 [ -f "$RESTART_MANIFEST" ] || { echo "renderer lifecycle restart manifest missing" >&2; exit 1; }

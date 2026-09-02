@@ -194,7 +194,9 @@ import Foundation
                 reason: reason,
                 paneCount: RendererLifecycleSoakSchedule.surfaceCount
             )
-            NSApp.terminate(nil)
+            scheduleRendererLifecycleDiagnosticTermination {
+                NSApp.terminate(nil)
+            }
         }
     }
 #endif

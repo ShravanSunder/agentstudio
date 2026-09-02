@@ -20,7 +20,6 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView?
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason)
     func restoreClosedSurface(forPaneID paneID: UUID) -> ManagedSurface?
-    func destroy(_ surfaceId: UUID)
     func permanentlyRelease(
         _ surfaceId: UUID,
         reason: SurfacePermanentReleaseReason

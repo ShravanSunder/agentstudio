@@ -29,6 +29,7 @@ SAMPLES_FILE="$PROOF_ROOT/samples.jsonl"
 PROGRESS_FILE="$PROOF_ROOT/progress.jsonl"
 REPORT_FILE="$PROOF_ROOT/report.json"
 APP_PID=""
+APP_PROOF_LAUNCH=""
 WINDOWSERVER_PID=""
 APP_EXECUTABLE=""
 
@@ -88,7 +89,7 @@ PY
 renderer_metric() {
   local metric_name="${1:?missing renderer metric name}"
   local selector
-  selector='service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$TRACE_NAME"'",process.pid="'"$APP_PID"'",event="performance.renderer.lifecycle"'
+  selector='service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$TRACE_NAME"'",agent.proof.launch="'"$APP_PROOF_LAUNCH"'",event="performance.renderer.lifecycle"'
   query_metric "max($metric_name{$selector})"
 }
 
@@ -347,6 +348,10 @@ done
 [ "$(decode_state AGENTSTUDIO_OBSERVABILITY_ZMX_DIR)" = "$DATA_ROOT/z" ] || { echo "zmx root mismatch" >&2; exit 1; }
 APP_PID="$(decode_state AGENTSTUDIO_OBSERVABILITY_PID)"
 case "$APP_PID" in ""|*[!0-9]*) echo "missing numeric app PID" >&2; exit 1 ;; esac
+APP_PROOF_LAUNCH="$(decode_state AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN)"
+case "$APP_PROOF_LAUNCH" in
+  ""|*[!A-Za-z0-9_.-]*) echo "missing safe proof launch identity" >&2; exit 1 ;;
+esac
 APP_EXECUTABLE="$(decode_state AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
 [ "$(/bin/ps -p "$APP_PID" -o comm= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" = "$APP_EXECUTABLE" ] || {
   echo "app executable mismatch" >&2; exit 1;

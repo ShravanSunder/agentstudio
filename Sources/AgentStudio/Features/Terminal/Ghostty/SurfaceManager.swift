@@ -538,10 +538,6 @@ package final class SurfaceManager {
         return permanentlyRelease(surfaceID, reason: reason)
     }
 
-    package func destroy(_ surfaceId: UUID) {
-        _ = permanentlyRelease(surfaceId, reason: .explicitRemoval)
-    }
-
     // MARK: - Surface Queries
 
     /// Get surface view by ID

@@ -262,6 +262,12 @@ import GhosttyKit
             }
             window.orderOut(nil)
             guard
+                let postOrderOutFacts = windowLifecycleStore.presentationFacts(for: workspaceWindowID),
+                !postOrderOutFacts.isVisible,
+                postOrderOutFacts.isMiniaturized == initialFacts.isMiniaturized,
+                identitiesAreStable()
+            else { return (false, "order_out_not_observed") }
+            guard
                 await waitForExactRendererLifecycleDelivery(
                     checkpoint,
                     surfaceIDs: initialSurfaceIDs,
@@ -271,7 +277,6 @@ import GhosttyKit
                         }
                         return !facts.isVisible
                             && facts.isMiniaturized == initialFacts.isMiniaturized
-                            && facts.isOccluded == initialFacts.isOccluded
                             && identitiesAreStable()
                     })
             else { return (false, "order_out_not_observed") }
@@ -280,6 +285,12 @@ import GhosttyKit
             }
             checkpoint = orderFrontCheckpoint
             window.orderFront(nil)
+            guard
+                let postOrderFrontFacts = windowLifecycleStore.presentationFacts(for: workspaceWindowID),
+                postOrderFrontFacts.isVisible,
+                postOrderFrontFacts.isMiniaturized == initialFacts.isMiniaturized,
+                identitiesAreStable()
+            else { return (false, "order_front_not_observed") }
             guard
                 await waitForExactRendererLifecycleDelivery(
                     checkpoint,

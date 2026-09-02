@@ -4,6 +4,17 @@ import AppKit
 import Foundation
 
 #if DEBUG
+    @MainActor
+    func scheduleRendererLifecycleDiagnosticTermination(
+        _ terminate: @escaping @MainActor () -> Void
+    ) {
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated {
+                terminate()
+            }
+        }
+    }
+
     private struct RendererLifecycleRestartManifest: Codable {
         struct Entry: Codable {
             let paneID: UUID
@@ -73,7 +84,9 @@ import Foundation
             }
             recordRendererLifecycleDiagnosticResult(
                 action: action, succeeded: true, reason: "none", paneCount: fixture.paneIDs.count)
-            NSApp.terminate(nil)
+            scheduleRendererLifecycleDiagnosticTermination {
+                NSApp.terminate(nil)
+            }
         }
 
         func runRendererLifecycleRestartDiagnostic(
@@ -144,7 +157,9 @@ import Foundation
             }
             recordRendererLifecycleDiagnosticResult(
                 action: action, succeeded: true, reason: "none", paneCount: 20)
-            NSApp.terminate(nil)
+            scheduleRendererLifecycleDiagnosticTermination {
+                NSApp.terminate(nil)
+            }
         }
 
         func writeRendererLifecycleRestartManifest(
@@ -181,14 +196,40 @@ import Foundation
         }
 
         private func rendererLifecycleRestartManifestURL() -> URL? {
-            guard
-                let rawPath = ProcessInfo.processInfo.environment[
+            Self.validatedRendererLifecycleRestartManifestURL(
+                rawPath: ProcessInfo.processInfo.environment[
                     "AGENTSTUDIO_RENDERER_LIFECYCLE_RESTART_MANIFEST"
                 ]
-            else { return nil }
+            )
+        }
+
+        static func validatedRendererLifecycleRestartManifestURL(rawPath: String?) -> URL? {
+            guard let rawPath, !rawPath.isEmpty else { return nil }
             let standardizedURL = URL(fileURLWithPath: rawPath).standardizedFileURL
-            guard standardizedURL.path.hasPrefix("/tmp/") else { return nil }
-            return standardizedURL
+            let canonicalTmpURL =
+                if standardizedURL.path.hasPrefix("/tmp/") {
+                    URL(fileURLWithPath: "/private\(standardizedURL.path)")
+                } else {
+                    standardizedURL
+                }
+            let resolvedURL =
+                canonicalTmpURL
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            let containmentURL =
+                if resolvedURL.path.hasPrefix("/tmp/") {
+                    URL(fileURLWithPath: "/private\(resolvedURL.path)")
+                } else {
+                    resolvedURL
+                }
+            guard containmentURL.lastPathComponent == "restart-manifest.json" else { return nil }
+
+            let proofRootPath = containmentURL.deletingLastPathComponent().path
+            let dedicatedProofRootPrefix = "/private/tmp/agentstudio-renderer-lifecycle."
+            guard proofRootPath.hasPrefix(dedicatedProofRootPrefix) else { return nil }
+            let proofRootSuffix = proofRootPath.dropFirst(dedicatedProofRootPrefix.count)
+            guard !proofRootSuffix.isEmpty, !proofRootSuffix.contains("/") else { return nil }
+            return containmentURL
         }
     }
 #endif

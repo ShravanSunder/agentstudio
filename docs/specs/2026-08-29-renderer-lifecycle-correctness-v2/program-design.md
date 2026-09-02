@@ -135,6 +135,17 @@ or close callbacks. One idempotent teardown used by `shutdown` and controller
 timer, polling loop, atom, or second presentation owner is added. Another
 window cannot enter this instance-bound path.
 
+The native proof observes ordering and occlusion as distinct ingress edges
+without assuming AppKit keeps their values unchanged across one public ordering
+operation. Immediately after `orderOut` or `orderFront` returns, the diagnostic
+captures the tuple already published by the synchronous ordering callback and
+requires the expected `isVisible` value with miniaturization unchanged. It then
+allows AppKit's existing occlusion callback to converge the complete tuple and
+validates the cumulative exact-surface delivery against the final effective
+visibility. A later occlusion wake that leaves effective visibility unchanged
+must be equality-suppressed. The separate cover-window scenario continues to
+prove occlusion ingress directly.
+
 `Ghostty.SurfaceView` is a MainActor AppKit UI owner and the pinned libghostty
 surface API remains MainActor-bound. Its `isolated deinit` synchronously calls
 `ghostty_surface_free` while `self` and the pass-unretained userdata still live,
@@ -354,9 +365,10 @@ Separate delegate callbacks for key, miniaturization, occlusion, and close
   -> ApplicationLifecycleMonitor.handleWindowPresentationChanged[current]
   -> WindowLifecycleAtom.recordWindowPresentation               [current write]
 
-Observable result: orderOut/orderFront can change `NSWindow.isVisible` while
-miniaturization and occlusion remain unchanged, and no existing callback is
-guaranteed to refresh `WindowPresentationFacts` for that transition.
+Observable result: `orderOut`/`orderFront` synchronously change
+`NSWindow.isVisible` while miniaturization remains unchanged. AppKit may then
+publish a related occlusion transition; no existing callback is guaranteed to
+refresh `WindowPresentationFacts` for the preceding visibility transition.
 
 PROPOSED
 MainWindowController creates its exact WorkspaceWindow           [changed concrete type]
@@ -378,16 +390,18 @@ controller shutdown / lifecycle teardown
   -> later ordering cannot mutate window facts                   [added terminal result]
 ```
 
-Order-off and order-on are independent visibility causes. Neither requires a
-miniaturization change, an occlusion change, a key transition, or close. Close
-retains its explicit forced-hidden write and shutdown path; the subclass hook
-only closes the ordinary `orderOut`/`orderFront` ingress gap. Instance-bound
-delivery preserves the existing one-window authority and prevents another
-AppKit window from changing this workspace window's facts. Required native
-proof calls real `orderOut` and `orderFront` to establish that those public
-entrypoints cross the override and expose the updated tuple after `super`
-returns; failure of either observation is a design falsifier, not permission
-to add polling or an undocumented notification.
+Order-off and order-on are visibility causes independent of miniaturization and
+close. They do not require a separate occlusion command, but AppKit may publish
+an occlusion change after the ordering callback. Close retains its explicit
+forced-hidden write and shutdown path; the subclass hook only closes the
+ordinary `orderOut`/`orderFront` visibility-ingress gap. Instance-bound delivery
+preserves the existing one-window authority and prevents another AppKit window
+from changing this workspace window's facts. Required native proof calls real
+`orderOut` and `orderFront`, captures the synchronous post-order visibility
+tuple before yielding, then validates eventual complete-tuple convergence and
+exact cumulative delivery. Failure to observe the synchronous visibility value
+is a design falsifier, not permission to add polling or an undocumented
+notification.
 
 ### User close, undo, expiry, and permanent replacement
 
@@ -804,7 +818,7 @@ soak. They do not claim direct observation of exact Metal command buffers.
 | Undo after surface expiry | workspace undo remains after SurfaceManager entry expires | exact-pane lookup expires due entries before matching; manager releases old entry; later undo → fresh `createViewForContentUsingCurrentGeometry` | old host already gone; old surface reaches deinit/free; new surface/host has new identity | new renderer zmx-attaches the existing durable session; it is never reported as reused | interleaved 299/300 boundaries, old free, new instance, durable session readback |
 | Repair / recreate | repair preserves canonical pane/runtime and replaces only renderer/host | `executeRepair(.recreateSurface)` currently calls close teardown; proposed permanent-replacement disposition | old manager ownership ends without undo; exact old host cycle breaks; new host registers only after release path | old surface frees; new created-paused surface attaches and reconciles; zmx continuity preserved | 20 sequential repairs, steady manager/live population, release-before-free orphan interval |
 | Launch / app restart | persisted workspace composition and durable zmx sessions are re-admitted in a new process | app boot → prepared content cohort → terminal activation/mount → launch focus tail | new registry/manager/recorder; no prior host/surface/undo identity survives | each new surface begins paused and reconciles from new-run projection; counters begin at zero | new run marker/PID, new instance IDs, durable output continuity only |
-| Window `orderOut` / `orderFront` | `NSWindow.isVisible` changes independently of miniaturization, occlusion, key, or close | public ordering enters `NSWindow.order(_:relativeTo:)`; the current concrete `NSWindow` provides no post-order controller ingress, so the presentation tuple can remain stale | hosts and manager membership remain; no session change | `WorkspaceWindow` reports after `super` returns; controller resamples all facts; order-out makes every attached result false, order-front recomputes the full conjunction | real `orderOut`/`orderFront` prove override entry and post-order tuple, exact atom/evaluation/native-delivery counts, callback cleared at teardown |
+| Window `orderOut` / `orderFront` | `NSWindow.isVisible` changes independently of miniaturization and close; AppKit may subsequently co-change occlusion | public ordering enters `NSWindow.order(_:relativeTo:)`; the current concrete `NSWindow` provides no post-order controller ingress, so the presentation tuple can remain stale | hosts and manager membership remain; no session change | `WorkspaceWindow` reports after `super` returns; controller resamples all facts; order-out makes every attached result false, order-front recomputes the full conjunction; later occlusion ingress converges the tuple and equal effective results are suppressed | real `orderOut`/`orderFront` prove synchronous post-order visibility, eventual tuple convergence, cumulative exact atom/evaluation/native-delivery counts, and callback teardown; cover-window proof owns direct occlusion evidence |
 | Window miniaturize / restore | `NSWindow.isMiniaturized` changes; visibility/occlusion may also be resampled | `windowDidMiniaturize` / `windowDidDeminiaturize` → controller snapshot → `ApplicationLifecycleMonitor` → `WindowLifecycleAtom` | hosts and manager membership remain; no session change | minimized makes every attached result false; restore recomputes from the complete current tuple | real miniaturize/deminiaturize independently from order-out and close; atom, native delivery/equality, lifecycle conservation, and V7 graphics footprint |
 | Window occlude / reveal | `NSWindow.occlusionState` changes | `windowDidChangeOcclusionState` → controller snapshot → `ApplicationLifecycleMonitor` → `WindowLifecycleAtom` | hosts and manager membership remain; no session change | occluded makes every attached result false; reveal recomputes from the complete current tuple | real occlusion/reveal independently from order-out, miniaturization, and close; atom, native delivery/equality, lifecycle conservation, and V7 graphics footprint |
 | Real display sleep / wake | assumed AppKit occlusion change; no direct sleep state | expected `windowDidChangeOcclusionState` → existing window-fact chain; callback/value is unproven until runtime | no host/manager lifetime change | if occlusion becomes true, all pause and later reconcile; if it remains visible, only the optional display-sleep claim stops with A1 falsified | optional isolated sleep/wake extension; no invented sleep channel and no effect on ordinary-path readiness |
@@ -954,13 +968,13 @@ same-count surface replacement         exact binding set     population callback
 exact binding, pane fact, zoom, or     trigger/evaluation    each distinct trigger rearms/evaluates once;
 window fact changes                                           equal effective results make zero native calls
 
-orderOut with miniaturization and      exact WorkspaceWindow resample all three facts after super returns;
-occlusion unchanged                    ordering callback     isVisible=false reaches every attached renderer
-                                                             independently of close
+orderOut with miniaturization          exact WorkspaceWindow synchronously publish isVisible=false after super;
+unchanged and no close                 ordering callback     later occlusion convergence may re-evaluate but
+                                                             an equal effective result makes no native call
 
-orderFront with miniaturization and    exact WorkspaceWindow resample all three facts after super returns;
-occlusion unchanged                    ordering callback     resulting conjunction, not order alone, decides
-                                                             each renderer
+orderFront with miniaturization        exact WorkspaceWindow synchronously publish isVisible=true after super;
+unchanged and no close                 ordering callback     eventual complete tuple, including any later
+                                                             occlusion convergence, decides each renderer
 
 ordering on another window             instance-bound hook   ignored; no facts, evaluation, or native delivery
 
@@ -1082,7 +1096,7 @@ boundaries.
 
 | Requirement | Structural realization | Observable proof seam | Enforcement class |
 | --- | --- | --- | --- |
-| R1, R2, R3 | complete projection in coordinator; exact manager delivery; instance-bound `WorkspaceWindow` post-order ingress owned by the controller | deterministic projection/native-delivery behavior plus real `orderOut`/`orderFront` with miniaturization, occlusion, and close held independent; lifecycle conservation and V7 graphics-footprint/normalized-pressure slopes | interface + behavior tests + native window proof + operational soak |
+| R1, R2, R3 | complete projection in coordinator; exact manager delivery; instance-bound `WorkspaceWindow` post-order ingress owned by the controller | deterministic projection/native-delivery behavior plus real `orderOut`/`orderFront` with synchronous visibility observation, miniaturization and close held unchanged, eventual occlusion convergence, and cumulative exact delivery; lifecycle conservation and V7 graphics-footprint/normalized-pressure slopes | interface + behavior tests + native window proof + operational soak |
 | R4 | create paused, attach/order-front without unconditional true, first complete projection-derived reveal | deterministic creation/delivery order; `orderFront` resamples the complete tuple before reveal; native visibility observation and V7 graphics-footprint/normalized-pressure slopes | runtime guard + integration test + native window proof + operational soak |
 | R5 | `@ObservationIgnored` manager collections, explicit exact-binding callback, and per-`ManagedSurface` delivered equality before C boundary | manager health/CWD/delivered rewrites produce zero projection evaluation; exact binding, pane fact, zoom, and window changes each rearm/evaluate once; equal effective results produce zero native delivery | observation boundary + runtime guard + metric test |
 | R6 | weak exact-manager focus requester plus delivered-visibility gate | two-manager routing/lifetime tests, writer inventory, native delivery/equality counts, and V7 graphics-footprint/normalized-pressure slopes | interface + source/behavior test + operational soak |
@@ -1094,16 +1108,16 @@ boundaries.
 | R14 | recorder/manager/registry are process-run state; canonical/zmx restore only | restart produces new marker, counters, host/surface identity and durable output | process boundary + runtime proof |
 | R15–R16 | synchronized recorder deltas/gauges and exact orphan algebra; post-free delta originates on MainActor only after synchronous native free | source projection/metric mapping, ordered release → orphan → isolated deinit/free → one post-free sample, every-sample lifecycle algebra, and the complete V7 run/PID-bound soak series | MainActor free ordering + lock boundary + tests + operational metrics |
 | R17 | explicit OTLP allowlist; exact identity JSONL-only; fail-open recorder | projection rejection tests and collector-unavailable operation | allowlist + integration/runtime |
-| R18 | ordinary window ordering ingress through the `WorkspaceWindow` override plus the distinct existing occlusion path; real sleep A1 falsifier | required ordinary-window proof exercises real `orderOut`/`orderFront`, proves override entry and post-order tuple independently of miniaturization, occlusion, and close; optional sleep claim separately requires one real sleep/wake and observed occlusion/result | native window proof + runtime falsifier |
+| R18 | ordinary window ordering ingress through the `WorkspaceWindow` override plus the distinct existing occlusion path; real sleep A1 falsifier | required ordinary-window proof exercises real `orderOut`/`orderFront`, proves synchronous post-order visibility independently of miniaturization and close, permits later AppKit occlusion convergence, and validates cumulative exact delivery; optional sleep claim separately requires one real sleep/wake and observed occlusion/result | native window proof + runtime falsifier |
 | R19 | existing owners and one-window binding; no prohibited system | source/diff boundary inspection and isolated debug/beta identity | architecture/static review + runtime identity |
 
 The proof architecture consumes V1–V8 without adding an exact-commit gate:
 
 | Proof obligation | Required design observation | Claim boundary |
 | --- | --- | --- |
-| V1 effective visibility | deterministic coverage of every projection/window term and conjunction; create/attach/reveal ordering; real `orderOut`/`orderFront` with miniaturization and occlusion unchanged and no close; real native false delivery; equality suppression; lifecycle conservation; V7 graphics-footprint and normalized-pressure behavior | no direct exact Metal-commit claim is required |
+| V1 effective visibility | deterministic coverage of every projection/window term and conjunction; create/attach/reveal ordering; real `orderOut`/`orderFront` with synchronous visibility observation, miniaturization unchanged, no close, eventual complete-tuple convergence, real native false delivery, and equality suppression of an equivalent later occlusion wake; lifecycle conservation; V7 graphics-footprint and normalized-pressure behavior | no direct exact Metal-commit claim is required |
 | V2 session continuity | one real zmx-backed session keeps its PTY/session identity, produces output while hidden, and reveals or repairs with that output current | renderer visibility never stands in for session lifetime |
-| V3 presentation continuity | native tab, drawer, arrangement, background, zoom, minimize, remount, and reveal interaction preserves every canonical pane and exact content; window proof orders the exact window off and on screen independently of miniaturization, occlusion, and close | display sleep is not part of ordinary-window completion |
+| V3 presentation continuity | native tab, drawer, arrangement, background, zoom, minimize, remount, and reveal interaction preserves every canonical pane and exact content; window proof orders the exact window off and on screen with miniaturization and close unchanged while allowing AppKit's occlusion state to converge | display sleep is not part of ordinary-window completion |
 | V4 retention separation | one controlled time source proves temporary retention, immediate undo, 299-second eligibility, exact 300-second expiry, new renderer after expiry, permanent replacement, and restart | nonmatching undo entries retain original order and deadlines |
 | V5 lifetime and repair | the exact retired host becomes weakly released; dropping the last old-instance reference from an off-main task causes `SurfaceView` isolated deinit on MainActor, synchronous `ghostty_surface_free`, then exactly one post-free accounting event; repeated repair reaches a conserved steady population | logical release alone is not deallocation; no raw handle escapes deinit; replacement remains intact |
 | V6 no redundant work | manager-only health/CWD/delivered rewrites produce zero projection evaluations; exact binding, pane fact, zoom, and window changes each rearm/evaluate once; fleet-scale equal projection produces zero native delivery and changed delivery count equals the changed exact-surface set | exact command-buffer counts are optional attribution only |
@@ -1138,8 +1152,9 @@ following boundaries may not be replaced for completion evidence:
   reveal/recreate;
 - a real AppKit workspace window for hide, minimize, occlusion, tab, drawer,
   arrangement, zoom, and native remount interaction, including exact-window
-  `orderOut`/`orderFront` while miniaturization and occlusion remain unchanged
-  and close is not invoked;
+  `orderOut`/`orderFront` with synchronous post-order visibility, unchanged
+  miniaturization, no close, and eventual complete-tuple convergence; direct
+  occlusion remains separately exercised by a real cover window;
 - source-scrubbed OTLP through the current marker/PID-bound shared stack;
 - the fixed 20-surface V7 soak with Agent Studio
   physical/IOSurface/IOAccelerator footprint, WindowServer footprint,
@@ -1186,9 +1201,13 @@ evaluation, one rearm/evaluation for each exact binding, pane-fact, zoom, and
 window trigger, equal projection with zero native delivery, and changed
 projections whose native delivery count equals the changed surface set.
 Required ordinary-window cases call `orderOut` and `orderFront` on the exact
-workspace window while miniaturization and occlusion are held unchanged and
-close is not invoked; each transition must update the complete window facts,
-reconcile once, and preserve every renderer/session identity.
+workspace window while miniaturization is held unchanged and close is not
+invoked. Each call must synchronously publish the expected visibility value,
+then allow AppKit's existing occlusion ingress to converge the complete tuple.
+The cumulative changed-surface/native-delivery count must equal the exact
+effective-visibility delta; any later equal occlusion wake performs no native
+delivery. Every renderer/session identity remains stable. Direct occlusion is
+proved separately with the real cover-window scenario.
 
 The certification workload remains exactly the Specification's V7 soak: one
 fresh isolated debug or beta process with 20 zmx-backed surfaces across at

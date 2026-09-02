@@ -25,13 +25,27 @@ struct RendererLifecycleWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=\"$DATA_ROOT\""))
         #expect(source.contains("decode_state AGENTSTUDIO_OBSERVABILITY_MARKER"))
         #expect(source.contains("APP_PID=\"$(decode_state AGENTSTUDIO_OBSERVABILITY_PID)\""))
-        #expect(source.contains("process.pid=\"'\"$APP_PID\"'\""))
+        #expect(
+            source.contains(
+                "APP_PROOF_LAUNCH=\"$(decode_state AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN)\""
+            )
+        )
+        #expect(source.contains("agent.proof.launch=\"'\"$APP_PROOF_LAUNCH\"'\""))
+        #expect(
+            !source.contains(
+                "process.pid=\"'\"$APP_PID\"'\",event=\"performance.renderer.lifecycle\""
+            )
+        )
         #expect(source.contains("kill -0 \"$APP_PID\""))
         #expect(source.contains("kill \"$APP_PID\""))
+        #expect(source.contains("phase_ledger_deadline=$((SECONDS + 120))"))
+        #expect(source.contains("while [ \"$SECONDS\" -lt \"$phase_ledger_deadline\" ]"))
+        #expect(source.contains("last_phase_ledger_failure"))
+        #expect(source.contains("/bin/sleep 1"))
         #expect(source.contains("required renderer lifecycle metric is missing"))
         #expect(source.contains("launch_phase initial"))
         #expect(source.contains("launch_phase restart"))
-        #expect(source.contains("wait_for_diagnostic_completion initial 420"))
+        #expect(source.contains("wait_for_diagnostic_completion initial 780"))
         #expect(source.contains("return value is True or (isinstance(value, str) and value.lower() == \"true\")"))
         #expect(source.contains("wait_for_exact_process_exit"))
         #expect(source.contains("initial) expected_created=41; expected_released=21; expected_freed=21"))
@@ -98,6 +112,12 @@ struct RendererLifecycleWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_RENDERER_LIFECYCLE_PHASE=soak"))
         #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=\"$DATA_ROOT\""))
         #expect(source.contains("APP_PID=\"$(decode_state AGENTSTUDIO_OBSERVABILITY_PID)\""))
+        #expect(
+            source.contains(
+                "APP_PROOF_LAUNCH=\"$(decode_state AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN)\""
+            )
+        )
+        #expect(source.contains("agent.proof.launch=\"'\"$APP_PROOF_LAUNCH\"'\""))
         #expect(source.contains("WINDOWSERVER_PID=\"$(discover_windowserver_pid)\""))
         #expect(source.contains("kill \"$APP_PID\""))
         #expect(source.contains("sample_fixed_window warmup 60"))
