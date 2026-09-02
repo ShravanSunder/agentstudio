@@ -519,7 +519,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         #expect(await visibleTierWaitUntil { await calls.count == 1 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(atLeast: 2)
         clock.advance(by: policy.visibleSidebarCadence)
         #expect(await visibleTierWaitUntil { await calls.count == 2 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
