@@ -352,7 +352,8 @@ var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
                 "agentstudio.bridge.viewer.ttfi_variant": "warm",
             ],
             extraNumbers: [
-                "agentstudio.bridge.visible_item.count": 8
+                "agentstudio.bridge.activation.sequence": 7,
+                "agentstudio.bridge.visible_item.count": 8,
             ]
         ),
     ]

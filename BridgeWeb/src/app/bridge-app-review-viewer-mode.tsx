@@ -69,6 +69,9 @@ import { useBridgeReviewControlEventListeners } from './use-bridge-review-contro
 import { useBridgeViewerToolbarShortcuts } from './use-bridge-viewer-toolbar-shortcuts.js';
 
 export interface BridgeReviewViewerModeProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly activationSequence?: number;
+	readonly activationStartedAtPerfNow?: number;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly isActive: boolean;
@@ -115,6 +118,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 
 function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
+		activationCause,
+		activationSequence,
+		activationStartedAtPerfNow,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		isActive,
@@ -507,6 +513,9 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		selectReviewItem: selectReviewItemAndRevealTree,
 	});
 	const presentationState = reviewPresentationState({
+		activationCause,
+		activationSequence,
+		activationStartedAtPerfNow,
 		codeViewOptions,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
@@ -611,6 +620,9 @@ export function reviewComparisonPaneStateForRefreshPresentation(props: {
 }
 
 function reviewPresentationState(props: {
+	readonly activationCause: BridgeReviewViewerModeProps['activationCause'];
+	readonly activationSequence: number | undefined;
+	readonly activationStartedAtPerfNow: number | undefined;
 	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
 	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
 	readonly onAnnotationAttentionItemIdsChange: (itemIds: readonly string[]) => void;
@@ -673,6 +685,13 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			...(props.activationCause === undefined ? {} : { activationCause: props.activationCause }),
+			...(props.activationSequence === undefined
+				? {}
+				: { activationSequence: props.activationSequence }),
+			...(props.activationStartedAtPerfNow === undefined
+				? {}
+				: { activationStartedAtPerfNow: props.activationStartedAtPerfNow }),
 			comparisonPaneState: props.comparisonPaneState,
 			codeViewOptions: props.codeViewOptions,
 			facetMenuOpen: props.facetMenuOpen,

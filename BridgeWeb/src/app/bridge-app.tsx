@@ -210,10 +210,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, []);
 	useBridgeCommWorkerSessionTelemetry(telemetryRecorder, paneRuntimeHost.runtime);
-	const activateViewerMode = useCallback(
+	const beginViewerActivation = useCallback(
 		(
 			viewerMode: BridgeViewerMode,
 			cause: BridgeViewerActivation['cause'] = 'context_switcher',
+			currentState: BridgeAppNavigationAdmissionState,
 		): BridgeViewerActivation | null => {
 			setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
 				if (currentMountedViewerModes.has(viewerMode)) {
@@ -221,7 +222,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				}
 				return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
 			});
-			const currentState = navigationAdmissionStateRef.current;
 			if (currentState.activeSurface === viewerMode) return null;
 			viewerActivationSequenceRef.current += 1;
 			const activation = {
@@ -240,12 +240,24 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				viewer: viewerMode,
 			});
 			setViewerActivation(activation);
+			return activation;
+		},
+		[telemetryRecorder],
+	);
+	const activateViewerMode = useCallback(
+		(
+			viewerMode: BridgeViewerMode,
+			cause: BridgeViewerActivation['cause'] = 'context_switcher',
+		): BridgeViewerActivation | null => {
+			const currentState = navigationAdmissionStateRef.current;
+			const activation = beginViewerActivation(viewerMode, cause, currentState);
+			if (activation === null) return null;
 			const nextState = { ...currentState, activeSurface: viewerMode };
 			navigationAdmissionStateRef.current = nextState;
 			setNavigationAdmissionState(nextState);
 			return activation;
 		},
-		[telemetryRecorder],
+		[beginViewerActivation],
 	);
 	const activateViewerModeFromContextSwitcher = useCallback(
 		(viewerMode: BridgeViewerMode): void => {
@@ -273,13 +285,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			const currentState = navigationAdmissionStateRef.current;
 			const nextState = applyBridgeAppNavigationCommand(currentState, request.navigationCommand);
 			if (nextState === currentState) return;
+			beginViewerActivation(nextState.activeSurface, 'native_request', currentState);
 			nativeSurfaceSelectionArrivalRevisionRef.current += 1;
 			const arrivalRevision = nativeSurfaceSelectionArrivalRevisionRef.current;
 			pendingNativeSurfaceSelectionRef.current = { arrivalRevision, request };
 			navigationAdmissionStateRef.current = nextState;
 			setNavigationAdmissionState(nextState);
 		},
-		[],
+		[beginViewerActivation],
 	);
 	useEffect((): (() => void) => {
 		recordBridgePageReadyState('awaiting');
@@ -783,18 +796,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	]);
 	useEffect((): void => {
 		if (incomingViewerMode === undefined) return;
-		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
-			if (currentMountedViewerModes.has(incomingViewerMode)) {
-				return currentMountedViewerModes;
-			}
-			return new Set<BridgeViewerMode>([...currentMountedViewerModes, incomingViewerMode]);
-		});
-		const currentState = navigationAdmissionStateRef.current;
-		if (currentState.activeSurface === incomingViewerMode) return;
-		const nextState = { ...currentState, activeSurface: incomingViewerMode };
-		navigationAdmissionStateRef.current = nextState;
-		setNavigationAdmissionState(nextState);
-	}, [incomingViewerMode]);
+		activateViewerMode(incomingViewerMode, 'native_request');
+	}, [activateViewerMode, incomingViewerMode]);
 	useEffect((): void => {
 		bridgeViewerActivationPrewarm({
 			activeViewerMode,
@@ -876,6 +879,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeReviewViewerMode
 						{...props}
+						{...(viewerActivation?.viewer === 'review'
+							? {
+									activationCause: viewerActivation.cause,
+									activationSequence: viewerActivation.sequence,
+									activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
+								}
+							: {})}
 						isActive={activeViewerMode === 'review'}
 						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
 						target={target}

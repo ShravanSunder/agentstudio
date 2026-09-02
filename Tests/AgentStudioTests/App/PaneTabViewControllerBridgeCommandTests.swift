@@ -5,6 +5,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioBridge
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 private enum BridgeCommandRecencyTestError: Error {
@@ -162,6 +163,50 @@ extension WebKitSerializedTests {
                     #expect(snapshot.lastAcceptedRequest == nil)
                 }
             }
+        }
+
+        @Test("new Bridge pane command carries its App-owned viewer-open anchor into bootstrap")
+        func newBridgePaneCommandCarriesAppOwnedViewerOpenAnchor() async throws {
+            let traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+            let anchor = BridgeViewerOpenTelemetryAnchor(
+                openEpochUnixMillis: 1_750_000_000_456,
+                traceparent: traceparent
+            )
+            let traceDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "agentstudio-viewer-open-anchor-\(UUIDv7.generate().uuidString)")
+            defer { try? FileManager.default.removeItem(at: traceDirectory) }
+            let traceRuntime = AgentStudioTraceRuntime(
+                configuration: AgentStudioTraceConfiguration.from(environment: [
+                    "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                    "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                    "AGENTSTUDIO_TRACE_NAME": "viewer-open-anchor",
+                    "AGENTSTUDIO_TRACE_TAGS": "bridge.performance.web",
+                ]),
+                processIdentifier: 456,
+                timeUnixNano: { 1 }
+            )
+            try await withBridgeCommandHarness(
+                traceRuntime: traceRuntime,
+                bridgeViewerOpenTelemetryAnchorFactory: { anchor },
+                { harness in
+                    let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+                    let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
+
+                    harness.controller.execute(
+                        .openBridgeReviewInNewTab,
+                        target: worktree.id,
+                        targetType: .worktree
+                    )
+
+                    let pane = try #require(
+                        singleCreatedBridgePane(in: harness, excluding: baselinePaneIds)
+                    )
+                    let controller = try #require(harness.viewRegistry.allBridgeViews[pane.id]?.controller)
+                    let script = controller.bootstrapScriptSourceForTesting
+                    #expect(script.contains("1750000000456"))
+                    #expect(script.contains(traceparent))
+                }
+            )
         }
 
         @Test("Bridge Web View Reload is available only for the active mounted Bridge pane")
@@ -571,10 +616,17 @@ private func dispatchBridgeCommand(
 
 @MainActor
 private func withBridgeCommandHarness<TResult>(
+    traceRuntime: AgentStudioTraceRuntime? = nil,
+    bridgeViewerOpenTelemetryAnchorFactory: @escaping @MainActor () -> BridgeViewerOpenTelemetryAnchor = {
+        .live()
+    },
     _ operation: @MainActor (PaneTabViewControllerCommandHarness) async throws -> TResult
 ) async rethrows -> TResult {
     try await withAsyncTestCoreAtoms { _ in
-        let harness = makeHarness()
+        let harness = makeHarness(
+            traceRuntime: traceRuntime,
+            bridgeViewerOpenTelemetryAnchorFactory: bridgeViewerOpenTelemetryAnchorFactory
+        )
         do {
             let result = try await operation(harness)
             await finishBridgeCommandHarness(harness)

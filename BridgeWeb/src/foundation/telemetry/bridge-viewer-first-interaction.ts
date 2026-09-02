@@ -50,6 +50,7 @@ export function resetBridgeViewerFirstInteractionStateForTesting(): void {
 }
 
 export interface RecordBridgeViewerFirstInteractionReadyProps {
+	readonly activationSequence?: number | null;
 	readonly viewer: 'file' | 'review';
 	readonly telemetryRecorder: BridgeTelemetryRecorder | undefined;
 	readonly mountStartedAtPerfNow: number;
@@ -89,6 +90,9 @@ export function recordBridgeViewerFirstInteractionReady(
 		hasEmittedColdFirstInteraction = true;
 	}
 	recordBridgeViewerFirstInteractionReadyTelemetrySample({
+		...(props.activationSequence === null || props.activationSequence === undefined
+			? {}
+			: { activationSequence: props.activationSequence }),
 		durationMilliseconds,
 		telemetryRecorder: recorder,
 		traceContext,

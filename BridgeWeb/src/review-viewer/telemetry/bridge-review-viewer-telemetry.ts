@@ -99,12 +99,24 @@ export interface RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryProps
 }
 
 export interface RecordBridgeSelectedContentPaintedTelemetryProps {
+	readonly activationSequence?: number;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly clickToPaintMilliseconds: number;
 	readonly frameWaitMilliseconds: number;
 	readonly materializeMilliseconds: number;
 	readonly transport?: 'swift' | 'worker';
+}
+
+export interface ScheduleBridgeReviewActivationSelectedContentPaintProps {
+	readonly activationSequence: number;
+	readonly activationStartedAtPerfNow: number;
+	readonly cancelAnimationFrame?: (frameId: number) => void;
+	readonly now?: () => number;
+	readonly onPainted?: () => void;
+	readonly requestAnimationFrame?: (callback: () => void) => number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
 }
 
 export interface RecordBridgeSelectedContentDroppedTelemetryProps {
@@ -237,6 +249,9 @@ export function recordBridgeSelectedContentPaintedTelemetry(
 	props: RecordBridgeSelectedContentPaintedTelemetryProps,
 ): void {
 	recordBridgeSelectedContentPaintedTelemetrySample({
+		...(props.activationSequence === undefined
+			? {}
+			: { activationSequence: props.activationSequence }),
 		telemetryRecorder: props.telemetryRecorder,
 		traceContext: props.traceContext,
 		clickToPaintMilliseconds: props.clickToPaintMilliseconds,
@@ -245,6 +260,33 @@ export function recordBridgeSelectedContentPaintedTelemetry(
 		transport: props.transport ?? 'swift',
 		viewer: 'review',
 	});
+}
+
+export function scheduleBridgeReviewActivationSelectedContentPaint(
+	props: ScheduleBridgeReviewActivationSelectedContentPaintProps,
+): () => void {
+	const now = props.now ?? performance.now.bind(performance);
+	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
+	const cancelFrame = props.cancelAnimationFrame ?? cancelAnimationFrame;
+	let isCancelled = false;
+	const frameId = requestFrame((): void => {
+		if (isCancelled) return;
+		const paintedAtPerfNow = now();
+		recordBridgeSelectedContentPaintedTelemetry({
+			activationSequence: props.activationSequence,
+			clickToPaintMilliseconds: paintedAtPerfNow - props.activationStartedAtPerfNow,
+			frameWaitMilliseconds: paintedAtPerfNow - props.activationStartedAtPerfNow,
+			materializeMilliseconds: 0,
+			telemetryRecorder: props.telemetryRecorder,
+			traceContext: props.traceContext,
+			transport: 'swift',
+		});
+		props.onPainted?.();
+	});
+	return (): void => {
+		isCancelled = true;
+		cancelFrame(frameId);
+	};
 }
 
 export function recordBridgeSelectedContentDroppedTelemetry(

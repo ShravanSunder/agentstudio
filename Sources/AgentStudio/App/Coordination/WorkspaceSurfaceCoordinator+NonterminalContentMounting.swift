@@ -1,3 +1,4 @@
+import AgentStudioBridge
 import AgentStudioCodeViewer
 import AgentStudioCore
 import AgentStudioWebview
@@ -8,8 +9,16 @@ import Foundation
 extension WorkspaceSurfaceCoordinator {
     /// Mount one nonterminal pane selected by a steady-state user action.
     @discardableResult
-    func mountCurrentNonterminalContent(pane: Pane) -> NSView? {
-        guard let mountedView = mountNonterminalContent(pane: pane) else { return nil }
+    func mountCurrentNonterminalContent(
+        pane: Pane,
+        bridgeViewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil
+    ) -> NSView? {
+        guard
+            let mountedView = mountNonterminalContent(
+                pane: pane,
+                bridgeViewerOpenTelemetryAnchor: bridgeViewerOpenTelemetryAnchor
+            )
+        else { return nil }
         registerPaneFilesystemContextIfNeeded(for: pane)
         return mountedView
     }
@@ -21,11 +30,14 @@ extension WorkspaceSurfaceCoordinator {
     /// never registers filesystem projection or reads repository topology.
     @discardableResult
     func mountPreparedNonterminalContent(pane: Pane) -> NSView? {
-        mountNonterminalContent(pane: pane)
+        mountNonterminalContent(pane: pane, bridgeViewerOpenTelemetryAnchor: nil)
     }
 
     @discardableResult
-    private func mountNonterminalContent(pane: Pane) -> NSView? {
+    private func mountNonterminalContent(
+        pane: Pane,
+        bridgeViewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
+    ) -> NSView? {
         viewRegistry.ensureSlot(for: pane.id)
 
         switch pane.content {
@@ -69,7 +81,11 @@ extension WorkspaceSurfaceCoordinator {
             return view
 
         case .bridgePanel(let state):
-            return createBridgePaneView(for: pane, state: state)
+            return createBridgePaneView(
+                for: pane,
+                state: state,
+                viewerOpenTelemetryAnchor: bridgeViewerOpenTelemetryAnchor
+            )
 
         case .unsupported:
             Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")

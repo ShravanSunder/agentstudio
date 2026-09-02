@@ -473,6 +473,7 @@ extension WebKitSerializedTests {
                         baseline: .localDefaultBranch(branchName: "main"))
                 ),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
+                viewerOpenTelemetryAnchor: nil,
                 bridgeWorld: .page
             )
 
@@ -496,6 +497,7 @@ extension WebKitSerializedTests {
                 paneId: paneId,
                 state: state,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
+                viewerOpenTelemetryAnchor: nil,
                 bridgeWorld: .page
             )
 
@@ -503,6 +505,40 @@ extension WebKitSerializedTests {
             #expect(artifacts.script.source.contains("data-bridge-app-protocol"))
             #expect(!artifacts.script.source.contains("data-bridge-worktree-file-source-spec"))
             #expect(!artifacts.script.source.contains(StableKey.fromPath(rootPath)))
+        }
+
+        @Test("Bridge bootstrap transports the App-owned viewer-open anchor unchanged")
+        func bridgeBootstrapTransportsAppOwnedViewerOpenAnchor() {
+            let traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+            let anchor = BridgeViewerOpenTelemetryAnchor(
+                openEpochUnixMillis: 1_750_000_000_123,
+                traceparent: traceparent
+            )
+
+            let artifacts = BridgePaneController.makeBootstrapArtifacts(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+                viewerOpenTelemetryAnchor: anchor,
+                bridgeWorld: .page
+            )
+
+            #expect(artifacts.script.source.contains("1750000000123"))
+            #expect(artifacts.script.source.contains(traceparent))
+        }
+
+        @Test("Bridge bootstrap does not fabricate a user-open anchor for non-user construction")
+        func bridgeBootstrapDoesNotFabricateUserOpenAnchor() {
+            let artifacts = BridgePaneController.makeBootstrapArtifacts(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+                viewerOpenTelemetryAnchor: nil,
+                bridgeWorld: .page
+            )
+
+            #expect(!artifacts.script.source.contains("viewerOpenEpochUnixMillis"))
+            #expect(!artifacts.script.source.contains("viewerOpenTraceparent"))
         }
 
         @Test("createViewForContent registers runtime for bridge, webview, and code viewer panes")

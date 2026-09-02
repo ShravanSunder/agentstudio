@@ -43,6 +43,7 @@ package final class BridgePaneController {
         let productSessionRouter: BridgeProductSchemeSessionRouter
         let bridgeWorld: WKContentWorld
         let managementScript: WKUserScript
+        let viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
     }
 
     // MARK: - Public State
@@ -139,6 +140,7 @@ package final class BridgePaneController {
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil,
         initialPaneActivity: BridgePaneActivity,
         productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
         telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
@@ -231,7 +233,8 @@ package final class BridgePaneController {
                 telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
                 productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter,
                 bridgeWorld: bridgeWorld,
-                managementScript: initialManagementScript
+                managementScript: initialManagementScript,
+                viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
             )
         )
         self.userContentController = pageComposition.userContentController
@@ -261,6 +264,7 @@ package final class BridgePaneController {
             paneId: input.paneId,
             state: input.state,
             telemetryScopeGate: input.telemetryScopeGate,
+            viewerOpenTelemetryAnchor: input.viewerOpenTelemetryAnchor,
             bridgeWorld: input.bridgeWorld
         ).script
         installInitialUserScripts(

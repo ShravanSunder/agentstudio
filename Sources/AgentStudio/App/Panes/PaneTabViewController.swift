@@ -131,6 +131,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let copyPathHandler: @MainActor (URL) -> Void
     private let paneNotePresentation: PaneNotePresentation
     private let bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler
+    private let bridgeViewerOpenTelemetryAnchorFactory: @MainActor () -> BridgeViewerOpenTelemetryAnchor
     private var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
             tabLayoutAtom: store.tabLayoutAtom,
@@ -257,6 +258,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
         bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler? = nil,
+        bridgeViewerOpenTelemetryAnchorFactory:
+            @escaping @MainActor () -> BridgeViewerOpenTelemetryAnchor = {
+                .live()
+            },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         registersAsCommandHandler: Bool = true,
@@ -290,6 +295,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             ?? { surface, paneId in
                 executor.requestBridgePaneSurface(surface, paneId: paneId)
             }
+        self.bridgeViewerOpenTelemetryAnchorFactory = bridgeViewerOpenTelemetryAnchorFactory
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.performanceTraceRecorder = performanceTraceRecorder
         self.interactionProbe =
@@ -3325,6 +3331,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+        let viewerOpenTelemetryAnchor = bridgeViewerOpenTelemetryAnchorFactory()
 
         if !alwaysCreate,
             let target = executor.resolveBridgePaneCommand(worktreeId: worktreeId),
@@ -3345,9 +3352,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let pane =
             switch surface {
             case .review:
-                executor.openBridgeReviewInNewTab(worktreeId: worktreeId)
+                executor.openBridgeReviewInNewTab(
+                    worktreeId: worktreeId,
+                    viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
+                )
             case .file:
-                executor.openBridgeFilesInNewTab(worktreeId: worktreeId)
+                executor.openBridgeFilesInNewTab(
+                    worktreeId: worktreeId,
+                    viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
+                )
             }
         guard let pane else { return false }
         bridgePaneAttendance.record(.newTabCreation, for: pane.id)

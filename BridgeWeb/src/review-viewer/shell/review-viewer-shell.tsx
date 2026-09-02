@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
 
 import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import {
@@ -51,11 +51,15 @@ import type {
 	BridgeReviewProjectionResult,
 	BridgeReviewSearchMode,
 } from '../models/review-projection-models.js';
+import { scheduleBridgeReviewActivationSelectedContentPaint } from '../telemetry/bridge-review-viewer-telemetry.js';
 import { bridgeTreesDisclosurePolicyIdentity } from '../trees/bridge-trees-controller.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly activationSequence?: number;
+	readonly activationStartedAtPerfNow?: number;
 	readonly codeViewOptions?: BridgeReviewCodeViewOptions;
 	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly presentationPositionKey: string;
@@ -127,6 +131,40 @@ const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, st
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const surfaceRootRef = useRef<HTMLElement>(null);
 	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	const recordedActivationPaintSequenceRef = useRef<number | null>(null);
+	useEffect((): (() => void) | void => {
+		if (
+			props.isActive !== true ||
+			props.activationSequence === undefined ||
+			props.activationStartedAtPerfNow === undefined ||
+			props.selectedCodeViewItem === null ||
+			props.selectedCodeViewItem === undefined ||
+			props.telemetryRecorder === undefined ||
+			recordedActivationPaintSequenceRef.current === props.activationSequence
+		) {
+			return;
+		}
+		const activationSequence = props.activationSequence;
+		const activationStartedAtPerfNow = props.activationStartedAtPerfNow;
+		const telemetryRecorder = props.telemetryRecorder;
+		const cancelPaint = scheduleBridgeReviewActivationSelectedContentPaint({
+			activationSequence,
+			activationStartedAtPerfNow,
+			onPainted: (): void => {
+				recordedActivationPaintSequenceRef.current = activationSequence;
+			},
+			telemetryRecorder,
+			traceContext: props.telemetryParentTraceContext ?? null,
+		});
+		return cancelPaint;
+	}, [
+		props.activationSequence,
+		props.activationStartedAtPerfNow,
+		props.isActive,
+		props.selectedCodeViewItem,
+		props.telemetryParentTraceContext,
+		props.telemetryRecorder,
+	]);
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	useBridgeViewerSearchFocusRestoration({
@@ -444,6 +482,15 @@ export function renderReviewViewerShellPresentation(presentation: {
 						>
 							{hasChangedFiles ? (
 								<BridgeReviewTreesPanel
+									{...(props.activationCause === undefined
+										? {}
+										: { activationCause: props.activationCause })}
+									{...(props.activationSequence === undefined
+										? {}
+										: { activationSequence: props.activationSequence })}
+									{...(props.activationStartedAtPerfNow === undefined
+										? {}
+										: { activationStartedAtPerfNow: props.activationStartedAtPerfNow })}
 									isActive={props.isActive === true}
 									key={bridgeTreesDisclosurePolicyIdentity}
 									presentationPositionKey={props.presentationPositionKey}
