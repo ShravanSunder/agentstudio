@@ -624,10 +624,15 @@ import Observation
         {
             let topology = store.repositoryTopologyAtom
             let paneGraph = store.paneAtom.graphAtom
-            let openWorktreeIDs = Set(
-                paneGraph.repositoryAssociationPaneIds.compactMap {
-                    paneGraph.repositoryAssociation(for: $0)?.worktreeId
+            let associationsByPaneID = Dictionary(
+                uniqueKeysWithValues: paneGraph.repositoryAssociationPaneIds.compactMap { paneID in
+                    paneGraph.repositoryAssociation(for: paneID).map {
+                        (paneID, $0)
+                    }
                 }
+            )
+            let openWorktreeIDs = paneGraph.activeRepositoryAssociationWorktreeIDs(
+                in: associationsByPaneID
             )
             let repositoryLocalActivity = atomStore.core.repositoryLocalActivity
             let repositoryLocalActivityByStableKey = Dictionary(

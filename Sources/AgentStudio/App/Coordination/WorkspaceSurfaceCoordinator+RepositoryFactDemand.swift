@@ -52,13 +52,8 @@ extension WorkspaceSurfaceCoordinator {
                 paneGraph.repositoryAssociation(for: paneId).map { (paneId, $0) }
             }
         )
-        let openWorktreeIds: Set<UUID> = Set(
-            associationByPaneId.compactMap { paneId, association in
-                guard paneGraph.paneStructuralFacts(paneId)?.residency.isActive == true else {
-                    return nil
-                }
-                return association.worktreeId
-            }
+        let openWorktreeIds = paneGraph.activeRepositoryAssociationWorktreeIDs(
+            in: associationByPaneId
         )
         let membershipWorktreeIds = topology.repositoryMembershipWorktreeIds
         let repositoryIdByWorktreeId = Dictionary(
