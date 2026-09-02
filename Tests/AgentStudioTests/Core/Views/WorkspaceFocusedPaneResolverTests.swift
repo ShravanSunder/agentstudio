@@ -12,7 +12,7 @@ struct WorkspaceFocusedPaneResolverTests {
     }
 
     @Test
-    func missingActivePaneProducesNoFocusedPane() {
+    func missingCanonicalActivePaneFallsBackToFirstActiveResidencyPane() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -31,7 +31,8 @@ struct WorkspaceFocusedPaneResolverTests {
                 requestedOwner: atom(\.workspaceFocusOwner).owner
             )
 
-            #expect(focusedPane == nil)
+            #expect(focusedPane?.activeMainPaneId == pane.id)
+            #expect(focusedPane?.paneId == pane.id)
         }
     }
 
@@ -61,6 +62,48 @@ struct WorkspaceFocusedPaneResolverTests {
             #expect(focusedPane.activeMainPaneId == activePane.id)
             #expect(focusedPane.paneId == activePane.id)
             #expect(focusedPane.contentType == .terminal)
+        }
+    }
+
+    @Test
+    func backgroundedCanonicalActivePaneFallsBackToFirstActiveResidencyPane() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let backgroundedCanonicalPane = store.createPane()
+            let activeFallbackPane = store.createPane()
+            let tab = Tab(paneId: backgroundedCanonicalPane.id)
+            store.appendTab(tab)
+            #expect(
+                store.insertPane(
+                    activeFallbackPane.id,
+                    inTab: tab.id,
+                    at: backgroundedCanonicalPane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            store.setActiveTab(tab.id)
+            store.setActivePane(backgroundedCanonicalPane.id, inTab: tab.id)
+            #expect(store.mutationCoordinator.backgroundPane(backgroundedCanonicalPane.id))
+            atoms.workspaceFocusOwner.focusMainPane(backgroundedCanonicalPane.id)
+
+            let focusedPane = try #require(
+                WorkspaceFocusedPaneResolver().resolve(
+                    workspaceTab: atom(\.workspaceTab),
+                    workspacePane: atom(\.workspacePane),
+                    requestedOwner: atoms.workspaceFocusOwner.owner
+                )
+            )
+
+            #expect(focusedPane.owner == .mainPane(paneId: activeFallbackPane.id))
+            #expect(focusedPane.activeMainPaneId == activeFallbackPane.id)
+            #expect(focusedPane.paneId == activeFallbackPane.id)
+            #expect(store.tab(tab.id)?.activePaneId == backgroundedCanonicalPane.id)
         }
     }
 

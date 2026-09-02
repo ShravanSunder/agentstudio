@@ -219,6 +219,7 @@ struct DrawerPanel: View {
             tabId: tabId,
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
+            adjacentResizeTargeting: .canonicalDivider,
             ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
             collapsedPaneWidth: managementLayer.isActive ? CollapsedPaneBar.barWidth : 0,
             arrangementInlineRenameState: arrangementInlineRenameState,

@@ -55,6 +55,7 @@ struct FlatTabStripContainer: View {
     @State private var activeDragSourcePaneId: UUID?
 
     private struct PrimaryPaneLayerState {
+        let layout: AgentStudioCore.Layout
         let metrics: FlatTabStripMetrics
         let effectiveVisiblePaneIds: [UUID]
         let rendersMinimizedBars: Bool
@@ -142,6 +143,7 @@ struct FlatTabStripContainer: View {
 
     var body: some View {
         let minimizedPaneBarPresentation = minimizedPaneBarPresentation
+        let renderedLayout = atom(\.arrangementView).activeLayout(forTab: tabId) ?? layout
 
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
@@ -150,7 +152,7 @@ struct FlatTabStripContainer: View {
             let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let effectiveVisiblePaneIds =
                 visiblePaneIds
-                ?? layout.paneIds.filter { paneId in
+                ?? renderedLayout.paneIds.filter { paneId in
                     !minimizedPaneIds.contains(paneId) || rendersMinimizedBars
                 }
             let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
@@ -163,25 +165,26 @@ struct FlatTabStripContainer: View {
                 expandedDrawerParentPaneId: expandedDrawerParentPaneId
             )
             let metrics = FlatTabStripMetrics.compute(
-                layout: layout,
+                layout: renderedLayout,
                 in: containerBounds,
                 dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
-            let expandedPaneIds = layout.paneIds.filter { !minimizedPaneIds.contains($0) }
+            let expandedPaneIds = renderedLayout.paneIds.filter { !minimizedPaneIds.contains($0) }
             let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: expandedPaneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
                 if effectiveVisiblePaneIds.isEmpty {
                     return []
                 } else if metrics.allMinimized {
-                    return rendersMinimizedBars ? Set(layout.paneIds) : []
+                    return rendersMinimizedBars ? Set(renderedLayout.paneIds) : []
                 }
                 return Set(effectiveVisiblePaneIds)
             }()
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
             let primaryPaneLayerState = PrimaryPaneLayerState(
+                layout: renderedLayout,
                 metrics: metrics,
                 effectiveVisiblePaneIds: effectiveVisiblePaneIds,
                 rendersMinimizedBars: rendersMinimizedBars,
@@ -275,7 +278,7 @@ struct FlatTabStripContainer: View {
         if state.metrics.allMinimized {
             if state.rendersMinimizedBars {
                 HStack(spacing: 0) {
-                    ForEach(layout.paneIds, id: \.self) { paneId in
+                    ForEach(state.layout.paneIds, id: \.self) { paneId in
                         CollapsedPaneBar(
                             paneId: paneId,
                             octiconLoader: octiconLoader,
@@ -299,11 +302,12 @@ struct FlatTabStripContainer: View {
             EmptyArrangementPlaceholderView()
         } else {
             FlatPaneStripContent(
-                layout: layout,
+                layout: state.layout,
                 octiconLoader: octiconLoader,
                 tabId: tabId,
                 activePaneId: activePaneId,
                 minimizedPaneIds: minimizedPaneIds,
+                adjacentResizeTargeting: .renderedPanePair,
                 ordinalMap: state.mainOrdinalMap,
                 collapsedPaneWidth: state.effectiveCollapsedWidth,
                 arrangementInlineRenameState: arrangementInlineRenameState,

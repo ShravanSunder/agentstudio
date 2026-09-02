@@ -802,6 +802,7 @@ package final class WorkspacePaneGraphAtom {
         let unavailablePaths = unavailablePathByWorktreeId.values.sorted { $0.count > $1.count }
         let paneStates = paneStateMap.snapshot()
         let affectedPaneIds = paneStates.values.compactMap { state -> (UUID, String)? in
+            guard state.residency == .active else { return nil }
             guard let cwd = state.metadata.facets.cwd?.standardizedFileURL.path else { return nil }
             guard let path = unavailablePaths.first(where: { pathContains($0, cwd: cwd) }) else { return nil }
             return (state.id, path)
@@ -826,12 +827,7 @@ package final class WorkspacePaneGraphAtom {
                 return pathContains(normalizedPath, cwd: cwd)
             }
             .filter { state in
-                switch state.residency {
-                case .active, .backgrounded:
-                    return true
-                case .pendingUndo, .orphaned:
-                    return false
-                }
+                state.residency == .active
             }
             .map(\.id)
 
