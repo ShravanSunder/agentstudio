@@ -397,6 +397,10 @@ package final class WorkspacePaneAtom {
         return drawerCursorAtom.isExpanded(drawerId: drawerID)
     }
 
+    package var expandedDrawerID: UUID? {
+        drawerCursorAtom.expandedDrawerId
+    }
+
     @discardableResult
     package func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
         graphAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)

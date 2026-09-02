@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyKit
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -9,11 +10,96 @@ import Testing
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
+private final class RepositoryFactDemandObservationCounter: @unchecked Sendable {
+    private(set) var invalidationCount = 0
+
+    func record() {
+        invalidationCount += 1
+    }
+}
+
 @MainActor
 @Suite("WorkspaceSurfaceCoordinator pull request demand", .serialized, .timeLimit(.minutes(1)))
 struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("repository fact demand observes only semantic pane inputs")
+    func repositoryFactDemandObservationIsNarrow() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(fileURLWithPath: "/tmp/repository-demand-observation"))
+            let worktree = try #require(repository.worktrees.first)
+            let associatedPane = store.createPane(
+                launchDirectory: worktree.path,
+                facets: PaneContextFacets(
+                    repoId: repository.id,
+                    worktreeId: worktree.id,
+                    cwd: worktree.path
+                )
+            )
+            let unassociatedPane = store.createPane(
+                launchDirectory: URL(fileURLWithPath: "/tmp/repository-demand-unassociated")
+            )
+            let tab = Tab(paneId: associatedPane.id)
+            store.appendTab(tab)
+
+            let source = PullRequestDemandRecordingFilesystemSource()
+            let windowLifecycle = WindowLifecycleAtom()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: PullRequestDemandSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: gitStatusPhysicalGate
+                ),
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
+                filesystemSource: source,
+                windowLifecycleStore: windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+
+            let cwdObservation = observeRepositoryFactDemand(coordinator)
+            store.paneAtom.updatePaneCWD(
+                associatedPane.id,
+                cwd: worktree.path.appending(path: "Sources")
+            )
+            #expect(cwdObservation.invalidationCount == 0)
+
+            let contentObservation = observeRepositoryFactDemand(coordinator)
+            store.paneAtom.graphAtom.updatePaneWebviewState(
+                associatedPane.id,
+                state: WebviewState(url: URL(string: "https://example.com/updated")!)
+            )
+            #expect(contentObservation.invalidationCount == 0)
+
+            let unassociatedResidencyObservation = observeRepositoryFactDemand(coordinator)
+            store.paneAtom.graphAtom.setResidency(.backgrounded, for: unassociatedPane.id)
+            #expect(unassociatedResidencyObservation.invalidationCount == 0)
+
+            let associatedResidencyObservation = observeRepositoryFactDemand(coordinator)
+            store.paneAtom.graphAtom.setResidency(.backgrounded, for: associatedPane.id)
+            #expect(associatedResidencyObservation.invalidationCount == 1)
+
+            await coordinator.shutdown()
+        }
+    }
+
+    private func observeRepositoryFactDemand(
+        _ coordinator: WorkspaceSurfaceCoordinator
+    ) -> RepositoryFactDemandObservationCounter {
+        let counter = RepositoryFactDemandObservationCounter()
+        withObservationTracking {
+            _ = coordinator.captureRepositoryFactDemandInput()
+        } onChange: {
+            counter.record()
+        }
+        return counter
     }
 
     @Test("visible active tab and sidebar demand is content-distinct and clears with the window")

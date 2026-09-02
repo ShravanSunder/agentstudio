@@ -65,6 +65,8 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(!coordinatorSource.contains("paneSnapshot"))
         #expect(!coordinatorSource.contains("captureReadSnapshot"))
         #expect(!coordinatorSource.contains("ViewRegistry"))
+        #expect(!coordinatorSource.contains("arrangementView."))
+        #expect(!coordinatorSource.contains("paneStructuralFacts"))
     }
 
     @Test("one complete pipeline method owns production source fanout")

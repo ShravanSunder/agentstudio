@@ -43,7 +43,7 @@ extension WorkspaceSurfaceCoordinator {
         repositoryFactDemandCoordinator.accept(input)
     }
 
-    private func captureRepositoryFactDemandInput() -> RepositoryFactDemandInput {
+    func captureRepositoryFactDemandInput() -> RepositoryFactDemandInput {
         let paneGraph = store.paneAtom.graphAtom
         let topology = store.repositoryTopologyAtom
         let repositoryLocalActivity = atom(\.repositoryLocalActivity)
@@ -66,7 +66,12 @@ extension WorkspaceSurfaceCoordinator {
             windowPresentation == .visible
             && !atom(\.workspaceSidebarState).sidebarCollapsed
         let activePaneWorktreeId = store.tabLayoutAtom.activeTabId
-            .flatMap { arrangementView.activePaneId(forTab: $0) }
+            .flatMap { activeTabID in
+                effectiveActivePaneID(
+                    forTab: activeTabID,
+                    paneGraph: paneGraph
+                )
+            }
             .flatMap { associationByPaneId[$0]?.worktreeId }
         let repositoryIDs = topology.repositoryIdsInOrder
         var worktreeStableKeysByRepositoryID: [UUID: [UUID: String]] = [:]
@@ -124,23 +129,44 @@ extension WorkspaceSurfaceCoordinator {
         associationByPaneId: [UUID: PaneRepositoryAssociation]
     ) -> Set<UUID> {
         guard let activeTabId = store.tabLayoutAtom.activeTabId,
-            let activeLayout = arrangementView.activeLayout(forTab: activeTabId)
+            let activeLayout = store.tabLayoutAtom.canonicalActiveLayout(forTab: activeTabId)
         else { return [] }
-        let activeLayoutPaneIds = Set(activeLayout.paneIds)
+        let paneGraph = store.paneAtom.graphAtom
+        var activeLayoutPaneIds = Set<UUID>(
+            activeLayout.paneIds.compactMap { paneID in
+                guard associationByPaneId[paneID]?.worktreeId != nil,
+                    paneGraph.paneResidency(paneID)?.isActive == true
+                else { return nil }
+                return paneID
+            }
+        )
         var relevantPaneIds = activeLayoutPaneIds
-        let expandedDrawerProjection: (UUID) -> PullRequestDemandProjection.ExpandedDrawer? = { parentPaneId in
-            guard self.store.paneAtom.isDrawerExpanded(for: parentPaneId),
-                let drawerView = self.arrangementView.drawerView(forParent: parentPaneId)
+        let expandedDrawer: PullRequestDemandProjection.ExpandedDrawer? = {
+            guard let drawerID = store.paneAtom.expandedDrawerID,
+                let parentPaneID = paneGraph.parentPaneID(containingDrawer: drawerID),
+                activeLayout.contains(parentPaneID),
+                paneGraph.paneResidency(parentPaneID)?.isActive == true,
+                let drawerLayout = store.tabLayoutAtom.canonicalActiveDrawerLayout(
+                    drawerID: drawerID,
+                    forTab: activeTabId
+                )
             else { return nil }
-            relevantPaneIds.formUnion(drawerView.layout.paneIds)
-            return PullRequestDemandProjection.ExpandedDrawer(
-                parentPaneId: parentPaneId,
-                paneIds: Set(drawerView.layout.paneIds),
-                minimizedPaneIds: drawerView.minimizedPaneIds
+            let activeDrawerPaneIDs = Set<UUID>(
+                drawerLayout.layout.paneIds.compactMap { paneID in
+                    guard associationByPaneId[paneID]?.worktreeId != nil,
+                        paneGraph.paneResidency(paneID)?.isActive == true
+                    else { return nil }
+                    return paneID
+                }
             )
-        }
-        let expandedDrawers = activeLayoutPaneIds.compactMap(expandedDrawerProjection)
-        let expandedDrawer = expandedDrawers.first
+            activeLayoutPaneIds.insert(parentPaneID)
+            relevantPaneIds.formUnion(activeDrawerPaneIDs)
+            return PullRequestDemandProjection.ExpandedDrawer(
+                parentPaneId: parentPaneID,
+                paneIds: activeDrawerPaneIDs,
+                minimizedPaneIds: drawerLayout.minimizedPaneIDs.intersection(activeDrawerPaneIDs)
+            )
+        }()
         let zoom = store.panePresentationAtom.zoomPresentation(forTab: activeTabId).map { presentation in
             let companionWorktreeId: UUID? = {
                 guard case .retainedVisible(let companionPaneId) = presentation.viewerPresentation,
@@ -157,7 +183,7 @@ extension WorkspaceSurfaceCoordinator {
                 visibleCompanionWorktreeId: companionWorktreeId
             )
         }
-        let worktreeIdByPaneId = Dictionary(
+        let worktreeIdByPaneId = [UUID: UUID](
             uniqueKeysWithValues: relevantPaneIds.compactMap { paneId in
                 associationByPaneId[paneId]?.worktreeId.map { (paneId, $0) }
             }
@@ -167,12 +193,29 @@ extension WorkspaceSurfaceCoordinator {
                 windowPresentation: windowPresentation,
                 sidebarWorktreeIds: [],
                 activeLayoutPaneIds: activeLayoutPaneIds,
-                minimizedLayoutPaneIds: arrangementView.activeMinimizedPaneIds(forTab: activeTabId),
+                minimizedLayoutPaneIds: store.tabLayoutAtom
+                    .canonicalActiveMinimizedPaneIDs(forTab: activeTabId)
+                    .intersection(activeLayoutPaneIds),
                 isManagementLayerActive: atom(\.managementLayer).isActive,
                 expandedDrawer: expandedDrawer,
                 zoom: zoom,
                 worktreeIdByPaneId: worktreeIdByPaneId
             )
         )
+    }
+
+    private func effectiveActivePaneID(
+        forTab tabID: UUID,
+        paneGraph: WorkspacePaneGraphAtom
+    ) -> UUID? {
+        guard let layout = store.tabLayoutAtom.canonicalActiveLayout(forTab: tabID) else {
+            return nil
+        }
+        if let preferredPaneID = store.tabLayoutAtom.activePaneID(forTab: tabID),
+            paneGraph.paneResidency(preferredPaneID)?.isActive == true
+        {
+            return preferredPaneID
+        }
+        return layout.paneIds.first { paneGraph.paneResidency($0)?.isActive == true }
     }
 }

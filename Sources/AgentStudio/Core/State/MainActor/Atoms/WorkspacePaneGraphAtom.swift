@@ -312,7 +312,10 @@ package final class WorkspacePaneGraphAtom {
     ) -> Set<UUID> {
         Set(
             associationsByPaneID.compactMap { paneID, association in
-                paneResidency(paneID)?.isActive == true ? association.worktreeId : nil
+                guard let worktreeID = association.worktreeId,
+                    paneResidency(paneID)?.isActive == true
+                else { return nil }
+                return worktreeID
             }
         )
     }
@@ -321,7 +324,7 @@ package final class WorkspacePaneGraphAtom {
         paneStateMap.snapshot()
     }
 
-    func parentPaneID(containingDrawer drawerID: UUID) -> UUID? {
+    package func parentPaneID(containingDrawer drawerID: UUID) -> UUID? {
         parentPaneIDByDrawerID[drawerID]
     }
 
