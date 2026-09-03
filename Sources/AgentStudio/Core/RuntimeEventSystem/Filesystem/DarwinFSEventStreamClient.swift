@@ -10,6 +10,7 @@ private struct StreamRegistration: @unchecked Sendable {
     let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
     let observationScopes: [AgentStudioGit.GitStatusObservationScope]
     let watchedPaths: [String]
+    let eventActivationGate: DarwinLocalFSEventRegistrationActivationGate
     let streamLifetime: any DarwinLocalFSEventStreamLifetime
 }
 
@@ -189,6 +190,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
         lifecycleLock.unlock()
+        registration.eventActivationGate.activate()
     }
 
     package func unregister(worktreeId: UUID) {
@@ -294,6 +296,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 return nil
             }
             continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
+            replacement.eventActivationGate.activate()
             Self.teardown(currentRegistration)
             registration = replacement
         }
@@ -499,6 +502,18 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return nil
         }
+        let eventActivationGate = DarwinLocalFSEventRegistrationActivationGate { [weak self] localRawEvents in
+            guard let self else { return }
+            let rawEvents = localRawEvents.map { event in
+                (path: event.path, eventId: event.eventId, flags: event.flags)
+            }
+            emitRawEvents(
+                worktreeId: worktreeId,
+                lifecycleGeneration: lifecycleGeneration,
+                rawEvents: rawEvents,
+                ordinaryPaths: localRawEvents.map(\.path)
+            )
+        }
         guard
             let streamLifetime = sharedLocalObserverRegistry.bind(
                 request:
@@ -510,21 +525,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                             DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
                                 observationScopes: observationScopes
                             ),
-                        eventHandler: { [weak self] localRawEvents in
-                            guard let self else { return }
-                            let rawEvents = localRawEvents.map { event in
-                                (path: event.path, eventId: event.eventId, flags: event.flags)
-                            }
-                            emitRawEvents(
-                                worktreeId: worktreeId,
-                                lifecycleGeneration: lifecycleGeneration,
-                                rawEvents: rawEvents,
-                                ordinaryPaths: localRawEvents.map(\.path)
-                            )
-                        }
+                        eventHandler: eventActivationGate.receive
                     )
             )
         else {
+            eventActivationGate.cancel()
             return nil
         }
         return StreamRegistration(
@@ -538,6 +543,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             observationIdentity: observationIdentity,
             observationScopes: observationScopes,
             watchedPaths: watchedPaths,
+            eventActivationGate: eventActivationGate,
             streamLifetime: streamLifetime
         )
     }
@@ -852,10 +858,12 @@ extension DarwinFSEventStreamClient {
     }
 
     private static func teardown(_ registration: StreamRegistration) {
+        registration.eventActivationGate.cancel()
         registration.streamLifetime.retire()
     }
 
     private static func scheduleTeardown(_ registration: StreamRegistration) {
+        registration.eventActivationGate.cancel()
         registration.streamLifetime.scheduleRetirement()
     }
 }

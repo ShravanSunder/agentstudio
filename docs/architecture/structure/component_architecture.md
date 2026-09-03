@@ -897,11 +897,12 @@ sequenceDiagram
     participant VR as ViewRegistry
 
     AD->>Store: restore()
-    Store->>DB: load()
-    DB-->>Store: WorkspaceSQLiteSnapshot
-    Store->>Store: filter temporary panes
-    Store->>Store: prune orphaned pane references
-    Store->>Store: prune invalid layout pane IDs
+    Store->>DB: strict load of core/local SQLite state
+    DB-->>Store: complete WorkspaceSQLiteSnapshot
+    Store->>Store: normalize legacy orphaned residency from canonical tab ownership
+    Store->>Store: reconcile optional topology associations
+    Store->>Store: strictly prepare and apply the complete composition
+    Store-->>DB: best-effort persist residency or association corrections
 
     AD->>Coord: restoreAllViews(in: terminalContainerBounds)
     loop each active pane across canonical tabs (foreground phases, then hidden phases)
@@ -984,14 +985,14 @@ Before writing to disk:
 - `activeTabId` pointers are fixed if they reference removed tabs
 - The in-memory state is **not** mutated — only the serialized output is cleaned
 
-### 5.3 Restore Filtering
+### 5.3 Restore Admission
 
 On app launch:
-1. Load the authoritative core SQLite snapshot; local rows load independently or default when unavailable
-2. Filter out `.temporary` panes
-3. Preserve panes whose live facet worktree no longer exists and normalize dangling facet refs to NULL without changing residency
-4. Prune dangling pane IDs from all tab layouts
-5. Remove empty tabs, fix `activeTabId` pointers
+1. Strictly decode the authoritative core SQLite snapshot; local rows load independently or default when unavailable.
+2. Normalize only legacy `.orphaned` residency from canonical `Tab.allPaneIds`: owned panes become `.active`, and unowned recoverable panes become `.backgrounded`.
+3. Preserve panes whose facet worktree is temporarily unavailable; backfill or clear optional repo/worktree association facets from decoded topology without changing current residency.
+4. Strictly prepare the complete composition. Dangling pane/layout ownership, invalid cursors, or other required-state violations reject restore rather than being silently pruned or repaired.
+5. Apply the prepared composition once, then persist best-effort when legacy residency or association reconciliation changed the snapshot.
 
 ---
 

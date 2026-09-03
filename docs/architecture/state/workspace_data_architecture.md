@@ -342,9 +342,13 @@ physical stream's watched-path set because macOS `WatchRoot` replacement events
 are defined only for paths supplied when the stream is created. A required
 physical replacement starts the successor, buffers successor callbacks,
 flushes the still-current predecessor, atomically installs the successor,
-replays the buffer, and retires the predecessor. Thus steady native-client
-cardinality is bounded by mounted-volume count rather than repository/worktree
-count, with at most one replacement overlap at a time.
+and replays the buffer into a client-owned activation gate before retiring the
+physical predecessor. The client publishes the matching logical generation and
+continuity identity before activating that gate, which drains the replay in
+order; only then does it retire the logical predecessor registration. Thus
+steady native-client cardinality is bounded by mounted-volume count rather than
+repository/worktree count, with at most one physical replacement overlap at a
+time.
 
 Ordinary callbacks route only to intersecting logical registrations. Coverage
 loss from stream-global flags is broadcast to every logical participant on that

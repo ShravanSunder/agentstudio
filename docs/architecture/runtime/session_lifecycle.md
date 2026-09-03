@@ -315,9 +315,11 @@ sequenceDiagram
     AD->>Store: restore()
     Store->>DB: strict decode of core/local SQLite composition
     DB-->>Store: complete immutable WorkspaceSQLiteSnapshot
+    Store->>Store: normalize legacy orphaned residency from canonical tab ownership
     Store->>Store: reconcile pane association soft references against decoded topology
+    Store->>Store: strictly prepare the complete composition
     Store->>Store: apply composition once
-    Store-->>DB: best-effort persist only when association references changed
+    Store-->>DB: best-effort persist when residency or association changed
 
     AD->>Coord: activate accepted terminal composition
     loop each scheduled terminal pane
@@ -328,14 +330,16 @@ sequenceDiagram
 ```
 
 Restore is read-only for session identity and layout: strict SQLite decode,
-one composition apply, terminal activation, then exact-ID zmx attach. After
-repository topology is independently decoded, `WorkspaceStore` performs one
-narrow pane-association housekeeping pass: a missing soft-reference pair may
-be backfilled from CWD, and a pair that does not resolve in the decoded topology
-is cleared unless its repository is known to be temporarily unavailable. If that
-pass changes a pair, the corrected snapshot is persisted best-effort;
-persistence failure is non-fatal to the already accepted in-memory composition.
-Missing or invalid required state remains a decode/restore failure.
+one composition apply, terminal activation, then exact-ID zmx attach. Before
+strict composition preparation, `WorkspaceStore` converts only legacy
+`.orphaned` residency: panes owned by any canonical `Tab.allPaneIds` become
+`.active`, while unowned recoverable panes become `.backgrounded`. It then
+performs one narrow pane-association housekeeping pass: a missing soft-reference
+pair may be backfilled from CWD, and a pair that does not resolve in the decoded
+topology is cleared unless its repository is known to be temporarily
+unavailable. If either pass changes state, the corrected snapshot is persisted
+best-effort; persistence failure is non-fatal to the already accepted in-memory
+composition. Missing or invalid required state remains a decode/restore failure.
 Startup does not otherwise normalize the graph, prune or invent layout
 references, repair cursors, infer session identities, or mutate a stored
 `ZmxSessionID`. Repository/topology startup never gates or mutates session
