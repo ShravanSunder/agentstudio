@@ -48,7 +48,16 @@ struct BridgeDevHostSharedConstructionTests {
             named: "bridge-development-product-host-classified-observed-refresh"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider(
+            changedFiles: [
+                makeBridgeEndpointChangedFile(
+                    fileId: "reviewed-file",
+                    path: "tracked.txt",
+                    sizeBytes: 100,
+                    newContentHash: "sha256:initial"
+                )
+            ]
+        )
         let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
             source: source,
@@ -77,6 +86,14 @@ struct BridgeDevHostSharedConstructionTests {
                 productAdmission: productAdmission
             )
             #expect(application == .advanced)
+            await provider.setChangedFiles([
+                makeBridgeEndpointChangedFile(
+                    fileId: "reviewed-file",
+                    path: "tracked.txt",
+                    sizeBytes: 101,
+                    newContentHash: "sha256:successor"
+                )
+            ])
 
             await host.handleObservedWorktreeInvalidation(
                 developmentFileInvalidation(source: source, batchSequence: 1)
@@ -85,9 +102,22 @@ struct BridgeDevHostSharedConstructionTests {
             await refreshTask?.value
 
             let refreshedPublication = try #require(await host.diagnosticCommittedReviewPublication())
-            #expect(refreshedPublication.package.reviewGeneration == 2)
+            #expect(refreshedPublication.package.reviewGeneration == displayedPublication.package.reviewGeneration)
+            #expect(refreshedPublication.package.packageId == displayedPublication.package.packageId)
+            #expect(refreshedPublication.package.query.queryId == displayedPublication.package.query.queryId)
+            #expect(refreshedPublication.package.revision == displayedPublication.package.revision + 1)
+            #expect(refreshedPublication.package.baseEndpoint == displayedPublication.package.baseEndpoint)
+            #expect(refreshedPublication.package.headEndpoint == displayedPublication.package.headEndpoint)
+            let delta = try #require(refreshedPublication.delta)
+            #expect(delta.revision == refreshedPublication.package.revision)
+            #expect(delta.reviewGeneration == displayedPublication.package.reviewGeneration)
+            #expect(delta.operations.updateItems.count == 1)
             #expect(refreshedPublication.classifiedRefreshImpact == .developmentHostTestImpact)
-            #expect(await provider.snapshot().refreshImpactRequestCount == 1)
+            let providerSnapshot = await provider.snapshot()
+            #expect(providerSnapshot.refreshImpactRequestCount == 1)
+            #expect(providerSnapshot.reviewGenerationValues == [1, 1])
+            #expect(providerSnapshot.reviewAttemptAuthorityGenerations[1] > 0)
+            #expect(providerSnapshot.gitRefreshScopes[1] == .exactPaths(["tracked.txt"]))
         }
     }
 
@@ -568,6 +598,8 @@ private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
     let sharedEndpointResolutionCount: Int
     let sharedInstallCount: Int
     let reviewGenerationValues: [Int]
+    let reviewAttemptAuthorityGenerations: [UInt64]
+    let gitRefreshScopes: [ReviewGitRefreshScope]
     let refreshImpactRequestCount: Int
 }
 
@@ -608,6 +640,8 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         contributionCaptureCount += 1
         contributionTargets.append(request.symbolicTarget)
         reviewGenerationValues.append(request.reviewGenerationValue)
+        reviewAttemptAuthorityGenerations.append(request.reviewAttemptAuthorityGeneration)
+        gitRefreshScopes.append(request.gitRefreshScope)
         await comparisonGate?.waitUntilReleased()
         let baseEndpoint = resolvedEndpoint(request.baseEndpoint)
         return BridgeContributionComparisonCapture(
@@ -618,8 +652,9 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
                 headEndpoint: request.headEndpoint,
-                changedFiles: []
-            )
+                changedFiles: changedFiles
+            ),
+            gitRefreshSeed: request.gitRefreshSeed
         )
     }
 
@@ -635,14 +670,19 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     private var sharedEndpointResolutionCount = 0
     private var sharedInstallCount = 0
     private var reviewGenerationValues: [Int] = []
+    private var reviewAttemptAuthorityGenerations: [UInt64] = []
+    private var gitRefreshScopes: [ReviewGitRefreshScope] = []
     private var refreshImpactRequestCount = 0
+    private var changedFiles: [BridgeEndpointChangedFile]
 
     init(
         comparisonGate: BridgeComparisonGate? = nil,
-        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil,
+        changedFiles: [BridgeEndpointChangedFile] = []
     ) {
         self.comparisonGate = comparisonGate
         self.repositoryDefaultTarget = repositoryDefaultTarget
+        self.changedFiles = changedFiles
     }
 
     func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
@@ -657,6 +697,10 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
 
     func setDefaultTargetGate(_ defaultTargetGate: BridgeComparisonGate?) {
         self.defaultTargetGate = defaultTargetGate
+    }
+
+    func setChangedFiles(_ changedFiles: [BridgeEndpointChangedFile]) {
+        self.changedFiles = changedFiles
     }
 
     func resolveEndpoint(
@@ -781,6 +825,8 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
             sharedEndpointResolutionCount: sharedEndpointResolutionCount,
             sharedInstallCount: sharedInstallCount,
             reviewGenerationValues: reviewGenerationValues,
+            reviewAttemptAuthorityGenerations: reviewAttemptAuthorityGenerations,
+            gitRefreshScopes: gitRefreshScopes,
             refreshImpactRequestCount: refreshImpactRequestCount
         )
     }

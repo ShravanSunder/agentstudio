@@ -14,8 +14,8 @@ package actor BridgeDevelopmentProductHost {
         @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult
     private let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
     var activeReviewComparisonTask: Task<Void, Never>?
-    var activeReviewComparisonTaskGeneration: BridgeReviewGeneration?
-    var retiringReviewComparisonTasks: [BridgeReviewGeneration: Task<Void, Never>] = [:]
+    var activeReviewComparisonTaskAttempt: UInt64?
+    var retiringReviewComparisonTasks: [UInt64: Task<Void, Never>] = [:]
     private var bootstrapTransitionTail: Task<Void, Never>?
     private let gitReadScheduler: BridgeGitReadScheduler
     private var navigationBindingRevision = 0
@@ -33,11 +33,13 @@ package actor BridgeDevelopmentProductHost {
     var paneState: BridgePaneState
     private let reviewPipeline: BridgeReviewPipeline
     let reviewProvider: any BridgeReviewSourceProvider
+    var reviewGitRefreshSeedHolder = BridgeReviewGitRefreshSeedHolder()
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     private let schemeHandler: BridgeSchemeHandler
     var isShutdown = false
+    private var nextReviewComparisonTaskAttempt: UInt64 = 0
     var nextReviewGeneration: BridgeReviewGeneration = 1
     private var publishedFileNavigation: FileNavigationPublication?
     private let worktreeId: UUID
@@ -267,8 +269,9 @@ package actor BridgeDevelopmentProductHost {
             await retiringReviewComparisonTask.value
         }
         activeReviewComparisonTask = nil
-        activeReviewComparisonTaskGeneration = nil
+        activeReviewComparisonTaskAttempt = nil
         self.retiringReviewComparisonTasks.removeAll()
+        reviewGitRefreshSeedHolder.retire()
         await MainActor.run {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
@@ -454,9 +457,9 @@ package actor BridgeDevelopmentProductHost {
             )
         }
         await publishCurrentPanePresentation()
-        let preparedPublication: BridgeReviewPreparedPublication
+        let construction: BridgeDevelopmentReviewPublicationConstruction
         do {
-            preparedPublication = try await constructReviewPublication(
+            construction = try await constructReviewPublication(
                 target: target,
                 reviewGeneration: initialGeneration
             )
@@ -464,6 +467,7 @@ package actor BridgeDevelopmentProductHost {
             await failReviewComparisonAttempt(initialGeneration, failureKind: "publication_failed")
             throw error
         }
+        let preparedPublication = construction.preparedPublication
         let committedPublication: BridgeReviewCommittedPublication? = await MainActor.run {
             () -> BridgeReviewCommittedPublication? in
             guard
@@ -502,6 +506,7 @@ package actor BridgeDevelopmentProductHost {
             await failReviewComparisonAttempt(initialGeneration, failureKind: "publication_failed")
             throw BridgeDevelopmentProductHostError.reviewPublicationFailed
         }
+        reviewGitRefreshSeedHolder.commit(construction.gitRefreshSeed)
         nextReviewGeneration = committedPublication.package.reviewGeneration
         await publishCurrentPanePresentation()
         return committedPublication
@@ -509,12 +514,16 @@ package actor BridgeDevelopmentProductHost {
 
     func constructReviewPublication(
         target: WorkspaceReviewContributionTarget,
-        reviewGeneration: BridgeReviewGeneration
-    ) async throws -> BridgeReviewPreparedPublication {
+        reviewGeneration: BridgeReviewGeneration,
+        predecessorPackage: BridgeReviewPackage? = nil,
+        refreshReservation: BridgePaneRefreshCatchUpReservation? = nil
+    ) async throws -> BridgeDevelopmentReviewPublicationConstruction {
         let pipelineRequest = try await makeDevelopmentReviewPipelineRequest(
             generatedAt: Int64(Date().timeIntervalSince1970 * 1000),
             reviewGeneration: reviewGeneration,
-            target: target
+            target: target,
+            predecessorPackage: predecessorPackage,
+            refreshReservation: refreshReservation
         )
         let constructionResult: BridgeReviewPackageConstructionResult
         if let reviewSharedConstructionBinder {
@@ -536,11 +545,37 @@ package actor BridgeDevelopmentProductHost {
             throw error
         }
         let result = constructionResult.result
+        let package: BridgeReviewPackage
+        let delta: BridgeReviewDelta?
+        if let predecessorPackage,
+            result.package.packageId == predecessorPackage.packageId,
+            result.package.reviewGeneration == predecessorPackage.reviewGeneration
+        {
+            delta = try BridgeReviewDeltaBuilder.build(
+                BridgeReviewDeltaBuildRequest(
+                    currentPackage: predecessorPackage,
+                    nextPackage: result.package,
+                    currentRevision: predecessorPackage.revision
+                )
+            )
+            if let delta {
+                package = result.package.withRevision(delta.revision)
+            } else {
+                let revision =
+                    result.package.hasSameReviewTruth(as: predecessorPackage)
+                    ? predecessorPackage.revision
+                    : predecessorPackage.revision + 1
+                package = result.package.withRevision(revision)
+            }
+        } else {
+            package = result.package
+            delta = nil
+        }
         guard
             let preparedPublication = await BridgeReviewPreparedPublication.prepare(
                 BridgeReviewPublicationCandidate(
-                    package: result.package,
-                    delta: nil,
+                    package: package,
+                    delta: delta,
                     contentHandles: result.registeredContentHandles,
                     artifactPin: constructionResult.artifactPin
                 )
@@ -549,15 +584,20 @@ package actor BridgeDevelopmentProductHost {
             await constructionResult.releaseArtifactPin()
             throw BridgeDevelopmentProductHostError.reviewPublicationFailed
         }
-        return preparedPublication
+        return BridgeDevelopmentReviewPublicationConstruction(
+            preparedPublication: preparedPublication,
+            gitRefreshSeed: result.gitRefreshSeed
+        )
     }
 
     private func makeDevelopmentReviewPipelineRequest(
         generatedAt: Int64,
         reviewGeneration: BridgeReviewGeneration,
-        target: WorkspaceReviewContributionTarget
+        target: WorkspaceReviewContributionTarget,
+        predecessorPackage: BridgeReviewPackage?,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?
     ) async throws -> BridgeReviewPipelineRequest {
-        let baseEndpoint = BridgeSourceEndpoint(
+        let replacementBaseEndpoint = BridgeSourceEndpoint(
             endpointId: "development-base",
             kind: .gitRef,
             repoId: repoId,
@@ -567,7 +607,7 @@ package actor BridgeDevelopmentProductHost {
             contentSetHash: nil,
             providerIdentity: Self.label(for: target)
         )
-        let headEndpoint = BridgeSourceEndpoint(
+        let replacementHeadEndpoint = BridgeSourceEndpoint(
             endpointId: "development-working-tree",
             kind: .workingTree,
             repoId: repoId,
@@ -577,9 +617,11 @@ package actor BridgeDevelopmentProductHost {
             contentSetHash: nil,
             providerIdentity: "working-tree:\(worktreeId.uuidString)"
         )
-        let request = BridgeReviewPipelineRequest(
-            packageId: "development-package-\(UUIDv7.generate().uuidString)",
-            query: BridgeReviewQuery(
+        let baseEndpoint = predecessorPackage?.baseEndpoint ?? replacementBaseEndpoint
+        let headEndpoint = predecessorPackage?.headEndpoint ?? replacementHeadEndpoint
+        let query =
+            predecessorPackage?.query
+            ?? BridgeReviewQuery(
                 queryId: "development-query-\(UUIDv7.generate().uuidString)",
                 queryKind: .compare,
                 repoId: repoId,
@@ -596,19 +638,29 @@ package actor BridgeDevelopmentProductHost {
                 ),
                 grouping: BridgeChangeGrouping(kind: .flat),
                 provenanceFilter: BridgeProvenanceFilter()
-            ),
+            )
+        let request = BridgeReviewPipelineRequest(
+            packageId: predecessorPackage?.packageId ?? "development-package-\(UUIDv7.generate().uuidString)",
+            query: query,
             baseEndpoint: baseEndpoint,
             headEndpoint: headEndpoint,
             checkpointIds: [],
             reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: generatedAt
+            generatedAtUnixMilliseconds: generatedAt,
+            reviewAttemptAuthorityGeneration: refreshReservation?.authorityGeneration ?? 0,
+            gitRefreshScope:
+                refreshReservation?.reviewRefreshScope ?? .complete(reason: .nonExactInput),
+            gitRefreshSeed: predecessorPackage == nil ? nil : reviewGitRefreshSeedHolder.activeSeed
         )
         let capture = try await reviewProvider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: target,
                 baseEndpoint: baseEndpoint,
                 headEndpoint: headEndpoint,
-                reviewGenerationValue: reviewGeneration.rawValue
+                reviewGenerationValue: reviewGeneration.rawValue,
+                reviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
+                gitRefreshScope: request.gitRefreshScope,
+                gitRefreshSeed: request.gitRefreshSeed
             )
         )
         return try BridgeResolvedContributionRequestBuilder.build(
@@ -617,6 +669,11 @@ package actor BridgeDevelopmentProductHost {
             capture: capture,
             reviewedSubjectLabel: reviewedSubjectLabel
         )
+    }
+
+    func allocateReviewComparisonTaskAttempt() -> UInt64 {
+        nextReviewComparisonTaskAttempt &+= 1
+        return nextReviewComparisonTaskAttempt
     }
 
     static func loadReviewComparisonDefaultTarget(
