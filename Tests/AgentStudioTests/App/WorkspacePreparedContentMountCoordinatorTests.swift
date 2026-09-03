@@ -251,8 +251,8 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         #expect(registry.isInitialRestorePending == false)
     }
 
-    @Test("foreground main settles before drawer admission and hidden content stays deferred")
-    func foregroundMainSettlesBeforeDrawerAdmissionAndHiddenContentStaysDeferred() async throws {
+    @Test("terminal restore orders foreground before hidden and main before drawer")
+    func terminalRestoreOrdersForegroundBeforeHiddenAndMainBeforeDrawer() async throws {
         let generation = try makePreparedContentCoordinatorGeneration()
         let tabID = UUIDv7.generate()
         let parentPaneID = PaneId(existingUUID: UUIDv7.generate())
@@ -261,6 +261,29 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             title: "Main terminal",
             visibilityPriority: .activeVisible,
             hostPlacement: .tab(tabID: tabID)
+        )
+        let drawerTerminal = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Drawer terminal",
+            visibilityPriority: .activeVisible,
+            hostPlacement: .drawer(
+                tabID: tabID,
+                parentPaneID: parentPaneID,
+                drawerID: drawerID
+            )
+        )
+        let hiddenMainTerminal = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Hidden main terminal",
+            visibilityPriority: .hidden,
+            hostPlacement: .tab(tabID: UUIDv7.generate())
+        )
+        let hiddenDrawerTerminal = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Hidden drawer terminal",
+            visibilityPriority: .hidden,
+            hostPlacement: .drawer(
+                tabID: UUIDv7.generate(),
+                parentPaneID: PaneId(existingUUID: UUIDv7.generate()),
+                drawerID: UUIDv7.generate()
+            )
         )
         let mainNonterminal = makePreparedContentCoordinatorNonterminalDescriptor(
             title: "Main webview",
@@ -283,14 +306,16 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         )
         let cohort = WorkspacePreparedContentMountCohort(
             generation: generation,
-            terminalActivationInput: TerminalActivationInput(entries: [mainTerminal]),
+            terminalActivationInput: TerminalActivationInput(
+                entries: [hiddenDrawerTerminal, drawerTerminal, hiddenMainTerminal, mainTerminal]
+            ),
             nonterminalContentMountInput: NonterminalContentMountInput(
                 entries: [mainNonterminal, drawerNonterminal, hiddenNonterminal]
             )
         )
         let registry = ViewRegistry()
         registry.beginInitialRestore()
-        let terminalPort = SuspendedPreparedContentTerminalPort()
+        let terminalPort = RecordingPreparedContentTerminalPort()
         let nonterminalPort = SignallingPreparedContentNonterminalPort(
             signalPaneID: mainNonterminal.paneID
         )
@@ -300,23 +325,28 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalAdmissionPort: terminalPort,
             nonterminalAdmissionPort: nonterminalPort
         )
-        let mountTask = Task { @MainActor in
-            await coordinator.mount()
-        }
+        let settlement = await coordinator.mount()
 
-        await terminalPort.waitUntilAdmissionStarts()
-        await nonterminalPort.waitUntilSignalMountCompletes()
-
-        #expect(nonterminalPort.descriptors.map(\.paneID) == [mainNonterminal.paneID])
-
-        terminalPort.finish(with: .ready(surfaceID: UUIDv7.generate()))
-        let settlement = await mountTask.value
-
+        #expect(
+            terminalPort.admissions.map(\.descriptor.paneID) == [
+                mainTerminal.paneID,
+                drawerTerminal.paneID,
+                hiddenMainTerminal.paneID,
+                hiddenDrawerTerminal.paneID,
+            ]
+        )
         #expect(
             nonterminalPort.descriptors.map(\.paneID)
                 == [mainNonterminal.paneID, drawerNonterminal.paneID]
         )
-        #expect(Set(settlement.terminal.outcomesByPaneID.keys) == [mainTerminal.paneID])
+        #expect(
+            Set(settlement.terminal.outcomesByPaneID.keys) == [
+                mainTerminal.paneID,
+                drawerTerminal.paneID,
+                hiddenMainTerminal.paneID,
+                hiddenDrawerTerminal.paneID,
+            ]
+        )
         #expect(
             Set(settlement.nonterminal.outcomesByPaneID.keys)
                 == [mainNonterminal.paneID, drawerNonterminal.paneID]

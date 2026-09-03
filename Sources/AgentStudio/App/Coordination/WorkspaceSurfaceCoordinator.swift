@@ -782,14 +782,12 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
         applyTopologyAdoptions(from: [delta])
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
@@ -804,26 +802,18 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
             let clearedPaneIDs = store.mutationCoordinator.clearPaneAssociations(
                 forRemovedWorktreeID: entry.id
             )
-            for _ in clearedPaneIDs {
+            for sourcePaneID in clearedPaneIDs {
                 performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
-            }
-            let orphanedPaneIds = store.mutationCoordinator.orphanPanesForRemovedWorktreeIfUnmatched(entry)
-            for sourcePaneId in orphanedPaneIds {
                 guard
                     let companion = store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePaneId
+                        forSourcePane: sourcePaneID
                     )
                 else {
                     continue
                 }
                 _ = reconcileZoomCompanion(
-                    sourcePaneId: sourcePaneId,
+                    sourcePaneId: sourcePaneID,
                     owningTabId: companion.owningTabId
-                )
-            }
-            if !orphanedPaneIds.isEmpty {
-                Self.logger.info(
-                    "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
                 )
             }
         }

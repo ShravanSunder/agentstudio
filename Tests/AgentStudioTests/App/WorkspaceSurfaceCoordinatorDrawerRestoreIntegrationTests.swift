@@ -37,9 +37,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
 
     private struct StartupTabSwitchHarness {
         let harness: Harness
-        let startupPaneID: UUID
         let startupTabID: UUID
-        let selectedPaneIDsInRestoreOrder: [UUID]
         let selectedTabID: UUID
     }
 
@@ -199,14 +197,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.windowLifecycleStore.recordLaunchLayoutSettled()
         return StartupTabSwitchHarness(
             harness: harness,
-            startupPaneID: startupPane.id,
             startupTabID: startupTab.id,
-            selectedPaneIDsInRestoreOrder: [
-                selectedPane.id,
-                selectedSiblingPane.id,
-                secondDrawerPane.id,
-                firstDrawerPane.id,
-            ],
             selectedTabID: selectedTab.id
         )
     }
@@ -310,8 +301,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.count == 2)
     }
 
-    @Test("tab selection during initial restore mounts unowned main before visible drawer children")
-    func selectTabDuringInitialRestore_mountsUnownedMainBeforeDrawerChildren() throws {
+    @Test("tab selection during initial restore does not duplicate prepared terminal mounts")
+    func selectTabDuringInitialRestore_doesNotDuplicatePreparedTerminalMounts() throws {
         // Arrange
         let context = try makeStartupTabSwitchHarness()
         let harness = context.harness
@@ -322,16 +313,13 @@ struct WorkspaceDrawerRestoreIntegrationTests {
 
         // Assert
         #expect(harness.viewRegistry.isInitialRestorePending)
-        #expect(harness.surfaceManager.createdPaneIds == context.selectedPaneIDsInRestoreOrder)
-        for paneID in context.selectedPaneIDsInRestoreOrder {
-            #expect(harness.surfaceManager.createdConfigsByPaneId[paneID]?.initialFrame != nil)
-        }
-        #expect(!harness.surfaceManager.createdPaneIds.contains(context.startupPaneID))
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.store.tabLayoutAtom.activeTab?.id == context.selectedTabID)
 
         harness.coordinator.execute(.selectTab(tabId: context.startupTabID))
 
         #expect(harness.viewRegistry.isInitialRestorePending)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(context.startupPaneID))
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
     }
 
     @Test
@@ -423,8 +411,11 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == parentPane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visibleDrawerPane.id }.count == 2)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(minimizedDrawerPane.id))
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: minimizedDrawerPane.id) == nil)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == minimizedDrawerPane.id }.count == 2)
+        #expect(
+            harness.viewRegistry.terminalStatusPlaceholderView(for: minimizedDrawerPane.id)?.mode
+                == .failedToStart
+        )
         #expect(harness.store.drawerView(forParent: parentPane.id) == drawerViewBeforePreparedMount)
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count
@@ -562,8 +553,11 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.parentPaneID }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.firstDrawerPaneID }.count == 2)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(harness.secondDrawerPaneID))
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: harness.secondDrawerPaneID) == nil)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.secondDrawerPaneID }.count == 2)
+        #expect(
+            harness.viewRegistry.terminalStatusPlaceholderView(for: harness.secondDrawerPaneID)?.mode
+                == .failedToStart
+        )
         #expect(harness.store.drawerView(forParent: harness.parentPaneID) == drawerViewBeforePreparedMount)
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count

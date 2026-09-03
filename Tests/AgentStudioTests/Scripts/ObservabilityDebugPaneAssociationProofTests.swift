@@ -23,7 +23,7 @@ struct ObservabilityDebugPaneAssociationProofTests {
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         let queries = try String(contentsOf: queryLog, encoding: .utf8)
         #expect(queries.contains("agentstudio.startup_diagnostic.association_proof.succeeded"))
-        #expect(queries.contains("agentstudio.startup_diagnostic.association.topology_orphan_succeeded"))
+        #expect(queries.contains("agentstudio.startup_diagnostic.association.topology_residency_preserved"))
         #expect(queries.contains("performance.pane.association"))
         #expect(queries.contains("agentstudio.performance.pane.association_outcome"))
     }
@@ -82,7 +82,7 @@ struct ObservabilityDebugPaneAssociationProofTests {
               exit 0
             fi
             if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]] || [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
-              printf '{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"pane-association-runtime-proof","agentstudio.startup_diagnostic.created_pane.count":2,"agentstudio.startup_diagnostic.association.initial_succeeded":true,"agentstudio.startup_diagnostic.association.cwd_move_succeeded":true,"agentstudio.startup_diagnostic.association.topology_clear_succeeded":true,"agentstudio.startup_diagnostic.association.topology_orphan_succeeded":true,"agentstudio.startup_diagnostic.association.topology_adopt_succeeded":true,"agentstudio.startup_diagnostic.association.free_pane_remained_nil":true,"agentstudio.startup_diagnostic.association_proof.succeeded":true}\\n'
+              printf '{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"pane-association-runtime-proof","agentstudio.startup_diagnostic.created_pane.count":2,"agentstudio.startup_diagnostic.association.initial_succeeded":true,"agentstudio.startup_diagnostic.association.cwd_move_succeeded":true,"agentstudio.startup_diagnostic.association.topology_clear_succeeded":true,"agentstudio.startup_diagnostic.association.topology_residency_preserved":true,"agentstudio.startup_diagnostic.association.topology_adopt_succeeded":true,"agentstudio.startup_diagnostic.association.free_pane_remained_nil":true,"agentstudio.startup_diagnostic.association_proof.succeeded":true}\\n'
               exit 0
             fi
             if [[ "$*" == *"performance.pane.association"* ]]; then

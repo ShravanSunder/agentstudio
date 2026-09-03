@@ -625,6 +625,8 @@ struct CIFastLaneWorkflowTests {
             "AgentStudioOTLPBootstrapSmokeTests",
             "DarwinCompositeFSEventContinuityTests",
             "DarwinFSEventStreamClientTests",
+            "DarwinSharedLocalFSEventObserverFailureTests",
+            "DarwinSharedLocalFSEventObserverTests",
             "DarwinSharedExactItemObserverTests",
             "DarwinSharedExactItemRealStreamIntegrationTests",
             "DerivedActivityNotificationIntegrationTests",

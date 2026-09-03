@@ -401,33 +401,6 @@ package final class WorkspacePaneAtom {
         drawerCursorAtom.expandedDrawerId
     }
 
-    @discardableResult
-    package func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
-        graphAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
-    }
-
-    @discardableResult
-    package func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
-        graphAtom.orphanPanesForWorktree(worktreeId, path: path)
-    }
-
-    @discardableResult
-    func restoreOrphanedPaneResidency(
-        forWorktreeIds worktreeIds: Set<UUID>,
-        activeLayoutPaneIds: Set<UUID>
-    ) -> Bool {
-        let paneIds = Set<UUID>(
-            paneSnapshot().values.compactMap { pane in
-                guard let worktreeId = pane.worktreeId, worktreeIds.contains(worktreeId) else { return nil }
-                return pane.id
-            }
-        )
-        return graphAtom.restoreOrphanedPaneResidency(
-            forPaneIds: paneIds,
-            activeLayoutPaneIds: activeLayoutPaneIds
-        )
-    }
-
     func snapshotPanes(with ids: [UUID]) -> [Pane] {
         ids.compactMap { pane($0) }
     }

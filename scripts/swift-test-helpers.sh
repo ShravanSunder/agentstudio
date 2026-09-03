@@ -27,6 +27,8 @@ large_non_webkit_filter_pattern() {
     ProcessExecutorTests
     DarwinCompositeFSEventContinuityTests
     DarwinFSEventStreamClientTests
+    DarwinSharedLocalFSEventObserverFailureTests
+    DarwinSharedLocalFSEventObserverTests
     DarwinSharedExactItemObserverTests
     FilesystemActorActivityTests
     WorkspaceStrictStartupSubprocessTests
@@ -66,6 +68,12 @@ large_process_global_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift' \
       'DarwinFSEventStreamClientTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift' \
+      'DarwinSharedLocalFSEventObserverFailureTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverTests.swift' \
+      'DarwinSharedLocalFSEventObserverTests'
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemObserverTests.swift' \
       'DarwinSharedExactItemObserverTests'

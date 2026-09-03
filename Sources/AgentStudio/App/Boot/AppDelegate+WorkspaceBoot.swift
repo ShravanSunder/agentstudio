@@ -441,9 +441,17 @@ extension AppDelegate {
         let recorder = performanceTraceRecorder
         performanceTraceRecorder.registerPeriodicSnapshotReporter { [weak client, weak recorder] in
             guard let client, let recorder else { return }
+            var attributes = client.snapshotAndResetIngressPerformance().traceAttributes
+            let observationSnapshot = client.sharedLocalObservationSnapshot()
+            attributes["agentstudio.performance.filesystem.local_stream.physical.count"] = .int(
+                observationSnapshot.physicalStreamCount
+            )
+            attributes["agentstudio.performance.filesystem.local_stream.logical_registration.count"] = .int(
+                observationSnapshot.logicalRegistrationCount
+            )
             recorder.record(
                 .filesystemIngressSnapshot,
-                attributes: client.snapshotAndResetIngressPerformance().traceAttributes
+                attributes: attributes
             )
         }
     }
