@@ -715,7 +715,9 @@ struct ForgeActorAdmissionEdgeTests {
     @Test("rejected A-to-B completion cannot suppress identical valid A after emission reentry")
     func rejectedCompletionCannotPoisonLaterIdenticalFacts() async {
         let emissionGate = ForgeStableProjectionEmissionGate()
+        let performanceRecorder = ForgePerformanceSnapshotRecorderSpy()
         let fixture = await ForgeActorFixture.make(
+            performanceTraceRecorder: performanceRecorder,
             beforeEventEmission: { event in
                 await emissionGate.pauseFirstStableProjection(event)
             }
@@ -748,6 +750,17 @@ struct ForgeActorAdmissionEdgeTests {
         #expect(await fixture.provider.callCount == 2)
 
         await emissionGate.resume()
+        var rejectedCompletionDrained = false
+        for _ in 0..<10_000 {
+            if performanceRecorder.snapshots.reduce(0, { $0 + $1.validation.staleScope }) == 1 {
+                rejectedCompletionDrained = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(rejectedCompletionDrained)
+        #expect(await fixture.provider.callCount == 2)
+
         await fixture.provider.resolve(callAt: 1, with: .complete([pullRequest]))
         #expect(
             await fixture.events.waitForFacts(
@@ -757,6 +770,7 @@ struct ForgeActorAdmissionEdgeTests {
             )
         )
         #expect(await fixture.events.pullRequestsChangedCount(for: repoId) == 1)
+        #expect(await fixture.provider.callCount == 2)
 
         await fixture.actor.shutdown()
         await fixture.stopObserving()
