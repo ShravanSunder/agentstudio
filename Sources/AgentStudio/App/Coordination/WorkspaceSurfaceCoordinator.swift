@@ -807,25 +807,6 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
             for _ in clearedPaneIDs {
                 performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
             }
-            let orphanedPaneIds = store.mutationCoordinator.orphanPanesForRemovedWorktreeIfUnmatched(entry)
-            for sourcePaneId in orphanedPaneIds {
-                guard
-                    let companion = store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePaneId
-                    )
-                else {
-                    continue
-                }
-                _ = reconcileZoomCompanion(
-                    sourcePaneId: sourcePaneId,
-                    owningTabId: companion.owningTabId
-                )
-            }
-            if !orphanedPaneIds.isEmpty {
-                Self.logger.info(
-                    "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
-                )
-            }
         }
     }
 
