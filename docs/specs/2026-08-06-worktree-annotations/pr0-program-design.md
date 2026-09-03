@@ -48,7 +48,10 @@ The smallest sufficient structure is:
    changes.
 
 No new database, table, service, daemon, IPC endpoint, comparison-history
-store, Git-result cache, or general review lifecycle is introduced.
+store, or general review lifecycle is introduced. The later
+[Incremental Review Git Refresh design](../2026-09-03-incremental-review-git-refresh/2026-09-03-program-design.md)
+supersedes only this design's no-Git-result-cache mechanism with one bounded,
+opaque calculation seed owned by the existing Review calculation lifecycle.
 
 ## Current system constraints
 
@@ -332,9 +335,12 @@ and ref variants retain symbolic names, while the commit variant retains its
 exact OID. Resolved branch target, HEAD, and contribution-base OIDs are
 calculated from current Git state for each attempt and captured in the resulting
 immutable snapshot. They are not restored as current truth. If the Git data
-plane uses an internal cache, that cache is a disposable calculation
-optimization, not pane authority or snapshot evidence; PR0 adds no Git-result
-cache.
+plane retains calculation material, it is disposable acceleration, not pane
+authority or snapshot evidence. PR0 originally added no Git-result cache; the
+later
+[Incremental Review Git Refresh design](../2026-09-03-incremental-review-git-refresh/2026-09-03-program-design.md)
+defines the bounded opaque seed that supersedes that mechanism while preserving
+fresh identity resolution.
 
 The intent stays inside the existing `BridgePaneState`: the workspace Core
 repository stores it for durable panes, while the retained Zoom controller
@@ -519,12 +525,17 @@ The same capture path owns every contribution refresh. The existing catch-up
 reservation still coalesces filesystem work:
 
 ```text
-contribution invalidation → new generation → fresh contribution capture
+contribution invalidation → new generation → fresh identity resolution
+  → proportional Git calculation when exact and safe, otherwise complete
 ```
 
 A contribution invalidation never rebuilds from the committed package's
-resolved endpoints. The new capture therefore re-resolves the selected target,
-reviewed HEAD, and unique base before package assembly.
+resolved endpoints. Every attempt therefore re-resolves the selected target,
+reviewed HEAD, and unique base before package assembly. The later
+[Incremental Review Git Refresh design](../2026-09-03-incremental-review-git-refresh/2026-09-03-program-design.md)
+may reuse opaque complete Git metadata only after those fresh identities and
+the exact affected scope are validated; uncertainty performs this design's
+complete direct comparison.
 
 Shared Review construction keeps `BridgeSharedReviewPackageTemplate`
 projection-only. The resolved request, not the reusable template, owns the
