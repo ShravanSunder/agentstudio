@@ -16,13 +16,13 @@ import Foundation
         let initialAssociationSucceeded: Bool
         let cwdMoveSucceeded: Bool
         let topologyClearSucceeded: Bool
-        let topologyOrphanSucceeded: Bool
+        let topologyResidencyPreserved: Bool
         let topologyAdoptSucceeded: Bool
         let freePaneRemainedNil: Bool
 
         var succeeded: Bool {
             initialAssociationSucceeded && cwdMoveSucceeded
-                && topologyClearSucceeded && topologyOrphanSucceeded
+                && topologyClearSucceeded && topologyResidencyPreserved
                 && topologyAdoptSucceeded && freePaneRemainedNil
         }
     }
@@ -102,9 +102,8 @@ import Foundation
                 worktreeId: nil,
                 cwd: secondWorktree.path
             )
-            let topologyOrphanSucceeded =
-                store.paneAtom.pane(associatedPane.id)?.residency
-                == .orphaned(reason: .worktreeNotFound(path: secondWorktree.path.path))
+            let topologyResidencyPreserved =
+                store.paneAtom.pane(associatedPane.id)?.residency == .active
 
             guard
                 let topologyAdoptSucceeded = adoptPaneAssociationAfterTopologyReadd(
@@ -127,7 +126,7 @@ import Foundation
                     initialAssociationSucceeded: initialAssociationSucceeded,
                     cwdMoveSucceeded: cwdMoveSucceeded,
                     topologyClearSucceeded: topologyClearSucceeded,
-                    topologyOrphanSucceeded: topologyOrphanSucceeded,
+                    topologyResidencyPreserved: topologyResidencyPreserved,
                     topologyAdoptSucceeded: topologyAdoptSucceeded,
                     freePaneRemainedNil: freePaneRemainedNil
                 )
@@ -193,8 +192,8 @@ import Foundation
                 "agentstudio.startup_diagnostic.association.topology_clear_succeeded": .bool(
                     result.topologyClearSucceeded
                 ),
-                "agentstudio.startup_diagnostic.association.topology_orphan_succeeded": .bool(
-                    result.topologyOrphanSucceeded
+                "agentstudio.startup_diagnostic.association.topology_residency_preserved": .bool(
+                    result.topologyResidencyPreserved
                 ),
                 "agentstudio.startup_diagnostic.association.topology_adopt_succeeded": .bool(
                     result.topologyAdoptSucceeded
