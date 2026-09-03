@@ -2163,3 +2163,26 @@ and backend lane will not edit Pierre or UI. UI owner should capture the
 rendered-item count, viewport-item count, demand-role counts, and descriptor
 count at the 26 -> 1,424 transition before selecting a correction. Existing
 Review demand admission, cache, worker queues, and transport remain unchanged.
+
+## 2026-09-03 00:21 EDT — Deterministic tooltip `act` failure blocks transport checkpoint push
+
+Transport/native S3 checkpoint `311d5b354` is clean and scoped proof is green:
+BridgeWeb complete unit 334 files / 2,157 tests, Node integration 4 files / 22
+tests, focused Browser Mode 2/2, focused Swift 34/34, BridgeWeb check/typecheck,
+Swift format, SwiftLint, architecture lint, release-script checks, and packaged
+three-launch diagnostic.
+
+The mandatory `mise run test` aggregate reached Browser Mode and failed one UI
+test: `src/worktree-annotations/worktree-annotation-thread.browser.test.tsx`,
+`uses quiet rounded action chrome and command-spec tooltip copy`. The browser
+failure guard reported state updates to `TooltipRoot`, `TooltipPopup`, and
+`TooltipPositioner` outside `act(...)`. A focused rerun of that exact test also
+failed 1/1 with the same three messages, proving this is deterministic rather
+than aggregate interference.
+
+UI owner action: diagnose and correct the test/tooltip synchronization in the
+owned annotation UI lane without weakening the browser failure guard. Then run
+the exact focused test and notify the transport owner. Transport will rerun the
+aggregate and push `311d5b354` only after the shared clean HEAD gate passes.
+Transport will not edit this UI-owned file while S4 remains paused at the clean
+checkpoint.
