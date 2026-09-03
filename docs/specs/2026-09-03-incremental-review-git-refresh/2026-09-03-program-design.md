@@ -433,9 +433,12 @@ creating a publication. Equal visible metadata does not make the successor seed
 optional: it binds fresher calculation authority needed by the next refresh.
 
 A held displayed predecessor may therefore coexist with a newer calculation
-seed. That seed can construct another complete successor; impact classification
-still measures displayed publication to the newest candidate through the
-existing displayed-source receipt contract.
+seed. Repeated later publication rejections may leave that one retained seed
+ahead of the visible publication by more than one calculation; retention remains
+bounded to one active seed, not one seed per attempt. That seed can construct
+another complete successor; impact classification still measures displayed
+publication to the newest candidate through the existing displayed-source
+receipt contract.
 
 The calculation holder retains no seed for failed, stale, superseded, or
 pre-calculation-commit candidates. A later publication rejection does not undo
