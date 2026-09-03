@@ -101,7 +101,6 @@ final class WorkspaceSurfaceCoordinator {
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
     var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
-    var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
     var pullRequestDemandOwningWindowId: UUID?
     var pullRequestDemandObservationGeneration: UInt64 = 0

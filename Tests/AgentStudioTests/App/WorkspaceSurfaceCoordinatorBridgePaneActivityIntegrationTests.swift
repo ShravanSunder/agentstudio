@@ -26,9 +26,6 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceBridgePaneActivityIntegrationTests {
         enum ActivityHidingMutation: CaseIterable, CustomTestStringConvertible {
-            case owningWindowHidden
-            case owningWindowMiniaturized
-            case owningWindowOccluded
             case inactiveTab
             case inactiveArrangement
             case minimized
@@ -37,12 +34,6 @@ extension WebKitSerializedTests {
 
             var testDescription: String {
                 switch self {
-                case .owningWindowHidden:
-                    "owning window hidden"
-                case .owningWindowMiniaturized:
-                    "owning window miniaturized"
-                case .owningWindowOccluded:
-                    "owning window occluded"
                 case .inactiveTab:
                     "inactive tab"
                 case .inactiveArrangement:
@@ -172,7 +163,7 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("installed Bridge pane is foreground through exact window and workspace facts")
+        @Test("installed Bridge pane is foreground through selected workspace facts")
         func installedBridgePaneBecomesForegroundFromExactNativeFacts() async throws {
             let harness = makeBridgePaneActivityTestHarness()
 
@@ -236,7 +227,7 @@ extension WebKitSerializedTests {
         }
 
         @Test(
-            "each native hiding fact demotes an installed Bridge pane to loaded-hidden",
+            "each pane hiding fact demotes an installed Bridge pane to loaded-hidden",
             arguments: ActivityHidingMutation.allCases
         )
         func eachNativeHidingFactDemotesToLoadedHidden(_ mutation: ActivityHidingMutation) async throws {
@@ -256,6 +247,25 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
+        @Test("owning window state does not suspend a foreground Bridge tab")
+        func owningWindowStateDoesNotSuspendForegroundBridgeTab() async throws {
+            let harness = makeBridgePaneActivityTestHarness()
+            try await installBridgeControllerAndEnterForeground(harness)
+
+            harness.windowLifecycleStore.recordWindowVisibility(false, for: harness.owningWindowId)
+            harness.windowLifecycleStore.recordWindowMiniaturization(true, for: harness.owningWindowId)
+            harness.windowLifecycleStore.recordWindowOcclusion(true, for: harness.owningWindowId)
+
+            await expectBridgePaneActivity(
+                .foreground,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "the selected Bridge tab stays alive regardless of app/window foreground state"
+            )
+
+            await harness.finish()
+        }
+
         @Test("key, focus, and active viewer signals cannot mint foreground activity")
         func keyFocusAndViewerSignalsCannotMintForegroundActivity() async throws {
             let harness = makeBridgePaneActivityTestHarness()
@@ -270,12 +280,12 @@ extension WebKitSerializedTests {
                 ),
                 for: foreignVisibleWindowId
             )
-            harness.windowLifecycleStore.recordWindowVisibility(false, for: harness.owningWindowId)
+            harness.store.paneAtom.setResidency(.backgrounded, for: harness.bridgePane.id)
             await expectBridgePaneActivity(
                 .loadedHidden,
                 for: harness.bridgePane.id,
                 in: harness.coordinator,
-                because: "the exact owning window is hidden"
+                because: "the pane itself has backgrounded residency"
             )
             harness.windowLifecycleStore.recordWindowBecameKey(foreignVisibleWindowId)
             harness.windowLifecycleStore.recordWindowBecameFocused(foreignVisibleWindowId)
@@ -402,12 +412,6 @@ extension WebKitSerializedTests {
 
         private func apply(_ mutation: ActivityHidingMutation, to harness: BridgePaneActivityTestHarness) {
             switch mutation {
-            case .owningWindowHidden:
-                harness.windowLifecycleStore.recordWindowVisibility(false, for: harness.owningWindowId)
-            case .owningWindowMiniaturized:
-                harness.windowLifecycleStore.recordWindowMiniaturization(true, for: harness.owningWindowId)
-            case .owningWindowOccluded:
-                harness.windowLifecycleStore.recordWindowOcclusion(true, for: harness.owningWindowId)
             case .inactiveTab:
                 let backgroundPane = harness.store.createPane(
                     content: .webview(

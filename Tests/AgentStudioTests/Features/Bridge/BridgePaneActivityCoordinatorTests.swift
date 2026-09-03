@@ -25,7 +25,7 @@ struct BridgePaneActivityCoordinatorTests {
         #expect(activity == .loadedHidden)
     }
 
-    @Test("an installed controller with every native visibility fact is foreground")
+    @Test("an installed controller with every pane activity fact is foreground")
     func installedVisibleControllerIsForeground() {
         // Arrange
         let coordinator = BridgePaneActivityCoordinator()
@@ -130,13 +130,6 @@ struct BridgePaneActivityCoordinatorTests {
         #expect(attemptedReopenActivity == .closed)
     }
 
-    @Test("application activation does not pause a foreground Bridge tab")
-    func applicationActivationDoesNotPauseForegroundTab() {
-        // Arrange
-        let coordinator = BridgePaneActivityCoordinator()
-        #expect(coordinator.update(from: .foreground) == .foreground)
-        #expect(coordinator.update(from: .foreground) == .foreground)
-    }
 }
 
 enum BridgePaneActivityFactMutation: String, CaseIterable, CustomTestStringConvertible, Sendable {
@@ -146,9 +139,6 @@ enum BridgePaneActivityFactMutation: String, CaseIterable, CustomTestStringConve
     case inactiveArrangementAndDrawer
     case minimized
     case zoomExcluded
-    case hiddenWindow
-    case miniaturizedWindow
-    case occludedWindow
 
     static let allForegroundDemotions = Array(allCases)
 
@@ -168,12 +158,6 @@ enum BridgePaneActivityFactMutation: String, CaseIterable, CustomTestStringConve
             return facts.replacing(isMinimized: true)
         case .zoomExcluded:
             return facts.replacing(isZoomExcluded: true)
-        case .hiddenWindow:
-            return facts.replacing(isOwningWindowVisible: false)
-        case .miniaturizedWindow:
-            return facts.replacing(isOwningWindowMiniaturized: true)
-        case .occludedWindow:
-            return facts.replacing(isOwningWindowOccluded: true)
         }
     }
 }
@@ -187,9 +171,6 @@ extension BridgePaneActivityFacts {
         isInExpandedDrawer: false,
         isMinimized: false,
         isZoomExcluded: false,
-        isOwningWindowVisible: true,
-        isOwningWindowMiniaturized: false,
-        isOwningWindowOccluded: false,
         isAuthorityClosed: false
     )
 
@@ -201,9 +182,6 @@ extension BridgePaneActivityFacts {
         isInExpandedDrawer: Bool? = nil,
         isMinimized: Bool? = nil,
         isZoomExcluded: Bool? = nil,
-        isOwningWindowVisible: Bool? = nil,
-        isOwningWindowMiniaturized: Bool? = nil,
-        isOwningWindowOccluded: Bool? = nil,
         isAuthorityClosed: Bool? = nil
     ) -> Self {
         Self(
@@ -214,9 +192,6 @@ extension BridgePaneActivityFacts {
             isInExpandedDrawer: isInExpandedDrawer ?? self.isInExpandedDrawer,
             isMinimized: isMinimized ?? self.isMinimized,
             isZoomExcluded: isZoomExcluded ?? self.isZoomExcluded,
-            isOwningWindowVisible: isOwningWindowVisible ?? self.isOwningWindowVisible,
-            isOwningWindowMiniaturized: isOwningWindowMiniaturized ?? self.isOwningWindowMiniaturized,
-            isOwningWindowOccluded: isOwningWindowOccluded ?? self.isOwningWindowOccluded,
             isAuthorityClosed: isAuthorityClosed ?? self.isAuthorityClosed
         )
     }

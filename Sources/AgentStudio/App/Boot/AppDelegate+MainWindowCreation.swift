@@ -135,9 +135,7 @@ extension AppDelegate {
             },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
-        workspaceSurfaceCoordinator.bindBridgePaneActivities(
-            toOwningWindowId: workspaceWindowId
-        )
+        workspaceSurfaceCoordinator.startBridgePaneActivityObservation()
         workspaceSurfaceCoordinator.bindPullRequestDemand(
             toOwningWindowId: workspaceWindowId
         )

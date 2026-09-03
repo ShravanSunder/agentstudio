@@ -111,7 +111,7 @@ func makeBridgePaneActivityTestHarness(
         appLifecycleStore: appLifecycleStore,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
-    coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+    coordinator.startBridgePaneActivityObservation()
 
     return BridgePaneActivityTestHarness(
         store: store,
