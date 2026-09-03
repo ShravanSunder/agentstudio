@@ -184,12 +184,14 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             Self.teardown(registration)
             return
         }
-        if let existing = streamByWorktreeId.updateValue(registration, forKey: worktreeId) {
-            lifecycleLock.unlock()
-            Self.teardown(existing)
-            return
-        }
+        let concurrentlyInstalledRegistration = streamByWorktreeId.updateValue(
+            registration,
+            forKey: worktreeId
+        )
         lifecycleLock.unlock()
+        if let concurrentlyInstalledRegistration {
+            Self.teardown(concurrentlyInstalledRegistration)
+        }
         registration.eventActivationGate.activate()
     }
 
