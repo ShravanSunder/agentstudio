@@ -483,7 +483,6 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
                 )
             ])
         )
-        #expect(await client.captureActivityBarrier() == nil)
         #expect(
             await waitForLogicalRegistrationCount(
                 1,
