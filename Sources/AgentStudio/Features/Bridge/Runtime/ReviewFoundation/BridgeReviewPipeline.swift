@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 
 /// Off-main review package assembly boundary for Bridge panes.
@@ -61,7 +62,10 @@ actor BridgeReviewPipeline {
             generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
             preparedComparison: request.preparedComparison,
             comparisonOrigin: request.comparisonOrigin,
-            reviewedSubjectLabel: request.reviewedSubjectLabel
+            reviewedSubjectLabel: request.reviewedSubjectLabel,
+            reviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
+            gitRefreshScope: request.gitRefreshScope,
+            gitRefreshSeed: request.gitRefreshSeed
         )
     }
 
@@ -169,7 +173,7 @@ actor BridgeReviewPipeline {
                 )
             }
         }
-        return pipelineResult(package: package)
+        return pipelineResult(package: package, gitRefreshSeed: request.gitRefreshSeed)
     }
 
     private func compareEndpoints(
@@ -268,12 +272,16 @@ actor BridgeReviewPipeline {
         )
     }
 
-    private func pipelineResult(package: BridgeReviewPackage) -> BridgeReviewPipelineResult {
+    private func pipelineResult(
+        package: BridgeReviewPackage,
+        gitRefreshSeed: GitReviewRefreshSeed?
+    ) -> BridgeReviewPipelineResult {
         BridgeReviewPipelineResult(
             package: package,
             registeredContentHandles: package.itemsById.values
                 .sorted { $0.itemId < $1.itemId }
-                .flatMap { $0.contentRoles.allHandles }
+                .flatMap { $0.contentRoles.allHandles },
+            gitRefreshSeed: gitRefreshSeed
         )
     }
 

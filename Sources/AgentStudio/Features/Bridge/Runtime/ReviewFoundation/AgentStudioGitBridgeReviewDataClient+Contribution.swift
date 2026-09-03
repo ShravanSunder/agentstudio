@@ -80,14 +80,20 @@ extension AgentStudioGitBridgeReviewDataClient {
     {
         let reviewGeneration = BridgeReviewGeneration(request.reviewGenerationValue)
         let target = gitRevisionTarget(for: request.symbolicTarget)
+        let refreshInput = gitReviewRefreshInput(for: request)
+        let freshnessKey = gitReadFreshnessKey(
+            forReviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration
+        )
         if usesDirectComparison(request.symbolicTarget) {
-            let snapshot = try await loadGitDirectReviewComparison(
+            let result = try await loadGitDirectReviewComparison(
                 GitDirectReviewComparisonRequest(
                     repositoryPath: repositoryPath,
-                    target: target
+                    target: target,
+                    refreshInput: refreshInput
                 ),
-                freshnessKey: gitReadFreshnessKey(for: reviewGeneration)
+                freshnessKey: freshnessKey
             )
+            let snapshot = result.snapshot
             return makeContributionCapture(
                 request: request,
                 reviewGeneration: reviewGeneration,
@@ -97,16 +103,21 @@ extension AgentStudioGitBridgeReviewDataClient {
                     baseRole: .selectedTarget,
                     comparisonBase: snapshot.resolvedTarget,
                     diff: snapshot.diff
-                )
+                ),
+                successorSeed: result.successorSeed,
+                calculationDisposition: result.calculationDisposition,
+                calculationReason: result.calculationReason
             )
         }
-        let snapshot = try await loadGitContributionDiff(
+        let result = try await loadGitContributionDiff(
             GitContributionDiffRequest(
                 repositoryPath: repositoryPath,
-                target: target
+                target: target,
+                refreshInput: refreshInput
             ),
-            freshnessKey: gitReadFreshnessKey(for: reviewGeneration)
+            freshnessKey: freshnessKey
         )
+        let snapshot = result.snapshot
         return makeContributionCapture(
             request: request,
             reviewGeneration: reviewGeneration,
@@ -116,14 +127,20 @@ extension AgentStudioGitBridgeReviewDataClient {
                 baseRole: .commonCommit,
                 comparisonBase: snapshot.contributionBase,
                 diff: snapshot.diff
-            )
+            ),
+            successorSeed: result.successorSeed,
+            calculationDisposition: result.calculationDisposition,
+            calculationReason: result.calculationReason
         )
     }
 
     private func makeContributionCapture(
         request: BridgeContributionComparisonRequest,
         reviewGeneration: BridgeReviewGeneration,
-        snapshot: ContributionComparisonSnapshot
+        snapshot: ContributionComparisonSnapshot,
+        successorSeed: GitReviewRefreshSeed,
+        calculationDisposition: GitReviewCalculationDisposition,
+        calculationReason: GitReviewCalculationReason
     ) -> BridgeContributionComparisonCapture {
         let baseEndpoint = BridgeSourceEndpoint(
             endpointId: request.baseEndpoint.endpointId,
@@ -164,8 +181,20 @@ extension AgentStudioGitBridgeReviewDataClient {
                 baseEndpoint: baseEndpoint,
                 headEndpoint: headEndpoint,
                 changedFiles: changedFiles
-            )
+            ),
+            gitRefreshSeed: successorSeed,
+            calculationDisposition: calculationDisposition,
+            calculationReason: calculationReason
         )
+    }
+
+    private func gitReviewRefreshInput(
+        for request: BridgeContributionComparisonRequest
+    ) -> GitReviewRefreshInput {
+        guard case .exactPaths(let paths) = request.gitRefreshScope,
+            let seed = request.gitRefreshSeed
+        else { return .complete }
+        return .proportional(seed: seed, changedPaths: paths)
     }
 
     private struct ContributionComparisonSnapshot {

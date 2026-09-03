@@ -118,6 +118,60 @@ struct BridgeChangeIndexTests {
         #expect(snapshot.packagesById["package"]?.orderedItemIds == ["item-new"])
     }
 
+    @Test("origin-only same-lineage movement advances revision without an item delta")
+    func originOnlySameLineageMovementAdvancesRevisionWithoutItemDelta() async throws {
+        let index = BridgeChangeIndex()
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let currentBase = bridgeChangeIndexEndpoint(
+            endpointId: "base",
+            kind: .gitRef,
+            providerIdentity: "base-a"
+        )
+        let successorBase = bridgeChangeIndexEndpoint(
+            endpointId: "base",
+            kind: .gitRef,
+            providerIdentity: "base-b"
+        )
+        let head = bridgeChangeIndexEndpoint(
+            endpointId: "working-tree",
+            kind: .workingTree,
+            providerIdentity: "working-tree"
+        )
+        let current = replacingBridgeChangeIndexAuthority(
+            in: makeBridgeReviewPackage(
+                baseEndpoint: currentBase,
+                headEndpoint: head,
+                reviewGeneration: 7,
+                orderedItemIds: ["item"]
+            ),
+            baseEndpoint: currentBase,
+            resolvedTargetOID: "target-a"
+        )
+        let successor = replacingBridgeChangeIndexAuthority(
+            in: current,
+            baseEndpoint: successorBase,
+            resolvedTargetOID: "target-b"
+        )
+        let initialLoad = try await index.prepareExplicitLoad(
+            current,
+            productAdmission: productAdmission
+        )
+        #expect(await index.recordCommittedLoad(initialLoad, productAdmission: productAdmission))
+
+        let prepared = try await index.prepareExplicitLoad(
+            successor,
+            fallbackRevision: current.revision,
+            productAdmission: productAdmission
+        )
+
+        #expect(prepared.delta == nil)
+        #expect(prepared.package.reviewGeneration == current.reviewGeneration)
+        #expect(prepared.package.revision == current.revision + 1)
+        #expect(prepared.package.comparisonOrigin == successor.comparisonOrigin)
+        #expect(prepared.package.orderedItemIds == current.orderedItemIds)
+        #expect(prepared.package.itemsById == current.itemsById)
+    }
+
     @Test("change index replaces newer generation package reloads without cross-generation deltas")
     func changeIndexReplacesNewerGenerationPackageReloads() async throws {
         let index = BridgeChangeIndex()
@@ -304,5 +358,55 @@ private func makeBridgeReviewPackage(
         summary: resolvedSummary,
         filterState: BridgeViewFilter(),
         generatedAtUnixMilliseconds: 200
+    )
+}
+
+private func bridgeChangeIndexEndpoint(
+    endpointId: String,
+    kind: BridgeSourceEndpoint.Kind,
+    providerIdentity: String
+) -> BridgeSourceEndpoint {
+    BridgeSourceEndpoint(
+        endpointId: endpointId,
+        kind: kind,
+        repoId: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        worktreeId: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+        label: endpointId,
+        createdAtUnixMilliseconds: 1,
+        contentSetHash: providerIdentity,
+        providerIdentity: providerIdentity
+    )
+}
+
+private func replacingBridgeChangeIndexAuthority(
+    in package: BridgeReviewPackage,
+    baseEndpoint: BridgeSourceEndpoint,
+    resolvedTargetOID: String
+) -> BridgeReviewPackage {
+    BridgeReviewPackage(
+        packageId: package.packageId,
+        schemaVersion: package.schemaVersion,
+        reviewGeneration: package.reviewGeneration,
+        revision: package.revision,
+        query: package.query,
+        baseEndpoint: baseEndpoint,
+        headEndpoint: package.headEndpoint,
+        orderedItemIds: package.orderedItemIds,
+        itemsById: package.itemsById,
+        groups: package.groups,
+        summary: package.summary,
+        filterState: package.filterState,
+        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
+        changesetCluster: package.changesetCluster,
+        comparisonOrigin: .contribution(
+            BridgeReviewContributionOrigin(
+                symbolicTarget: .branch(name: "main"),
+                resolvedTargetOID: resolvedTargetOID,
+                reviewedHeadOID: "head",
+                baseRole: .commonCommit,
+                baseOID: "base"
+            )
+        ),
+        reviewedSubjectLabel: package.reviewedSubjectLabel
     )
 }

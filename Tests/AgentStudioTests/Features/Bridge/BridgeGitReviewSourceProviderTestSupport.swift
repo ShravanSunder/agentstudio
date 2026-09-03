@@ -18,13 +18,13 @@ extension AgentStudioGitLocalClient {
     }
 
     func contributionDiff(_: GitContributionDiffRequest) async throws(GitDataPlaneError)
-        -> GitContributionDiffSnapshot
+        -> GitContributionDiffResult
     {
         throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
     }
 
     func directReviewComparison(_: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
-        -> GitDirectReviewComparisonSnapshot
+        -> GitDirectReviewComparisonResult
     {
         throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
     }
@@ -254,23 +254,23 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     }
 
     func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
-        -> GitContributionDiffSnapshot
+        -> GitContributionDiffResult
     {
         contributionDiffRequests.append(request)
         guard let contributionDiffSnapshot else {
             throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
         }
-        return contributionDiffSnapshot
+        return .clientFixture(snapshot: contributionDiffSnapshot)
     }
 
     func directReviewComparison(_ request: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
-        -> GitDirectReviewComparisonSnapshot
+        -> GitDirectReviewComparisonResult
     {
         directReviewComparisonRequests.append(request)
         guard let directReviewComparisonSnapshot else {
             throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
         }
-        return directReviewComparisonSnapshot
+        return .clientFixture(snapshot: directReviewComparisonSnapshot)
     }
 
     func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {

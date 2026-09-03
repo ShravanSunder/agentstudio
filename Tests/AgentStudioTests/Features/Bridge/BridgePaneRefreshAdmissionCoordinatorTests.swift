@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -806,13 +807,20 @@ private final class BridgePaneRefreshInvalidationCounter: @unchecked Sendable {
 
 private func makeFileChangeset(
     paths: [String],
-    batchSequence: UInt64
+    batchSequence: UInt64,
+    worktreeId: UUID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+    containsGitInternalChanges: Bool = false,
+    suppressedIgnoredPathCount: Int = 0,
+    suppressedGitInternalPathCount: Int = 0
 ) -> FileChangeset {
     FileChangeset(
-        worktreeId: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        worktreeId: worktreeId,
         repoId: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
         rootPath: URL(fileURLWithPath: "/tmp/bridge-pane-refresh-admission"),
         paths: paths,
+        containsGitInternalChanges: containsGitInternalChanges,
+        suppressedIgnoredPathCount: suppressedIgnoredPathCount,
+        suppressedGitInternalPathCount: suppressedGitInternalPathCount,
         timestamp: .now,
         batchSeq: batchSequence
     )

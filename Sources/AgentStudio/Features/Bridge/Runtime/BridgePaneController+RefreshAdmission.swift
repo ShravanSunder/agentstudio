@@ -106,7 +106,6 @@ extension BridgePaneController {
             guard changeset.repoId == runtime.metadata.repoId,
                 matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
             else { return }
-            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
             let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: matchesPaneWorktree ? changeset : nil,
                 requiresReviewRefresh: true
@@ -114,7 +113,6 @@ extension BridgePaneController {
             affectsFileLane = affectedLanes.contains(.file)
             affectsReviewLane = affectedLanes.contains(.review)
         case .statusChanged(let status):
-            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
             let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: nil,
                 latestFileStatus: status,
@@ -129,20 +127,6 @@ extension BridgePaneController {
         if affectsFileLane || affectsReviewLane {
             scheduleWorktreeProductCatchUpIfPossible()
         }
-    }
-
-    private func reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded() {
-        let admissionSnapshot = refreshAdmissionCoordinator.diagnosticSnapshot
-        guard admissionSnapshot.activity == .foreground,
-            refreshAdmissionCoordinator.isRefreshLaneActive(.review),
-            pendingComparisonReviewGeneration == nil,
-            case .workspace(_, let baseline) = bridgePaneState.source,
-            baseline?.contributionTarget != nil
-        else { return }
-
-        let successorGeneration = nextReviewGeneration.next()
-        nextReviewGeneration = successorGeneration
-        pendingComparisonReviewGeneration = successorGeneration
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {

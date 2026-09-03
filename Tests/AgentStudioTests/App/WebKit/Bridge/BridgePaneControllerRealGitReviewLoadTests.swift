@@ -201,7 +201,8 @@ extension WebKitSerializedTests {
                 Issue.record("Expected target movement to reset and publish a successor contribution snapshot")
                 return
             }
-            #expect(successorPackage.reviewGeneration == initialPackage.reviewGeneration.next())
+            #expect(successorPackage.reviewGeneration == initialPackage.reviewGeneration)
+            #expect(successorPackage.revision > initialPackage.revision)
             #expect(successorPackage != initialPackage)
             #expect(successorOrigin.resolvedTargetOID == successorTargetOID)
             #expect(successorOrigin.reviewedHeadOID == initialOrigin.reviewedHeadOID)

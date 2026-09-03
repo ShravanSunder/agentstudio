@@ -20,6 +20,7 @@ struct BridgePaneRefreshDirtyFact: Sendable {
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let reviewRefreshScope: ReviewGitRefreshScope?
     let operationCorrelationID: String?
     let operationStageAttempt: Int
 
@@ -77,6 +78,7 @@ struct BridgePaneRefreshCatchUpReservation: Sendable {
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let reviewRefreshScope: ReviewGitRefreshScope?
     let operationCorrelationID: String
     let operationStageAttempt: Int
     let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -321,8 +323,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
             dirtyFactByLane[.review] = mergingInvalidation(
                 into: dirtyFactByLane[.review],
                 generation: invalidationGeneration,
-                fileChangeset: nil,
-                latestFileStatus: nil,
+                fileChangeset: fileChangeset,
+                latestFileStatus: latestFileStatus,
                 requiresReviewRefresh: true
             )
         }
@@ -463,6 +465,13 @@ final class BridgePaneRefreshAdmissionCoordinator {
         latestFileStatus: GitWorkingTreeStatus?,
         requiresReviewRefresh: Bool
     ) -> BridgePaneRefreshDirtyFact {
+        let incomingReviewRefreshScope =
+            requiresReviewRefresh
+            ? ReviewGitRefreshScope.classify(
+                fileChangeset: fileChangeset,
+                latestFileStatus: latestFileStatus
+            )
+            : nil
         guard let current else {
             return BridgePaneRefreshDirtyFact(
                 generation: generation,
@@ -470,6 +479,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 latestFileStatus: latestFileStatus,
                 latestBatchSequence: fileChangeset?.batchSeq ?? 0,
                 requiresReviewRefresh: requiresReviewRefresh,
+                reviewRefreshScope: incomingReviewRefreshScope,
                 operationCorrelationID: nil,
                 operationStageAttempt: 0
             )
@@ -480,6 +490,11 @@ final class BridgePaneRefreshAdmissionCoordinator {
             latestFileStatus: latestFileStatus ?? current.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, fileChangeset?.batchSeq ?? 0),
             requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh,
+            reviewRefreshScope: mergedReviewRefreshScope(
+                current: current,
+                incomingChangeset: fileChangeset,
+                incomingScope: incomingReviewRefreshScope
+            ),
             operationCorrelationID: current.operationCorrelationID,
             operationStageAttempt: current.operationStageAttempt
         )
@@ -509,6 +524,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             latestFileStatus: dirtyFact.latestFileStatus,
             latestBatchSequence: dirtyFact.latestBatchSequence,
             requiresReviewRefresh: dirtyFact.requiresReviewRefresh,
+            reviewRefreshScope: dirtyFact.reviewRefreshScope,
             operationCorrelationID:
                 dirtyFact.operationCorrelationID ?? BridgeOperationCorrelation.mintScrubbedID(),
             operationStageAttempt: dirtyFact.operationStageAttempt,
@@ -550,6 +566,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 latestFileStatus: restored.latestFileStatus,
                 latestBatchSequence: restored.latestBatchSequence,
                 requiresReviewRefresh: restored.requiresReviewRefresh,
+                reviewRefreshScope: restored.reviewRefreshScope,
                 operationCorrelationID: operationCorrelationID,
                 operationStageAttempt:
                     operationCorrelationID == nil ? 0 : restored.operationStageAttempt + 1
@@ -565,6 +582,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             latestFileStatus: current.latestFileStatus ?? restored.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, restored.latestBatchSequence),
             requiresReviewRefresh: current.requiresReviewRefresh || restored.requiresReviewRefresh,
+            reviewRefreshScope: mergedReviewRefreshScope(current: current, restored: restored),
             operationCorrelationID: current.operationCorrelationID ?? operationCorrelationID,
             operationStageAttempt: max(
                 current.operationStageAttempt,
@@ -599,6 +617,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 latestFileStatus: file.latestFileStatus,
                 latestBatchSequence: file.latestBatchSequence,
                 requiresReviewRefresh: true,
+                reviewRefreshScope: review.reviewRefreshScope,
                 operationCorrelationID: nil,
                 operationStageAttempt: 0
             )
@@ -637,6 +656,47 @@ final class BridgePaneRefreshAdmissionCoordinator {
             timestamp: incoming.batchSeq >= current.batchSeq ? incoming.timestamp : current.timestamp,
             batchSeq: max(current.batchSeq, incoming.batchSeq)
         )
+    }
+
+    private func mergedReviewRefreshScope(
+        current: BridgePaneRefreshDirtyFact,
+        incomingChangeset: FileChangeset?,
+        incomingScope: ReviewGitRefreshScope?
+    ) -> ReviewGitRefreshScope? {
+        guard let incomingScope else { return current.reviewRefreshScope }
+        guard let currentScope = current.reviewRefreshScope else { return incomingScope }
+        return currentScope.union(
+            incomingScope,
+            hasCommonAuthority: sameChangesetAuthority(
+                current.fileChangeset,
+                incomingChangeset
+            )
+        )
+    }
+
+    private func mergedReviewRefreshScope(
+        current: BridgePaneRefreshDirtyFact,
+        restored: BridgePaneRefreshDirtyFact
+    ) -> ReviewGitRefreshScope? {
+        guard let restoredScope = restored.reviewRefreshScope else { return current.reviewRefreshScope }
+        guard let currentScope = current.reviewRefreshScope else { return restoredScope }
+        return currentScope.union(
+            restoredScope,
+            hasCommonAuthority: sameChangesetAuthority(
+                current.fileChangeset,
+                restored.fileChangeset
+            )
+        )
+    }
+
+    private func sameChangesetAuthority(
+        _ current: FileChangeset?,
+        _ incoming: FileChangeset?
+    ) -> Bool {
+        guard let current, let incoming else { return current == nil && incoming == nil }
+        return current.worktreeId == incoming.worktreeId
+            && current.repoId == incoming.repoId
+            && current.rootPath.standardizedFileURL == incoming.rootPath.standardizedFileURL
     }
 }
 

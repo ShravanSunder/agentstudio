@@ -13,7 +13,8 @@ extension BridgePaneController {
 
     func makeReviewPipelineRequest(
         artifact: DiffArtifact,
-        reviewGeneration: BridgeReviewGeneration
+        reviewGeneration: BridgeReviewGeneration,
+        reviewAttemptAuthorityGeneration: UInt64 = 0
     ) -> BridgeReviewPipelineRequest {
         let repoId = reviewRepoId(for: artifact)
         let endpoints = makeReviewEndpoints(
@@ -45,7 +46,8 @@ extension BridgePaneController {
             headEndpoint: endpoints.head,
             checkpointIds: [],
             reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000),
+            reviewAttemptAuthorityGeneration: reviewAttemptAuthorityGeneration
         )
     }
 

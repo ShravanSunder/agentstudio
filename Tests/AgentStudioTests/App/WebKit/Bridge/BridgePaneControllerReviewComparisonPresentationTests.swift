@@ -154,6 +154,13 @@ extension WebKitSerializedTests {
                 reviewGeneration: predecessorPackage.reviewGeneration.rawValue,
                 revision: predecessorPackage.revision
             )
+            controller.reviewGitRefreshSeedHolder.commit(
+                refreshAdmissionContributionSeed(
+                    targetOID: "replacement-target",
+                    headOID: "replacement-head",
+                    baseOID: "replacement-base"
+                )
+            )
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
@@ -165,6 +172,8 @@ extension WebKitSerializedTests {
             let settledPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
             #expect(didAdopt)
+            #expect(controller.nextReviewGeneration == predecessorPackage.reviewGeneration.next())
+            #expect(!controller.reviewGitRefreshSeedHolder.hasActiveSeed)
             #expect(pendingPresentation.reviewComparison?.activeTarget == successorTarget)
             #expect(pendingPresentation.reviewComparison?.displayedSnapshot == .stale(predecessorIdentity))
             guard case .current(let successorIdentity) = settledPresentation.reviewComparison?.displayedSnapshot

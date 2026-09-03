@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import Foundation
 
 package enum BridgeReviewComparisonBaseRole: String, Codable, Equatable, Sendable {
@@ -227,32 +228,44 @@ package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
     }
 }
 
-package struct BridgeContributionComparisonRequest: Equatable, Sendable {
+package struct BridgeContributionComparisonRequest: Sendable {
     package let symbolicTarget: WorkspaceReviewContributionTarget
     package let baseEndpoint: BridgeSourceEndpoint
     package let headEndpoint: BridgeSourceEndpoint
     package let reviewGenerationValue: Int
+    package let reviewAttemptAuthorityGeneration: UInt64
+    package let gitRefreshScope: ReviewGitRefreshScope
+    package let gitRefreshSeed: GitReviewRefreshSeed?
 
     package init(
         symbolicTarget: WorkspaceReviewContributionTarget,
         baseEndpoint: BridgeSourceEndpoint,
         headEndpoint: BridgeSourceEndpoint,
-        reviewGenerationValue: Int
+        reviewGenerationValue: Int,
+        reviewAttemptAuthorityGeneration: UInt64 = 0,
+        gitRefreshScope: ReviewGitRefreshScope = .complete(reason: .nonExactInput),
+        gitRefreshSeed: GitReviewRefreshSeed? = nil
     ) {
         self.symbolicTarget = symbolicTarget
         self.baseEndpoint = baseEndpoint
         self.headEndpoint = headEndpoint
         self.reviewGenerationValue = reviewGenerationValue
+        self.reviewAttemptAuthorityGeneration = reviewAttemptAuthorityGeneration
+        self.gitRefreshScope = gitRefreshScope
+        self.gitRefreshSeed = gitRefreshSeed
     }
 }
 
-package struct BridgeContributionComparisonCapture: Equatable, Sendable {
+package struct BridgeContributionComparisonCapture: Sendable {
     package let resolvedTargetOID: String
     package let reviewedHeadOID: String
     package let reviewedSubjectBranchName: String?
     package let baseRole: BridgeReviewComparisonBaseRole
     package let baseOID: String
     package let comparison: BridgeEndpointComparison
+    package let gitRefreshSeed: GitReviewRefreshSeed?
+    package let calculationDisposition: GitReviewCalculationDisposition
+    package let calculationReason: GitReviewCalculationReason
 
     package init(
         resolvedTargetOID: String,
@@ -260,7 +273,10 @@ package struct BridgeContributionComparisonCapture: Equatable, Sendable {
         reviewedSubjectBranchName: String? = nil,
         baseRole: BridgeReviewComparisonBaseRole,
         baseOID: String,
-        comparison: BridgeEndpointComparison
+        comparison: BridgeEndpointComparison,
+        gitRefreshSeed: GitReviewRefreshSeed? = nil,
+        calculationDisposition: GitReviewCalculationDisposition = .complete,
+        calculationReason: GitReviewCalculationReason = .completeRequested
     ) {
         self.resolvedTargetOID = resolvedTargetOID
         self.reviewedHeadOID = reviewedHeadOID
@@ -268,6 +284,9 @@ package struct BridgeContributionComparisonCapture: Equatable, Sendable {
         self.baseRole = baseRole
         self.baseOID = baseOID
         self.comparison = comparison
+        self.gitRefreshSeed = gitRefreshSeed
+        self.calculationDisposition = calculationDisposition
+        self.calculationReason = calculationReason
     }
 }
 
@@ -334,7 +353,10 @@ enum BridgeResolvedContributionRequestBuilder {
                     baseOID: capture.baseOID
                 )
             ),
-            reviewedSubjectLabel: reviewedSubjectLabel
+            reviewedSubjectLabel: reviewedSubjectLabel,
+            reviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
+            gitRefreshScope: request.gitRefreshScope,
+            gitRefreshSeed: capture.gitRefreshSeed
         )
     }
 }

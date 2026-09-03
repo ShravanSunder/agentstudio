@@ -68,6 +68,8 @@ struct BridgePreparedContributionSharedConstructionTests {
         )
         #expect(predecessorItem.headContentHash == gitBlobSHA1ContentHash(predecessorContent))
         #expect(successorItem.headContentHash == gitBlobSHA1ContentHash(successorContent))
+        #expect(predecessor.result.gitRefreshSeed != nil)
+        #expect(successor.result.gitRefreshSeed != nil)
         #expect(demandedPredecessor.data == Data(predecessorContent.utf8))
         #expect(loadedPredecessor.data == Data(predecessorContent.utf8))
         #expect(loadedSuccessor.data == Data(successorContent.utf8))

@@ -199,8 +199,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             let constructionResult = try await loadReviewPackageResult(
                 artifact: artifact,
-                reviewGeneration: reset.reviewGeneration,
-                buildReason: reset.buildReason,
+                reset: reset,
                 reviewLoadStage: &reviewLoadStage,
                 packageTraceContext: packageTraceContext
             )
@@ -240,6 +239,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 pendingReviewPackageBuildReasons.insert(reset.buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
+            reviewGitRefreshSeedHolder.commit(result.gitRefreshSeed)
             return await completeReviewPackageLoad(
                 ReviewPackageLoadCommit(
                     reset: reset,
@@ -451,14 +451,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func loadReviewPackageResult(
         artifact: DiffArtifact,
-        reviewGeneration: BridgeReviewGeneration,
-        buildReason: BridgeReviewPackageBuildReason,
+        reset: ReviewPackageLoadReset,
         reviewLoadStage: inout String,
         packageTraceContext: BridgeTraceContext?
     ) async throws -> BridgeReviewPackageConstructionResult {
         let unresolvedRequest = makeReviewPipelineRequest(
             artifact: artifact,
-            reviewGeneration: reviewGeneration
+            reviewGeneration: reset.reviewGeneration,
+            reviewAttemptAuthorityGeneration: reset.reviewAuthorityGeneration
         )
         let packageBuildStart = ContinuousClock.now
         let constructionResult: BridgeReviewPackageConstructionResult
@@ -471,7 +471,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             priorityHint: .cold,
             traceContext: packageTraceContext,
             stringAttributes: [
-                "agentstudio.bridge.package_build.reason": buildReason.rawValue
+                "agentstudio.bridge.package_build.reason": reset.buildReason.rawValue
             ],
             durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                 from: packageBuildStart.duration(to: ContinuousClock.now)
@@ -670,7 +670,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         do {
             let (constructionResult, packageTraceContext) = try await loadReviewPackageForRefresh(
                 currentPackage,
-                reviewGeneration: refreshGeneration
+                reviewGeneration: refreshGeneration,
+                reservation: reservation
             )
             let result = constructionResult.result
             guard
@@ -709,6 +710,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 await preparedLoad.releaseArtifactPin()
                 return .stale
             }
+            reviewGitRefreshSeedHolder.commit(result.gitRefreshSeed)
             guard !Self.isUnchangedSameLineageLoad(preparedLoad, currentPublication: currentPublication)
             else {
                 await preparedLoad.releaseArtifactPin()
@@ -820,25 +822,19 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) -> BridgeReviewGeneration? {
         foregroundWorkAdmission.withValidAdmission {
-            productAdmission.withValidAdmission {
-                guard case .workspace(_, let baseline) = bridgePaneState.source,
-                    baseline?.contributionTarget != nil
-                else {
-                    return currentPackage.reviewGeneration
-                }
-                let reviewGeneration =
-                    pendingComparisonReviewGeneration
-                    ?? nextReviewGeneration.next()
-                pendingComparisonReviewGeneration = nil
-                nextReviewGeneration = reviewGeneration
-                return reviewGeneration
+            productAdmission.withValidAdmission { () -> BridgeReviewGeneration? in
+                guard pendingComparisonReviewGeneration == nil,
+                    nextReviewGeneration == currentPackage.reviewGeneration
+                else { return nil }
+                return currentPackage.reviewGeneration
             }
-        }.flatMap { $0 }
+        }.flatMap { $0 }.flatMap { $0 }
     }
 
     private func loadReviewPackageForRefresh(
         _ currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration
+        reviewGeneration: BridgeReviewGeneration,
+        reservation: BridgePaneRefreshCatchUpReservation
     ) async throws -> (
         result: BridgeReviewPackageConstructionResult,
         traceContext: BridgeTraceContext?
@@ -848,7 +844,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
         let unresolvedRequest = makeReviewRefreshPipelineRequest(
             currentPackage: currentPackage,
-            reviewGeneration: reviewGeneration
+            reviewGeneration: reviewGeneration,
+            reservation: reservation
         )
         let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
         let result = try await acquireReviewPackage(request)
@@ -869,53 +866,21 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func makeReviewRefreshPipelineRequest(
         currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration
+        reviewGeneration: BridgeReviewGeneration,
+        reservation: BridgePaneRefreshCatchUpReservation
     ) -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let baseline) = bridgePaneState.source,
-            baseline?.contributionTarget != nil
-        else {
-            return BridgeReviewPipelineRequest(
-                packageId: currentPackage.packageId,
-                query: currentPackage.query,
-                baseEndpoint: currentPackage.baseEndpoint,
-                headEndpoint: currentPackage.headEndpoint,
-                checkpointIds: currentPackage.groups.map(\.groupId),
-                reviewGeneration: reviewGeneration,
-                generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
-            )
-        }
-
-        let artifact = DiffArtifact(
-            diffId: UUIDv7.generate(),
-            worktreeId: currentPackage.query.worktreeId,
-            patchData: Data()
-        )
-        let endpoints = makeReviewEndpoints(
-            for: artifact,
-            repoId: currentPackage.query.repoId
-        )
-        let query = BridgeReviewQuery(
-            queryId: currentPackage.query.queryId,
-            queryKind: currentPackage.query.queryKind,
-            repoId: currentPackage.query.repoId,
-            worktreeId: currentPackage.query.worktreeId,
-            baseEndpointId: endpoints.base.endpointId,
-            headEndpointId: endpoints.head.endpointId,
-            comparisonSemantics: endpoints.comparisonSemantics,
-            pathScope: currentPackage.query.pathScope,
-            fileTarget: currentPackage.query.fileTarget,
-            viewFilter: currentPackage.query.viewFilter,
-            grouping: currentPackage.query.grouping,
-            provenanceFilter: currentPackage.query.provenanceFilter
-        )
-        return BridgeReviewPipelineRequest(
+        BridgeReviewPipelineRequest(
             packageId: currentPackage.packageId,
-            query: query,
-            baseEndpoint: endpoints.base,
-            headEndpoint: endpoints.head,
+            query: currentPackage.query,
+            baseEndpoint: currentPackage.baseEndpoint,
+            headEndpoint: currentPackage.headEndpoint,
             checkpointIds: currentPackage.groups.map(\.groupId),
             reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000),
+            reviewAttemptAuthorityGeneration: reservation.authorityGeneration,
+            gitRefreshScope:
+                reservation.reviewRefreshScope ?? .complete(reason: .nonExactInput),
+            gitRefreshSeed: reviewGitRefreshSeedHolder.activeSeed
         )
     }
 
@@ -925,10 +890,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> Bool {
         let currentPackage = currentPublication.package
         return load.delta == nil
-            && load.package.packageId == currentPackage.packageId
-            && load.package.reviewGeneration == currentPackage.reviewGeneration
-            && load.package.query.queryId == currentPackage.query.queryId
             && load.package.revision == currentPackage.revision
+            && load.package.hasSameReviewTruth(as: currentPackage)
     }
 
     private func retainCommittedReviewOrSetInitialFailure(

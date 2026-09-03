@@ -39,7 +39,10 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
                 baseEndpoint: baseEndpoint,
                 headEndpoint: request.headEndpoint,
                 changedFiles: contributionCapture.comparison.changedFiles
-            )
+            ),
+            gitRefreshSeed: contributionCapture.gitRefreshSeed,
+            calculationDisposition: contributionCapture.calculationDisposition,
+            calculationReason: contributionCapture.calculationReason
         )
     }
 

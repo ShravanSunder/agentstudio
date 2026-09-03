@@ -946,6 +946,13 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             )
         )
         controller.applyBridgePaneActivity(.foreground)
+        controller.reviewGitRefreshSeedHolder.commit(
+            refreshAdmissionContributionSeed(
+                targetOID: "teardown-target",
+                headOID: "teardown-head",
+                baseOID: "teardown-base"
+            )
+        )
         let admittedWork = try #require(
             controller.refreshAdmissionCoordinator.acquireForegroundWork()
         )
@@ -963,6 +970,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(latePublicationCount == 0)
         #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
         #expect(controller.refreshAdmissionCoordinator.acquireForegroundWork() == nil)
+        #expect(!controller.reviewGitRefreshSeedHolder.hasActiveSeed)
         #expect(await retirementTask.value)
     }
 }

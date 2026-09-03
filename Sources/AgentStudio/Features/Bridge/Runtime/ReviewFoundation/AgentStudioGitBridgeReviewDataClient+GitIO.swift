@@ -118,12 +118,16 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitContributionDiff(
         _ request: GitContributionDiffRequest,
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitContributionDiffSnapshot {
+    ) async throws -> GitContributionDiffResult {
         let client = self.client
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
-                coalescingKey: try gitReadCoalescingKey(domain: "contribution-diff", request: request),
+                coalescingKey: try gitReviewReadCoalescingKey(
+                    domain: "contribution-diff",
+                    repositoryPath: request.repositoryPath,
+                    target: request.target
+                ),
                 freshnessKey: freshnessKey
             ) {
                 try await client.contributionDiff(request)
@@ -144,12 +148,16 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitDirectReviewComparison(
         _ request: GitDirectReviewComparisonRequest,
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitDirectReviewComparisonSnapshot {
+    ) async throws -> GitDirectReviewComparisonResult {
         let client = self.client
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
-                coalescingKey: try gitReadCoalescingKey(domain: "direct-review-comparison", request: request),
+                coalescingKey: try gitReviewReadCoalescingKey(
+                    domain: "direct-review-comparison",
+                    repositoryPath: request.repositoryPath,
+                    target: request.target
+                ),
                 freshnessKey: freshnessKey
             ) {
                 try await client.directReviewComparison(request)
@@ -355,11 +363,33 @@ extension AgentStudioGitBridgeReviewDataClient {
         )
     }
 
+    private func gitReviewReadCoalescingKey(
+        domain: String,
+        repositoryPath: URL,
+        target: GitRevisionTarget
+    ) throws -> BridgeGitReadCoalescingKey {
+        try gitReadCoalescingKey(
+            domain: domain,
+            request: GitReviewReadCoalescingIdentity(
+                repositoryPath: repositoryPath,
+                target: target
+            )
+        )
+    }
+
     func gitReadFreshnessKey(
         for reviewGeneration: BridgeReviewGeneration
     ) -> BridgeGitReadFreshnessKey {
         BridgeGitReadFreshnessKey(
             token: "\(gitReadContext.scopeKey.token):review-generation-\(reviewGeneration.rawValue)"
+        )
+    }
+
+    func gitReadFreshnessKey(
+        forReviewAttemptAuthorityGeneration authorityGeneration: UInt64
+    ) -> BridgeGitReadFreshnessKey {
+        BridgeGitReadFreshnessKey(
+            token: "\(gitReadContext.scopeKey.token):review-attempt-\(authorityGeneration)"
         )
     }
 
@@ -416,6 +446,11 @@ extension AgentStudioGitBridgeReviewDataClient {
     func unexpectedGitDataPlaneErrorMessage(_ error: Error) -> String {
         "gitDataPlane:unexpected:\(String(describing: type(of: error)))"
     }
+}
+
+private struct GitReviewReadCoalescingIdentity: Encodable {
+    let repositoryPath: URL
+    let target: GitRevisionTarget
 }
 
 extension AgentStudioGitBridgeReviewDataClient: BridgeReviewRefreshImpactDataClient {

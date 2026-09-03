@@ -279,7 +279,12 @@ struct BridgeReviewPipelineTests {
         )
         let result = try await pipeline.loadPackage(resolvedRequest)
 
-        #expect(resolvedRequest == request)
+        #expect(resolvedRequest.packageId == request.packageId)
+        #expect(resolvedRequest.query == request.query)
+        #expect(resolvedRequest.baseEndpoint == request.baseEndpoint)
+        #expect(resolvedRequest.headEndpoint == request.headEndpoint)
+        #expect(resolvedRequest.reviewGeneration == request.reviewGeneration)
+        #expect(resolvedRequest.preparedComparison == request.preparedComparison)
         #expect(await client.recordedSharedEndpointResolutionRequestsCount() == 0)
         #expect(await client.recordedSharedComparisonRequestsCount() == 0)
         #expect(await client.recordedComparisonRequestsCount() == 0)

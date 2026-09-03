@@ -9,8 +9,60 @@ import Testing
 
 extension WebKitSerializedTests.BridgePaneControllerTests {
 
-    @Test("contribution refresh captures fresh truth under a successor generation without endpoint replay")
-    func contributionRefreshCapturesFreshTruthUnderSuccessorGenerationWithoutEndpointReplay() async throws {
+    @Test("unchanged contribution refresh commits successor seed without publication")
+    func unchangedContributionRefreshCommitsSuccessorSeedWithoutPublication() async throws {
+        let fixture = makeContributionRefreshFixture()
+        defer { fixture.controller.teardown() }
+        guard
+            case .success = await fixture.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: UUIDv7.generate(),
+                correlationId: nil
+            )
+        else {
+            Issue.record("Expected initial contribution load")
+            return
+        }
+        let productAdmission = try #require(fixture.controller.productAdmissionGate.acquire())
+        let initialPublication = try #require(
+            fixture.controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+        #expect(fixture.controller.reviewGitRefreshSeedHolder.commitCount == 1)
+
+        await fixture.controller.handlePaneFilesystemContextEvent(
+            .cwdSubtreeChanged(
+                context: PaneFilesystemContext(
+                    paneId: PaneId(existingUUID: fixture.paneId),
+                    repoId: fixture.repoId,
+                    cwd: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+                    worktreeId: fixture.worktreeId
+                ),
+                paths: ["Sources/App/Initial.swift"],
+                batchSeq: 1
+            )
+        )
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+        let finalPublication = try #require(
+            fixture.controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+
+        #expect(finalPublication.publicationId == initialPublication.publicationId)
+        #expect(fixture.controller.reviewGitRefreshSeedHolder.commitCount == 2)
+        #expect(fixture.controller.reviewGitRefreshSeedHolder.hasActiveSeed)
+    }
+
+    @Test("contribution refresh captures fresh truth under stable lineage without endpoint replay")
+    func contributionRefreshCapturesFreshTruthUnderStableLineageWithoutEndpointReplay() async throws {
         let fixture = makeContributionRefreshFixture()
         let controller = fixture.controller
         let provider = fixture.provider
@@ -55,7 +107,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 productAdmission: productAdmission
             )
         )
-        #expect(controller.nextReviewGeneration == 2)
+        #expect(controller.nextReviewGeneration == 1)
         #expect(visibleWhilePending == predecessor)
         #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-initial"])
         await captureGate.releaseAll()
@@ -69,39 +121,12 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let requests = await provider.recordedContributionRequests()
         #expect(initialResult == .success(commandId: initialCommandId))
         #expect(await provider.recordedComparisonRequestsCount() == 0)
-        #expect(requests.map { $0.reviewGenerationValue } == [1, 2])
-        #expect(requests[1].baseEndpoint.providerIdentity == "target")
-        #expect(requests[1].baseEndpoint.providerIdentity != predecessor.package.baseEndpoint.providerIdentity)
-        #expect(predecessor.package.reviewGeneration == 1)
-        #expect(successor.package.reviewGeneration == 2)
-        #expect(predecessor.publicationId != successor.publicationId)
-        #expect(
-            predecessor.package.comparisonOrigin
-                == BridgeReviewComparisonOrigin.contribution(
-                    BridgeReviewContributionOrigin(
-                        symbolicTarget: .ref(name: "target"),
-                        resolvedTargetOID: "target-oid-1",
-                        reviewedHeadOID: "head-oid-1",
-                        baseRole: .commonCommit,
-                        baseOID: "base-oid-1"
-                    )
-                )
+        assertStableLineageContributionRefresh(
+            controller: controller,
+            predecessor: predecessor,
+            successor: successor,
+            requests: requests
         )
-        #expect(
-            successor.package.comparisonOrigin
-                == BridgeReviewComparisonOrigin.contribution(
-                    BridgeReviewContributionOrigin(
-                        symbolicTarget: .ref(name: "target"),
-                        resolvedTargetOID: "target-oid-2",
-                        reviewedHeadOID: "head-oid-2",
-                        baseRole: .commonCommit,
-                        baseOID: "base-oid-2"
-                    )
-                )
-        )
-        #expect(predecessor.package.reviewedSubjectLabel == "feature-review")
-        #expect(successor.package.reviewedSubjectLabel == "feature-review")
-        #expect(successor.package.orderedItemIds == ["item-successor"])
 
         try await assertStaleContributionCaptureCannotCommit(
             fixture: fixture,
@@ -110,8 +135,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
     }
 
-    @Test("superseded contribution refresh remains pending until its successor settles")
-    func supersededContributionRefreshRemainsPendingUntilSuccessorSettles() async throws {
+    @Test("superseded contribution refresh retains lineage until its successor settles")
+    func supersededContributionRefreshRetainsLineageUntilSuccessorSettles() async throws {
         // Arrange
         let fixture = makeContributionRefreshFixture()
         let controller = fixture.controller
@@ -636,6 +661,66 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(controller.paneState.diff.error == "providerUnavailable")
         #expect(controller.paneState.diff.packageMetadata == nil)
     }
+}
+
+@MainActor
+private func assertStableLineageContributionRefresh(
+    controller: BridgePaneController,
+    predecessor: BridgeReviewCommittedPublication,
+    successor: BridgeReviewCommittedPublication,
+    requests: [BridgeContributionComparisonRequest]
+) {
+    #expect(requests.map { $0.reviewGenerationValue } == [1, 1])
+    #expect(requests[1].reviewAttemptAuthorityGeneration > requests[0].reviewAttemptAuthorityGeneration)
+    #expect(requests[1].baseEndpoint == predecessor.package.baseEndpoint)
+    #expect(requests[1].headEndpoint == predecessor.package.headEndpoint)
+    #expect(requests[1].gitRefreshScope == .exactPaths(["Sources/App/Successor.swift"]))
+    #expect(requests[1].gitRefreshSeed != nil)
+    #expect(predecessor.package.reviewGeneration == 1)
+    #expect(successor.package.reviewGeneration == 1)
+    #expect(successor.package.revision > predecessor.package.revision)
+    #expect(successor.package.packageId == predecessor.package.packageId)
+    #expect(successor.package.query.queryId == predecessor.package.query.queryId)
+    #expect(successor.package.baseEndpoint.endpointId == predecessor.package.baseEndpoint.endpointId)
+    #expect(successor.package.headEndpoint.endpointId == predecessor.package.headEndpoint.endpointId)
+    #expect(
+        successor.package.baseEndpoint.createdAtUnixMilliseconds
+            == predecessor.package.baseEndpoint.createdAtUnixMilliseconds
+    )
+    #expect(
+        successor.package.headEndpoint.createdAtUnixMilliseconds
+            == predecessor.package.headEndpoint.createdAtUnixMilliseconds
+    )
+    #expect(predecessor.publicationId != successor.publicationId)
+    #expect(
+        predecessor.package.comparisonOrigin
+            == .contribution(
+                BridgeReviewContributionOrigin(
+                    symbolicTarget: .ref(name: "target"),
+                    resolvedTargetOID: "target-oid-1",
+                    reviewedHeadOID: "head-oid-1",
+                    baseRole: .commonCommit,
+                    baseOID: "base-oid-1"
+                )
+            )
+    )
+    #expect(
+        successor.package.comparisonOrigin
+            == .contribution(
+                BridgeReviewContributionOrigin(
+                    symbolicTarget: .ref(name: "target"),
+                    resolvedTargetOID: "target-oid-2",
+                    reviewedHeadOID: "head-oid-2",
+                    baseRole: .commonCommit,
+                    baseOID: "base-oid-2"
+                )
+            )
+    )
+    #expect(predecessor.package.reviewedSubjectLabel == "feature-review")
+    #expect(successor.package.reviewedSubjectLabel == "feature-review")
+    #expect(successor.package.orderedItemIds == ["item-successor"])
+    #expect(controller.reviewGitRefreshSeedHolder.commitCount == 2)
+    #expect(controller.reviewGitRefreshSeedHolder.hasActiveSeed)
 }
 
 private enum DiffLoadWitnessError: Error {

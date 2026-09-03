@@ -49,7 +49,8 @@ extension BridgeSharedReviewPackageTemplate {
             ),
             retainedByteCount: retainedMetadataByteCount + backing.retainedByteCount,
             itemTemplates: templates,
-            backing: backing
+            backing: backing,
+            gitRefreshSeed: result.gitRefreshSeed
         )
     }
 
@@ -77,7 +78,8 @@ extension BridgeSharedReviewPackageTemplate {
         )
         return BridgeReviewPipelineResult(
             package: package,
-            registeredContentHandles: descriptors.flatMap(\.contentRoles.allHandles)
+            registeredContentHandles: descriptors.flatMap(\.contentRoles.allHandles),
+            gitRefreshSeed: gitRefreshSeed
         )
     }
 

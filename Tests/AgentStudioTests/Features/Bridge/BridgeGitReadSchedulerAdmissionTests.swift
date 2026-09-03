@@ -96,8 +96,8 @@ struct BridgeGitReadSchedulerAdmissionTests {
         await scheduler.shutdown()
     }
 
-    @Test("freshness change never coalesces with a draining physical read")
-    func freshnessChangeStartsDistinctPhysicalRead() async throws {
+    @Test("Review A11 G7 never joins a draining A10 G7 physical read")
+    func newerReviewAttemptStartsDistinctPhysicalReadWithinStableGeneration() async throws {
         // Arrange
         let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
         let eventProbe = BridgeGitReadSchedulerEventProbe()
@@ -113,7 +113,9 @@ struct BridgeGitReadSchedulerAdmissionTests {
                 request: makeBridgeGitReadRequest(
                     worktree: "worktree-a",
                     key: "same-request",
-                    freshnessKey: BridgeGitReadFreshnessKey(token: "freshness-a")
+                    freshnessKey: BridgeGitReadFreshnessKey(
+                        token: "review-generation-7-attempt-10"
+                    )
                 )
             ) { await firstGate.run() }
         }
@@ -129,7 +131,9 @@ struct BridgeGitReadSchedulerAdmissionTests {
                 request: makeBridgeGitReadRequest(
                     worktree: "worktree-a",
                     key: "same-request",
-                    freshnessKey: BridgeGitReadFreshnessKey(token: "freshness-b")
+                    freshnessKey: BridgeGitReadFreshnessKey(
+                        token: "review-generation-7-attempt-11"
+                    )
                 )
             ) { await secondGate.run() }
         }

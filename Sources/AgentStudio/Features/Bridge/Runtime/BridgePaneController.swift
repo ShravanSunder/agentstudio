@@ -86,6 +86,7 @@ package final class BridgePaneController {
         (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var pendingComparisonReviewGeneration: BridgeReviewGeneration?
+    var reviewGitRefreshSeedHolder = BridgeReviewGitRefreshSeedHolder()
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var activeReviewRefreshTaskId: UUID?
@@ -554,6 +555,7 @@ package final class BridgePaneController {
             isBridgeReady = false
             activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
             pendingReviewPackageBuildReasons.removeAll()
+            reviewGitRefreshSeedHolder.retire()
             // Fence in-flight review jobs synchronously before asynchronous retirement.
             nextReviewGeneration = nextReviewGeneration.next()
         }

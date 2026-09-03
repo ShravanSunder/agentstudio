@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
@@ -258,13 +259,7 @@ private func makeRefreshAdmissionReviewProvider(
         changedFiles: [initialFile]
     )
     let contributionCapture = initialContributionTarget.map { _ in
-        BridgeContributionComparisonCapture(
-            resolvedTargetOID: "resolved-target-oid",
-            reviewedHeadOID: "reviewed-head-oid",
-            baseRole: .commonCommit,
-            baseOID: "contribution-base-oid",
-            comparison: comparison
-        )
+        refreshAdmissionContributionCapture(comparison: comparison)
     }
     return BridgeReviewSourceProviderFake(
         comparison: comparison,
@@ -272,4 +267,36 @@ private func makeRefreshAdmissionReviewProvider(
         contributionCapture: contributionCapture,
         comparisonGate: comparisonGate
     )
+}
+
+private func refreshAdmissionContributionCapture(
+    comparison: BridgeEndpointComparison
+) -> BridgeContributionComparisonCapture {
+    BridgeContributionComparisonCapture(
+        resolvedTargetOID: "resolved-target-oid",
+        reviewedHeadOID: "reviewed-head-oid",
+        baseRole: .commonCommit,
+        baseOID: "contribution-base-oid",
+        comparison: comparison,
+        gitRefreshSeed: refreshAdmissionContributionSeed(
+            targetOID: "resolved-target-oid",
+            headOID: "reviewed-head-oid",
+            baseOID: "contribution-base-oid"
+        )
+    )
+}
+
+func refreshAdmissionContributionSeed(
+    targetOID: String,
+    headOID: String,
+    baseOID: String
+) -> GitReviewRefreshSeed {
+    GitContributionDiffResult.clientFixture(
+        snapshot: GitContributionDiffSnapshot(
+            resolvedTarget: GitResolvedRevision(oid: targetOID, shortName: "target"),
+            reviewedHead: GitResolvedRevision(oid: headOID, shortName: "feature"),
+            contributionBase: GitResolvedRevision(oid: baseOID, shortName: nil),
+            diff: GitDiffSnapshot(files: [])
+        )
+    ).successorSeed
 }

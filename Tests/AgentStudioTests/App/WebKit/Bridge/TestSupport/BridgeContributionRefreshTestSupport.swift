@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 import Testing
 
@@ -38,6 +39,11 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
                     sizeBytes: 100
                 )
             ]
+        ),
+        gitRefreshSeed: contributionRefreshSeed(
+            targetOID: "target-oid-1",
+            headOID: "head-oid-1",
+            baseOID: "base-oid-1"
         )
     )
     let successorCapture = BridgeContributionComparisonCapture(
@@ -55,6 +61,11 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
                     sizeBytes: 100
                 )
             ]
+        ),
+        gitRefreshSeed: contributionRefreshSeed(
+            targetOID: "target-oid-2",
+            headOID: "head-oid-2",
+            baseOID: "base-oid-2"
         )
     )
     let provider = BridgeReviewSourceProviderFake(
@@ -119,6 +130,11 @@ func assertStaleContributionCaptureCannotCommit(
                     sizeBytes: 100
                 )
             ]
+        ),
+        gitRefreshSeed: contributionRefreshSeed(
+            targetOID: "target-oid-stale",
+            headOID: "head-oid-stale",
+            baseOID: "base-oid-stale"
         )
     )
     let staleCaptureGate = BridgeContributionCaptureGate()
@@ -137,10 +153,10 @@ func assertStaleContributionCaptureCannotCommit(
         )
     )
     await staleCaptureGate.waitForStart()
-    #expect(fixture.controller.nextReviewGeneration == 3)
+    #expect(fixture.controller.nextReviewGeneration == 1)
     let presentationBeforeSuccessorReservation =
         fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
-    #expect(presentationBeforeSuccessorReservation.reviewComparison?.attempt != .pending(reviewGeneration: 3))
+    #expect(presentationBeforeSuccessorReservation.reviewComparison?.attempt != .pending(reviewGeneration: 2))
     let replacementCaptureGate = BridgeContributionCaptureGate()
     await fixture.provider.setContributionCaptureGate(replacementCaptureGate)
     let successorInvalidation = BridgePaneWorktreeProductInvalidation.filesChanged(
@@ -156,8 +172,8 @@ func assertStaleContributionCaptureCannotCommit(
     )
     await fixture.controller.handleWorktreeProductInvalidation(successorInvalidation)
     await fixture.controller.handleWorktreeProductInvalidation(successorInvalidation)
-    #expect(fixture.controller.nextReviewGeneration == 4)
-    #expect(fixture.controller.pendingComparisonReviewGeneration == 4)
+    #expect(fixture.controller.nextReviewGeneration == 1)
+    #expect(fixture.controller.pendingComparisonReviewGeneration == nil)
     let presentationAfterSuccessorReservation =
         fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
     #expect(presentationAfterSuccessorReservation.nativeActivity == .foreground)
@@ -176,11 +192,8 @@ func assertStaleContributionCaptureCannotCommit(
     )
     #expect(publication == successor)
     #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-successor"])
-    #expect(fixture.controller.nextReviewGeneration == 4)
-    #expect(
-        (await fixture.provider.recordedContributionRequests()).map { $0.reviewGenerationValue }
-            == [1, 2, 3, 4]
-    )
+    #expect(fixture.controller.nextReviewGeneration == 1)
+    await expectStableContributionRequestGenerations(fixture.provider, count: 4)
     #expect(await fixture.provider.recordedComparisonRequestsCount() == 0)
     await replacementCaptureGate.releaseAll()
     await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
@@ -189,7 +202,7 @@ func assertStaleContributionCaptureCannotCommit(
         fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison
     )
     #expect(fixture.controller.pendingComparisonReviewGeneration == nil)
-    #expect(finalPackage.reviewGeneration == 4)
+    #expect(finalPackage.reviewGeneration == 1)
     #expect(finalComparison.attempt == presentationBeforeSuccessorReservation.reviewComparison?.attempt)
     #expect(
         finalComparison.displayedSnapshot
@@ -201,4 +214,27 @@ func assertStaleContributionCaptureCannotCommit(
                 )
             )
     )
+}
+
+private func expectStableContributionRequestGenerations(
+    _ provider: BridgeReviewSourceProviderFake,
+    count: Int
+) async {
+    let generations = await provider.recordedContributionRequests().map(\.reviewGenerationValue)
+    #expect(generations == Array(repeating: 1, count: count))
+}
+
+private func contributionRefreshSeed(
+    targetOID: String,
+    headOID: String,
+    baseOID: String
+) -> GitReviewRefreshSeed {
+    GitContributionDiffResult.clientFixture(
+        snapshot: GitContributionDiffSnapshot(
+            resolvedTarget: GitResolvedRevision(oid: targetOID, shortName: "target"),
+            reviewedHead: GitResolvedRevision(oid: headOID, shortName: "feature"),
+            contributionBase: GitResolvedRevision(oid: baseOID, shortName: nil),
+            diff: GitDiffSnapshot(files: [])
+        )
+    ).successorSeed
 }

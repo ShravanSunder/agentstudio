@@ -5,8 +5,64 @@ import Foundation
 import Testing
 
 @testable import AgentStudioBridge
+@testable import AgentStudioTestSupport
 
 extension BridgeGitReviewSourceProviderTests {
+    @Test("ordinary directory scope reaches agentstudio-git and selects its complete fallback")
+    func ordinaryDirectoryScopeReachesPackageFallback() async throws {
+        let repositoryPath = try FilesystemTestGitRepo.create(named: "bridge-review-directory-scope")
+        defer { FilesystemTestGitRepo.destroy(repositoryPath) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryPath)
+        try FileManager.default.createDirectory(
+            at: repositoryPath.appending(path: "Sources"),
+            withIntermediateDirectories: true
+        )
+        let provider = BridgeGitReviewSourceProvider(
+            client: AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: LibGit2AgentStudioGitLocalClient(),
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            )
+        )
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = BridgeSourceEndpoint(
+            endpointId: "working-tree",
+            kind: .workingTree,
+            repoId: baseEndpoint.repoId,
+            worktreeId: baseEndpoint.worktreeId,
+            label: "Working tree",
+            createdAtUnixMilliseconds: 1,
+            contentSetHash: nil,
+            providerIdentity: "working-tree"
+        )
+        let initial = try await provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .localDefaultBranch(branchName: "main"),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                reviewGenerationValue: 7,
+                reviewAttemptAuthorityGeneration: 10
+            )
+        )
+        let initialSeed = try #require(initial.gitRefreshSeed)
+
+        let refreshed = try await provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .localDefaultBranch(branchName: "main"),
+                baseEndpoint: initial.comparison.baseEndpoint,
+                headEndpoint: initial.comparison.headEndpoint,
+                reviewGenerationValue: 7,
+                reviewAttemptAuthorityGeneration: 11,
+                gitRefreshScope: .exactPaths(["Sources"]),
+                gitRefreshSeed: initialSeed
+            )
+        )
+
+        #expect(refreshed.calculationDisposition == .proportionalFallback)
+        #expect(refreshed.calculationReason == .invalidPath)
+        #expect(refreshed.comparison.changedFiles == initial.comparison.changedFiles)
+    }
+
     @Test("AgentStudioGit adapter captures typed local and remote Review comparison targets")
     func agentStudioGitAdapterPreservesTypedReviewComparisonTargets() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-default-branch-test")
@@ -148,14 +204,10 @@ extension BridgeGitReviewSourceProviderTests {
         #expect(capture.comparison.changedFiles.map(\.path) == [fixture.filePath])
         #expect(baseResult.data == Data(fixture.baseContent.utf8))
         #expect(headResult.data == Data(fixture.workingContent.utf8))
-        #expect(
-            await fixture.gitClient.recordedContributionDiffRequests() == [
-                GitContributionDiffRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named("refs/heads/integration")
-                )
-            ]
-        )
+        let requests = await fixture.gitClient.recordedContributionDiffRequests()
+        #expect(requests.count == 1)
+        #expect(requests.first?.repositoryPath == fixture.repositoryPath)
+        #expect(requests.first?.target == .named("refs/heads/integration"))
         #expect(await fixture.gitClient.recordedDiffRequests().isEmpty)
     }
 
@@ -361,21 +413,15 @@ extension BridgeGitReviewSourceProviderTests {
             )
         }
 
+        let gitRequests = await fixture.gitClient.recordedContributionDiffRequests()
+        #expect(gitRequests.map(\.repositoryPath) == Array(repeating: fixture.repositoryPath, count: 3))
         #expect(
-            await fixture.gitClient.recordedContributionDiffRequests() == [
-                GitContributionDiffRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named("refs/heads/integration")
-                ),
-                GitContributionDiffRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named("refs/heads/stack/base")
-                ),
-                GitContributionDiffRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named("refs/remotes/upstream/integration")
-                ),
-            ]
+            gitRequests.map(\.target)
+                == [
+                    .named("refs/heads/integration"),
+                    .named("refs/heads/stack/base"),
+                    .named("refs/remotes/upstream/integration"),
+                ]
         )
     }
 
@@ -393,14 +439,10 @@ extension BridgeGitReviewSourceProviderTests {
             )
         )
 
-        #expect(
-            await fixture.gitClient.recordedDirectReviewComparisonRequests() == [
-                GitDirectReviewComparisonRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named(oid)
-                )
-            ]
-        )
+        let directRequests = await fixture.gitClient.recordedDirectReviewComparisonRequests()
+        #expect(directRequests.count == 1)
+        #expect(directRequests.first?.repositoryPath == fixture.repositoryPath)
+        #expect(directRequests.first?.target == .named(oid))
         #expect(await fixture.gitClient.recordedContributionDiffRequests().isEmpty)
         #expect(capture.baseRole == .selectedTarget)
         #expect(capture.baseOID == "target-oid")
@@ -419,14 +461,10 @@ extension BridgeGitReviewSourceProviderTests {
             )
         )
 
-        #expect(
-            await fixture.gitClient.recordedDirectReviewComparisonRequests() == [
-                GitDirectReviewComparisonRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .named("refs/heads/review/selected-target")
-                )
-            ]
-        )
+        let directRequests = await fixture.gitClient.recordedDirectReviewComparisonRequests()
+        #expect(directRequests.count == 1)
+        #expect(directRequests.first?.repositoryPath == fixture.repositoryPath)
+        #expect(directRequests.first?.target == .named("refs/heads/review/selected-target"))
         #expect(await fixture.gitClient.recordedContributionDiffRequests().isEmpty)
         #expect(capture.baseRole == .selectedTarget)
     }
