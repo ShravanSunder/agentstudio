@@ -293,6 +293,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 continuityLedger.unregister(registrationId: worktreeId)
                 return nil
             }
+            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
             Self.teardown(currentRegistration)
             registration = replacement
         }
@@ -526,10 +527,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return nil
         }
-        if let observationIdentity {
-            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
-        }
-
         return StreamRegistration(
             lifecycleGeneration: lifecycleGeneration,
             participant: FSEventParticipant(
@@ -575,7 +572,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
 
-        var registrationWasReplaced = false
         let classificationInput = lifecycleLock.withLock {
             guard !hasShutdown, !hasStoppedActivityAdmission,
                 let registration = streamByWorktreeId[worktreeId]
@@ -583,7 +579,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 return Optional<LocalEventClassificationInput>.none
             }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
-                registrationWasReplaced = true
                 return nil
             }
             if let latestEventID = rawEvents.map(\.eventId).max() {
@@ -599,9 +594,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 scopes: registration.observationScopes
             )
         }
-        if registrationWasReplaced {
-            continuityLedger.markUncertain(registrationId: worktreeId)
-        }
         guard let classificationInput else { return }
 
         let classification = DarwinFSEventPathClassifier.classify(
@@ -611,13 +603,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             observationScopes: classificationInput.scopes
         )
 
-        var registrationChangedDuringClassification = false
         lifecycleLock.withLock {
             guard !hasShutdown, !hasStoppedActivityAdmission,
                 let registration = streamByWorktreeId[worktreeId]
             else { return }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
-                registrationChangedDuringClassification = true
                 return
             }
             if classificationInput.observesContinuity {
@@ -634,9 +624,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                     observations: Self.observations(rawEvents: rawEvents)
                 )
             )
-        }
-        if registrationChangedDuringClassification {
-            continuityLedger.markUncertain(registrationId: worktreeId)
         }
     }
 

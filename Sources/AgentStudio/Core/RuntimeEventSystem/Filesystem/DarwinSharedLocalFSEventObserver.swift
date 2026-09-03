@@ -14,6 +14,7 @@ private struct DarwinSharedLocalFSEventRegistrationKey: Hashable, Sendable {
 
 private struct DarwinSharedLocalFSEventRegistration: @unchecked Sendable {
     let watchedPaths: [String]
+    let privateStagingExclusionPaths: [String]
     let eventHandler: @Sendable ([DarwinLocalFSEventRawEvent]) -> Void
 }
 
@@ -33,8 +34,16 @@ private struct DarwinSharedLocalFSEventBindingPlan: @unchecked Sendable {
     let registration: DarwinSharedLocalFSEventRegistration
     let volumeSystemNumber: UInt64
     let existingObserver: DarwinSharedLocalFSEventObserver?
+    let replacedRegistrationKeys: Set<DarwinSharedLocalFSEventRegistrationKey>
     let desiredWatchedPaths: [String]
     let desiredExclusionPaths: [String]
+}
+
+private struct DarwinSharedLocalFSEventBindingState: @unchecked Sendable {
+    let mayBind: Bool
+    let existingObserver: DarwinSharedLocalFSEventObserver?
+    let retainedRegistrationKeys: Set<DarwinSharedLocalFSEventRegistrationKey>
+    let retainedRegistrations: [DarwinSharedLocalFSEventRegistration]
 }
 
 /// Owns a bounded set of physical local FSEvents streams while preserving
@@ -85,24 +94,35 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         )
         let registration = DarwinSharedLocalFSEventRegistration(
             watchedPaths: Self.distinctWatchedPaths(request.watchedPaths),
+            privateStagingExclusionPaths: request.privateStagingExclusionPaths,
             eventHandler: request.eventHandler
         )
 
-        let bindingState = stateLock.withLock {
-            (
+        let bindingState = stateLock.withLock { () -> DarwinSharedLocalFSEventBindingState in
+            let existingObserver = observerByVolume[volumeSystemNumber]
+            let retainedRegistrationKeys = Set(
+                existingObserver?.registrationKeys.filter {
+                    $0.worktreeID != registrationKey.worktreeID
+                } ?? []
+            )
+            return DarwinSharedLocalFSEventBindingState(
                 mayBind: !hasShutdown && registrationByKey[registrationKey] == nil,
-                existingObserver: observerByVolume[volumeSystemNumber]
+                existingObserver: existingObserver,
+                retainedRegistrationKeys: retainedRegistrationKeys,
+                retainedRegistrations: retainedRegistrationKeys.compactMap { registrationByKey[$0] }
             )
         }
         guard bindingState.mayBind else { return nil }
         let existingObserver = bindingState.existingObserver
+        let replacedRegistrationKeys = Set(existingObserver?.registrationKeys ?? [])
+            .subtracting(bindingState.retainedRegistrationKeys)
 
         let desiredWatchedPaths = Self.distinctWatchedPaths(
-            (existingObserver?.watchedPaths ?? []) + registration.watchedPaths
+            bindingState.retainedRegistrations.flatMap(\.watchedPaths) + registration.watchedPaths
         )
         let desiredExclusionPaths = Array(
-            Set(existingObserver?.privateStagingExclusionPaths ?? [])
-                .union(request.privateStagingExclusionPaths)
+            Set(bindingState.retainedRegistrations.flatMap(\.privateStagingExclusionPaths))
+                .union(registration.privateStagingExclusionPaths)
         ).sorted()
 
         let bindingPlan = DarwinSharedLocalFSEventBindingPlan(
@@ -111,6 +131,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
             registration: registration,
             volumeSystemNumber: volumeSystemNumber,
             existingObserver: existingObserver,
+            replacedRegistrationKeys: replacedRegistrationKeys,
             desiredWatchedPaths: desiredWatchedPaths,
             desiredExclusionPaths: desiredExclusionPaths
         )
@@ -128,10 +149,12 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         plan: DarwinSharedLocalFSEventBindingPlan
     ) -> (any DarwinLocalFSEventStreamLifetime)? {
         var joinedObserver = existingObserver
+        joinedObserver.registrationKeys.subtract(plan.replacedRegistrationKeys)
         joinedObserver.registrationKeys.insert(plan.registrationKey)
         joinedObserver.privateStagingExclusionPaths = plan.desiredExclusionPaths
         stateLock.withLock {
             guard !hasShutdown else { return }
+            removeRegistrationsAssumingStateLock(plan.replacedRegistrationKeys)
             registrationByKey[plan.registrationKey] = plan.registration
             volumeByRegistrationKey[plan.registrationKey] = plan.volumeSystemNumber
             observerByVolume[plan.volumeSystemNumber] = joinedObserver
@@ -199,16 +222,20 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
 
         var retiredLifetime: (any DarwinLocalFSEventStreamLifetime)?
-        let bufferedEvents = stateLock.withLock { () -> [DarwinLocalFSEventRawEvent]? in
+        let installed = stateLock.withLock { () -> Bool in
             guard !hasShutdown,
                 pendingGenerationByVolume[volumeSystemNumber] == physicalGeneration
             else {
                 pendingEventsByGeneration.removeValue(forKey: physicalGeneration)
-                return nil
+                return false
             }
+            removeRegistrationsAssumingStateLock(plan.replacedRegistrationKeys)
             registrationByKey[plan.registrationKey] = plan.registration
             volumeByRegistrationKey[plan.registrationKey] = volumeSystemNumber
-            var registrationKeys = existingObserver?.registrationKeys ?? []
+            var registrationKeys =
+                existingObserver?.registrationKeys.subtracting(
+                    plan.replacedRegistrationKeys
+                ) ?? []
             registrationKeys.insert(plan.registrationKey)
             retiredLifetime = existingObserver?.streamLifetime
             observerByVolume[volumeSystemNumber] = DarwinSharedLocalFSEventObserver(
@@ -218,16 +245,18 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
                 streamLifetime: replacementLifetime,
                 registrationKeys: registrationKeys
             )
-            pendingGenerationByVolume.removeValue(forKey: volumeSystemNumber)
-            return pendingEventsByGeneration.removeValue(forKey: physicalGeneration) ?? []
+            return true
         }
-        guard let bufferedEvents else {
+        guard installed else {
             replacementLifetime.retire()
             return nil
         }
         retiredLifetime?.retire()
-        if !bufferedEvents.isEmpty {
-            receive(
+        while let bufferedEvents = takeNextPendingBatch(
+            physicalGeneration: physicalGeneration,
+            volumeSystemNumber: volumeSystemNumber
+        ) {
+            deliver(
                 volumeSystemNumber: volumeSystemNumber,
                 physicalGeneration: physicalGeneration,
                 rawEvents: bufferedEvents
@@ -360,6 +389,26 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
     }
 
+    private func takeNextPendingBatch(
+        physicalGeneration: UInt64,
+        volumeSystemNumber: UInt64
+    ) -> [DarwinLocalFSEventRawEvent]? {
+        stateLock.withLock {
+            guard pendingGenerationByVolume[volumeSystemNumber] == physicalGeneration else {
+                pendingEventsByGeneration.removeValue(forKey: physicalGeneration)
+                return nil
+            }
+            let pendingEvents = pendingEventsByGeneration[physicalGeneration] ?? []
+            if pendingEvents.isEmpty {
+                pendingGenerationByVolume.removeValue(forKey: volumeSystemNumber)
+                pendingEventsByGeneration.removeValue(forKey: physicalGeneration)
+                return nil
+            }
+            pendingEventsByGeneration[physicalGeneration] = []
+            return pendingEvents
+        }
+    }
+
     private func receive(
         volumeSystemNumber: UInt64,
         physicalGeneration: UInt64,
@@ -368,12 +417,28 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         guard !rawEvents.isEmpty else { return }
         recordPhysicalRawCallback(rawEvents.count)
 
-        let routingState = stateLock.withLock {
-            () -> ([DarwinSharedLocalFSEventRegistration], [String])? in
+        let buffered = stateLock.withLock { () -> Bool in
             if pendingGenerationByVolume[volumeSystemNumber] == physicalGeneration {
                 pendingEventsByGeneration[physicalGeneration, default: []].append(contentsOf: rawEvents)
-                return nil
+                return true
             }
+            return false
+        }
+        guard !buffered else { return }
+        deliver(
+            volumeSystemNumber: volumeSystemNumber,
+            physicalGeneration: physicalGeneration,
+            rawEvents: rawEvents
+        )
+    }
+
+    private func deliver(
+        volumeSystemNumber: UInt64,
+        physicalGeneration: UInt64,
+        rawEvents: [DarwinLocalFSEventRawEvent]
+    ) {
+        let routingState = stateLock.withLock {
+            () -> ([DarwinSharedLocalFSEventRegistration], [String])? in
             guard !hasShutdown,
                 let observer = observerByVolume[volumeSystemNumber],
                 observer.generation == physicalGeneration
@@ -387,7 +452,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
         guard let (registrations, privateStagingExclusionPaths) = routingState else { return }
         let admittedRawEvents = rawEvents.filter { event in
-            if Self.isBroadcastUncertainty(event) {
+            if Self.bypassesPrivateStagingFilter(event) {
                 return true
             }
             let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
@@ -414,7 +479,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         _ event: DarwinLocalFSEventRawEvent,
         watchedPaths: [String]
     ) -> Bool {
-        if isBroadcastUncertainty(event) {
+        if isStreamGlobalUncertainty(event) {
             return true
         }
         let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
@@ -428,10 +493,16 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
     }
 
-    private static func isBroadcastUncertainty(
+    private static func isStreamGlobalUncertainty(
         _ event: DarwinLocalFSEventRawEvent
     ) -> Bool {
-        event.flags & broadcastUncertaintyFlags != 0
+        event.flags & streamGlobalUncertaintyFlags != 0
+    }
+
+    private static func bypassesPrivateStagingFilter(
+        _ event: DarwinLocalFSEventRawEvent
+    ) -> Bool {
+        event.flags & controlEventFlags != 0
     }
 
     private static func pathsIntersect(_ lhs: String, _ rhs: String) -> Bool {
@@ -452,11 +523,27 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         ).sorted()
     }
 
-    private static let broadcastUncertaintyFlags = FSEventStreamEventFlags(
+    private func removeRegistrationsAssumingStateLock(
+        _ registrationKeys: Set<DarwinSharedLocalFSEventRegistrationKey>
+    ) {
+        for registrationKey in registrationKeys {
+            registrationByKey.removeValue(forKey: registrationKey)
+            volumeByRegistrationKey.removeValue(forKey: registrationKey)
+        }
+    }
+
+    private static let streamGlobalUncertaintyFlags = FSEventStreamEventFlags(
+        kFSEventStreamEventFlagUserDropped
+            | kFSEventStreamEventFlagKernelDropped
+            | kFSEventStreamEventFlagEventIdsWrapped
+    )
+
+    private static let controlEventFlags = FSEventStreamEventFlags(
         kFSEventStreamEventFlagMustScanSubDirs
             | kFSEventStreamEventFlagUserDropped
             | kFSEventStreamEventFlagKernelDropped
             | kFSEventStreamEventFlagEventIdsWrapped
+            | kFSEventStreamEventFlagRootChanged
             | kFSEventStreamEventFlagMount
             | kFSEventStreamEventFlagUnmount
     )

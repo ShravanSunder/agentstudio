@@ -337,7 +337,7 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 physical observation. Each logical root retains its worktree ID, lifecycle
 generation, observation scopes, continuity participant, and callback routing,
 while `DarwinSharedLocalFSEventObserverRegistry` contracts same-volume watched
-paths into one physical stream. Every distinct logical root remains in the
+paths into one physical stream. Every distinct live logical root remains in the
 physical stream's watched-path set because macOS `WatchRoot` replacement events
 are defined only for paths supplied when the stream is created. A required
 physical replacement starts the successor, buffers successor callbacks,
@@ -348,11 +348,13 @@ count, with at most one replacement overlap at a time.
 
 Ordinary callbacks route only to intersecting logical registrations. Coverage
 loss from stream-global flags is broadcast to every logical participant on that
-physical stream so continuity fails closed. `RootChanged` remains path-scoped:
-only registrations rooted at or below the changed watched path retire, including
-when a stream-global loss flag is present in the same event. Callback-driven
-logical retirement is deferred off the synchronous callback stack so a
-predecessor `FSEventStreamFlushSync` cannot wait on its own configuration lock.
+physical stream so continuity fails closed. `UserDropped`, `KernelDropped`, and
+`EventIdsWrapped` are stream-global; bare `MustScanSubDirs`, `Mount`, `Unmount`,
+and `RootChanged` remain path-scoped. Only registrations rooted at or below a
+`RootChanged` watched path retire, including when a stream-global loss flag is
+present in the same event. Callback-driven logical retirement is deferred off
+the synchronous callback stack so a predecessor `FSEventStreamFlushSync` cannot
+wait on its own configuration lock.
 
 The native API accepts only eight exclusion directories, so the shared physical
 stream does not install per-repository private-staging exclusions in the kernel.
@@ -698,7 +700,7 @@ zmx terminal panes require a trusted `initialFrame` before Ghostty surface creat
 
 **Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
 
-**Background hidden-pane restore behavior.** Hidden zmx panes are restored at boot only when a live zmx session already exists (discovered via `discoverLiveSessionIds()`). This is fixed product behavior, not a user-configurable preference.
+**Background hidden-pane restore behavior.** Every active zmx pane remains in the startup cohort. Foreground main panes restore first, followed by foreground drawer children, hidden main panes, and hidden drawer children. Hidden panes do not require selection or a pre-existing live-session inventory entry; the terminal activation owner resolves whether to reconnect or start each pane when its phase runs.
 
 **The flow:**
 

@@ -904,7 +904,7 @@ sequenceDiagram
     Store->>Store: prune invalid layout pane IDs
 
     AD->>Coord: restoreAllViews(in: terminalContainerBounds)
-    loop each pane in active tab (visible first, then hidden)
+    loop each active pane across canonical tabs (foreground phases, then hidden phases)
         Coord->>SM: createSurface() + attach()
         Coord->>VR: register(view, paneId)
         Coord->>RT: markRunning(paneId)

@@ -336,8 +336,8 @@ struct DarwinSharedLocalFSEventObserverTests {
         #expect(!routed.contains(secondWorktreeId))
     }
 
-    @Test("shared local stream broadcasts coverage loss to every logical registration")
-    func sharedLocalStreamBroadcastsCoverageLossToEveryLogicalRegistration() async throws {
+    @Test("shared local stream broadcasts dropped-event coverage loss to every logical registration")
+    func sharedLocalStreamBroadcastsDroppedEventCoverageLossToEveryLogicalRegistration() async throws {
         // Arrange
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-fsevents-shared-loss-\(UUIDv7.generate().uuidString)",
@@ -380,7 +380,10 @@ struct DarwinSharedLocalFSEventObserverTests {
                 DarwinLocalFSEventRawEvent(
                     path: fixtureRoot.appending(path: "unrelated").path,
                     eventId: eventId,
-                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+                    flags: FSEventStreamEventFlags(
+                        kFSEventStreamEventFlagMustScanSubDirs
+                            | kFSEventStreamEventFlagUserDropped
+                    )
                 )
             ])
         )
