@@ -305,9 +305,12 @@ describe('worktree annotation Pierre range selection', () => {
 				if (operationError !== undefined) throw new Error(operationError);
 			});
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
-			expect(
+			const committedPendingProjection = requireHTMLElement(
 				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
-			).not.toBeNull();
+				'Expected the exact committed Save receipt presentation.',
+			);
+			expect(document.activeElement).toBe(committedPendingProjection);
+			expect(getComputedStyle(committedPendingProjection).outlineStyle).toBe('none');
 			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
 			const codeRowAfterSave = requireHTMLElement(
 				reviewAdditionRows()[1] ?? null,
@@ -376,6 +379,7 @@ describe('worktree annotation Pierre range selection', () => {
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
 			const installedThread = rendered.getByTestId('worktree-annotation-thread').element();
 			expect(installedThread.contains(document.activeElement)).toBe(true);
+			expect(getComputedStyle(installedThread).outlineStyle).toBe('none');
 			await act(async (): Promise<void> => {
 				await userEvent.keyboard('r');
 			});

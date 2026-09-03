@@ -85,6 +85,7 @@ describe('worktree annotation Save focus', () => {
 		);
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
 		expect(thread.contains(document.activeElement)).toBe(true);
+		expect(getComputedStyle(document.activeElement as Element).outlineStyle).toBe('none');
 		expect(thread.getAttribute('data-annotation-expanded')).toBe('true');
 
 		await act(async (): Promise<void> => {

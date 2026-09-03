@@ -4,7 +4,7 @@ import type { ComponentProps, ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const annotationConversationFrameVariants = cva(
-	'min-w-0 rounded-2xl font-sans text-comment-foreground transition-colors',
+	'min-w-0 rounded-2xl font-sans text-comment-foreground transition-colors outline-none',
 	{
 		variants: {
 			active: {

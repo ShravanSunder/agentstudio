@@ -491,6 +491,7 @@ export function WorktreeAnnotationNewMessageComposer(
 						</div>
 					) : (
 						<div
+							className="outline-none"
 							ref={committedPreviewRef}
 							data-testid="worktree-annotation-committed-pending-projection"
 							tabIndex={-1}

@@ -43,7 +43,7 @@ export function WorktreeAnnotationInlineSurface(
 		return (
 			<section
 				aria-label={props.ariaLabel}
-				className="group/annotation-entry relative min-w-0"
+				className="group/annotation-entry relative min-w-0 outline-none"
 				data-annotation-active={props.active === true ? 'true' : 'false'}
 				data-annotation-draft={props.draft === true ? 'present' : 'absent'}
 				data-annotation-editing={props.editing === true ? 'true' : 'false'}
@@ -81,7 +81,7 @@ export function WorktreeAnnotationInlineSurface(
 	return (
 		<article
 			aria-label={props.ariaLabel}
-			className="group/annotation-entry grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2"
+			className="group/annotation-entry grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 outline-none"
 			data-annotation-active={props.active === true ? 'true' : 'false'}
 			data-annotation-draft={props.draft === true ? 'present' : 'absent'}
 			data-annotation-editing={props.editing === true ? 'true' : 'false'}
