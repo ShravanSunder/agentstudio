@@ -1008,31 +1008,227 @@ focused deterministic regression is added before the correction, followed by
 all four real distributions. A fast internal phase does not receive a separate
 product budget merely to make the total appear explained.
 
-Current evidence places most of the approximately 1.4-second miss before File
-or Review source/content convergence, but it does not yet authorize a specific
-Vite HTML transform, alternate page, preload, bundle, readiness service, or
-generic transport change. Correlation and percentile reduction diagnose and
-prove the miss; they do not satisfy the latency obligation by themselves.
+The real 3,886-file, 927-Review-item fixture selected four corrections inside
+existing owners:
 
-The current structural realization therefore ends at a hard evidence gate. A
-bounded implementation slice may complete the native T0 handoff, switch
-correlation, T1 semantics, and multi-sample reducer, then capture the four
-complete-clock baselines. It must return those marker-correlated results to
-Program Design before changing product-loading, application-composition,
-transport, native source, content, or render ownership. Program Design then
-selects the smallest evidence-supported correction, records its current-to-
-target owner/call/state/failure delta and deletion test, and only that corrected
-design can authorize the performance implementation slice. The current
-File/Review mode-entry checkpoint remains candidate evidence; it is neither
-discarded nor treated as the selected solution.
+| Observed cost | Evidence-selected correction | Existing owner |
+| --- | --- | --- |
+| first File took 814–872 ms and became metadata-ready only when the complete tree finished | publish the already-current status after preparation; keep streaming later tree windows after the selected member can become usable | File metadata source and existing progressive manifest |
+| first Review took 2.36–2.46 seconds while inactive File work also ran | admit expensive metadata work from the existing active-viewer signal; begin inactive Review warm-up only after current selected File descriptor readiness | communication-worker product controller and existing native Review construction admission |
+| full Review publication took 743–808 ms for one source event and 27 windows | project once per reservation and seal each typed application event once before final frame encoding | Review metadata source and generic Swift application registry |
+| physical Review comparison took 706–824 ms after binary-patch generation was removed | preserve the contribution reader's direct tree-to-working-copy semantics and omit unused context lines, subject to exact semantic and real-fixture falsifiers | `agentstudio-git` libgit2 Review reader |
 
-The structural falsifier is the complete first-pane boundary, not an internal
-command clock: if native first File or Review, ready-server development File or
-Review navigation, or either mode switch misses the percentile budgets, the
-final realization is rejected. It does not authorize moving the clock after
-React, worker readiness, source acceptance, or metadata installation. Until the
-evidence-selected correction is added above, MAP-R14 remains deliberately
-design-incomplete and no complete delivery plan is planning-ready.
+The selected corrections do not change application data, final-barrier
+atomicity, frame limits, source or generation fences, demand roles, or the
+three physical carriers. They do not add a route, port, queue, scheduler,
+worker, cache, store, atom, coordinator, timeout, partial Review publication,
+or UI state owner.
+
+### Active work starts before inactive work
+
+The initial viewer protocol already establishes File or Review before React,
+and `bridge.activeViewerMode.update` already accepts a nullable active source.
+Today BridgeApp suppresses the initial null-source update until eager metadata
+creates a source. The target removes that cycle: once the communication worker
+is ready, BridgeApp sends the initial selected mode once with
+`activeSource: null`. The worker uses the mode—not the absent source—as startup
+admission for that mode's metadata. When metadata establishes the source,
+BridgeApp sends the existing source-bound update normally. Every later switch
+keeps the same command and monotonic sequence.
+
+Worker installation opens the annotation subscriptions, which do not enter
+the File/Review Git class, but waits for that existing initial or later
+active-viewer command before opening File or Review metadata.
+
+```text
+current
+  communication worker installed
+    ├── open Review metadata                         [eager]
+    └── discover and open File metadata              [eager]
+          both may consume same-worktree Git and metadata-stream capacity
+
+target — first Review
+  communication worker installed
+    └── initial active-viewer update: Review, source pending [changed]
+          ├── open Review metadata                   [changed]
+          ├── build and atomically publish Review    [unchanged]
+          └── after Review commit or terminal failure
+                discover File in background          [changed]
+
+target — first File
+  communication worker installed
+    └── initial active-viewer update: File, source pending   [changed]
+          ├── discover and open File metadata        [changed]
+          ├── publish early usable File state        [changed below]
+          └── after current selected descriptorReady
+                request Review background intake on the existing route
+                → native prepares Review without an inactive metadata stream
+
+switch before background release
+  active-viewer update starts the requested target immediately through the
+  same idempotent ensure path; already-running physical Git work remains
+  non-preemptive and retains its existing completion/drain behavior
+```
+
+Native foreground admission no longer starts Review for every Bridge pane.
+Review construction begins when the accepted active-mode command names Review,
+or when the worker has enqueued `descriptorReady` for the current active File
+selection and sends the existing `review.intake.ready` call with a background-
+warmup reason. If the current File source has no selectable member, its final
+empty-tree outcome releases the same one-shot warm-up; a typed terminal File
+failure also releases it so the alternate viewer remains recoverable.
+The reason extends the existing intake contract; it is not a new command,
+event, route, or lifecycle owner. An early intake emitted merely because the
+inactive Review React tree mounted is acknowledged but cannot schedule Review
+for an initial File pane.
+
+File-first background Review remains useful for the File-to-Review switch, but
+it begins only after File has claimed the critical path. With no inactive
+Review subscription, native can prepare and retain the current Review
+publication without emitting Review metadata frames or competing on the
+stream. Review-first defers File discovery because File has no corresponding
+prerequisite for Review and its tree windows were observed interleaving with
+active Review publication.
+
+The product controller uses its existing idempotent `ensureFileSource` and
+`ensureReviewMetadata` operations. A Review final-barrier commit releases
+background File start. A terminal Review failure also releases it so a broken
+active source cannot starve the alternate viewer. A newer mode command starts
+its target's existing ensure path immediately. It does not preempt a physical
+Git call that already started; cancellation continues to move that call through
+the existing draining state until physical return. Worker, product-session,
+source, or pane retirement cancels the same existing subscriptions and work;
+it does not preserve a new startup state across authority replacement.
+
+The native active-viewer receiver continues to treat a null source as no
+source-bound authority; startup admission does not make it current. Only the
+later update whose source protocol, stream, and generation pass the existing
+native checks installs active source authority. A failed or retried initial
+send uses the existing bounded active-mode retry and sequence rules. The intake
+handler's background-warmup branch may schedule and retain Review construction
+but MUST NOT set, clear, or replace `activeViewerModeSignalState`; inactive-
+mount intake has the same no-authority rule.
+
+### File becomes usable before the complete tree finishes
+
+File preparation already produces one coherent status result and ignore/
+tracked-path policy before tree enumeration. The source publishes that status
+immediately after applying preparation under the current product, source, and
+foreground-or-loaded-hidden admission. It then enumerates exactly the same
+ordered 256-row windows.
+
+```text
+current
+  source accepted
+    → prepare status and manifest policy
+    → enumerate every tree window
+    → final tree replacement
+    → publish current status
+    → selected descriptor/content can satisfy usable paint
+
+target
+  source accepted
+    → prepare status and manifest policy
+    → publish current status                         [moved earlier]
+    → first window containing the selected member
+    → descriptor and demanded content
+    → usable paint
+    → remaining tree windows continue progressively [same producer]
+    → final tree replacement                         [unchanged]
+```
+
+Status is current only under the same source/admission guards used today. A
+status patch may precede rows it describes; later rows already carry their
+authoritative change status, while patches update rows that are present. The
+final tree window remains the atomic completion of the full replacement, but
+it is no longer the readiness gate for an already admitted selected member.
+If preparation fails, no ready status is published. If enumeration later
+fails or is superseded, existing failure/stale behavior retains the last usable
+state and the incomplete candidate never claims a complete tree.
+
+### Review publication keeps one typed value through the generic boundary
+
+The generic application registry currently proves source generation by
+encoding and decoding the same typed event repeatedly before the final generic
+frame is encoded. The target registry accepts the registered application's
+exact event type, reads its generation directly through that registration,
+encodes it once into the generic JSON value, and returns one sealed pair:
+
+```text
+sealed application event
+  ├── validated generic JSON value
+  └── source generation read from the same typed value
+```
+
+The frame builder consumes that pair and performs the existing final-frame
+encoding and byte-ceiling check. The receiving side still performs independent
+strict JSON/schema validation and verifies the frame generation against the
+decoded application event. Removing redundant producer-side round trips does
+not remove receiver validation or trust the producer's generation blindly.
+
+Review reservation also retains its immutable projected item/tree values and
+chosen window boundaries in the existing reservation value. Delivery consumes
+that value instead of rebuilding item descriptors and directory-row identities.
+Commit-owned final fields are still bound at delivery, and every resulting
+event is checked against the byte ceiling before enqueue. The reservation is a
+call-scoped value released with the existing attempt, not a cache or a second
+publication store. A mismatched package/publication/generation/revision or an
+oversized final event rejects through the existing reservation/delivery path.
+
+### Git omits unused patch context without changing comparison meaning
+
+After removal of `GIT_DIFF_SHOW_BINARY`, a fresh native profile placed most
+remaining contribution-comparison samples in tree-to-working-directory scan
+and hashing, followed by per-file text-patch generation for exact line totals.
+The contribution reader deliberately uses direct tree-to-working-directory
+semantics: its staged-deletion/same-path-recreation contract reports the
+recreated working-tree content as modified. The index-aware sibling API would
+report the staged deletion instead and therefore cannot replace this path as a
+performance optimization.
+
+The contribution reader keeps its existing direct comparison and the same
+untracked, recursive-untracked, type-change, rename, binary, hash, size, and
+per-file line-stat contracts. It sets `context_lines` to zero because Review
+retains additions and deletions, not unchanged patch context. It does not drop
+patch generation or line statistics.
+
+Two falsifiers guard this change. The semantic snapshot must remain exact for
+staged/unstaged edits, staged deletion followed by same-path recreation,
+untracked files, deletes, type changes, binary files, and renames. The pinned
+real fixture must also show a material reduction in physical comparison time;
+otherwise zero-context generation is not retained as a performance correction
+and no broader libgit2 or cache mechanism is inferred from it.
+
+### Failure, consistency, and proof
+
+| Case | Required behavior and owner |
+| --- | --- |
+| initial active-mode command has not arrived | worker starts neither File nor Review metadata; the current ready/health path remains pending rather than guessing a default |
+| initial command has a null source | worker admits only the named mode's metadata; native retains no source-bound active authority until the later validated source update |
+| active metadata fails | existing typed failure is published and the inactive target is released for background start |
+| user changes mode during active startup | newer active-viewer sequence admits the requested target immediately, but an already-running physical Git call remains non-preemptive and may keep its same-worktree slot until return; existing source/generation fences reject late prior results |
+| inactive Review mount announces intake before selected File descriptor readiness | native acknowledges intake without constructing Review or mutating active authority; current selected `descriptorReady`, final empty File, terminal File failure, or active Review releases the appropriate one-shot path |
+| File status succeeds but tree enumeration fails | early ready state cannot mark the full tree replacement complete; existing failure/stale presentation applies |
+| Review reservation is superseded | its call-scoped projection is discarded with the reservation and cannot be delivered under another publication |
+| producer and receiver generation disagree | receiver-side registered schema/generation validation rejects the frame exactly as today |
+| zero-context Git result differs | semantic proof rejects the change before it can replace the current Review result |
+
+The deterministic seams are initial null-source mode before metadata, later
+source-bound authority, background intake with no authority mutation, no
+Review construction before current selected File descriptor readiness, File
+status and selected descriptor before a paused final window, one typed-event
+producer encoding with independent receiver rejection, reservation projection
+consumed once, and exact Git snapshot parity. Real proof repeats all four complete
+journeys against the pinned large fixture in development and packaged carriers,
+preserving failures and phase timings. The structural falsifier remains the
+complete boundary: a native or ready-server first pane or switch that misses
+p95 600 ms or p99 1,000 ms rejects the realization. It never authorizes moving
+T0 after page/worker readiness or T1 before usable paint.
+
+The named File-to-Review and Review-to-File performance cohorts begin from the
+specified fully interactive source mode. A mode change during that source's
+startup remains a correctness and non-preemptive-drain interleaving, not a
+silently added fifth percentile cohort.
 
 ### Annotation bootstrap and demand
 
@@ -1296,8 +1492,21 @@ Performance:
 - first File, first Review, Review-to-File, and File-to-Review distributions
   independently enforce p95 at most 600 milliseconds and p99 at most 1,000
   milliseconds without discarding failed attempts;
+- the existing active-viewer signal admits File/Review metadata startup, so an
+  inactive File tree cannot delay active Review publication and an inactive
+  Review has no metadata stream until requested;
+- native Review construction begins for active Review or after current selected
+  File descriptor readiness, never merely because a File pane became
+  foreground; background intake never mutates active-viewer authority;
 - File descriptor demand for an admitted early manifest member overlaps
-  remaining tree enumeration instead of paying full-bootstrap latency.
+  remaining tree enumeration instead of paying full-bootstrap latency;
+- File publishes its already-current ready status before complete tree
+  enumeration, while final replacement completion remains unchanged;
+- the Swift registry seals each typed application event once and Review
+  delivery consumes the projection carried by its existing reservation;
+- contribution comparison preserves its direct tree-to-working-directory
+  semantics and omits unused context lines without omitting exact addition/
+  deletion totals.
 
 Trust and validation:
 
@@ -1409,7 +1618,7 @@ the development-browser proof.
 | MAP-R11 | repository committed-change classification, full replacement, old/new reassociation publication, catalog/demand reconciliation | topology/reassociation races and restart proof |
 | MAP-R12 | unchanged exact command receipts and overlays independent of catalog/content convergence | delayed/failed replacement editor and Share tests |
 | MAP-R13 | existing pane/product/worker/source lifecycle retires writers, worker/main candidates, and content attempts while marking retained authority stale | replacement/reset/inactive/close integration |
-| MAP-R14 | catalog capacity, staging, acknowledgement/backpressure, and File progressive-demand admission are realized; the performance correction is partial at the operation-correlated measurement precursor, exact native T0 handoff, and all-ingress switch propagation, with a required Program Design re-entry after baseline evidence selects the correction owner/mechanism | byte/window/port-unit telemetry, main-thread long-task measurement, phase-correlated raw samples, three-launch nearest-rank p95/p99 reduction for first File, first Review, Review-to-File, and File-to-Review in development and native/packaged carriers; final performance proof remains a gap until the evidence-selected correction is designed and implemented |
+| MAP-R14 | catalog capacity, staging, acknowledgement/backpressure, operation-correlated complete clocks, exact native T0, all-ingress switch propagation, active-view-first metadata admission, authority-neutral background intake after exact File readiness, File readiness before complete progressive enumeration, one-pass producer application sealing with call-scoped Review projection reuse, and direct-semantics/zero-context Git comparison | byte/window/port-unit telemetry, deterministic ordering/authority/progressive-readiness/encoding/parity seams, main-thread long-task measurement, and separate three-launch nearest-rank p95/p99 reductions for first File, first Review, Review-to-File, and File-to-Review in development and native/packaged carriers |
 | MAP-R15 | identical protocol registrations behind URL-scheme and HTTP carriers | real Vite/Swift and packaged journeys |
 
 ## Deliberate limits and revisit signals
