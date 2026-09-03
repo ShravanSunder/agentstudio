@@ -413,10 +413,11 @@ actor BridgeWebKitFailingReviewMetadataSource:
     }
 
     private func emitPossiblyCorrupted(
-        _ event: BridgeProductReviewMetadataEvent,
+        _ sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
         productAdmission: BridgeProductAdmissionContext,
         emit: BridgePaneProductReviewMetadataEventSink
     ) async throws -> BridgeProductProducerEnqueueResult {
+        let event = sealedEvent.event
         guard event.publicationId == corruptedPublicationId,
             !didCorruptFinalWindow,
             case .window(let window) = event,
@@ -424,7 +425,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
             window.treeWindow.finalWindow,
             window.itemMetadata.count > 1
         else {
-            return try await emit(event, productAdmission)
+            return try await emit(sealedEvent, productAdmission)
         }
         let gappedItemWindow = try BridgeProductReviewItemWindow(
             finalWindow: true,
@@ -446,7 +447,10 @@ actor BridgeWebKitFailingReviewMetadataSource:
         )
         didCorruptFinalWindow = true
         resumeReplayFailureStateWaitersIfReady()
-        return try await emit(.window(gappedFinalWindow), productAdmission)
+        return try await emit(
+            try sealBridgeReviewMetadataEvent(.window(gappedFinalWindow)),
+            productAdmission
+        )
     }
 
     func waitForReplayFailureState(timeout: Duration) async -> Bool {

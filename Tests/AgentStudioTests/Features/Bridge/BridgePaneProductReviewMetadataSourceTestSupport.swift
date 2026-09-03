@@ -363,3 +363,32 @@ func reviewItemWithDiffStatistics(
         collapsed: item.collapsed
     )
 }
+
+actor ReviewMetadataEventCollector {
+    private(set) var events: [BridgeProductReviewMetadataEvent] = []
+    private var nextSequence = 0
+
+    func append(_ event: BridgeProductReviewMetadataEvent) throws -> BridgeProductProducerEnqueueResult {
+        nextSequence += 1
+        events.append(event)
+        return try reviewMetadataEnqueueResult(event, sequence: nextSequence)
+    }
+
+    func removeAll() {
+        events.removeAll()
+    }
+}
+
+func reviewSubscription(interestRevision: Int = 0) throws -> BridgeProductSubscriptionSnapshot {
+    let interestState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
+    return BridgeProductSubscriptionSnapshot(
+        subscription: .reviewMetadata,
+        subscriptionId: "review-subscription-1",
+        subscriptionKind: .reviewMetadata,
+        workerDerivationEpoch: 1,
+        interestRevision: interestRevision,
+        interestSha256: try interestState.sha256Hex(),
+        interestState: interestState,
+        hasStagedUpdate: false
+    )
+}

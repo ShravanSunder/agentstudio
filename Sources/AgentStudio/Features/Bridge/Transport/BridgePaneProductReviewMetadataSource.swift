@@ -14,6 +14,7 @@ struct BridgeReviewMetadataPublicationReservation: Equatable, Sendable {
     let publicationId: UUID
     let reviewGeneration: BridgeReviewGeneration
     let revision: Int
+    let projectionPlan: BridgeReviewMetadataPublicationProjectionPlan
 }
 
 struct BridgeReviewMetadataFinalFrame: Equatable, Sendable {
@@ -35,7 +36,10 @@ enum BridgePaneProductReviewMetadataPublicationOutcome: Equatable, Sendable {
 }
 
 typealias BridgePaneProductReviewMetadataEventSink =
-    @Sendable (BridgeProductReviewMetadataEvent, BridgeProductAdmissionContext) async throws ->
+    @Sendable (
+        BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
+        BridgeProductAdmissionContext
+    ) async throws ->
     BridgeProductProducerEnqueueResult
 
 protocol BridgePaneProductReviewMetadataProducing: Sendable {
@@ -120,11 +124,6 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         var emit: BridgePaneProductReviewMetadataEventSink
     }
 
-    private static let maximumEncodedEventBytes =
-        BridgeProductWireContract.maximumMetadataFrameBytes - 4096
-    private static let preferredItemWindowCount = 64
-    private static let preferredTreeWindowCount = 128
-
     private var deliveryRevision = 0
     private var contextBySubscriptionId: [String: SubscriptionContext] = [:]
 
@@ -177,16 +176,9 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         publicationId: UUID,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgeReviewMetadataPublicationReservation {
-        _ = try Self.events(
-            from: nil,
-            to: DeliveredPublication(
-                comparisonPresentationRevision: 1,
-                package: package,
-                publicationId: publicationId,
-                classifiedRefreshImpact: nil,
-                reviewComparison: nil,
-                operationCorrelationID: nil
-            )
+        let projectionPlan = try BridgeReviewMetadataPublicationProjectionPlan.prepare(
+            package: package,
+            publicationId: publicationId
         )
         guard (productAdmission.withValidAdmission { true }) == true else {
             throw CancellationError()
@@ -196,7 +188,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             packageId: package.packageId,
             publicationId: publicationId,
             reviewGeneration: package.reviewGeneration,
-            revision: package.revision
+            revision: package.revision,
+            projectionPlan: projectionPlan
         )
     }
 
@@ -209,6 +202,10 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         guard reservation.packageId == package.packageId,
             reservation.reviewGeneration == package.reviewGeneration,
             reservation.revision == package.revision,
+            reservation.projectionPlan.packageId == package.packageId,
+            reservation.projectionPlan.publicationId == reservation.publicationId,
+            reservation.projectionPlan.reviewGeneration == package.reviewGeneration,
+            reservation.projectionPlan.revision == package.revision,
             (productAdmission.withValidAdmission { true }) == true
         else { throw BridgePaneProductReviewMetadataSourceError.unavailablePackage }
         let subscriptionIds = contextBySubscriptionId.keys.sorted()
@@ -235,6 +232,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     reviewComparison: publication.reviewComparison,
                     operationCorrelationID: publication.operationCorrelationID
                 ),
+                projectionPlan: reservation.projectionPlan,
                 context: context,
                 deliveryRevision: publishingDeliveryRevision,
                 productAdmission: productAdmission
@@ -270,16 +268,18 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     private func emitAndCommitIfCurrent(
         _ publication: DeliveredPublication,
+        projectionPlan: BridgeReviewMetadataPublicationProjectionPlan,
         context: SubscriptionContext,
         deliveryRevision publishingDeliveryRevision: Int,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> EmissionOutcome {
         let events = try Self.events(
             from: context.deliveredPublication,
-            to: publication
+            to: publication,
+            projectionPlan: projectionPlan
         )
         var finalFrameSequence: Int?
-        for event in events {
+        for sealedEvent in events {
             try Task.checkCancellation()
             guard
                 (productAdmission.withValidAdmission {
@@ -291,7 +291,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     return true
                 }) == true
             else { return .superseded }
-            let enqueueResult = try await context.emit(event, productAdmission)
+            let enqueueResult = try await context.emit(sealedEvent, productAdmission)
             guard case .enqueued(let frame) = enqueueResult else {
                 throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
             }
@@ -323,11 +323,15 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     private static func events(
         from currentPublication: DeliveredPublication?,
-        to nextPublication: DeliveredPublication
-    ) throws -> [BridgeProductReviewMetadataEvent] {
+        to nextPublication: DeliveredPublication,
+        projectionPlan: BridgeReviewMetadataPublicationProjectionPlan
+    ) throws -> [BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>] {
+        let events: [BridgeProductReviewMetadataEvent]
         guard let currentPublication else {
-            return [try sourceAcceptedEvent(for: nextPublication)]
-                + (try windowEvents(for: nextPublication))
+            events =
+                [try sourceAcceptedEvent(for: nextPublication)]
+                + (try projectionPlan.events(binding: binding(for: nextPublication)))
+            return try sealedEvents(events)
         }
         guard
             currentPublication.publicationId != nextPublication.publicationId
@@ -337,27 +341,54 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let nextPackage = nextPublication.package
         if let classifiedRefreshImpact = nextPublication.classifiedRefreshImpact,
             canApplyDelta(from: currentPackage, to: nextPackage),
-            let delta = try deltaEvent(
+            let sealedDelta = try sealedDeltaEvent(
                 from: currentPublication,
                 to: nextPublication,
                 refreshImpact: classifiedRefreshImpact
             )
         {
-            return [.delta(delta)]
+            return [sealedDelta]
         }
         let identity = try identity(for: nextPublication)
-        return [
-            .reset(
-                .init(
-                    identity: identity,
-                    comparisonOrigin: nextPackage.comparisonOrigin,
-                    refreshImpact: nextPublication.classifiedRefreshImpact,
-                    reason: .sourceChanged,
-                    reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
-                )
-            ),
-            try sourceAcceptedEvent(for: nextPublication),
-        ] + (try windowEvents(for: nextPublication))
+        events =
+            [
+                .reset(
+                    .init(
+                        identity: identity,
+                        comparisonOrigin: nextPackage.comparisonOrigin,
+                        refreshImpact: nextPublication.classifiedRefreshImpact,
+                        reason: .sourceChanged,
+                        reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
+                    )
+                ),
+                try sourceAcceptedEvent(for: nextPublication),
+            ] + (try projectionPlan.events(binding: binding(for: nextPublication)))
+        return try sealedEvents(events)
+    }
+
+    private static func binding(
+        for publication: DeliveredPublication
+    ) throws -> BridgeReviewMetadataPublicationBinding {
+        BridgeReviewMetadataPublicationBinding(
+            identity: try identity(for: publication),
+            presentationRevision: publication.comparisonPresentationRevision,
+            reviewComparison: publication.reviewComparison
+        )
+    }
+
+    private static func sealedEvents(
+        _ events: [BridgeProductReviewMetadataEvent]
+    ) throws -> [BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>] {
+        let sealedEvents = try events.map(sealBridgeReviewMetadataEvent)
+        guard
+            sealedEvents.allSatisfy({
+                $0.encodedApplicationByteCount
+                    <= BridgeReviewMetadataPublicationProjectionPlan.maximumEncodedEventBytes
+            })
+        else {
+            throw BridgePaneProductReviewMetadataSourceError.metadataEventExceedsByteLimit
+        }
+        return sealedEvents
     }
 
     fileprivate static func identity(
@@ -374,52 +405,11 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         )
     }
 
-    private static func windowEvents(
-        for publication: DeliveredPublication
-    ) throws -> [BridgeProductReviewMetadataEvent] {
-        let projection = try ReviewPackageProjection(publication: publication)
-        var events: [BridgeProductReviewMetadataEvent] = []
-        var itemStartIndex = 0
-        var treeStartIndex = 0
-        var isSnapshot = true
-
-        repeat {
-            var itemCount = min(preferredItemWindowCount, projection.items.count - itemStartIndex)
-            var treeCount = min(preferredTreeWindowCount, projection.treeRows.count - treeStartIndex)
-            var event: BridgeProductReviewMetadataEvent
-            while true {
-                event = try projection.event(
-                    isSnapshot: isSnapshot,
-                    itemStartIndex: itemStartIndex,
-                    itemCount: itemCount,
-                    treeStartIndex: treeStartIndex,
-                    treeCount: treeCount
-                )
-                if try encodedByteCount(event) <= maximumEncodedEventBytes { break }
-                if itemCount >= treeCount, itemCount > 0 {
-                    itemCount /= 2
-                } else if treeCount > 0 {
-                    treeCount /= 2
-                } else {
-                    throw BridgePaneProductReviewMetadataSourceError.metadataEventExceedsByteLimit
-                }
-            }
-            guard itemCount > 0 || treeCount > 0 || (projection.items.isEmpty && projection.treeRows.isEmpty) else {
-                throw BridgePaneProductReviewMetadataSourceError.metadataEventExceedsByteLimit
-            }
-            events.append(event)
-            itemStartIndex += itemCount
-            treeStartIndex += treeCount
-            isSnapshot = false
-        } while itemStartIndex < projection.items.count || treeStartIndex < projection.treeRows.count
-        return events
-    }
-
-    private static func deltaEvent(
+    private static func sealedDeltaEvent(
         from currentPublication: DeliveredPublication,
         to nextPublication: DeliveredPublication,
         refreshImpact: BridgeReviewRefreshImpact
-    ) throws -> BridgeProductReviewDeltaEvent? {
+    ) throws -> BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>? {
         let currentPackage = currentPublication.package
         let nextPackage = nextPublication.package
         guard nextPackage.revision > currentPackage.revision else { return nil }
@@ -474,8 +464,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             summary: try productSummary(nextPackage.summary),
             toRevision: nextPackage.revision
         )
-        guard try encodedByteCount(.delta(event)) <= maximumEncodedEventBytes else { return nil }
-        return event
+        let sealedEvent = try sealBridgeReviewMetadataEvent(.delta(event))
+        guard
+            sealedEvent.encodedApplicationByteCount
+                <= BridgeReviewMetadataPublicationProjectionPlan.maximumEncodedEventBytes
+        else { return nil }
+        return sealedEvent
     }
 
     private static func isContractBoundedDelta(
@@ -512,7 +506,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             && currentPackage.reviewedSubjectLabel == nextPackage.reviewedSubjectLabel
     }
 
-    fileprivate static func orderedItemIds(in package: BridgeReviewPackage) -> [String] {
+    static func orderedItemIds(in package: BridgeReviewPackage) -> [String] {
         var seen = Set<String>()
         var itemIds = package.orderedItemIds.filter { package.itemsById[$0] != nil && seen.insert($0).inserted }
         itemIds.append(contentsOf: package.itemsById.keys.sorted().filter { seen.insert($0).inserted })
@@ -544,316 +538,4 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         )
     }
 
-    private static func encodedByteCount(_ event: BridgeProductReviewMetadataEvent) throws -> Int {
-        try JSONEncoder().encode(event).count
-    }
-}
-
-private struct ReviewPackageProjection {
-    let baseEndpoint: BridgeProductReviewSourceEndpointValue
-    let comparisonOrigin: BridgeReviewComparisonOrigin?
-    let headEndpoint: BridgeProductReviewSourceEndpointValue
-    let identity: BridgeProductReviewMetadataIdentity
-    let items: [ReviewProjectedItem]
-    let presentationRevision: Int
-    let query: BridgeProductReviewQueryValue
-    let reviewComparison: BridgePaneReviewComparisonPresentation?
-    let reviewedSubjectLabel: String?
-    let summary: BridgeProductReviewPackageSummaryValue
-    let treeRows: [BridgeProductReviewTreeRowValue]
-
-    init(publication: BridgePaneProductReviewMetadataSource.DeliveredPublication) throws {
-        let package = publication.package
-        let itemIds = BridgePaneProductReviewMetadataSource.orderedItemIds(in: package)
-        let reviewItems = itemIds.compactMap { package.itemsById[$0] }
-        self.baseEndpoint = try productEndpoint(package.baseEndpoint)
-        self.comparisonOrigin = package.comparisonOrigin
-        self.headEndpoint = try productEndpoint(package.headEndpoint)
-        self.identity = try BridgePaneProductReviewMetadataSource.identity(for: publication)
-        self.items = try reviewItems.map { try ReviewProjectedItem(item: $0, package: package) }
-        self.presentationRevision = publication.comparisonPresentationRevision
-        self.query = try productQuery(package.query)
-        self.reviewComparison = publication.reviewComparison
-        self.reviewedSubjectLabel = package.reviewedSubjectLabel
-        self.summary = try productSummary(package.summary)
-        self.treeRows = try productTreeRows(for: reviewItems, loadedBy: .startupWindow)
-    }
-
-    func event(
-        isSnapshot: Bool,
-        itemStartIndex: Int,
-        itemCount: Int,
-        treeStartIndex: Int,
-        treeCount: Int
-    ) throws -> BridgeProductReviewMetadataEvent {
-        let itemSlice = Array(items[itemStartIndex..<(itemStartIndex + itemCount)])
-        let treeSlice = Array(treeRows[treeStartIndex..<(treeStartIndex + treeCount)])
-        let itemWindow = try BridgeProductReviewItemWindow(
-            finalWindow: itemStartIndex + itemCount == items.count,
-            itemCount: itemCount,
-            startIndex: itemStartIndex,
-            totalItemCount: items.count
-        )
-        let treeWindow = try BridgeProductReviewTreeWindow(
-            finalWindow: treeStartIndex + treeCount == treeRows.count,
-            rowCount: treeCount,
-            startIndex: treeStartIndex,
-            totalRowCount: treeRows.count
-        )
-        let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
-        if isSnapshot {
-            return .snapshot(
-                try .init(
-                    identity: identity,
-                    baseEndpoint: baseEndpoint,
-                    comparisonOrigin: comparisonOrigin,
-                    contentSources: itemSlice.flatMap(\.contentSources),
-                    extentFacts: itemSlice.flatMap(\.extentFacts),
-                    headEndpoint: headEndpoint,
-                    itemMetadata: itemSlice.map(\.metadata),
-                    itemWindow: itemWindow,
-                    presentationRevision: isFinalBarrier ? presentationRevision : nil,
-                    query: query,
-                    reviewComparison: isFinalBarrier ? reviewComparison : nil,
-                    reviewedSubjectLabel: reviewedSubjectLabel,
-                    summary: summary,
-                    treeRows: treeSlice,
-                    treeWindow: treeWindow
-                )
-            )
-        }
-        return .window(
-            try .init(
-                identity: identity,
-                contentSources: itemSlice.flatMap(\.contentSources),
-                extentFacts: itemSlice.flatMap(\.extentFacts),
-                itemMetadata: itemSlice.map(\.metadata),
-                itemWindow: itemWindow,
-                presentationRevision: isFinalBarrier ? presentationRevision : nil,
-                reviewComparison: isFinalBarrier ? reviewComparison : nil,
-                summary: summary,
-                treeRows: treeSlice,
-                treeWindow: treeWindow
-            )
-        )
-    }
-}
-
-private struct ReviewProjectedItem {
-    let contentSources: [BridgeProductReviewContentSourceDescriptor]
-    let extentFacts: [BridgeProductReviewExtentFactValue]
-    let metadata: BridgeProductReviewItemMetadataValue
-
-    init(item: BridgeReviewItemDescriptor, package: BridgeReviewPackage) throws {
-        self.contentSources = try productContentSources(for: item, package: package)
-        self.extentFacts = authoritativeProductExtentFacts(item)
-        self.metadata = try productItem(item, loadedBy: .startupWindow, lane: .foreground)
-    }
-}
-
-private func productItem(
-    _ item: BridgeReviewItemDescriptor,
-    loadedBy: BridgeProductReviewMetadataLoadedBy,
-    lane: BridgeProductDemandLane
-) throws -> BridgeProductReviewItemMetadataValue {
-    let roles = item.contentRoles
-    return try .init(
-        additions: item.additions,
-        basePath: item.basePath,
-        changeKind: item.changeKind,
-        contentDescriptorIdsByRole: .init(
-            base: roles.base?.handleId,
-            diff: roles.diff?.handleId,
-            file: roles.file?.handleId,
-            head: roles.head?.handleId
-        ),
-        contentHashesByRole: .init(
-            base: roles.base?.contentHash,
-            diff: roles.diff?.contentHash,
-            file: roles.file?.contentHash,
-            head: roles.head?.contentHash
-        ),
-        contentRoles: roles.allHandles.map(\.role),
-        deletions: item.deletions,
-        fileExtension: item.extension,
-        fileClass: item.fileClass,
-        headPath: item.headPath,
-        isHiddenByDefault: item.isHiddenByDefault,
-        itemId: item.itemId,
-        lane: lane,
-        language: item.language,
-        loadedBy: loadedBy,
-        mimeTypes: Array(Set(roles.allHandles.map(\.mimeType))).sorted(),
-        provenance: .init(
-            agentSessionIds: item.provenance.agentSessionIds,
-            operationIds: item.provenance.operationIds,
-            promptIds: item.provenance.promptIds
-        ),
-        reviewPriority: item.reviewPriority,
-        reviewState: item.reviewState
-    )
-}
-
-private func productContentSources(
-    for item: BridgeReviewItemDescriptor,
-    package: BridgeReviewPackage
-) throws -> [BridgeProductReviewContentSourceDescriptor] {
-    try item.contentRoles.allHandles.map { handle in
-        let digest: BridgeProductReviewContentDigest
-        let unprefixedHash =
-            handle.contentHash.hasPrefix("sha256:")
-            ? String(handle.contentHash.dropFirst("sha256:".count))
-            : handle.contentHash
-        if handle.contentHashAlgorithm == "sha256",
-            unprefixedHash.count == 64,
-            unprefixedHash.allSatisfy({ $0.isHexDigit && !$0.isUppercase })
-        {
-            digest = .authoritativeSHA256(unprefixedHash)
-        } else {
-            digest = .provisional(algorithm: handle.contentHashAlgorithm, value: handle.contentHash)
-        }
-        return try .init(
-            contentDigest: digest,
-            descriptorId: handle.handleId,
-            encoding: handle.isBinary ? nil : "utf-8",
-            endpointId: handle.endpointId,
-            handleId: handle.handleId,
-            isBinary: handle.isBinary,
-            itemId: handle.itemId,
-            language: handle.language,
-            mimeType: handle.mimeType,
-            packageId: package.packageId,
-            reviewGeneration: package.reviewGeneration.rawValue,
-            role: handle.role,
-            sourceIdentity: package.query.queryId,
-            wholeByteLength: handle.sizeBytesIsExact ? handle.sizeBytes : nil
-        )
-    }
-}
-
-private func authoritativeProductExtentFacts(
-    _: BridgeReviewItemDescriptor
-) -> [BridgeProductReviewExtentFactValue] {
-    // Diff statistics count changed lines, not the complete source extent. A
-    // truthful total is established only after the worker fetches the whole body.
-    []
-}
-
-private func productTreeRows(
-    for items: [BridgeReviewItemDescriptor],
-    loadedBy: BridgeProductReviewMetadataLoadedBy
-) throws -> [BridgeProductReviewTreeRowValue] {
-    var rows: [BridgeProductReviewTreeRowValue] = []
-    var seenRowIds = Set<String>()
-    for item in items {
-        let path = item.headPath ?? item.basePath ?? item.itemId
-        let components = path.split(separator: "/").map(String.init)
-        if components.count > 1 {
-            for componentCount in 1..<components.count {
-                let ancestorPath = components.prefix(componentCount).joined(separator: "/")
-                let rowId = BridgeProductReviewTreeRowIdentity.directoryRowId(path: ancestorPath)
-                if seenRowIds.insert(rowId).inserted {
-                    rows.append(
-                        try .init(
-                            depth: componentCount - 1,
-                            isDirectory: true,
-                            itemId: nil,
-                            lane: .foreground,
-                            loadedBy: loadedBy,
-                            path: ancestorPath,
-                            rowId: rowId
-                        )
-                    )
-                }
-            }
-        }
-        let rowId = BridgeProductReviewTreeRowIdentity.itemRowId(itemId: item.itemId)
-        if seenRowIds.insert(rowId).inserted {
-            rows.append(
-                try .init(
-                    depth: max(components.count - 1, 0),
-                    isDirectory: false,
-                    itemId: item.itemId,
-                    lane: .foreground,
-                    loadedBy: loadedBy,
-                    path: path,
-                    rowId: rowId
-                )
-            )
-        }
-    }
-    return rows
-}
-
-private func productEndpoint(
-    _ endpoint: BridgeSourceEndpoint
-) throws -> BridgeProductReviewSourceEndpointValue {
-    guard let createdAt = Int(exactly: endpoint.createdAtUnixMilliseconds) else {
-        throw BridgePaneProductReviewMetadataSourceError.integerOutOfRange
-    }
-    return try .init(
-        contentSetHash: endpoint.contentSetHash,
-        createdAtUnixMilliseconds: createdAt,
-        endpointId: endpoint.endpointId,
-        kind: endpoint.kind,
-        label: endpoint.label,
-        providerIdentity: endpoint.providerIdentity,
-        repoId: endpoint.repoId.uuidString,
-        worktreeId: endpoint.worktreeId.uuidString
-    )
-}
-
-private func productSummary(
-    _ summary: BridgeReviewPackageSummary
-) throws -> BridgeProductReviewPackageSummaryValue {
-    try .init(
-        additions: summary.additions,
-        deletions: summary.deletions,
-        filesChanged: summary.filesChanged,
-        hiddenFileCount: summary.hiddenFileCount,
-        visibleFileCount: summary.visibleFileCount
-    )
-}
-
-private func productQuery(_ query: BridgeReviewQuery) throws -> BridgeProductReviewQueryValue {
-    guard let createdAfter = query.provenanceFilter.createdAfterUnixMilliseconds.map(Int.init(exactly:)) ?? .some(nil),
-        let createdBefore = query.provenanceFilter.createdBeforeUnixMilliseconds.map(Int.init(exactly:)) ?? .some(nil)
-    else {
-        throw BridgePaneProductReviewMetadataSourceError.integerOutOfRange
-    }
-    let filter = query.viewFilter
-    return try .init(
-        baseEndpointId: query.baseEndpointId,
-        comparisonSemantics: query.comparisonSemantics,
-        fileTarget: query.fileTarget,
-        grouping: .init(kind: query.grouping.kind, label: query.grouping.label),
-        headEndpointId: query.headEndpointId,
-        pathScope: query.pathScope,
-        provenanceFilter: .init(
-            agentSessionIds: query.provenanceFilter.agentSessionIds,
-            createdAfterUnixMilliseconds: createdAfter,
-            createdBeforeUnixMilliseconds: createdBefore,
-            operationIds: query.provenanceFilter.operationIds,
-            paneIds: query.provenanceFilter.paneIds.map(\.uuidString),
-            promptIds: query.provenanceFilter.promptIds,
-            sourceKinds: query.provenanceFilter.sourceKinds.map(\.rawValue)
-        ),
-        queryId: query.queryId,
-        queryKind: query.queryKind,
-        repoId: query.repoId.uuidString,
-        viewFilter: .init(
-            changeKinds: filter.changeKinds,
-            excludedExtensions: filter.excludedExtensions,
-            excludedFileClasses: filter.excludedFileClasses,
-            excludedPathGlobs: filter.excludedPathGlobs,
-            includedExtensions: filter.includedExtensions,
-            includedFileClasses: filter.includedFileClasses,
-            includedPathGlobs: filter.includedPathGlobs,
-            reviewStates: filter.reviewStates,
-            showBinaryFiles: filter.showBinaryFiles,
-            showHiddenFiles: filter.showHiddenFiles,
-            showLargeFiles: filter.showLargeFiles
-        ),
-        worktreeId: query.worktreeId.uuidString
-    )
 }

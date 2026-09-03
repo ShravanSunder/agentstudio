@@ -241,7 +241,7 @@ extension BridgePaneProductMetadataCoordinator {
     }
 
     static func enqueue(
-        event: BridgeProductReviewMetadataEvent,
+        sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
         subscriptionId: String,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
@@ -249,11 +249,8 @@ extension BridgePaneProductMetadataCoordinator {
     ) async throws -> BridgeProductProducerEnqueueResult {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
-            data: try BridgeProductSubscriptionData.registered(
-                event,
-                subscriptionKind: .reviewMetadata
-            ),
-            operationCorrelationID: event.operationCorrelationID,
+            data: try BridgeProductSubscriptionData.registered(sealedEvent),
+            operationCorrelationID: sealedEvent.event.operationCorrelationID,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         )

@@ -793,7 +793,11 @@ private actor ProductActiveViewerReviewMetadataRecorder:
             packageId: package.packageId,
             publicationId: publicationId,
             reviewGeneration: package.reviewGeneration,
-            revision: package.revision
+            revision: package.revision,
+            projectionPlan: try BridgeReviewMetadataPublicationProjectionPlan.prepare(
+                package: package,
+                publicationId: publicationId
+            )
         )
     }
 

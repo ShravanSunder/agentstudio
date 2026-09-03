@@ -356,10 +356,11 @@ extension BridgePaneProductMetadataCoordinator {
     }
 
     private func enqueueReviewMetadataEvent(
-        _ event: BridgeProductReviewMetadataEvent,
+        _ sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
         emittedAdmission: BridgeProductAdmissionContext,
         context: BridgeReviewMetadataDeliveryContext
     ) async throws -> BridgeProductProducerEnqueueResult {
+        let event = sealedEvent.event
         guard context.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
             throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
         }
@@ -369,7 +370,7 @@ extension BridgePaneProductMetadataCoordinator {
             throw CancellationError()
         }
         let result = try await Self.enqueue(
-            event: event,
+            sealedEvent: sealedEvent,
             subscriptionId: context.subscription.subscriptionId,
             productAdmission: emittedAdmission,
             foregroundWorkAdmission: context.foregroundWorkAdmission,

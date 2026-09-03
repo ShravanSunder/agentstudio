@@ -62,6 +62,20 @@ where Event: Codable & Equatable & Sendable {
     let applicationPayload: BridgeProductJSONValue
     let sourceGeneration: Int
     let encodedApplicationByteCount: Int
+
+    fileprivate init(
+        event: Event,
+        applicationKind: BridgeProductSubscriptionKind,
+        applicationPayload: BridgeProductJSONValue,
+        sourceGeneration: Int,
+        encodedApplicationByteCount: Int
+    ) {
+        self.event = event
+        self.applicationKind = applicationKind
+        self.applicationPayload = applicationPayload
+        self.sourceGeneration = sourceGeneration
+        self.encodedApplicationByteCount = encodedApplicationByteCount
+    }
 }
 
 private struct BridgeProductErasedSealedMetadataApplicationEvent: Sendable {

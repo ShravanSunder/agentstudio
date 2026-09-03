@@ -168,7 +168,9 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let enqueueResult = try await emit(
-            coordinatorReviewMetadataEvent(for: publication.package),
+            try sealBridgeReviewMetadataEvent(
+                coordinatorReviewMetadataEvent(for: publication.package)
+            ),
             productAdmission
         )
         guard case .enqueued(let frame) = enqueueResult else {
@@ -256,7 +258,9 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let enqueueResult = try await emit(
-            coordinatorReviewMetadataEvent(for: publication.package),
+            try sealBridgeReviewMetadataEvent(
+                coordinatorReviewMetadataEvent(for: publication.package)
+            ),
             productAdmission
         )
         guard case .enqueued(let frame) = enqueueResult else {
@@ -327,11 +331,15 @@ actor CoordinatorEarlyFinalFramesSource:
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let firstResult = try await emit(
-            coordinatorReviewMetadataEvent(for: publication.package),
+            try sealBridgeReviewMetadataEvent(
+                coordinatorReviewMetadataEvent(for: publication.package)
+            ),
             productAdmission
         )
         let secondResult = try await emit(
-            coordinatorReviewMetadataEvent(for: publication.package),
+            try sealBridgeReviewMetadataEvent(
+                coordinatorReviewMetadataEvent(for: publication.package)
+            ),
             productAdmission
         )
         guard case .enqueued(let firstFrame) = firstResult,
@@ -416,7 +424,11 @@ func coordinatorReviewReservation(
         packageId: package.packageId,
         publicationId: publicationId,
         reviewGeneration: package.reviewGeneration,
-        revision: package.revision
+        revision: package.revision,
+        projectionPlan: try! BridgeReviewMetadataPublicationProjectionPlan.prepare(
+            package: package,
+            publicationId: publicationId
+        )
     )
 }
 

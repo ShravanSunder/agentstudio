@@ -22,7 +22,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
             subscription: try refreshImpactReviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -63,7 +63,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
             subscription: try refreshImpactReviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
 
         _ = try await deliverReviewPackage(
@@ -96,7 +96,7 @@ struct BridgePaneProductReviewMetadataRefreshImpactTests {
             subscription: try refreshImpactReviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
 
         // Act

@@ -105,7 +105,7 @@ actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataProducing 
     ) async throws {
         guard let event else { throw CoordinatorReviewMetadataSourceError.unavailable }
         activeSubscriptionIds.insert(subscription.subscriptionId)
-        _ = try await emit(event, productAdmission)
+        _ = try await emit(try sealBridgeReviewMetadataEvent(event), productAdmission)
     }
 
     func update(
@@ -122,7 +122,7 @@ actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataProducing 
             throw CoordinatorReviewMetadataSourceError.unavailable
         }
         updatedItemIds = interests.flatMap(\.itemIds)
-        _ = try await emit(event, productAdmission)
+        _ = try await emit(try sealBridgeReviewMetadataEvent(event), productAdmission)
     }
 
     func reserve(
