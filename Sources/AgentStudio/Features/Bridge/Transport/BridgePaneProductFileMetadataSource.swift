@@ -218,7 +218,24 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     productSource: productSource,
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission
-                ),
+                )
+            else {
+                await releaseContext(
+                    subscriptionId: subscription.subscriptionId,
+                    expectedSource: productSource
+                )
+                return
+            }
+            if sourceSpec.includeStatuses {
+                try await publishCurrentStatus(
+                    preparation.statusResult,
+                    emit: emit,
+                    productAdmission: productAdmission,
+                    productSource: productSource,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            }
+            guard
                 try await enumerateInitialTree(
                     .init(
                         emit: emit,
@@ -239,14 +256,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 )
                 return
             }
-            guard sourceSpec.includeStatuses else { return }
-            try await publishCurrentStatus(
-                preparation.statusResult,
-                emit: emit,
-                productAdmission: productAdmission,
-                productSource: productSource,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
         } catch {
             await releaseContext(
                 subscriptionId: subscription.subscriptionId,

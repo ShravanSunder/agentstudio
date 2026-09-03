@@ -132,6 +132,86 @@ struct BridgePaneProductFileSharedConstructionTests {
         await assertSharedFileConstructionDrained(coordinator)
     }
 
+    @Test("selected File becomes usable before the complete tree commits")
+    func selectedFileBecomesUsableBeforeCompleteTreeCommit() async throws {
+        // Arrange
+        let fixture = try ProductFileSourceFixture(fileCount: 300)
+        defer { fixture.remove() }
+        let coordinator = BridgeWorktreeProductConstructionCoordinator()
+        let preparationProbe = SharedFilePreparationProbe()
+        let buildGate = SharedFileBuildWindowGate()
+        let sourceAcceptedGate = ProductFileMaterializationGate()
+        let descriptorReadyGate = ProductFileMaterializationGate()
+        let source = fixture.makeSource(
+            constructionCoordinator: coordinator,
+            sourceAcceptedObserver: { _ in
+                await sourceAcceptedGate.markStarted()
+                await sourceAcceptedGate.waitUntilReleased()
+            },
+            snapshotPreparationLoader: preparationProbe.load,
+            sharedSnapshotBuilder: buildGate.build
+        )
+        let collector = ProductFileMetadataEventCollector()
+        let openSnapshot = try fixture.openSnapshot()
+        let openTask = Task {
+            try await source.open(
+                subscription: openSnapshot,
+                productAdmission: fixture.productAdmission.context
+            ) { event in
+                await collector.append(event)
+                if case .descriptorReady = event {
+                    await descriptorReadyGate.markStarted()
+                }
+            }
+        }
+        await sourceAcceptedGate.waitUntilStarted()
+        try await source.update(
+            subscription: fixture.updatedSnapshot(from: openSnapshot),
+            productAdmission: fixture.productAdmission.context
+        ) { event in
+            await collector.append(event)
+        }
+
+        // Act
+        await sourceAcceptedGate.release()
+        await buildGate.waitUntilFirstWindowPublished()
+        await descriptorReadyGate.waitUntilStarted()
+        let eventsBeforeFinalWindow = await collector.events
+        let completedBuildsBeforeFinalWindow = await buildGate.completedBuildCount
+        await buildGate.releaseBuilder()
+        try await openTask.value
+        let completedEvents = await collector.events
+
+        // Assert
+        let earlyTreeWindows = eventsBeforeFinalWindow.fileTreeWindows
+        #expect(earlyTreeWindows.count == 1)
+        #expect(earlyTreeWindows.first?.finalWindow == false)
+        #expect(earlyTreeWindows.first?.rows.contains { $0.path == fixture.demandedPath } == true)
+        #expect(
+            eventsBeforeFinalWindow.contains {
+                if case .descriptorReady = $0 { true } else { false }
+            }
+        )
+        #expect(
+            eventsBeforeFinalWindow.contains {
+                if case .statusPatch = $0 { true } else { false }
+            }
+        )
+        #expect(completedBuildsBeforeFinalWindow == 0)
+
+        let completedTreeWindows = completedEvents.fileTreeWindows
+        #expect(completedTreeWindows.count == 2)
+        #expect(completedTreeWindows.last?.finalWindow == true)
+        #expect(completedTreeWindows.last?.totalRowCount == 300)
+        #expect(
+            completedEvents.filter {
+                if case .statusPatch = $0 { true } else { false }
+            }.count == 1
+        )
+        await source.cancel(subscriptionId: openSnapshot.subscriptionId)
+        await assertSharedFileConstructionDrained(coordinator)
+    }
+
     @Test("late pane replays then tails without backpressuring its peer")
     func latePaneReplaysAndTailsWithoutBackpressure() async throws {
         // Arrange
