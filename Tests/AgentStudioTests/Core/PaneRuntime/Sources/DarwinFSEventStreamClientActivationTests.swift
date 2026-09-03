@@ -57,6 +57,49 @@ struct DarwinFSEventStreamClientActivationTests {
         #expect(batch.paths.contains(where: { $0.hasSuffix("/Changed.swift") }))
     }
 
+    @Test("activity barrier fails closed while a physical replacement is pending")
+    func activityBarrierFailsClosedDuringPhysicalReplacement() async throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-barrier-activation-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let firstRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
+        let secondRoot = fixtureRoot.appending(path: "second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let streamFactory = PendingReplacementLocalFSEventStreamFactory()
+        let client = DarwinFSEventStreamClient(localStreamFactory: streamFactory.makeStream)
+        defer { client.shutdown() }
+        let repositoryId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
+        let fenceConsumer = Task {
+            for await ingressItem in client.events() {
+                guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
+                client.acknowledgeActivityProcessingFence(fenceID)
+            }
+        }
+        defer { fenceConsumer.cancel() }
+        // The fake blocks synchronous FlushSync; detached execution keeps the
+        // controlling test task available to inspect and release that boundary.
+        // swiftlint:disable:next no_task_detached
+        let registrationTask = Task.detached {
+            client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
+        }
+        await streamFactory.waitUntilReplacementFlushStarts()
+
+        // Act / Assert
+        #expect(await client.captureActivityBarrier() == nil)
+
+        streamFactory.releaseReplacementFlush()
+        await registrationTask.value
+        let settledBarrier = try #require(await client.captureActivityBarrier())
+        #expect(Set(settledBarrier.bindings.map(\.worktreeId)) == [firstWorktreeId, secondWorktreeId])
+    }
+
     private func firstCompletedValue<Value: Sendable>(
         from task: Task<Value?, Never>,
         timeout: Duration
@@ -75,6 +118,54 @@ struct DarwinFSEventStreamClientActivationTests {
             task.cancel()
             return value
         }
+    }
+}
+
+private final class PendingReplacementLocalFSEventStreamFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseFlush = DispatchSemaphore(value: 0)
+    private let flushStarted: AsyncStream<Void>
+    private let flushStartedContinuation: AsyncStream<Void>.Continuation
+    private var streamCount = 0
+    private var flushCount = 0
+
+    init() {
+        (flushStarted, flushStartedContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+    }
+
+    func makeStream(
+        request _: DarwinLocalFSEventStreamRequest
+    ) -> (any DarwinLocalFSEventStreamLifetime)? {
+        let streamIndex = lock.withLock { () -> Int in
+            streamCount += 1
+            return streamCount
+        }
+        return ClientActivationBoundaryLocalFSEventStreamLifetime(
+            flush: { [weak self] in
+                guard let self else { return false }
+                let flushNumber = lock.withLock { () -> Int in
+                    flushCount += 1
+                    return flushCount
+                }
+                if streamIndex == 1, flushNumber == 1 {
+                    flushStartedContinuation.yield()
+                    releaseFlush.wait()
+                }
+                return true
+            }
+        )
+    }
+
+    func waitUntilReplacementFlushStarts() async {
+        var iterator = flushStarted.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func releaseReplacementFlush() {
+        releaseFlush.signal()
     }
 }
 

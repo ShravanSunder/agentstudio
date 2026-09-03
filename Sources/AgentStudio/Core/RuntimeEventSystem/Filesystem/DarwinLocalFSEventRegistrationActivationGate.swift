@@ -39,6 +39,10 @@ final class DarwinLocalFSEventRegistrationActivationGate: @unchecked Sendable {
         }
     }
 
+    var isDeliveringLiveEvents: Bool {
+        lock.withLock { isActive && !isCancelled }
+    }
+
     private func takePendingEventsOrActivate() -> [DarwinLocalFSEventRawEvent]? {
         lock.withLock {
             guard !isCancelled, !isActive else { return nil }

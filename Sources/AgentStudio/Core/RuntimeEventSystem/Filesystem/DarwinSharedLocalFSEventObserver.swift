@@ -5,6 +5,8 @@ package struct DarwinSharedLocalFSEventObservationSnapshot: Equatable, Sendable 
     package let physicalStreamCount: Int
     package let logicalRegistrationCount: Int
     package let physicalStreamCountByVolume: [UInt64: Int]
+    package let logicalGenerationsByWorktreeID: [UUID: Set<UInt64>]
+    package let hasPendingPhysicalReplacement: Bool
 }
 
 private struct DarwinSharedLocalFSEventRegistrationKey: Hashable, Sendable {
@@ -285,7 +287,12 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
                 logicalRegistrationCount: registrationByKey.count,
                 physicalStreamCountByVolume: Dictionary(
                     uniqueKeysWithValues: observerByVolume.keys.map { ($0, 1) }
-                )
+                ),
+                logicalGenerationsByWorktreeID: Dictionary(
+                    grouping: registrationByKey.keys,
+                    by: \.worktreeID
+                ).mapValues { Set($0.map(\.lifecycleGeneration)) },
+                hasPendingPhysicalReplacement: !pendingGenerationByVolume.isEmpty
             )
         }
     }

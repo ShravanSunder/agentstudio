@@ -885,6 +885,7 @@ extension DarwinFSEventStreamClient {
             return streamByWorktreeId.sorted { $0.key.uuidString < $1.key.uuidString }
         }
         guard let registrations else { return nil }
+        guard sharedLocalObservationMatches(registrations: registrations) else { return nil }
 
         guard sharedLocalObserverRegistry.flushAllPhysicalStreams() else { return nil }
         guard
@@ -936,6 +937,7 @@ extension DarwinFSEventStreamClient {
         )
         guard await ingressBuffer.enqueueActivityProcessingFence() else { return nil }
         guard localActivityBarrierIsCurrent(registrations: registrations),
+            sharedLocalObservationMatches(registrations: registrations),
             sharedExactItemObserverRegistry.activityBarrierIsCurrent(sharedBarrierSnapshot)
         else {
             return nil
@@ -953,7 +955,26 @@ extension DarwinFSEventStreamClient {
             return registrations.allSatisfy { worktreeId, capturedRegistration in
                 streamByWorktreeId[worktreeId]?.lifecycleGeneration
                     == capturedRegistration.lifecycleGeneration
+                    && capturedRegistration.eventActivationGate.isDeliveringLiveEvents
             }
+        }
+    }
+
+    private func sharedLocalObservationMatches(
+        registrations: [(UUID, StreamRegistration)]
+    ) -> Bool {
+        let observationSnapshot = sharedLocalObserverRegistry.snapshot()
+        guard !observationSnapshot.hasPendingPhysicalReplacement else { return false }
+        let expectedGenerationsByWorktreeID = Dictionary(
+            uniqueKeysWithValues: registrations.map { worktreeID, registration in
+                (worktreeID, Set([registration.lifecycleGeneration]))
+            }
+        )
+        guard observationSnapshot.logicalGenerationsByWorktreeID == expectedGenerationsByWorktreeID else {
+            return false
+        }
+        return registrations.allSatisfy { _, registration in
+            registration.eventActivationGate.isDeliveringLiveEvents
         }
     }
 }

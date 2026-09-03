@@ -802,8 +802,19 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
             let clearedPaneIDs = store.mutationCoordinator.clearPaneAssociations(
                 forRemovedWorktreeID: entry.id
             )
-            for _ in clearedPaneIDs {
+            for sourcePaneID in clearedPaneIDs {
                 performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
+                guard
+                    let companion = store.panePresentationAtom.zoomCompanion(
+                        forSourcePane: sourcePaneID
+                    )
+                else {
+                    continue
+                }
+                _ = reconcileZoomCompanion(
+                    sourcePaneId: sourcePaneID,
+                    owningTabId: companion.owningTabId
+                )
             }
         }
     }

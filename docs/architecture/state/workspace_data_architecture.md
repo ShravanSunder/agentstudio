@@ -369,6 +369,12 @@ final physical stream after its last logical lease disappears. Native callback
 context lifetime is owned through `FSEventStreamContext.retain`/`release`;
 application teardown does not manually free callback closures.
 
+An activity barrier is admitted only when the client registration generations
+exactly match the shared registry's logical generations, no physical replacement
+is pending, and every client activation gate is delivering live events. The same
+conditions are rechecked after the ingress fence; a handoff overlap fails closed
+instead of certifying a predecessor generation against a successor stream.
+
 #### GitWorkingDirectoryProjector
 
 | Aspect | Detail |
