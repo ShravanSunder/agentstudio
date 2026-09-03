@@ -263,7 +263,8 @@ FilesystemActor (raw filesystem I/O)
     - classifies .git directory (clone root) vs .git file (linked worktree)
     - groups linked worktrees under parent clones into ScannedRepoGroup
     - diffs grouped state per watched folder, global dedup for removes
-  worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
+  worktree roots → logical deep watches multiplexed onto one local FSEvents
+                   stream per filesystem volume (DarwinFSEventStreamClient)
   emits: SystemEnvelope(.topology(.repoDiscovered(linkedWorktrees: .scanned([...]))))
          SystemEnvelope(.topology(.repoRemoved))
          WorktreeEnvelope(.filesystem(.filesChanged))
@@ -292,7 +293,8 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
     → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   .topology(.repoDiscovered, linkedWorktrees: .notScanned):
     → register/reassociate repo only, skip worktree reconciliation (boot replay)
-  .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
+  .topology(.repoRemoved) → mark unavailable → clear invalid pane associations
+                           → preserve pane residency/tab membership → prune cache
   .snapshotChanged → write to cache store
   .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
   .pullRequestsChanged → map branch→worktreeId → write to cache
@@ -301,7 +303,8 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
       ▼
 WorkspaceSurfaceCoordinator (ordered post-topology effects)
   topologyDidChange(delta):
-    → orphanPanesForWorktree for delta.removedWorktrees
+    → clear invalid associations for delta.removedWorktrees
+    → preserve pane identity, residency, runtime, and tab membership
     → full filesystem reconciliation for accepted topology delta
   ordinary pane/CWD/active changes:
     → typed affected-key effect admission
@@ -324,11 +327,39 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | Aspect | Detail |
 |--------|--------|
 | **Owns** | FSEvents ingestion via DarwinFSEventStreamClient, path filtering, debounce, batching |
-| **Scope** | Worktree root paths (deep FSEvents watch) |
+| **Scope** | Logical worktree and watched-folder roots, multiplexed onto one physical local FSEvents stream per filesystem volume; external exact-item parents remain separately shared by parent identity |
 | **Reads** | Registered worktree paths from WorkspaceSurfaceCoordinator sync |
 | **Produces** | `SystemEnvelope(.topology(.repoDiscovered/.repoRemoved))` — discovery events |
 | | `WorktreeEnvelope(.filesystem(.filesChanged))` — file change facts |
 | **Does not** | Run git commands, access network, mutate canonical store |
+
+`DarwinFSEventStreamClient` separates logical registration identity from
+physical observation. Each logical root retains its worktree ID, lifecycle
+generation, observation scopes, continuity participant, and callback routing,
+while `DarwinSharedLocalFSEventObserverRegistry` contracts same-volume watched
+paths into one physical stream. Adding a path already covered by an ancestor
+creates no native stream. A required physical replacement starts the successor,
+buffers successor callbacks, flushes the still-current predecessor, atomically
+installs the successor, replays the buffer, and retires the predecessor. Thus
+steady native-client cardinality is bounded by mounted-volume count rather than
+repository/worktree count, with at most one replacement overlap at a time.
+
+Ordinary callbacks route only to intersecting logical registrations. Coverage
+loss from stream-global flags is broadcast to every logical participant on that
+physical stream so continuity fails closed. `RootChanged` remains path-scoped:
+only registrations rooted at or below the changed watched path retire, including
+when a stream-global loss flag is present in the same event. Callback-driven
+logical retirement is deferred off the synchronous callback stack so a
+predecessor `FSEventStreamFlushSync` cannot wait on its own configuration lock.
+
+The native API accepts only eight exclusion directories, so the shared physical
+stream does not install per-repository private-staging exclusions in the kernel.
+Instead, the shared ingress contracts `refs/agentstudio/staged` events once in
+user space before logical callback fan-out. Activity barriers flush each
+physical local stream once, not once per logical worktree. Shutdown retires the
+final physical stream after its last logical lease disappears. Native callback
+context lifetime is owned through `FSEventStreamContext.retain`/`release`;
+application teardown does not manually free callback closures.
 
 #### GitWorkingDirectoryProjector
 
