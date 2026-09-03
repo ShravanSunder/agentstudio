@@ -506,6 +506,7 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 while client.sharedLocalObservationSnapshot().logicalRegistrationCount != expectedCount {
+                    guard !Task.isCancelled else { return false }
                     await Task.yield()
                 }
                 return true

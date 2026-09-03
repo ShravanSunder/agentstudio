@@ -135,6 +135,13 @@ struct DarwinSharedLocalFSEventObserverTests {
                 return
             }
         }
+        #expect(
+            await waitForLogicalRegistrationCount(
+                1,
+                client: client,
+                timeout: .seconds(1)
+            )
+        )
         let barrier = try #require(await client.captureActivityBarrier())
         await fenceConsumer.value
         #expect(barrier.bindings.map(\.worktreeId) == [parentWorktreeId])
@@ -413,6 +420,29 @@ struct DarwinSharedLocalFSEventObserverTests {
             group.cancelAll()
             task.cancel()
             return value
+        }
+    }
+
+    private func waitForLogicalRegistrationCount(
+        _ expectedCount: Int,
+        client: DarwinFSEventStreamClient,
+        timeout: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                while client.sharedLocalObservationSnapshot().logicalRegistrationCount != expectedCount {
+                    guard !Task.isCancelled else { return false }
+                    await Task.yield()
+                }
+                return true
+            }
+            group.addTask {
+                try? await AsyncDelay.taskSleep.wait(timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
     }
 }
