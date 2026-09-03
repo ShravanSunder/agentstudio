@@ -715,11 +715,13 @@ struct ForgeActorAdmissionEdgeTests {
     @Test("rejected A-to-B completion cannot suppress identical valid A after emission reentry")
     func rejectedCompletionCannotPoisonLaterIdenticalFacts() async {
         let emissionGate = ForgeStableProjectionEmissionGate()
-        let performanceRecorder = ForgePerformanceSnapshotRecorderSpy()
+        let completionCounter = ForgeProviderRequestCompletionCounter()
         let fixture = await ForgeActorFixture.make(
-            performanceTraceRecorder: performanceRecorder,
             beforeEventEmission: { event in
                 await emissionGate.pauseFirstStableProjection(event)
+            },
+            providerRequestDidReturn: { _ in
+                completionCounter.recordCompletion()
             }
         )
         let repoId = UUIDv7.generate()
@@ -752,13 +754,19 @@ struct ForgeActorAdmissionEdgeTests {
         await emissionGate.resume()
         var rejectedCompletionDrained = false
         for _ in 0..<10_000 {
-            if performanceRecorder.snapshots.reduce(0, { $0 + $1.validation.staleScope }) == 1 {
+            if completionCounter.completionCount == 1 {
                 rejectedCompletionDrained = true
                 break
             }
             await Task.yield()
         }
-        #expect(rejectedCompletionDrained)
+        guard rejectedCompletionDrained else {
+            Issue.record("rejected provider completion did not return after emission resumed")
+            await fixture.provider.resolveIfPresent(callAt: 1, with: .failed(message: "test cleanup"))
+            await fixture.actor.shutdown()
+            await fixture.stopObserving()
+            return
+        }
         #expect(await fixture.provider.callCount == 2)
 
         await fixture.provider.resolve(callAt: 1, with: .complete([pullRequest]))
@@ -907,5 +915,18 @@ private actor ForgeStableProjectionEmissionGate {
         isPaused = false
         resumeContinuation?.resume()
         resumeContinuation = nil
+    }
+}
+
+private final class ForgeProviderRequestCompletionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCompletionCount = 0
+
+    var completionCount: Int {
+        lock.withLock { recordedCompletionCount }
+    }
+
+    func recordCompletion() {
+        lock.withLock { recordedCompletionCount += 1 }
     }
 }

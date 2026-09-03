@@ -21,6 +21,7 @@ package actor ForgeActor {
     let maximumConcurrentProviderRequests: Int
     let performanceTraceRecorder: (any ForgePerformanceRecording)?
     private let beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)?
+    private let providerRequestDidReturn: (@Sendable (UInt64) -> Void)?
 
     private var subscriptionTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
@@ -50,7 +51,8 @@ package actor ForgeActor {
         maximumConcurrentProviderRequests: Int =
             AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
         performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
-        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil
+        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil,
+        providerRequestDidReturn: (@Sendable (UInt64) -> Void)? = nil
     ) {
         runtimeBus = bus
         self.statusProvider = statusProvider
@@ -62,6 +64,7 @@ package actor ForgeActor {
         self.maximumConcurrentProviderRequests = max(1, maximumConcurrentProviderRequests)
         self.performanceTraceRecorder = performanceTraceRecorder
         self.beforeEventEmission = beforeEventEmission
+        self.providerRequestDidReturn = providerRequestDidReturn
     }
 
     isolated deinit {
@@ -603,6 +606,7 @@ extension ForgeActor {
         recordProviderStartPerformance(for: request)
         providerRepoIdByRequestId[request.id] = request.repoId
         providerTasksByRequestId[request.id] = Task { [weak self, statusProvider] in
+            defer { self?.providerRequestDidReturn?(request.id) }
             guard let self else { return }
             let outcome = await statusProvider.pullRequests(
                 origin: request.origin,

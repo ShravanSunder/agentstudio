@@ -618,7 +618,8 @@ struct ForgeActorFixture {
         performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
         maximumConcurrentProviderRequests: Int =
             AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
-        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil
+        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil,
+        providerRequestDidReturn: (@Sendable (UInt64) -> Void)? = nil
     ) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = GatedForgeStatusProvider()
@@ -633,7 +634,8 @@ struct ForgeActorFixture {
             sleepClock: clock,
             maximumConcurrentProviderRequests: maximumConcurrentProviderRequests,
             performanceTraceRecorder: performanceTraceRecorder,
-            beforeEventEmission: beforeEventEmission
+            beforeEventEmission: beforeEventEmission,
+            providerRequestDidReturn: providerRequestDidReturn
         )
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observationTask = Task {
