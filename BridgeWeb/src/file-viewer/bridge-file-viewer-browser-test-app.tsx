@@ -11,6 +11,7 @@ import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import {
 	BridgeFileViewerAppImplementation,
 	type BridgeFileViewerAppProps,
@@ -90,13 +91,19 @@ export function BridgeFileViewerBrowserHarnessApp(
 		initialMetadataEvents: _initialMetadataEvents,
 		...productionProps
 	} = props;
+	const fileViewClient = paneRuntime.surfaceClient('fileView');
 	return (
-		<BridgeFileViewerSurfaceClientProvider surfaceClient={paneRuntime.surfaceClient('fileView')}>
-			<BridgeFileViewerAppImplementation
-				{...productionProps}
-				codeViewWorkerPoolEnabled={productionProps.codeViewWorkerPoolEnabled ?? false}
-				shellComponent={BridgeFileViewerShell}
-			/>
+		<BridgeFileViewerSurfaceClientProvider surfaceClient={fileViewClient}>
+			<WorktreeAnnotationSurfaceProvider
+				markdownWorkerClient={productionProps.markdownWorkerClient}
+				surfaceClient={fileViewClient}
+			>
+				<BridgeFileViewerAppImplementation
+					{...productionProps}
+					codeViewWorkerPoolEnabled={productionProps.codeViewWorkerPoolEnabled ?? false}
+					shellComponent={BridgeFileViewerShell}
+				/>
+			</WorktreeAnnotationSurfaceProvider>
 		</BridgeFileViewerSurfaceClientProvider>
 	);
 }

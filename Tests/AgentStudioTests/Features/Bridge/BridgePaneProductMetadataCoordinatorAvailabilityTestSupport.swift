@@ -10,7 +10,7 @@ func availabilityReviewMetadataEvents(
 ) -> [BridgeProductReviewMetadataEvent] {
     frames.compactMap { frame -> BridgeProductReviewMetadataEvent? in
         guard case .subscriptionData(let data) = frame,
-            case .reviewMetadata(let event) = data.data
+            let event = data.data.reviewMetadataEvent
         else { return nil }
         return event
     }

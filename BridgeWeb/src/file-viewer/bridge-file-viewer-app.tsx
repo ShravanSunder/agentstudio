@@ -1,3 +1,4 @@
+import { RefreshCwIcon } from 'lucide-react';
 import {
 	lazy,
 	Suspense,
@@ -15,9 +16,11 @@ import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings
 import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-markdown-intent.js';
 import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
+import { Button } from '../components/ui/button.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import {
 	bridgeFileViewerCodeViewOptions,
@@ -115,8 +118,33 @@ export function BridgeFileViewerAppImplementation(
 			}),
 		[viewSettings],
 	);
+	const isActiveRef = useRef(isActive);
+	isActiveRef.current = isActive;
+	const appliedNavigationApplicationKeyRef = useRef<string | null>(null);
+	const controlProbeSequenceRef = useRef(0);
+	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
+	const { filterMode, search } = rootSnapshot;
+	const { acceptedCriteria, enteredCriteria } = search;
+	const searchMode = acceptedCriteria.mode;
+	const searchText = acceptedCriteria.query;
+	const queryKey = bridgeWorkerFileQueryKey({ filterMode, searchMode, searchText });
+	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const contentHeaderControls = (
 		<>
+			<WorktreeAnnotationShareHeaderControl />
+			{isActive &&
+			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
+			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null ? (
+				<Button
+					onClick={renderSnapshotController.retryUnavailableFileRefresh}
+					size="xs"
+					type="button"
+					variant="outline"
+				>
+					<RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
+					Retry
+				</Button>
+			) : null}
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeFilesDefaultViewSettings}
@@ -129,17 +157,6 @@ export function BridgeFileViewerAppImplementation(
 			) : null}
 		</>
 	);
-	const isActiveRef = useRef(isActive);
-	isActiveRef.current = isActive;
-	const appliedNavigationApplicationKeyRef = useRef<string | null>(null);
-	const controlProbeSequenceRef = useRef(0);
-	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
-	const { filterMode, search } = rootSnapshot;
-	const { acceptedCriteria, enteredCriteria } = search;
-	const searchMode = acceptedCriteria.mode;
-	const searchText = acceptedCriteria.query;
-	const queryKey = bridgeWorkerFileQueryKey({ filterMode, searchMode, searchText });
-	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const dispatchFileViewQueryFact = renderSnapshotController.dispatchFileViewQueryFact;
 	useEffect((): void => {
 		dispatchFileViewQueryFact({ filterMode, searchMode, searchText });

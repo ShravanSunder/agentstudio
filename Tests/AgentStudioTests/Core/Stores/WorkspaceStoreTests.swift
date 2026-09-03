@@ -13,7 +13,7 @@ final class WorkspaceStoreTests {
 
     private var store: WorkspaceStore!
     private var tempDir: URL!
-    private var sqliteDatastore: WorkspaceSQLiteDatastore!
+    private var sqliteDatastore: WorkspaceSQLiteDatastoreActor!
 
     init() {
         // Use a temp directory to avoid polluting real workspace data
@@ -954,6 +954,7 @@ final class WorkspaceStoreTests {
         }
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let persistenceFailureReasonProbe = WorkspacePersistenceFailureReasonProbe()
         let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         identityAtom.replaceIdentity(
             workspaceId: workspaceId,
@@ -965,7 +966,8 @@ final class WorkspaceStoreTests {
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: .milliseconds(10),
             clock: clock,
-            recoveryReporter: { event in recoveryEvents.append(event) }
+            recoveryReporter: { event in recoveryEvents.append(event) },
+            persistenceReasonReporter: persistenceFailureReasonProbe.record
         )
 
         func advanceNextDebouncedSave(after mutation: () -> Void) async {
@@ -979,8 +981,11 @@ final class WorkspaceStoreTests {
             await advanceNextDebouncedSave {
                 store.setSidebarWidth(CGFloat(300 + attempt))
             }
-            await saveProbe.waitForSaveCount(atLeast: attempt)
             await saveProbe.waitForFailedSaveCount(atLeast: attempt)
+            #expect(
+                await persistenceFailureReasonProbe.reason(at: attempt)
+                    == .workspaceSaveDatabaseFailed
+            )
             #expect(store.isDirty)
         }
         #expect(await saveProbe.saveCount == 3)
@@ -994,8 +999,8 @@ final class WorkspaceStoreTests {
         await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
-        await saveProbe.waitForSaveCount(atLeast: 4)
         await saveProbe.waitForFailedSaveCount(atLeast: 4)
+        #expect(await persistenceFailureReasonProbe.reason(at: 4) == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 4)
         #expect(await saveProbe.failedSaveCount == 4)
@@ -1007,8 +1012,8 @@ final class WorkspaceStoreTests {
         await advanceNextDebouncedSave {
             store.setSidebarWidth(305)
         }
-        await saveProbe.waitForSaveCount(atLeast: 5)
         await saveProbe.waitForFailedSaveCount(atLeast: 5)
+        #expect(await persistenceFailureReasonProbe.reason(at: 5) == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 5)
         #expect(await saveProbe.succeededSaveCount == 0)
@@ -1873,6 +1878,39 @@ final class WorkspaceStoreTests {
 
 }
 
+private actor WorkspacePersistenceFailureReasonProbe {
+    private var reasons: [PaneTopologyPersistenceReason] = []
+    private var waiters: [(index: Int, continuation: CheckedContinuation<PaneTopologyPersistenceReason, Never>)] = []
+
+    nonisolated func record(_ reason: PaneTopologyPersistenceReason) {
+        Task { await append(reason) }
+    }
+
+    func reason(at oneBasedIndex: Int) async -> PaneTopologyPersistenceReason {
+        let index = oneBasedIndex - 1
+        if reasons.indices.contains(index) {
+            return reasons[index]
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append((index: index, continuation: continuation))
+        }
+    }
+
+    private func append(_ reason: PaneTopologyPersistenceReason) {
+        reasons.append(reason)
+        var remainingWaiters: [(index: Int, continuation: CheckedContinuation<PaneTopologyPersistenceReason, Never>)] =
+            []
+        for waiter in waiters {
+            if reasons.indices.contains(waiter.index) {
+                waiter.continuation.resume(returning: reasons[waiter.index])
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        waiters = remainingWaiters
+    }
+}
+
 private actor WorkspaceSQLiteSaveProbe {
     private var saveEvents: Int = 0
     private var succeededSaveEvents: Int = 0
@@ -1893,7 +1931,7 @@ private actor WorkspaceSQLiteSaveProbe {
         failedSaveEvents
     }
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         switch event {
         case .saveWorkspaceSnapshot:
             saveEvents += 1

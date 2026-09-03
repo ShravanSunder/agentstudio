@@ -1,21 +1,62 @@
 import type { CodeViewItem, PostRenderPhase } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
 
+import { bridgeMainPierreItemsHaveEqualPresentationFingerprint } from '../../core/comm-worker/bridge-main-pierre-item-adapter.js';
 import type {
 	BridgeMainRenderedItemReadback,
 	BridgeMainRenderFulfillmentCoordinator,
 	BridgeMainRenderReadback,
 } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+import { isBridgeCodeViewItem } from './bridge-code-view-panel-support.js';
 
 export type BridgeCodeViewRenderObservationCoordinator = Pick<
 	BridgeMainRenderFulfillmentCoordinator,
 	'observePostRender' | 'reconcilePublication'
->;
+> &
+	Partial<Pick<BridgeMainRenderFulfillmentCoordinator, 'isBoundFinalItem'>>;
 
 export type BridgeCodeViewRenderFulfillmentCoordinator =
 	BridgeCodeViewRenderObservationCoordinator &
 		Pick<BridgeMainRenderFulfillmentCoordinator, 'bindPublicationItem' | 'isBoundFinalItem'>;
+
+// Pierre annotations require top-level item clones. Keep explicit lineage so paint receipts
+// still prove the exact worker metadata and source payload rather than trusting stable IDs alone.
+const exactSourceItemByPresentationItem = new WeakMap<object, BridgeMainCodeViewItem>();
+
+export function bridgeCodeViewPresentationItemWithExactSource<
+	TBridgeCodeViewItem extends BridgeMainCodeViewItem,
+>(props: {
+	readonly presentationItem: TBridgeCodeViewItem;
+	readonly sourceItem: TBridgeCodeViewItem;
+}): TBridgeCodeViewItem {
+	const exactSourceItem = exactSourceItemForPresentationItem(props.sourceItem);
+	if (!bridgeCodeViewItemsShareExactSource(props.presentationItem, props.sourceItem)) {
+		throw new Error('Bridge CodeView presentation item changed its exact worker source payload.');
+	}
+	exactSourceItemByPresentationItem.set(props.presentationItem, exactSourceItem);
+	return props.presentationItem;
+}
+
+export function bridgeCodeViewReanchorBoundFinalItem<
+	TBridgeCodeViewItem extends BridgeMainCodeViewItem,
+>(item: TBridgeCodeViewItem): TBridgeCodeViewItem {
+	exactSourceItemByPresentationItem.delete(item);
+	return item;
+}
+
+export function bridgeCodeViewReanchorContentEquivalentPresentationItem(props: {
+	readonly presentationItem: BridgeMainCodeViewItem;
+	readonly sourceItem: BridgeMainCodeViewItem;
+}): boolean {
+	if (
+		!bridgeMainPierreItemsHaveEqualPresentationFingerprint(props.presentationItem, props.sourceItem)
+	) {
+		return false;
+	}
+	exactSourceItemByPresentationItem.set(props.presentationItem, props.sourceItem);
+	return true;
+}
 
 export interface ObserveBridgeCodeViewRenderFulfillmentProps {
 	readonly contextItem: CodeViewItem;
@@ -44,6 +85,7 @@ export function observeBridgeCodeViewRenderFulfillment(
 					exactWorkerItem,
 					getCodeViewHandle: props.getCodeViewHandle,
 					itemId: props.itemId,
+					renderedPresentationItem: props.contextItem,
 					renderedElement: props.renderedElement,
 				});
 	props.renderFulfillmentCoordinator.observePostRender({
@@ -64,7 +106,6 @@ export function observeBridgeCodeViewRenderFulfillment(
 		});
 	});
 }
-
 export function reconcileBridgeCodeViewRenderFulfillment(props: {
 	readonly exactPresentationItem: BridgeMainCodeViewItem;
 	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;
@@ -84,20 +125,57 @@ function exactWorkerItemForPostRender(
 	props: ObserveBridgeCodeViewRenderFulfillmentProps,
 ): BridgeMainCodeViewItem | undefined {
 	if (
-		props.selectedCodeViewItem === props.contextItem &&
-		props.selectedCodeViewItem.id === props.itemId
+		isBridgeCodeViewItem(props.contextItem) &&
+		props.renderFulfillmentCoordinator.isBoundFinalItem?.(props.contextItem) === true
 	) {
-		return props.selectedCodeViewItem;
+		return exactSourceItemForPresentationItem(props.contextItem);
 	}
-	return props.visibleCodeViewItems?.find(
-		(item): boolean => item === props.contextItem && item.id === props.itemId,
-	);
+	if (props.selectedCodeViewItem !== null && props.selectedCodeViewItem !== undefined) {
+		const selectedSourceItem = exactSourceItemForPresentationItem(props.selectedCodeViewItem);
+		if (postRenderContextResolvesSourceItem(props, selectedSourceItem)) {
+			return selectedSourceItem;
+		}
+	}
+	for (const visibleItem of props.visibleCodeViewItems ?? []) {
+		const visibleSourceItem = exactSourceItemForPresentationItem(visibleItem);
+		if (postRenderContextResolvesSourceItem(props, visibleSourceItem)) {
+			return visibleSourceItem;
+		}
+	}
+	return undefined;
+}
+
+function postRenderContextResolvesSourceItem(
+	props: ObserveBridgeCodeViewRenderFulfillmentProps,
+	exactSourceItem: BridgeMainCodeViewItem,
+): boolean {
+	if (exactSourceItem.id !== props.itemId) return false;
+	if (bridgeCodeViewPresentationItemHasExactSource(props.contextItem, exactSourceItem)) return true;
+	if (!isBridgeCodeViewItem(props.contextItem) || props.renderedElement === undefined) return false;
+	const codeViewHandle = props.getCodeViewHandle();
+	if (codeViewHandle?.getItem(props.itemId) !== props.contextItem) return false;
+	const renderedItem = codeViewHandle
+		.getInstance()
+		?.getRenderedItems()
+		.find((candidate): boolean => candidate.id === props.itemId);
+	if (
+		renderedItem?.item !== props.contextItem ||
+		renderedItem.element !== props.renderedElement ||
+		!renderedItem.element.isConnected
+	) {
+		return false;
+	}
+	return bridgeCodeViewReanchorContentEquivalentPresentationItem({
+		presentationItem: props.contextItem,
+		sourceItem: exactSourceItem,
+	});
 }
 
 function postRenderReadbackForExactWorkerItem(props: {
 	readonly exactWorkerItem: BridgeMainCodeViewItem;
 	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;
 	readonly itemId: string;
+	readonly renderedPresentationItem: CodeViewItem;
 	readonly renderedElement: HTMLElement;
 }): BridgeMainRenderReadback {
 	return {
@@ -107,7 +185,10 @@ function postRenderReadbackForExactWorkerItem(props: {
 				return props.exactWorkerItem;
 			}
 			const currentItem = codeViewHandle.getItem(props.itemId);
-			return currentItem === props.exactWorkerItem ? props.exactWorkerItem : undefined;
+			return currentItem === props.renderedPresentationItem ||
+				bridgeCodeViewPresentationItemResolvesExactSource(currentItem, props.exactWorkerItem)
+				? props.exactWorkerItem
+				: undefined;
 		},
 		readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 			element: props.renderedElement,
@@ -125,10 +206,13 @@ function renderReadbackForExactWorkerItem(props: {
 	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;
 	readonly itemId: string;
 }): BridgeMainRenderReadback {
+	const exactWorkerItem = exactSourceItemForPresentationItem(props.exactWorkerItem);
 	return {
 		readCurrentItem: (): BridgeMainCodeViewItem | undefined => {
 			const currentItem = props.getCodeViewHandle()?.getItem(props.itemId);
-			return currentItem === props.exactWorkerItem ? props.exactWorkerItem : undefined;
+			return bridgeCodeViewPresentationItemResolvesExactSource(currentItem, exactWorkerItem)
+				? exactWorkerItem
+				: undefined;
 		},
 		readRenderedItem: (): BridgeMainRenderedItemReadback | null => {
 			const renderedItem = props
@@ -136,17 +220,69 @@ function renderReadbackForExactWorkerItem(props: {
 				?.getInstance()
 				?.getRenderedItems()
 				.find((candidate): boolean => candidate.id === props.itemId);
-			if (renderedItem?.item !== props.exactWorkerItem) return null;
+			if (
+				renderedItem === undefined ||
+				!bridgeCodeViewPresentationItemResolvesExactSource(renderedItem.item, exactWorkerItem)
+			) {
+				return null;
+			}
 			return {
 				element: renderedItem.element,
-				item: props.exactWorkerItem,
+				item: exactWorkerItem,
 				readableContentMatchesItem: bridgeCodeViewRenderedItemHasReadableContent({
 					element: renderedItem.element,
-					item: props.exactWorkerItem,
+					item: exactWorkerItem,
 				}),
 			};
 		},
 	};
+}
+
+function bridgeCodeViewPresentationItemResolvesExactSource(
+	presentationItem: CodeViewItem | undefined,
+	exactSourceItem: BridgeMainCodeViewItem,
+): boolean {
+	if (bridgeCodeViewPresentationItemHasExactSource(presentationItem, exactSourceItem)) return true;
+	return (
+		isBridgeCodeViewItem(presentationItem) &&
+		bridgeCodeViewReanchorContentEquivalentPresentationItem({
+			presentationItem,
+			sourceItem: exactSourceItem,
+		})
+	);
+}
+
+function exactSourceItemForPresentationItem(item: BridgeMainCodeViewItem): BridgeMainCodeViewItem {
+	return exactSourceItemByPresentationItem.get(item) ?? item;
+}
+
+function bridgeCodeViewPresentationItemHasExactSource(
+	presentationItem: CodeViewItem | undefined,
+	exactSourceItem: BridgeMainCodeViewItem,
+): boolean {
+	if (presentationItem === undefined) return false;
+	return (
+		exactSourceItemByPresentationItem.get(presentationItem) === exactSourceItem ||
+		presentationItem === exactSourceItem
+	);
+}
+
+function bridgeCodeViewItemsShareExactSource(
+	presentationItem: BridgeMainCodeViewItem,
+	exactSourceItem: BridgeMainCodeViewItem,
+): boolean {
+	if (
+		presentationItem.id !== exactSourceItem.id ||
+		presentationItem.type !== exactSourceItem.type ||
+		presentationItem.bridgeMetadata !== exactSourceItem.bridgeMetadata
+	) {
+		return false;
+	}
+	return presentationItem.type === 'file' && exactSourceItem.type === 'file'
+		? presentationItem.file === exactSourceItem.file
+		: presentationItem.type === 'diff' &&
+				exactSourceItem.type === 'diff' &&
+				presentationItem.fileDiff === exactSourceItem.fileDiff;
 }
 
 function bridgeCodeViewRenderedItemHasReadableContent(props: {

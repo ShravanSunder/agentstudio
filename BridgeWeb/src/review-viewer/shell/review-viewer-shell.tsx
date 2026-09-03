@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
 
 import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import {
@@ -35,6 +35,7 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { WorktreeAnnotationRecoveryWarning } from '../../worktree-annotations/worktree-annotation-recovery-warning.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
@@ -50,11 +51,15 @@ import type {
 	BridgeReviewProjectionResult,
 	BridgeReviewSearchMode,
 } from '../models/review-projection-models.js';
+import { scheduleBridgeReviewActivationSelectedContentPaint } from '../telemetry/bridge-review-viewer-telemetry.js';
 import { bridgeTreesDisclosurePolicyIdentity } from '../trees/bridge-trees-controller.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly activationSequence?: number;
+	readonly activationStartedAtPerfNow?: number;
 	readonly codeViewOptions?: BridgeReviewCodeViewOptions;
 	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly presentationPositionKey: string;
@@ -107,12 +112,16 @@ export interface ReviewViewerShellProps {
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly onOpenFile?: (path: string) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
+	readonly reviewRefreshStatusText?: string | null;
 }
 
 export type BridgeReviewCanvasLoadingReason = 'content';
@@ -122,6 +131,40 @@ const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, st
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const surfaceRootRef = useRef<HTMLElement>(null);
 	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	const recordedActivationPaintSequenceRef = useRef<number | null>(null);
+	useEffect((): (() => void) | void => {
+		if (
+			props.isActive !== true ||
+			props.activationSequence === undefined ||
+			props.activationStartedAtPerfNow === undefined ||
+			props.selectedCodeViewItem === null ||
+			props.selectedCodeViewItem === undefined ||
+			props.telemetryRecorder === undefined ||
+			recordedActivationPaintSequenceRef.current === props.activationSequence
+		) {
+			return;
+		}
+		const activationSequence = props.activationSequence;
+		const activationStartedAtPerfNow = props.activationStartedAtPerfNow;
+		const telemetryRecorder = props.telemetryRecorder;
+		const cancelPaint = scheduleBridgeReviewActivationSelectedContentPaint({
+			activationSequence,
+			activationStartedAtPerfNow,
+			onPainted: (): void => {
+				recordedActivationPaintSequenceRef.current = activationSequence;
+			},
+			telemetryRecorder,
+			traceContext: props.telemetryParentTraceContext ?? null,
+		});
+		return cancelPaint;
+	}, [
+		props.activationSequence,
+		props.activationStartedAtPerfNow,
+		props.isActive,
+		props.selectedCodeViewItem,
+		props.telemetryParentTraceContext,
+		props.telemetryRecorder,
+	]);
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	useBridgeViewerSearchFocusRestoration({
@@ -144,12 +187,13 @@ export function renderReviewViewerShellPresentation(presentation: {
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const categoryFilter = props.categoryFilter ?? 'all';
-	const statusText =
+	const comparisonStatusText =
 		props.comparisonPaneState.kind === 'settled' &&
 		props.isActive === true &&
 		props.panelChromeSlice.isLoading === true
 			? (props.panelChromeSlice.message ?? null)
 			: null;
+	const statusText = props.reviewRefreshStatusText ?? comparisonStatusText;
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(props.comparisonPaneState);
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
@@ -386,6 +430,23 @@ export function renderReviewViewerShellPresentation(presentation: {
 									{...(props.onCodeViewVisibleItemIdsChange === undefined
 										? {}
 										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
+									{...(props.onAnnotationAttentionItemIdsChange === undefined
+										? {}
+										: {
+												onAnnotationAttentionItemIdsChange:
+													props.onAnnotationAttentionItemIdsChange,
+											})}
+									{...(props.onAnnotationEditorAttentionItemIdsChange === undefined
+										? {}
+										: {
+												onAnnotationEditorAttentionItemIdsChange:
+													props.onAnnotationEditorAttentionItemIdsChange,
+											})}
+									{...(props.onReadingPositionItemIdChange === undefined
+										? {}
+										: {
+												onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
+											})}
 									{...(props.onCodeViewControlHandleChange === undefined
 										? {}
 										: {
@@ -421,6 +482,15 @@ export function renderReviewViewerShellPresentation(presentation: {
 						>
 							{hasChangedFiles ? (
 								<BridgeReviewTreesPanel
+									{...(props.activationCause === undefined
+										? {}
+										: { activationCause: props.activationCause })}
+									{...(props.activationSequence === undefined
+										? {}
+										: { activationSequence: props.activationSequence })}
+									{...(props.activationStartedAtPerfNow === undefined
+										? {}
+										: { activationStartedAtPerfNow: props.activationStartedAtPerfNow })}
 									isActive={props.isActive === true}
 									key={bridgeTreesDisclosurePolicyIdentity}
 									presentationPositionKey={props.presentationPositionKey}
@@ -458,26 +528,31 @@ export function renderReviewViewerShellPresentation(presentation: {
 					border: 'opaque',
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
-					toolbarBelow: treeSearchOpen ? (
-						<BridgeViewerSearchField
-							clearButtonTestId="bridge-review-search-clear"
-							errorMessage={treeSearchErrorMessage}
-							inputTestId="bridge-review-search-input"
-							onChange={(value): void => props.onTreeSearchTextChange?.(value)}
-							onClear={(): void => {
-								if (props.onTreeSearchClear !== undefined) {
-									props.onTreeSearchClear();
-									return;
-								}
-								props.onTreeSearchTextChange?.('');
-							}}
-							onClose={(): void => props.onTreeSearchClose?.()}
-							onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
-							regexToggleTestId="bridge-review-regex-toggle"
-							searchMode={treeSearchMode}
-							value={treeSearchText}
-						/>
-					) : null,
+					toolbarBelow: (
+						<>
+							<WorktreeAnnotationRecoveryWarning />
+							{treeSearchOpen ? (
+								<BridgeViewerSearchField
+									clearButtonTestId="bridge-review-search-clear"
+									errorMessage={treeSearchErrorMessage}
+									inputTestId="bridge-review-search-input"
+									onChange={(value): void => props.onTreeSearchTextChange?.(value)}
+									onClear={(): void => {
+										if (props.onTreeSearchClear !== undefined) {
+											props.onTreeSearchClear();
+											return;
+										}
+										props.onTreeSearchTextChange?.('');
+									}}
+									onClose={(): void => props.onTreeSearchClose?.()}
+									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+									regexToggleTestId="bridge-review-regex-toggle"
+									searchMode={treeSearchMode}
+									value={treeSearchText}
+								/>
+							) : null}
+						</>
+					),
 					toolbarFooter: (
 						<BridgeViewerSearchStatus
 							message={props.treeSearchStatusMessage ?? treeSearchErrorMessage}

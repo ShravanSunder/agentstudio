@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 
+import { Toaster } from '@/components/ui/sonner.js';
+
 import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/workers/pierre/bridge-pierre-dev-worker-factory.js';
 import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
@@ -15,6 +17,8 @@ import {
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
 import './bridge-app.css';
+
+await preloadBridgeReviewViewerShell();
 
 const rootElement = document.querySelector('#root');
 
@@ -55,14 +59,21 @@ if (rootElement !== null) {
 	);
 
 	root.render(
-		<BridgeAppProtocolRouter
-			codeViewWorkerPoolEnabled
-			markdownRuntime={markdownRuntime}
-			paneRuntime={paneRuntime}
-			fileViewerProps={{ autoOpenInitialFile: true }}
-			codeViewWorkerFactory={workerFactory.workerFactory}
-		/>,
+		<>
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled
+				markdownRuntime={markdownRuntime}
+				paneRuntime={paneRuntime}
+				fileViewerProps={{ autoOpenInitialFile: true }}
+				codeViewWorkerFactory={workerFactory.workerFactory}
+			/>
+			<Toaster />
+		</>,
 	);
+}
+
+async function preloadBridgeReviewViewerShell(): Promise<void> {
+	await import('../review-viewer/shell/review-viewer-shell.js');
 }
 
 function bridgeAppDevTelemetryScenario(props: {

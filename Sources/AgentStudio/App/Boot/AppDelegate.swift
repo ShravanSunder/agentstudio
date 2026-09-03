@@ -64,7 +64,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
-    var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
+    var workspaceSQLiteDatastore: WorkspaceSQLiteDatastoreActor?
+    var worktreeAnnotationStore: WorktreeAnnotationServiceActor!
+    var worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var bridgeGitReadScheduler: BridgeGitReadScheduler!
     var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!

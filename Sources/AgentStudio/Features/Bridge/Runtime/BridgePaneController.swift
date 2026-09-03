@@ -27,6 +27,25 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 @MainActor
 package final class BridgePaneController {
 
+    private struct InitialPageComposition {
+        let page: WebPage
+        let userContentController: WKUserContentController
+        let bootstrapScript: WKUserScript
+        let readyMessageHandler: BridgeReadyMessageHandler
+    }
+
+    private struct InitialPageCompositionInput {
+        let paneId: UUID
+        let state: BridgePaneState
+        let appRootURL: URL
+        let telemetryScopeGate: BridgeTelemetryScopeGate
+        let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
+        let productSessionRouter: BridgeProductSchemeSessionRouter
+        let bridgeWorld: WKContentWorld
+        let managementScript: WKUserScript
+        let viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
+    }
+
     // MARK: - Public State
 
     package let paneId: UUID
@@ -49,6 +68,7 @@ package final class BridgePaneController {
         productSessionOwner.productAdmissionGate
     }
     let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
+    let worktreeRefreshDriver: BridgePaneWorktreeRefreshDriver
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     package let productSessionOwner: BridgePaneProductSessionOwner
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
@@ -57,6 +77,7 @@ package final class BridgePaneController {
     let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let reviewChangeIndex = BridgeChangeIndex()
     package var bridgePaneState: BridgePaneState
     let initialContributionTargetCommit:
@@ -67,8 +88,8 @@ package final class BridgePaneController {
     var pendingComparisonReviewGeneration: BridgeReviewGeneration?
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
-    var productPresentationTransitionGeneration: UInt64 = 0
-    var productPresentationTransitionTail: Task<Void, Never>?
+    var activeReviewRefreshTaskId: UUID?
+    var retiringReviewRefreshTaskById: [UUID: Task<Void, Never>] = [:]
     var surfaceSelectionTransitionTail: Task<Bool, Never>?
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
@@ -112,11 +133,14 @@ package final class BridgePaneController {
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil,
         initialPaneActivity: BridgePaneActivity,
         productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
         telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
@@ -133,6 +157,7 @@ package final class BridgePaneController {
         self.bridgePaneState = state
         let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
         self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
+        self.worktreeAnnotationStore = worktreeAnnotationStore
         let telemetryDependencies = Self.resolveTelemetryDependencies(
             traceRuntime: traceRuntime,
             telemetryRuntimePolicy: telemetryRuntimePolicy,
@@ -175,6 +200,8 @@ package final class BridgePaneController {
                     state: state,
                     gitReadContext: gitReadContext,
                     worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
+                    worktreeAnnotationStore: worktreeAnnotationStore,
+                    worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
                     reviewContentLoaderCache: resolvedReviewContentLoaderCache,
                     reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                     refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
@@ -186,60 +213,128 @@ package final class BridgePaneController {
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
-        let initialManagementScript = WebInteractionManagementScript.makeUserScript(
-            blockInteraction: atom(\.managementLayer).isActive
+        let refreshDriver = Self.makeWorktreeRefreshDriver(
+            coordinator: resolvedRefreshAdmissionCoordinator,
+            productSessionDependencies: resolvedProductSessionDependencies
         )
+        self.worktreeRefreshDriver = refreshDriver
+        resolvedProductSessionDependencies.fileSourceAcceptanceRelay?.bind { [weak refreshDriver] source in
+            refreshDriver?.recordFileSourceAccepted(source)
+        }
+        let initialManagementScript = Self.makeInitialManagementScript()
         self.managementScript = initialManagementScript
         self.isContentInteractionEnabled = !atom(\.managementLayer).isActive
-
-        // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
-        // Each bridge pane needs its own userContentController for ready bootstrap and script
-        // registration, and its own urlSchemeHandlers for the agentstudio:// scheme.
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .nonPersistent()
-        self.userContentController = config.userContentController
-
-        // Register only the closed bootstrap handler in the bridge content world.
-        let readyMessageHandler = Self.registerReadyMessageHandler(
-            in: userContentController,
-            contentWorld: bridgeWorld,
-        )
-
-        let bootstrapArtifacts = Self.makeBootstrapArtifacts(
-            paneId: paneId,
-            state: state,
-            telemetryScopeGate: telemetryDependencies.scopeGate,
-            bridgeWorld: bridgeWorld
-        )
-        self.productSessionBootstrapSink = productSessionBootstrapSink
-        self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
-        self.bootstrapScript = bootstrapArtifacts.script
-        Self.installInitialUserScripts(
-            in: userContentController,
-            bootstrapScript: bootstrapArtifacts.script,
-            managementScript: initialManagementScript
-        )
-
-        Self.registerAgentStudioSchemeHandler(
-            in: &config,
-            input: BridgeSchemeHandlerRegistrationInput(
+        let pageComposition = Self.makeInitialPageComposition(
+            InitialPageCompositionInput(
                 paneId: paneId,
+                state: state,
                 appRootURL: appRootURL,
+                telemetryScopeGate: telemetryDependencies.scopeGate,
                 telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
-                productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
+                productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter,
+                bridgeWorld: bridgeWorld,
+                managementScript: initialManagementScript,
+                viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
             )
         )
+        self.userContentController = pageComposition.userContentController
+        self.productSessionBootstrapSink = productSessionBootstrapSink
+        self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
+        self.bootstrapScript = pageComposition.bootstrapScript
+        self.page = pageComposition.page
 
-        // Create WebPage with bridge-specific navigation and dialog policies.
-        self.page = WebPage(
-            configuration: config,
-            navigationDecider: BridgeNavigationDecider(),
-            dialogPresenter: WebviewDialogHandler()
+        finishRuntimeSetup(
+            pageComposition.readyMessageHandler,
+            resolvedProductSessionDependencies.committedCallTarget
         )
+    }
 
+    private static func makeInitialPageComposition(
+        _ input: InitialPageCompositionInput
+    ) -> InitialPageComposition {
+        // Each bridge pane owns its handlers, bootstrap scripts, and scheme routing.
+        var configuration = WebPage.Configuration()
+        configuration.websiteDataStore = .nonPersistent()
+        let userContentController = configuration.userContentController
+        let readyMessageHandler = registerReadyMessageHandler(
+            in: userContentController,
+            contentWorld: input.bridgeWorld
+        )
+        let bootstrapScript = makeBootstrapArtifacts(
+            paneId: input.paneId,
+            state: input.state,
+            telemetryScopeGate: input.telemetryScopeGate,
+            viewerOpenTelemetryAnchor: input.viewerOpenTelemetryAnchor,
+            bridgeWorld: input.bridgeWorld
+        ).script
+        installInitialUserScripts(
+            in: userContentController,
+            bootstrapScript: bootstrapScript,
+            managementScript: input.managementScript
+        )
+        registerAgentStudioSchemeHandler(
+            in: &configuration,
+            input: BridgeSchemeHandlerRegistrationInput(
+                paneId: input.paneId,
+                appRootURL: input.appRootURL,
+                telemetrySessionOwner: input.telemetrySessionOwner,
+                productSessionRouter: input.productSessionRouter
+            )
+        )
+        return InitialPageComposition(
+            page: WebPage(
+                configuration: configuration,
+                navigationDecider: BridgeNavigationDecider(),
+                dialogPresenter: WebviewDialogHandler()
+            ),
+            userContentController: userContentController,
+            bootstrapScript: bootstrapScript,
+            readyMessageHandler: readyMessageHandler
+        )
+    }
+
+    private static func makeWorktreeRefreshDriver(
+        coordinator: BridgePaneRefreshAdmissionCoordinator,
+        productSessionDependencies: BridgePaneProductSessionDependencies
+    ) -> BridgePaneWorktreeRefreshDriver {
+        let productProvider = productSessionDependencies.productProvider
+        let productAdmissionGate = productSessionDependencies.owner.productAdmissionGate
+        let publishFileChangeset =
+            productProvider?.publishFileChangeset ?? rejectUnavailableBridgeFileChangeset
+        let publishFileStatus =
+            productProvider?.publishFileStatus ?? rejectUnavailableBridgeFileStatus
+        return BridgePaneWorktreeRefreshDriver(
+            coordinator: coordinator,
+            acquireProductAdmission: {
+                productAdmissionGate.acquire()
+            },
+            publishFileChangeset: publishFileChangeset,
+            publishFileStatus: publishFileStatus,
+            publishPresentation: { snapshot, traceContext in
+                await productProvider?.publishPanePresentation(
+                    snapshot,
+                    traceContext: traceContext
+                )
+            },
+            publishOperationLifecycle: { event in
+                await productProvider?.recordOperationLifecycle(event)
+            }
+        )
+    }
+
+    private static func makeInitialManagementScript() -> WKUserScript {
+        WebInteractionManagementScript.makeUserScript(
+            blockInteraction: atom(\.managementLayer).isActive
+        )
+    }
+
+    private func finishRuntimeSetup(
+        _ readyMessageHandler: BridgeReadyMessageHandler,
+        _ committedCallTarget: BridgePaneProductCommittedCallTarget?
+    ) {
         configureReadyMessageHandler(readyMessageHandler)
         configureRuntimeCallbacks()
-        resolvedProductSessionDependencies.committedCallTarget?.controller = self
+        committedCallTarget?.controller = self
     }
 
     private static func makeReviewDependencies(
@@ -421,27 +516,36 @@ package final class BridgePaneController {
         if let lifecycleRetirementTask {
             return lifecycleRetirementTask
         }
+        var reviewRefreshCleanupTelemetryTask: Task<Void, Never>?
         if !isTeardownStarted {
             isTeardownStarted = true
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
             surfaceSelectionAuthority.invalidate()
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
-            let reviewRefreshTask = activeReviewRefreshTask
-            reviewRefreshTask?.cancel()
+            let reviewPublicationCleanupSnapshot = reviewPublicationCoordinator.diagnosticSnapshot
+            reviewRefreshCleanupTelemetryTask = makeReviewRefreshCleanupTelemetryTask(
+                snapshot: reviewPublicationCleanupSnapshot
+            )
+            let reviewRefreshTasks =
+                Array(retiringReviewRefreshTaskById.values)
+                + [activeReviewRefreshTask].compactMap { $0 }
+            for task in reviewRefreshTasks { task.cancel() }
             activeReviewRefreshTask = nil
+            activeReviewRefreshTaskId = nil
+            retiringReviewRefreshTaskById.removeAll()
             let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
-            let productPresentationTransitionTail = productPresentationTransitionTail
             let surfaceSelectionTransitionTail = surfaceSelectionTransitionTail
+            let worktreeRefreshDriver = worktreeRefreshDriver
             teardownCleanupTask = Task {
-                await productPresentationTransitionTail?.value
+                await worktreeRefreshDriver.closeAndDrain()
                 _ = await surfaceSelectionTransitionTail?.value
                 async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
                 await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain
                 async let closePublicationDrain: Void = reviewPublicationCloseDrain.releaseAndWait()
-                await reviewRefreshTask?.value
+                for task in reviewRefreshTasks { await task.value }
                 let lateArtifactPinReleaseTask = reviewPublicationCoordinator.takeArtifactPinReleaseTask()
                 await closePublicationDrain
                 await lateArtifactPinReleaseTask?.value
@@ -458,7 +562,9 @@ package final class BridgePaneController {
             preconditionFailure("Bridge teardown cleanup task was not installed")
         }
         let productSessionOwner = productSessionOwner
+        let worktreeAnnotationStore = worktreeAnnotationStore
         let lifecycleRetirementTask = Task { @MainActor [weak self] in
+            await reviewRefreshCleanupTelemetryTask?.value
             if let telemetrySessionOwner = self?.telemetrySessionOwner {
                 do {
                     let terminalDrain = try await self?.drainTelemetrySidecar(closeAfterDrain: true)
@@ -491,8 +597,11 @@ package final class BridgePaneController {
                 await telemetrySessionOwner.revoke()
             }
             self?.page.stopLoading()
-            let productSessionRetired =
-                await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
+            let productSessionRetired = await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            if productSessionRetired, let retiringWorkerInstanceID {
+                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
+            }
             await teardownCleanupTask.value
             if !productSessionRetired {
                 self?.lifecycleRetirementTask = nil
@@ -501,6 +610,44 @@ package final class BridgePaneController {
         }
         self.lifecycleRetirementTask = lifecycleRetirementTask
         return lifecycleRetirementTask
+    }
+
+    private static func retainedReviewPublicationCount(
+        _ snapshot: BridgeReviewPublicationStateSnapshot
+    ) -> Int {
+        Set(
+            [snapshot.active, snapshot.acknowledgedDisplayed, snapshot.admitted, snapshot.pending]
+                .compactMap(\.self)
+                .map(\.publicationId)
+                + snapshot.retiring.map(\.publicationId)
+        ).count
+    }
+
+    private func makeReviewRefreshCleanupTelemetryTask(
+        snapshot: BridgeReviewPublicationStateSnapshot
+    ) -> Task<Void, Never> {
+        let recorder = telemetryRecorder.map(
+            BridgeReviewRefreshLifecycleTraceRecorder.init(recorder:)
+        )
+        let retainedPublicationCount = Self.retainedReviewPublicationCount(snapshot)
+        return Task {
+            await recorder?.record(
+                BridgeReviewRefreshLifecycleTraceEvent(
+                    phase: .sourceCleanupTerminal,
+                    resultReason: .close,
+                    presentationClass: nil,
+                    reviewGeneration: nil,
+                    importedCommitCount: nil,
+                    affectedFileCount: nil,
+                    changedLineCount: nil,
+                    affectedStableFileCount: nil,
+                    retainedPublicationCount: retainedPublicationCount,
+                    sourceLeaseCount: snapshot.activeContentLeaseCount,
+                    durationMilliseconds: nil,
+                    traceContext: nil
+                )
+            )
+        }
     }
 
     // MARK: - Bridge Handshake
@@ -674,6 +821,26 @@ package final class BridgePaneController {
         }
     }
 
+}
+
+private func rejectUnavailableBridgeFileChangeset(
+    _: FileChangeset,
+    _: BridgeProductAdmissionContext,
+    _: BridgePaneRefreshWorkAdmission,
+    _: String,
+    _: Int
+) async -> BridgePaneProductFileRefreshPublicationDisposition {
+    .notRequired
+}
+
+private func rejectUnavailableBridgeFileStatus(
+    _: GitWorkingTreeStatus,
+    _: BridgeProductAdmissionContext,
+    _: BridgePaneRefreshWorkAdmission,
+    _: String,
+    _: Int
+) async -> BridgePaneProductFileRefreshPublicationDisposition {
+    .notRequired
 }
 
 extension BridgePaneController {

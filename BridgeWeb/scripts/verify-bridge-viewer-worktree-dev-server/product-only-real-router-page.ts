@@ -40,6 +40,7 @@ import {
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
 
 export {
+	freshReviewInitialWindowRequiresTraversal,
 	mountedHeaderOrderViolationForExpectedOrder,
 	nextFreshReviewTraversalScrollTop,
 } from './product-only-real-router-review-proof.ts';

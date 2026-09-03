@@ -63,6 +63,7 @@ export interface BridgeFileViewerRenderSnapshotController {
 		readonly lastVisibleIndex: number;
 		readonly visibleItemIds: readonly string[];
 	}) => void;
+	readonly retryUnavailableFileRefresh: () => void;
 	readonly fileDisplaySnapshot: Pick<
 		BridgeMainRenderSnapshot,
 		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
@@ -197,6 +198,12 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		},
 		[fileViewClient],
 	);
+	const retryUnavailableFileRefresh = useCallback((): void => {
+		fileViewClient.send({
+			command: 'fileRefreshRetry',
+			epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+		});
+	}, [fileViewClient]);
 	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
 		renderSnapshot,
 		selection: props.selection,
@@ -218,6 +225,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchFileViewQueryFact,
 			dispatchSelectedFileViewContentRequest,
 			dispatchVisibleFileViewViewportFact,
+			retryUnavailableFileRefresh,
 			fileDisplaySnapshot: {
 				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
 				fileItemById: renderSnapshot.fileItemById,
@@ -236,6 +244,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchSelectedFileViewContentRequest,
 			dispatchFileViewQueryFact,
 			dispatchVisibleFileViewViewportFact,
+			retryUnavailableFileRefresh,
 			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
 			fileViewClient.renderFulfillmentCoordinator,
@@ -292,9 +301,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				if (
 					bridgeFileDisplayEventIsAccepted(currentFreshness, message) &&
 					(message.patches.some(
-						(patch): boolean =>
-							patch.slice === 'fileTree' &&
-							(patch.operation === 'reset' || patch.operation === 'replacementCommit'),
+						(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'reset',
 					) ||
 						fileDisplayPatchInvalidatesSelection(message, selection))
 				) {
@@ -378,9 +385,17 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'health':
 				publishBridgeProductMetadataStreamDiagnostic(message.diagnostic);
 				break;
+			case 'annotationCommandAccepted':
+			case 'annotationCatalogStaging':
+			case 'annotationOutputInspection':
+			case 'annotationProjectionConvergence':
 			case 'nativeSurfaceSelectionRequest':
+			case 'reviewCandidateReady':
+			case 'reviewCandidateFailed':
+			case 'reviewCandidateStarted':
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
+			case 'reviewPublicationInstallAdmission':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);

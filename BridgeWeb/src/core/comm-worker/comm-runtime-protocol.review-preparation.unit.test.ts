@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -22,6 +23,7 @@ import {
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 afterEach((): void => {
 	vi.useRealTimers();
@@ -469,6 +471,8 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			scheduledDrains,
 			startIndex: 0,
 		});
+		queueLatestReviewPublication(dispatch, postedMessages, 'selected-before-source-rollover');
+		await flushBridgeWorkerRuntimeContinuations();
 		const rolloverDrainStartIndex = scheduledDrains.length;
 
 		reviewProductSource.publishSource(
@@ -646,7 +650,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		let advanceClockPerRead = false;
 		let createSequence = createBridgeWorkerSequenceCounter(41);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages, waitForMessage } = createRecordingBridgeCommWorkerPort();
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -672,7 +676,10 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'yielded-selected-preparation');
-		const publicationApplication = reviewProductSource.publishSourceAndWaitForApplication(
+		const candidateReady = waitForMessage(
+			(message): boolean => message.kind === 'reviewCandidateReady' && message.revision === 6,
+		);
+		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata()],
 				contentRequestDescriptors: [
@@ -685,7 +692,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await publicationApplication;
+		await candidateReady;
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
@@ -722,7 +729,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(firstDrainResult.completedIds).toEqual([]);
 		expect(firstDrainResult.yielded).toBe(true);
 		expect(continuationDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:43',
+			'review-content-ready:item-1:review-ledger:item-1:45',
 		]);
 		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
@@ -756,7 +763,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 43,
+			publicationSequence: 45,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -821,12 +828,14 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		);
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
+			'reviewCandidateReady',
 			'health',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[2]?.message).toMatchObject({
+		expect(postedMessages[4]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,
@@ -847,6 +856,33 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(scheduledDrains).toHaveLength(1);
 	});
 });
+
+function queueLatestReviewPublication(
+	dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'],
+	postedMessages: ReturnType<typeof createRecordingBridgeCommWorkerPort>['postedMessages'],
+	requestLabel: string,
+): void {
+	const publication = postedMessages
+		.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
+		)
+		.at(-1);
+	if (publication === undefined) throw new Error('Expected a Review publication to queue.');
+	dispatch.message(
+		encodeBridgeWorkerRenderDispositionCommand({
+			epoch: publication.workerDerivationEpoch,
+			receipts: [
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...publication.renderReceiptIdentity,
+					disposition: 'queued',
+					kind: 'render.disposition',
+					receivedAtMilliseconds: 0,
+				}),
+			],
+			requestId: `request-queue-${requestLabel}`,
+		}),
+	);
+}
 
 function unexpectedEOFReviewContentStream(
 	descriptorId: string,

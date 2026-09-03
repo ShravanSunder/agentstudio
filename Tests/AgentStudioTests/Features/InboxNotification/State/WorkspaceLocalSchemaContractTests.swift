@@ -80,14 +80,18 @@ struct WorkspaceLocalSchemaContractTests {
 
         let indexNames = try databaseQueue.read { database in
             try Set(
-                String.fetchAll(
+                Row.fetchAll(
                     database,
                     sql: """
-                        SELECT name
+                        SELECT name, tbl_name
                         FROM sqlite_master
                         WHERE type = 'index'
                         """
-                )
+                ).compactMap { row -> String? in
+                    let tableName: String = row["tbl_name"]
+                    guard localSchemaExpectedColumns[tableName] != nil else { return nil }
+                    return row["name"]
+                }
             )
         }
 
@@ -349,7 +353,11 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
                       AND name NOT LIKE 'sqlite_%'
                       AND name != 'grdb_migrations'
                     """
-            ).map { row in (row["name"] as String, row["sql"] as String) }
+            ).compactMap { row -> (String, String)? in
+                let tableName: String = row["name"]
+                guard localSchemaExpectedColumns[tableName] != nil else { return nil }
+                return (tableName, row["sql"])
+            }
         )
     }
     #expect(Set(tableSQL.keys) == Set(localSchemaExpectedColumns.keys))

@@ -22,7 +22,7 @@ final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
     private let repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -39,7 +39,7 @@ final class WorkspaceSettingsStore {
         editorPreferenceAtom: EditorPreferenceAtom,
         repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -195,7 +195,7 @@ final class WorkspaceSettingsStore {
     }
 
     private func hydrateEditor(
-        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+        _ value: WorkspaceSQLiteDatastoreActor.LocalSettingsValue<
             WorkspaceLocalRepository.EditorPreferencesRecord
         >,
         workspaceId: UUID
@@ -212,7 +212,7 @@ final class WorkspaceSettingsStore {
     }
 
     private func hydrateRepoExplorer(
-        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+        _ value: WorkspaceSQLiteDatastoreActor.LocalSettingsValue<
             WorkspaceLocalRepository.RepoExplorerPreferencesRecord
         >,
         workspaceId: UUID
@@ -236,7 +236,7 @@ final class WorkspaceSettingsStore {
     }
 
     private func hydrateInboxNotification(
-        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+        _ value: WorkspaceSQLiteDatastoreActor.LocalSettingsValue<
             WorkspaceLocalRepository.InboxNotificationPreferencesRecord
         >,
         workspaceId: UUID

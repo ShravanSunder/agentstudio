@@ -13,7 +13,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("mise run test:bridge-web"))
         #expect(testTask.contains("mise run bridge-web-build"))
         #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
-        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-300}\""))
+        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
         #expect(
             testTask.contains(
                 "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""
@@ -469,6 +469,21 @@ struct CIFastLaneWorkflowTests {
         #expect(filteredOutput == "okbad\nreal diagnostic\n")
     }
 
+    @Test("Swift formatted pipeline normalizes UTF-8 before mise consumes it")
+    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() throws {
+        let helperScript = try String(contentsOfFile: "scripts/xcb-helpers.sh", encoding: .utf8)
+        let filteredOutput = try runBash(
+            "source scripts/xcb-helpers.sh; printf $'raw\\xff input\\n' | _xcb_pipe"
+        )
+
+        #expect(
+            helperScript.contains(
+                "xcbeautify \"${extra_args[@]}\" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c"
+            )
+        )
+        #expect(filteredOutput == "raw input\n")
+    }
+
     @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
     func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() throws {
         let scannerStatus = try runBashStatus(
@@ -539,6 +554,7 @@ struct CIFastLaneWorkflowTests {
         #expect(discoveredSuiteFilters.contains("OcticonLoaderTests\n"))
         #expect(discoveredSuiteFilters.contains("TerminalActivityProjectorTests\n"))
         #expect(discoveredSuiteFilters.contains("GitWorkingDirectoryProjectorTests\n"))
+        #expect(discoveredSuiteFilters.contains("BridgeDevelopmentSeededWorktreeObservationTests\n"))
         #expect(!discoveredSuiteFilters.contains("BridgePaneControllerTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemGitPipelineIntegrationTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemSourceE2ETests\n"))

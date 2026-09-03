@@ -120,15 +120,52 @@ struct BridgeProductAdmissionStaticContractTests {
         // Assert
         #expect(
             acquisitionCountBySource == [
+                "Features/Bridge/Runtime/Development/BridgeDevelopmentProductHost+ProductComposition.swift": 1,
                 "Features/Bridge/Runtime/Development/BridgeDevelopmentProductHost.swift": 1,
+                "Features/Bridge/Runtime/BridgePaneController.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+Bootstrap.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+IPCProjection.swift": 2,
-                "Features/Bridge/Runtime/BridgePaneController+RefreshAdmission.swift": 1,
+                "Features/Bridge/Runtime/BridgePaneController+RefreshAdmission.swift": 2,
                 "Features/Bridge/Runtime/BridgePaneController+SurfaceSelection.swift": 2,
                 "Features/Bridge/Transport/BridgeProductSchemeSessionRouter.swift": 1,
             ],
             "Downstream product owners must carry the original context instead of reacquiring pane admission"
+        )
+    }
+
+    @Test("frame observation settles from transport facts without a wall-clock deadline")
+    func frameObservationHasNoWallClockDeadline() throws {
+        // Arrange
+        let projectRoot = URL(
+            fileURLWithPath: TestPathResolver.projectRoot(from: #filePath)
+        )
+        let sessionSource = try bridgeProductAdmissionSource(
+            projectRoot: projectRoot,
+            relativePath:
+                "Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSession.swift"
+        )
+        let framePumpSource = try bridgeProductAdmissionSource(
+            projectRoot: projectRoot,
+            relativePath:
+                "Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeFramePump.swift"
+        )
+
+        // Act
+        let observationOwnerSource = sessionSource + framePumpSource
+
+        // Assert
+        #expect(
+            !observationOwnerSource.contains("frameObservationTimeout"),
+            "Frame observation must settle from acknowledgement, cancellation, reset, or producer retirement instead of elapsed time"
+        )
+        #expect(
+            !observationOwnerSource.contains("frameObservationDelay"),
+            "Frame observation must not introduce a deadline scheduler"
+        )
+        #expect(
+            !observationOwnerSource.contains("waitWithFrameObservationTimeout"),
+            "The frame-observation owner must not race exact transport facts against wall-clock time"
         )
     }
 }

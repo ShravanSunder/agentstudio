@@ -38,13 +38,13 @@ extension WebKitSerializedTests {
                 because: "the canonical workspace activity was propagated to its installed controller"
             )
 
-            // Act — hide through a canonical native fact, then send raw worktree events.
-            harness.appLifecycleStore.setActive(false)
+            // Act — move the pane into background residency, then send raw worktree events.
+            harness.store.paneAtom.setResidency(.backgrounded, for: bridgePane.id)
             await expectBridgePaneActivity(
                 .loadedHidden,
                 for: bridgePane.id,
                 in: harness.coordinator,
-                because: "the application became inactive"
+                because: "the pane moved to background residency"
             )
             await expectControllerRefreshActivity(
                 .loadedHidden,
@@ -111,7 +111,7 @@ extension WebKitSerializedTests {
             let setup = try makeWorkspaceRefreshTestSetup(projectionIndex: projectionIndex)
             let harness = setup.harness
             let controller = setup.controller
-            harness.appLifecycleStore.setActive(false)
+            harness.store.paneAtom.setResidency(.backgrounded, for: setup.bridgePane.id)
             await expectControllerRefreshActivity(
                 .loadedHidden,
                 controller: controller,
@@ -172,7 +172,7 @@ extension WebKitSerializedTests {
             let setup = try makeWorkspaceRefreshTestSetup(bridgeCwdRelativePath: "Sources/FeatureA")
             let harness = setup.harness
             let controller = setup.controller
-            harness.appLifecycleStore.setActive(false)
+            harness.store.paneAtom.setResidency(.backgrounded, for: setup.bridgePane.id)
             await expectControllerRefreshActivity(
                 .loadedHidden,
                 controller: controller,
@@ -457,7 +457,7 @@ private func prepareHiddenBridgePaneForCrossWorktreeInvalidation(
     #expect(setup.eventWorktree.repoId == setup.repoId)
     #expect(setup.worktree.repoId == setup.repoId)
     await waitForActiveReviewRefreshTaskToFinish(setup.controller)
-    setup.harness.appLifecycleStore.setActive(false)
+    setup.harness.store.paneAtom.setResidency(.backgrounded, for: setup.bridgePane.id)
     await expectControllerRefreshActivity(
         .loadedHidden,
         controller: setup.controller,

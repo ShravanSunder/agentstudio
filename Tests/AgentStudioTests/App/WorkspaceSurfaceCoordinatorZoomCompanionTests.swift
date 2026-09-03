@@ -248,7 +248,7 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-            harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+            harness.coordinator.startBridgePaneActivityObservation()
             harness.appLifecycleStore.setActive(true)
             harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
             harness.windowLifecycleStore.recordWindowPresentation(
@@ -914,7 +914,7 @@ private func enterForegroundZoomEnvironment(
     _ harness: PaneTabViewControllerCommandHarness,
     owningWindowId: UUID
 ) {
-    harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+    harness.coordinator.startBridgePaneActivityObservation()
     harness.appLifecycleStore.setActive(true)
     harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
     harness.windowLifecycleStore.recordWindowPresentation(

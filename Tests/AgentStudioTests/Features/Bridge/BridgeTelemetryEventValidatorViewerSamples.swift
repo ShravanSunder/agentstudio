@@ -352,7 +352,8 @@ var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
                 "agentstudio.bridge.viewer.ttfi_variant": "warm",
             ],
             extraNumbers: [
-                "agentstudio.bridge.visible_item.count": 8
+                "agentstudio.bridge.activation.sequence": 7,
+                "agentstudio.bridge.visible_item.count": 8,
             ]
         ),
     ]
@@ -438,6 +439,7 @@ struct BridgeTelemetryCommWorkerContractTests {
                     "agentstudio.bridge.result": "success",
                     "agentstudio.bridge.worker.command": "select",
                     "agentstudio.bridge.worker.lane": "selected",
+                    "agentstudio.bridge.worker.semantic_class": "demand",
                     "agentstudio.bridge.worker.task_kind": "message_handler",
                 ],
                 extraNumbers: [
@@ -502,22 +504,23 @@ struct BridgeTelemetryCommWorkerContractTests {
         let validator = BridgeTelemetryEventValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
         )
-        let commands = [
-            "activeViewerModeUpdate",
-            "fileDisplayResync",
-            "fileQueryUpdate",
-            "hover",
-            "markFileViewed",
-            "metadataInterestUpdate",
-            "mode",
-            "renderDisposition",
-            "reviewIntakeReady",
-            "reviewInvalidate",
-            "reviewProjectionUpdate",
-            "select",
-            "viewport",
+        let commands: [(command: String, semanticClass: String)] = [
+            ("activeViewerModeUpdate", "lifecycle_control"),
+            ("fileDisplayResync", "lifecycle_control"),
+            ("fileQueryUpdate", "demand"),
+            ("fileRefreshRetry", "lifecycle_control"),
+            ("hover", "demand"),
+            ("markFileViewed", "urgent_action"),
+            ("metadataInterestUpdate", "demand"),
+            ("mode", "lifecycle_control"),
+            ("renderDisposition", "settlement"),
+            ("reviewIntakeReady", "lifecycle_control"),
+            ("reviewInvalidate", "demand"),
+            ("reviewProjectionUpdate", "demand"),
+            ("select", "demand"),
+            ("viewport", "demand"),
         ]
-        for command in commands {
+        for (command, semanticClass) in commands {
             let sample = sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.worker.task",
@@ -530,6 +533,7 @@ struct BridgeTelemetryCommWorkerContractTests {
                         "agentstudio.bridge.result": "success",
                         "agentstudio.bridge.worker.command": command,
                         "agentstudio.bridge.worker.lane": "background",
+                        "agentstudio.bridge.worker.semantic_class": semanticClass,
                         "agentstudio.bridge.worker.task_kind": "message_handler",
                     ],
                     extraNumbers: [

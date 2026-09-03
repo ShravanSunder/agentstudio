@@ -151,10 +151,17 @@ struct BridgeGitReviewBoundaryTests {
             )
         )
 
+        let handles = package.itemsById.values.flatMap(\.contentRoles.allHandles)
+        let headHandle = try #require(handles.first { $0.role == .head })
+        let backing = try await adapter.captureSharedContent(
+            handles: handles,
+            freshnessKey: await adapter.gitReadFreshnessKey(for: 3)
+        )
+        try await adapter.installSharedContent(backing: backing, handles: handles)
+
         do {
-            _ = try await adapter.captureSharedContent(
-                handles: package.itemsById.values.flatMap(\.contentRoles.allHandles),
-                freshnessKey: await adapter.gitReadFreshnessKey(for: 3)
+            _ = try await adapter.loadContent(
+                BridgeContentLoadRequest(handle: headHandle, requestedGeneration: 3)
             )
             Issue.record("Expected locked Git data-plane failure")
         } catch BridgeProviderFailure.providerFailed(let message) {
@@ -163,6 +170,8 @@ struct BridgeGitReviewBoundaryTests {
         } catch {
             Issue.record("Expected BridgeProviderFailure, got \(type(of: error))")
         }
+        backing.invalidate()
+        await backing.waitUntilInvalidationCleanupCompletes()
     }
 
     @Test("AgentStudioGit maps unsupported failures without exposing raw prose")

@@ -31,6 +31,10 @@ export interface StartBridgeFrameJankProbeOptions {
 	readonly nominalFrameDurationMilliseconds?: number;
 	readonly onJankSample?: (sample: BridgeFrameJankSample) => void;
 	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+	readonly visibilityTarget?: Pick<
+		Document,
+		'addEventListener' | 'removeEventListener' | 'visibilityState'
+	>;
 }
 
 interface BridgeFrameJankPerformanceObserverConstructor {
@@ -44,6 +48,7 @@ interface ActiveBridgeFrameJankProbeSession {
 	onJankSampleCallbacks: Set<(sample: BridgeFrameJankSample) => void>;
 	observer: PerformanceObserver | null;
 	refCount: number;
+	stopVisibilityObservation: () => void;
 }
 
 declare global {
@@ -90,6 +95,13 @@ export function startBridgeFrameJankProbe(
 		nominalFrameDurationMilliseconds * droppedFrameGapMultiplier;
 	let previousFrameTimestampMilliseconds: number | null = null;
 	const onJankSampleCallbacks = new Set<(sample: BridgeFrameJankSample) => void>();
+	const visibilityTarget = options.visibilityTarget ?? probeWindow.document;
+	const handleVisibilityChange = (): void => {
+		if (visibilityTarget?.visibilityState !== 'visible') {
+			previousFrameTimestampMilliseconds = null;
+		}
+	};
+	visibilityTarget?.addEventListener('visibilitychange', handleVisibilityChange);
 
 	const session: ActiveBridgeFrameJankProbeSession = {
 		frameId: null,
@@ -101,6 +113,9 @@ export function startBridgeFrameJankProbe(
 			probe,
 		}),
 		refCount: 1,
+		stopVisibilityObservation: (): void => {
+			visibilityTarget?.removeEventListener('visibilitychange', handleVisibilityChange);
+		},
 	};
 	registerBridgeFrameJankSampleCallback(session, options.onJankSample);
 	activeSession = session;
@@ -258,6 +273,7 @@ function stopBridgeFrameJankProbeSession(
 	}
 	session.observer?.disconnect();
 	session.observer = null;
+	session.stopVisibilityObservation();
 	if (activeSession === session) {
 		activeSession = null;
 	}

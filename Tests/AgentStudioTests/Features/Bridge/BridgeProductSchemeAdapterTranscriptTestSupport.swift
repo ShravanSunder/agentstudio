@@ -6,7 +6,7 @@ import Foundation
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =
-        "10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173"
+        "a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3"
 
     let bytes: Data
     let root: [String: Any]
@@ -192,16 +192,17 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         self.fileSourceData = fileSourceData
     }
 
-    func response(for request: BridgeProductControlRequest) async -> BridgeProductControlResponse {
+    func response(
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
+    ) async -> BridgeProductControlResponse {
         controlRequestKinds.append(request.kind)
         do {
             switch request {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
             case .subscriptionOpen(let openRequest):
-                let emptyInterestState = BridgeProductSubscriptionState.emptyInterestState(
-                    for: openRequest.subscription.subscriptionKind
-                )
+                let emptyInterestState = try openRequest.subscription.initialInterestState()
                 return try .subscriptionOpenAccepted(
                     correlating: request,
                     interestSha256: emptyInterestState.sha256Hex()
@@ -295,10 +296,14 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         else { return }
         let data: BridgeProductSubscriptionData
         switch subscription.subscriptionKind {
+        case .fileAnnotations, .reviewAnnotations:
+            return
         case .reviewMetadata:
             data = reviewSourceData
         case .fileMetadata:
             data = fileSourceData
+        default:
+            return
         }
         do {
             let foregroundWorkAdmission =

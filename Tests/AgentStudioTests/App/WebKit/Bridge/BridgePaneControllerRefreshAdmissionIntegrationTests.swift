@@ -155,7 +155,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(reset.reason == .staleSource)
         guard case .enqueued = fileDataResult,
             case .subscriptionData(let fileData) = fileDataFrame,
-            case .fileMetadata = fileData.data
+            fileData.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected File to accept data after the Review reset")
             await fixture.finish()
@@ -276,7 +276,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(reset.reason == .staleSource)
         guard case .enqueued = fileDataResult,
             case .subscriptionData(let fileData) = fileDataFrame,
-            case .fileMetadata = fileData.data
+            fileData.data.subscriptionKind == .fileMetadata
         else {
             Issue.record("Expected File to accept data after the Review reset")
             await fixture.finish()
@@ -455,9 +455,162 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
         let foregroundSnapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
         #expect(foregroundSnapshot.activity == .foreground)
-        #expect(foregroundSnapshot.refreshPassCount == 1)
+        #expect(foregroundSnapshot.refreshPassCount == 2)
         #expect(foregroundSnapshot.activeRefreshPass == nil)
         #expect(foregroundSnapshot.dirtyFact == nil)
+        await fixture.finish()
+    }
+
+    @Test("second File invalidation publishes while Review construction remains blocked")
+    func secondFileInvalidationPublishesWhileReviewConstructionRemainsBlocked() async throws {
+        // Arrange
+        let fixture = try await makeRefreshAdmissionIntegrationFixture()
+        try await fixture.loadInitialReviewPackage()
+        let comparisonCountBeforeInvalidation =
+            await fixture.reviewProvider.recordedComparisonRequestsCount()
+        await fixture.reviewProvider.setComparison(fixture.refreshedComparison)
+        let comparisonGate = BridgeComparisonGate()
+        await fixture.reviewProvider.setComparisonGate(comparisonGate)
+
+        // Act — the first invalidation starts both lanes. Review remains held at its provider
+        // boundary while File publishes progressively.
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/First.swift"],
+                    batchSequence: 43
+                )
+            )
+        )
+        await comparisonGate.waitForStartedComparisonCount(1)
+        await fixture.fileMetadataSource.waitForChangesetPublishCount(1)
+
+        // Act — a newer File fact must not wait for the still-running Review operation.
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Second.swift"],
+                    batchSequence: 44
+                )
+            )
+        )
+        await fixture.fileMetadataSource.waitForChangesetPublishCount(2)
+
+        // Assert — both File generations publish before either Review attempt is released, and
+        // the newer Review attempt is admitted independently of its predecessor's lifetime.
+        #expect(await waitForStartedComparisonCount(2, gate: comparisonGate))
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 2)
+        #expect(
+            await fixture.reviewProvider.recordedComparisonRequestsCount()
+                == comparisonCountBeforeInvalidation + 2
+        )
+
+        await comparisonGate.releaseAll()
+        await waitForRefreshAdmissionIdle(fixture.controller)
+        await fixture.finish()
+    }
+
+    @Test("late stale File publication cannot mutate after its successor")
+    func lateStaleFilePublicationCannotMutateAfterSuccessor() async throws {
+        // Arrange
+        let publicationGate = RefreshAdmissionCancellationIgnoringProducerGate()
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            fileChangesetPublicationGate: publicationGate
+        )
+        try await fixture.loadInitialReviewPackage()
+        let generation10 = fixture.makeChangeset(
+            paths: ["Sources/App/Generation10.swift"],
+            batchSequence: 45
+        )
+        let generation11 = fixture.makeChangeset(
+            paths: ["Sources/App/Generation11.swift"],
+            batchSequence: 46
+        )
+
+        // Act — generation 10 ignores cancellation while generation 11 becomes current.
+        await fixture.controller.handleWorktreeProductInvalidation(.filesChanged(generation10))
+        await publicationGate.waitUntilStartedCount(1)
+        await fixture.controller.handleWorktreeProductInvalidation(.filesChanged(generation11))
+        await publicationGate.waitUntilStartedCount(2)
+
+        // Act — the current successor publishes first, then the stale predecessor drains late.
+        publicationGate.releaseLatest()
+        await fixture.fileMetadataSource.waitForChangesetPublishCount(1)
+        let successorPublications = await fixture.fileMetadataSource.publishedChangesets()
+        let successorChangeset = try #require(successorPublications.first)
+        #expect(successorPublications.count == 1)
+        #expect(successorChangeset.batchSeq == generation11.batchSeq)
+        #expect(Set(successorChangeset.paths) == Set(generation10.paths + generation11.paths))
+        publicationGate.releaseFirst()
+        #expect(await waitForRetiringFileRefreshTasksToDrain(fixture.controller))
+        await waitForRefreshAdmissionIdle(fixture.controller)
+
+        // Assert — stale generation 10 may clean up, but cannot mutate after generation 11.
+        let finalPublications = await fixture.fileMetadataSource.publishedChangesets()
+        let finalChangeset = try #require(finalPublications.first)
+        #expect(finalPublications.count == 1)
+        #expect(finalChangeset.batchSeq == generation11.batchSeq)
+        #expect(Set(finalChangeset.paths) == Set(generation10.paths + generation11.paths))
+        await fixture.finish()
+    }
+
+    @Test("newest Review starts before a cancellation-ignoring predecessor returns")
+    func newestReviewStartsBeforeCancellationIgnoringPredecessorReturns() async throws {
+        // Arrange
+        let fixture = try await makeRefreshAdmissionIntegrationFixture()
+        try await fixture.loadInitialReviewPackage()
+        let comparisonCountBeforeInvalidation =
+            await fixture.reviewProvider.recordedComparisonRequestsCount()
+        await fixture.reviewProvider.setComparison(fixture.refreshedComparison)
+        let comparisonGate = BridgeComparisonGate()
+        await fixture.reviewProvider.setComparisonGate(comparisonGate)
+
+        // Act — operation 10 enters the provider and deliberately ignores cancellation while
+        // blocked. Operation 11 becomes authoritative before 10 is released.
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Generation10.swift"],
+                    batchSequence: 45
+                )
+            )
+        )
+        await comparisonGate.waitForStartedComparisonCount(1)
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Generation11.swift"],
+                    batchSequence: 46
+                )
+            )
+        )
+
+        // Assert — successor admission is independent of operation 10's physical lifetime.
+        await comparisonGate.waitForStartedComparisonCount(2)
+        #expect(await comparisonGate.hasStartedComparisonCount(2))
+
+        // Act — only the predecessor is released. Its late completion may clean its retiring
+        // custody, but it cannot clear successor ownership or Review loading.
+        await comparisonGate.releaseFirst()
+        #expect(await waitForRetiringReviewRefreshTasksToDrain(fixture.controller))
+        #expect(fixture.controller.activeReviewRefreshTask != nil)
+        #expect(fixture.controller.activeReviewRefreshTaskId != nil)
+        #expect(
+            fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
+                .refreshingLanes.contains(.review)
+        )
+
+        // Cleanup and final convergence.
+        await comparisonGate.releaseAll()
+        await waitForRefreshAdmissionIdle(fixture.controller)
+        #expect(
+            await fixture.reviewProvider.recordedComparisonRequestsCount()
+                == comparisonCountBeforeInvalidation + 2
+        )
+        #expect(fixture.controller.activeReviewRefreshTask == nil)
+        #expect(fixture.controller.activeReviewRefreshTaskId == nil)
+        #expect(fixture.controller.retiringReviewRefreshTaskById.isEmpty)
         await fixture.finish()
     }
 
@@ -498,7 +651,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.finish()
     }
 
-    @Test("foreground return before canceled refresh unwinds starts one replacement catch-up")
+    @Test("foreground return replays only the cancelled Review lane")
     func foregroundReturnBeforeCanceledRefreshUnwindsStartsOneReplacementCatchUp() async throws {
         // Arrange
         let fixture = try await makeRefreshAdmissionIntegrationFixture()
@@ -524,23 +677,23 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await comparisonGate.releaseAll()
         await waitForRefreshAdmissionIdle(fixture.controller)
 
-        // Assert — the canceled attempt is not the catch-up. Exactly one replacement pass
-        // consumes the restored dirty fact after the old task relinquishes ownership.
+        // Assert — File completed before the activity transition, so only the cancelled Review
+        // lane is restored and replayed after foreground returns.
         #expect(
             await fixture.reviewProvider.recordedComparisonRequestsCount()
                 == comparisonCountBeforeInvalidation + 2
         )
-        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
-        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 2)
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 1)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
         let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
-        #expect(snapshot.refreshPassCount == 2)
+        #expect(snapshot.refreshPassCount == 3)
         #expect(snapshot.activeRefreshPass == nil)
         #expect(snapshot.dirtyFact == nil)
         #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
         await fixture.finish()
     }
 
-    @Test("stale Review commit after rapid foreground return schedules one replacement catch-up")
+    @Test("stale Review commit after rapid foreground return replays only Review")
     func staleReviewCommitAfterRapidForegroundReturnSchedulesOneReplacementCatchUp() async throws {
         // Arrange — initial Review authority commits before the reservation boundary is armed.
         let reservationGate = RefreshAdmissionReviewReservationGate()
@@ -570,16 +723,16 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await reservationGate.releaseAll()
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
 
-        // Assert — the rejected old transaction is stale, not failed. Exactly one replacement
-        // pass consumes the one restored dirty fact under the new foreground epoch.
+        // Assert — the rejected old transaction is stale, not failed. File already completed,
+        // so exactly one Review replacement consumes the restored Review fact.
         #expect(
             await fixture.reviewProvider.recordedComparisonRequestsCount()
                 == comparisonCountBeforeInvalidation + 2
         )
-        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
-        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 2)
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 1)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
         let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
-        #expect(snapshot.refreshPassCount == 2)
+        #expect(snapshot.refreshPassCount == 3)
         #expect(snapshot.activeRefreshPass == nil)
         #expect(snapshot.dirtyFact == nil)
         #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
@@ -606,8 +759,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
 
-        // Assert — Review may advance, but the pane-wide catch-up cannot report success
-        // when the File half failed. The exact worktree fact remains retryable.
+        // Assert — Review advances independently. Only the failed File lane retains its exact
+        // worktree fact for retry.
         #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
         #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 1)
         #expect(await fixture.fileMetadataSource.publishedChangesets().isEmpty)
@@ -615,8 +768,121 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let retainedDirtyFact = snapshot.dirtyFact
         #expect(retainedDirtyFact?.filePaths == ["Sources/App/FileFailure.swift"])
         #expect(retainedDirtyFact?.latestBatchSequence == 62)
-        #expect(retainedDirtyFact?.requiresReviewRefresh == true)
+        #expect(retainedDirtyFact?.requiresReviewRefresh == false)
         #expect(snapshot.activeRefreshPass == nil)
+        #expect(snapshot.fileRefreshFailure?.retryable == false)
+        await fixture.finish()
+    }
+
+    @Test("retryable File publication failure retries once and converges")
+    func retryableFilePublicationFailureRetriesOnceAndConverges() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 1
+        )
+        try await fixture.loadInitialReviewPackage()
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Transient.swift"],
+                    batchSequence: 63
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
+        await fixture.finish()
+    }
+
+    @Test("second retryable File publication failure becomes unavailable")
+    func secondRetryableFilePublicationFailureBecomesUnavailable() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Unavailable.swift"],
+                    batchSequence: 64
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
+        #expect(snapshot.dirtyFact?.latestBatchSequence == 64)
+        #expect(snapshot.fileRefreshFailure?.retryable == true)
+        await fixture.finish()
+    }
+
+    @Test("new File invalidation recovers unavailable refresh")
+    func newFileInvalidationRecoversUnavailableRefresh() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Unavailable.swift"],
+                    batchSequence: 65
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+        #expect(fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot.fileRefreshFailure != nil)
+
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Recovered.swift"],
+                    batchSequence: 66
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 3)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
+        await fixture.finish()
+    }
+
+    @Test("explicit File retry recovers retained unavailable refresh")
+    func explicitFileRetryRecoversRetainedUnavailableRefresh() async throws {
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            retryableChangesetFailureCount: 2
+        )
+        try await fixture.loadInitialReviewPackage()
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/ExplicitRetry.swift"],
+                    batchSequence: 67
+                )
+            )
+        )
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+        #expect(fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot.fileRefreshFailure != nil)
+
+        fixture.controller.retryUnavailableFileRefresh()
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+
+        let snapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 3)
+        #expect(await fixture.fileMetadataSource.publishedChangesets().count == 1)
+        #expect(snapshot.dirtyFact == nil)
+        #expect(snapshot.fileRefreshFailure == nil)
         await fixture.finish()
     }
 

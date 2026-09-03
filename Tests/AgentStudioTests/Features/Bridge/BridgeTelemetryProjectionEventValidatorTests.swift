@@ -30,6 +30,45 @@ struct BridgeTelemetryProjectionEventValidatorTests {
             #expect(validator.validate(sample) == .accepted)
         }
     }
+
+    @Test
+    func validatorAcceptsOnlyScrubbedAnnotationLifecycleCorrelation() {
+        let validator = BridgeTelemetryEventValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let sample = annotationLifecycleSample(operationCorrelationID: String(repeating: "a", count: 64))
+
+        #expect(validator.validate(sample) == .accepted)
+        #expect(
+            validator.validate(
+                annotationLifecycleSample(operationCorrelationID: "raw-operation-uuid")
+            ) == .dropped(.unsafeAttribute)
+        )
+    }
+}
+
+private func annotationLifecycleSample(operationCorrelationID: String) -> BridgeTelemetrySample {
+    BridgeTelemetrySample(
+        scope: .web,
+        name: "performance.bridge.web.annotation_lifecycle",
+        durationMilliseconds: nil,
+        traceContext: nil,
+        stringAttributes: [
+            "agentstudio.bridge.operation.id": operationCorrelationID,
+            "agentstudio.bridge.phase": "main_thread_install_terminal",
+            "agentstudio.bridge.plane": "data",
+            "agentstudio.bridge.priority": "hot",
+            "agentstudio.bridge.result": "success",
+            "agentstudio.bridge.slice": "review_projection",
+            "agentstudio.bridge.transport": "local",
+            "agentstudio.bridge.viewer": "review",
+        ],
+        numericAttributes: [
+            "agentstudio.bridge.source.generation": 7,
+            "agentstudio.bridge.stage.attempt": 0,
+        ],
+        booleanAttributes: [:]
+    )
 }
 
 private func projectionCoordinatorSample(name: String, phase: String) -> BridgeTelemetrySample {

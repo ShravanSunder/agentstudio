@@ -523,6 +523,7 @@ struct BridgeProductReviewContentRequest: Codable, Equatable, Sendable {
         case descriptor
         case kind
         case leaseId
+        case operationCorrelationId
         case paneSessionId
         case wireVersion
         case workerDerivationEpoch
@@ -532,6 +533,7 @@ struct BridgeProductReviewContentRequest: Codable, Equatable, Sendable {
     let contentRequestId: String
     let descriptor: BridgeProductReviewContentDescriptor
     let leaseId: String
+    let operationCorrelationID: String?
     let paneSessionId: String
     let wireVersion: Int
     let workerDerivationEpoch: Int
@@ -545,6 +547,7 @@ struct BridgeProductReviewContentRequest: Codable, Equatable, Sendable {
             expectedSha256: descriptor.expectedSha256,
             identity: .reviewContent(.init(descriptor: descriptor)),
             leaseId: leaseId,
+            operationCorrelationID: operationCorrelationID,
             maximumBytes: descriptor.maximumBytes,
             paneSessionId: paneSessionId,
             wireVersion: wireVersion,
@@ -571,12 +574,21 @@ struct BridgeProductReviewContentRequest: Codable, Equatable, Sendable {
         self.contentRequestId = try container.decode(String.self, forKey: .contentRequestId)
         self.descriptor = try container.decode(BridgeProductReviewContentDescriptor.self, forKey: .descriptor)
         self.leaseId = try container.decode(String.self, forKey: .leaseId)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
         self.wireVersion = try container.decode(Int.self, forKey: .wireVersion)
         self.workerDerivationEpoch = try container.decode(Int.self, forKey: .workerDerivationEpoch)
         self.workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
         try BridgeProductContractDecoding.validateIdentifier(contentRequestId, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(leaseId, codingPath: decoder.codingPath)
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: decoder.codingPath)
+        }
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateWireVersion(wireVersion, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateNonnegative(
@@ -594,6 +606,7 @@ struct BridgeProductReviewContentRequest: Codable, Equatable, Sendable {
         try container.encode(descriptor, forKey: .descriptor)
         try container.encode("content.open", forKey: .kind)
         try container.encode(leaseId, forKey: .leaseId)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(paneSessionId, forKey: .paneSessionId)
         try container.encode(wireVersion, forKey: .wireVersion)
         try container.encode(workerDerivationEpoch, forKey: .workerDerivationEpoch)

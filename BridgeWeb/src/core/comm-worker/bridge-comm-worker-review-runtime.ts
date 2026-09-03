@@ -13,13 +13,16 @@ import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerReviewPierreRenderJobEvent,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
+import { assertBridgeWorkerReviewPublicationIdentityMatches } from './bridge-worker-pierre-publication-identity-contracts.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.js';
 import {
 	type BridgeWorkerFetchedReviewContentResource,
 	fetchBridgeWorkerReviewContentResource,
@@ -44,12 +47,15 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly epoch: number;
 	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly itemId: string;
+	readonly operationCorrelationId?: string | null;
+	readonly onRenderPublished?: (receiptIdentity: BridgeWorkerRenderReceiptIdentity) => void;
 	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly registerResponseStartControl?: (
 		control: BridgeProductContentResponseStartControl,
 	) => () => void;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly sequence: number;
 	readonly signal?: AbortSignal;
 	readonly store: BridgeCommWorkerStore;
@@ -287,6 +293,7 @@ export function createBridgeWorkerReviewContentReadyPublication(
 					const job = requirePlannedBridgeWorkerReviewJob(plannedJob);
 					const publication = props.store.renderFulfillmentRegistry.beginPublication({
 						job,
+						operationCorrelationId: props.operationCorrelationId ?? null,
 						publicationSequence: props.sequence,
 						workerDerivationEpoch: props.workerDerivationEpoch,
 					});
@@ -298,6 +305,7 @@ export function createBridgeWorkerReviewContentReadyPublication(
 						preparedJobEvent: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 							job,
 							renderReceiptIdentity: publication.receiptIdentity,
+							reviewPublicationIdentity: props.reviewPublicationIdentity,
 						}),
 					});
 					return completeBridgeWorkerReviewContentReadyPublication();
@@ -336,14 +344,17 @@ function commitPreparedBridgeWorkerReviewContentReady(
 		readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
 	},
 ): void {
+	assertBridgeWorkerReviewPublicationIdentityMatches(
+		props.reviewPublicationIdentity,
+		props.preparedJobEvent.message.reviewPublicationIdentity,
+	);
 	postPreparedBridgeCommWorkerMessage(props.port, props.preparedJobEvent);
 	const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
 		preparedJobEvent: props.preparedJobEvent,
-		publicationSequence: props.sequence,
 		store: props.store,
-		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
+	props.onRenderPublished?.(props.preparedJobEvent.message.renderReceiptIdentity);
 }
 
 function requirePlannedBridgeWorkerReviewJob(
@@ -418,6 +429,7 @@ function postReviewContentTerminalAvailability(
 		prepareBridgeWorkerReviewRenderPatchEvent({
 			patches: bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(slicePatchEvent),
 			publicationSequence: props.sequence,
+			reviewPublicationIdentity: props.reviewPublicationIdentity,
 			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	);

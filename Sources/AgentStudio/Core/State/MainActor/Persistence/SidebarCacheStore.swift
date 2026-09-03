@@ -8,7 +8,7 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 @MainActor
 package final class SidebarCacheStore {
     private let atom: SidebarCacheState
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -22,7 +22,7 @@ package final class SidebarCacheStore {
 
     package init(
         atom: SidebarCacheState,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil

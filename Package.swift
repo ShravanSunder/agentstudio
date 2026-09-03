@@ -30,7 +30,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
         .package(
             url: "https://github.com/ShravanSunder/agentstudio-git.git",
-            revision: "474bf34210dd8e176f9b3585b061161a8e8b50d4"
+            revision: "b18aff893cc687fd632bf7933cbc9f18a43e5c84"
         ),
     ],
     targets: [
@@ -137,6 +137,7 @@ let package = Package(
                 "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioSharedComponents",
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Sources/AgentStudio/Features/Bridge",

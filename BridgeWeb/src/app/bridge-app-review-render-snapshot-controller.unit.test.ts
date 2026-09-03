@@ -20,7 +20,10 @@ import {
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import {
@@ -28,10 +31,19 @@ import {
 	createVisibleReviewCodeViewItemsSelector,
 	type BridgeReviewRenderSnapshotController,
 	createBridgeReviewWorkerPierreCourier,
-	reviewCodeViewBodyDemandItemIds,
 	useBridgeReviewRenderSnapshotController,
 } from './bridge-app-review-render-snapshot-controller.js';
 import { resolveBridgeWorkerMarkFileViewedFailureCallbacks } from './bridge-app-review-worker-health-resolvers.js';
+
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
+
+const prepareNoActiveEditorsForInstallation = (): Promise<boolean> => Promise.resolve(true);
 
 describe('Bridge app review render snapshot controller', () => {
 	test('sends Review selection interactions through the stable surface client', async () => {
@@ -44,6 +56,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -75,6 +88,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -114,6 +128,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -164,6 +179,7 @@ describe('Bridge app review render snapshot controller', () => {
 		function Probe(): ReactElement {
 			controllerHolder.current = useBridgeReviewRenderSnapshotController({
 				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 				reviewClient,
 			});
 			return createElement('div');
@@ -179,12 +195,6 @@ describe('Bridge app review render snapshot controller', () => {
 			isLoading: true,
 			message: 'Updating review…',
 		});
-	});
-
-	test('derives body demand only from unique CodeView-visible item ids', () => {
-		expect(
-			reviewCodeViewBodyDemandItemIds(['item-selected', 'item-code-visible', 'item-code-visible']),
-		).toEqual(['item-selected', 'item-code-visible']);
 	});
 
 	test('selects ready CodeView items in visible order with stable snapshots', () => {
@@ -320,6 +330,7 @@ describe('Bridge app review render snapshot controller', () => {
 				},
 			],
 			kind: 'reviewPierreRenderJob',
+			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
 				publicationSequence: 7,
@@ -565,6 +576,7 @@ describe('Bridge app review render snapshot controller', () => {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
 				kind: 'reviewRenderPatch',
+				reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 				publicationSequence: 8,
 				surface: 'review',
 				transferDescriptors: [],
@@ -620,6 +632,7 @@ describe('Bridge app review render snapshot controller', () => {
 					direction: 'serverWorkerToMain',
 					transferDescriptors: [],
 					kind: 'reviewRenderPatch',
+					reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 					publicationSequence: 7,
 					surface: 'review',
 					workerDerivationEpoch: 4,
@@ -857,6 +870,7 @@ function makePierreRenderJobEvent(
 			},
 		],
 		kind: 'reviewPierreRenderJob',
+		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 			itemId: job.itemId,
 			publicationSequence,
@@ -877,6 +891,11 @@ function reviewDisplayPatchEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			`review-package-epoch-${props.epoch}`,
+			props.epoch,
+			`review-source-epoch-${props.epoch}`,
+		),
 		patches: [
 			{
 				operation: 'upsert',
@@ -954,6 +973,7 @@ function reviewRenderPatchEvent(props: {
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'reviewRenderPatch',
+		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 		patches: [
 			{
 				itemId: props.itemId,

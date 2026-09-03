@@ -5,6 +5,24 @@ struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
     var localDatabaseURL: URL
 }
 
+package struct WorkspaceLocalDatabaseReplacement: Sendable, Equatable {
+    package let quarantinedFilenames: [String]
+    package let reason: String
+    package let recoveredAt: Date
+
+    package init(quarantinedFilenames: [String], reason: String, recoveredAt: Date) {
+        self.quarantinedFilenames = quarantinedFilenames
+        self.reason = reason
+        self.recoveredAt = recoveredAt
+    }
+}
+
+package typealias WorkspaceLocalDatabaseReplacementObserver =
+    @Sendable (
+        WorkspaceLocalRepository,
+        WorkspaceLocalDatabaseReplacement
+    ) throws -> Void
+
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
     case databasesNotPrepared
@@ -27,7 +45,7 @@ package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
     }
 }
 
-extension WorkspaceSQLiteDatastore {
+extension WorkspaceSQLiteDatastoreActor {
     enum LocalDatabaseRecoveryReason: Equatable, Sendable {
         case corruptDatabase
         case incompleteFileSet

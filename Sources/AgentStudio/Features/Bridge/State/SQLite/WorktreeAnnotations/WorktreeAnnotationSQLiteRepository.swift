@@ -1,0 +1,575 @@
+import Foundation
+import GRDB
+
+struct WorktreeAnnotationSQLiteRepository {
+    enum SessionAdmission: Equatable, Sendable {
+        case implicitOrSingle
+        case selected(WorktreeAnnotationSessionID)
+        case newSession
+    }
+
+    struct CreateRootDraftProps: Sendable {
+        let admission: SessionAdmission
+        let repositoryID: String
+        let worktreeID: String
+        let sourceFingerprint: WorktreeAnnotationSourceFingerprint
+        let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence?
+        let origin: WorktreeAnnotationThreadOrigin
+        let body: String
+        let editToken: String
+        let now: Date
+
+        init(
+            admission: SessionAdmission,
+            repositoryID: String,
+            worktreeID: String,
+            sourceFingerprint: WorktreeAnnotationSourceFingerprint,
+            acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence? = nil,
+            origin: WorktreeAnnotationThreadOrigin,
+            body: String,
+            editToken: String,
+            now: Date
+        ) {
+            self.admission = admission
+            self.repositoryID = repositoryID
+            self.worktreeID = worktreeID
+            self.sourceFingerprint = sourceFingerprint
+            self.acceptedReviewedSubject = acceptedReviewedSubject
+            self.origin = origin
+            self.body = body
+            self.editToken = editToken
+            self.now = now
+        }
+    }
+
+    struct FlushDraftProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedMessageRevision: Int
+        let expectedDraftRevision: Int?
+        let body: String
+        let now: Date
+    }
+
+    struct SaveDraftProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedMessageRevision: Int
+        let expectedDraftRevision: Int
+        let now: Date
+    }
+
+    struct RevertDraftProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedMessageRevision: Int
+        let expectedDraftRevision: Int
+        let now: Date
+    }
+
+    struct AcquireEditTokenProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedMessageRevision: Int
+        let expectedDraftRevision: Int
+        let liveEditTokens: Set<String>
+        let now: Date
+    }
+
+    struct ReleaseEditTokenProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let messageID: WorktreeAnnotationMessageID
+        let editToken: String
+        let expectedMessageRevision: Int
+        let expectedDraftRevision: Int
+        let now: Date
+    }
+
+    struct CreateReplyDraftProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let threadID: WorktreeAnnotationThreadID
+        let expectedThreadRevision: Int
+        let body: String
+        let editToken: String
+        let now: Date
+    }
+
+    struct SetThreadResolutionProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let threadID: WorktreeAnnotationThreadID
+        let resolution: WorktreeAnnotationThreadResolution
+        let expectedThreadRevision: Int
+        let now: Date
+    }
+
+    struct SetSessionLifecycleProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let lifecycle: WorktreeAnnotationSessionLifecycle
+        let expectedSessionRevision: Int
+        let expectedOpenThreadCount: Int
+        let confirmsUnresolvedWork: Bool
+        let now: Date
+    }
+
+    struct SetSourceRelationshipProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let relationship: WorktreeAnnotationSourceRelationship
+        let sourceFingerprint: WorktreeAnnotationSourceFingerprint?
+        let expectedSessionRevision: Int
+        let now: Date
+    }
+
+    struct AcceptCurrentAssociationProps: Sendable {
+        let sessionID: WorktreeAnnotationSessionID
+        let expectedSessionRevision: Int
+        let expectedRepositoryID: String
+        let previousWorktreeID: String
+        let currentWorktreeID: String
+        let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence
+        let acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint
+        let now: Date
+    }
+
+    struct AssociationMutationResult: Equatable, Sendable {
+        let detail: WorktreeAnnotationSessionDetail
+        let previousWorktreeID: String
+        let currentWorktreeID: String
+    }
+
+    let databaseWriter: any DatabaseWriter
+
+    func discoverSessions(worktreeID: String) throws -> [WorktreeAnnotationSession] {
+        try databaseWriter.read { database in
+            try loadSessions(database, worktreeID: worktreeID)
+        }
+    }
+
+    func discoverForeignLivingSessionCandidates(
+        repositoryID: String,
+        excludingWorktreeID: String
+    ) throws -> [WorktreeAnnotationSession] {
+        try databaseWriter.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT * FROM annotation_session
+                    WHERE repository_id = ? AND worktree_id != ? AND lifecycle = 'living'
+                      AND source_relationship IN ('applicable', 'uncertain')
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                arguments: [repositoryID, excludingWorktreeID]
+            ).map(decodeSession)
+        }
+    }
+
+    func fetchProjectionSnapshot(
+        worktreeID: String,
+        demandedSessionIDs: [WorktreeAnnotationSessionID]
+    ) throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
+        try databaseWriter.read { database in
+            let sessions = try loadSessions(database, worktreeID: worktreeID)
+            let sessionIDs = Set(sessions.map(\.id))
+            guard demandedSessionIDs.allSatisfy(sessionIDs.contains) else {
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
+            return WorktreeAnnotationRepositoryProjectionSnapshot(
+                details: try demandedSessionIDs.map {
+                    try loadSessionDetail(database, sessionID: $0)
+                },
+                sessions: sessions
+            )
+        }
+    }
+
+    func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) throws -> WorktreeAnnotationSessionDetail {
+        try databaseWriter.read { database in
+            try loadSessionDetail(database, sessionID: sessionID)
+        }
+    }
+
+    private func loadSessions(
+        _ database: Database,
+        worktreeID: String
+    ) throws -> [WorktreeAnnotationSession] {
+        try Row.fetchAll(
+            database,
+            sql: """
+                SELECT * FROM annotation_session
+                WHERE worktree_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+            arguments: [worktreeID]
+        ).map(decodeSession)
+    }
+
+    func createRootDraft(_ props: CreateRootDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        let body = try WorktreeAnnotationMessagePolicy.validate(props.body)
+        return try databaseWriter.write { database in
+            let sessionID = try resolveSessionForNewThread(database, props: props)
+            let threadID = WorktreeAnnotationThreadID.generate()
+            let messageID = WorktreeAnnotationMessageID.generate()
+            let threadOrdinal = try nextOrdinal(
+                database,
+                table: "annotation_thread",
+                ordinalColumn: "created_ordinal",
+                ownerColumn: "session_id",
+                ownerID: sessionID.databaseValue
+            )
+            let encodedOrigin = try Self.encodeJSONString(props.origin)
+
+            try database.execute(
+                sql: """
+                    INSERT INTO annotation_thread(
+                        id, session_id, scope, resolution, origin_json, created_ordinal,
+                        semantic_revision, created_at, updated_at, resolved_at
+                    ) VALUES (?, ?, ?, 'open', ?, ?, 0, ?, ?, NULL)
+                    """,
+                arguments: [
+                    threadID.databaseValue,
+                    sessionID.databaseValue,
+                    props.origin.scope.rawValue,
+                    encodedOrigin,
+                    threadOrdinal,
+                    props.now.timeIntervalSince1970,
+                    props.now.timeIntervalSince1970,
+                ]
+            )
+            try insertMessageDraft(
+                database,
+                props: .init(
+                    messageID: messageID,
+                    threadID: threadID,
+                    ordinal: 0,
+                    body: body,
+                    editToken: props.editToken,
+                    now: props.now
+                )
+            )
+            let detail = try loadSessionDetail(database, sessionID: sessionID)
+            return .catalog(detail)
+        }
+    }
+
+    func flushDraft(_ props: FlushDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        try databaseWriter.write { database in
+            try validateMessageRevision(
+                database,
+                messageID: props.messageID,
+                sessionID: props.sessionID,
+                expectedRevision: props.expectedMessageRevision
+            )
+            try requireWritableSession(database, sessionID: props.sessionID)
+            try ensureMessageEditable(database, messageID: props.messageID)
+            let savedBody = try String.fetchOne(
+                database,
+                sql: "SELECT saved_body FROM annotation_message WHERE id = ?",
+                arguments: [props.messageID.databaseValue]
+            )
+            let existingDraft = try Row.fetchOne(
+                database,
+                sql: "SELECT active_edit_token, draft_revision FROM annotation_message_draft WHERE message_id = ?",
+                arguments: [props.messageID.databaseValue]
+            )
+            let nextDraftRevision: Int
+            if let existingDraft {
+                let editToken: String? = existingDraft["active_edit_token"]
+                let draftRevision: Int = existingDraft["draft_revision"]
+                guard editToken == props.editToken else {
+                    throw WorktreeAnnotationRepositoryError.editTokenConflict
+                }
+                guard props.expectedDraftRevision == draftRevision else {
+                    throw WorktreeAnnotationRepositoryError.conflict(currentRevision: draftRevision)
+                }
+                nextDraftRevision = draftRevision + 1
+            } else {
+                guard props.expectedDraftRevision == nil else {
+                    throw WorktreeAnnotationRepositoryError.conflict(currentRevision: 0)
+                }
+                nextDraftRevision = 0
+            }
+
+            if props.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                savedBody == nil
+            {
+                guard existingDraft != nil else {
+                    throw WorktreeAnnotationRepositoryError.invalidState
+                }
+                let threadID = try requireThreadID(database, messageID: props.messageID)
+                try database.execute(
+                    sql: "DELETE FROM annotation_message WHERE id = ?",
+                    arguments: [props.messageID.databaseValue]
+                )
+                let remainingMessageCount =
+                    try Int.fetchOne(
+                        database,
+                        sql: "SELECT COUNT(*) FROM annotation_message WHERE thread_id = ?",
+                        arguments: [threadID.databaseValue]
+                    ) ?? 0
+                if remainingMessageCount == 0 {
+                    try database.execute(
+                        sql: "DELETE FROM annotation_thread WHERE id = ?",
+                        arguments: [threadID.databaseValue]
+                    )
+                }
+                try advanceSession(database, sessionID: props.sessionID, now: props.now)
+                let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+                return .catalog(detail)
+            }
+
+            let body = try Self.validateFlushedDraftBody(props.body)
+
+            try database.execute(
+                sql: """
+                    INSERT INTO annotation_message_draft(
+                        message_id, active_edit_token, body, body_utf8_bytes, draft_revision, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET
+                        body = excluded.body,
+                        body_utf8_bytes = excluded.body_utf8_bytes,
+                        draft_revision = excluded.draft_revision,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [
+                    props.messageID.databaseValue,
+                    props.editToken,
+                    body,
+                    body.utf8.count,
+                    nextDraftRevision,
+                    props.now.timeIntervalSince1970,
+                ]
+            )
+            try advanceMessageAndSession(
+                database,
+                messageID: props.messageID,
+                sessionID: props.sessionID,
+                now: props.now
+            )
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
+        }
+    }
+
+    private static func validateFlushedDraftBody(_ body: String) throws -> String {
+        guard body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return try WorktreeAnnotationMessagePolicy.validate(body)
+        }
+        guard body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
+        return body
+    }
+
+    func saveDraft(_ props: SaveDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        try databaseWriter.write { database in
+            try validateMessageRevision(
+                database,
+                messageID: props.messageID,
+                sessionID: props.sessionID,
+                expectedRevision: props.expectedMessageRevision
+            )
+            try requireWritableSession(database, sessionID: props.sessionID)
+            try ensureMessageEditable(database, messageID: props.messageID)
+            let draft = try requireDraft(
+                database,
+                messageID: props.messageID,
+                editToken: props.editToken,
+                expectedDraftRevision: props.expectedDraftRevision
+            )
+            let body = try WorktreeAnnotationMessagePolicy.validate(draft["body"] as String)
+            try database.execute(
+                sql: """
+                    UPDATE annotation_message
+                    SET saved_body = ?, saved_body_utf8_bytes = ?,
+                        saved_revision = COALESCE(saved_revision, 0) + 1,
+                        handled = 0
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    body,
+                    body.utf8.count,
+                    props.messageID.databaseValue,
+                ]
+            )
+            guard database.changesCount == 1 else { throw WorktreeAnnotationRepositoryError.notFound }
+            try database.execute(
+                sql: "DELETE FROM annotation_message_draft WHERE message_id = ?",
+                arguments: [props.messageID.databaseValue]
+            )
+            try advanceMessageAndSession(
+                database,
+                messageID: props.messageID,
+                sessionID: props.sessionID,
+                now: props.now
+            )
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
+        }
+    }
+
+    func revertDraft(_ props: RevertDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        try databaseWriter.write { database in
+            try validateMessageRevision(
+                database,
+                messageID: props.messageID,
+                sessionID: props.sessionID,
+                expectedRevision: props.expectedMessageRevision
+            )
+            try requireWritableSession(database, sessionID: props.sessionID)
+            try ensureMessageEditable(database, messageID: props.messageID)
+            _ = try requireDraft(
+                database,
+                messageID: props.messageID,
+                editToken: props.editToken,
+                expectedDraftRevision: props.expectedDraftRevision
+            )
+            let hasSavedBody =
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM annotation_message WHERE id = ? AND saved_body IS NOT NULL",
+                    arguments: [props.messageID.databaseValue]
+                ) == 1
+            if !hasSavedBody {
+                let threadID = try requireThreadID(database, messageID: props.messageID)
+                try database.execute(
+                    sql: "DELETE FROM annotation_message WHERE id = ?",
+                    arguments: [props.messageID.databaseValue]
+                )
+                let remainingMessageCount =
+                    try Int.fetchOne(
+                        database,
+                        sql: "SELECT COUNT(*) FROM annotation_message WHERE thread_id = ?",
+                        arguments: [threadID.databaseValue]
+                    ) ?? 0
+                if remainingMessageCount == 0 {
+                    try database.execute(
+                        sql: "DELETE FROM annotation_thread WHERE id = ?",
+                        arguments: [threadID.databaseValue]
+                    )
+                }
+                try advanceSession(database, sessionID: props.sessionID, now: props.now)
+            } else {
+                try database.execute(
+                    sql: "DELETE FROM annotation_message_draft WHERE message_id = ?",
+                    arguments: [props.messageID.databaseValue]
+                )
+                try advanceMessageAndSession(
+                    database,
+                    messageID: props.messageID,
+                    sessionID: props.sessionID,
+                    now: props.now
+                )
+            }
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return hasSavedBody ? .content(detail) : .catalog(detail)
+        }
+    }
+
+    func createReplyDraft(_ props: CreateReplyDraftProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        let body = try WorktreeAnnotationMessagePolicy.validate(props.body)
+        return try databaseWriter.write { database in
+            try validateThreadRevision(
+                database,
+                threadID: props.threadID,
+                sessionID: props.sessionID,
+                expectedRevision: props.expectedThreadRevision
+            )
+            try requireWritableSession(database, sessionID: props.sessionID)
+            let resolution = try String.fetchOne(
+                database,
+                sql: "SELECT resolution FROM annotation_thread WHERE id = ? AND session_id = ?",
+                arguments: [props.threadID.databaseValue, props.sessionID.databaseValue]
+            )
+            guard resolution != nil else { throw WorktreeAnnotationRepositoryError.notFound }
+            guard resolution == WorktreeAnnotationThreadResolution.open.rawValue else {
+                throw WorktreeAnnotationRepositoryError.invalidState
+            }
+            let messageID = WorktreeAnnotationMessageID.generate()
+            let ordinal = try nextOrdinal(
+                database,
+                table: "annotation_message",
+                ordinalColumn: "ordinal",
+                ownerColumn: "thread_id",
+                ownerID: props.threadID.databaseValue
+            )
+            try insertMessageDraft(
+                database,
+                props: .init(
+                    messageID: messageID,
+                    threadID: props.threadID,
+                    ordinal: ordinal,
+                    body: body,
+                    editToken: props.editToken,
+                    now: props.now
+                )
+            )
+            try database.execute(
+                sql:
+                    "UPDATE annotation_thread SET semantic_revision = semantic_revision + 1, updated_at = ? WHERE id = ?",
+                arguments: [props.now.timeIntervalSince1970, props.threadID.databaseValue]
+            )
+            try advanceSession(database, sessionID: props.sessionID, now: props.now)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .catalog(detail)
+        }
+    }
+
+    func setThreadResolution(_ props: SetThreadResolutionProps) throws
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+    {
+        try databaseWriter.write { database in
+            try validateThreadRevision(
+                database,
+                threadID: props.threadID,
+                sessionID: props.sessionID,
+                expectedRevision: props.expectedThreadRevision
+            )
+            try requireWritableSession(database, sessionID: props.sessionID)
+            guard
+                let currentResolution = try String.fetchOne(
+                    database,
+                    sql: "SELECT resolution FROM annotation_thread WHERE id = ? AND session_id = ?",
+                    arguments: [props.threadID.databaseValue, props.sessionID.databaseValue]
+                )
+            else {
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
+            if currentResolution == props.resolution.rawValue {
+                return WorktreeAnnotationCommittedMutation(
+                    canonicalResult: try loadSessionDetail(database, sessionID: props.sessionID),
+                    change: .noChange
+                )
+            }
+            try database.execute(
+                sql: """
+                    UPDATE annotation_thread
+                    SET resolution = ?, semantic_revision = semantic_revision + 1,
+                        updated_at = ?, resolved_at = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    props.resolution.rawValue,
+                    props.now.timeIntervalSince1970,
+                    props.resolution == .resolved ? props.now.timeIntervalSince1970 : nil,
+                    props.threadID.databaseValue,
+                ]
+            )
+            try advanceSession(database, sessionID: props.sessionID, now: props.now)
+            let detail = try loadSessionDetail(database, sessionID: props.sessionID)
+            return .content(detail)
+        }
+    }
+}

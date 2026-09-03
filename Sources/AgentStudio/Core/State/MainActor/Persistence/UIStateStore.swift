@@ -8,7 +8,7 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 @MainActor
 package final class UIStateStore {
     private let atom: WorkspaceSidebarState
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -22,7 +22,7 @@ package final class UIStateStore {
 
     package init(
         atom: WorkspaceSidebarState,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil

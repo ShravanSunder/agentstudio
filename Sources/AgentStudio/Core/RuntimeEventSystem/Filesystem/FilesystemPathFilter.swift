@@ -3,6 +3,7 @@ import os
 
 package enum FilesystemPathDisposition: Sendable, Equatable {
     case projected
+    case gitObjectDatabase
     case gitInternal
     case ignoredByPolicy
 }
@@ -10,6 +11,7 @@ package enum FilesystemPathDisposition: Sendable, Equatable {
 /// Lightweight, cached filtering policy for filesystem projection payloads.
 ///
 /// Current policy:
+/// - discard `.git/objects` writes because unreachable object storage is not a repository-state change
 /// - suppress `.git` internals from projection-facing changed-path payloads
 /// - apply root-level `.gitignore` rules for projection payload suppression
 package struct FilesystemPathFilter: Sendable {
@@ -58,6 +60,9 @@ package struct FilesystemPathFilter: Sendable {
         if Self.isOriginConfigPath(relativePath: relativePath) {
             return .projected
         }
+        if Self.isGitObjectDatabase(relativePath: relativePath) {
+            return .gitObjectDatabase
+        }
         if Self.isGitInternal(relativePath: relativePath) {
             return .gitInternal
         }
@@ -71,9 +76,22 @@ package struct FilesystemPathFilter: Sendable {
         let normalizedPath = Self.normalized(relativePath: relativePath)
         guard !normalizedPath.isEmpty, normalizedPath != "." else { return false }
 
+        let pathComponents = normalizedPath.split(separator: "/")
+        for componentCount in 1...pathComponents.count {
+            let candidatePath = pathComponents.prefix(componentCount).joined(separator: "/")
+            if rulesIgnoreExactPath(candidatePath) {
+                // Git cannot re-include a descendant while an ancestor directory
+                // remains excluded, so an ignored prefix is terminal for this path.
+                return true
+            }
+        }
+        return false
+    }
+
+    private func rulesIgnoreExactPath(_ relativePath: String) -> Bool {
         var ignored = false
         for rule in ignoredRules {
-            if rule.matches(relativePath: normalizedPath) {
+            if rule.matches(relativePath: relativePath) {
                 ignored = !rule.isNegated
             }
         }
@@ -91,6 +109,14 @@ package struct FilesystemPathFilter: Sendable {
 
     package static func isOriginConfigPath(relativePath: String) -> Bool {
         normalized(relativePath: relativePath) == ".git/config"
+    }
+
+    private static func isGitObjectDatabase(relativePath: String) -> Bool {
+        let pathComponents = normalized(relativePath: relativePath).split(separator: "/")
+        guard pathComponents.count >= 2 else { return false }
+        return pathComponents.indices.dropLast().contains { index in
+            pathComponents[index] == ".git" && pathComponents[index + 1] == "objects"
+        }
     }
 
     private static func normalized(relativePath: String) -> String {

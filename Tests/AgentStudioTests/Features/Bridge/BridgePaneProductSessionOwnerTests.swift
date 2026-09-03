@@ -6,6 +6,30 @@ import Testing
 
 @Suite("Bridge pane product session owner")
 struct BridgePaneProductSessionOwnerTests {
+    @Test("successful retirement reports the exact retired worker")
+    func successfulRetirementReportsExactWorker() async throws {
+        // Arrange
+        let provider = BridgePaneProductSessionProviderGate()
+        let retiredWorkers = RetiredWorkerRecorder()
+        let owner = try BridgePaneProductSessionOwner(
+            paneSessionId: bridgeProductTestPaneSessionId,
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate(),
+            didRetireWorkerInstance: { workerInstanceId in
+                await retiredWorkers.record(workerInstanceId)
+            }
+        )
+        let installation = try await installFirstCandidate(in: owner)
+        try await openBridgePaneProductSession(installation)
+
+        // Act
+        let result = await owner.retire(reason: .pageReload)
+
+        // Assert
+        #expect(result == .retired)
+        #expect(await retiredWorkers.values == [installation.bootstrap.workerInstanceId])
+    }
+
     @Test("prepared candidates use fresh secure identity and remain off-path")
     func preparedCandidatesAreFreshAndUnexposed() async throws {
         // Arrange
@@ -485,6 +509,12 @@ struct BridgePaneProductSessionOwnerTests {
             ),
             encoding: .utf8
         )
+        let bootstrapModelsSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+BootstrapModels.swift"
+            ),
+            encoding: .utf8
+        )
         let schemeHandlerSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift"
@@ -494,13 +524,22 @@ struct BridgePaneProductSessionOwnerTests {
 
         // Act / Assert
         #expect(bootstrapSource.contains("BridgePaneProductSessionOwner"))
-        #expect(bootstrapSource.contains("BridgeProductSchemeSessionRouter"))
+        #expect(bootstrapModelsSource.contains("BridgeProductSchemeSessionRouter"))
+        #expect(bootstrapSource.contains("productSessionRouter: input.productSessionRouter"))
         #expect(schemeHandlerSource.contains("BridgeProductSchemeSessionRouter"))
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.commandRoute"))
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.streamRoute"))
         #expect(schemeHandlerSource.contains("BridgeProductWireContract.contentRoute"))
         #expect(!bootstrapSource.contains("rpcDispatcher: input.rpcDispatcher"))
         #expect(!schemeHandlerSource.contains("case rpcCommand"))
+    }
+}
+
+private actor RetiredWorkerRecorder {
+    private(set) var values: [String] = []
+
+    func record(_ workerInstanceId: String) {
+        values.append(workerInstanceId)
     }
 }
 
@@ -713,6 +752,7 @@ private func paneOwnerContentRequest(
           "workerInstanceId": "\(installation.bootstrap.workerInstanceId)",
           "contentRequestId": "content-request-\(identitySuffix)",
           "leaseId": "lease-\(identitySuffix)",
+          "operationCorrelationId": null,
           "contentKind": "file.content",
           "descriptor": {
             "contentKind": "file.content",
@@ -771,7 +811,8 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     }
 
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse {
         do {
             switch request {

@@ -26,7 +26,8 @@ actor BridgeProductSession {
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
-    var producerObservationPacingWaitersByLease: [BridgeProductProducerLease: BridgeProductProducerPacingWaiter] = [:]
+    var producerObservationPacingWaitersByLease:
+        [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
@@ -43,6 +44,7 @@ actor BridgeProductSession {
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil
     ) throws {
@@ -63,7 +65,7 @@ actor BridgeProductSession {
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
-        self.producerRegistry = BridgeProductProducerRegistry()
+        self.producerRegistry = BridgeProductProducerRegistry(limits: producerQueueLimits)
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
         )
@@ -331,10 +333,7 @@ actor BridgeProductSession {
             if let replay = lastAcceptedMetadataFrameAcknowledgement,
                 replay.acknowledgement == acknowledgement
             {
-                return producerAdmissionMatches(
-                    productAdmission,
-                    for: replay.producerLease
-                )
+                return producerAdmissionMatches(productAdmission, for: replay.producerLease)
             }
             guard
                 let receipt = producerRegistry.inFlightMetadataFrameReceipt(

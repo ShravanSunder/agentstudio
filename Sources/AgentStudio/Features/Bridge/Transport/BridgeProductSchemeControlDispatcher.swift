@@ -57,7 +57,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             // task must finish and cache one exact response even if the URL task closes.
             let completion = Task {
                 do {
-                    let providerResponse = await provider.response(for: request)
+                    let providerResponse = await provider.response(
+                        for: request,
+                        productAdmission: productAdmission
+                    )
                     guard
                         (productAdmission.withValidAdmission { true }) == true
                     else {

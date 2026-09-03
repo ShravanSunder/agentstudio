@@ -30,7 +30,6 @@ extension WebKitSerializedTests {
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
-                harness.removeSharedContentRoot()
             }
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let metadataEventsTask = Task { @MainActor in
@@ -89,6 +88,18 @@ extension WebKitSerializedTests {
             )
             #expect(trackedBaseContent.data == Data("initial\n".utf8))
             #expect(trackedHeadContent.data == Data("initial\nupdated\n".utf8))
+            let untrackedItem = try #require(
+                package.itemsById.values.first { $0.headPath == "untracked.txt" }
+            )
+            #expect(untrackedItem.contentRoles.base == nil)
+            let untrackedHeadHandle = try #require(untrackedItem.contentRoles.head)
+            let untrackedHeadContent = try await harness.reviewSourceProvider.loadContent(
+                BridgeContentLoadRequest(
+                    handle: untrackedHeadHandle,
+                    requestedGeneration: package.reviewGeneration
+                )
+            )
+            #expect(untrackedHeadContent.data == Data("new file\n".utf8))
             #expect(harness.controller.reviewSharedConstructionBinder != nil)
             let constructionSnapshot = await harness.constructionCoordinator.snapshot()
             #expect(constructionSnapshot.entryCount == 1)
@@ -99,7 +110,6 @@ extension WebKitSerializedTests {
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
-            #expect(harness.sharedContentBackingChildren().isEmpty)
         }
 
         @Test("a real contribution publishes complete dirty state and excludes target-only movement")
@@ -111,7 +121,6 @@ extension WebKitSerializedTests {
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
-                harness.removeSharedContentRoot()
             }
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let initialEventsTask = Task { @MainActor in
@@ -160,13 +169,24 @@ extension WebKitSerializedTests {
                 let snapshot = try await harness.nextReviewMetadataEvent(for: metadataLease)
                 return (reset, sourceAccepted, snapshot)
             }
-            let foregroundWorkAdmission = try #require(
-                harness.controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            harness.controller.refreshAdmissionCoordinator.recordInvalidation(
+                fileChangeset: nil,
+                requiresReviewRefresh: true
+            )
+            let reservation = try #require(
+                harness.controller.refreshAdmissionCoordinator.reserveForegroundRefreshPass(
+                    for: .review
+                )
             )
 
             let refreshOutcome = await harness.controller.refreshCurrentReviewPackage(
-                foregroundWorkAdmission: foregroundWorkAdmission,
+                reservation: reservation,
+                foregroundWorkAdmission: reservation.foregroundWorkAdmission,
                 productAdmission: harness.productAdmission
+            )
+            harness.controller.refreshAdmissionCoordinator.completeRefreshPass(
+                reservation,
+                outcome: refreshOutcome
             )
             let (resetEvent, successorSourceAcceptedEvent, successorSnapshotEvent) =
                 try await successorEventsTask.value
@@ -198,7 +218,6 @@ extension WebKitSerializedTests {
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
-            #expect(harness.sharedContentBackingChildren().isEmpty)
         }
     }
 }
@@ -330,19 +349,15 @@ private struct RealGitReviewLoadHarness {
     let productProvider: BridgePaneProductSchemeProvider
     let reviewDataClient: AgentStudioGitBridgeReviewDataClient<LibGit2AgentStudioGitLocalClient>
     let reviewSourceProvider: BridgeGitReviewSourceProvider
-    let sharedContentRootURL: URL
 
     static func make(repositoryURL: URL) async throws -> Self {
         let paneId = UUIDv7.generate()
         let gitReadContext = makeBridgeGitReadContext(rootURL: repositoryURL)
         let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator()
-        let sharedContentRootURL = FileManager.default.temporaryDirectory
-            .appending(path: "bridge-real-git-review-content-\(UUIDv7.generate().uuidString)")
         let reviewDataClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryURL,
             client: LibGit2AgentStudioGitLocalClient(),
-            gitReadContext: gitReadContext,
-            sharedContentRootURL: sharedContentRootURL
+            gitReadContext: gitReadContext
         )
         let reviewSourceProvider = BridgeGitReviewSourceProvider(client: reviewDataClient)
         let controller = BridgePaneController(
@@ -394,20 +409,8 @@ private struct RealGitReviewLoadHarness {
             productAdmission: productAdmission,
             productProvider: productProvider,
             reviewDataClient: reviewDataClient,
-            reviewSourceProvider: reviewSourceProvider,
-            sharedContentRootURL: sharedContentRootURL
+            reviewSourceProvider: reviewSourceProvider
         )
-    }
-
-    func sharedContentBackingChildren() -> [URL] {
-        (try? FileManager.default.contentsOfDirectory(
-            at: sharedContentRootURL,
-            includingPropertiesForKeys: nil
-        )) ?? []
-    }
-
-    func removeSharedContentRoot() {
-        try? FileManager.default.removeItem(at: sharedContentRootURL)
     }
 
     func openReviewMetadataSubscription() async throws -> BridgeProductProducerLease {
@@ -513,7 +516,7 @@ private struct RealGitReviewLoadHarness {
             )
             switch frame {
             case .subscriptionData(let dataFrame):
-                guard case .reviewMetadata(let event) = dataFrame.data else {
+                guard let event = dataFrame.data.reviewMetadataEvent else {
                     throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
                 }
                 return event
@@ -617,7 +620,7 @@ private func realGitReviewEvent(
     from frame: BridgeProductMetadataFrame
 ) throws -> BridgeProductReviewMetadataEvent {
     guard case .subscriptionData(let dataFrame) = frame,
-        case .reviewMetadata(let event) = dataFrame.data
+        let event = dataFrame.data.reviewMetadataEvent
     else {
         throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
     }

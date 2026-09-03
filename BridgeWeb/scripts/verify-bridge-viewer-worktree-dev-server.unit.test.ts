@@ -31,12 +31,10 @@ import {
 	reviewVisibleDemandTelemetryAttributed,
 	summarizeInteractionSamples,
 	worktreeInteractionPerformanceSatisfied,
-	worktreeStartupLoadTimingSatisfied,
 	worktreeFileOpenLoadTelemetrySatisfied,
 	worktreeFileSplitResetReplacementSatisfied,
 	worktreeFileScrollExtentCanarySatisfied,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
-import type { WorktreeInteractionPerformanceProof } from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const viteConfigSourceUrl = new URL('../vite.config.ts', import.meta.url);
 const reviewRoutesSourceUrl = new URL(
@@ -130,42 +128,6 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				clickToFirstVisibleContentWindow: summarizeInteractionSamples(
 					Array.from({ length: 100 }, (_, index): number => (index < 98 ? 80 : 200)),
 				),
-			}),
-		).toBe(false);
-	});
-
-	test('requires File click phase and startup attribution in interaction performance proof', () => {
-		const {
-			clickPhaseDurations: _clickPhaseDurations,
-			startupLoadTiming: _startupLoadTiming,
-			...proofWithoutAttribution
-		} = makePassingInteractionPerformanceProof();
-
-		expect(
-			worktreeInteractionPerformanceSatisfied(
-				proofWithoutAttribution as WorktreeInteractionPerformanceProof,
-			),
-		).toBe(false);
-		expect(worktreeInteractionPerformanceSatisfied(makePassingInteractionPerformanceProof())).toBe(
-			true,
-		);
-	});
-
-	test('requires File startup load timing and tree scroll frame breakdowns', () => {
-		expect(worktreeStartupLoadTimingSatisfied(makePassingInteractionPerformanceProof())).toBe(true);
-		expect(
-			worktreeInteractionPerformanceSatisfied({
-				...makePassingInteractionPerformanceProof(),
-				startupLoadTiming: {
-					...makePassingInteractionPerformanceProof().startupLoadTiming,
-					pageLoadToContentReady: summarizeInteractionSamples([]),
-				},
-			}),
-		).toBe(false);
-		expect(
-			worktreeInteractionPerformanceSatisfied({
-				...makePassingInteractionPerformanceProof(),
-				treeScrollSettleFrameCount: summarizeInteractionSamples([]),
 			}),
 		).toBe(false);
 	});

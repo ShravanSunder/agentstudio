@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import type {
 	BridgeWorkerDemandRank,
@@ -33,6 +34,38 @@ describe('Bridge worker render fulfillment registry', () => {
 		).toThrow('Bridge render receipt lease duration must be finite and positive.');
 	});
 
+	test('compares receipt leases and retries across different realm time origins', () => {
+		// Arrange
+		let workerNowMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			now: (): number => 100,
+			timeOrigin: 1_000,
+		});
+		const registry = createRegistry(reviewContext, (): number => workerNowMilliseconds);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('replacement-worker-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		const mainReceivedAtMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			now: (): number => 220,
+			timeOrigin: 900,
+		});
+
+		// Act
+		const result = registry.applyDisposition(
+			disposition(publication.receiptIdentity, 'rejected', mainReceivedAtMilliseconds),
+		);
+		workerNowMilliseconds = mainReceivedAtMilliseconds + 4;
+		const beforeRetry = registry.releaseReadyRetries();
+		workerNowMilliseconds = mainReceivedAtMilliseconds + 5;
+		const atRetry = registry.releaseReadyRetries();
+
+		// Assert
+		expect(result).toMatchObject({ status: 'accepted' });
+		expect(beforeRetry).toEqual([]);
+		expect(atRetry).toEqual(['replacement-worker-item']);
+	});
+
 	test('mints one full publication identity and fulfills only after painted', () => {
 		const identifiers = createIdentifierSequence();
 		const registry = new BridgeWorkerRenderFulfillmentRegistry({
@@ -54,6 +87,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(publication.receiptIdentity).toEqual({
 			attemptId: 'attempt-1',
 			itemId: 'review-item-1',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			publicationId: 'publication-1',
 			publicationSequence: 8,
@@ -105,6 +139,41 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(repeated.state).toBe(accepted.state);
 	});
 
+	test('ends the delivery lease after queued while preserving later paint settlement', () => {
+		// Arrange
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('offscreen-review-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+
+		// Act
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 1)),
+		).toMatchObject({ status: 'accepted' });
+		nowMilliseconds = 100;
+
+		// Assert
+		expect(registry.expireReceiptLeases()).toEqual([]);
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		expect(registry.getItemState('offscreen-review-item')).toMatchObject({
+			isDesired: true,
+			stage: 'queued',
+		});
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'applied', 101)),
+		).toMatchObject({ status: 'accepted' });
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'painted', 102)),
+		).toMatchObject({ status: 'accepted' });
+		expect(registry.getItemState('offscreen-review-item')).toMatchObject({
+			isDesired: false,
+			stage: 'painted',
+		});
+	});
+
 	test('retires publication residency before the same semantic window is republished', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);
@@ -131,7 +200,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		).toMatchObject({ status: 'rejected' });
 	});
 
-	test('requeues an active source-churn attempt without reminting semantic publication identity', () => {
+	test('retains an active source-churn attempt until its exact first disposition', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);
 		const first = registry.beginPublication({
@@ -142,17 +211,39 @@ describe('Bridge worker render fulfillment registry', () => {
 
 		// Act
 		const requeuedItemIds = registry.requeuePublicationsForSourceChurn(1);
+		const expiredItemIds = registry.expireReceiptLeases(10_000);
+		const nextWakeAtMilliseconds = registry.nextLifecycleWakeAtMilliseconds();
+		const queuedResult = registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 2));
 		const replacement = registry.beginPublication({
-			job: makeRenderJob('review-item-1'),
+			job: makeRenderJob('review-item-1', { lane: 'visible', priority: 1 }, 'b'.repeat(64)),
 			publicationSequence: 9,
 			workerDerivationEpoch: 3,
 		});
 
 		// Assert
-		expect(requeuedItemIds).toEqual(['review-item-1']);
+		expect(requeuedItemIds).toEqual([]);
+		expect(expiredItemIds).toEqual([]);
+		expect(nextWakeAtMilliseconds).toBeNull();
+		expect(queuedResult).toMatchObject({ status: 'accepted' });
 		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
-		expect(replacement.receiptIdentity.publicationId).toBe(first.receiptIdentity.publicationId);
-		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
+		expect(replacement.receiptIdentity.publicationId).not.toBe(first.receiptIdentity.publicationId);
+	});
+
+	test('retires a removed item immediately after its outstanding first disposition', () => {
+		const registry = createRegistry(reviewContext);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('removed-review-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+
+		registry.retireRemovedItemsForSourceChurn(['removed-review-item']);
+		expect(registry.getItemState('removed-review-item')).not.toBeNull();
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 1)),
+		).toMatchObject({ status: 'accepted' });
+
+		expect(registry.getItemState('removed-review-item')).toBeNull();
 	});
 
 	test('revalidates exact painted content across source churn without republication', () => {

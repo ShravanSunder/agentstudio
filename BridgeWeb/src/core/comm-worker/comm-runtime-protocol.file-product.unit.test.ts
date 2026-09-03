@@ -4,6 +4,7 @@ import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-te
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerFileDisplayResyncCommand,
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -11,19 +12,18 @@ import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
+import { makeReviewMetadataDataFrame } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	activateBridgeCommWorkerFileViewerMode,
 	activateBridgeCommWorkerFileViewerModeAndFlush,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
+	makeFileMetadataDataFrame,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
-import type {
-	BridgeProductPanePresentationFrame,
-	BridgeProductTransportSession,
-} from './bridge-product-transport.js';
+import type { BridgeProductPanePresentationFrame } from './bridge-product-transport.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import { parseBridgeWorkerFileDisplayPatchEvent } from './bridge-worker-contract-parsers.js';
 import type {
@@ -31,30 +31,24 @@ import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerFileRenderPatchEvent,
 } from './bridge-worker-contracts.js';
-
-const source = {
-	repoId: '00000000-0000-4000-8000-000000000001',
-	rootRevisionToken: 'root-revision-1',
-	sourceCursor: 'source-cursor-1',
-	sourceId: 'file-source-1',
-	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
-} as const;
-
-const fileViewProductTestBudget = {
-	className: 'interactive',
-	maxBytes: 2 * 1024 * 1024,
-	maxWindowLines: 10_000,
-} as const;
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
+import {
+	drainFilePreparationUntilIdle,
+	fileProductTestSource as source,
+	fileViewProductTestBudget,
+	makeDescriptorReadyEvent,
+	makeFilePanePresentationFrame,
+	makeFileProductTestTransport as makeProductTransport,
+	makeTreeWindowEvent,
+	requireFilePanePresentationSink,
+} from './comm-runtime-protocol.file-product.test-support.js';
 
 describe('Bridge comm worker File product runtime', () => {
 	test('records whether File select resolved a worker-owned metadata path', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-select-path-telemetry',
@@ -88,8 +82,8 @@ describe('Bridge comm worker File product runtime', () => {
 				surface: 'fileView',
 			}),
 		);
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
@@ -141,11 +135,9 @@ describe('Bridge comm worker File product runtime', () => {
 
 	test('default scheduler opens selected File content after sustained viewport churn', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const openedDescriptorIds: string[] = [];
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-default-scheduler',
@@ -166,9 +158,9 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		});
 		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'default-scheduler');
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
-		events.push(makeDescriptorReadyEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(openedDescriptorIds).toEqual([]);
 
@@ -203,15 +195,13 @@ describe('Bridge comm worker File product runtime', () => {
 
 	test('keeps File content demand eligible after concurrent Review source acceptance', async () => {
 		// Arrange
-		const fileEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const fileEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const reviewEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
+			ReturnType<typeof makeReviewMetadataDataFrame>
 		>(64);
 		const openedDescriptorIds: string[] = [];
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
+		const fileSubscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: fileEvents,
 			subscriptionId: 'file-subscription-cross-surface-store-isolation',
@@ -237,18 +227,21 @@ describe('Bridge comm worker File product runtime', () => {
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		activateBridgeCommWorkerFileViewerMode(dispatch, 'cross-surface-store-isolation');
-		fileEvents.push({ eventKind: 'file.sourceAccepted', source });
-		fileEvents.push(makeTreeWindowEvent());
-		fileEvents.push(makeDescriptorReadyEvent());
+		fileEvents.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		fileEvents.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		fileEvents.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
-		reviewEvents.push({
-			eventKind: 'review.sourceAccepted',
-			generation: 1,
-			packageId: 'review-package-cross-surface-store-isolation',
-			publicationId: '00000000-0000-7000-8000-000000000001',
-			revision: 1,
-			sourceIdentity: 'review-source-cross-surface-store-isolation',
-		});
+		reviewEvents.push(
+			makeReviewMetadataDataFrame({
+				eventKind: 'review.sourceAccepted',
+				operationCorrelationId: null,
+				generation: 1,
+				packageId: 'review-package-cross-surface-store-isolation',
+				publicationId: '00000000-0000-7000-8000-000000000001',
+				revision: 1,
+				sourceIdentity: 'review-source-cross-surface-store-isolation',
+			}),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toHaveLength(0);
 
@@ -281,16 +274,15 @@ describe('Bridge comm worker File product runtime', () => {
 
 	test('projects File subscription events and opens demanded content without a main relay', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const updatedInterests: unknown[] = [];
 		const openedDescriptorIds: string[] = [];
+		const operationLifecycleSamples: BridgeTelemetrySample[] = [];
 		let sourceDiscoveryCount = 0;
 		const createdSequences: number[] = [];
 		let nextSequence = 100;
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-1',
@@ -323,6 +315,11 @@ describe('Bridge comm worker File product runtime', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
+			telemetryClient: {
+				record: (sample): void => {
+					operationLifecycleSamples.push(sample);
+				},
+			},
 		});
 
 		// Act
@@ -337,10 +334,10 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(makeDescriptorReadyEvent());
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		const firstDrain = scheduledDrains.shift();
 		if (firstDrain === undefined) throw new Error('Expected selected File preparation drain.');
@@ -433,13 +430,101 @@ describe('Bridge comm worker File product runtime', () => {
 			surface: 'file',
 			workerDerivationEpoch: 1,
 		});
+		const fileRenderPublication = postedMessages.find(
+			(
+				posted,
+			): posted is typeof posted & { readonly message: BridgeWorkerFilePierreRenderJobEvent } =>
+				posted.message.kind === 'filePierreRenderJob',
+		)?.message;
+		if (fileRenderPublication === undefined) {
+			throw new Error('Expected the selected File render publication.');
+		}
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 2,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-advance-file-intent-after-publication',
+				surface: 'fileView',
+				visibleItemIds: ['file-1'],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerRenderDispositionCommand({
+				epoch: fileRenderPublication.workerDerivationEpoch,
+				receipts: [
+					bridgeWorkerRenderDispositionReceiptSchema.parse({
+						...fileRenderPublication.renderReceiptIdentity,
+						disposition: 'queued',
+						kind: 'render.disposition',
+						receivedAtMilliseconds: 0,
+					}),
+				],
+				requestId: 'request-production-stamped-file-queued',
+			}),
+		);
+		for (const disposition of ['applied', 'painted'] as const) {
+			dispatch.message(
+				encodeBridgeWorkerRenderDispositionCommand({
+					epoch: fileRenderPublication.workerDerivationEpoch,
+					receipts: [
+						bridgeWorkerRenderDispositionReceiptSchema.parse({
+							...fileRenderPublication.renderReceiptIdentity,
+							disposition,
+							kind: 'render.disposition',
+							receivedAtMilliseconds: 0,
+						}),
+					],
+					requestId: `request-production-stamped-file-${disposition}`,
+				}),
+			);
+		}
+		expect(
+			postedMessages.find(
+				({ message }) =>
+					message.kind === 'health' &&
+					message.requestId === 'request-production-stamped-file-queued',
+			)?.message,
+		).toMatchObject({ status: 'ready' });
+		const selectedOperationSamples = operationLifecycleSamples.filter(
+			(sample) => sample.name === 'performance.bridge.web.operation_lifecycle',
+		);
+		const operationCorrelationIds = new Set(
+			selectedOperationSamples.map(
+				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'],
+			),
+		);
+		expect(operationCorrelationIds.size).toBe(1);
+		expect([...operationCorrelationIds][0]).toMatch(/^[0-9a-f]{64}$/);
+		expect(
+			selectedOperationSamples.map((sample) => sample.stringAttributes['agentstudio.bridge.phase']),
+		).toEqual([
+			'worker_application_started',
+			'file_content_operation_started',
+			'file_descriptor_wait_started',
+			'file_descriptor_wait_terminal',
+			'content_operation_started',
+			'content_operation_terminal',
+			'render_operation_started',
+			'main_thread_install_started',
+			'paint_fulfillment_started',
+			'main_thread_install_terminal',
+			'render_operation_terminal',
+			'paint_fulfillment_terminal',
+			'file_content_operation_terminal',
+			'worker_application_terminal',
+		]);
+		expect(
+			selectedOperationSamples.every(
+				(sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt'] === 0,
+			),
+		).toBe(true);
 	});
 
 	test('does not replay completed File preparation when native foreground returns to Review', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const openedDescriptorIds: string[] = [];
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8 });
@@ -472,9 +557,9 @@ describe('Bridge comm worker File product runtime', () => {
 			sendProductControl: async (): Promise<void> => {},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
-		events.push(makeDescriptorReadyEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -545,12 +630,10 @@ describe('Bridge comm worker File product runtime', () => {
 	});
 
 	test('reports File interest failure without resetting the stream and retries on later source progress', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const updatedInterests: unknown[] = [];
 		let updateAttemptCount = 0;
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-interest-failure',
@@ -572,8 +655,8 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		});
 		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'interest-failure');
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
@@ -588,7 +671,7 @@ describe('Bridge comm worker File product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(updateAttemptCount).toBe(1);
 
-		events.push(makeTreeWindowEvent());
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
@@ -636,10 +719,8 @@ describe('Bridge comm worker File product runtime', () => {
 	});
 
 	test('replays authoritative File display state at the active worker derivation epoch', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
-		const subscription: BridgeProductSubscription<'file.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+		const subscription: FileMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'file-subscription-resync',
@@ -657,9 +738,9 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		});
 		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'display-resync');
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
-		events.push(makeDescriptorReadyEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 		const messagesBeforeResync = postedMessages.length;
 		const lastProjectionRevision = Math.max(
@@ -705,9 +786,7 @@ describe('Bridge comm worker File product runtime', () => {
 	});
 
 	test('reports File source discovery transport failure without synthesizing unavailable', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		let subscriptionCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -742,9 +821,7 @@ describe('Bridge comm worker File product runtime', () => {
 	});
 
 	test('publishes a source-clearing display reset when File metadata fails', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'file.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -762,8 +839,8 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		});
 		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'metadata-failure');
-		events.push({ eventKind: 'file.sourceAccepted', source });
-		events.push(makeTreeWindowEvent());
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		events.fail(new Error('metadata stream failed'), true);
@@ -801,198 +878,3 @@ describe('Bridge comm worker File product runtime', () => {
 		);
 	});
 });
-
-function makeProductTransport(props: {
-	readonly discoveryError?: Error;
-	readonly onDiscoverSource: () => void;
-	readonly onOpenDescriptor: (descriptorId: string) => void;
-	readonly onPanePresentationSink?: (
-		sink: (frame: BridgeProductPanePresentationFrame) => void,
-	) => void;
-	readonly onSubscribe?: () => void;
-	readonly reviewEvents?: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
-	>;
-	readonly subscription: BridgeProductSubscription<'file.metadata'>;
-}): BridgeProductTransportSession {
-	let fileEpoch = 0;
-	let reviewEpoch = 0;
-	const reviewEvents =
-		props.reviewEvents ??
-		new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>(64);
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
-		cancel: async (): Promise<void> => {},
-		events: reviewEvents,
-		subscriptionId: 'review-subscription-for-file-runtime-test',
-		subscriptionKind: 'review.metadata',
-		update: async (): Promise<void> => {},
-	};
-	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
-			if (surface === 'file') fileEpoch += 1;
-			if (surface === 'review') reviewEpoch += 1;
-			return surface === 'file' ? fileEpoch : reviewEpoch;
-		},
-		call: async (...arguments_): Promise<never> => {
-			const [method] = arguments_;
-			if (method !== 'file.source.current') throw new Error('Unexpected product call.');
-			if (props.discoveryError !== undefined) throw props.discoveryError;
-			props.onDiscoverSource();
-			return {
-				source: currentFileSourceConfiguration,
-				status: 'available',
-			} as never;
-		},
-		openContent: (descriptor): never => {
-			props.onOpenDescriptor(descriptor.descriptorId);
-			const bytes = new TextEncoder().encode('file body\n').buffer;
-			return {
-				contentKind: 'file.content',
-				contentRequestId: 'content-request-1',
-				frames: emptyFrames(),
-				terminal: Promise.resolve({
-					bytes,
-					contentKind: 'file.content',
-					descriptorId: descriptor.descriptorId,
-					kind: 'complete',
-					observedSha256: 'a'.repeat(64),
-				}),
-			} as never;
-		},
-		setPanePresentationFrameSink: (
-			sink: (frame: BridgeProductPanePresentationFrame) => void,
-		): void => {
-			props.onPanePresentationSink?.(sink);
-			sink(makeFilePanePresentationFrame(1, 'foreground'));
-		},
-		subscribe: ((subscriptionKind: string): never => {
-			if (subscriptionKind === 'review.metadata') return reviewSubscription as never;
-			props.onSubscribe?.();
-			return props.subscription as never;
-		}) as BridgeProductTransportSession['subscribe'],
-		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),
-	};
-}
-
-function requireFilePanePresentationSink(
-	sink: ((frame: BridgeProductPanePresentationFrame) => void) | null,
-): (frame: BridgeProductPanePresentationFrame) => void {
-	if (sink === null) throw new Error('Expected Bridge File pane presentation sink registration.');
-	return sink;
-}
-
-function makeFilePanePresentationFrame(
-	presentationRevision: number,
-	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
-): BridgeProductPanePresentationFrame {
-	return {
-		presentationRevision,
-		kind: 'pane.presentation',
-		metadataStreamId: 'file-product-test-metadata-stream',
-		nativeActivity,
-		paneSessionId: 'file-product-test-pane-session',
-		refreshingLanes: [],
-		reviewComparison: null,
-		streamSequence: presentationRevision,
-		wireVersion: 2,
-		workerInstanceId: 'file-product-test-worker-instance',
-	};
-}
-
-async function drainFilePreparationUntilIdle(
-	scheduledDrains: BridgeCommWorkerPreparationDrain[],
-): Promise<void> {
-	const drainCompletions: Array<ReturnType<BridgeCommWorkerPreparationDrain>> = [];
-	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
-		const drainsForRound = scheduledDrains.splice(0);
-		if (drainsForRound.length > 0) {
-			drainCompletions.push(...drainsForRound.map((drain) => drain()));
-		}
-		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes event-scheduled continuation drains.
-		await flushBridgeWorkerRuntimeContinuations();
-		if (scheduledDrains.length === 0) break;
-	}
-	expect(scheduledDrains).toEqual([]);
-	await Promise.all(drainCompletions);
-	await flushBridgeWorkerRuntimeContinuations();
-}
-
-const currentFileSourceConfiguration = {
-	cwdScope: null,
-	freshness: 'live',
-	includeStatuses: true,
-	repoId: source.repoId,
-	rootPathToken: 'root-token-1',
-	worktreeId: source.worktreeId,
-} as const;
-
-function makeTreeWindowEvent(): BridgeProductSubscriptionEvent<'file.metadata'> {
-	return {
-		eventKind: 'file.treeWindow',
-		finalWindow: true,
-		lineage: { lane: 'visible', loadedBy: 'startup_window' },
-		pathScope: [],
-		rows: [
-			{
-				changeStatus: 'modified',
-				depth: 0,
-				fileId: 'file-1',
-				fileClass: 'source',
-				isDirectory: false,
-				lineCount: 1,
-				name: 'File.swift',
-				parentPath: null,
-				path: 'Sources/File.swift',
-				rowId: 'row-file-1',
-				sizeBytes: 10,
-			},
-		],
-		source,
-		startIndex: 0,
-		totalRowCount: 1,
-	};
-}
-
-function makeDescriptorReadyEvent(): BridgeProductSubscriptionEvent<'file.metadata'> {
-	return {
-		availability: {
-			availabilityKind: 'available',
-			contentDescriptor: {
-				contentKind: 'file.content',
-				declaredByteLength: 10,
-				descriptorId: 'descriptor-file-1',
-				encoding: 'utf-8',
-				expectedSha256: 'a'.repeat(64),
-				fileId: 'file-1',
-				maximumBytes: 10,
-				source,
-				window: {
-					kind: 'prefix',
-					maximumBytes: 10,
-					maximumLines: 1,
-					startByte: 0,
-				},
-			},
-		},
-		encoding: 'utf-8',
-		endsMidLine: false,
-		endsWithNewline: true,
-		estimatedContentHeightPixels: null,
-		eventKind: 'file.descriptorReady',
-		fileExtension: 'swift',
-		fileId: 'file-1',
-		language: 'swift',
-		modifiedAtUnixMilliseconds: 1,
-		path: 'Sources/File.swift',
-		payloadByteCount: 10,
-		payloadLineCount: 1,
-		rowId: 'row-file-1',
-		sizeBytes: 10,
-		source,
-		totalLineCount: 1,
-		truncationKind: 'none',
-		virtualizedExtentKind: 'exactLineCount',
-	};
-}
-
-async function* emptyFrames(): AsyncIterable<never> {}

@@ -936,6 +936,7 @@ struct ProductFileSourceFixture {
                 "descriptor": descriptorObject,
                 "kind": "content.open",
                 "leaseId": "file-content-lease-1",
+                "operationCorrelationId": NSNull(),
                 "paneSessionId": "pane-session-1",
                 "wireVersion": BridgeProductWireContract.version,
                 "workerDerivationEpoch": 1,

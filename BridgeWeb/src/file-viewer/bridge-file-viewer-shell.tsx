@@ -217,7 +217,10 @@ export function bridgeFileViewerHeaderStatusText(
 	isActive: boolean,
 	panelChromeSlice: BridgeWorkerPanelChromePatchPayload,
 ): string | null {
-	return isActive && panelChromeSlice.isLoading === true
-		? (panelChromeSlice.message ?? null)
-		: null;
+	if (!isActive) return null;
+	if (panelChromeSlice.isLoading === true) return panelChromeSlice.message ?? null;
+	return panelChromeSlice.fileRefreshFailure === undefined ||
+		panelChromeSlice.fileRefreshFailure === null
+		? null
+		: (panelChromeSlice.message ?? 'Files unavailable');
 }

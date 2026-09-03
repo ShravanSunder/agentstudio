@@ -12,7 +12,7 @@ private let inboxNotificationStoreLogger = Logger(
 /// Main-actor persistence wrapper for the notification inbox's typed local SQLite lane.
 ///
 /// The atoms remain the live state owners. This store captures bounded immutable snapshots,
-/// delegates database work to `WorkspaceSQLiteDatastore`, and applies restored values.
+/// delegates database work to `WorkspaceSQLiteDatastoreActor`, and applies restored values.
 @MainActor
 package final class InboxNotificationStore {
     let inboxAtom: InboxNotificationAtom

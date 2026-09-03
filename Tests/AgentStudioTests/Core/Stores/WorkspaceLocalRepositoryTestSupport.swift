@@ -26,11 +26,11 @@ func failingWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteStoreBackend {
 func preparedWorkspaceSQLiteDatastore(
     from backend: WorkspaceSQLiteStoreBackend,
     traceRuntime: AgentStudioTraceRuntime? = nil,
-    probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
-) async throws -> WorkspaceSQLiteDatastore {
-    let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
+    probe: (@Sendable (WorkspaceSQLiteDatastoreActor.ProbeEvent) async -> Void)? = nil
+) async throws -> WorkspaceSQLiteDatastoreActor {
+    let preparedCore = try WorkspaceSQLiteDatastoreActor.strictlyPrepareCore(using: backend)
     let preparedApplicationLocalRepository: WorkspaceLocalRepository?
-    let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
+    let preparedLocal: WorkspaceSQLiteDatastoreActor.PreparedLocalDatabase
     do {
         preparedApplicationLocalRepository = try backend.localBackend.restoreRepository(
             for: preparedApplicationLocalRepositoryScopeId
@@ -40,7 +40,7 @@ func preparedWorkspaceSQLiteDatastore(
         preparedApplicationLocalRepository = nil
         preparedLocal = .unavailable(.init(error))
     }
-    return WorkspaceSQLiteDatastore(
+    return WorkspaceSQLiteDatastoreActor(
         preparedCoreRepository: backend.coreRepository,
         preparationReceipt: .init(core: preparedCore, local: preparedLocal),
         preparedApplicationLocalRepository: preparedApplicationLocalRepository,
@@ -53,8 +53,8 @@ func preparedWorkspaceSQLiteDatastore(
 func preparedWorkspaceSQLiteDatastore(
     from localBackend: WorkspaceLocalSQLiteStoreBackend,
     traceRuntime: AgentStudioTraceRuntime? = nil,
-    probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
-) async throws -> WorkspaceSQLiteDatastore {
+    probe: (@Sendable (WorkspaceSQLiteDatastoreActor.ProbeEvent) async -> Void)? = nil
+) async throws -> WorkspaceSQLiteDatastoreActor {
     let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
     try coreRepository.migrate()
@@ -74,8 +74,8 @@ func preparedWorkspaceSQLiteDatastore(
     coreRepository: WorkspaceCoreRepository,
     preparedApplicationLocalRepository: WorkspaceLocalRepository,
     traceRuntime: AgentStudioTraceRuntime? = nil,
-    probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
-) async throws -> WorkspaceSQLiteDatastore {
+    probe: (@Sendable (WorkspaceSQLiteDatastoreActor.ProbeEvent) async -> Void)? = nil
+) async throws -> WorkspaceSQLiteDatastoreActor {
     try await preparedWorkspaceSQLiteDatastore(
         from: WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
@@ -97,8 +97,8 @@ func preparedWorkspaceSQLiteDatastore(
     coreRepository: WorkspaceCoreRepository,
     localUnavailable failure: WorkspaceSQLiteDatastoreFailure,
     traceRuntime: AgentStudioTraceRuntime? = nil,
-    probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
-) async throws -> WorkspaceSQLiteDatastore {
+    probe: (@Sendable (WorkspaceSQLiteDatastoreActor.ProbeEvent) async -> Void)? = nil
+) async throws -> WorkspaceSQLiteDatastoreActor {
     let backend = WorkspaceSQLiteStoreBackend(
         coreRepository: coreRepository,
         makeLocalRepository: { _ in
@@ -106,8 +106,8 @@ func preparedWorkspaceSQLiteDatastore(
         },
         coreDatabaseStartupProvenance: .createdDuringCurrentStartup
     )
-    let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
-    return WorkspaceSQLiteDatastore(
+    let preparedCore = try WorkspaceSQLiteDatastoreActor.strictlyPrepareCore(using: backend)
+    return WorkspaceSQLiteDatastoreActor(
         preparedCoreRepository: coreRepository,
         preparationReceipt: .init(core: preparedCore, local: .unavailable(failure)),
         preparedApplicationLocalRepository: nil,

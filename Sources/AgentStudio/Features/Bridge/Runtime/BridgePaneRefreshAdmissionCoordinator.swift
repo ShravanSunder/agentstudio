@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 enum BridgePaneRefreshLane: String, Codable, Hashable, Sendable {
@@ -10,6 +11,7 @@ enum BridgePaneRefreshCatchUpOutcome: Equatable, Sendable {
     case succeeded
     case failed
     case stale
+    case streamReset
 }
 
 struct BridgePaneRefreshDirtyFact: Sendable {
@@ -18,6 +20,8 @@ struct BridgePaneRefreshDirtyFact: Sendable {
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let operationCorrelationID: String?
+    let operationStageAttempt: Int
 
     var filePaths: [String] {
         fileChangeset?.paths ?? []
@@ -49,7 +53,9 @@ struct BridgePaneRefreshWorkAdmission: Sendable {
 ///
 /// The MainActor coordinator remains the sole activity writer. Product actors
 /// may only acquire and validate tokens through this source; they cannot mint or
-/// change pane activity.
+/// change pane activity. Catch-up reservations additionally bind their token to
+/// one File or Review authority generation, while generic content admissions
+/// remain activity-only.
 struct BridgePaneRefreshWorkAdmissionSource: Sendable {
     fileprivate let gate: BridgePaneRefreshWorkAdmissionGate
 
@@ -64,12 +70,15 @@ struct BridgePaneRefreshWorkAdmissionSource: Sendable {
 
 struct BridgePaneRefreshCatchUpReservation: Sendable {
     let id: UUID
+    let authorityGeneration: UInt64
     let dirtyGeneration: UInt64
     let lanes: Set<BridgePaneRefreshLane>
     let fileChangeset: FileChangeset?
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
+    let operationCorrelationID: String
+    let operationStageAttempt: Int
     let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
 
     fileprivate let dirtyFact: BridgePaneRefreshDirtyFact
@@ -85,13 +94,32 @@ struct BridgePaneRefreshAdmissionSnapshot: Sendable {
     let dirtyFact: BridgePaneRefreshDirtyFact?
     let activeRefreshPass: BridgePaneRefreshCatchUpReservation?
     let refreshPassCount: Int
+    let fileRefreshFailure: BridgePaneProductFileRefreshFailure?
 }
 
 struct BridgePaneProductPresentationSnapshot: Equatable, Sendable {
     let nativeActivity: BridgePaneActivity
     let presentationRevision: Int
     let refreshingLanes: Set<BridgePaneRefreshLane>
+    let fileRefreshFailure: BridgePaneProductFileRefreshFailure?
+    let operationCorrelationID: String?
     let reviewComparison: BridgePaneReviewComparisonPresentation?
+
+    init(
+        nativeActivity: BridgePaneActivity,
+        presentationRevision: Int,
+        refreshingLanes: Set<BridgePaneRefreshLane>,
+        fileRefreshFailure: BridgePaneProductFileRefreshFailure? = nil,
+        operationCorrelationID: String? = nil,
+        reviewComparison: BridgePaneReviewComparisonPresentation?
+    ) {
+        self.nativeActivity = nativeActivity
+        self.presentationRevision = presentationRevision
+        self.refreshingLanes = refreshingLanes
+        self.fileRefreshFailure = fileRefreshFailure
+        self.operationCorrelationID = operationCorrelationID
+        self.reviewComparison = reviewComparison
+    }
 }
 
 /// Owns foreground work admission and the one pane-wide hidden freshness fact.
@@ -103,12 +131,15 @@ struct BridgePaneProductPresentationSnapshot: Equatable, Sendable {
 final class BridgePaneRefreshAdmissionCoordinator {
     private let workAdmissionGate: BridgePaneRefreshWorkAdmissionGate
     private var activity: BridgePaneActivity
-    private var dirtyFact: BridgePaneRefreshDirtyFact?
-    private var activeRefreshPass: BridgePaneRefreshCatchUpReservation?
+    private var dirtyFactByLane: [BridgePaneRefreshLane: BridgePaneRefreshDirtyFact] = [:]
+    private var activeRefreshPassByLane: [BridgePaneRefreshLane: BridgePaneRefreshCatchUpReservation] = [:]
     private var nextDirtyGeneration: UInt64 = 0
+    private var nextAuthorityGeneration: UInt64 = 0
+    private var authorityGenerationByLane: [BridgePaneRefreshLane: UInt64] = [:]
     private var presentationRevision = 1
     private var refreshPassCount = 0
     private var reviewComparison: BridgePaneReviewComparisonPresentation?
+    private var fileRefreshFailure: BridgePaneProductFileRefreshFailure?
 
     init(
         initialActivity: BridgePaneActivity = .dormant,
@@ -123,9 +154,10 @@ final class BridgePaneRefreshAdmissionCoordinator {
         BridgePaneRefreshAdmissionSnapshot(
             activity: activity,
             foregroundWorkEpoch: workAdmissionGate.diagnosticSnapshot.epoch,
-            dirtyFact: dirtyFact,
-            activeRefreshPass: activeRefreshPass,
-            refreshPassCount: refreshPassCount
+            dirtyFact: combinedDirtyFact,
+            activeRefreshPass: activeRefreshPassByLane[.file] ?? activeRefreshPassByLane[.review],
+            refreshPassCount: refreshPassCount,
+            fileRefreshFailure: fileRefreshFailure
         )
     }
 
@@ -137,7 +169,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
         BridgePaneProductPresentationSnapshot(
             nativeActivity: activity,
             presentationRevision: presentationRevision,
-            refreshingLanes: activeRefreshPass?.lanes ?? [],
+            refreshingLanes: Set(activeRefreshPassByLane.keys),
+            fileRefreshFailure: fileRefreshFailure,
+            operationCorrelationID: activeRefreshPassByLane[.review]?.operationCorrelationID,
             reviewComparison: reviewComparison
         )
     }
@@ -206,9 +240,16 @@ final class BridgePaneRefreshAdmissionCoordinator {
             )
             return
         }
+        let nextAttempt: BridgePaneReviewComparisonAttempt
+        switch reviewComparison.attempt {
+        case .pending, .unavailable:
+            nextAttempt = .settled(reviewGeneration: reviewGeneration)
+        case .selectionRequired, .settled:
+            nextAttempt = reviewComparison.attempt
+        }
         let nextComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,
-            attempt: reviewComparison.attempt,
+            attempt: nextAttempt,
             displayedSnapshot: .current(displayedSnapshotIdentity),
             repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
         )
@@ -238,18 +279,55 @@ final class BridgePaneRefreshAdmissionCoordinator {
         presentationRevision += 1
     }
 
+    @discardableResult
     func recordInvalidation(
         fileChangeset: FileChangeset?,
         latestFileStatus: GitWorkingTreeStatus? = nil,
         requiresReviewRefresh: Bool
-    ) {
-        guard activity != .closed else { return }
-        dirtyFact = mergingInvalidation(
-            into: dirtyFact,
-            fileChangeset: fileChangeset,
-            latestFileStatus: latestFileStatus,
-            requiresReviewRefresh: requiresReviewRefresh
-        )
+    ) -> Set<BridgePaneRefreshLane> {
+        guard activity != .closed else { return [] }
+        let previousPresentation = productPresentationSnapshot
+        var supersededLanes: Set<BridgePaneRefreshLane> = []
+        nextDirtyGeneration &+= 1
+        nextAuthorityGeneration &+= 1
+        let invalidationGeneration = nextDirtyGeneration
+        if fileChangeset != nil || latestFileStatus != nil {
+            fileRefreshFailure = nil
+            authorityGenerationByLane[.file] = nextAuthorityGeneration
+            workAdmissionGate.updateAuthority(
+                for: .file,
+                generation: nextAuthorityGeneration
+            )
+            if supersedeActiveReservation(for: .file) {
+                supersededLanes.insert(.file)
+            }
+            dirtyFactByLane[.file] = mergingInvalidation(
+                into: dirtyFactByLane[.file],
+                generation: invalidationGeneration,
+                fileChangeset: fileChangeset,
+                latestFileStatus: latestFileStatus,
+                requiresReviewRefresh: false
+            )
+        }
+        if requiresReviewRefresh {
+            authorityGenerationByLane[.review] = nextAuthorityGeneration
+            workAdmissionGate.updateAuthority(
+                for: .review,
+                generation: nextAuthorityGeneration
+            )
+            if supersedeActiveReservation(for: .review) {
+                supersededLanes.insert(.review)
+            }
+            dirtyFactByLane[.review] = mergingInvalidation(
+                into: dirtyFactByLane[.review],
+                generation: invalidationGeneration,
+                fileChangeset: nil,
+                latestFileStatus: nil,
+                requiresReviewRefresh: true
+            )
+        }
+        advancePresentationRevisionIfNeeded(from: previousPresentation)
+        return supersededLanes
     }
 
     func applyActivity(_ nextActivity: BridgePaneActivity) {
@@ -276,28 +354,74 @@ final class BridgePaneRefreshAdmissionCoordinator {
         workAdmissionGate.acquire(validity: .foregroundOrLoadedHidden)
     }
 
+    func isRefreshLaneActive(_ lane: BridgePaneRefreshLane) -> Bool {
+        activeRefreshPassByLane[lane] != nil
+    }
+
+    func currentAuthorityGeneration(for lane: BridgePaneRefreshLane) -> UInt64 {
+        authorityGenerationByLane[lane, default: 0]
+    }
+
+    func isRefreshPassCurrent(_ reservation: BridgePaneRefreshCatchUpReservation) -> Bool {
+        guard reservation.lanes.count == 1,
+            let lane = reservation.lanes.first
+        else { return false }
+        return activeRefreshPassByLane[lane]?.id == reservation.id
+            && authorityGenerationByLane[lane, default: 0] == reservation.authorityGeneration
+    }
+
+    @discardableResult
+    func advanceAuthority(for lane: BridgePaneRefreshLane) -> UInt64 {
+        let previousPresentation = productPresentationSnapshot
+        nextAuthorityGeneration &+= 1
+        authorityGenerationByLane[lane] = nextAuthorityGeneration
+        workAdmissionGate.updateAuthority(for: lane, generation: nextAuthorityGeneration)
+        _ = supersedeActiveReservation(for: lane)
+        advancePresentationRevisionIfNeeded(from: previousPresentation)
+        return nextAuthorityGeneration
+    }
+
     func completeRefreshPass(
         _ reservation: BridgePaneRefreshCatchUpReservation,
         outcome: BridgePaneRefreshCatchUpOutcome
     ) {
         // Leaving foreground already restores and clears the active reservation.
         // Its later cancelled/stale completion must not merge the same fact twice.
-        guard activeRefreshPass?.id == reservation.id else { return }
+        guard reservation.lanes.count == 1,
+            let lane = reservation.lanes.first,
+            activeRefreshPassByLane[lane]?.id == reservation.id
+        else { return }
         let previousPresentation = productPresentationSnapshot
-        activeRefreshPass = nil
+        activeRefreshPassByLane[lane] = nil
         guard activity != .closed else { return }
         switch outcome {
         case .succeeded:
-            break
+            if lane == .file { fileRefreshFailure = nil }
         case .failed, .stale:
-            restoreDirtyFact(reservation.dirtyFact)
+            restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
+        case .streamReset:
+            restoreDirtyFact(
+                reservation.dirtyFact,
+                lane: lane,
+                operationCorrelationID: reservation.operationCorrelationID
+            )
         }
         advancePresentationRevisionIfNeeded(from: previousPresentation)
     }
 
     func reserveForegroundRefreshPass() -> BridgePaneRefreshCatchUpReservation? {
         guard activity == .foreground else { return nil }
-        return reserveCatchUpIfPossible()
+        if let fileReservation = reserveCatchUpIfPossible(for: .file) {
+            return fileReservation
+        }
+        return reserveCatchUpIfPossible(for: .review)
+    }
+
+    func reserveForegroundRefreshPass(
+        for lane: BridgePaneRefreshLane
+    ) -> BridgePaneRefreshCatchUpReservation? {
+        guard activity == .foreground else { return nil }
+        return reserveCatchUpIfPossible(for: lane)
     }
 
     func close() {
@@ -305,25 +429,49 @@ final class BridgePaneRefreshAdmissionCoordinator {
         let previousPresentation = productPresentationSnapshot
         activity = .closed
         workAdmissionGate.close()
-        dirtyFact = nil
-        activeRefreshPass = nil
+        dirtyFactByLane.removeAll()
+        activeRefreshPassByLane.removeAll()
         advancePresentationRevisionIfNeeded(from: previousPresentation)
+    }
+
+    func recordFileRefreshFailure(_ failure: BridgePaneProductFileRefreshFailure) {
+        guard activity != .closed, fileRefreshFailure != failure else { return }
+        fileRefreshFailure = failure
+        presentationRevision += 1
+    }
+
+    @discardableResult
+    func beginExplicitFileRefreshRetry() -> Bool {
+        guard activity == .foreground,
+            dirtyFactByLane[.file] != nil,
+            fileRefreshFailure != nil,
+            activeRefreshPassByLane[.file] == nil
+        else { return false }
+        let previousPresentation = productPresentationSnapshot
+        nextAuthorityGeneration &+= 1
+        authorityGenerationByLane[.file] = nextAuthorityGeneration
+        workAdmissionGate.updateAuthority(for: .file, generation: nextAuthorityGeneration)
+        fileRefreshFailure = nil
+        advancePresentationRevisionIfNeeded(from: previousPresentation)
+        return true
     }
 
     private func mergingInvalidation(
         into current: BridgePaneRefreshDirtyFact?,
+        generation: UInt64,
         fileChangeset: FileChangeset?,
         latestFileStatus: GitWorkingTreeStatus?,
         requiresReviewRefresh: Bool
     ) -> BridgePaneRefreshDirtyFact {
         guard let current else {
-            nextDirtyGeneration &+= 1
             return BridgePaneRefreshDirtyFact(
-                generation: nextDirtyGeneration,
+                generation: generation,
                 fileChangeset: mergedFileChangeset(current: nil, incoming: fileChangeset),
                 latestFileStatus: latestFileStatus,
                 latestBatchSequence: fileChangeset?.batchSeq ?? 0,
-                requiresReviewRefresh: requiresReviewRefresh
+                requiresReviewRefresh: requiresReviewRefresh,
+                operationCorrelationID: nil,
+                operationStageAttempt: 0
             )
         }
         return BridgePaneRefreshDirtyFact(
@@ -331,50 +479,84 @@ final class BridgePaneRefreshAdmissionCoordinator {
             fileChangeset: mergedFileChangeset(current: current.fileChangeset, incoming: fileChangeset),
             latestFileStatus: latestFileStatus ?? current.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, fileChangeset?.batchSeq ?? 0),
-            requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh
+            requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh,
+            operationCorrelationID: current.operationCorrelationID,
+            operationStageAttempt: current.operationStageAttempt
         )
     }
 
-    private func reserveCatchUpIfPossible() -> BridgePaneRefreshCatchUpReservation? {
-        guard activeRefreshPass == nil,
-            let dirtyFact,
-            let activityAdmission = workAdmissionGate.acquire(validity: .foregroundOnly)
+    private func reserveCatchUpIfPossible(
+        for lane: BridgePaneRefreshLane
+    ) -> BridgePaneRefreshCatchUpReservation? {
+        let authorityGeneration = authorityGenerationByLane[lane, default: 0]
+        guard activeRefreshPassByLane[lane] == nil,
+            let dirtyFact = dirtyFactByLane[lane],
+            let activityAdmission = workAdmissionGate.acquire(
+                validity: .foregroundOnly,
+                authorityFence: .init(
+                    lane: lane,
+                    generation: authorityGeneration
+                )
+            )
         else { return nil }
-        self.dirtyFact = nil
-        let lanes: Set<BridgePaneRefreshLane> =
-            dirtyFact.requiresReviewRefresh
-            ? [.file, .review]
-            : [.file]
+        dirtyFactByLane[lane] = nil
         let reservation = BridgePaneRefreshCatchUpReservation(
-            id: UUID(),
+            id: UUIDv7.generate(),
+            authorityGeneration: authorityGeneration,
             dirtyGeneration: dirtyFact.generation,
-            lanes: lanes,
+            lanes: [lane],
             fileChangeset: dirtyFact.fileChangeset,
             latestFileStatus: dirtyFact.latestFileStatus,
             latestBatchSequence: dirtyFact.latestBatchSequence,
             requiresReviewRefresh: dirtyFact.requiresReviewRefresh,
+            operationCorrelationID:
+                dirtyFact.operationCorrelationID ?? BridgeOperationCorrelation.mintScrubbedID(),
+            operationStageAttempt: dirtyFact.operationStageAttempt,
             foregroundWorkAdmission: activityAdmission,
             dirtyFact: dirtyFact
         )
-        activeRefreshPass = reservation
+        activeRefreshPassByLane[lane] = reservation
         refreshPassCount += 1
         presentationRevision += 1
         return reservation
     }
 
     private func restoreActiveReservationToDirtyFact() {
-        guard let activeRefreshPass else { return }
-        self.activeRefreshPass = nil
-        restoreDirtyFact(activeRefreshPass.dirtyFact)
+        let activeReservations = activeRefreshPassByLane
+        activeRefreshPassByLane.removeAll()
+        for (lane, reservation) in activeReservations {
+            restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
+        }
     }
 
-    private func restoreDirtyFact(_ restored: BridgePaneRefreshDirtyFact) {
+    private func supersedeActiveReservation(for lane: BridgePaneRefreshLane) -> Bool {
+        guard let reservation = activeRefreshPassByLane.removeValue(forKey: lane) else {
+            return false
+        }
+        restoreDirtyFact(reservation.dirtyFact, lane: lane, operationCorrelationID: nil)
+        return true
+    }
+
+    private func restoreDirtyFact(
+        _ restored: BridgePaneRefreshDirtyFact,
+        lane: BridgePaneRefreshLane,
+        operationCorrelationID: String?
+    ) {
         guard activity != .closed else { return }
-        guard let current = dirtyFact else {
-            dirtyFact = restored
+        guard let current = dirtyFactByLane[lane] else {
+            dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
+                generation: restored.generation,
+                fileChangeset: restored.fileChangeset,
+                latestFileStatus: restored.latestFileStatus,
+                latestBatchSequence: restored.latestBatchSequence,
+                requiresReviewRefresh: restored.requiresReviewRefresh,
+                operationCorrelationID: operationCorrelationID,
+                operationStageAttempt:
+                    operationCorrelationID == nil ? 0 : restored.operationStageAttempt + 1
+            )
             return
         }
-        dirtyFact = BridgePaneRefreshDirtyFact(
+        dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
             generation: min(current.generation, restored.generation),
             fileChangeset: mergedFileChangeset(
                 current: current.fileChangeset,
@@ -382,7 +564,12 @@ final class BridgePaneRefreshAdmissionCoordinator {
             ),
             latestFileStatus: current.latestFileStatus ?? restored.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, restored.latestBatchSequence),
-            requiresReviewRefresh: current.requiresReviewRefresh || restored.requiresReviewRefresh
+            requiresReviewRefresh: current.requiresReviewRefresh || restored.requiresReviewRefresh,
+            operationCorrelationID: current.operationCorrelationID ?? operationCorrelationID,
+            operationStageAttempt: max(
+                current.operationStageAttempt,
+                operationCorrelationID == nil ? 0 : restored.operationStageAttempt + 1
+            )
         )
     }
 
@@ -391,9 +578,31 @@ final class BridgePaneRefreshAdmissionCoordinator {
     ) {
         guard
             previousPresentation.nativeActivity != activity
-                || previousPresentation.refreshingLanes != (activeRefreshPass?.lanes ?? [])
+                || previousPresentation.refreshingLanes != Set(activeRefreshPassByLane.keys)
+                || previousPresentation.fileRefreshFailure != fileRefreshFailure
         else { return }
         presentationRevision += 1
+    }
+
+    private var combinedDirtyFact: BridgePaneRefreshDirtyFact? {
+        switch (dirtyFactByLane[.file], dirtyFactByLane[.review]) {
+        case (nil, nil):
+            nil
+        case (.some(let file), nil):
+            file
+        case (nil, .some(let review)):
+            review
+        case (.some(let file), .some(let review)):
+            BridgePaneRefreshDirtyFact(
+                generation: min(file.generation, review.generation),
+                fileChangeset: file.fileChangeset,
+                latestFileStatus: file.latestFileStatus,
+                latestBatchSequence: file.latestBatchSequence,
+                requiresReviewRefresh: true,
+                operationCorrelationID: nil,
+                operationStageAttempt: 0
+            )
+        }
     }
 
     private func mergedFileChangeset(
@@ -443,6 +652,12 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         let identity: Identity
         let epoch: UInt64
         let validity: Validity
+        let authorityFence: AuthorityFence?
+    }
+
+    fileprivate struct AuthorityFence: Sendable {
+        let lane: BridgePaneRefreshLane
+        let generation: UInt64
     }
 
     private struct InvalidationHandler {
@@ -459,6 +674,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
     private var activity: BridgePaneActivity
     private var foregroundEpoch: UInt64 = 0
     private var reviewContinuationEpoch: UInt64 = 0
+    private var authorityGenerationByLane: [BridgePaneRefreshLane: UInt64] = [:]
     private var invalidationHandlerById: [UUID: InvalidationHandler] = [:]
 
     init(initialActivity: BridgePaneActivity) {
@@ -469,9 +685,20 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         lock.withLock { DiagnosticSnapshot(epoch: foregroundEpoch) }
     }
 
-    func acquire(validity: Validity) -> BridgePaneRefreshWorkAdmission? {
+    func acquire(
+        validity: Validity,
+        authorityFence: AuthorityFence? = nil
+    ) -> BridgePaneRefreshWorkAdmission? {
         lock.withLock {
             guard activity == .foreground else { return nil }
+            if let authorityFence {
+                guard
+                    authorityGenerationByLane[authorityFence.lane, default: 0]
+                        == authorityFence.generation
+                else {
+                    return nil
+                }
+            }
             return BridgePaneRefreshWorkAdmission(
                 gate: self,
                 token: Token(
@@ -479,9 +706,23 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
                     epoch: validity == .foregroundOnly
                         ? foregroundEpoch
                         : reviewContinuationEpoch,
-                    validity: validity
+                    validity: validity,
+                    authorityFence: authorityFence
                 )
             )
+        }
+    }
+
+    func updateAuthority(
+        for lane: BridgePaneRefreshLane,
+        generation: UInt64
+    ) {
+        let invalidationHandlers: [@Sendable () -> Void] = lock.withLock {
+            authorityGenerationByLane[lane] = generation
+            return takeInvalidationHandlersInvalidatedByCurrentState()
+        }
+        for invalidationHandler in invalidationHandlers {
+            invalidationHandler()
         }
     }
 
@@ -493,7 +734,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
             if nextActivity == .dormant {
                 reviewContinuationEpoch &+= 1
             }
-            return takeInvalidationHandlersInvalidatedByCurrentActivity()
+            return takeInvalidationHandlersInvalidatedByCurrentState()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -506,7 +747,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
             activity = .closed
             foregroundEpoch &+= 1
             reviewContinuationEpoch &+= 1
-            return takeInvalidationHandlersInvalidatedByCurrentActivity()
+            return takeInvalidationHandlersInvalidatedByCurrentState()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -529,7 +770,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
     ) -> UUID? {
         lock.withLock {
             guard isValid(token) else { return nil }
-            let handlerId = UUID()
+            let handlerId = UUIDv7.generate()
             invalidationHandlerById[handlerId] = InvalidationHandler(
                 handler: handler,
                 token: token
@@ -546,6 +787,12 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
 
     private func isValid(_ token: Token) -> Bool {
         guard token.identity === identity else { return false }
+        if let authorityFence = token.authorityFence,
+            authorityGenerationByLane[authorityFence.lane, default: 0]
+                != authorityFence.generation
+        {
+            return false
+        }
         switch token.validity {
         case .foregroundOnly:
             return activity == .foreground && token.epoch == foregroundEpoch
@@ -555,7 +802,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         }
     }
 
-    private func takeInvalidationHandlersInvalidatedByCurrentActivity() -> [@Sendable () -> Void] {
+    private func takeInvalidationHandlersInvalidatedByCurrentState() -> [@Sendable () -> Void] {
         let invalidatedHandlerIds = invalidationHandlerById.compactMap { handlerId, registration in
             isValid(registration.token) ? nil : handlerId
         }

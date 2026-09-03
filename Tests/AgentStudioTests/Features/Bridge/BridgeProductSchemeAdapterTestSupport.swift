@@ -124,7 +124,8 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
     }
 
     func response(
-        for controlRequest: BridgeProductControlRequest
+        for controlRequest: BridgeProductControlRequest,
+        productAdmission _: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse {
         controlRequests.append(controlRequest)
         resumeControlStartWaiters()

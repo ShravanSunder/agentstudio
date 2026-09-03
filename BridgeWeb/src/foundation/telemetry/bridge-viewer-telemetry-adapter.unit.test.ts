@@ -74,6 +74,7 @@ describe('bridge viewer telemetry adapter flushing', () => {
 		const recorder = makeCapturingRecorder();
 
 		recordBridgeViewerFirstInteractionReadyTelemetrySample({
+			activationSequence: 7,
 			durationMilliseconds: 42,
 			telemetryRecorder: recorder,
 			traceContext: null,
@@ -90,6 +91,7 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			workerLane: 'pierre',
 		});
 		recordBridgeSelectedContentPaintedTelemetrySample({
+			activationSequence: 7,
 			clickToPaintMilliseconds: 24,
 			frameWaitMilliseconds: 8,
 			materializeMilliseconds: 11,
@@ -127,6 +129,12 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			'performance.bridge.web.code_view_item_materialize',
 		]);
 		expect(recorder.flushForces).toEqual([undefined, undefined, undefined]);
+		expect(recorder.samples[0]?.numericAttributes['agentstudio.bridge.activation.sequence']).toBe(
+			7,
+		);
+		expect(recorder.samples[4]?.numericAttributes['agentstudio.bridge.activation.sequence']).toBe(
+			7,
+		);
 	});
 
 	test('does not force-flush tree hot-path samples per record', () => {
@@ -228,9 +236,6 @@ describe('bridge viewer telemetry adapter flushing', () => {
 					'agentstudio.bridge.viewer': 'review',
 				}),
 				numericAttributes: {
-					'agentstudio.bridge.hover_to_render.max_ms': 21,
-					'agentstudio.bridge.hover_to_render.p95_ms': 21,
-					'agentstudio.bridge.hover_to_render.sample.count': 3,
 					'agentstudio.bridge.visible_item.count': 16,
 				},
 				booleanAttributes: {
@@ -306,9 +311,6 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 				'agentstudio.bridge.viewer': 'review',
 			},
 			numericAttributes: {
-				'agentstudio.bridge.hover_to_render.max_ms': 7,
-				'agentstudio.bridge.hover_to_render.p95_ms': 7,
-				'agentstudio.bridge.hover_to_render.sample.count': 1,
 				'agentstudio.bridge.visible_item.count': 14,
 			},
 			booleanAttributes: {

@@ -132,7 +132,7 @@ private struct DuplicateRootBootContinuityFixture {
         return fixture
     }
 
-    func makeDatastore() -> WorkspaceSQLiteDatastore {
+    func makeDatastore() -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: localDatabaseURL

@@ -242,6 +242,11 @@ extension AppDelegate {
             )
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
+        await finishCanonicalStoreBoot(sqliteDatastore: sqliteDatastore)
+    }
+
+    private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        await bootWorktreeAnnotations(sqliteDatastore: sqliteDatastore)
         configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.core.windowLifecycle
@@ -256,6 +261,35 @@ extension AppDelegate {
         )
     }
 
+    private func bootWorktreeAnnotations(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        worktreeAnnotationStore = WorktreeAnnotationServiceActor(
+            sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
+                workspaceID: store.identityAtom.workspaceId,
+                datastore: sqliteDatastore
+            ),
+            traceRuntime: traceRuntime
+        )
+        worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
+            store: worktreeAnnotationStore,
+            effect: WorktreeAnnotationOutputEffects()
+        )
+        do {
+            _ = try await worktreeAnnotationOutputCoordinator.recoverPreparedAttemptsAsUnknown()
+        } catch {
+            recordPersistenceRecovery(
+                PersistenceRecoveryEvent(
+                    store: .worktreeAnnotations,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
+            )
+            return
+        }
+        if let recoveryEvent = await worktreeAnnotationStore.restoreRecoveryState() {
+            recordPersistenceRecovery(recoveryEvent)
+        }
+    }
+
     private func configureInteractionPerformanceProbeOwners() {
         let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
         managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
@@ -265,12 +299,15 @@ extension AppDelegate {
         }
     }
 
-    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
-        WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
+        WorkspaceSQLiteDatastoreFactory(
+            traceRuntime: traceRuntime,
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+        ).makeDatastore()
     }
 
     func makeWorkspaceSettingsStore(
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
@@ -341,6 +378,8 @@ extension AppDelegate {
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in

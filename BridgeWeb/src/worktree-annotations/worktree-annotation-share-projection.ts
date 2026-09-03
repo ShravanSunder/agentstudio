@@ -1,0 +1,84 @@
+import { deriveWorktreeAnnotationMessageState } from './worktree-annotation-message-state.js';
+import type { WorktreeAnnotationShareScope } from './worktree-annotation-share-mode.js';
+
+export interface WorktreeAnnotationShareMessageFacts {
+	readonly attentionState: 'new' | 'not_applicable' | 'viewed';
+	readonly authorKind: 'agent' | 'human';
+	readonly draft: object | null;
+	readonly handled: boolean;
+	readonly messageId: string;
+	readonly messageRevision: number;
+	readonly savedBody: string | null;
+	readonly savedRevision: number | null;
+	readonly sessionId: string;
+	readonly sessionRevision: number;
+}
+
+export interface WorktreeAnnotationShareThreadFacts<
+	TMessage extends WorktreeAnnotationShareMessageFacts,
+> {
+	readonly context: {
+		readonly path: string;
+		readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+		readonly startLine: number;
+		readonly threadId: string;
+	};
+	readonly messages: readonly TMessage[];
+}
+
+type ShareThreadMessage<
+	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
+> = TThread['messages'][number];
+
+type FilteredShareThread<
+	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
+> = Omit<TThread, 'messages'> & { readonly messages: readonly ShareThreadMessage<TThread>[] };
+
+export interface WorktreeAnnotationShareProjection<
+	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
+> {
+	readonly allCount: number;
+	readonly inlineThreads: readonly FilteredShareThread<TThread>[];
+	readonly pendingCount: number;
+	readonly otherThreads: readonly FilteredShareThread<TThread>[];
+}
+
+export function deriveWorktreeAnnotationShareProjection<
+	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
+>(props: {
+	readonly scope: WorktreeAnnotationShareScope;
+	readonly threads: readonly TThread[];
+}): WorktreeAnnotationShareProjection<TThread> {
+	let allCount = 0;
+	let pendingCount = 0;
+	const inlineThreads: FilteredShareThread<TThread>[] = [];
+	const otherThreads: FilteredShareThread<TThread>[] = [];
+
+	for (const thread of props.threads) {
+		const currentSavedMessages = thread.messages.filter(
+			(message): boolean => deriveWorktreeAnnotationMessageState(message).isAllEligible,
+		);
+		allCount += currentSavedMessages.length;
+		pendingCount += currentSavedMessages.filter(
+			(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+		).length;
+		const participatingMessages =
+			props.scope === 'pending'
+				? currentSavedMessages.filter(
+						(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+					)
+				: currentSavedMessages;
+		if (participatingMessages.length === 0) continue;
+		const filteredThread: FilteredShareThread<TThread> = {
+			...thread,
+			messages: participatingMessages,
+		};
+		if (thread.context.placement === 'exact' || thread.context.placement === 'relocated') {
+			inlineThreads.push(filteredThread);
+		} else {
+			otherThreads.push(filteredThread);
+		}
+	}
+
+	return { allCount, inlineThreads, otherThreads, pendingCount };
+}

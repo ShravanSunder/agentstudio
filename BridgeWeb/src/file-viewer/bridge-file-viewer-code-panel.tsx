@@ -1,13 +1,39 @@
-import type { CodeViewOptions } from '@pierre/diffs';
+import type { CodeViewLineSelection, CodeViewOptions, SelectedLineRange } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
-import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
+	bridgeCodeViewPresentationItemWithExactSource,
 	observeBridgeCodeViewRenderFulfillment,
 	reconcileBridgeCodeViewRenderFulfillment,
 } from '../review-viewer/code-view/bridge-code-view-render-fulfillment.js';
+import {
+	fileAnnotationOriginForPierreSelection,
+	filePierreAnnotationForExistingCodeViewComposer,
+	filePierreAnnotationsForExistingCodeView,
+	threadForPierreAnnotation,
+	worktreeAnnotationMetadataForPierreAnnotation,
+	worktreeAnnotationPierreRangesMatch,
+	type WorktreeAnnotationLocatedOrigin,
+} from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
+import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
+import { deriveWorktreeAnnotationShareProjection } from '../worktree-annotations/worktree-annotation-share-projection.js';
+import {
+	useWorktreeAnnotationActiveEditTokens,
+	useWorktreeAnnotationActiveNewMessageEditTokens,
+	useWorktreeAnnotationEditSurfaceToken,
+	useWorktreeAnnotationInteraction,
+	useWorktreeAnnotationProjection,
+	useWorktreeAnnotationSessionSelection,
+	useWorktreeAnnotationSessionDemand,
+} from '../worktree-annotations/worktree-annotation-surface-provider.js';
+import {
+	WorktreeAnnotationNewMessageComposer,
+	WorktreeAnnotationThread,
+} from '../worktree-annotations/worktree-annotation-thread.js';
 import {
 	bridgeFileViewerCodeViewItemsForPanelState,
 	type BridgeFileViewerCodePanelState,
@@ -31,21 +57,107 @@ export interface BridgeFileViewerCodePanelProps {
 	readonly staleNotice?: ReactElement | null;
 }
 
+interface FileAnnotationAdmissionIdentity {
+	readonly codeViewItemId: string;
+	readonly fileId: string;
+	readonly path: string;
+	readonly range: SelectedLineRange;
+	readonly sourceDescriptorId: string;
+}
+
+interface PendingFileAnnotationComposer extends FileAnnotationAdmissionIdentity {
+	readonly committed: boolean;
+	readonly editToken: string;
+	readonly origin: WorktreeAnnotationLocatedOrigin;
+}
+
 export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps): ReactElement {
 	const codeViewHandleRef = useRef<CodeViewHandle<undefined> | null>(null);
+	const annotationProjection = useWorktreeAnnotationProjection();
+	const annotationSessionSelection = useWorktreeAnnotationSessionSelection();
+	const annotationInteraction = useWorktreeAnnotationInteraction();
+	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
+	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
+	const activeAnnotationSessionId = annotationSessionSelection.activeSessionId;
+	useWorktreeAnnotationSessionDemand(activeAnnotationSessionId);
+	const unfilteredAnnotationThreads = annotationProjection.threads.filter(
+		(thread): boolean =>
+			activeAnnotationSessionId !== null &&
+			thread.messages.some((message) => message.sessionId === activeAnnotationSessionId) &&
+			!thread.messages.every(
+				(message): boolean =>
+					message.draft?.activeEditToken !== null &&
+					message.draft?.activeEditToken !== undefined &&
+					activeNewMessageEditTokens.has(message.draft.activeEditToken),
+			),
+	);
+	const activeAnnotationThreads =
+		annotationInteraction.shareMode.kind === 'open'
+			? deriveWorktreeAnnotationShareProjection({
+					scope: annotationInteraction.shareMode.scope,
+					threads: unfilteredAnnotationThreads,
+				}).inlineThreads
+			: unfilteredAnnotationThreads;
+	const [pendingAnnotationComposer, setPendingAnnotationComposer] =
+		useState<PendingFileAnnotationComposer | null>(null);
+	const pendingAnnotationComposerRef = useRef(pendingAnnotationComposer);
+	pendingAnnotationComposerRef.current = pendingAnnotationComposer;
+	const [composerPresentationRevision, setComposerPresentationRevision] = useState(0);
 	const previousRenderedIdentityRef = useRef<{
 		readonly fileId: string;
 		readonly path: string;
 	} | null>(null);
+	useWorktreeAnnotationEditSurfaceToken(pendingAnnotationComposer?.editToken ?? null);
 	const scrollEffectVersionRef = useRef(0);
-	const codeViewItems = useMemo(
-		() =>
-			bridgeFileViewerCodeViewItemsForPanelState({
-				openFileState: props.openFileState,
-				selectedCodeViewItem: props.selectedCodeViewItem,
-			}),
-		[props.openFileState, props.selectedCodeViewItem],
-	);
+	const codeViewItems = useMemo(() => {
+		const items = bridgeFileViewerCodeViewItemsForPanelState({
+			openFileState: props.openFileState,
+			selectedCodeViewItem: props.selectedCodeViewItem,
+		});
+		return items.map((item) => {
+			const annotations =
+				annotationProjection.revision === null
+					? []
+					: filePierreAnnotationsForExistingCodeView({
+							path: item.bridgeMetadata.displayPath,
+							threads: activeAnnotationThreads,
+						});
+			const pendingComposerAnnotation =
+				pendingAnnotationComposer === null ||
+				!fileAnnotationComposerMatchesItem(pendingAnnotationComposer, item)
+					? null
+					: filePierreAnnotationForExistingCodeViewComposer({
+							editToken: pendingAnnotationComposer.editToken,
+							range: pendingAnnotationComposer.range,
+						});
+			if (annotationProjection.revision === null && pendingComposerAnnotation === null) {
+				return item;
+			}
+			return bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: Object.assign({}, item, {
+					annotations:
+						pendingComposerAnnotation === null
+							? annotations
+							: [...annotations, pendingComposerAnnotation],
+					version: annotationPresentationVersion(
+						item.version,
+						activeEditTokens.size === 0 ? annotationProjection.presentationRevision : null,
+						composerPresentationRevision,
+					),
+				}),
+				sourceItem: item,
+			});
+		});
+	}, [
+		activeEditTokens.size,
+		activeAnnotationThreads,
+		annotationProjection.presentationRevision,
+		annotationProjection.revision,
+		composerPresentationRevision,
+		pendingAnnotationComposer,
+		props.openFileState,
+		props.selectedCodeViewItem,
+	]);
 	const shouldRenderContentState = props.openFileState.status !== 'ready';
 	useLayoutEffect((): void => {
 		if (props.selectedCodeViewItem === null) return;
@@ -72,13 +184,148 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		},
 		[props.renderFulfillmentCoordinator, props.selectedCodeViewItem],
 	);
+	const admitSelectedRange = useCallback(
+		(range: SelectedLineRange | null, itemId: string): void => {
+			const selectedItem = props.selectedCodeViewItem;
+			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
+			if (
+				range === null ||
+				selectedItem === null ||
+				sourceDescriptorId === undefined ||
+				selectedItem.id !== itemId
+			) {
+				setPendingAnnotationComposer(null);
+				annotationInteraction.clearRangePresentation();
+				setComposerPresentationRevision((revision): number => revision + 1);
+				return;
+			}
+			const admissionIdentity = fileAnnotationAdmissionIdentity({
+				range,
+				selectedItem,
+				sourceDescriptorId,
+			});
+			setPendingAnnotationComposer({
+				...admissionIdentity,
+				committed: false,
+				editToken: createWorktreeAnnotationEditToken(),
+				origin: fileAnnotationOriginForPierreSelection({
+					path: selectedItem.bridgeMetadata.displayPath,
+					range,
+					sourceDescriptorId,
+				}),
+			});
+			annotationInteraction.setPendingRange(itemId, range);
+			setComposerPresentationRevision((revision): number => revision + 1);
+		},
+		[annotationInteraction, props.selectedCodeViewItem],
+	);
+	const retainSelectedRange = useCallback(
+		(range: SelectedLineRange | null, itemId: string): void => {
+			const currentPresentation = annotationInteraction.pierreRangePresentation;
+			if (
+				currentPresentation.kind === 'savedThread' &&
+				range !== null &&
+				currentPresentation.itemId === itemId &&
+				worktreeAnnotationPierreRangesMatch(currentPresentation.range, range)
+			) {
+				return;
+			}
+			if (pendingAnnotationComposerRef.current?.committed === true) return;
+			if (range === null && pendingAnnotationComposerRef.current !== null) return;
+			const selectedItem = props.selectedCodeViewItem;
+			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
+			if (
+				range === null ||
+				selectedItem === null ||
+				sourceDescriptorId === undefined ||
+				selectedItem.id !== itemId
+			) {
+				setPendingAnnotationComposer(null);
+				annotationInteraction.clearRangePresentation();
+				setComposerPresentationRevision((revision): number => revision + 1);
+				return;
+			}
+			const selectionIdentity = fileAnnotationAdmissionIdentity({
+				range,
+				selectedItem,
+				sourceDescriptorId,
+			});
+			setPendingAnnotationComposer((currentComposer) =>
+				currentComposer !== null &&
+				fileAnnotationIdentityMatchesItem(currentComposer, selectedItem) &&
+				worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
+					? currentComposer
+					: null,
+			);
+			annotationInteraction.setPendingRange(selectionIdentity.codeViewItemId, range);
+			setComposerPresentationRevision((revision): number => revision + 1);
+		},
+		[annotationInteraction, props.selectedCodeViewItem],
+	);
+	const annotationRangePresentation = annotationInteraction.pierreRangePresentation;
+	const selectedAnnotationLines: CodeViewLineSelection | null =
+		annotationRangePresentation.kind === 'none'
+			? null
+			: {
+					id: annotationRangePresentation.itemId,
+					range: annotationRangePresentation.range,
+				};
+	const handleSelectedAnnotationLinesChange = useCallback(
+		(selection: CodeViewLineSelection | null): void => {
+			retainSelectedRange(selection?.range ?? null, selection?.id ?? '');
+		},
+		[retainSelectedRange],
+	);
+	const clearAnnotationSelection = useCallback(
+		(): void => admitSelectedRange(null, ''),
+		[admitSelectedRange],
+	);
+	useWorktreeAnnotationSelectionDismissal({
+		active:
+			annotationRangePresentation.kind === 'pending' &&
+			pendingAnnotationComposer?.committed !== true,
+		clearSelection: clearAnnotationSelection,
+	});
 	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
 		() => ({
 			...(props.codeViewOptions ?? bridgeFileViewerCodeViewOptions),
+			enableGutterUtility: true,
+			enableLineSelection: true,
+			onGutterUtilityClick: (range, context): void => {
+				if (pendingAnnotationComposerRef.current?.committed === true) return;
+				admitSelectedRange(range, context.item.id);
+			},
+			onLineSelectionEnd: (range, context): void => {
+				if (pendingAnnotationComposerRef.current?.committed === true) return;
+				if (range === null) admitSelectedRange(null, '');
+				else retainSelectedRange(range, context.item.id);
+			},
 			onPostRender: handleCodeViewPostRender,
 		}),
-		[handleCodeViewPostRender, props.codeViewOptions],
+		[admitSelectedRange, handleCodeViewPostRender, props.codeViewOptions, retainSelectedRange],
 	);
+	useLayoutEffect((): void => {
+		const selectedItem = props.selectedCodeViewItem;
+		const composerMatchesDisplayedFile =
+			pendingAnnotationComposer !== null &&
+			selectedItem !== null &&
+			fileAnnotationComposerMatchesItem(pendingAnnotationComposer, selectedItem);
+		const selectionMatchesDisplayedFile =
+			annotationRangePresentation.kind === 'none' ||
+			(selectedItem !== null && annotationRangePresentation.itemId === selectedItem.id);
+		if (pendingAnnotationComposer !== null && !composerMatchesDisplayedFile) {
+			setPendingAnnotationComposer(null);
+			setComposerPresentationRevision((revision): number => revision + 1);
+		}
+		if (!selectionMatchesDisplayedFile) {
+			annotationInteraction.clearRangePresentation();
+		}
+	}, [
+		annotationInteraction,
+		annotationRangePresentation,
+		pendingAnnotationComposer,
+		props.selectedCodeViewItem,
+	]);
 	useLayoutEffect((): void => {
 		const selectedItem = props.selectedCodeViewItem;
 		if (selectedItem === null) return;
@@ -109,7 +356,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	return (
 		<section
 			aria-label="Selected file"
-			className="relative min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
+			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
 			data-bridge-code-view-overflow={codeViewOptions.overflow}
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
@@ -151,7 +398,60 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
 						items={codeViewItems}
 						options={codeViewOptions}
+						onSelectedLinesChange={handleSelectedAnnotationLinesChange}
+						renderAnnotation={(annotation, item) => {
+							if (item.type !== 'file') return null;
+							const metadata = worktreeAnnotationMetadataForPierreAnnotation(annotation);
+							if (
+								metadata?.kind === 'composer' &&
+								pendingAnnotationComposer?.editToken === metadata.editToken
+							) {
+								return (
+									<WorktreeAnnotationNewMessageComposer
+										createOperation={(body, editToken, admission) => ({
+											admission: admission ?? annotationSessionSelection.rootAdmission,
+											body,
+											editToken,
+											kind: 'root.create',
+											origin: pendingAnnotationComposer.origin,
+										})}
+										editToken={metadata.editToken}
+										editSurfaceRegistrationOwner="parent"
+										onCancel={() => admitSelectedRange(null, '')}
+										onCommitted={() =>
+											setPendingAnnotationComposer((currentComposer) =>
+												currentComposer?.editToken === metadata.editToken
+													? { ...currentComposer, committed: true }
+													: currentComposer,
+											)
+										}
+										onSaved={(savedMessage) => {
+											const savedThreadIdentity = {
+												itemId: item.id,
+												range: metadata.range,
+												threadId: savedMessage.threadId,
+											};
+											admitSelectedRange(null, '');
+											annotationInteraction.activateSavedThread(savedThreadIdentity);
+										}}
+										placeholder="Write an annotation in Markdown"
+									/>
+								);
+							}
+							if (metadata?.kind !== 'thread') return null;
+							const thread = threadForPierreAnnotation({
+								annotation,
+								threads: activeAnnotationThreads,
+							});
+							return thread === null ? null : (
+								<WorktreeAnnotationThread
+									rangeIdentity={{ itemId: item.id, range: metadata.range }}
+									thread={thread}
+								/>
+							);
+						}}
 						ref={codeViewHandleRef}
+						selectedLines={selectedAnnotationLines}
 						style={{ height: '100%' }}
 					/>
 				</div>
@@ -164,6 +464,56 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			{props.staleNotice ?? null}
 		</section>
 	);
+}
+
+function fileAnnotationAdmissionIdentity(props: {
+	readonly range: SelectedLineRange;
+	readonly selectedItem: BridgeFileViewerSelectedCodeViewItem;
+	readonly sourceDescriptorId: string;
+}): FileAnnotationAdmissionIdentity {
+	return {
+		codeViewItemId: props.selectedItem.id,
+		fileId: props.selectedItem.bridgeMetadata.itemId,
+		path: props.selectedItem.bridgeMetadata.displayPath,
+		range: props.range,
+		sourceDescriptorId: props.sourceDescriptorId,
+	};
+}
+
+function fileAnnotationIdentityMatchesItem(
+	identity: FileAnnotationAdmissionIdentity,
+	item: BridgeFileViewerSelectedCodeViewItem,
+): boolean {
+	return (
+		identity.codeViewItemId === item.id &&
+		identity.fileId === item.bridgeMetadata.itemId &&
+		identity.path === item.bridgeMetadata.displayPath &&
+		identity.sourceDescriptorId === item.bridgeMetadata.sourceDescriptorId
+	);
+}
+
+function fileAnnotationComposerMatchesItem(
+	composer: PendingFileAnnotationComposer,
+	item: BridgeFileViewerSelectedCodeViewItem,
+): boolean {
+	return (
+		composer.codeViewItemId === item.id &&
+		composer.fileId === item.bridgeMetadata.itemId &&
+		composer.path === item.bridgeMetadata.displayPath &&
+		(composer.committed || composer.sourceDescriptorId === item.bridgeMetadata.sourceDescriptorId)
+	);
+}
+
+function annotationPresentationVersion(
+	contentVersion: number | undefined,
+	projectionRevision: number | null,
+	composerRevision: number,
+): number {
+	const baseContentVersion =
+		contentVersion !== undefined && contentVersion >= 1_000_000
+			? Math.floor(contentVersion / 1_000_000)
+			: (contentVersion ?? 0);
+	return baseContentVersion * 1_000_000 + (projectionRevision ?? 0) + composerRevision;
 }
 
 function BridgeFileViewerContentState(props: {

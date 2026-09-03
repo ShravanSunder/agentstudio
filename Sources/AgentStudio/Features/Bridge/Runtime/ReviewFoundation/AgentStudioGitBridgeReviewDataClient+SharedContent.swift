@@ -3,13 +3,9 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionClient {
-    static var defaultSharedContentRootURL: URL {
-        AgentStudioGitBridgeReviewSharedContentRoot.launchRootURL
-    }
-
     func captureSharedContent(
         handles: [BridgeContentHandle],
-        freshnessKey: BridgeGitReadFreshnessKey
+        freshnessKey _: BridgeGitReadFreshnessKey
     ) async throws -> BridgeSharedReviewContentBacking {
         let registrations:
             [(
@@ -31,86 +27,30 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 liveLocatorByIdentity.removeValue(forKey: registration.locatorIdentity)
             }
         }
-        let artifactIdentity = UUIDv7.generate()
-        let artifactDirectory = sharedContentRootURL.appending(path: artifactIdentity.uuidString)
-        try await Self.createBackingDirectory(artifactDirectory)
-        do {
-            var sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewImmutableContentSource] = [:]
-            var capturedByteCount = 0
-            for registration in registrations {
-                let handle = registration.handle
-                let locator = registration.locator
-                let identity = BridgeSharedReviewContentIdentity(
-                    itemIdentity: handle.itemId,
-                    role: handle.role,
-                    contentHash: handle.contentHash
-                )
-                switch locator.source {
-                case .shared:
-                    throw BridgeSharedReviewContentBackingError.invalidated
-                case .live(let target, let path):
-                    if target.kind == .commit {
-                        sourceByIdentity[identity] = .gitObject(
-                            target: target,
-                            path: path,
-                            declaredContentHash: handle.contentHash,
-                            declaredContentHashAlgorithm: handle.contentHashAlgorithm
-                        )
-                    } else {
-                        let payload: GitContentPayload
-                        do {
-                            payload = try await loadGitContentPayload(
-                                GitContentRequest(
-                                    repositoryPath: repositoryPath,
-                                    target: target,
-                                    path: path,
-                                    maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
-                                ),
-                                freshnessKey: freshnessKey
-                            )
-                        } catch BridgeGitReadSchedulerError.timedOut {
-                            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
-                        } catch BridgeGitReadSchedulerError.capacityReached {
-                            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch let error as GitDataPlaneError {
-                            throw bridgeFailure(for: error, handle: handle)
-                        } catch {
-                            throw BridgeProviderFailure.providerFailed(
-                                message: unexpectedGitDataPlaneErrorMessage(error)
-                            )
-                        }
-                        try Self.validate(payload: payload, handle: handle)
-                        let fileName = UUIDv7.generate().uuidString
-                        try await Self.writeCapturedContent(
-                            payload.data,
-                            directoryURL: artifactDirectory,
-                            fileName: fileName
-                        )
-                        sourceByIdentity[identity] = .capturedFile(
-                            BridgeSharedReviewCapturedContentDescriptor(
-                                fileName: fileName,
-                                byteCount: payload.data.count,
-                                declaredContentHash: handle.contentHash,
-                                declaredContentHashAlgorithm: handle.contentHashAlgorithm,
-                                integritySHA256: BridgeSharedReviewContentBacking.sha256(payload.data)
-                            )
-                        )
-                        capturedByteCount += payload.data.count
-                    }
-                }
-            }
-            return BridgeSharedReviewContentBacking(
-                artifactIdentity: artifactIdentity,
-                directoryURL: artifactDirectory,
-                sourceByIdentity: sourceByIdentity,
-                capturedByteCount: capturedByteCount
+        var sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewContentSource] = [:]
+        for registration in registrations {
+            let handle = registration.handle
+            let identity = BridgeSharedReviewContentIdentity(
+                itemIdentity: handle.itemId,
+                role: handle.role,
+                contentHash: handle.contentHash
             )
-        } catch {
-            await Self.removeBackingDirectory(artifactDirectory)
-            throw error
+            switch registration.locator.source {
+            case .shared:
+                throw BridgeSharedReviewContentBackingError.invalidated
+            case .live(let target, let path):
+                sourceByIdentity[identity] = .gitTarget(
+                    target: target,
+                    path: path,
+                    declaredContentHash: handle.contentHash,
+                    declaredContentHashAlgorithm: handle.contentHashAlgorithm
+                )
+            }
         }
+        return BridgeSharedReviewContentBacking(
+            artifactIdentity: UUIDv7.generate(),
+            sourceByIdentity: sourceByIdentity
+        )
     }
 
     func installSharedContent(
@@ -131,9 +71,9 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 source: .shared(backing: backing, identity: identity),
                 reviewGeneration: handle.reviewGeneration
             )
-            // A fresh contribution capture registers live locators before shared
-            // construction acquisition. A reused immutable template does not run
-            // captureSharedContent again, so installing its backing must consume
+            // A fresh comparison registers live locators before shared
+            // construction acquisition. A reused template does not collect
+            // those locators again, so installing its backing must consume
             // the now-superseded live locator for this exact handle identity.
             liveLocatorByIdentity.removeValue(forKey: locatorIdentity)
             if sharedLocatorStackByIdentity[locatorIdentity]?.contains(where: {
@@ -219,7 +159,7 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
             )
         case .shared(let backing, let identity):
             switch try backing.source(for: identity) {
-            case .gitObject(
+            case .gitTarget(
                 let target,
                 let path,
                 let declaredContentHash,
@@ -245,24 +185,6 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 }
                 try Self.validate(payload: payload, handle: handle)
                 return payload
-            case .capturedFile(let capturedContent):
-                let readLease = try backing.acquireRead(for: identity)
-                defer { readLease.settle() }
-                let data = try await Self.readCapturedContent(
-                    backing: backing,
-                    fileName: capturedContent.fileName
-                )
-                guard data.count == capturedContent.byteCount,
-                    BridgeSharedReviewContentBacking.sha256(data) == capturedContent.integritySHA256
-                else {
-                    throw BridgeSharedReviewContentBackingError.digestMismatch
-                }
-                return GitContentPayload(
-                    data: data,
-                    contentHash: capturedContent.declaredContentHash,
-                    contentHashAlgorithm: capturedContent.declaredContentHashAlgorithm,
-                    isBinary: handle.isBinary
-                )
             }
         }
     }
@@ -280,9 +202,14 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
         } catch {
             throw BridgeSharedReviewContentBackingError.digestMismatch
         }
-        guard computedContentHash == handle.contentHash,
-            !handle.sizeBytesIsExact || payload.data.count == handle.sizeBytes
-        else {
+        guard computedContentHash == handle.contentHash else {
+            throw BridgeProviderFailure.contentHashMismatch(
+                handleId: handle.handleId,
+                expectedHash: handle.contentHash,
+                actualHash: computedContentHash
+            )
+        }
+        guard !handle.sizeBytesIsExact || payload.data.count == handle.sizeBytes else {
             throw BridgeSharedReviewContentBackingError.digestMismatch
         }
     }
@@ -306,90 +233,4 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
         }
     }
 
-    private static func createBackingDirectory(_ directoryURL: URL) async throws {
-        // File-system construction must not inherit a caller actor.
-        // swiftlint:disable:next no_task_detached
-        try await Task.detached {
-            let rootURL = directoryURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: rootURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: rootURL.path
-            )
-            try FileManager.default.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: false,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: directoryURL.path
-            )
-        }.value
-    }
-
-    private static func writeCapturedContent(
-        _ data: Data,
-        directoryURL: URL,
-        fileName: String
-    ) async throws {
-        // File-system construction must not inherit a caller actor.
-        // swiftlint:disable:next no_task_detached
-        try await Task.detached {
-            let fileURL = directoryURL.appending(path: fileName)
-            do {
-                try data.write(to: fileURL, options: [.atomic])
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o600],
-                    ofItemAtPath: fileURL.path
-                )
-            } catch {
-                throw BridgeSharedReviewContentBackingError.fileWriteFailed
-            }
-        }.value
-    }
-
-    private static func readCapturedContent(
-        backing: BridgeSharedReviewContentBacking,
-        fileName: String
-    ) async throws -> Data {
-        let directoryURL = backing.directoryURL.standardizedFileURL
-        let fileURL = directoryURL.appending(path: fileName).standardizedFileURL
-        let directoryPrefix =
-            directoryURL.path.hasSuffix("/")
-            ? directoryURL.path
-            : "\(directoryURL.path)/"
-        guard fileURL.path.hasPrefix(directoryPrefix), fileURL.lastPathComponent == fileName else {
-            throw BridgeSharedReviewContentBackingError.invalidBackingPath
-        }
-        // File-system reads must not inherit the data-client actor.
-        // swiftlint:disable:next no_task_detached
-        return try await Task.detached {
-            do {
-                return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-            } catch {
-                throw BridgeSharedReviewContentBackingError.fileReadFailed
-            }
-        }.value
-    }
-
-    private static func removeBackingDirectory(_ directoryURL: URL) async {
-        // File-system cleanup must not inherit the data-client actor.
-        // swiftlint:disable:next no_task_detached
-        await Task.detached {
-            try? FileManager.default.removeItem(at: directoryURL)
-        }.value
-    }
-}
-
-private enum AgentStudioGitBridgeReviewSharedContentRoot {
-    private static let launchIdentity = UUID().uuidString
-
-    static let launchRootURL = AppDataPaths.rootDirectory()
-        .appending(path: "bridge-review-content")
-        .appending(path: launchIdentity)
 }

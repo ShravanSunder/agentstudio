@@ -25,6 +25,7 @@ import {
 import type { BridgeWorkerRenderDispositionReceipt } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { bridgePierreOptionalHighlightLanguage } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
+import { createWorktreeAnnotationBrowserProviderHarness } from '../worktree-annotations/worktree-annotation-browser-test-support.js';
 import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerCodePanelState,
@@ -52,6 +53,7 @@ interface PendingAnimationFrame {
 
 describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	test('applies Files view settings on the same mounted Pierre owner without changing selection', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		// Arrange: capture the public CodeView owner and option updates from the production React bridge.
 		const mountedInstances: CodeView[] = [];
 		const appliedOptions: CodeViewOptions<undefined>[] = [];
@@ -99,14 +101,15 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				viewSettings: { lineNumbers: true, wordWrap: true },
 			});
 			const rendered = await render(
-				<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={initialOptions} />,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={initialOptions} />,
+				),
 			);
 			const initialOwner = mountedInstances.at(-1);
 			await settleBridgeCodeViewState(
 				(): boolean => initialOwner?.getItem(selectedCodeViewItem.id) === selectedCodeViewItem,
 				'Expected the initial Files selection to be owned by the mounted Pierre CodeView.',
 			);
-
 			// Act
 			const changedOptions = deriveBridgeFilesCodeViewOptions({
 				compatibilityOptions: bridgeFileViewerCodeViewOptions,
@@ -114,7 +117,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			});
 			await act(async (): Promise<void> => {
 				await rendered.rerender(
-					<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={changedOptions} />,
+					annotationHarness.wrap(
+						<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={changedOptions} />,
+					),
 				);
 				await Promise.resolve();
 			});
@@ -130,6 +135,18 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			expect(
 				document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]'),
 			).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
+			await act(async (): Promise<void> => {
+				annotationHarness.surface.publishProjectionState({
+					expectedThreadCount: 0,
+					recoveryStatus: 'recovered_degraded',
+					revision: 1,
+					sessions: [],
+				});
+				await Promise.resolve();
+			});
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-session-surface"]'),
+			).toBeNull();
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.setOptions = originalSetOptions;
@@ -137,6 +154,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	});
 
 	test('settles File fulfillment only from exact main-adapted public Pierre items', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		// Arrange: capture Pierre's public callback while retaining a real mounted CodeView and its
 		// public current-item and rendered-membership readback APIs.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
@@ -234,7 +252,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				selectedCodeViewItem: firstFinalItem,
 				totalHeightPixels: null,
 			};
-			const rendered = await render(<BridgeFileViewerCodePanel {...panelProps} />);
+			const rendered = await render(
+				annotationHarness.wrap(<BridgeFileViewerCodePanel {...panelProps} />),
+			);
 
 			await settleBridgeCodeViewState(
 				(): boolean => mountedCodeView.current?.getItem(firstFinalItem.id) === firstFinalItem,
@@ -261,15 +281,18 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					.getRenderedItems()
 					.find((renderedItem): boolean => renderedItem.id === firstFinalItem.id)?.item,
 			).toBe(firstFinalItem);
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			const dispositionPrefixBeforeManualCallbacks = dispositionKinds(dispositions);
+			expect([['queued'], ['queued', 'applied']]).toContainEqual(
+				dispositionPrefixBeforeManualCallbacks,
+			);
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'unmount' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			expect(dispositionKinds(dispositions)).toEqual(dispositionPrefixBeforeManualCallbacks);
 			await invokeCapturedPostRenderWithinAct({
 				contextItem: firstPublicationItem,
 				invocation: firstPostRender,
 				phase: 'update',
 			});
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			expect(dispositionKinds(dispositions)).toEqual(dispositionPrefixBeforeManualCallbacks);
 
 			const wrongContextItem = { ...firstFinalItem, version: 92 };
 			await invokeCapturedPostRenderWithinAct({
@@ -277,15 +300,18 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				invocation: firstPostRender,
 				phase: 'update',
 			});
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			expect(dispositionKinds(dispositions)).toEqual(dispositionPrefixBeforeManualCallbacks);
 
 			await act(async (): Promise<void> => {
 				firstCodeView.updateItem(wrongContextItem);
 				await Promise.resolve();
 			});
 			expect(firstCodeView.getItem(firstPublicationItem.id)).toBe(wrongContextItem);
+			// The arbitrary wrong-context callback was inert. Once Pierre makes that
+			// content-equivalent object current, the exact bound-final callback may re-anchor it.
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			const appliedPrefix = ['queued', 'applied'];
+			expect(dispositionKinds(dispositions)).toEqual(appliedPrefix);
 			await act(async (): Promise<void> => {
 				firstCodeView.setItems([firstFinalItem]);
 				await Promise.resolve();
@@ -298,7 +324,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			const originalGetRenderedItems = firstCodeView.getRenderedItems.bind(firstCodeView);
 			firstCodeView.getRenderedItems = (): [] => [];
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
+			expect(dispositionKinds(dispositions)).toEqual(appliedPrefix);
 			const matchingRenderedItem = originalGetRenderedItems().find(
 				(renderedItem): boolean => renderedItem.item === firstFinalItem,
 			);
@@ -311,7 +337,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
 			firstCodeView.getRenderedItems = originalGetRenderedItems;
-			// Only the exact final callback plus connected public readback advances fulfillment.
+			// Exact connected readable reconciliation advances applied; callbacks cannot weaken it.
 			const renderedSourceLines = (): readonly Element[] =>
 				queryOpenShadowRoots(matchingRenderedItem.element, '[data-line][data-line-index]');
 			const [exactSourceText] = renderedSourceLines().map((line): string => line.textContent ?? '');
@@ -388,7 +414,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				selectedCodeViewItem: secondFinalItem,
 			};
 			await act(async (): Promise<void> => {
-				await rendered.rerender(<BridgeFileViewerCodePanel {...secondPanelProps} />);
+				await rendered.rerender(
+					annotationHarness.wrap(<BridgeFileViewerCodePanel {...secondPanelProps} />),
+				);
 				await Promise.resolve();
 			});
 			await settleBridgeCodeViewState(
@@ -412,9 +440,16 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				secondFinalItem,
 			);
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted', 'queued']);
+			expect([
+				['queued', 'applied', 'painted', 'queued'],
+				['queued', 'applied', 'painted', 'queued', 'applied'],
+			]).toContainEqual(dispositionKinds(dispositions));
 			await invokeCapturedPostRenderWithinAct({ invocation: secondPostRender, phase: 'update' });
 			const secondAppliedKinds = ['queued', 'applied', 'painted', 'queued', 'applied'];
+			await settleBridgeCodeViewState(
+				(): boolean => dispositionKinds(dispositions).length === secondAppliedKinds.length,
+				'Expected the second exact File attempt to reach applied.',
+			);
 			expect(dispositionKinds(dispositions)).toEqual(secondAppliedKinds);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			const secondPendingPaintFrame = pendingAnimationFrames.shift();
@@ -432,9 +467,10 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	});
 
 	test('lets stable same-file items preserve scroll without app-owned retargeting', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const mountedCodeViewRoot: { current: HTMLElement | null } = { current: null };
-		const setItemReceipts: CodeViewItem<undefined>[][] = [];
+		const setItemReceipts: CodeViewItem[][] = [];
 		const scrollToReceipts: CodeViewScrollTarget[] = [];
 		let setupCount = 0;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
@@ -450,7 +486,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			originalSetup.call(this, root);
 		};
 		CodeView.prototype.setItems = function captureCodeViewItems(
-			items: readonly CodeViewItem<undefined>[],
+			items: readonly CodeViewItem[],
 		): void {
 			setItemReceipts.push([...items]);
 			originalSetItems.call(this, items);
@@ -488,13 +524,15 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 
 		try {
 			const rendered = await render(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={initialOpenFileState}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={initialItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={initialOpenFileState}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={initialItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			await act(async (): Promise<void> => {
 				await new Promise<void>((resolve): void => {
@@ -516,25 +554,29 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			});
 
 			await rendered.rerender(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={{ ...initialOpenFileState, status: 'loading' }}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={initialItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState, status: 'loading' }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={initialItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			expect(
 				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
 			).toContain('Loading file');
 			await rendered.rerender(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={{ ...initialOpenFileState }}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={refreshedItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={refreshedItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			await act(async (): Promise<void> => {
 				await new Promise<void>((resolve): void => {

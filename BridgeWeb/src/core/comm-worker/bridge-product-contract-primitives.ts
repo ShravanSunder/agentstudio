@@ -117,6 +117,7 @@ export const bridgeProductRequestErrorCodeSchema = z.enum([
 	'stale_worker',
 	'sequence_conflict',
 	'resync_required',
+	'stale_source',
 	'payload_too_large',
 	'unsupported_call',
 	'unsupported_subscription',

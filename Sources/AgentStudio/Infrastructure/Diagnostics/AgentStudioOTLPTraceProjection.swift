@@ -56,6 +56,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.native_capacity.operation_class",
         "agentstudio.bridge.native_capacity.product_kind",
         "agentstudio.bridge.native_capacity.worktree_hash",
+        "agentstudio.bridge.operation.id",
         "agentstudio.bridge.package_build.reason",
         "agentstudio.bridge.panel.operation",
         "agentstudio.bridge.phase",
@@ -68,6 +69,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.queue.depth_bucket",
         "agentstudio.bridge.result",
         "agentstudio.bridge.result_reason",
+        "agentstudio.bridge.review.refresh.install_trigger",
+        "agentstudio.bridge.review.refresh.presentation_class",
+        "agentstudio.bridge.review.refresh.promotion_reason",
         "agentstudio.bridge.rpc.method_class",
         "agentstudio.bridge.scroll.offset",
         "agentstudio.bridge.scroll.reason",
@@ -93,6 +97,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.worker.lane",
         "agentstudio.bridge.worker.payload_class",
         "agentstudio.bridge.worker.review_select_dispatch",
+        "agentstudio.bridge.worker.semantic_class",
         "agentstudio.bridge.worker.session_state",
         "agentstudio.bridge.worker.task_kind",
         "agentstudio.bridge.worker.work_kind",
@@ -236,6 +241,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.activation.sequence",
         "agentstudio.bridge.active_viewer.sequence",
         "agentstudio.bridge.active_viewer.signal_accepted.count",
+        "agentstudio.bridge.annotation.catalog.entry.count",
+        "agentstudio.bridge.annotation.catalog.revision",
+        "agentstudio.bridge.annotation.catalog.unit.byte_count",
+        "agentstudio.bridge.annotation.catalog.window.count",
+        "agentstudio.bridge.annotation.catalog.window.ordinal",
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_count",
         "agentstudio.bridge.content.byte_length",
@@ -303,13 +313,24 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.metadata_manifest.remaining_total",
         "agentstudio.bridge.presentation.publication_sequence",
         "agentstudio.bridge.presentation.revision",
+        "agentstudio.bridge.presentation.revision.after",
+        "agentstudio.bridge.presentation.revision.before",
         "agentstudio.bridge.review.item_count",
         "agentstudio.bridge.review.generation",
+        "agentstudio.bridge.review.refresh.active_bank.count",
+        "agentstudio.bridge.review.refresh.affected_file.count",
+        "agentstudio.bridge.review.refresh.affected_stable_file.count",
+        "agentstudio.bridge.review.refresh.candidate_bank.count",
+        "agentstudio.bridge.review.refresh.changed_line.count",
+        "agentstudio.bridge.review.refresh.imported_commit.count",
+        "agentstudio.bridge.review.refresh.retained_publication.count",
+        "agentstudio.bridge.review.refresh.source_lease.count",
         "agentstudio.bridge.review.publication.emitted_events",
         "agentstudio.bridge.review.publication.published_subscriptions",
         "agentstudio.bridge.review.publication.retained",
         "agentstudio.bridge.review.publication.superseded",
         "agentstudio.bridge.source.generation",
+        "agentstudio.bridge.stage.attempt",
         "agentstudio.bridge.anchor_restore.call.count",
         "agentstudio.bridge.anchor_restore.direct_scroll_top_write.count",
         "agentstudio.bridge.anchor_restore.synthetic_scroll.count",
@@ -832,6 +853,13 @@ extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
         -> AgentStudioTraceValue?
     {
+        if key == "agentstudio.bridge.operation.id" {
+            guard case .string(let operationID) = value,
+                operationID.count == 64,
+                operationID.allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+            else { return nil }
+            return .string(operationID)
+        }
         guard !isIdentifierKey(key), !isErrorKey(key) else {
             return nil
         }

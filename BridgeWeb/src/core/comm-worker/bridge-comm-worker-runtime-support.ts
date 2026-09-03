@@ -1,4 +1,4 @@
-import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-telemetry.js';
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeWorkerHealthEvent } from './bridge-worker-contracts.js';
 
@@ -25,6 +25,34 @@ export function scheduleDefaultBridgeCommWorkerPreparationDrain(
 ): void {
 	queueMicrotask(() => {
 		void drain();
+	});
+}
+
+export function sendBridgeCommWorkerActionWithTimeout<TResult>(props: {
+	readonly send: () => Promise<TResult>;
+	readonly timeoutMilliseconds: number;
+}): Promise<TResult> {
+	return new Promise<TResult>((resolve, reject): void => {
+		let didSettle = false;
+		const timeoutId = globalThis.setTimeout((): void => {
+			if (didSettle) return;
+			didSettle = true;
+			reject(new Error('Bridge comm worker command action timed out.'));
+		}, props.timeoutMilliseconds);
+		void props.send().then(
+			(actionResult: TResult): void => {
+				if (didSettle) return;
+				didSettle = true;
+				globalThis.clearTimeout(timeoutId);
+				resolve(actionResult);
+			},
+			(error: unknown): void => {
+				if (didSettle) return;
+				didSettle = true;
+				globalThis.clearTimeout(timeoutId);
+				reject(error);
+			},
+		);
 	});
 }
 

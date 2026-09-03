@@ -95,7 +95,13 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         let repoId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/register-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        let outcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+
+        #expect(outcome == .observing)
 
         let envelope = try #require(await iterator.next())
         guard case .system(let systemEnvelope) = envelope else {
@@ -115,6 +121,160 @@ struct FilesystemActorTests {
         #expect(registeredRepoId == repoId)
         #expect(registeredRootPath == rootPath)
         #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
+
+        await actor.shutdown()
+    }
+
+    @Test(
+        "registration failure installs no root or topology fact",
+        arguments: [
+            FSEventStreamRegistrationUnavailableReason.streamCreationFailed,
+            .streamStartFailed,
+            .clientShutdown,
+        ]
+    )
+    func registrationFailureRollsBackCompletely(
+        reason: FSEventStreamRegistrationUnavailableReason
+    ) async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let failedWorktreeId = UUIDv7.generate()
+        streamClient.setNextRegistrationOutcome(.unavailable(reason))
+
+        let failedOutcome = await actor.registerForObservation(
+            worktreeId: failedWorktreeId,
+            repoId: UUIDv7.generate(),
+            rootPath: URL(fileURLWithPath: "/tmp/failed-registration-\(UUIDv7.generate().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: failedWorktreeId, paths: ["Sources/Ignored.swift"])
+        await actor.unregister(worktreeId: failedWorktreeId)
+
+        #expect(failedOutcome == .unavailable(reason))
+        #expect(!streamClient.registeredWorktreeIds.contains(failedWorktreeId))
+
+        let observingWorktreeId = UUIDv7.generate()
+        let observingRepoId = UUIDv7.generate()
+        let observingRootPath = URL(
+            fileURLWithPath: "/tmp/observing-registration-\(UUIDv7.generate().uuidString)"
+        )
+        let observingOutcome = await actor.registerForObservation(
+            worktreeId: observingWorktreeId,
+            repoId: observingRepoId,
+            rootPath: observingRootPath
+        )
+
+        #expect(observingOutcome == .observing)
+        let firstEnvelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = firstEnvelope,
+            case .topology(.worktreeRegistered(let worktreeId, let repoId, let rootPath)) =
+                systemEnvelope.event
+        else {
+            Issue.record("Expected the first topology fact to belong to the observing registration")
+            await actor.shutdown()
+            return
+        }
+        #expect(worktreeId == observingWorktreeId)
+        #expect(repoId == observingRepoId)
+        #expect(rootPath == observingRootPath)
+
+        await actor.shutdown()
+    }
+
+    @Test("same-root registration is idempotent")
+    func sameRootRegistrationIsIdempotent() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/idempotent-registration-\(UUIDv7.generate().uuidString)")
+
+        let firstOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+        let secondOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+        await actor.unregister(worktreeId: worktreeId)
+
+        #expect(firstOutcome == .observing)
+        #expect(secondOutcome == .observing)
+        let firstEnvelope = try #require(await iterator.next())
+        let secondEnvelope = try #require(await iterator.next())
+        guard case .system(let firstSystemEnvelope) = firstEnvelope,
+            case .topology(.worktreeRegistered) = firstSystemEnvelope.event,
+            case .system(let secondSystemEnvelope) = secondEnvelope,
+            case .topology(.worktreeUnregistered) = secondSystemEnvelope.event
+        else {
+            Issue.record("Expected one registration fact followed by one unregistration fact")
+            await actor.shutdown()
+            return
+        }
+
+        await actor.shutdown()
+    }
+
+    @Test("failed replacement preserves the observing root")
+    func failedReplacementPreservesObservingRoot() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let worktreeId = UUIDv7.generate()
+        let originalRepoId = UUIDv7.generate()
+        let originalRootPath = URL(
+            fileURLWithPath: "/tmp/original-registration-\(UUIDv7.generate().uuidString)"
+        )
+        let replacementRepoId = UUIDv7.generate()
+        let replacementRootPath = URL(
+            fileURLWithPath: "/tmp/replacement-registration-\(UUIDv7.generate().uuidString)"
+        )
+        _ = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: originalRepoId,
+            rootPath: originalRootPath
+        )
+        _ = try #require(await iterator.next())
+        streamClient.setNextRegistrationOutcome(.unavailable(.streamStartFailed))
+
+        let replacementOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: replacementRepoId,
+            rootPath: replacementRootPath
+        )
+        await actor.unregister(worktreeId: worktreeId)
+
+        #expect(replacementOutcome == .unavailable(.streamStartFailed))
+        let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope,
+            case .topology(.worktreeUnregistered(let unregisteredWorktreeId, let repoId)) =
+                systemEnvelope.event
+        else {
+            Issue.record("Expected unregistration of the retained observing root")
+            await actor.shutdown()
+            return
+        }
+        #expect(unregisteredWorktreeId == worktreeId)
+        #expect(repoId == originalRepoId)
 
         await actor.shutdown()
     }

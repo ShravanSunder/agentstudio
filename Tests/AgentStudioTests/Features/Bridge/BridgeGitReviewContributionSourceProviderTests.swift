@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -158,6 +159,181 @@ extension BridgeGitReviewSourceProviderTests {
         #expect(await fixture.gitClient.recordedDiffRequests().isEmpty)
     }
 
+    @Test("AgentStudioGit adapter keeps the correlated reviewed branch separate from the comparison target")
+    func agentStudioGitAdapterCapturesCorrelatedReviewedBranch() async throws {
+        let fixture = makeContributionAdapterFixture(reviewedHeadShortName: "feature/x")
+
+        let capture = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .originDefaultBranch(
+                    remoteName: "origin",
+                    branchName: "main",
+                    basis: .commonCommit
+                ),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(capture.reviewedSubjectBranchName == "feature/x")
+        #expect(
+            await fixture.gitClient.recordedContributionDiffRequests().last?.target
+                == .named("refs/remotes/origin/main")
+        )
+    }
+
+    @Test("AgentStudioGit adapter records no reviewed branch for detached HEAD")
+    func agentStudioGitAdapterCapturesDetachedReviewedHead() async throws {
+        let fixture = makeContributionAdapterFixture(reviewedHeadShortName: nil)
+
+        let capture = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .originDefaultBranch(
+                    remoteName: "origin",
+                    branchName: "main",
+                    basis: .commonCommit
+                ),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(capture.reviewedSubjectBranchName == nil)
+    }
+
+    @Test("annotation Git evidence resolves File HEAD through the scheduled provider capability")
+    func annotationGitEvidenceResolvesFileHead() async throws {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/annotation-file-head")
+        let gitClient = AgentStudioGitLocalClientFake(
+            resolvedRevisionByTarget: [
+                .named("HEAD"): GitResolvedRevision(
+                    oid: "1111111111111111111111111111111111111111",
+                    shortName: "feature/x"
+                )
+            ]
+        )
+        let provider = BridgeGitReviewSourceProvider(
+            client: AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: gitClient,
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            )
+        )
+
+        let evidence = try await provider.currentWorktreeAnnotationReviewedSubjectEvidence(
+            sourceGeneration: 17
+        )
+
+        let expectedEvidence = try WorktreeAnnotationReviewedSubjectEvidence(
+            branchName: "feature/x",
+            reviewedHeadOID: "1111111111111111111111111111111111111111"
+        )
+        #expect(evidence == expectedEvidence)
+        #expect(
+            await gitClient.recordedRevisionResolutionRequests()
+                == [GitRevisionResolutionRequest(repositoryPath: repositoryPath, target: .named("HEAD"))]
+        )
+    }
+
+    @Test(
+        "annotation Git evidence maps every bounded range disposition",
+        arguments: [
+            (GitCommitRangeCount.exact(2), WorktreeAnnotationAncestryDisposition.exact),
+            (.atLeastLimit(10), .atLeastLimit),
+            (.traversalLimitReached(256), .traversalLimitReached),
+            (.unrelated, .unrelated),
+        ]
+    )
+    func annotationGitEvidenceMapsBoundedRangeDisposition(
+        gitResult: GitCommitRangeCount,
+        expected: WorktreeAnnotationAncestryDisposition
+    ) async throws {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/annotation-ancestry")
+        let gitClient = AgentStudioGitLocalClientFake(commitRangeCount: gitResult)
+        let provider = BridgeGitReviewSourceProvider(
+            client: AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: gitClient,
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            )
+        )
+
+        let disposition = try await provider.worktreeAnnotationAncestryDisposition(
+            acceptedReviewedHeadOID: "1111111111111111111111111111111111111111",
+            currentReviewedHeadOID: "2222222222222222222222222222222222222222",
+            sourceGeneration: 18
+        )
+
+        #expect(disposition == expected)
+        #expect(
+            await gitClient.recordedCommitRangeCountRequests()
+                == [
+                    GitCommitRangeCountRequest(
+                        repositoryPath: repositoryPath,
+                        base: .named("1111111111111111111111111111111111111111"),
+                        candidate: .named("2222222222222222222222222222222222222222"),
+                        maximumCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumCommitCount,
+                        maximumTraversalCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumTraversalCount
+                    )
+                ]
+        )
+    }
+
+    @Test("annotation Git evidence maps read failure to uncertainty evidence")
+    func annotationGitEvidenceMapsReadFailure() async throws {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/annotation-ancestry-failure")
+        let provider = BridgeGitReviewSourceProvider(
+            client: AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: AgentStudioGitLocalClientFake(),
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            )
+        )
+
+        let disposition = try await provider.worktreeAnnotationAncestryDisposition(
+            acceptedReviewedHeadOID: "1111111111111111111111111111111111111111",
+            currentReviewedHeadOID: "2222222222222222222222222222222222222222",
+            sourceGeneration: 19
+        )
+
+        #expect(disposition == .readFailure)
+    }
+
+    @Test("annotation Git evidence propagates cancellation")
+    func annotationGitEvidencePropagatesCancellation() async throws {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/annotation-head-cancellation")
+        let revisionGate = BridgeGitContentReadGate()
+        let gitClient = AgentStudioGitLocalClientFake(
+            resolvedRevisionByTarget: [
+                .named("HEAD"): GitResolvedRevision(
+                    oid: "1111111111111111111111111111111111111111",
+                    shortName: "feature/x"
+                )
+            ],
+            revisionResolutionGate: revisionGate
+        )
+        let provider = BridgeGitReviewSourceProvider(
+            client: AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: gitClient,
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            )
+        )
+        let task = Task {
+            try await provider.currentWorktreeAnnotationReviewedSubjectEvidence(sourceGeneration: 20)
+        }
+        await revisionGate.waitUntilStarted()
+
+        task.cancel()
+        await revisionGate.release()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await task.value
+        }
+    }
+
     @Test("AgentStudioGit adapter qualifies moving contribution branch refs")
     func agentStudioGitAdapterQualifiesMovingContributionBranchRefs() async throws {
         let fixture = makeContributionAdapterFixture()
@@ -267,7 +443,9 @@ private struct ContributionAdapterFixture {
     let headEndpoint: BridgeSourceEndpoint
 }
 
-private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
+private func makeContributionAdapterFixture(
+    reviewedHeadShortName: String? = "feature"
+) -> ContributionAdapterFixture {
     let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-contribution-test")
     let filePath = "Sources/App/View.swift"
     let baseContent = "base content"
@@ -276,7 +454,7 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
     let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
     let snapshot = GitContributionDiffSnapshot(
         resolvedTarget: GitResolvedRevision(oid: "target-oid", shortName: "integration"),
-        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: "feature"),
+        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: reviewedHeadShortName),
         contributionBase: GitResolvedRevision(oid: "base-oid", shortName: nil),
         diff: GitDiffSnapshot(
             files: [
@@ -300,7 +478,7 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
     )
     let directReviewComparisonSnapshot = GitDirectReviewComparisonSnapshot(
         resolvedTarget: GitResolvedRevision(oid: "target-oid", shortName: nil),
-        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: "feature"),
+        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: reviewedHeadShortName),
         diff: snapshot.diff
     )
     let gitClient = AgentStudioGitLocalClientFake(

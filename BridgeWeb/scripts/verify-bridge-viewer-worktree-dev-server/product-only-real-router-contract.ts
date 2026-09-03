@@ -1,6 +1,6 @@
 export const bridgeProductStartupFixtureIdentities = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: '10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173',
+	valid: 'a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3',
 } as const;
 
 export const bridgeViewerProductOnlySelectors = {
@@ -599,7 +599,8 @@ function requireFreshReviewRoute(props: {
 		props.violations.push({
 			actual: props.proof.mountedHeaderOrderViolations,
 			code: 'REVIEW_FRESH_ROUTE_LOGICAL_ORDER_MISMATCH',
-			expected: 'every mounted Pierre CodeView viewport preserves the authoritative catalog order',
+			expected:
+				'every viewport-intersecting Pierre CodeView header preserves the authoritative catalog order',
 		});
 	}
 	const mixedInitialDisclosure = props.proof.initialDirectoryDisclosure.filter(

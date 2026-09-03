@@ -186,7 +186,7 @@ EntityRecencyStore (application local.sqlite)
 ├── ApplicationEntityRecencyAtom       ← global repository/worktree rows
 └── WorkspaceEntityRecencyAtom         ← workspace-keyed pane rows
 
-WorkspaceSQLiteDatastore (authoritative core.sqlite + non-authoritative app-root local.sqlite)
+WorkspaceSQLiteDatastoreActor (authoritative core.sqlite + non-authoritative app-root local.sqlite)
 ├── WorkspaceCoreRepository            ← authoritative graph/topology rows
 ├── cached WorkspaceLocalRepository    ← non-authoritative local UX/cache/inbox rows
 └── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not a row projection

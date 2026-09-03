@@ -1,24 +1,45 @@
-import type { BridgeProductCallResult } from './bridge-product-call-contracts.js';
-import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+import type { WorktreeAnnotationLifecycleTelemetryRecorder } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import {
-	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
-	type BridgeProductSubscriptionEvent,
-	type BridgeProductSubscriptionOptions,
-} from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+	BridgeCommWorkerAnnotationProjectionQueryController,
+	bridgeCommWorkerAnnotationProjectionTransport,
+	type BridgeCommWorkerAnnotationCatalogPublication,
+	type BridgeCommWorkerAnnotationProjectionDemand,
+	type BridgeCommWorkerAnnotationProjectionPublication,
+	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
+} from './bridge-comm-worker-annotation-projection-query-controller.js';
+import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
+import {
+	bridgeProductWorktreeAnnotationDecodedCommandResultSchema,
+	type BridgeProductReviewAnnotationPublicationIdentity,
+	type BridgeProductCallResult,
+	type BridgeProductWorktreeAnnotationOperation,
+} from './bridge-product-call-contracts.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+import type {
+	BridgeProductMetadataApplicationEvent,
+	BridgeProductMetadataApplicationOptions,
+} from './bridge-product-metadata-application-protocol.js';
+import {
+	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
+import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
+import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
-import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contracts.js';
 
-type FileMetadataSubscription = BridgeProductSubscription<'file.metadata'>;
-type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
+type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
+type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
+type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
 type FileMetadataEventHandler = (event: FileMetadataEvent, workerDerivationEpoch: number) => void;
 type FileMetadataFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataDemandFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataInterest = Parameters<FileMetadataSubscription['update']>[0]['interests'][number];
 type FileMetadataInterestLane = FileMetadataInterest['lane'];
 type FileSourceDiscoveryResult = BridgeProductCallResult<'file.source.current'>;
-type ReviewMetadataSubscription = BridgeProductSubscription<'review.metadata'>;
-type ReviewMetadataEvent = BridgeProductSubscriptionEvent<'review.metadata'>;
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataSubscription =
+	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
+type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
 type ReviewMetadataEventHandler = (
 	event: ReviewMetadataEvent,
 	workerDerivationEpoch: number,
@@ -40,19 +61,49 @@ export interface BridgeCommWorkerFileMetadataDemand {
 	readonly visiblePaths: readonly string[];
 }
 
+export interface BridgeCommWorkerReviewActiveDemandSnapshot {
+	readonly activeDemand: readonly {
+		readonly itemId: string;
+		readonly role: BridgeCommWorkerDemandMember['role'];
+	}[];
+	readonly workerDerivationEpoch: number;
+}
+
 export class BridgeCommWorkerProductController {
+	readonly #annotationProjectionBySurface: Record<
+		'file' | 'review',
+		BridgeCommWorkerAnnotationProjectionQueryController
+	>;
 	readonly #onFileMetadataEvent: FileMetadataEventHandler;
 	readonly #onFileMetadataFailure: FileMetadataFailureHandler;
 	readonly #onFileMetadataDemandFailure: FileMetadataDemandFailureHandler;
 	readonly #onReviewMetadataEvent: ReviewMetadataEventHandler;
 	readonly #onReviewMetadataFailure: ReviewMetadataFailureHandler;
 	readonly #productTransport: BridgeProductTransportSession;
+	readonly #annotationSessionIdsBySurface: Record<'file' | 'review', Set<string>> = {
+		file: new Set(),
+		review: new Set(),
+	};
+	readonly #annotationSurfaceActive: Record<'file' | 'review', boolean> = {
+		file: false,
+		review: false,
+	};
+	readonly #annotationSourceGeneration: Record<'file' | 'review', number | null> = {
+		file: null,
+		review: null,
+	};
+	#reviewAnnotationPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null =
+		null;
+	readonly #annotationSourceReconciliationBySurface: Record<
+		'file' | 'review',
+		Promise<void> | null
+	> = { file: null, review: null };
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
 	readonly #subscribeFile: (
-		options: BridgeProductSubscriptionOptions<'file.metadata'>,
+		options: BridgeProductMetadataApplicationOptions<FileMetadataProtocol>,
 	) => FileMetadataSubscription;
 	readonly #subscribeReview: (
-		options: BridgeProductSubscriptionOptions<'review.metadata'>,
+		options: BridgeProductMetadataApplicationOptions<ReviewMetadataProtocol>,
 	) => ReviewMetadataSubscription;
 	#fileSubscription: FileMetadataSubscription | null = null;
 	#fileSource: FileMetadataEvent['source'] | null = null;
@@ -67,26 +118,35 @@ export class BridgeCommWorkerProductController {
 	#fileDemandEpoch = 0;
 	#hasFileMetadataDemand = false;
 	#fileSourceEnsure: Promise<void> | null = null;
+	#fileFrameObservationRecoveryAttempted = false;
 	#reviewSubscription: ReviewMetadataSubscription | null = null;
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewDesiredInterestSignature: string | null = null;
 	#reviewRecoveryPublicationId: string | null = null;
+	#reviewFrameObservationRecoveryAttempted = false;
 	#reviewWorkerDerivationEpoch = 0;
 
 	constructor(props: {
 		readonly callCurrentFileSource?: () => Promise<FileSourceDiscoveryResult>;
+		readonly onAnnotationCatalog?: (
+			publication: BridgeCommWorkerAnnotationCatalogPublication,
+		) => void;
+		readonly onAnnotationProjectionConvergence?: (
+			publication: BridgeCommWorkerAnnotationProjectionPublication,
+		) => void;
 		readonly onFileMetadataEvent: FileMetadataEventHandler;
 		readonly onFileMetadataFailure?: FileMetadataFailureHandler;
 		readonly onFileMetadataDemandFailure?: FileMetadataDemandFailureHandler;
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
 		readonly productTransport: BridgeProductTransportSession;
+		readonly telemetryClient?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 		readonly subscribeFile?: (
-			options: BridgeProductSubscriptionOptions<'file.metadata'>,
+			options: BridgeProductMetadataApplicationOptions<FileMetadataProtocol>,
 		) => FileMetadataSubscription;
 		readonly subscribeReview?: (
-			options: BridgeProductSubscriptionOptions<'review.metadata'>,
+			options: BridgeProductMetadataApplicationOptions<ReviewMetadataProtocol>,
 		) => ReviewMetadataSubscription;
 	}) {
 		this.#onFileMetadataEvent = props.onFileMetadataEvent;
@@ -96,6 +156,34 @@ export class BridgeCommWorkerProductController {
 		this.#onReviewMetadataEvent = props.onReviewMetadataEvent ?? ignoreReviewMetadataEvent;
 		this.#onReviewMetadataFailure = props.onReviewMetadataFailure ?? ignoreReviewMetadataFailure;
 		this.#productTransport = props.productTransport;
+		const onConvergence =
+			props.onAnnotationProjectionConvergence ?? ignoreAnnotationProjectionConvergence;
+		const onCatalog = props.onAnnotationCatalog ?? ignoreAnnotationCatalog;
+		const annotationProjectionTransport = bridgeCommWorkerAnnotationProjectionTransport(
+			props.productTransport,
+		);
+		this.#annotationProjectionBySurface = {
+			file: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onCatalog,
+				onConvergence,
+				onSourceAuthorityStale: (publication): void => {
+					void this.reconcileAnnotationProjectionSourceAuthority(publication);
+				},
+				surface: 'file',
+				transport: annotationProjectionTransport,
+				telemetryClient: props.telemetryClient,
+			}),
+			review: new BridgeCommWorkerAnnotationProjectionQueryController({
+				onCatalog,
+				onConvergence,
+				onSourceAuthorityStale: (publication): void => {
+					void this.reconcileAnnotationProjectionSourceAuthority(publication);
+				},
+				surface: 'review',
+				transport: annotationProjectionTransport,
+				telemetryClient: props.telemetryClient,
+			}),
+		};
 		this.#callCurrentFileSource =
 			props.callCurrentFileSource ??
 			((): Promise<FileSourceDiscoveryResult> =>
@@ -103,11 +191,120 @@ export class BridgeCommWorkerProductController {
 		this.#subscribeFile =
 			props.subscribeFile ??
 			((options): FileMetadataSubscription =>
-				this.#productTransport.subscribe('file.metadata', options));
+				this.#productTransport.subscribe(bridgeProductFileMetadataApplicationProtocol, options));
 		this.#subscribeReview =
 			props.subscribeReview ??
 			((options): ReviewMetadataSubscription =>
-				this.#productTransport.subscribe('review.metadata', options));
+				this.#productTransport.subscribe(bridgeProductReviewMetadataApplicationProtocol, options));
+	}
+
+	ensureAnnotationSubscriptions(): void {
+		this.#annotationProjectionBySurface.file.ensureSubscription();
+		this.#annotationProjectionBySurface.review.ensureSubscription();
+	}
+
+	setAnnotationProjectionSurfaceActive(
+		surface: 'file' | 'review',
+		active: boolean,
+		sourceGeneration: number | null,
+	): void {
+		this.#annotationSurfaceActive[surface] = active;
+		this.#annotationSourceGeneration[surface] = sourceGeneration;
+		this.#publishAnnotationProjectionDemand(surface);
+	}
+
+	setReviewAnnotationProjectionActive(active: boolean): void {
+		this.#annotationSurfaceActive.review = active;
+		this.#publishAnnotationProjectionDemand('review');
+	}
+
+	setReviewAnnotationProjectionIdentity(
+		identity: BridgeProductReviewAnnotationPublicationIdentity | null,
+	): void {
+		this.#reviewAnnotationPublicationIdentity = identity;
+		this.#annotationSourceGeneration.review = identity?.reviewGeneration ?? null;
+		this.#publishAnnotationProjectionDemand('review');
+	}
+
+	retryAnnotationProjection(surface: 'file' | 'review'): void {
+		this.#annotationProjectionBySurface[surface].retry();
+	}
+
+	setAnnotationProjectionSourceUnavailable(surface: 'file' | 'review', error: unknown): void {
+		this.#annotationProjectionBySurface[surface].sourceUnavailable(error);
+	}
+
+	reconcileAnnotationProjectionSourceAuthority(
+		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
+	): Promise<void> {
+		if (publication.currentSourceGeneration <= publication.requestedSourceGeneration) {
+			this.setAnnotationProjectionSourceUnavailable(
+				publication.surface,
+				new Error('Annotation projection source authority did not advance.'),
+			);
+			return Promise.resolve();
+		}
+		const existingReconciliation =
+			this.#annotationSourceReconciliationBySurface[publication.surface];
+		if (existingReconciliation !== null) return existingReconciliation;
+		const reconciliation = this.#reopenAnnotationProjectionSourceAuthority(
+			publication.surface,
+		).catch((error: unknown): void => {
+			this.setAnnotationProjectionSourceUnavailable(publication.surface, error);
+		});
+		const trackedReconciliation = reconciliation.finally((): void => {
+			if (
+				this.#annotationSourceReconciliationBySurface[publication.surface] === trackedReconciliation
+			) {
+				this.#annotationSourceReconciliationBySurface[publication.surface] = null;
+			}
+		});
+		this.#annotationSourceReconciliationBySurface[publication.surface] = trackedReconciliation;
+		return trackedReconciliation;
+	}
+
+	async disposeAnnotationProjections(): Promise<void> {
+		await Promise.all([
+			this.#annotationProjectionBySurface.file.dispose(),
+			this.#annotationProjectionBySurface.review.dispose(),
+		]);
+	}
+
+	async #reopenAnnotationProjectionSourceAuthority(surface: 'file' | 'review'): Promise<void> {
+		if (surface === 'file') {
+			const subscription = this.#fileSubscription;
+			this.#fileSubscription = null;
+			this.#fileSource = null;
+			this.#fileSourceEnsure = null;
+			this.#fileDesiredInterestSignature = null;
+			this.#hasPublishedFileMetadataInterests = false;
+			this.#fileInterestRevision += 1;
+			this.#fileInterestUpdate = Promise.resolve();
+			this.#fileInterestUpdateFailed = false;
+			if (subscription !== null) {
+				try {
+					await subscription.cancel();
+				} catch {
+					// The replacement source authority supersedes the retired subscription locally.
+				}
+			}
+			await this.ensureFileSource();
+			return;
+		}
+		const subscription = this.#reviewSubscription;
+		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
+		this.#reviewDesiredInterestSignature = null;
+		this.#reviewInterestUpdate = Promise.resolve();
+		this.#reviewRecoveryPublicationId = null;
+		if (subscription !== null) {
+			try {
+				await subscription.cancel();
+			} catch {
+				// The replacement source authority supersedes the retired subscription locally.
+			}
+		}
+		this.ensureReviewMetadata();
 	}
 
 	ensureFileSource(): Promise<void> {
@@ -144,16 +341,35 @@ export class BridgeCommWorkerProductController {
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
+			case 'file.refresh.retry':
+				return await this.#productTransport.call('file.refresh.retry', {});
+			case 'file.annotations.command':
+				return await this.#sendAnnotationCommand('file', command.params.operation, null);
+			case 'review.annotations.command':
+				return await this.#sendAnnotationCommand(
+					'review',
+					command.params.operation,
+					command.params['reviewPublicationIdentity'],
+				);
 			case 'review.markFileViewed':
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
 				});
 			case 'review.comparison.update':
+				this.#ensureReviewMetadataForInteractiveControl();
 				return await this.#productTransport.call('review.comparison.update', {
 					target: command.params.target,
 				});
 			case 'review.comparisonTargets.query':
+				this.#ensureReviewMetadataForInteractiveControl();
 				return await this.#productTransport.call('review.comparisonTargets.query', {});
+			case 'review.publication.install.admit':
+				return await this.#productTransport.call(
+					'review.publication.install.admit',
+					command.params,
+				);
+			case 'review.publication.applied':
+				return await this.#productTransport.call('review.publication.applied', command.params);
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
 			case 'bridge.intakeReady':
@@ -166,8 +382,70 @@ export class BridgeCommWorkerProductController {
 		}
 	}
 
-	async updateReviewMetadataInterests(request: BridgeWorkerMetadataInterestRequest): Promise<void> {
-		this.#replaceReviewInterestLane(request.lane, request.itemIds ?? []);
+	#ensureReviewMetadataForInteractiveControl(): void {
+		try {
+			this.ensureReviewMetadata();
+		} catch {
+			// Exact control success remains independent of metadata-stream recovery.
+		}
+	}
+
+	async #sendAnnotationCommand(
+		surface: 'file' | 'review',
+		operation: BridgeProductWorktreeAnnotationOperation,
+		reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null,
+	): Promise<unknown> {
+		const result =
+			surface === 'file'
+				? await this.#productTransport.call('file.annotations.command', { operation })
+				: await this.#productTransport.call('review.annotations.command', {
+						operation,
+						reviewPublicationIdentity:
+							requireReviewAnnotationPublicationIdentity(reviewPublicationIdentity),
+					});
+		const parsedResult = bridgeProductWorktreeAnnotationDecodedCommandResultSchema.parse(result);
+		if (parsedResult.outcome.status.kind !== 'committed') return parsedResult;
+		if (operation.kind === 'demand.acquire') {
+			this.#annotationSessionIdsBySurface[surface].add(operation.sessionId);
+			this.#publishAnnotationProjectionDemand(surface);
+		} else if (operation.kind === 'demand.release') {
+			this.#annotationSessionIdsBySurface[surface].delete(operation.sessionId);
+			this.#publishAnnotationProjectionDemand(surface);
+		}
+		return parsedResult;
+	}
+
+	#publishAnnotationProjectionDemand(surface: 'file' | 'review'): void {
+		this.#annotationProjectionBySurface[surface].setDemand({
+			active: this.#annotationSurfaceActive[surface],
+			reviewPublicationIdentity:
+				surface === 'review' ? this.#reviewAnnotationPublicationIdentity : null,
+			sessionIds: [...this.#annotationSessionIdsBySurface[surface]],
+			sourceGeneration: this.#annotationSourceGeneration[surface],
+		} satisfies BridgeCommWorkerAnnotationProjectionDemand);
+	}
+
+	async replaceReviewMetadataInterestsFromActiveDemand(
+		snapshot: BridgeCommWorkerReviewActiveDemandSnapshot,
+	): Promise<void> {
+		if (snapshot.workerDerivationEpoch !== this.#reviewWorkerDerivationEpoch) {
+			throw new Error('Bridge Review demand interests belong to a retired worker authority.');
+		}
+		this.#reviewInterestItemIdsByLane.clear();
+		const itemIdsByLane = new Map<ReviewMetadataInterestLane, string[]>();
+		for (const { itemId, role } of snapshot.activeDemand) {
+			const lane = reviewMetadataInterestLaneForDemandRole(role);
+			const itemIds = itemIdsByLane.get(lane) ?? [];
+			itemIds.push(itemId);
+			itemIdsByLane.set(lane, itemIds);
+		}
+		for (const [lane, itemIds] of itemIdsByLane) {
+			this.#reviewInterestItemIdsByLane.set(lane, itemIds);
+		}
+		await this.#commitReviewMetadataInterests();
+	}
+
+	async #commitReviewMetadataInterests(): Promise<void> {
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
 		if (this.#reviewSubscription === null) {
 			this.ensureReviewMetadata();
@@ -184,13 +462,17 @@ export class BridgeCommWorkerProductController {
 		const nextUpdate = this.#reviewInterestUpdate
 			.catch((): void => {})
 			.then(async (): Promise<void> => {
-				if (subscription !== this.#reviewSubscription) return;
+				if (subscription !== this.#reviewSubscription) {
+					throw new Error(
+						'Bridge Review metadata interest update belongs to a retired Review interest authority.',
+					);
+				}
 				try {
 					await subscription.update({ interests });
 				} catch (error) {
 					if (subscription === this.#reviewSubscription) {
-						this.#reviewDesiredInterestSignature = null;
 						this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+						await this.#recoverReviewMetadataInterestUpdateFailure(subscription);
 					}
 					throw error;
 				}
@@ -199,13 +481,24 @@ export class BridgeCommWorkerProductController {
 		await nextUpdate;
 	}
 
-	#replaceReviewInterestLane(lane: ReviewMetadataInterestLane, itemIds: readonly string[]): void {
-		const uniqueItemIds = [...new Set(itemIds)];
-		if (uniqueItemIds.length === 0) {
-			this.#reviewInterestItemIdsByLane.delete(lane);
-			return;
+	async #recoverReviewMetadataInterestUpdateFailure(
+		subscription: ReviewMetadataSubscription,
+	): Promise<void> {
+		if (subscription !== this.#reviewSubscription) return;
+		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
+		this.#reviewDesiredInterestSignature = null;
+		this.#reviewInterestUpdate = Promise.resolve();
+		try {
+			await subscription.cancel();
+		} catch {
+			// The replacement subscription supersedes failed interest authority locally.
 		}
-		this.#reviewInterestItemIdsByLane.set(lane, uniqueItemIds);
+		try {
+			this.ensureReviewMetadata();
+		} catch {
+			// ensureReviewMetadata publishes the typed failure through the injected callback.
+		}
 	}
 
 	async #consumeReviewMetadataEvents(
@@ -213,8 +506,9 @@ export class BridgeCommWorkerProductController {
 		workerDerivationEpoch: number,
 	): Promise<void> {
 		try {
-			for await (const event of subscription.events) {
+			for await (const frame of subscription.events) {
 				if (subscription !== this.#reviewSubscription) return;
+				const event = frame.data;
 				try {
 					const applicationReceipt = await this.#onReviewMetadataEvent(
 						event,
@@ -227,7 +521,7 @@ export class BridgeCommWorkerProductController {
 					) {
 						continue;
 					}
-					await this.#productTransport.call('review.publication.applied', applicationReceipt);
+					this.#reviewFrameObservationRecoveryAttempted = false;
 					this.#reviewRecoveryPublicationId = null;
 				} catch (error) {
 					await this.#recoverReviewMetadataApplicationFailure(
@@ -242,14 +536,27 @@ export class BridgeCommWorkerProductController {
 		} catch (error) {
 			if (subscription === this.#reviewSubscription) {
 				this.#reviewSubscription = null;
+				this.#reviewInterestItemIdsByLane.clear();
 				this.#reviewDesiredInterestSignature = null;
 				this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+				if (
+					!this.#reviewFrameObservationRecoveryAttempted &&
+					bridgeProductFrameObservationTimedOut(error)
+				) {
+					this.#reviewFrameObservationRecoveryAttempted = true;
+					try {
+						this.ensureReviewMetadata();
+					} catch {
+						// The typed failure is already published; a later demand retries recovery.
+					}
+				}
 				throw error;
 			}
 		}
 		if (subscription === this.#reviewSubscription) {
 			const error = new Error('Bridge Review metadata subscription ended unexpectedly.');
 			this.#reviewSubscription = null;
+			this.#reviewInterestItemIdsByLane.clear();
 			this.#reviewDesiredInterestSignature = null;
 			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
@@ -273,6 +580,7 @@ export class BridgeCommWorkerProductController {
 		}
 		if (subscription !== this.#reviewSubscription) return;
 		this.#reviewSubscription = null;
+		this.#reviewInterestItemIdsByLane.clear();
 		this.#reviewDesiredInterestSignature = null;
 		this.#reviewInterestUpdate = Promise.resolve();
 		if (!shouldReopen) return;
@@ -419,9 +727,11 @@ export class BridgeCommWorkerProductController {
 		workerDerivationEpoch: number,
 	): Promise<void> {
 		try {
-			for await (const event of subscription.events) {
+			for await (const frame of subscription.events) {
 				if (subscription !== this.#fileSubscription) return;
+				const event = frame.data;
 				this.#fileSource = event.source;
+				this.#fileFrameObservationRecoveryAttempted = false;
 				this.#onFileMetadataEvent(event, workerDerivationEpoch);
 				if (event.eventKind === 'file.sourceAccepted' || this.#hasFileMetadataDemand) {
 					this.#scheduleFileMetadataInterestPublication();
@@ -430,6 +740,13 @@ export class BridgeCommWorkerProductController {
 		} catch (error) {
 			if (this.#retireFailedFileMetadataSubscription(subscription)) {
 				this.#onFileMetadataFailure(error, workerDerivationEpoch);
+				if (
+					!this.#fileFrameObservationRecoveryAttempted &&
+					bridgeProductFrameObservationTimedOut(error)
+				) {
+					this.#fileFrameObservationRecoveryAttempted = true;
+					void this.ensureFileSource().catch((): void => {});
+				}
 				throw error;
 			}
 		}
@@ -486,10 +803,26 @@ export class BridgeCommWorkerProductController {
 			sequence: command.params.sequence,
 			sessionId: command.params.sessionId,
 		};
-		return command.params.mode === 'review'
-			? await this.#productTransport.call('review.activeViewerMode.update', request)
-			: await this.#productTransport.call('file.activeViewerMode.update', request);
+		if (command.params.mode === 'review') {
+			return await this.#productTransport.call('review.activeViewerMode.update', request);
+		}
+		const result = await this.#productTransport.call('file.activeViewerMode.update', request);
+		try {
+			await this.ensureFileSource();
+		} catch {
+			// Exact active-mode success remains independent of metadata-stream recovery.
+		}
+		return result;
 	}
+}
+
+function requireReviewAnnotationPublicationIdentity(
+	identity: BridgeProductReviewAnnotationPublicationIdentity | null,
+): BridgeProductReviewAnnotationPublicationIdentity {
+	if (identity === null) {
+		throw new Error('Review annotation command has no installed publication identity.');
+	}
+	return identity;
 }
 
 const fileMetadataInterestLanePriority: readonly FileMetadataInterestLane[] = [
@@ -509,6 +842,21 @@ const reviewMetadataInterestLanePriority: readonly ReviewMetadataInterestLane[] 
 	'speculative',
 	'idle',
 ];
+
+function reviewMetadataInterestLaneForDemandRole(
+	role: BridgeCommWorkerDemandMember['role'],
+): ReviewMetadataInterestLane {
+	switch (role) {
+		case 'selected':
+			return 'foreground';
+		case 'visible':
+		case 'nearby':
+		case 'speculative':
+			return role;
+		case 'background':
+			return 'idle';
+	}
+}
 
 function reviewMetadataInterestsInPriorityOrder(
 	itemIdsByLane: ReadonlyMap<ReviewMetadataInterestLane, readonly string[]>,
@@ -556,6 +904,15 @@ function uniqueFileDemandPaths(paths: readonly string[]): readonly string[] {
 	return [...new Set(paths)];
 }
 
+function bridgeProductFrameObservationTimedOut(error: unknown): boolean {
+	return (
+		typeof error === 'object' &&
+		error !== null &&
+		'failureCode' in error &&
+		error.failureCode === 'request_timeout'
+	);
+}
+
 function assertNeverBridgeProductControlCommand(command: never): never {
 	throw new Error(`Unhandled Bridge product command: ${JSON.stringify(command)}`);
 }
@@ -570,3 +927,11 @@ function ignoreReviewMetadataEvent(
 }
 
 function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}
+
+function ignoreAnnotationProjectionConvergence(
+	_publication: BridgeCommWorkerAnnotationProjectionPublication,
+): void {}
+
+function ignoreAnnotationCatalog(
+	_publication: BridgeCommWorkerAnnotationCatalogPublication,
+): void {}

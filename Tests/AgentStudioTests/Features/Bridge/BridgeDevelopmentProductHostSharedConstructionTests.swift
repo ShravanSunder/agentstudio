@@ -8,6 +8,89 @@ import Testing
 
 @Suite("Bridge development product host shared construction")
 struct BridgeDevHostSharedConstructionTests {
+    @Test("initial and explicit-target publications omit same-source refresh classification")
+    func initialAndExplicitTargetPublicationsOmitRefreshClassification() async throws {
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-unclassified-publications"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let initialPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(initialPublication.classifiedRefreshImpact == nil)
+
+            await host.applyCommittedReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
+                productAdmission: await host.productAdmission
+            )
+            let comparisonTask = await host.activeReviewComparisonTask
+            await comparisonTask?.value
+
+            let explicitTargetPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(explicitTargetPublication.package.reviewGeneration == 2)
+            #expect(explicitTargetPublication.classifiedRefreshImpact == nil)
+            #expect(await provider.snapshot().refreshImpactRequestCount == 0)
+        }
+    }
+
+    @Test("observed worktree refresh publishes existing provider classification")
+    func observedWorktreeRefreshPublishesProviderClassification() async throws {
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-classified-observed-refresh"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
+        let host = try await BridgeDevelopmentProductHost(
+            source: source,
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let displayedPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            let coordinator = await host.reviewPublicationCoordinator
+            let productAdmission = await host.productAdmission
+            let workerInstanceId = "development-refresh-classification-worker"
+            let admission = await coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: displayedPublication.publicationId,
+                workerInstanceId: workerInstanceId,
+                productAdmission: productAdmission
+            )
+            #expect(admission == .admitted)
+            let application = await coordinator.recordDisplayedApplication(
+                publicationId: displayedPublication.publicationId,
+                workerInstanceId: workerInstanceId,
+                productAdmission: productAdmission
+            )
+            #expect(application == .advanced)
+
+            await host.handleObservedWorktreeInvalidation(
+                developmentFileInvalidation(source: source, batchSequence: 1)
+            )
+            let refreshTask = await host.activeReviewComparisonTask
+            await refreshTask?.value
+
+            let refreshedPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(refreshedPublication.package.reviewGeneration == 2)
+            #expect(refreshedPublication.classifiedRefreshImpact == .developmentHostTestImpact)
+            #expect(await provider.snapshot().refreshImpactRequestCount == 1)
+        }
+    }
+
     @Test("committed comparison update acknowledges before its publication is delivered")
     func committedComparisonUpdateAcknowledgesBeforePublicationDelivery() async throws {
         // Arrange
@@ -147,6 +230,49 @@ struct BridgeDevHostSharedConstructionTests {
         }
     }
 
+    @Test("source invalidations supersede the development Review publication task")
+    func sourceInvalidationsSupersedeDevelopmentReviewPublicationTask() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-source-refresh"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
+        let host = try await BridgeDevelopmentProductHost(
+            source: source,
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let comparisonGate = BridgeComparisonGate()
+            await provider.setComparisonGate(comparisonGate)
+
+            // Act
+            await host.handleObservedWorktreeInvalidation(
+                developmentFileInvalidation(source: source, batchSequence: 10)
+            )
+            await comparisonGate.waitForStartedComparisonCount(1)
+            await host.handleObservedWorktreeInvalidation(
+                developmentFileInvalidation(source: source, batchSequence: 11)
+            )
+            await comparisonGate.waitForStartedComparisonCount(2)
+            await comparisonGate.releaseAll()
+            let reviewTask = await host.activeReviewComparisonTask
+            await reviewTask?.value
+            let didDrainRetiringTasks = await waitForRetiringReviewTasksToDrain(host)
+
+            // Assert
+            let publication = await host.diagnosticCommittedReviewPublication()
+            #expect(publication?.package.reviewGeneration == 3)
+            #expect(await provider.snapshot().reviewGenerationValues == [1, 2, 3])
+            #expect(didDrainRetiringTasks)
+        }
+    }
+
     @Test("shutdown cancels and drains the host-owned comparison publication task")
     func shutdownCancelsAndDrainsComparisonPublicationTask() async throws {
         // Arrange
@@ -188,6 +314,43 @@ struct BridgeDevHostSharedConstructionTests {
                 == .unavailable(failureKind: "publication_failed", retryable: true)
         )
         #expect(await host.activeReviewComparisonTask == nil)
+    }
+
+    @Test("detected observation terminal retains the last complete Review publication")
+    func detectedObservationTerminalRetainsLastCompleteReviewPublication() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-observation-terminal"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let initialPublication = try #require(
+                await host.diagnosticCommittedReviewPublication()
+            )
+
+            // Act
+            await host.handleObservedWorktreeTerminal()
+
+            // Assert
+            let presentation = await host.diagnosticPanePresentation()
+            let retainedPublication = await host.diagnosticCommittedReviewPublication()
+            #expect(presentation.fileRefreshFailure?.failureKind == .fileRefreshFailed)
+            #expect(presentation.fileRefreshFailure?.retryable == false)
+            #expect(
+                presentation.reviewComparison?.attempt
+                    == .unavailable(failureKind: "observation_terminal", retryable: false)
+            )
+            #expect(retainedPublication?.publicationId == initialPublication.publicationId)
+        }
     }
 
     @Test("initial Review bootstrap settles presentation for the restored symbolic target")
@@ -369,6 +532,32 @@ struct BridgeDevHostSharedConstructionTests {
     }
 }
 
+private func developmentFileInvalidation(
+    source: BridgeDevelopmentProductSource,
+    batchSequence: UInt64
+) -> BridgePaneWorktreeProductInvalidation {
+    .filesChanged(
+        FileChangeset(
+            worktreeId: source.worktreeID,
+            repoId: source.repoID,
+            rootPath: source.worktreeRoot,
+            paths: ["tracked.txt"],
+            timestamp: .now,
+            batchSeq: batchSequence
+        )
+    )
+}
+
+private func waitForRetiringReviewTasksToDrain(
+    _ host: BridgeDevelopmentProductHost
+) async -> Bool {
+    let retiringTasks = await Array(host.retiringReviewComparisonTasks.values)
+    for task in retiringTasks {
+        await task.value
+    }
+    return await host.retiringReviewComparisonTasks.isEmpty
+}
+
 private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
     let contributionCaptureCount: Int
     let contributionTargets: [WorkspaceReviewContributionTarget]
@@ -379,6 +568,7 @@ private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
     let sharedEndpointResolutionCount: Int
     let sharedInstallCount: Int
     let reviewGenerationValues: [Int]
+    let refreshImpactRequestCount: Int
 }
 
 private actor BridgeComparisonUpdateCompletionRecorder {
@@ -403,7 +593,8 @@ private actor BridgeComparisonUpdateCompletionRecorder {
 }
 
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
-    BridgeSharedReviewConstructionSourceProvider
+    BridgeSharedReviewConstructionSourceProvider,
+    BridgeReviewRefreshImpactSourceProvider
 {
     func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         reviewComparisonTargetReadCount += 1
@@ -444,6 +635,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     private var sharedEndpointResolutionCount = 0
     private var sharedInstallCount = 0
     private var reviewGenerationValues: [Int] = []
+    private var refreshImpactRequestCount = 0
 
     init(
         comparisonGate: BridgeComparisonGate? = nil,
@@ -551,15 +743,9 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         _ = handles
         _ = freshnessKey
         sharedCaptureCount += 1
-        let directoryURL = FileManager.default.temporaryDirectory.appending(
-            path: "bridge-development-shared-review-\(UUIDv7.generate().uuidString)"
-        )
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         return BridgeSharedReviewContentBacking(
             artifactIdentity: UUIDv7.generate(),
-            directoryURL: directoryURL,
-            sourceByIdentity: [:],
-            capturedByteCount: 0
+            sourceByIdentity: [:]
         )
     }
 
@@ -572,6 +758,18 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         sharedInstallCount += 1
     }
 
+    func measureRefreshImpact(
+        displayedPackage: BridgeReviewPackage,
+        candidatePackage: BridgeReviewPackage,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> BridgeReviewRefreshImpact {
+        _ = displayedPackage
+        _ = candidatePackage
+        _ = candidateGeneration
+        refreshImpactRequestCount += 1
+        return .developmentHostTestImpact
+    }
+
     func snapshot() -> BridgeDevSharedReviewProviderSnapshot {
         BridgeDevSharedReviewProviderSnapshot(
             contributionCaptureCount: contributionCaptureCount,
@@ -582,7 +780,8 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
             sharedComparisonCount: sharedComparisonCount,
             sharedEndpointResolutionCount: sharedEndpointResolutionCount,
             sharedInstallCount: sharedInstallCount,
-            reviewGenerationValues: reviewGenerationValues
+            reviewGenerationValues: reviewGenerationValues,
+            refreshImpactRequestCount: refreshImpactRequestCount
         )
     }
 
@@ -600,6 +799,16 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
             providerIdentity: objectId
         )
     }
+}
+
+extension BridgeReviewRefreshImpact {
+    fileprivate static let developmentHostTestImpact = exact(
+        newlyImportedCommitCount: 10,
+        affectedFileCount: 1,
+        addedLineCount: 4,
+        deletedLineCount: 3,
+        affectedStableFileIdentities: []
+    )
 }
 
 private func makeDevelopmentBootstrapRequest(

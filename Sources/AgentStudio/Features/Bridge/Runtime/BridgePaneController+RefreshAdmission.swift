@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 package enum BridgePaneWorktreeProductInvalidation: Sendable {
@@ -18,6 +19,27 @@ package enum BridgePaneWorktreeProductInvalidation: Sendable {
 
 @MainActor
 extension BridgePaneController {
+    func admitPreparedReviewPackageRefresh(
+        currentPublication: BridgeReviewCommittedPublication,
+        refreshGeneration: BridgeReviewGeneration,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        productAdmission: BridgeProductAdmissionContext,
+        reservation: BridgePaneRefreshCatchUpReservation,
+        packageTraceContext: BridgeTraceContext?
+    ) -> Bool {
+        !Task.isCancelled
+            && foregroundWorkAdmission.withValidAdmission({ true }) == true
+            && refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
+            && refreshGeneration == nextReviewGeneration
+            && reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )?.publicationId == currentPublication.publicationId
+            && productAdmission.withValidAdmission({
+                lastReviewPackageTraceContext = packageTraceContext
+                return true
+            }) == true
+    }
+
     @discardableResult
     package func applyBridgePaneActivity(_ activity: BridgePaneActivity) -> Task<Void, Never>? {
         let previousActivity = refreshAdmissionCoordinator.diagnosticSnapshot.activity
@@ -34,17 +56,21 @@ extension BridgePaneController {
                     requiresReviewRefresh: true
                 )
             }
-            activeReviewRefreshTask?.cancel()
+            worktreeRefreshDriver.retireActiveFileOperation()
+            retireActiveReviewRefreshTask()
         }
         return productActivityTransition
+    }
+
+    package func retryUnavailableFileRefresh() {
+        worktreeRefreshDriver.retryUnavailableFileRefresh()
     }
 
     private func scheduleProductActivityTransition(
         _ activity: BridgePaneActivity
     ) -> Task<Void, Never>? {
         guard let productSchemeProvider else { return nil }
-        let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
-        return scheduleProductPresentationTransition {
+        return worktreeRefreshDriver.schedulePresentationTransition { snapshot in
             if activity == .foreground {
                 await productSchemeProvider.resumeForegroundWork()
                 await productSchemeProvider.publishPanePresentation(snapshot)
@@ -58,34 +84,14 @@ extension BridgePaneController {
     func scheduleProductPresentationPublication(
         traceContext: BridgeTraceContext? = nil
     ) -> Task<Void, Never>? {
-        guard let productSchemeProvider else { return nil }
-        let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
-        return scheduleProductPresentationTransition {
-            await productSchemeProvider.publishPanePresentation(snapshot, traceContext: traceContext)
-        }
-    }
-
-    private func scheduleProductPresentationTransition(
-        _ operation: @escaping @MainActor @Sendable () async -> Void
-    ) -> Task<Void, Never> {
-        productPresentationTransitionGeneration &+= 1
-        let transitionGeneration = productPresentationTransitionGeneration
-        let precedingTransition = productPresentationTransitionTail
-        let transition = Task { @MainActor [weak self] in
-            await precedingTransition?.value
-            await operation()
-            guard let self,
-                self.productPresentationTransitionGeneration == transitionGeneration
-            else { return }
-            self.productPresentationTransitionTail = nil
-        }
-        productPresentationTransitionTail = transition
-        return transition
+        worktreeRefreshDriver.schedulePresentationPublication(traceContext: traceContext)
     }
 
     package func handleWorktreeProductInvalidation(
         _ invalidation: BridgePaneWorktreeProductInvalidation
     ) async {
+        let affectsFileLane: Bool
+        let affectsReviewLane: Bool
         switch invalidation {
         case .filesChanged(let changeset):
             let matchesPaneWorktree = changeset.worktreeId == runtime.metadata.worktreeId
@@ -100,25 +106,35 @@ extension BridgePaneController {
             guard changeset.repoId == runtime.metadata.repoId,
                 matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
             else { return }
-            refreshAdmissionCoordinator.recordInvalidation(
+            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
+            let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: matchesPaneWorktree ? changeset : nil,
                 requiresReviewRefresh: true
             )
+            affectsFileLane = affectedLanes.contains(.file)
+            affectsReviewLane = affectedLanes.contains(.review)
         case .statusChanged(let status):
-            refreshAdmissionCoordinator.recordInvalidation(
+            reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
+            let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: nil,
                 latestFileStatus: status,
                 requiresReviewRefresh: true
             )
+            affectsFileLane = affectedLanes.contains(.file)
+            affectsReviewLane = affectedLanes.contains(.review)
         }
-        reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
-        scheduleWorktreeProductCatchUpIfPossible()
+        if affectsReviewLane {
+            retireActiveReviewRefreshTask()
+        }
+        if affectsFileLane || affectsReviewLane {
+            scheduleWorktreeProductCatchUpIfPossible()
+        }
     }
 
     private func reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded() {
         let admissionSnapshot = refreshAdmissionCoordinator.diagnosticSnapshot
         guard admissionSnapshot.activity == .foreground,
-            admissionSnapshot.activeRefreshPass?.lanes.contains(.review) == true,
+            refreshAdmissionCoordinator.isRefreshLaneActive(.review),
             pendingComparisonReviewGeneration == nil,
             case .workspace(_, let baseline) = bridgePaneState.source,
             baseline?.contributionTarget != nil
@@ -130,17 +146,52 @@ extension BridgePaneController {
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {
+        worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
+        scheduleReviewCatchUpIfPossible()
+    }
+
+    private func scheduleReviewCatchUpIfPossible() {
         guard activeReviewRefreshTask == nil,
-            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass()
+            let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
         else { return }
 
         _ = scheduleProductPresentationPublication()
+        let taskId = UUIDv7.generate()
+        activeReviewRefreshTaskId = taskId
         activeReviewRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var reservation: BridgePaneRefreshCatchUpReservation? = firstReservation
             var finalOutcome = BridgePaneRefreshCatchUpOutcome.stale
-            while let currentReservation = reservation, !Task.isCancelled {
-                let outcome = await self.performWorktreeProductCatchUp(currentReservation)
+            while let currentReservation = reservation {
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: .success,
+                    stage: .refreshReserved,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: .started,
+                    stage: .reviewPrepareStarted,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
+                let outcome = await self.performReviewCatchUp(currentReservation)
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: Self.operationResult(for: outcome),
+                    stage: .reviewPrepareTerminal,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
+                await self.productSchemeProvider?.recordOperationLifecycle(
+                    operationCorrelationID: currentReservation.operationCorrelationID,
+                    result: Self.operationResult(for: outcome),
+                    stage: .refreshOperationTerminal,
+                    stageAttempt: currentReservation.operationStageAttempt,
+                    surface: .review
+                )
                 finalOutcome = outcome
                 self.refreshAdmissionCoordinator.completeRefreshPass(
                     currentReservation,
@@ -148,61 +199,60 @@ extension BridgePaneController {
                 )
                 reservation =
                     outcome == .succeeded
-                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass()
+                    ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
                     : nil
                 _ = self.scheduleProductPresentationPublication()
                 guard outcome == .succeeded else { break }
             }
+            self.retiringReviewRefreshTaskById.removeValue(forKey: taskId)
+            guard self.activeReviewRefreshTaskId == taskId else { return }
             self.activeReviewRefreshTask = nil
+            self.activeReviewRefreshTaskId = nil
             self.scheduleRetainedReviewPackageBuildIfPossible()
             if finalOutcome != .failed {
-                self.scheduleWorktreeProductCatchUpIfPossible()
+                self.scheduleReviewCatchUpIfPossible()
             }
         }
     }
 
-    private func performWorktreeProductCatchUp(
+    func retireActiveReviewRefreshTask() {
+        if let productAdmission = productAdmissionGate.acquire() {
+            reviewPublicationCoordinator.supersedePendingPublication(
+                productAdmission: productAdmission
+            )
+        }
+        guard let taskId = activeReviewRefreshTaskId,
+            let task = activeReviewRefreshTask
+        else { return }
+        task.cancel()
+        retiringReviewRefreshTaskById[taskId] = task
+        activeReviewRefreshTask = nil
+        activeReviewRefreshTaskId = nil
+    }
+
+    private func performReviewCatchUp(
         _ reservation: BridgePaneRefreshCatchUpReservation
     ) async -> BridgePaneRefreshCatchUpOutcome {
         guard reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
             let productAdmission = productAdmissionGate.acquire()
         else { return .stale }
-
-        var fileRefreshFailed = false
-        if let changeset = reservation.fileChangeset {
-            let disposition = await productSchemeProvider?.publishFileChangeset(
-                changeset,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: reservation.foregroundWorkAdmission
-            )
-            guard disposition != .stale,
-                reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                !Task.isCancelled
-            else { return .stale }
-            fileRefreshFailed = fileRefreshFailed || disposition == .failed
-        }
-
-        if let status = reservation.latestFileStatus {
-            let disposition = await productSchemeProvider?.publishFileStatus(
-                status,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: reservation.foregroundWorkAdmission
-            )
-            guard disposition != .stale,
-                reservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                !Task.isCancelled
-            else { return .stale }
-            fileRefreshFailed = fileRefreshFailed || disposition == .failed
-        }
-
-        guard reservation.requiresReviewRefresh else {
-            return fileRefreshFailed ? .failed : .succeeded
-        }
-        let reviewOutcome = await refreshCurrentReviewPackage(
+        return await refreshCurrentReviewPackage(
+            reservation: reservation,
             foregroundWorkAdmission: reservation.foregroundWorkAdmission,
             productAdmission: productAdmission
         )
-        guard reviewOutcome == .succeeded else { return reviewOutcome }
-        return fileRefreshFailed ? .failed : .succeeded
+    }
+
+    private static func operationResult(
+        for outcome: BridgePaneRefreshCatchUpOutcome
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch outcome {
+        case .succeeded:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamReset:
+            .stale
+        }
     }
 }

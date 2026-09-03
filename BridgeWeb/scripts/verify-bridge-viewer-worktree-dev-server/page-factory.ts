@@ -50,6 +50,9 @@ export async function makeVerificationPage(): Promise<Page> {
 	});
 	await page.addInitScript((): void => {
 		window.bridgeWorktreeVerifierTelemetrySamples = [];
+		document.addEventListener('__bridge_ready_ack', (): void => {
+			window.bridgeCompleteJourneyHandshakeReadyEpochMilliseconds ??= Date.now();
+		});
 		const verifierHelpers: WorktreeVerifierBrowserHelpers = {
 			getBridgeFileViewerRenderedCodeLineCount(): number {
 				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');

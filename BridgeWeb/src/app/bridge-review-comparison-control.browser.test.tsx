@@ -296,7 +296,13 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('feature/new-target · Updating');
+			.toHaveTextContent('master');
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-trigger')
+				.element()
+				.textContent?.includes('Updating'),
+		).toBe(false);
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-content'))
@@ -669,10 +675,12 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'origin',
 			},
+			expectedAccessibleLabel: 'Compare to: origin/main · Updating',
 			rowTestId: 'comparison-branch-origin-main',
 		},
 		{
 			expectedTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
+			expectedAccessibleLabel: 'Compare to: main · Updating',
 			rowTestId: 'comparison-branch-main',
 		},
 		{
@@ -682,6 +690,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'upstream',
 			},
+			expectedAccessibleLabel: 'Compare to: upstream/release · Updating',
 			rowTestId: 'comparison-branch-upstream-release',
 		},
 	])('applies $rowTestId immediately', async (scenario) => {
@@ -709,6 +718,17 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(scenario.expectedTarget);
 		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
+		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+		await expect.element(trigger).toHaveTextContent('master');
+		await expect.element(trigger).toHaveAttribute('aria-label', scenario.expectedAccessibleLabel);
+		expect(trigger.element().textContent?.includes('Updating')).toBe(false);
+		expect(trigger.element()).toBeDisabled();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-pending-icon"]'),
+		).not.toBeNull();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-trigger-icon"]'),
+		).toBeNull();
 	});
 
 	test('accepts only a full hexadecimal commit OID', async () => {
@@ -801,10 +821,19 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			/>,
 		);
 
-		// Assert — closed chrome names the requested target while popup details retain the package visible now.
+		// Assert — closed chrome retains the installed target while its accessible status names the request.
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('feature/new-target · Updating');
+			.toHaveTextContent('master');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveAttribute('aria-label', 'Compare to: feature/new-target · Updating');
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-trigger')
+				.element()
+				.textContent?.includes('Updating'),
+		).toBe(false);
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});

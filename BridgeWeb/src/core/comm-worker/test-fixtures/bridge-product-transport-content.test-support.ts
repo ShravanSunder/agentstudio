@@ -18,6 +18,7 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from '../bridge-product-frame-acknowledgement-contracts.js';
+import { bridgeProductMetadataApplicationRegistry } from '../bridge-product-metadata-application-registry.js';
 import { encodeBridgeProductMetadataFrame } from '../bridge-product-metadata-frame-codec.js';
 import {
 	BridgeProductControlMux,
@@ -42,6 +43,7 @@ const abcSha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f2001
 export function createContentTransportHarness(
 	fileEpoch = 0,
 	maximumConcurrentContentResponses?: number,
+	frameAcknowledgementTimeoutMilliseconds?: number,
 ): {
 	readonly server: TestContentProductServer;
 	readonly transport: ReturnType<typeof createBridgeProductTransport>;
@@ -78,9 +80,13 @@ export function createContentTransportHarness(
 			createIdentifier: purposeIdentifier(),
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: { file: fileEpoch, review: 0 },
+			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 			...(maximumConcurrentContentResponses === undefined
 				? {}
 				: { maximumConcurrentContentResponses }),
+			...(frameAcknowledgementTimeoutMilliseconds === undefined
+				? {}
+				: { frameAcknowledgementTimeoutMilliseconds }),
 		}),
 	};
 }
@@ -93,9 +99,11 @@ export class TestContentProductServer {
 	readonly contentRequests: BridgeProductContentRequest[] = [];
 	contentRequestInvocationCount = 0;
 	contentReaderCancelCount = 0;
+	metadataReaderCancelCount = 0;
 	readonly controlRequests: BridgeProductControlRequest[] = [];
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
 	holdContentResponses = false;
+	holdNextContentRequestBeforeResponse = false;
 	leaveContentOpenAfterAcceptance = false;
 	nextContentRequestFailure: Error | null = null;
 	nextContentResponseKind: 'ordinary' | 'read-error' | 'unexpected-eof' = 'ordinary';
@@ -103,8 +111,10 @@ export class TestContentProductServer {
 	readonly requestRoutes: string[] = [];
 	#heldAcknowledgement: Promise<void> | null = null;
 	#heldContentRequestId: string | null = null;
+	#holdMetadataAcknowledgement = false;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	#metadataRequest: BridgeProductMetadataStreamRequest | null = null;
+	#releaseHeldContentRequestBeforeResponse: (() => void) | null = null;
 	#releaseHeldAcknowledgement: (() => void) | null = null;
 
 	readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -112,6 +122,12 @@ export class TestContentProductServer {
 		this.requestRoutes.push(url);
 		if (url === 'agentstudio://rpc/content') {
 			this.contentRequestInvocationCount += 1;
+			if (this.holdNextContentRequestBeforeResponse) {
+				this.holdNextContentRequestBeforeResponse = false;
+				await new Promise<void>((resolve): void => {
+					this.#releaseHeldContentRequestBeforeResponse = resolve;
+				});
+			}
 			const requestFailure = this.nextContentRequestFailure;
 			this.nextContentRequestFailure = null;
 			if (requestFailure !== null) throw requestFailure;
@@ -143,12 +159,27 @@ export class TestContentProductServer {
 		});
 	}
 
+	holdMetadataAcknowledgement(): void {
+		this.#holdMetadataAcknowledgement = true;
+		this.#heldAcknowledgement = new Promise<void>((resolve): void => {
+			this.#releaseHeldAcknowledgement = resolve;
+		});
+	}
+
 	releaseHeldContentAcknowledgement(): void {
 		const release = this.#releaseHeldAcknowledgement;
 		if (release === null) throw new Error('No content acknowledgement is held.');
 		this.#heldAcknowledgement = null;
 		this.#heldContentRequestId = null;
+		this.#holdMetadataAcknowledgement = false;
 		this.#releaseHeldAcknowledgement = null;
+		release();
+	}
+
+	releaseHeldContentRequestBeforeResponse(): void {
+		const release = this.#releaseHeldContentRequestBeforeResponse;
+		if (release === null) throw new Error('No content request is held before response.');
+		this.#releaseHeldContentRequestBeforeResponse = null;
 		release();
 	}
 
@@ -177,8 +208,9 @@ export class TestContentProductServer {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
 		if (
-			request.streamKind === 'content' &&
-			request.contentRequestId === this.#heldContentRequestId
+			(request.streamKind === 'content' &&
+				request.contentRequestId === this.#heldContentRequestId) ||
+			(request.streamKind === 'metadata' && this.#holdMetadataAcknowledgement)
 		) {
 			if (this.#heldAcknowledgement === null) throw new Error('Held acknowledgement is missing.');
 			await this.#heldAcknowledgement;
@@ -256,6 +288,7 @@ export class TestContentProductServer {
 			identity: bridgeProductContentIdentityFromDescriptor(request.descriptor),
 			leaseId: request.leaseId,
 			maximumBytes: request.descriptor.maximumBytes,
+			operationCorrelationId: request.operationCorrelationId,
 			paneSessionId: request.paneSessionId,
 			wireVersion: request.wireVersion,
 			workerDerivationEpoch: request.workerDerivationEpoch,
@@ -277,11 +310,17 @@ export class TestContentProductServer {
 			Uint8Array.from(
 				concatenateBytes(
 					encodeMinimalControlFrame(0x01, 0, acceptedBody),
-					encodeMinimalDataFrame(1, 0, Uint8Array.from([97, 98, 99])),
+					encodeMinimalDataFrame(
+						1,
+						0,
+						Uint8Array.from([97, 98, 99]),
+						request.operationCorrelationId,
+					),
 					encodeMinimalControlFrame(0x03, 2, {
 						endOfSource: true,
 						observedByteLength: 3,
 						observedSha256: abcSha256,
+						operationCorrelationId: request.operationCorrelationId,
 					}),
 				),
 			).buffer,
@@ -292,6 +331,9 @@ export class TestContentProductServer {
 		this.#metadataRequest = bridgeProductMetadataStreamRequestSchema.parse(parseBody(init));
 		return new Response(
 			new ReadableStream<Uint8Array>({
+				cancel: (): void => {
+					this.metadataReaderCancelCount += 1;
+				},
 				start: (controller): void => {
 					this.#metadataController = controller;
 				},

@@ -26,24 +26,14 @@ package typealias BridgeTelemetrySessionBootstrapSink =
         _ contentWorld: WKContentWorld
     ) async throws -> Void
 
-struct BridgeBootstrapScriptInput {
-    let reviewPaneId: String
-    let reviewStreamId: String
-    let panelKind: BridgePanelKind
-    let telemetryConfig: BridgeTelemetryBootstrapConfig?
-    let bridgeWorld: WKContentWorld
-}
-
-struct BridgeBootstrapArtifacts {
-    let script: WKUserScript
-}
-
 struct BridgeProductSessionDependencyInput {
     let paneSessionId: String
     let runtime: BridgeRuntime
     let state: BridgePaneState
     let gitReadContext: BridgeGitReadContext?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -51,37 +41,6 @@ struct BridgeProductSessionDependencyInput {
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
-}
-
-struct BridgeSchemeHandlerRegistrationInput {
-    let paneId: UUID
-    let appRootURL: URL
-    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
-    let productSessionRouter: BridgeProductSchemeSessionRouter
-}
-
-package struct BridgePaneTelemetrySessionDependencies: Sendable {
-    let installation: BridgeTelemetrySessionInstallation
-    let owner: BridgePaneTelemetrySessionOwner
-}
-
-package struct BridgePaneProductSessionDependencies {
-    let installation: BridgeProductSessionInstallation
-    let owner: BridgePaneProductSessionOwner
-    let committedCallTarget: BridgePaneProductCommittedCallTarget?
-    let productProvider: BridgePaneProductSchemeProvider?
-
-    init(
-        installation: BridgeProductSessionInstallation,
-        owner: BridgePaneProductSessionOwner,
-        committedCallTarget: BridgePaneProductCommittedCallTarget? = nil,
-        productProvider: BridgePaneProductSchemeProvider? = nil
-    ) {
-        self.installation = installation
-        self.owner = owner
-        self.committedCallTarget = committedCallTarget
-        self.productProvider = productProvider
-    }
 }
 
 @MainActor
@@ -102,7 +61,11 @@ final class BridgePaneProductCommittedCallTarget {
         let sourceProtocol: BridgeActiveViewerSourceProtocol
         let update: BridgeProductActiveViewerModeUpdateRequest
         switch call {
-        case .fileSourceCurrent:
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
+            .fileAnnotationsProjectionQuery,
+            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
+            .reviewAnnotationsProjectionQuery,
+            .fileSourceCurrent, .fileRefreshRetry:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -113,7 +76,8 @@ final class BridgePaneProductCommittedCallTarget {
             sourceProtocol = .review
             update = request
         case .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
-            .reviewPublicationApplied, .reviewComparisonTargetsQuery:
+            .reviewPublicationInstallAdmission, .reviewPublicationApplied,
+            .reviewComparisonTargetsQuery:
             return
         }
         let activeSource = update.activeSource.map {
@@ -132,6 +96,11 @@ final class BridgePaneProductCommittedCallTarget {
             nativeSelectionRequestId: update.nativeSelectionRequestId,
             productCorrelation: correlation
         )
+    }
+
+    func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
+        guard (productAdmission.withValidAdmission { true }) == true else { return }
+        controller?.retryUnavailableFileRefresh()
     }
 
     func applyReviewIntakeReady(
@@ -363,9 +332,13 @@ extension BridgePaneController {
                 )
                 let retirementReason: BridgePaneProductSessionRetirementReason =
                     reason == .workerReplacement ? .workerReplacement : .pageReload
+                let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
                 while await productSessionOwner.retire(reason: retirementReason) != .retired {
                     guard (productAdmission.withValidAdmission { true }) == true else { return }
                     await Task.yield()
+                }
+                if let retiringWorkerInstanceID {
+                    await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
                 }
                 guard
                     await productSessionOwner.activatePreparedCandidate(
@@ -428,9 +401,13 @@ extension BridgePaneController {
         } catch {
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
             guard (productAdmission.withValidAdmission { true }) == true else { return }
+            let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
             while await productSessionOwner.retire(reason: .pageReload) != .retired {
                 guard (productAdmission.withValidAdmission { true }) == true else { return }
                 await Task.yield()
+            }
+            if let retiringWorkerInstanceID {
+                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
             }
             setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
         }
@@ -497,41 +474,77 @@ extension BridgePaneController {
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
         let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
-        let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
-            if let authority = makeProductFileSourceAuthority(
-                paneId: UUID(uuidString: input.paneSessionId),
-                runtime: input.runtime,
-                state: input.state
-            ), let gitReadContext = input.gitReadContext,
-                let constructionCoordinator = input.worktreeProductConstructionCoordinator
-            {
-                BridgePaneProductFileMetadataSource(
-                    authority: authority,
-                    gitReadContext: gitReadContext,
-                    constructionCoordinator: constructionCoordinator
-                )
-            } else {
-                BridgeUnavailablePaneProductFileMetadataSource()
-            }
+        let fileSourceComposition = makeFileSourceComposition(input)
+        let fileMetadataSource = fileSourceComposition.source
+        let provider = makeProductSchemeProvider(
+            input,
+            committedCallTarget: committedCallTarget,
+            fileMetadataSource: fileMetadataSource
+        )
+        let installation = makeInitialProductSessionInstallation(
+            paneSessionId: input.paneSessionId,
+            provider: provider,
+            productAdmissionGate: productAdmissionGate,
+            telemetryRecorder: input.telemetryRecorder
+        )
+        return BridgePaneProductSessionDependencies(
+            installation: installation,
+            owner: makeProductSessionOwner(
+                paneSessionId: input.paneSessionId,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate,
+                activeInstallation: installation,
+                reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+                telemetryRecorder: input.telemetryRecorder
+            ),
+            committedCallTarget: committedCallTarget,
+            fileSourceAcceptanceRelay: fileSourceComposition.acceptanceRelay,
+            productProvider: provider
+        )
+    }
+
+    private static func makeProductSchemeProvider(
+        _ input: BridgeProductSessionDependencyInput,
+        committedCallTarget: BridgePaneProductCommittedCallTarget,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    ) -> BridgePaneProductSchemeProvider {
         let reviewContentSource = makeReviewContentSource(input)
-        let provider = BridgePaneProductSchemeProvider(
+        let lifecycleTraceRecorder = input.telemetryRecorder.map(
+            BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
+        )
+        let annotationSource = makeWorktreeAnnotationSource(
+            input,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
+        )
+        let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
+            input,
+            fileMetadataSource: fileMetadataSource
+        )
+        return BridgePaneProductSchemeProvider(
+            annotationSource: annotationSource,
+            annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
+                store: input.worktreeAnnotationStore
+            ),
+            annotationProjectionSource: annotationProjectionSource,
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
-            reviewPublicationReplay: { productAdmission in
-                input.reviewPublicationCoordinator.committedPublicationForReplay(
+            reviewPublicationReplay:
+                input.reviewPublicationCoordinator.committedPublicationForReplay,
+            isReviewPublicationCurrent:
+                input.reviewPublicationCoordinator.isCurrentPublication,
+            admitReviewPublicationInstallation: { request, correlation, productAdmission in
+                input.reviewPublicationCoordinator.admitDisplayInstallation(
+                    expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                    candidatePublicationId: request.candidatePublicationId,
+                    workerInstanceId: correlation.workerInstanceId,
                     productAdmission: productAdmission
                 )
             },
-            isReviewPublicationCurrent: { publicationId, productAdmission in
-                input.reviewPublicationCoordinator.isCurrentPublication(
+            recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
+                input.reviewPublicationCoordinator.recordDisplayedApplication(
                     publicationId: publicationId,
-                    productAdmission: productAdmission
-                )
-            },
-            recordReviewPublicationApplication: { publicationId, productAdmission in
-                input.reviewPublicationCoordinator.recordWorkerApplication(
-                    publicationId: publicationId,
+                    workerInstanceId: correlation.workerInstanceId,
                     productAdmission: productAdmission
                 )
             },
@@ -554,6 +567,11 @@ extension BridgePaneController {
                 )
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
+            applyFileRefreshRetry: committedCallTarget.applyFileRefreshRetry,
+            applyWorktreeAnnotationCommand: makeWorktreeAnnotationCommandHandler(
+                input,
+                fileMetadataSource: fileMetadataSource
+            ),
             authorizeReviewComparisonTargets: makeReviewComparisonTargetsAuthorization(input),
             reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
                 reviewSourceProvider: input.reviewSourceProvider,
@@ -566,27 +584,45 @@ extension BridgePaneController {
             },
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
-            lifecycleTraceRecorder: input.telemetryRecorder.map(
-                BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
-            )
+            lifecycleTraceRecorder: lifecycleTraceRecorder
         )
-        let installation = makeInitialProductSessionInstallation(
-            paneSessionId: input.paneSessionId,
-            provider: provider,
-            productAdmissionGate: productAdmissionGate,
-            telemetryRecorder: input.telemetryRecorder
+    }
+
+    private static func makeFileSourceComposition(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> (
+        source: any BridgePaneProductFileMetadataProducing,
+        acceptanceRelay: BridgePaneFileSourceAcceptanceRelay
+    ) {
+        let acceptanceRelay = BridgePaneFileSourceAcceptanceRelay()
+        let source = makeFileMetadataSource(
+            input,
+            sourceAcceptedObserver: { acceptedSource in
+                await acceptanceRelay.accept(acceptedSource)
+            }
         )
-        return BridgePaneProductSessionDependencies(
-            installation: installation,
-            owner: makeProductSessionOwner(
-                paneSessionId: input.paneSessionId,
-                provider: provider,
-                productAdmissionGate: productAdmissionGate,
-                activeInstallation: installation,
-                telemetryRecorder: input.telemetryRecorder
-            ),
-            committedCallTarget: committedCallTarget,
-            productProvider: provider
+        return (source, acceptanceRelay)
+    }
+
+    private static func makeFileMetadataSource(
+        _ input: BridgeProductSessionDependencyInput,
+        sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver
+    ) -> any BridgePaneProductFileMetadataProducing {
+        guard
+            let authority = makeProductFileSourceAuthority(
+                paneId: UUID(uuidString: input.paneSessionId),
+                runtime: input.runtime,
+                state: input.state
+            ), let gitReadContext = input.gitReadContext,
+            let constructionCoordinator = input.worktreeProductConstructionCoordinator
+        else {
+            return BridgeUnavailablePaneProductFileMetadataSource()
+        }
+        return BridgePaneProductFileMetadataSource(
+            authority: authority,
+            gitReadContext: gitReadContext,
+            constructionCoordinator: constructionCoordinator,
+            sourceAcceptedObserver: sourceAcceptedObserver
         )
     }
 
@@ -610,6 +646,96 @@ extension BridgePaneController {
                 input.reviewPublicationCoordinator.settleContentLease(lease)
             }
         )
+    }
+
+    private static func makeWorktreeAnnotationSource(
+        _ input: BridgeProductSessionDependencyInput,
+        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+    ) -> BridgePaneAnnotationNotificationSource {
+        guard let service = input.worktreeAnnotationStore,
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else { return .unavailable }
+        return BridgePaneAnnotationNotificationSource(
+            service: service,
+            worktreeID: worktreeID,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
+        )
+    }
+
+    private static func makeWorktreeAnnotationProjectionSource(
+        _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    ) -> BridgeAnnotationProjectionSource {
+        guard let service = input.worktreeAnnotationStore,
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else { return .unavailable }
+        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: fileMetadataSource,
+            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+            reviewContentLoaderCache: input.reviewContentLoaderCache,
+            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
+        )
+        return BridgeAnnotationProjectionSource(
+            service: service,
+            sourceResolver: sourceResolver,
+            worktreeID: worktreeID,
+            currentSourceGeneration: sourceResolver.currentSourceGeneration
+        )
+    }
+
+    private static func makeWorktreeAnnotationCommandHandler(
+        _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    )
+        -> @MainActor @Sendable (
+            BridgeProductWorktreeAnnotationCommandRequest,
+            BridgeProductSurface,
+            BridgeProductControlCorrelation,
+            BridgeProductAdmissionContext
+        ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
+    {
+        guard let store = input.worktreeAnnotationStore,
+            let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else {
+            return { _, surface, correlation, _ in
+                BridgeProductWorktreeAnnotationCommandOutcomeDTO(
+                    .init(
+                        requestID: correlation.requestId,
+                        surface: surface,
+                        sessionID: nil,
+                        status: .failed(.unavailable)
+                    )
+                )
+            }
+        }
+        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: fileMetadataSource,
+            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+            reviewContentLoaderCache: input.reviewContentLoaderCache,
+            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
+        )
+        let adapter = WorktreeAnnotationTransportAdapter(
+            store: store,
+            contextID: input.paneSessionId,
+            repositoryID: repositoryID,
+            worktreeID: worktreeID,
+            sourceResolver: sourceResolver,
+            outputCoordinator: input.worktreeAnnotationOutputCoordinator,
+            outputLabels: .init(
+                sessionLabel: "Current review",
+                worktreeLabel: input.runtime.metadata.worktreeName ?? "Worktree",
+                comparisonLabel: nil
+            )
+        )
+        return { request, surface, correlation, productAdmission in
+            await adapter.apply(
+                request,
+                surface: surface,
+                correlation: correlation,
+                productAdmission: productAdmission
+            )
+        }
     }
 
     private static func makeReviewComparisonTargetsAuthorization(
@@ -674,6 +800,7 @@ extension BridgePaneController {
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionOwner {
         do {
@@ -682,7 +809,12 @@ extension BridgePaneController {
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
                 activeInstallation: activeInstallation,
-                telemetryRecorder: telemetryRecorder
+                telemetryRecorder: telemetryRecorder,
+                didRetireWorkerInstance: { workerInstanceId in
+                    await reviewPublicationCoordinator?.retireDisplayWorker(
+                        workerInstanceId: workerInstanceId
+                    )
+                }
             )
         } catch {
             preconditionFailure("Bridge product session owner construction failed: \(error)")
@@ -768,6 +900,7 @@ extension BridgePaneController {
         paneId: UUID,
         state: BridgePaneState,
         telemetryScopeGate: BridgeTelemetryScopeGate,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil,
         bridgeWorld: WKContentWorld
     ) -> BridgeBootstrapArtifacts {
         let reviewPaneId = paneId.uuidString
@@ -777,16 +910,11 @@ extension BridgePaneController {
         if webTelemetryScopes.isEmpty {
             telemetryConfig = nil
         } else {
-            // Anchor the cold `time_to_first_interaction` measurement: capture the native
-            // viewer-open wall-clock epoch (pane creation precedes WebView navigation) and a
-            // root trace context, both threaded to the browser via the handshake config.
-            let viewerOpenEpochUnixMillis = Int(Date().timeIntervalSince1970 * 1000)
-            let viewerOpenTraceparent = BridgeTraceContextFactory.live.makeRootContext()?.traceparent
             telemetryConfig = BridgeTelemetryBootstrapConfig.enabled(
                 scopes: webTelemetryScopes,
                 scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario,
-                viewerOpenEpochUnixMillis: viewerOpenEpochUnixMillis,
-                viewerOpenTraceparent: viewerOpenTraceparent
+                viewerOpenEpochUnixMillis: viewerOpenTelemetryAnchor?.openEpochUnixMillis,
+                viewerOpenTraceparent: viewerOpenTelemetryAnchor?.traceparent
             )
         }
         let script = makeBootstrapScript(

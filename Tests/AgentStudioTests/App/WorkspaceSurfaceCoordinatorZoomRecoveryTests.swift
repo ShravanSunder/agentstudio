@@ -454,9 +454,7 @@ private func enterZoomRecoveryForegroundEnvironment(
     _ harness: PaneTabViewControllerCommandHarness,
     owningWindowId: UUID
 ) {
-    harness.coordinator.bindBridgePaneActivities(
-        toOwningWindowId: owningWindowId
-    )
+    harness.coordinator.startBridgePaneActivityObservation()
     harness.appLifecycleStore.setActive(true)
     harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
     harness.windowLifecycleStore.recordWindowPresentation(

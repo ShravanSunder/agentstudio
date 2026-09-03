@@ -39,6 +39,7 @@ interface FreshReviewViewportState {
 		readonly hostTopOffset: number;
 		readonly itemId: string;
 		readonly paintIdentity: string | null;
+		readonly renderedLineCount: number;
 	}[];
 }
 
@@ -77,6 +78,24 @@ export async function proveFreshReviewRoute(props: {
 	const observedHeaderItemIdSet = new Set<string>();
 	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
 	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const traversalStepBudget = Math.max(512, props.expectedItemIds.length * 4);
+	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
+		if (
+			!freshReviewInitialWindowRequiresTraversal({
+				codeScroll: viewportState.codeScroll,
+				selectedItemId: selectedItemIdBeforeInitialHydration,
+				visibleItems: viewportState.visibleItems,
+			})
+		) {
+			break;
+		}
+		await scrollFreshReviewCodeView({
+			direction: 'forward',
+			page: props.page,
+			state: viewportState,
+		});
+		viewportState = await readFreshReviewViewportState(props.page);
+	}
 	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
 		excludedItemIds: [],
 		page: props.page,
@@ -88,7 +107,7 @@ export async function proveFreshReviewRoute(props: {
 	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	recordMountedHeaderOrderViolation({
 		expectedItemIndexById,
-		mountedItemIds: viewportState.mountedItemIds,
+		mountedItemIds: initialVisibleItemIds,
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
 	});
@@ -120,7 +139,6 @@ export async function proveFreshReviewRoute(props: {
 		{ label: 'final', minimumObservedItemCount: props.expectedItemIds.length },
 	];
 	let settledBottomTurnCount = 0;
-	const traversalStepBudget = Math.max(512, props.expectedItemIds.length * 4);
 	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
 		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
 			excludedItemIds: [],
@@ -134,7 +152,7 @@ export async function proveFreshReviewRoute(props: {
 		viewportState = await readFreshReviewViewportState(props.page);
 		recordMountedHeaderOrderViolation({
 			expectedItemIndexById,
-			mountedItemIds: viewportState.mountedItemIds,
+			mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 			mountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures,
 		});
@@ -187,7 +205,7 @@ export async function proveFreshReviewRoute(props: {
 	viewportState = await readFreshReviewViewportState(props.page);
 	recordMountedHeaderOrderViolation({
 		expectedItemIndexById,
-		mountedItemIds: viewportState.mountedItemIds,
+		mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
 	});
@@ -213,7 +231,7 @@ export async function proveFreshReviewRoute(props: {
 		viewportState = await readFreshReviewViewportState(props.page);
 		recordMountedHeaderOrderViolation({
 			expectedItemIndexById,
-			mountedItemIds: viewportState.mountedItemIds,
+			mountedItemIds: viewportState.visibleItems.map((item): string => item.itemId),
 			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures: backwardMountedHeaderOrderViolationSignatures,
 		});
@@ -255,6 +273,30 @@ export async function proveFreshReviewRoute(props: {
 		selectedItemIdAtCompletion: viewportState.selectedItemId,
 		selectedItemIdAtStart,
 	};
+}
+
+export function freshReviewInitialWindowRequiresTraversal(props: {
+	readonly codeScroll: FreshReviewViewportState['codeScroll'];
+	readonly selectedItemId: string | null;
+	readonly visibleItems: FreshReviewViewportState['visibleItems'];
+}): boolean {
+	if (props.selectedItemId === null || props.visibleItems.length === 0) return false;
+	const maximumScrollTop = Math.max(
+		0,
+		props.codeScroll.scrollHeight - props.codeScroll.clientHeight,
+	);
+	return (
+		props.codeScroll.scrollTop < maximumScrollTop - 1 &&
+		props.visibleItems.every(
+			(item): boolean =>
+				item.itemId === props.selectedItemId &&
+				(item.contentState === 'hydrated' || item.contentState === 'windowed') &&
+				item.paintIdentity !== null,
+		) &&
+		props.visibleItems.some(
+			(item): boolean => item.hostBottomOffset >= props.codeScroll.clientHeight,
+		)
+	);
 }
 
 export function isFreshReviewTraversalMilestoneReady(props: {
@@ -354,7 +396,7 @@ export async function proveReviewTreeSelection(props: {
 		codeViewManifestItemCountBeforeSelection: beforeSelection.codeViewManifestItemCount,
 		mountedHeaderOrderViolation: mountedHeaderOrderViolationForExpectedOrder({
 			expectedItemIndexById,
-			mountedItemIds: afterSelection.mountedItemIds,
+			mountedItemIds: afterSelection.visibleItems.map((item): string => item.itemId),
 		}),
 		selectedContentState: targetVisibleItem?.contentState ?? null,
 		selectedItemIdAtCompletion: afterSelection.selectedItemId,
@@ -483,6 +525,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 			readonly hostTopOffset: number;
 			readonly itemId: string;
 			readonly paintIdentity: string | null;
+			readonly renderedLineCount: number;
 		}> = [];
 		for (const reviewItemHost of reviewItemHosts) {
 			const itemMarker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
@@ -502,6 +545,8 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 				hostTopOffset: hostRect.top - codeScrollRect.top,
 				itemId,
 				paintIdentity: paintedReviewIdentity(reviewItemHost),
+				renderedLineCount: queryAllInOpenShadowRoots(reviewItemHost, '[data-line][data-line-index]')
+					.length,
 			});
 		}
 		const directoryDisclosure =

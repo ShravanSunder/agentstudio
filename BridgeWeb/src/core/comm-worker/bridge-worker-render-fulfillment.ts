@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductSha256Schema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -13,10 +14,12 @@ const bridgeWorkerRenderTimestampSchema = z
 	.nonnegative()
 	.max(Number.MAX_SAFE_INTEGER);
 const bridgeWorkerRenderWindowKeySchema = z.string().min(1).max(4096);
+export const bridgeWorkerRenderDispositionBatchMaximumReceiptCount = 64;
 
 const bridgeWorkerRenderReceiptIdentityShape = {
 	attemptId: bridgeProductIdentifierSchema,
 	itemId: bridgeWorkerRenderWindowKeySchema,
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	paneSessionId: bridgeProductIdentifierSchema,
 	publicationId: bridgeProductIdentifierSchema,
 	publicationSequence: bridgeProductNonnegativeSequenceSchema,
@@ -40,6 +43,7 @@ export const bridgeWorkerRenderReceiptIdentitySchema = z
 const bridgeWorkerRenderFulfillmentIdentitySchema = z
 	.object({
 		itemId: bridgeWorkerRenderWindowKeySchema,
+		operationCorrelationId: bridgeProductSha256Schema.nullable(),
 		paneSessionId: bridgeProductIdentifierSchema,
 		publicationId: bridgeProductIdentifierSchema,
 		publicationSequence: bridgeProductNonnegativeSequenceSchema,
@@ -138,6 +142,7 @@ export interface BridgeWorkerRenderContext {
 export interface BridgeWorkerRenderReceiptIdentity extends BridgeWorkerRenderContext {
 	readonly attemptId: string;
 	readonly itemId: string;
+	readonly operationCorrelationId: string | null;
 	readonly publicationId: string;
 	readonly publicationSequence: number;
 	readonly submissionId: string;
@@ -200,6 +205,7 @@ export interface BridgeWorkerRenderWindowIdentity {
 export interface BridgeWorkerRenderFulfillmentState extends BridgeWorkerRenderContext {
 	readonly identity: BridgeWorkerRenderWindowIdentity;
 	readonly itemId: string;
+	readonly operationCorrelationId: string | null;
 	readonly publicationId: string;
 	readonly publicationSequence: number;
 	readonly submissionId: string;
@@ -231,6 +237,7 @@ export type BridgeWorkerRenderFulfillmentEvent =
 export function createBridgeWorkerRenderFulfillment(props: {
 	readonly identity: BridgeWorkerRenderWindowIdentity;
 	readonly itemId: string;
+	readonly operationCorrelationId?: string | null;
 	readonly paneSessionId: string;
 	readonly publicationId: string;
 	readonly publicationSequence: number;
@@ -241,6 +248,7 @@ export function createBridgeWorkerRenderFulfillment(props: {
 }): BridgeWorkerRenderFulfillmentState {
 	const fulfillmentIdentity = bridgeWorkerRenderFulfillmentIdentitySchema.parse({
 		itemId: props.itemId,
+		operationCorrelationId: props.operationCorrelationId ?? null,
 		paneSessionId: props.paneSessionId,
 		publicationId: props.publicationId,
 		publicationSequence: props.publicationSequence,
@@ -403,6 +411,7 @@ function applyRenderDisposition(
 			paintedResidency: Object.freeze({
 				attemptId: event.attemptId,
 				itemId: state.itemId,
+				operationCorrelationId: state.operationCorrelationId,
 				paneSessionId: state.paneSessionId,
 				publicationId: state.publicationId,
 				publicationSequence: state.publicationSequence,
@@ -487,6 +496,7 @@ function assertRenderReceiptIdentity(
 ): void {
 	if (
 		event.itemId !== state.itemId ||
+		event.operationCorrelationId !== state.operationCorrelationId ||
 		event.paneSessionId !== state.paneSessionId ||
 		event.publicationId !== state.publicationId ||
 		event.publicationSequence !== state.publicationSequence ||
@@ -519,6 +529,7 @@ function assertRenderReceiptIdentity(
 	if (
 		event.receivedAtMilliseconds < 0 ||
 		(state.activeAttempt !== null &&
+			state.activeAttempt.highestDisposition === null &&
 			event.receivedAtMilliseconds > state.activeAttempt.receiptLeaseExpiresAtMilliseconds)
 	) {
 		throw new BridgeWorkerRenderReceiptRejectionError(

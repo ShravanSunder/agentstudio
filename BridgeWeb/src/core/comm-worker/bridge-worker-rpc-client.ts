@@ -145,8 +145,13 @@ function bridgeWorkerCommandMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): boolean {
 	switch (command.command) {
+		case 'annotationCommand':
+		case 'annotationOutputInspect':
+		case 'annotationProjectionRetry':
+			return command.surface === surface;
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
+		case 'fileRefreshRetry':
 			return surface === 'fileView';
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
@@ -156,9 +161,13 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 			return surface === 'review';
 		case 'renderDisposition':
-			return command.receipt.surface === 'file' ? surface === 'fileView' : surface === 'review';
+			return command.receipts[0]?.surface === 'file'
+				? surface === 'fileView'
+				: surface === 'review';
 		case 'hover':
 		case 'select':
 		case 'viewport':
@@ -175,7 +184,15 @@ function assertBridgeWorkerCommandMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): void {
 	if (command.command === 'renderDisposition') {
-		const receiptSurface = command.receipt.surface === 'file' ? 'fileView' : 'review';
+		const receiptSurface = command.receipts[0]?.surface === 'file' ? 'fileView' : 'review';
+		if (
+			command.receipts.some(
+				(receipt): boolean =>
+					(receipt.surface === 'file' ? 'fileView' : 'review') !== receiptSurface,
+			)
+		) {
+			throw new Error('Bridge worker renderDisposition command cannot mix surfaces.');
+		}
 		if (receiptSurface !== surface) {
 			throw new Error(
 				`Bridge worker renderDisposition command targets ${receiptSurface}, not ${surface}.`,
@@ -210,6 +227,11 @@ function bridgeWorkerMessageMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): boolean {
 	switch (message.kind) {
+		case 'annotationCommandAccepted':
+		case 'annotationCatalogStaging':
+		case 'annotationOutputInspection':
+		case 'annotationProjectionConvergence':
+			return message.surface === surface;
 		case 'health':
 			return true;
 		case 'nativeSurfaceSelectionRequest':
@@ -219,7 +241,11 @@ function bridgeWorkerMessageMatchesSurface(
 		case 'fileRenderPatch':
 			return surface === 'fileView';
 		case 'reviewDisplayPatch':
+		case 'reviewCandidateReady':
+		case 'reviewCandidateFailed':
+		case 'reviewCandidateStarted':
 		case 'reviewPierreRenderJob':
+		case 'reviewPublicationInstallAdmission':
 		case 'reviewRenderPatch':
 		case 'reviewComparisonTargetsQuery':
 			return surface === 'review';
@@ -240,7 +266,10 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	readonly surface: BridgeWorkerRpcClientSurface;
 }): void {
 	if (
+		props.message.kind !== 'annotationCommandAccepted' &&
+		props.message.kind !== 'annotationOutputInspection' &&
 		props.message.kind !== 'health' &&
+		props.message.kind !== 'reviewPublicationInstallAdmission' &&
 		props.message.kind !== 'subscription' &&
 		props.message.kind !== 'reviewComparisonTargetsQuery'
 	)
@@ -251,10 +280,15 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	if (request?.state !== 'pending' || request.surface !== props.surface) return;
 	props.clearRequestTimeout(requestId);
 	if (
+		props.message.kind === 'annotationCommandAccepted' ||
 		(props.message.kind === 'health' && props.message.status === 'degraded') ||
 		(props.message.kind === 'subscription' && props.message.status === 'rejected') ||
 		(props.message.kind === 'reviewComparisonTargetsQuery' && props.message.status === 'failed')
 	) {
+		if (props.message.kind === 'annotationCommandAccepted') {
+			props.lifecycleStore.ackRequest({ acknowledgedAtSequence: 0, requestId });
+			return;
+		}
 		props.lifecycleStore.failRequest({
 			reason:
 				props.message.kind === 'health'

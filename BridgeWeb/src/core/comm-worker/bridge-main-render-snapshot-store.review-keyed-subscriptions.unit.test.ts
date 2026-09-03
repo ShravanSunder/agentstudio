@@ -278,6 +278,7 @@ function makeReviewItemDisplayEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'batch',

@@ -186,7 +186,6 @@ private func observeAcceptedFrameBeforeFileAccess(
         let snapshot = await context.harness.session.producerSnapshot()
         if readPlanAccessCount > 0
             || snapshot.pendingProducerObservationPacingWaiterCount == 1
-            || snapshot.activeProducerTaskCount == 0
         {
             break
         }
@@ -194,11 +193,12 @@ private func observeAcceptedFrameBeforeFileAccess(
     }
     let snapshot = await context.harness.session.producerSnapshot()
 
-    // The accepted frame is still in flight here. File authority and bytes stay untouched.
+    // The accepted frame is in flight: its pull waiter is fulfilled, while the producer waits
+    // for exact observation before File authority or bytes may be touched.
     #expect(await context.fileMetadataSource.readPlanAccessCount == 0)
     #expect(await context.readerHarness.openCount == 0)
     #expect(await context.readerHarness.readCount == 0)
-    #expect(snapshot.pendingFrameWaiterCount == 1)
+    #expect(snapshot.pendingFrameWaiterCount == 0)
     #expect(snapshot.pendingProducerObservationPacingWaiterCount == 1)
     #expect(snapshot.inFlightFrameReceiptCount == 1)
     #expect(
@@ -444,6 +444,7 @@ private func fileContentRequest(
         ],
         "kind": "content.open",
         "leaseId": "lease-\(identifier)",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "wireVersion": BridgeProductWireContract.version,
         "workerDerivationEpoch": 1,

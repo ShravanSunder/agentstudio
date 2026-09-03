@@ -6,7 +6,10 @@ import {
 	type BridgeProductCallResult,
 	type BridgeProductCallResultWire,
 } from './bridge-product-call-contracts.js';
-import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	type BridgeProductRequestErrorCode,
+} from './bridge-product-contract-primitives.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	bridgeProductControlRequestSchema,
@@ -17,12 +20,6 @@ import {
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
-import {
-	bridgeProductSurfaceForSubscriptionKind,
-	type BridgeProductSubscriptionInterestDeltaWire,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOpenWire,
-} from './bridge-product-subscription-contracts.js';
 
 export interface BridgeProductSessionAuthorityInstallInput {
 	readonly bootstrap: BridgeProductSessionBootstrap;
@@ -45,34 +42,24 @@ type BridgeProductControlResponseForKind<
 	TResponseKind extends BridgeProductControlResponse['kind'],
 > = Extract<BridgeProductControlResponse, { readonly kind: TResponseKind }>;
 
-type BridgeProductSubscriptionOpenForKind<TSubscriptionKind extends BridgeProductSubscriptionKind> =
-	Extract<BridgeProductSubscriptionOpenWire, { readonly subscriptionKind: TSubscriptionKind }>;
-
-type BridgeProductSubscriptionDeltaForKind<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Extract<
-	BridgeProductSubscriptionInterestDeltaWire,
-	{ readonly subscriptionKind: TSubscriptionKind }
->;
-
-export type BridgeProductSubscriptionOpenAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<BridgeProductControlResponseForKind<'subscription.openAccepted'>, 'subscriptionKind'> & {
+export type BridgeProductSubscriptionOpenAccepted<TSubscriptionKind extends string> = Omit<
+	BridgeProductControlResponseForKind<'subscription.openAccepted'>,
+	'subscriptionKind'
+> & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
-export type BridgeProductSubscriptionUpdateBatchAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<
+export type BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind extends string> = Omit<
 	BridgeProductControlResponseForKind<'subscription.updateBatchAccepted'>,
 	'subscriptionKind'
 > & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
-export type BridgeProductSubscriptionCancelAccepted<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = Omit<BridgeProductControlResponseForKind<'subscription.cancelAccepted'>, 'subscriptionKind'> & {
+export type BridgeProductSubscriptionCancelAccepted<TSubscriptionKind extends string> = Omit<
+	BridgeProductControlResponseForKind<'subscription.cancelAccepted'>,
+	'subscriptionKind'
+> & {
 	readonly subscriptionKind: TSubscriptionKind;
 };
 
@@ -91,6 +78,25 @@ interface BridgeProductControlAdmissionProps<TResult> {
 	) => BridgeProductControlRequest;
 	readonly requestErrorFallback?: (code: string) => string;
 	readonly signal?: AbortSignal;
+}
+
+export class BridgeProductControlRequestError extends Error {
+	readonly code: BridgeProductRequestErrorCode;
+	readonly retryAfterMilliseconds: number | null;
+	readonly retryable: boolean;
+
+	constructor(props: {
+		readonly code: BridgeProductRequestErrorCode;
+		readonly message: string;
+		readonly retryAfterMilliseconds: number | null;
+		readonly retryable: boolean;
+	}) {
+		super(props.message);
+		this.name = 'BridgeProductControlRequestError';
+		this.code = props.code;
+		this.retryAfterMilliseconds = props.retryAfterMilliseconds;
+		this.retryable = props.retryable;
+	}
 }
 
 export class BridgeProductControlMux {
@@ -138,14 +144,16 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	openSubscription<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	openSubscription<TSubscriptionOpen extends { readonly subscriptionKind: string }>(props: {
 		readonly signal?: AbortSignal;
-		readonly subscription: BridgeProductSubscriptionOpenForKind<TSubscriptionKind>;
+		readonly subscription: TSubscriptionOpen;
 		readonly subscriptionId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<BridgeProductSubscriptionOpenAccepted<TSubscriptionKind>> {
+	}): Promise<BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']>> {
 		return this.#admit({
-			acceptResponse: (response): BridgeProductSubscriptionOpenAccepted<TSubscriptionKind> => {
+			acceptResponse: (
+				response,
+			): BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']> => {
 				if (response.kind !== 'subscription.openAccepted') {
 					throw new Error(
 						'Bridge product subscription open did not return subscription.openAccepted.',
@@ -160,7 +168,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.subscription.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.subscription.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					kind: 'subscription.open',
@@ -173,12 +180,12 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	updateSubscriptionBatch<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	updateSubscriptionBatch<TSubscriptionDelta extends { readonly subscriptionKind: string }>(props: {
 		readonly baseInterestRevision: number;
 		readonly baseInterestSha256: string;
 		readonly batchCount: number;
 		readonly batchIndex: number;
-		readonly delta: BridgeProductSubscriptionDeltaForKind<TSubscriptionKind>;
+		readonly delta: TSubscriptionDelta;
 		readonly signal?: AbortSignal;
 		readonly subscriptionId: string;
 		readonly targetInterestRevision: number;
@@ -186,11 +193,13 @@ export class BridgeProductControlMux {
 		readonly totalDeltaItemCount: number;
 		readonly updateId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind>> {
+	}): Promise<
+		BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']>
+	> {
 		return this.#admit({
 			acceptResponse: (
 				response,
-			): BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind> => {
+			): BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']> => {
 				if (response.kind !== 'subscription.updateBatchAccepted') {
 					throw new Error(
 						'Bridge product subscription update did not return subscription.updateBatchAccepted.',
@@ -212,7 +221,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.delta.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.delta.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					baseInterestRevision: props.baseInterestRevision,
@@ -234,7 +242,7 @@ export class BridgeProductControlMux {
 		});
 	}
 
-	cancelSubscription<TSubscriptionKind extends BridgeProductSubscriptionKind>(props: {
+	cancelSubscription<TSubscriptionKind extends string>(props: {
 		readonly signal?: AbortSignal;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TSubscriptionKind;
@@ -256,7 +264,6 @@ export class BridgeProductControlMux {
 				return { ...response, subscriptionKind: props.subscriptionKind };
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
-				bridgeProductSurfaceForSubscriptionKind(props.subscriptionKind);
 				return bridgeProductControlRequestSchema.parse({
 					...identity,
 					kind: 'subscription.cancel',
@@ -285,16 +292,19 @@ export class BridgeProductControlMux {
 				capabilityHeader: this.#authority.capabilityHeader,
 				executeProductRequest: this.#executeProductRequest,
 				request,
-				...(props.signal === undefined ? {} : { signal: props.signal }),
 			});
 			assertBridgeProductResponseCorrelation({ request, response });
 			this.#nextRequestSequence += 1;
 			if (response.kind === 'request.error') {
-				throw new Error(
-					response.safeMessage ??
+				throw new BridgeProductControlRequestError({
+					code: response.code,
+					message:
+						response.safeMessage ??
 						props.requestErrorFallback?.(response.code) ??
 						`Bridge product control request was rejected with ${response.code}.`,
-				);
+					retryAfterMilliseconds: response.retryAfterMilliseconds,
+					retryable: response.retryable,
+				});
 			}
 			return props.acceptResponse(response);
 		});
@@ -432,11 +442,29 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 	call: BridgeProductCallResultWire,
 ): BridgeProductCallResult<TCallKind> {
 	switch (method) {
+		case 'file.annotations.command':
+			if (call.method !== 'file.annotations.command') {
+				throw new Error('Bridge product File annotation command returned a cross-wired result.');
+			}
+			return call.result;
+		case 'file.annotations.output.inspect':
+			if (call.method !== 'file.annotations.output.inspect') {
+				throw new Error('Bridge product File annotation inspection returned a cross-wired result.');
+			}
+			return call.result;
+		case 'file.annotations.projection.query':
+			if (call.method !== 'file.annotations.projection.query') {
+				throw new Error(
+					'Bridge product File annotation projection query returned a cross-wired result.',
+				);
+			}
+			return call.result;
 		case 'file.source.current':
 			if (call.method !== 'file.source.current') {
 				throw new Error('Bridge product File source call returned a cross-wired result.');
 			}
 			return call.result;
+		case 'file.refresh.retry':
 		case 'file.activeViewerMode.update':
 		case 'review.activeViewerMode.update':
 		case 'review.comparison.update':
@@ -450,6 +478,32 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 		case 'review.comparisonTargets.query':
 			if (call.method !== 'review.comparisonTargets.query') {
 				throw new Error('Bridge product comparison-target query returned a cross-wired result.');
+			}
+			return call.result;
+		case 'review.publication.install.admit':
+			if (call.method !== 'review.publication.install.admit') {
+				throw new Error(
+					'Bridge product Review publication install admission returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.command':
+			if (call.method !== 'review.annotations.command') {
+				throw new Error('Bridge product Review annotation command returned a cross-wired result.');
+			}
+			return call.result;
+		case 'review.annotations.output.inspect':
+			if (call.method !== 'review.annotations.output.inspect') {
+				throw new Error(
+					'Bridge product Review annotation inspection returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.projection.query':
+			if (call.method !== 'review.annotations.projection.query') {
+				throw new Error(
+					'Bridge product Review annotation projection query returned a cross-wired result.',
+				);
 			}
 			return call.result;
 		default:

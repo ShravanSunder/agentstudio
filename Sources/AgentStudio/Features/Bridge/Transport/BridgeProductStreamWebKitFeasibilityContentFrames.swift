@@ -55,6 +55,7 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
               "workerInstanceId":"s2a-worker-instance",
               "contentRequestId":"s2a-content-request",
               "leaseId":"s2a-content-lease",
+              "operationCorrelationId":null,
               "contentKind":"file.content",
               "descriptor":{
                 "contentKind":"file.content",

@@ -57,7 +57,6 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     let client: LocalClient
     let gitReadContext: BridgeGitReadContext
     let gitDataPlaneReadTimeout: Duration
-    let sharedContentRootURL: URL
     var liveLocatorByIdentity: [ContentLocatorIdentity: ContentLocator] = [:]
     var sharedLocatorStackByIdentity: [ContentLocatorIdentity: [ContentLocator]] = [:]
 
@@ -65,14 +64,12 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         repositoryPath: URL,
         client: LocalClient,
         gitReadContext: BridgeGitReadContext,
-        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout,
-        sharedContentRootURL: URL = AgentStudioGitBridgeReviewDataClient.defaultSharedContentRootURL
+        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout
     ) {
         self.repositoryPath = repositoryPath
         self.client = client
         self.gitReadContext = gitReadContext
         self.gitDataPlaneReadTimeout = gitDataPlaneReadTimeout
-        self.sharedContentRootURL = sharedContentRootURL
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {

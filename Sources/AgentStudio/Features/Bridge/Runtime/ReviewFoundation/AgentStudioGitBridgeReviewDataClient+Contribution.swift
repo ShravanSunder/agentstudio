@@ -157,6 +157,7 @@ extension AgentStudioGitBridgeReviewDataClient {
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: snapshot.resolvedTarget.oid,
             reviewedHeadOID: snapshot.reviewedHead.oid,
+            reviewedSubjectBranchName: snapshot.reviewedHead.shortName,
             baseRole: snapshot.baseRole,
             baseOID: snapshot.comparisonBase.oid,
             comparison: BridgeEndpointComparison(

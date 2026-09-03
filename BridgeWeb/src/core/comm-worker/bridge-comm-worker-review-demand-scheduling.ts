@@ -11,23 +11,30 @@ import {
 	type BridgeCommWorkerDemandMember,
 } from './bridge-comm-worker-reconciler.js';
 import {
+	createBridgeCommWorkerReviewDemandLedger,
+	type BridgeCommWorkerReviewCurrentActiveDemand,
+	type BridgeCommWorkerReviewDemandStartHandle,
+} from './bridge-comm-worker-review-demand-ledger.js';
+import {
 	enqueueBridgeWorkerReviewContentReadyPreparation,
 	enqueueSelectedBridgeWorkerReviewContentReadyPreparation,
 	reviewItemPreparationIdentity,
-	type BridgeWorkerReviewContentReadyPreparationSettlement,
 } from './bridge-comm-worker-review-preparation.js';
 import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
+import { requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity } from './bridge-comm-worker-review-source-diff.js';
 import { enqueueBridgeCommWorkerReviewSourceReset } from './bridge-comm-worker-review-source-reset.js';
 import type {
 	BridgeCommWorkerStore,
 	BridgeCommWorkerStoreState,
 } from './bridge-comm-worker-store.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
 import type { WorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderDispositionReceipt } from './bridge-worker-render-fulfillment.js';
 import {
 	createSharedBridgeWorkerReviewContentResourceFetch,
 	type BridgeWorkerReviewContentOpen,
@@ -40,10 +47,15 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 	readonly isWorkAdmitted?: () => boolean;
 	readonly markPreparationDrainRequired: () => void;
 	readonly now?: () => number;
+	readonly operationCorrelationId?: () => string | null;
 	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: WorkerContentPreparationPump;
 	readonly recordPreparationCompletion: (completion: Promise<void>) => void;
+	readonly replaceReviewMetadataInterests?: (snapshot: {
+		readonly activeDemand: readonly BridgeCommWorkerReviewCurrentActiveDemand[];
+		readonly workerDerivationEpoch: number;
+	}) => Promise<void>;
 	readonly requestPreparationDrain: () => void;
 	readonly scheduleRetryWake?: (delayMilliseconds: number, wake: () => void) => void;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -52,6 +64,8 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 }
 
 export interface BridgeCommWorkerReviewDemandScheduling {
+	readonly applyPublishedDisposition: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
+	readonly publishCurrentMetadataInterests: () => Promise<void>;
 	readonly resume: () => void;
 	readonly scheduleDemandExecution: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
@@ -87,249 +101,6 @@ export interface BridgeCommWorkerVisibleSourceChurnRecordResult {
 	readonly accepted: boolean;
 	readonly state: BridgeCommWorkerVisibleSourceChurnDedupeState;
 	readonly unmarkedAffectedItemIds: readonly string[];
-}
-
-export type BridgeCommWorkerReviewDemandPositionKind = 'dynamic' | 'reserved';
-
-export interface BridgeCommWorkerReviewDemandAdmission {
-	readonly attemptToken: number;
-	readonly itemId: string;
-	readonly positionKind: BridgeCommWorkerReviewDemandPositionKind;
-	readonly role: BridgeCommWorkerDemandMember['role'];
-	readonly signal: AbortSignal;
-}
-
-export interface BridgeCommWorkerReviewDemandStartHandle {
-	readonly cancel: () => void;
-	readonly pause?: () => void;
-	readonly resume?: () => void;
-	readonly updateRole: (role: BridgeCommWorkerDemandMember['role']) => void;
-}
-
-export interface BridgeCommWorkerReviewDemandLedger {
-	readonly invalidate: (
-		itemId: string,
-		activeAttempt?:
-			| 'cancel'
-			| {
-					readonly preserveIfPreparationIdentity: string;
-			  },
-	) => void;
-	readonly markRetryReady: (itemId: string, attemptToken?: number) => boolean;
-	readonly setSuspended: (suspended: boolean) => void;
-	readonly updateGeneration: (generation: number) => void;
-	readonly reconcile: (membership: readonly BridgeCommWorkerDemandMember[]) => {
-		readonly active: readonly BridgeCommWorkerReviewDemandAdmission[];
-		readonly started: readonly BridgeCommWorkerReviewDemandAdmission[];
-		readonly wanted: readonly BridgeCommWorkerDemandMember[];
-	};
-	readonly release: (
-		itemId: string,
-		attemptToken: number,
-		disposition: BridgeWorkerReviewContentReadyPreparationSettlement,
-	) => boolean;
-	readonly releaseRejected: (itemId: string, attemptToken: number) => boolean;
-}
-
-interface ActiveBridgeCommWorkerReviewDemandRecord {
-	readonly abortController: AbortController;
-	readonly attemptToken: number;
-	readonly handle: BridgeCommWorkerReviewDemandStartHandle;
-	readonly itemId: string;
-	readonly positionKind: BridgeCommWorkerReviewDemandPositionKind;
-	readonly preparationIdentity: string | null;
-	role: BridgeCommWorkerDemandMember['role'];
-}
-
-export function createBridgeCommWorkerReviewDemandLedger(props: {
-	readonly resolvePreparationIdentity?: (itemId: string) => string;
-	readonly start: (
-		admission: BridgeCommWorkerReviewDemandAdmission,
-	) => BridgeCommWorkerReviewDemandStartHandle;
-}): BridgeCommWorkerReviewDemandLedger {
-	const activeRecordsByItemId = new Map<string, ActiveBridgeCommWorkerReviewDemandRecord>();
-	const completedItemIds = new Set<string>();
-	const retryWaitingAttemptTokenByItemId = new Map<string, number>();
-	let latestMembership: readonly BridgeCommWorkerDemandMember[] = [];
-	let suspended = false;
-	let currentGeneration: number | null = null;
-	let nextAttemptToken = 1;
-
-	const startMember = (
-		member: BridgeCommWorkerDemandMember,
-		positionKind: BridgeCommWorkerReviewDemandPositionKind,
-	): BridgeCommWorkerReviewDemandAdmission => {
-		const abortController = new AbortController();
-		const attemptToken = nextAttemptToken;
-		nextAttemptToken += 1;
-		const admission: BridgeCommWorkerReviewDemandAdmission = {
-			attemptToken,
-			itemId: member.itemId,
-			positionKind,
-			role: member.role,
-			signal: abortController.signal,
-		};
-		activeRecordsByItemId.set(member.itemId, {
-			abortController,
-			attemptToken,
-			handle: props.start(admission),
-			itemId: member.itemId,
-			positionKind,
-			preparationIdentity: props.resolvePreparationIdentity?.(member.itemId) ?? null,
-			role: member.role,
-		});
-		return admission;
-	};
-
-	const reconcile = (
-		membership: readonly BridgeCommWorkerDemandMember[],
-	): ReturnType<BridgeCommWorkerReviewDemandLedger['reconcile']> => {
-		latestMembership = membership;
-		const memberByItemId = new Map(membership.map((member) => [member.itemId, member]));
-		for (const [itemId, activeRecord] of activeRecordsByItemId) {
-			const currentMember = memberByItemId.get(itemId);
-			if (currentMember === undefined) {
-				continue;
-			}
-			if (currentMember.role !== activeRecord.role) {
-				activeRecord.role = currentMember.role;
-				activeRecord.handle.updateRole(currentMember.role);
-			}
-		}
-		const pendingMembers = membership.filter(
-			(member) =>
-				!activeRecordsByItemId.has(member.itemId) &&
-				!completedItemIds.has(member.itemId) &&
-				!retryWaitingAttemptTokenByItemId.has(member.itemId),
-		);
-		if (suspended) {
-			return {
-				active: [...activeRecordsByItemId.values()].map((record) => ({
-					attemptToken: record.attemptToken,
-					itemId: record.itemId,
-					positionKind: record.positionKind,
-					role: record.role,
-					signal: record.abortController.signal,
-				})),
-				started: [],
-				wanted: pendingMembers,
-			};
-		}
-		let availableReservedPositions =
-			3 -
-			[...activeRecordsByItemId.values()].filter(({ positionKind }) => positionKind === 'reserved')
-				.length;
-		let availableDynamicPositions =
-			9 -
-			[...activeRecordsByItemId.values()].filter(({ positionKind }) => positionKind === 'dynamic')
-				.length;
-		const startedItemIds = new Set<string>();
-		const startedAdmissions: BridgeCommWorkerReviewDemandAdmission[] = [];
-		for (const member of pendingMembers) {
-			if (availableReservedPositions === 0 || !roleCanUseReservedPosition(member.role)) {
-				continue;
-			}
-			startedAdmissions.push(startMember(member, 'reserved'));
-			startedItemIds.add(member.itemId);
-			availableReservedPositions -= 1;
-		}
-		for (const member of pendingMembers) {
-			if (availableDynamicPositions === 0) break;
-			if (startedItemIds.has(member.itemId)) continue;
-			startedAdmissions.push(startMember(member, 'dynamic'));
-			startedItemIds.add(member.itemId);
-			availableDynamicPositions -= 1;
-		}
-		return {
-			active: [...activeRecordsByItemId.values()].map((record) => ({
-				attemptToken: record.attemptToken,
-				itemId: record.itemId,
-				positionKind: record.positionKind,
-				role: record.role,
-				signal: record.abortController.signal,
-			})),
-			started: startedAdmissions,
-			wanted: pendingMembers.filter((member) => !startedItemIds.has(member.itemId)),
-		};
-	};
-
-	return {
-		invalidate: (itemId, activeAttempt = 'cancel'): void => {
-			const activeRecord = activeRecordsByItemId.get(itemId);
-			const shouldCancelActiveAttempt =
-				activeRecord !== undefined &&
-				(activeAttempt === 'cancel' ||
-					activeRecord.preparationIdentity !== activeAttempt.preserveIfPreparationIdentity);
-			if (activeRecord !== undefined && shouldCancelActiveAttempt) {
-				activeRecord.abortController.abort('review_demand_identity_invalidated');
-				activeRecord.handle.cancel();
-				activeRecordsByItemId.delete(itemId);
-			}
-			completedItemIds.delete(itemId);
-			retryWaitingAttemptTokenByItemId.delete(itemId);
-			latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
-		},
-		markRetryReady: (itemId, attemptToken): boolean => {
-			const waitingAttemptToken = retryWaitingAttemptTokenByItemId.get(itemId);
-			if (waitingAttemptToken === undefined) return false;
-			if (attemptToken !== undefined && waitingAttemptToken !== attemptToken) return false;
-			retryWaitingAttemptTokenByItemId.delete(itemId);
-			return true;
-		},
-		reconcile,
-		setSuspended: (nextSuspended): void => {
-			if (suspended === nextSuspended) return;
-			suspended = nextSuspended;
-			for (const activeRecord of activeRecordsByItemId.values()) {
-				if (suspended) {
-					activeRecord.handle.pause?.();
-				} else {
-					activeRecord.handle.resume?.();
-				}
-			}
-		},
-		updateGeneration: (generation): void => {
-			if (currentGeneration === generation) return;
-			currentGeneration = generation;
-			for (const activeRecord of activeRecordsByItemId.values()) {
-				activeRecord.abortController.abort('review_demand_generation_changed');
-				activeRecord.handle.cancel();
-			}
-			activeRecordsByItemId.clear();
-			completedItemIds.clear();
-			retryWaitingAttemptTokenByItemId.clear();
-			latestMembership = [];
-		},
-		release: (itemId, attemptToken, disposition): boolean => {
-			const activeRecord = activeRecordsByItemId.get(itemId);
-			if (activeRecord?.attemptToken !== attemptToken) return false;
-			activeRecordsByItemId.delete(itemId);
-			if (disposition === 'invalidated') {
-				latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
-				return true;
-			}
-			if (disposition === 'teardown') return true;
-			if (disposition === 'retryWait') {
-				retryWaitingAttemptTokenByItemId.set(itemId, attemptToken);
-			} else {
-				completedItemIds.add(itemId);
-			}
-			reconcile(latestMembership);
-			return true;
-		},
-		releaseRejected: (itemId, attemptToken): boolean => {
-			const activeRecord = activeRecordsByItemId.get(itemId);
-			if (activeRecord?.attemptToken !== attemptToken) return false;
-			activeRecordsByItemId.delete(itemId);
-			latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
-			reconcile(latestMembership);
-			return true;
-		},
-	};
-}
-
-function roleCanUseReservedPosition(role: BridgeCommWorkerDemandMember['role']): boolean {
-	return role === 'selected' || role === 'visible';
 }
 
 export function createBridgeCommWorkerVisibleSourceChurnDedupeState(): BridgeCommWorkerVisibleSourceChurnDedupeState {
@@ -409,6 +180,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	const defaultWorkSignal = new AbortController().signal;
 	const isWorkAdmitted = props.isWorkAdmitted ?? bridgeCommWorkerWorkIsAdmitted;
 	const paneWorkSignal = props.workSignal ?? ((): AbortSignal => defaultWorkSignal);
+	const operationCorrelationId = props.operationCorrelationId ?? ((): null => null);
 	let surfaceActive = false;
 	let surfaceWorkLifecycle = createBridgeCommWorkerReviewSurfaceWorkLifecycle(paneWorkSignal());
 	const isReviewWorkAdmitted = (): boolean => surfaceActive && isWorkAdmitted();
@@ -416,6 +188,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		contentItems: [],
 		contentRequestDescriptors: [],
 		renderSemantics: [],
+		reviewPublicationIdentity: null,
 		rows: [],
 	};
 	let visibleSourceChurnDedupeState = createBridgeCommWorkerVisibleSourceChurnDedupeState();
@@ -426,9 +199,48 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	let latestSchedulingStore: BridgeCommWorkerStore | null = null;
 	let latestSchedulingEpoch: number | null = null;
 	let currentMembershipByItemId = new Map<string, BridgeCommWorkerDemandMember>();
+	let currentActiveDemand: readonly BridgeCommWorkerReviewCurrentActiveDemand[] = [];
 	let previousFirstVisibleOrderedIndex: number | null = null;
 	const retryAttemptByItemId = new Map<string, number>();
+	let latestMetadataInterestCommit: {
+		readonly promise: Promise<void>;
+		readonly workerDerivationEpoch: number;
+	} | null = null;
+	const publishCurrentMetadataInterests = (): Promise<void> => {
+		if (!props.usesProductTransport || props.replaceReviewMetadataInterests === undefined) {
+			return Promise.resolve();
+		}
+		const workerDerivationEpoch = activeWorkerDerivationEpoch;
+		if (workerDerivationEpoch === null) {
+			return Promise.reject(
+				new Error('Bridge Review metadata interests have no current worker authority.'),
+			);
+		}
+		const promise = props.replaceReviewMetadataInterests({
+			activeDemand: currentActiveDemand,
+			workerDerivationEpoch,
+		});
+		latestMetadataInterestCommit = { promise, workerDerivationEpoch };
+		void promise.catch((): void => {});
+		return promise;
+	};
+	const waitForLatestMetadataInterestCommit = async (): Promise<void> => {
+		while (true) {
+			const pendingCommit = latestMetadataInterestCommit;
+			if (pendingCommit === null) return;
+			await pendingCommit.promise;
+			if (
+				pendingCommit === latestMetadataInterestCommit &&
+				pendingCommit.workerDerivationEpoch === activeWorkerDerivationEpoch
+			) {
+				return;
+			}
+		}
+	};
 	const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+		...(props.replaceReviewMetadataInterests === undefined
+			? {}
+			: { beforeOpenContent: waitForLatestMetadataInterestCommit }),
 		openContent: props.openReviewContent,
 		resolveBodyRegistry: () => latestSchedulingStore?.reviewBodyRegistry,
 	});
@@ -438,9 +250,26 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			setTimeout(wake, delayMilliseconds);
 		});
 
+	const telemetryClient = props.telemetryClient;
 	const reviewDemandLedger = createBridgeCommWorkerReviewDemandLedger({
+		...(props.now === undefined ? {} : { now: props.now }),
+		...(telemetryClient === undefined
+			? {}
+			: {
+					observeOutstandingPublications: (observation): void => {
+						recordBridgeWorkerOutstandingPublicationTelemetry({
+							observation,
+							surface: 'review',
+							telemetryClient,
+						});
+					},
+				}),
 		resolvePreparationIdentity: (itemId): string =>
 			reviewItemPreparationIdentity({ itemId, source: reviewRuntimeSource }),
+		onCurrentActiveDemandChanged: (activeDemand): void => {
+			currentActiveDemand = activeDemand;
+			void publishCurrentMetadataInterests().catch((): void => {});
+		},
 		start: (admission): BridgeCommWorkerReviewDemandStartHandle => {
 			const store = latestSchedulingStore;
 			const epoch = latestSchedulingEpoch;
@@ -463,6 +292,23 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 					? `selected:${member.selectedDemandEpoch}`
 					: `review-ledger:${admission.itemId}`;
 			const ledgerStore = bridgeCommWorkerStoreWithDemandKey(store, admission.itemId, demandKey);
+			const reviewPublicationIdentity =
+				requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity(reviewRuntimeSource);
+			const onRenderPublished = (
+				receiptIdentity: Parameters<typeof reviewDemandLedger.markPublished>[2],
+			): void => {
+				if (
+					!reviewDemandLedger.markPublished(
+						admission.itemId,
+						admission.attemptToken,
+						receiptIdentity,
+					)
+				) {
+					throw new Error(
+						'Bridge Review publication no longer matches its admitted demand position.',
+					);
+				}
+			};
 			const ticket =
 				member.role === 'selected'
 					? enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
@@ -475,8 +321,11 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 								: { openContent: props.openReviewContent }),
 							fetchReviewContentResource,
 							itemId: admission.itemId,
+							operationCorrelationId: operationCorrelationId(),
+							onRenderPublished,
 							port: props.port,
 							pump: props.pump,
+							reviewPublicationIdentity,
 							renderSemantics: reviewRuntimeSource.renderSemantics,
 							requestPreparationDrain: props.requestPreparationDrain,
 							sequence: props.createSequence(),
@@ -500,9 +349,12 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							isDemandCurrent: (): boolean =>
 								!admission.signal.aborted && currentMembershipByItemId.has(admission.itemId),
 							itemId: admission.itemId,
+							operationCorrelationId: operationCorrelationId(),
+							onRenderPublished,
 							port: props.port,
 							preparationRank: member.role,
 							pump: props.pump,
+							reviewPublicationIdentity,
 							renderSemantics: reviewRuntimeSource.renderSemantics,
 							requestPreparationDrain: props.requestPreparationDrain,
 							sequence: props.createSequence(),
@@ -619,6 +471,9 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		]);
 		for (const itemId of forceExecutionItemIds) {
 			retryAttemptByItemId.delete(itemId);
+			if (request.cause === 'renderFulfillment' && reviewDemandLedger.restartPublished(itemId)) {
+				continue;
+			}
 			reviewDemandLedger.invalidate(
 				itemId,
 				request.cause === 'reviewMetadata'
@@ -772,6 +627,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	};
 
 	return {
+		applyPublishedDisposition: (receipt): boolean => reviewDemandLedger.releasePublished(receipt),
+		publishCurrentMetadataInterests,
 		resume,
 		scheduleDemandExecution: reconcileDemandExecutionFromRequest,
 		scheduleMetadataReset,
@@ -781,9 +638,9 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			reviewRuntimeSource = source;
 		},
 		updateWorkerDerivationEpoch: (workerDerivationEpoch: number): void => {
+			activeWorkerDerivationEpoch = workerDerivationEpoch;
 			reviewDemandLedger.updateGeneration(workerDerivationEpoch);
 			retryAttemptByItemId.clear();
-			activeWorkerDerivationEpoch = workerDerivationEpoch;
 		},
 	};
 }

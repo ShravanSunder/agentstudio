@@ -59,6 +59,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: [
 				{ item: reviewItem('item-1', 'src/renamed.ts'), operationKind: 'upsertItem' },
@@ -123,6 +124,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: [],
 			presentationRevision: 12,
@@ -136,6 +138,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 12,
 			operations: [],
 			presentationRevision: 13,
@@ -160,6 +163,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 		const result = projection.apply({
 			...reviewIdentity,
 			eventKind: 'review.reset',
+			operationCorrelationId: null,
 			reason: 'subscriptionReset',
 			revision: 12,
 		});
@@ -189,6 +193,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 			...firstWindow,
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
 			eventKind: 'review.snapshot',
+			operationCorrelationId: null,
 			headEndpoint: reviewEndpoint('head', 'workingTree'),
 			query: reviewQuery(),
 		});
@@ -211,6 +216,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: [
 				{
@@ -271,6 +277,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 
 const reviewIdentity = {
 	generation: 7,
+	operationCorrelationId: null,
 	packageId: 'package-1',
 	publicationId: '00000000-0000-7000-8000-000000000011',
 	revision: 11,
@@ -296,6 +303,7 @@ function reviewSnapshot(): ReviewSnapshotEvent {
 		comparisonOrigin: reviewComparisonOrigin,
 		contentSources: [reviewContentSource('descriptor-1', 'item-1')],
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		extentFacts: [{ contentRole: 'head', itemId: 'item-1', lineCount: 10 }],
 		headEndpoint: reviewEndpoint('head', 'workingTree'),
 		itemMetadata: [reviewItem('item-1', 'src/one.ts')],
@@ -329,6 +337,7 @@ function reviewWindow(props: {
 		...reviewIdentity,
 		contentSources: [reviewContentSource(`descriptor-${props.itemId}`, props.itemId)],
 		eventKind: 'review.window',
+		operationCorrelationId: null,
 		extentFacts: [{ contentRole: 'head', itemId: props.itemId, lineCount: 20 }],
 		itemMetadata: [reviewItem(props.itemId, path)],
 		itemWindow: {
@@ -365,6 +374,7 @@ function reviewMetadataWindowRange(props: {
 		...reviewIdentity,
 		contentSources: [],
 		eventKind: 'review.window',
+		operationCorrelationId: null,
 		extentFacts: items.map((item) => ({
 			contentRole: 'head',
 			itemId: item.itemId,

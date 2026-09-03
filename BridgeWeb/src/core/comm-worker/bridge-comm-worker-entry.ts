@@ -7,6 +7,7 @@ import {
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import { bridgeProductMetadataApplicationRegistry } from './bridge-product-metadata-application-registry.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	BridgeProductControlMux,
@@ -224,6 +225,7 @@ function bridgeCommWorkerEntryDependencies(
 					authority,
 					controlMux,
 					executeProductRequest: props.executeProductRequest,
+					metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 					...(props.maximumConcurrentContentResponses === undefined
 						? {}
 						: {

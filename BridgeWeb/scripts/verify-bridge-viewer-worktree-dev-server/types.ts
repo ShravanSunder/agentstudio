@@ -770,6 +770,7 @@ declare global {
 		readonly bridgeWorktreeReviewMetadataBeforeContentProof: () => ReviewMetadataBeforeContentProof;
 		bridgeWorktreeVerifierReviewClickSample?: InPageReviewTreeClickPerformanceSample;
 		bridgeWorktreeVerifierTelemetrySamples?: WorktreeBridgeTelemetrySampleProof[];
+		bridgeCompleteJourneyHandshakeReadyEpochMilliseconds?: number;
 		bridgeWorktreeVerifierLastTreeAnchorSignature?: string;
 		bridgeWorktreeVerifierStableTreeAnchorFrames?: number;
 	}

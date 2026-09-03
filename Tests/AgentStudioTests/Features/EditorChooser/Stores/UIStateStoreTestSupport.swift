@@ -26,7 +26,7 @@ func failingEditorChooserWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteSt
 @MainActor
 func editorChooserWorkspaceSQLiteDatastore(
     from localBackend: WorkspaceLocalSQLiteStoreBackend
-) async throws -> WorkspaceSQLiteDatastore {
+) async throws -> WorkspaceSQLiteDatastoreActor {
     let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
     try coreRepository.migrate()
@@ -35,9 +35,9 @@ func editorChooserWorkspaceSQLiteDatastore(
         localBackend: localBackend,
         coreDatabaseStartupProvenance: .createdDuringCurrentStartup
     )
-    let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
+    let preparedCore = try WorkspaceSQLiteDatastoreActor.strictlyPrepareCore(using: backend)
     let preparedApplicationLocalRepository: WorkspaceLocalRepository?
-    let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
+    let preparedLocal: WorkspaceSQLiteDatastoreActor.PreparedLocalDatabase
     do {
         preparedApplicationLocalRepository = try localBackend.restoreRepository(
             for: editorChooserApplicationLocalRepositoryScopeId
@@ -47,7 +47,7 @@ func editorChooserWorkspaceSQLiteDatastore(
         preparedApplicationLocalRepository = nil
         preparedLocal = .unavailable(.init(error))
     }
-    return WorkspaceSQLiteDatastore(
+    return WorkspaceSQLiteDatastoreActor(
         preparedCoreRepository: coreRepository,
         preparationReceipt: .init(core: preparedCore, local: preparedLocal),
         preparedApplicationLocalRepository: preparedApplicationLocalRepository

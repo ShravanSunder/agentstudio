@@ -7,6 +7,7 @@ extension WorkspaceSurfaceCoordinator {
     func createBridgePaneView(
         for pane: Pane,
         state: BridgePaneState,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil,
         initialContributionTargetCommit:
             (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
         contributionTargetCommit:
@@ -21,7 +22,10 @@ extension WorkspaceSurfaceCoordinator {
             reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
             gitReadContext: bridgeGitReadContext(for: pane, state: state),
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
             traceRuntime: traceRuntime,
+            viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor,
             initialPaneActivity: .dormant,
             initialContributionTargetCommit: initialContributionTargetCommit
                 ?? { [weak self] target in

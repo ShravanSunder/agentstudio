@@ -9,6 +9,10 @@ import {
 } from '../../src/core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import type { BridgeTelemetrySample } from '../../src/foundation/telemetry/bridge-telemetry-event.js';
 import {
+	reduceBridgeOperationLifecycle,
+	type BridgeOperationLifecycleReduction,
+} from './bridge-dev-operation-lifecycle-reducer.js';
+import {
 	bridgeDevTelemetryObservationIsSafe,
 	buildBridgeDevTelemetryOTLPMetricsRequest,
 	buildBridgeDevTelemetryOTLPRequest,
@@ -22,6 +26,8 @@ interface BridgeDevTelemetrySinkProps {
 	readonly collectorMetricsUrl?: string;
 	readonly fetchImpl?: typeof fetch;
 	readonly marker?: string;
+	readonly operationLifecycleMaximumTrackedStageAttempts?: number;
+	readonly operationLifecycleTerminalWindowMilliseconds?: number;
 	readonly nowUnixNano?: () => string;
 	readonly serviceVersion?: string;
 	readonly worktreeHash?: string;
@@ -41,6 +47,7 @@ export interface BridgeDevTelemetrySnapshot {
 	readonly failedBatchCount: number;
 	readonly lastError: string | null;
 	readonly marker: string;
+	readonly operationLifecycle: BridgeOperationLifecycleReduction;
 	readonly recentSamples: readonly BridgeTelemetrySample[];
 	readonly serviceVersion: string;
 	readonly worktreeHash: string;
@@ -67,6 +74,8 @@ const bridgeDevRuntimeFlavor = 'vite-dev';
 // Retain the bounded 100 File click + 100 Review click + 100 scroll proof and its
 // startup/lifecycle observations until each phase reads the dev status snapshot.
 const authoritativePerformanceWorkloadTelemetrySampleCapacity = 8_192;
+const operationLifecycleMaximumTrackedStageAttempts = 4_096;
+const operationLifecycleTerminalWindowMilliseconds = 30_000;
 
 export function buildBridgeDevContentResponseTelemetryObservation(
 	props: BridgeDevContentResponseTelemetryObservationProps,
@@ -129,6 +138,10 @@ export function createBridgeDevTelemetrySink(
 	let failedBatchCount = 0;
 	let lastError: string | null = null;
 	let recentSamples: readonly BridgeTelemetrySample[] = [];
+	let recentLifecycleSamples: Array<
+		BridgeTelemetrySample & { readonly observedAtUnixMilliseconds: number }
+	> = [];
+	let latestReceivedAtUnixMilliseconds = 0;
 	const acceptedWorkerBatchBodies = new Map<string, Map<number, string>>();
 	const publishObservation = async (
 		observation: BridgeDevTelemetryObservation,
@@ -139,6 +152,11 @@ export function createBridgeDevTelemetrySink(
 			return false;
 		}
 		const receivedAtUnixNano = nowUnixNano();
+		const receivedAtUnixMilliseconds = Number(BigInt(receivedAtUnixNano) / 1_000_000n);
+		latestReceivedAtUnixMilliseconds = Math.max(
+			latestReceivedAtUnixMilliseconds,
+			receivedAtUnixMilliseconds,
+		);
 		const body = buildBridgeDevTelemetryOTLPRequest({
 			marker,
 			observation,
@@ -155,6 +173,23 @@ export function createBridgeDevTelemetrySink(
 		});
 		recentSamples = [...recentSamples, ...observation.samples].slice(
 			-authoritativePerformanceWorkloadTelemetrySampleCapacity,
+		);
+		recentLifecycleSamples = [
+			...recentLifecycleSamples,
+			...observation.samples
+				.filter((sample) => {
+					const phase = sample.stringAttributes['agentstudio.bridge.phase'];
+					const operationId = sample.stringAttributes['agentstudio.bridge.operation.id'];
+					return (
+						operationId !== undefined &&
+						(phase?.endsWith('_started') === true || phase?.endsWith('_terminal') === true)
+					);
+				})
+				.map((sample) => ({ ...sample, observedAtUnixMilliseconds: receivedAtUnixMilliseconds })),
+		].slice(
+			-2 *
+				(props.operationLifecycleMaximumTrackedStageAttempts ??
+					operationLifecycleMaximumTrackedStageAttempts),
 		);
 		try {
 			const response = await fetchImpl(collectorLogsUrl, {
@@ -234,6 +269,16 @@ export function createBridgeDevTelemetrySink(
 			failedBatchCount,
 			lastError,
 			marker,
+			operationLifecycle: reduceBridgeOperationLifecycle({
+				maximumTrackedStageAttempts:
+					props.operationLifecycleMaximumTrackedStageAttempts ??
+					operationLifecycleMaximumTrackedStageAttempts,
+				nowUnixMilliseconds: latestReceivedAtUnixMilliseconds,
+				samples: recentLifecycleSamples,
+				terminalWindowMilliseconds:
+					props.operationLifecycleTerminalWindowMilliseconds ??
+					operationLifecycleTerminalWindowMilliseconds,
+			}),
 			recentSamples,
 			serviceVersion,
 			worktreeHash,

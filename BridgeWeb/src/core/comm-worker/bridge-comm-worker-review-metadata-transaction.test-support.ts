@@ -2,14 +2,24 @@ import {
 	BridgeCommWorkerReviewMetadataApplicator,
 	type BridgeCommWorkerReviewMetadataApplication,
 } from './bridge-comm-worker-review-metadata-applicator.js';
+import type {
+	BridgeCommWorkerReviewCandidateReadyPublication,
+	BridgeCommWorkerReviewCandidateFailedPublication,
+	BridgeCommWorkerReviewCandidateStartedPublication,
+} from './bridge-comm-worker-review-publication-types.js';
+import type { ReviewMetadataSubscription } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeWorkerReviewDisplayPatch } from './bridge-worker-contracts.js';
 
 type ReviewMetadataIdentity = Pick<
 	BridgeProductReviewMetadataEvent,
-	'generation' | 'packageId' | 'publicationId' | 'revision' | 'sourceIdentity'
+	| 'generation'
+	| 'operationCorrelationId'
+	| 'packageId'
+	| 'publicationId'
+	| 'revision'
+	| 'sourceIdentity'
 >;
 type ReviewSnapshotEvent = Extract<
 	BridgeProductReviewMetadataEvent,
@@ -48,20 +58,31 @@ export function makeApplicatorHarness(
 		) => void;
 		readonly beforePublishDisplayPatches?: (publication: {
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+			readonly reviewPublicationIdentity?: unknown;
 			readonly workerDerivationEpoch: number;
 		}) => void;
 	} = {},
 ): {
 	readonly applications: BridgeCommWorkerReviewMetadataApplication[];
 	readonly applicator: BridgeCommWorkerReviewMetadataApplicator;
+	readonly candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[];
+	readonly candidateFailedPublications: BridgeCommWorkerReviewCandidateFailedPublication[];
+	readonly candidateStartedPublications: BridgeCommWorkerReviewCandidateStartedPublication[];
+	readonly publicationOrder: Array<'display' | 'failed' | 'ready' | 'started'>;
 	readonly displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: unknown;
 		readonly workerDerivationEpoch: number;
 	}>;
 } {
 	const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
+	const candidateReadyPublications: BridgeCommWorkerReviewCandidateReadyPublication[] = [];
+	const candidateFailedPublications: BridgeCommWorkerReviewCandidateFailedPublication[] = [];
+	const candidateStartedPublications: BridgeCommWorkerReviewCandidateStartedPublication[] = [];
+	const publicationOrder: Array<'display' | 'failed' | 'ready' | 'started'> = [];
 	const displayPublications: Array<{
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly reviewPublicationIdentity?: unknown;
 		readonly workerDerivationEpoch: number;
 	}> = [];
 	return {
@@ -72,12 +93,29 @@ export function makeApplicatorHarness(
 				applications.push(application);
 			},
 			currentWorkerDerivationEpoch: (): number => workerDerivationEpoch,
+			publishCandidateReady: (publication): void => {
+				candidateReadyPublications.push(publication);
+				publicationOrder.push('ready');
+			},
+			publishCandidateFailed: (publication): void => {
+				candidateFailedPublications.push(publication);
+				publicationOrder.push('failed');
+			},
+			publishCandidateStarted: (publication): void => {
+				candidateStartedPublications.push(publication);
+				publicationOrder.push('started');
+			},
 			publishDisplayPatches: (publication): void => {
 				props.beforePublishDisplayPatches?.(publication);
 				displayPublications.push(publication);
+				if (publication.reviewPublicationIdentity !== null) publicationOrder.push('display');
 			},
 		}),
+		candidateReadyPublications,
+		candidateFailedPublications,
+		candidateStartedPublications,
 		displayPublications,
+		publicationOrder,
 	};
 }
 
@@ -88,6 +126,7 @@ export function reviewIdentity(
 ): ReviewMetadataIdentity {
 	return {
 		generation,
+		operationCorrelationId: null,
 		packageId: `package-${label}`,
 		publicationId: reviewPublicationId(revision),
 		revision,
@@ -95,11 +134,28 @@ export function reviewIdentity(
 	};
 }
 
-export function reviewReset(identity: ReviewMetadataIdentity): BridgeProductReviewMetadataEvent {
+export function reviewReset(
+	identity: ReviewMetadataIdentity,
+	refreshImpact?: {
+		readonly addedLineCount: number | null;
+		readonly affectedFileCount: number | null;
+		readonly affectedStableFileIdentities: readonly string[];
+		readonly deletedLineCount: number | null;
+		readonly newlyImportedCommitCount: number | null;
+		readonly preDeliveryPresentationClass:
+			| { readonly kind: 'ordinary' }
+			| {
+					readonly kind: 'promoted';
+					readonly reason: 'commits' | 'files' | 'lines' | 'unknown';
+			  };
+	},
+): BridgeProductReviewMetadataEvent {
 	return {
 		...identity,
+		...refreshImpact,
 		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.reset',
+		operationCorrelationId: null,
 		reason: 'sourceChanged',
 		reviewedSubjectLabel: 'feature/review-comments',
 	};
@@ -123,6 +179,7 @@ export function reviewSnapshot(
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
 		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		headEndpoint: reviewEndpoint('head', 'workingTree'),
 		query: reviewQuery(),
 		reviewedSubjectLabel: 'feature/review-comments',
@@ -139,6 +196,7 @@ export function reviewWindow(
 	return {
 		...reviewPayload(identity, itemId, startIndex, totalItemCount, finalWindow),
 		eventKind: 'review.window',
+		operationCorrelationId: null,
 	};
 }
 
@@ -148,10 +206,17 @@ export function reviewDelta(
 ): ReviewDeltaEvent {
 	return {
 		...identity,
+		addedLineCount: 0,
+		affectedFileCount: 0,
+		affectedStableFileIdentities: [],
 		contentSources: [],
+		deletedLineCount: 0,
 		eventKind: 'review.delta',
+		operationCorrelationId: null,
 		fromRevision: identity.revision,
 		operations: [],
+		newlyImportedCommitCount: 0,
+		preDeliveryPresentationClass: { kind: 'ordinary' },
 		presentationRevision: toRevision,
 		publicationId: reviewPublicationId(toRevision),
 		revision: toRevision,
@@ -169,6 +234,7 @@ export function reviewInvalidated(identity: ReviewMetadataIdentity): ReviewInval
 	return {
 		...identity,
 		eventKind: 'review.invalidated',
+		operationCorrelationId: null,
 		itemIds: [],
 		pathHints: [],
 		reason: 'watchEvent',
@@ -284,9 +350,7 @@ function reviewQuery(): ReviewSnapshotEvent['query'] {
 }
 
 export function reviewMetadataTransport(
-	reviewSubscription:
-		| BridgeProductSubscription<'review.metadata'>
-		| readonly BridgeProductSubscription<'review.metadata'>[],
+	reviewSubscription: ReviewMetadataSubscription | readonly ReviewMetadataSubscription[],
 	onSubscriptionOpened: () => void = (): void => {},
 	onPublicationApplied: () => void = (): void => {},
 ): BridgeProductTransportSession {
@@ -313,7 +377,7 @@ export function reviewMetadataTransport(
 			throw new Error('Review content is outside metadata transaction staging.');
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind] = arguments_;
+			const [{ kind: subscriptionKind }] = arguments_;
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);
 			}

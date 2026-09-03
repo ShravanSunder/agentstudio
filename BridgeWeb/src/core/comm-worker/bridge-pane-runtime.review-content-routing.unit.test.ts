@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type { BridgePaneCommWorkerDispatcher } from './bridge-pane-comm-worker-session.js';
 import { createBridgePaneRuntime, type BridgePaneSessionPort } from './bridge-pane-runtime.js';
@@ -85,6 +86,7 @@ function makeReviewContentReadyPublications(): readonly BridgeWorkerServerToMain
 			surface: 'review',
 			workerDerivationEpoch: 7,
 		}),
+		reviewPublicationIdentity: makeReviewPublicationIdentity(),
 		resources: [
 			makeFetchedReviewContentResource({
 				contentHash: 'sha256:item-1:base',
@@ -105,9 +107,7 @@ function makeReviewContentReadyPublications(): readonly BridgeWorkerServerToMain
 	}
 	const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
 		preparedJobEvent,
-		publicationSequence: 11,
 		store,
-		workerDerivationEpoch: 7,
 	});
 	return [preparedJobEvent.message, contentReadyCommit.preparedMessage.message];
 }

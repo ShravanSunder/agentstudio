@@ -2,7 +2,6 @@ import AgentStudioBridge
 import Foundation
 import HTTPTypes
 import Hummingbird
-import ServiceLifecycle
 import WebKit
 
 enum BridgeDevelopmentHTTPApplication {
@@ -11,11 +10,13 @@ enum BridgeDevelopmentHTTPApplication {
 
     static func make(
         host: BridgeDevelopmentProductHost,
-        configuration: ApplicationConfiguration = .init()
+        configuration: ApplicationConfiguration = .init(),
+        eventLoopGroupProvider: EventLoopGroupProvider = .singleton,
+        healthIsReady: @escaping @Sendable () async -> Bool = { true }
     ) -> some ApplicationProtocol {
         let router = Router()
         router.get("/__bridge-product/health") { _, _ -> Response in
-            Response(status: .noContent)
+            Response(status: await healthIsReady() ? .noContent : .serviceUnavailable)
         }
         router.post("/__bridge-product/bootstrap") { request, _ -> Response in
             try await bootstrapResponse(request: request, host: host)
@@ -40,7 +41,8 @@ enum BridgeDevelopmentHTTPApplication {
         )
         return Application(
             responder: router.buildResponder(),
-            configuration: configuration
+            configuration: configuration,
+            eventLoopGroupProvider: eventLoopGroupProvider
         )
     }
 
@@ -108,15 +110,6 @@ enum BridgeDevelopmentHTTPApplication {
             headers: [.contentType: "application/octet-stream"],
             body: .init(byteBuffer: ByteBuffer(bytes: delivery))
         )
-    }
-}
-
-struct BridgeDevelopmentProductHostShutdownService: Service {
-    let host: BridgeDevelopmentProductHost
-
-    func run() async throws {
-        try? await gracefulShutdown()
-        await host.shutdown()
     }
 }
 

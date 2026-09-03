@@ -116,7 +116,7 @@ actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataProducing 
         guard activeSubscriptionIds.contains(subscription.subscriptionId) else {
             throw CoordinatorReviewMetadataSourceError.unknownSubscription
         }
-        guard case .reviewMetadata(let interests) = subscription.interestState,
+        guard let interests = subscription.interestState.reviewMetadataState?.interests,
             let event
         else {
             throw CoordinatorReviewMetadataSourceError.unavailable

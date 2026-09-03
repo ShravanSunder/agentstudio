@@ -126,6 +126,149 @@ struct BridgeProductStrictJSONTests {
         )
     }
 
+    @Test("strict product decoding accepts encoded annotation handled members")
+    func acceptsEncodedAnnotationHandledMembers() throws {
+        let detail = try makeCommittedDetail()
+        let thread = try #require(detail.threads.first?.thread)
+        let message = try #require(detail.threads.first?.messages.first)
+        let value = try BridgeProductWorktreeAnnotationMessageEntry(
+            message: message,
+            session: detail.session,
+            thread: thread
+        )
+        let encoded = try JSONEncoder().encode(value)
+
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductWorktreeAnnotationMessageEntry.self,
+                from: encoded
+            ) == value
+        )
+    }
+
+    @Test("encoded annotation drafts preserve a required nullable edit token")
+    func encodedAnnotationDraftsPreserveRequiredNullableEditToken() throws {
+        let detail = try makeCommittedDetail()
+        let thread = try #require(detail.threads.first?.thread)
+        let message = try #require(detail.threads.first?.messages.first)
+        let draft = WorktreeAnnotationDraft(
+            messageID: message.id,
+            activeEditToken: nil,
+            body: "Recovered draft",
+            draftRevision: 1,
+            updatedAt: message.updatedAt
+        )
+        let messageWithRecoveredDraft = WorktreeAnnotationMessage(
+            id: message.id,
+            threadID: message.threadID,
+            ordinal: message.ordinal,
+            semanticRevision: message.semanticRevision,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+            savedBody: message.savedBody,
+            savedRevision: message.savedRevision,
+            draft: draft,
+            handled: message.handled,
+            status: message.status
+        )
+        let value = try BridgeProductWorktreeAnnotationMessageEntry(
+            message: messageWithRecoveredDraft,
+            session: detail.session,
+            thread: thread
+        )
+        let encoded = try JSONEncoder().encode(value)
+        let encodedString = try #require(String(bytes: encoded, encoding: .utf8))
+
+        #expect(encodedString.contains(#""activeEditToken":null"#))
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductWorktreeAnnotationMessageEntry.self,
+                from: encoded
+            ) == value
+        )
+    }
+
+    @Test("strict product decoding accepts every annotation output response member")
+    func acceptsEveryAnnotationOutputResponseMember() throws {
+        let sessionID = "00000000-0000-7000-8000-000000000011"
+        let attemptID = "00000000-0000-7000-8000-000000000012"
+        let summary: [String: Any] = [
+            "attemptId": attemptID,
+            "destinationFilename": "review-comments.json",
+            "messageCount": 2,
+            "outputKind": "json_file",
+            "sessionId": sessionID,
+        ]
+        let outputOutcomes: [[String: Any]] = [
+            ["kind": "destination_cancelled"],
+            ["kind": "destination_selection_failed", "selectionError": "cancelled"],
+            ["kind": "succeeded", "summary": summary],
+            ["effectError": "clipboard unavailable", "kind": "effect_failed", "summary": summary],
+            [
+                "cleanupError": "cleanup unavailable",
+                "effectError": "clipboard unavailable",
+                "kind": "effect_and_cleanup_failed",
+                "summary": summary,
+            ],
+            [
+                "finalizationError": "history unavailable",
+                "kind": "partial_success",
+                "summary": summary,
+            ],
+        ]
+
+        for outputOutcome in outputOutcomes {
+            let result = try decodeStrictCallResult(
+                sessionID: sessionID,
+                status: ["kind": "output", "outcome": outputOutcome]
+            )
+            #expect(result.method == "review.annotations.command")
+        }
+
+        let historyResult = try decodeStrictCallResult(
+            sessionID: sessionID,
+            status: [
+                "kind": "history",
+                "summaries": [
+                    [
+                        "attemptId": attemptID,
+                        "canMarkNotHandled": true,
+                        "createdAtUnixMilliseconds": 1,
+                        "messageCount": 2,
+                        "outputKind": "json_file",
+                        "repeatedFromAttemptId": attemptID,
+                        "sessionId": sessionID,
+                        "state": "succeeded",
+                        "updatedAtUnixMilliseconds": 2,
+                    ]
+                ],
+            ]
+        )
+        #expect(historyResult.method == "review.annotations.command")
+    }
+
+    private func decodeStrictCallResult(
+        sessionID: String,
+        status: [String: Any]
+    ) throws -> BridgeProductCallResult {
+        let object: [String: Any] = [
+            "method": "review.annotations.command",
+            "result": [
+                "kind": "completed",
+                "outcome": [
+                    "requestId": "annotation-output-response",
+                    "sessionId": sessionID,
+                    "status": status,
+                    "surface": "review",
+                ],
+            ],
+        ]
+        return try BridgeProductStrictJSON.decode(
+            BridgeProductCallResult.self,
+            from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        )
+    }
+
     private func fixtureCorpus() throws -> StrictJSONCorpus {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let fixtureURL = projectRoot.appending(

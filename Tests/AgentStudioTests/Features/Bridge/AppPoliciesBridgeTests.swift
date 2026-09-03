@@ -6,6 +6,24 @@ import Testing
 
 @Suite(.serialized)
 final class AppPoliciesBridgeTests {
+    @Test("Bridge lifecycle diagnostics use a bounded observability-only window")
+    func bridgeLifecycleDiagnosticsUseBoundedPolicy() {
+        #expect(AppPolicies.Bridge.operationLifecycleTerminalWindow == .seconds(30))
+        #expect(AppPolicies.Bridge.operationLifecycleMaximumTrackedStageAttempts == 4096)
+    }
+
+    @Test("Review refresh impact work has explicit Git traversal and blob limits")
+    func reviewRefreshImpactWorkUsesBoundedPolicy() {
+        #expect(AppPolicies.Bridge.reviewRefreshImpactMaximumCommitTraversalCount == 256)
+        #expect(AppPolicies.Bridge.reviewRefreshImpactMaximumDiffableBlobByteCount == 1 * 1024 * 1024)
+    }
+
+    @Test("Worktree annotation continuity uses explicit bounded Git evidence policy")
+    func worktreeAnnotationContinuityUsesBoundedGitEvidencePolicy() {
+        #expect(AppPolicies.Bridge.worktreeAnnotationContinuityMaximumCommitCount == 10)
+        #expect(AppPolicies.Bridge.worktreeAnnotationContinuityMaximumTraversalCount == 256)
+    }
+
     @Test("Bridge content byte cache uses the approved 16 MiB per-item safety cap")
     func bridgeContentByteCacheUsesApprovedPerItemSafetyCap() {
         #expect(AppPolicies.Bridge.contentMaxBytesPerItem == 16 * 1024 * 1024)

@@ -9,70 +9,150 @@ import Testing
 
 @Suite("Bridge pane Review shared construction")
 struct BridgePaneReviewSharedConstructionTests {
-    @Test("exact duplicate Review panes share one held scheduled construction")
-    func exactDuplicateReviewConstructionSharesOneHeldScheduledBuild() async throws {
+    @Test("shared Review construction performs no body reads before demand")
+    func sharedConstructionPerformsNoReviewBodyReadsBeforeDemand() async throws {
         // Arrange
-        let baseOID = String(repeating: "a", count: 40)
-        let filePath = "Sources/App.swift"
-        let constructionReadGate = BridgeGitContentReadGate()
-        let selectedContentReadGate = BridgeGitContentReadGate()
-        let fixture = try BridgeSharedReviewConstructionFixture.make(
-            contentReadGateByLocator: [
-                GitContentLocator(target: .workingTree, path: filePath): constructionReadGate,
-                GitContentLocator(target: .commit(baseOID), path: filePath): selectedContentReadGate,
-            ]
-        )
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
         defer { fixture.removeTestRoot() }
-        let firstAcquisition = Task {
-            try await fixture.firstBinder.acquire(
-                fixture.request(packageId: "package-pane-one", generation: 1)
-            )
-        }
-        let secondAcquisition = Task {
-            try await fixture.secondBinder.acquire(
-                fixture.request(packageId: "package-pane-two", generation: 7)
-            )
-        }
-        await constructionReadGate.waitUntilStarted()
-        _ = await fixture.constructionEventProbe.waitFor(.consumerJoined)
 
         // Act
-        let heldConstructionSnapshot = await fixture.coordinator.snapshot()
-        let heldSchedulerSnapshot = await fixture.scheduler.snapshot()
-        let selectedContentRead = Task {
-            try await fixture.firstClient.loadGitContentPayload(
-                GitContentRequest(
-                    repositoryPath: fixture.repositoryPath,
-                    target: .commit(baseOID),
-                    path: filePath,
-                    maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
-                ),
-                operationClass: .selectedVisibleContent,
-                freshnessKey: BridgeGitReadFreshnessKey(token: "selected-content-progress")
-            )
-        }
-        await selectedContentReadGate.waitUntilStarted()
-        let concurrentSchedulerSnapshot = await fixture.scheduler.snapshot()
-        await selectedContentReadGate.release()
-        let selectedContent = try await selectedContentRead.value
-        let stillHeldConstructionSnapshot = await fixture.coordinator.snapshot()
-        await constructionReadGate.release()
-        let firstBinding = try await firstAcquisition.value
-        let secondBinding = try await secondAcquisition.value
+        let binding = try await fixture.firstBinder.acquire(
+            fixture.request(packageId: "package-metadata-only", generation: 1)
+        )
 
         // Assert
-        #expect(heldConstructionSnapshot.entryCount == 1)
-        #expect(heldConstructionSnapshot.inFlightCount == 1)
-        #expect(heldConstructionSnapshot.waiterCount == 2)
-        #expect(heldConstructionSnapshot.leaseCount == 0)
-        #expect(heldSchedulerSnapshot.runningCountByOperationClass[.reviewMetadata] == 1)
-        #expect(heldSchedulerSnapshot.occupiedSlotIds.count == 1)
-        #expect(concurrentSchedulerSnapshot.runningCountByOperationClass[.reviewMetadata] == 1)
-        #expect(concurrentSchedulerSnapshot.runningCountByOperationClass[.selectedVisibleContent] == 1)
-        #expect(concurrentSchedulerSnapshot.occupiedSlotIds.count == 2)
-        #expect(selectedContent.data == Data("base-a".utf8))
-        #expect(stillHeldConstructionSnapshot.entryCount == 1)
-        #expect(stillHeldConstructionSnapshot.inFlightCount == 1)
+        #expect(await fixture.gitClient.recordedDiffRequests().count == 1)
+        #expect(await fixture.gitClient.recordedContentRequests().isEmpty)
+        await binding.artifactPin.releaseAndWait()
+    }
+
+    @Test("first demand reads once and repeated demand uses the existing cache")
+    func firstDemandReadsOnceAndSecondDemandUsesExistingCache() async throws {
+        // Arrange
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
+        defer { fixture.removeTestRoot() }
+        let binding = try await fixture.firstBinder.acquire(
+            fixture.request(packageId: "package-demand-cache", generation: 1)
+        )
+        let headHandle = try #require(
+            binding.result.registeredContentHandles.first { $0.role == .head }
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let cache = BridgeReviewContentLoaderCache(provider: fixture.firstProvider)
+
+        // Act
+        let readsBeforeDemand = await fixture.gitClient.recordedContentRequests()
+        let first = try await cache.loadObserved(
+            handle: headHandle,
+            productAdmission: productAdmission.context
+        )
+        let second = try await cache.loadObserved(
+            handle: headHandle,
+            productAdmission: productAdmission.context
+        )
+
+        // Assert
+        #expect(readsBeforeDemand.isEmpty)
+        #expect(await fixture.gitClient.recordedContentRequests().count == 1)
+        #expect(first.observation.cacheResult == .providerLoad)
+        #expect(second.observation.cacheResult == .cacheHit)
+        #expect(first.result.data == Data("head-a".utf8))
+        #expect(second.result.data == first.result.data)
+        await cache.closeAndDrain()
+        productAdmission.close()
+        await binding.artifactPin.releaseAndWait()
+    }
+
+    @Test("undemanded working-tree body fails closed after source advances")
+    func undemandedWorkingTreeBodyFailsClosedAfterSourceAdvances() async throws {
+        // Arrange
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
+        defer { fixture.removeTestRoot() }
+        let binding = try await fixture.firstBinder.acquire(
+            fixture.request(packageId: "package-undemanded", generation: 1)
+        )
+        let headHandle = try #require(
+            binding.result.registeredContentHandles.first { $0.role == .head }
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let cache = BridgeReviewContentLoaderCache(provider: fixture.firstProvider)
+        await fixture.advanceWorkingTree(to: "head-b")
+
+        // Act
+        let result = await Task {
+            try await cache.load(
+                handle: headHandle,
+                productAdmission: productAdmission.context
+            )
+        }.result
+
+        // Assert
+        guard case .failure(let error) = result else {
+            Issue.record("Undemanded stale working-tree body unexpectedly loaded")
+            return
+        }
+        guard case .contentHashMismatch = error as? BridgeProviderFailure else {
+            Issue.record("Expected contentHashMismatch, got \(error)")
+            return
+        }
+        let cacheSnapshot = await cache.diagnosticSnapshot
+        #expect(cacheSnapshot.cachedContentCount == 0)
+        await cache.closeAndDrain()
+        productAdmission.close()
+        await binding.artifactPin.releaseAndWait()
+    }
+
+    @Test("demanded body remains cached after source advances")
+    func demandedBodyRemainsCachedAfterSourceAdvances() async throws {
+        // Arrange
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
+        defer { fixture.removeTestRoot() }
+        let binding = try await fixture.firstBinder.acquire(
+            fixture.request(packageId: "package-demanded", generation: 1)
+        )
+        let headHandle = try #require(
+            binding.result.registeredContentHandles.first { $0.role == .head }
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let cache = BridgeReviewContentLoaderCache(provider: fixture.firstProvider)
+        let first = try await cache.loadObserved(
+            handle: headHandle,
+            productAdmission: productAdmission.context
+        )
+        await fixture.advanceWorkingTree(to: "head-b")
+
+        // Act
+        let second = try await cache.loadObserved(
+            handle: headHandle,
+            productAdmission: productAdmission.context
+        )
+
+        // Assert
+        #expect(first.result.data == Data("head-a".utf8))
+        #expect(second.result.data == first.result.data)
+        #expect(second.observation.cacheResult == .cacheHit)
+        #expect(await fixture.gitClient.recordedContentRequests().count == 1)
+        await cache.closeAndDrain()
+        productAdmission.close()
+        await binding.artifactPin.releaseAndWait()
+    }
+
+    @Test("exact duplicate Review panes share metadata construction without body reads")
+    func exactDuplicateReviewConstructionSharesMetadataWithoutBodyReads() async throws {
+        // Arrange
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
+        defer { fixture.removeTestRoot() }
+
+        // Act
+        async let firstAcquisition = fixture.firstBinder.acquire(
+            fixture.request(packageId: "package-pane-one", generation: 1)
+        )
+        async let secondAcquisition = fixture.secondBinder.acquire(
+            fixture.request(packageId: "package-pane-two", generation: 7)
+        )
+        let (firstBinding, secondBinding) = try await (firstAcquisition, secondAcquisition)
+
+        // Assert
         #expect(
             firstBinding.artifactPin.constructionLease.entryNonce
                 == secondBinding.artifactPin.constructionLease.entryNonce
@@ -86,14 +166,11 @@ struct BridgePaneReviewSharedConstructionTests {
         #expect(firstBinding.result.package.reviewGeneration.rawValue == 1)
         #expect(secondBinding.result.package.reviewGeneration.rawValue == 7)
         #expect(await fixture.gitClient.recordedDiffRequests().count == 1)
-        let contentRequests = await fixture.gitClient.recordedContentRequests()
-        #expect(contentRequests.count { $0.target == .workingTree } == 1)
-        #expect(contentRequests.count { $0.target == .commit(baseOID) } == 1)
+        #expect(await fixture.gitClient.recordedContentRequests().isEmpty)
 
         await firstBinding.artifactPin.releaseAndWait()
         await secondBinding.artifactPin.releaseAndWait()
         await fixture.waitUntilConstructionEntryIsRemoved()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
         let drainedConstructionSnapshot = await fixture.coordinator.snapshot()
         let drainedSchedulerSnapshot = await fixture.scheduler.snapshot()
         #expect(drainedConstructionSnapshot.entryCount == 0)
@@ -133,11 +210,10 @@ struct BridgePaneReviewSharedConstructionTests {
         let baseHandle = try #require(
             binding.result.registeredContentHandles.first { $0.role == .base }
         )
-        guard case .reviewTemplate(let template) = binding.artifactPin.constructionLease.artifact else {
+        guard case .reviewTemplate = binding.artifactPin.constructionLease.artifact else {
             Issue.record("Expected a shared Review template")
             return
         }
-        let backing = try #require(template.backing)
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
         let preparedPublication = try #require(
@@ -194,7 +270,6 @@ struct BridgePaneReviewSharedConstructionTests {
         #expect(closeDrain.artifactPins == [binding.artifactPin])
         #expect(repeatedCloseDrain.artifactPins.isEmpty)
         #expect(repeatedCloseDrain.priorReleaseTask == nil)
-        #expect(FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() > 0)
         #expect(
             await fixture.scheduler.snapshot().drainingCountByOperationClass[.selectedVisibleContent]
@@ -203,7 +278,6 @@ struct BridgePaneReviewSharedConstructionTests {
 
         await physicalReadGate.release()
         await releaseTask.value
-        #expect(!FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
         #expect(
             await fixture.scheduler.snapshot().drainingCountByOperationClass[.selectedVisibleContent]
@@ -230,11 +304,10 @@ struct BridgePaneReviewSharedConstructionTests {
         let baseHandle = try #require(
             binding.result.registeredContentHandles.first { $0.role == .base }
         )
-        guard case .reviewTemplate(let template) = binding.artifactPin.constructionLease.artifact else {
+        guard case .reviewTemplate = binding.artifactPin.constructionLease.artifact else {
             Issue.record("Expected a shared Review template")
             return
         }
-        let backing = try #require(template.backing)
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let publicationCoordinator = BridgeReviewPublicationCoordinator()
         let preparedPublication = try #require(
@@ -279,12 +352,10 @@ struct BridgePaneReviewSharedConstructionTests {
         // Assert
         #expect(closeDrain.artifactPins.isEmpty)
         #expect(closeDrain.priorReleaseTask != nil)
-        #expect(FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() > 0)
 
         await physicalReadGate.release()
         await closeDrainTask.value
-        #expect(!FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
         #expect((await fixture.coordinator.snapshot()).entryCount == 0)
     }
@@ -307,11 +378,10 @@ struct BridgePaneReviewSharedConstructionTests {
         let baseHandle = try #require(
             binding.result.registeredContentHandles.first { $0.role == .base }
         )
-        guard case .reviewTemplate(let template) = binding.artifactPin.constructionLease.artifact else {
+        guard case .reviewTemplate = binding.artifactPin.constructionLease.artifact else {
             Issue.record("Expected a shared Review template")
             return
         }
-        let backing = try #require(template.backing)
         let constructionResult = BridgeReviewPackageConstructionResult(
             result: binding.result,
             artifactPin: binding.artifactPin
@@ -332,54 +402,16 @@ struct BridgePaneReviewSharedConstructionTests {
         _ = await fixture.constructionEventProbe.waitFor(.entryRemoved)
 
         // Assert
-        #expect(FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() > 0)
 
         await physicalReadGate.release()
         await releaseTask.value
-        #expect(!FileManager.default.fileExists(atPath: backing.directoryURL.path))
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
         #expect((await fixture.coordinator.snapshot()).entryCount == 0)
     }
 
-    @Test("same-pane A remains byte- and digest-stable while mutable B advances")
-    func samePaneOldArtifactRemainsImmutable() async throws {
-        // Arrange
-        let fixture = try BridgeSharedReviewConstructionFixture.make()
-        defer { fixture.removeTestRoot() }
-        let requestA = fixture.request(packageId: "package-a", generation: 1)
-        let bindingA = try await fixture.firstBinder.acquire(requestA)
-        let handleA = try #require(bindingA.result.registeredContentHandles.last)
-
-        // Act
-        await fixture.advanceWorkingTree(to: "head-b")
-        _ = await fixture.coordinator.invalidate(
-            worktree: bindingA.artifactPin.constructionLease.key.worktree
-        )
-        let requestB = fixture.request(packageId: "package-b", generation: 2)
-        let bindingB = try await fixture.firstBinder.acquire(requestB)
-        let loadedA = try await fixture.firstProvider.loadContent(
-            BridgeContentLoadRequest(handle: handleA, requestedGeneration: 1)
-        )
-        let handleB = try #require(bindingB.result.registeredContentHandles.last)
-        let loadedB = try await fixture.firstProvider.loadContent(
-            BridgeContentLoadRequest(handle: handleB, requestedGeneration: 2)
-        )
-
-        // Assert
-        #expect(loadedA.data == Data("head-a".utf8))
-        #expect(loadedA.contentHash == bridgeSharedReviewGitBlobSHA1("head-a"))
-        #expect(loadedB.data == Data("head-b".utf8))
-        #expect(loadedB.contentHash == bridgeSharedReviewGitBlobSHA1("head-b"))
-        await bindingB.artifactPin.releaseAndWait()
-        await bindingA.artifactPin.releaseAndWait()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
-        #expect(await fixture.coordinator.snapshot().retainedArtifactByteCount == 0)
-        #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
-    }
-
-    @Test("cross-pane A survives the other pane advancing and shares one capture")
-    func crossPaneOldArtifactRemainsReadable() async throws {
+    @Test("duplicate panes install shared locators and demand content independently")
+    func duplicatePanesInstallSharedLocatorsAndDemandIndependently() async throws {
         // Arrange
         let fixture = try BridgeSharedReviewConstructionFixture.make()
         defer { fixture.removeTestRoot() }
@@ -390,23 +422,18 @@ struct BridgePaneReviewSharedConstructionTests {
             fixture.request(packageId: "package-a2", generation: 7)
         )
         let (firstA, secondA) = try await (firstAcquire, secondAcquire)
+        let firstAHandle = try #require(firstA.result.registeredContentHandles.last)
         let secondAHandle = try #require(secondA.result.registeredContentHandles.last)
-        guard case .reviewTemplate(let sharedATemplate) = firstA.artifactPin.constructionLease.artifact
-        else {
+        guard case .reviewTemplate = firstA.artifactPin.constructionLease.artifact else {
             Issue.record("Expected a shared Review template")
             return
         }
-        let sharedABacking = try #require(sharedATemplate.backing)
 
         // Act
-        await fixture.advanceWorkingTree(to: "head-b")
-        _ = await fixture.coordinator.invalidate(
-            worktree: firstA.artifactPin.constructionLease.key.worktree
+        let firstContent = try await fixture.firstProvider.loadContent(
+            BridgeContentLoadRequest(handle: firstAHandle, requestedGeneration: 1)
         )
-        let firstB = try await fixture.firstBinder.acquire(
-            fixture.request(packageId: "package-b", generation: 2)
-        )
-        let oldContent = try await fixture.secondProvider.loadContent(
+        let secondContent = try await fixture.secondProvider.loadContent(
             BridgeContentLoadRequest(handle: secondAHandle, requestedGeneration: 7)
         )
 
@@ -419,16 +446,14 @@ struct BridgePaneReviewSharedConstructionTests {
             firstA.artifactPin.constructionLease.leaseNonce
                 != secondA.artifactPin.constructionLease.leaseNonce
         )
-        #expect(oldContent.data == Data("head-a".utf8))
+        #expect(firstContent.data == Data("head-a".utf8))
+        #expect(secondContent.data == firstContent.data)
         #expect(await fixture.gitClient.recordedContentRequests().count == 2)
-        await firstB.artifactPin.releaseAndWait()
         await firstA.artifactPin.releaseAndWait()
         let peerRetainedSnapshot = await fixture.coordinator.snapshot()
         #expect(peerRetainedSnapshot.entryCount == 1)
         #expect(peerRetainedSnapshot.leaseCount == 1)
-        #expect(FileManager.default.fileExists(atPath: sharedABacking.directoryURL.path))
         await secondA.artifactPin.releaseAndWait()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
         let snapshot = await fixture.coordinator.snapshot()
         #expect(snapshot.entryCount == 0)
         #expect(snapshot.leaseCount == 0)
@@ -513,40 +538,6 @@ struct BridgePaneReviewSharedConstructionTests {
         await binding.artifactPin.releaseAndWait()
     }
 
-    @Test("invalidation during shared template construction reacquires under the advanced epoch")
-    func sharedTemplateConstructionInvalidationReacquiresUnderAdvancedEpoch() async throws {
-        // Arrange
-        let filePath = "Sources/App.swift"
-        let constructionReadGate = BridgeGitContentReadGate()
-        let fixture = try BridgeSharedReviewConstructionFixture.make(
-            contentReadGateByLocator: [
-                GitContentLocator(target: .workingTree, path: filePath): constructionReadGate
-            ]
-        )
-        defer { fixture.removeTestRoot() }
-        let acquisition = Task {
-            try await fixture.firstBinder.acquire(
-                fixture.request(packageId: "package-current", generation: 1)
-            )
-        }
-        await constructionReadGate.waitUntilStarted()
-
-        // Act
-        await fixture.advanceWorkingTree(to: "head-current")
-        let advancedEpoch = await fixture.coordinator.invalidate(worktree: fixture.worktreeIdentityKey)
-        await constructionReadGate.release()
-        let binding = try await acquisition.value
-
-        // Assert
-        #expect(advancedEpoch.rawValue == 2)
-        #expect(binding.artifactPin.constructionLease.epoch == advancedEpoch)
-        #expect(await fixture.gitClient.recordedDiffRequests().count == 2)
-        let contentRequests = await fixture.gitClient.recordedContentRequests()
-        #expect(contentRequests.count { $0.target == .workingTree && $0.path == filePath } == 2)
-        #expect(binding.result.package.summary.filesChanged == 1)
-        await binding.artifactPin.releaseAndWait()
-    }
-
     @Test("unchanged same-pane handles retain exact generation locators until artifact cleanup")
     func unchangedHandlesRetainGenerationSpecificLocators() async throws {
         // Arrange
@@ -592,7 +583,6 @@ struct BridgePaneReviewSharedConstructionTests {
             ).data == Data("head-a".utf8)
         )
         await bindingB.artifactPin.releaseAndWait()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
     }
 
@@ -631,7 +621,6 @@ struct BridgePaneReviewSharedConstructionTests {
             ).data == Data("head-a".utf8)
         )
         await bindingA.artifactPin.releaseAndWait()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
     }
 
@@ -671,32 +660,6 @@ struct BridgePaneReviewSharedConstructionTests {
         await bindingA.artifactPin.releaseAndWait()
     }
 
-    @Test("capture failure removes partial artifact backing")
-    func captureFailureRemovesPartialBacking() async throws {
-        // Arrange
-        let fixture = try BridgeSharedReviewConstructionFixture.make()
-        defer { fixture.removeTestRoot() }
-        await fixture.gitClient.replaceContent(
-            bridgeSharedReviewGitContentPayload("unexpected"),
-            for: GitContentLocator(target: .workingTree, path: "Sources/App.swift")
-        )
-
-        // Act
-        let result = await Task {
-            try await fixture.firstBinder.acquire(
-                fixture.request(packageId: "package-failure", generation: 1)
-            )
-        }.result
-
-        // Assert
-        guard case .failure = result else {
-            Issue.record("Digest-mismatched capture unexpectedly succeeded")
-            return
-        }
-        await fixture.waitUntilBackingDirectoryIsEmpty()
-        #expect(await fixture.coordinator.snapshot().entryCount == 0)
-        #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
-    }
 }
 
 struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
@@ -722,7 +685,7 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         schedulerEventSink: BridgeGitReadSchedulerEventSink? = nil
     ) throws -> Self {
-        let (testRoot, repositoryPath, backingRoot) = try makeFixturePaths()
+        let (testRoot, repositoryPath) = try makeFixturePaths()
         let baseOID = String(repeating: "a", count: 40)
         let endpointRepoId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let endpointWorktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
@@ -775,14 +738,12 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
         let firstClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: firstContext,
-            sharedContentRootURL: backingRoot
+            gitReadContext: firstContext
         )
         let secondClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: secondContext,
-            sharedContentRootURL: backingRoot
+            gitReadContext: secondContext
         )
         let firstProvider = BridgeGitReviewSourceProvider(client: firstClient)
         let secondProvider = BridgeGitReviewSourceProvider(client: secondClient)
@@ -815,14 +776,13 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
 
     private static func makeFixturePaths() throws -> (
         testRoot: URL,
-        repositoryPath: URL,
-        backingRoot: URL
+        repositoryPath: URL
     ) {
         let testRoot = FileManager.default.temporaryDirectory
             .appending(path: "bridge-review-shared-\(UUID().uuidString)")
         let repositoryPath = testRoot.appending(path: "repository")
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
-        return (testRoot, repositoryPath, testRoot.appending(path: "backing"))
+        return (testRoot, repositoryPath)
     }
 
     private static func makeConstructionCoordinator() -> (
@@ -886,19 +846,6 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
             bridgeSharedReviewGitContentPayload(content),
             for: GitContentLocator(target: .workingTree, path: "Sources/App.swift")
         )
-    }
-
-    func waitUntilBackingDirectoryIsEmpty() async {
-        for _ in 0..<100 {
-            let children =
-                (try? FileManager.default.contentsOfDirectory(
-                    at: testRoot.appending(path: "backing"),
-                    includingPropertiesForKeys: nil
-                )) ?? []
-            if children.isEmpty { return }
-            await Task.yield()
-        }
-        Issue.record("Review backing directory did not drain")
     }
 
     func waitUntilConstructionEntryIsRemoved() async {

@@ -8,9 +8,7 @@ enum BridgeComparisonTargetCatalogTelemetryKeys {
         "agentstudio.bridge.review.comparison_targets.reservation_age_ms",
     ]
 
-    static let booleanAttributeKeys: Set<String> = [
-        "agentstudio.bridge.review.comparison_targets.is_truncated"
-    ]
+    static let booleanAttributeKeys: Set<String> = ["agentstudio.bridge.review.comparison_targets.is_truncated"]
 }
 
 extension BridgeTelemetryWireSchema {
@@ -22,13 +20,19 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.transport",
     ]
 
-    static let allowedEventNames: Set<String> = [
+    static let allowedEventNames: Set<String> = Set([
         "performance.bridge.swift.active_viewer_mode_signal_accepted",
         "performance.bridge.swift.active_viewer_mode_signal_rejected",
+        "performance.bridge.swift.annotation_lifecycle",
+        "performance.bridge.swift.operation_lifecycle",
+        "performance.bridge.swift.review_refresh_lifecycle",
         "performance.bridge.swift.active_viewer_mode_suppression_catch_up",
         "performance.bridge.git_read_scheduler",
         "performance.bridge.worktree_product_construction",
         "performance.bridge.web.code_view_item_materialize",
+        "performance.bridge.web.annotation_lifecycle",
+        "performance.bridge.web.operation_lifecycle",
+        "performance.bridge.web.review_refresh_lifecycle",
         "performance.bridge.web.comm_worker_session",
         "performance.bridge.web.content_fetch",
         "performance.bridge.web.first_render",
@@ -75,7 +79,7 @@ extension BridgeTelemetryWireSchema {
         "performance.bridge.pierre.virtualized_range",
         "performance.bridge.shiki.highlight",
         "performance.bridge.worker.task",
-    ]
+    ]).union(BridgeRenderDispositionTelemetryContract.eventNames)
 
     static let allowedStringValuesByAttributeKey: [String: Set<String>] = [
         "agentstudio.bridge.activation.cause": [
@@ -298,7 +302,7 @@ extension BridgeTelemetryWireSchema {
             "file",
             "review",
         ],
-        "agentstudio.bridge.phase": [
+        "agentstudio.bridge.phase": Set([
             "accepted",
             "active_viewer_mode_suppression_catch_up",
             "active_viewer_mode_signal_accepted",
@@ -312,6 +316,12 @@ extension BridgeTelemetryWireSchema {
             "encode",
             "error",
             "file_open_ready",
+            "file_prepare_started",
+            "file_prepare_terminal",
+            "file_content_operation_started",
+            "file_content_operation_terminal",
+            "file_descriptor_wait_started",
+            "file_descriptor_wait_terminal",
             "fetch",
             "frame_jank",
             "git_read_scheduler",
@@ -354,6 +364,58 @@ extension BridgeTelemetryWireSchema {
             "metadata_source_accepted_enqueued",
             "metadata_subscription_reset_enqueued",
             "metadata_window_enqueued",
+            "metadata_enqueue_started",
+            "metadata_enqueue_terminal",
+            "content_operation_started",
+            "content_operation_terminal",
+            "annotation_invalidation_received",
+            "annotation_invalidation_admitted",
+            "annotation_notification_delivery_terminal",
+            "annotation_paint_started",
+            "annotation_paint_terminal",
+            "content_transfer_started",
+            "content_transfer_terminal",
+            "descriptor_claim_started",
+            "descriptor_claim_terminal",
+            "main_thread_install_started",
+            "metadata_delivery_started",
+            "metadata_delivery_terminal",
+            "native_annotation_work_started",
+            "native_annotation_work_terminal",
+            "main_thread_install_terminal",
+            "projection_content_transfer_terminal",
+            "projection_content_transfer_started",
+            "projection_convergence_started",
+            "projection_convergence_terminal",
+            "projection_query_started",
+            "projection_query_terminal",
+            "projection_store_started",
+            "projection_store_terminal",
+            "projection_validation_started",
+            "projection_validation_terminal",
+            "refresh_commit_started",
+            "refresh_commit_terminal",
+            "refresh_reserved",
+            "refresh_operation_terminal",
+            "review_prepare_started",
+            "review_prepare_terminal",
+            "review_refresh_candidate_held",
+            "review_refresh_candidate_ready",
+            "review_refresh_candidate_superseded",
+            "review_refresh_classified",
+            "review_refresh_cleanup_terminal",
+            "review_refresh_install_requested",
+            "review_refresh_install_terminal",
+            "review_refresh_receipt_failed",
+            "review_refresh_source_cleanup_terminal",
+            "render_operation_started",
+            "render_operation_terminal",
+            "paint_fulfillment_started",
+            "paint_fulfillment_terminal",
+            "panel_chrome_publish_started",
+            "panel_chrome_publish_terminal",
+            "worker_application_started",
+            "worker_application_terminal",
             "mode_switch",
             "prepare_input",
             "projection_input_build",
@@ -386,7 +448,8 @@ extension BridgeTelemetryWireSchema {
             "worktree_file_frame_apply",
             "worktree_file_projection",
             "worker_task",
-        ],
+        ]).union(BridgeAnnotationCatalogTelemetryContract.phaseValues)
+            .union(BridgeRenderDispositionTelemetryContract.phaseValues),
         "agentstudio.bridge.plane": Set(
             BridgeTelemetryPlane.allCases.map(\.rawValue)
         ),
@@ -485,10 +548,16 @@ extension BridgeTelemetryWireSchema {
             "updated",
         ],
         "agentstudio.bridge.result_reason": [
+            "admission_failed",
+            "admission_rejected",
+            "apply_now",
+            "automatic",
             "aborted",
             "byte_budget_exceeded",
             "carrier_nonce_mismatch",
             "closed",
+            "close",
+            "commits",
             "concurrency_exceeded",
             "cancellation",
             "content_unavailable",
@@ -505,8 +574,10 @@ extension BridgeTelemetryWireSchema {
             "invalid_request_url",
             "load_failed",
             "load_threw",
+            "lines",
             "event_construction",
             "file_source_unavailable",
+            "files",
             "metadata_carry_forward_verification",
             "missing_carrier_nonce",
             "deduplicated",
@@ -520,6 +591,9 @@ extension BridgeTelemetryWireSchema {
             "producer_rejection",
             "producer_rejection_close_required",
             "producer_rejection_frame_identity_mismatch",
+            "promotion_stale",
+            "receipt_failed",
+            "worker_replacement",
             "producer_rejection_frame_kind_mismatch",
             "producer_rejection_frame_lifecycle_mismatch",
             "producer_rejection_frame_too_large",
@@ -546,7 +620,23 @@ extension BridgeTelemetryWireSchema {
             "stale_sequence",
             "stream_mismatch",
             "task_cancellation",
+            "unknown",
             "unexpected",
+        ],
+        "agentstudio.bridge.review.refresh.install_trigger": [
+            "apply_now",
+            "automatic",
+        ],
+        "agentstudio.bridge.review.refresh.presentation_class": [
+            "ordinary",
+            "promoted",
+        ],
+        "agentstudio.bridge.review.refresh.promotion_reason": [
+            "commits",
+            "files",
+            "lines",
+            "none",
+            "unknown",
         ],
         "agentstudio.bridge.selection.origin": [
             "context_switcher",
@@ -657,6 +747,7 @@ extension BridgeTelemetryWireSchema {
             "huge",
         ],
         "agentstudio.bridge.viewer": [
+            "all",
             "file",
             "review",
         ],
@@ -675,6 +766,12 @@ extension BridgeTelemetryWireSchema {
             "selected",
             "speculative",
             "visible",
+        ],
+        "agentstudio.bridge.worker.semantic_class": [
+            "demand",
+            "lifecycle_control",
+            "settlement",
+            "urgent_action",
         ],
         "agentstudio.bridge.worker.file_mode_dispatch": [
             "dropped_detached",
@@ -725,17 +822,26 @@ extension BridgeTelemetryWireSchema {
         ],
         "agentstudio.bridge.worker.command": [
             "activeViewerModeUpdate",
+            "annotationCommand",
+            "annotationOutputInspect",
+            "annotationProjectionRetry",
             "fileDisplayResync",
             "fileQueryUpdate",
+            "fileRefreshRetry",
             "fileSourceDiscovery",
             "hover",
             "markFileViewed",
             "metadataInterestUpdate",
             "mode",
             "renderDisposition",
+            "reviewComparisonTargetsQuery",
+            "reviewComparisonTargetsQueryCancel",
+            "reviewComparisonUpdate",
             "reviewIntakeReady",
             "reviewInvalidate",
             "reviewProjectionUpdate",
+            "reviewPublicationInstallAdmit",
+            "reviewPublicationInstalled",
             "select",
             "viewport",
         ],
@@ -748,7 +854,9 @@ extension BridgeTelemetryWireSchema {
             "review_content_ready",
             "review_source_reset",
         ],
-    ]
+    ].merging(BridgeRenderDispositionTelemetryContract.outcomeValues) { existingValues, renderValues in
+        existingValues.union(renderValues)
+    }
 
     static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.activation.sequence",
@@ -820,10 +928,19 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.presentation.revision",
         "agentstudio.bridge.review.item_count",
         "agentstudio.bridge.review.generation",
+        "agentstudio.bridge.review.refresh.active_bank.count",
+        "agentstudio.bridge.review.refresh.affected_file.count",
+        "agentstudio.bridge.review.refresh.affected_stable_file.count",
+        "agentstudio.bridge.review.refresh.candidate_bank.count",
+        "agentstudio.bridge.review.refresh.changed_line.count",
+        "agentstudio.bridge.review.refresh.imported_commit.count",
+        "agentstudio.bridge.review.refresh.retained_publication.count",
+        "agentstudio.bridge.review.refresh.source_lease.count",
         "agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count",
         "agentstudio.bridge.review.metadata_carry_forward.verified_drop.count",
         "agentstudio.bridge.review.metadata_carry_forward.verified_keep.count",
         "agentstudio.bridge.source.generation",
+        "agentstudio.bridge.stage.attempt",
         "agentstudio.bridge.selected_content.click_to_paint_ms",
         "agentstudio.bridge.selected_content.frame_wait_ms",
         "agentstudio.bridge.selected_content.materialize_ms",
@@ -860,7 +977,8 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence",
     ]).union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
-
+        .union(BridgeAnnotationCatalogTelemetryContract.numericAttributeKeys)
+        .union(BridgeRenderDispositionTelemetryContract.numericAttributeKeys)
     static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.activation.source_available",
         "agentstudio.bridge.cache_hit",

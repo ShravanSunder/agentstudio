@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactElement, ReactNode, Ref } from 'react';
+import type { ComponentProps, ReactElement, ReactNode, Ref } from 'react';
 
 import { Button } from '../components/ui/button.js';
 import {
@@ -7,8 +7,11 @@ import {
 } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
-export interface BridgeViewerButtonProps {
-	readonly children: ReactNode;
+export interface BridgeViewerButtonProps extends Omit<
+	ComponentProps<typeof Button>,
+	'children' | 'className' | 'ref' | 'size' | 'variant'
+> {
+	readonly children?: ReactNode;
 	readonly buttonRef?: Ref<HTMLButtonElement>;
 	readonly ariaLabel?: string;
 	readonly ariaPressed?: boolean;
@@ -16,10 +19,7 @@ export interface BridgeViewerButtonProps {
 	readonly 'data-bridge-viewer-context-selected'?: string;
 	readonly 'data-bridge-viewer-context-target'?: string;
 	readonly 'data-testid'?: string;
-	readonly disabled?: boolean;
 	readonly testId?: string;
-	readonly title?: string;
-	readonly onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }
 
 export const bridgeViewerButtonClassName = cn(
@@ -31,28 +31,27 @@ export const bridgeViewerButtonClassName = cn(
 );
 
 export function BridgeViewerButton(props: BridgeViewerButtonProps): ReactElement {
+	const { ariaLabel, ariaPressed, buttonRef, children, className, testId, ...buttonProps } = props;
 	return (
 		<Button
-			ref={props.buttonRef}
-			aria-label={props.ariaLabel}
-			aria-pressed={props.ariaPressed}
+			{...buttonProps}
+			ref={buttonRef}
+			aria-label={ariaLabel ?? buttonProps['aria-label']}
+			aria-pressed={ariaPressed ?? buttonProps['aria-pressed']}
 			className={cn(
 				bridgeViewerButtonClassName,
-				props.ariaPressed === true &&
+				ariaPressed === true &&
 					'border-transparent bg-[var(--bridge-header-control-active-bg)] text-[var(--bridge-text-primary)]',
-				props.className,
+				className,
 			)}
 			data-bridge-viewer-context-selected={props['data-bridge-viewer-context-selected']}
 			data-bridge-viewer-context-target={props['data-bridge-viewer-context-target']}
-			data-testid={props.testId ?? props['data-testid']}
-			disabled={props.disabled}
-			onClick={props.onClick}
+			data-testid={testId ?? props['data-testid']}
 			size="sm"
-			title={props.title}
 			type="button"
 			variant="ghost"
 		>
-			{props.children}
+			{children}
 		</Button>
 	);
 }

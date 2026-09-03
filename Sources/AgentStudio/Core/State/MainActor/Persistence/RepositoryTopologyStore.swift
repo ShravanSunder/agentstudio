@@ -8,7 +8,7 @@ private let repositoryTopologyStoreLogger = Logger(subsystem: "com.agentstudio",
 @MainActor
 package final class RepositoryTopologyStore {
     private let atom: RepositoryTopologyAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore?
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private var debouncedSaveTask: Task<Void, Never>?
@@ -21,7 +21,7 @@ package final class RepositoryTopologyStore {
 
     package init(
         atom: RepositoryTopologyAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil
     ) {

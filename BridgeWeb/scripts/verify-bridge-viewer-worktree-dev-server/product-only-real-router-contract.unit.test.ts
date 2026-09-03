@@ -727,6 +727,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		);
 		const traversalLoopIndex = reviewProofSource.indexOf(
 			'for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1)',
+			initialHydrationSettlementIndex,
 		);
 		const traversalHydrationSettlementIndex = reviewProofSource.indexOf(
 			'const settledHydrationWindow = await captureFreshReviewHydrationWindow',

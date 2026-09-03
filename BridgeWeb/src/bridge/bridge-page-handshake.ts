@@ -40,6 +40,8 @@ export interface BridgePageReadyError {
 	readonly requestId: string;
 }
 
+type BridgePageReadyRequestState = 'awaiting' | 'failed' | 'ready' | 'timed_out';
+
 export interface InstallBridgePageHandshakeSessionProps {
 	readonly onProductSessionBootstrap?: (bootstrap: {
 		readonly bootstrap: BridgeProductSessionBootstrap;
@@ -105,7 +107,7 @@ export function installBridgePageHandshakeSession(
 	const pendingProductBootstrapRequestIds = new Set<string>();
 	const pendingTelemetryBootstrapRequestIds = new Set<string>();
 	let readyRequestId: string | null = null;
-	let didResolveReadyRequest = false;
+	let readyRequestState: BridgePageReadyRequestState = 'awaiting';
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
 	const readyAcknowledgementTimeoutMilliseconds =
 		props.readyAcknowledgementTimeoutMilliseconds ?? 5000;
@@ -119,16 +121,22 @@ export function installBridgePageHandshakeSession(
 	};
 
 	const failReadyRequest = (error: BridgePageReadyError): void => {
-		if (didResolveReadyRequest) {
+		if (readyRequestState === 'failed' || readyRequestState === 'ready') {
 			return;
 		}
-		didResolveReadyRequest = true;
+		const shouldNotify = readyRequestState === 'awaiting';
+		readyRequestState = error.kind === 'ack_timeout' ? 'timed_out' : 'failed';
 		clearReadyAcknowledgementTimeout();
-		props.onReadyError?.(error);
+		if (shouldNotify) props.onReadyError?.(error);
 	};
 
 	const handleReadyAcknowledgement = (event: Event): void => {
-		if (readyRequestId === null || didResolveReadyRequest || !('detail' in event)) {
+		if (
+			readyRequestId === null ||
+			readyRequestState === 'failed' ||
+			readyRequestState === 'ready' ||
+			!('detail' in event)
+		) {
 			return;
 		}
 		const parsedAcknowledgement = bridgeReadyAcknowledgementSchema.safeParse(event.detail);
@@ -146,7 +154,7 @@ export function installBridgePageHandshakeSession(
 			}
 			return;
 		}
-		didResolveReadyRequest = true;
+		readyRequestState = 'ready';
 		clearReadyAcknowledgementTimeout();
 		props.onReady?.();
 	};

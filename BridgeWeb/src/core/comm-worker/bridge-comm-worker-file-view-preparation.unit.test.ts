@@ -317,11 +317,6 @@ describe('Bridge comm worker File View preparation', () => {
 					workerDerivationEpoch: 17,
 					patches: [
 						{
-							slice: 'rowPaint',
-							operation: 'delete',
-							itemId: 'file-1',
-						},
-						{
 							slice: 'contentAvailability',
 							operation: 'upsert',
 							itemId: 'file-1',
@@ -333,8 +328,8 @@ describe('Bridge comm worker File View preparation', () => {
 			},
 		]);
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('failed');
-		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(false);
-		expect(store.getState().byteCache.has('file-view:metadata-cache:file-1')).toBe(false);
+		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(true);
+		expect(store.getState().byteCache.has('file-view:metadata-cache:file-1')).toBe(true);
 	});
 
 	test('skips enqueue when selected File View content is no longer current or demand eligible', async () => {
@@ -401,6 +396,7 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 	readonly epoch: number;
 	readonly itemId: string;
 	readonly openContent: BridgeWorkerFileViewContentOpen;
+	readonly operationCorrelationId: string;
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: ReturnType<typeof createWorkerContentPreparationPump>;
 	readonly requestPreparationDrain?: () => void;
@@ -419,6 +415,7 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 		epoch: 7,
 		itemId: options.itemId ?? 'file-1',
 		openContent: options.openContent ?? unexpectedContentOpen,
+		operationCorrelationId: 'a'.repeat(64),
 		port: makePostedMessagePort(options.postedMessages),
 		pump: options.pump,
 		...(options.requestPreparationDrain === undefined

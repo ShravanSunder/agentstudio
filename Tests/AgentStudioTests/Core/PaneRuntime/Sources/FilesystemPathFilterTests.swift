@@ -16,6 +16,17 @@ struct FilesystemPathFilterTests {
         #expect(filter.classify(relativePath: ".git/config") == .projected)
     }
 
+    @Test("classifies git object database writes separately from repository state")
+    func classifiesGitObjectDatabaseWritesSeparately() {
+        let filter = FilesystemPathFilter.empty
+
+        #expect(filter.classify(relativePath: ".git/objects") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: ".git/objects/aa/bb") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: "nested/.git/objects/pack/data.pack") == .gitObjectDatabase)
+        #expect(filter.classify(relativePath: ".git/refs/heads/main") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
+    }
+
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")
     func supportsNegationAnchoringDirectoryAndSingleWildcard() throws {
         let rootPath = try makeRootWithGitIgnore(
@@ -54,6 +65,30 @@ struct FilesystemPathFilterTests {
         #expect(!filter.isIgnored(relativePath: "docs/a/b/c.txt"))
         #expect(filter.isIgnored(relativePath: "file[1].txt"))
         #expect(!filter.isIgnored(relativePath: "filea.txt"))
+    }
+
+    @Test("ignored directory patterns suppress descendant filesystem events")
+    func ignoredDirectoryPatternSuppressesDescendants() throws {
+        let rootPath = try makeRootWithGitIgnore(lines: [".build-*"])
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+
+        #expect(filter.classify(relativePath: ".build-agent-1") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".build-agent-1/.slot-claim") == .ignoredByPolicy)
+    }
+
+    @Test("descendant negation cannot bypass an ignored parent directory")
+    func descendantNegationCannotBypassIgnoredParent() throws {
+        let rootPath = try makeRootWithGitIgnore(
+            lines: [
+                ".build-*",
+                "!.build-agent-1/.slot-claim",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+
+        #expect(filter.classify(relativePath: ".build-agent-1/.slot-claim") == .ignoredByPolicy)
     }
 
     @Test("missing .gitignore falls back to empty ignore policy")

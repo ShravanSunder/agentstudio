@@ -64,6 +64,8 @@ enum ReviewMetadataSourceTestError: Error {
 func deliverReviewPackage(
     _ package: BridgeReviewPackage,
     publicationId: UUID = reviewMetadataTestPublicationId,
+    operationCorrelationID: String? = nil,
+    classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil,
     through source: BridgePaneProductReviewMetadataSource,
     productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -75,7 +77,9 @@ func deliverReviewPackage(
     return try await source.deliver(
         publication: reviewMetadataCommittedPublication(
             package,
-            publicationId: publicationId
+            publicationId: publicationId,
+            operationCorrelationID: operationCorrelationID,
+            classifiedRefreshImpact: classifiedRefreshImpact
         ),
         reservation: reservation,
         productAdmission: productAdmission
@@ -84,7 +88,9 @@ func deliverReviewPackage(
 
 func reviewMetadataCommittedPublication(
     _ package: BridgeReviewPackage,
-    publicationId: UUID = reviewMetadataTestPublicationId
+    publicationId: UUID = reviewMetadataTestPublicationId,
+    operationCorrelationID: String? = nil,
+    classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
 ) -> BridgeReviewCommittedPublication {
     BridgeReviewCommittedPublication(
         publicationId: publicationId,
@@ -92,7 +98,9 @@ func reviewMetadataCommittedPublication(
         delta: nil,
         contentHandles: [],
         comparisonPresentationRevision: 1,
-        reviewComparison: nil
+        reviewComparison: nil,
+        operationCorrelationID: operationCorrelationID,
+        classifiedRefreshImpact: classifiedRefreshImpact
     )
 }
 
@@ -195,6 +203,23 @@ func makeReviewPackage(
         comparisonOrigin: comparisonOrigin,
         reviewedSubjectLabel: reviewedSubjectLabel
     )
+}
+
+func replacingReviewItem(
+    in package: BridgeReviewPackage,
+    itemId: String,
+    fileClass: BridgeFileClass,
+    revision: Int
+) -> BridgeReviewPackage {
+    var itemsById = package.itemsById
+    let previous = itemsById[itemId]!
+    itemsById[itemId] = makeBridgeReviewItemDescriptor(
+        itemId: itemId,
+        path: previous.headPath ?? previous.basePath ?? itemId,
+        fileClass: fileClass,
+        contentRoles: previous.contentRoles
+    )
+    return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
 }
 
 private func reviewMetadataTestEndpoint(
@@ -303,5 +328,38 @@ func replacingReviewOrigin(
         changesetCluster: package.changesetCluster,
         comparisonOrigin: comparisonOrigin,
         reviewedSubjectLabel: reviewedSubjectLabel
+    )
+}
+
+func reviewItemWithDiffStatistics(
+    _ item: BridgeReviewItemDescriptor,
+    additions: Int,
+    deletions: Int
+) -> BridgeReviewItemDescriptor {
+    BridgeReviewItemDescriptor(
+        itemId: item.itemId,
+        itemKind: item.itemKind,
+        itemVersion: item.itemVersion,
+        basePath: item.basePath,
+        headPath: item.headPath,
+        changeKind: item.changeKind,
+        fileClass: item.fileClass,
+        language: item.language,
+        extension: item.extension,
+        sizeBytes: item.sizeBytes,
+        baseContentHash: item.baseContentHash,
+        headContentHash: item.headContentHash,
+        contentHashAlgorithm: item.contentHashAlgorithm,
+        additions: additions,
+        deletions: deletions,
+        isHiddenByDefault: item.isHiddenByDefault,
+        hiddenReason: item.hiddenReason,
+        reviewPriority: item.reviewPriority,
+        contentRoles: item.contentRoles,
+        cacheKey: item.cacheKey,
+        provenance: item.provenance,
+        annotationSummary: item.annotationSummary,
+        reviewState: item.reviewState,
+        collapsed: item.collapsed
     )
 }

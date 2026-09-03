@@ -40,6 +40,56 @@ import {
 import { BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES } from './bridge-product-contract-primitives.js';
 
 describe('Bridge product content frame encoder and validator', () => {
+	test('requires every selected-content frame to echo the admitted operation correlation', async () => {
+		const operationCorrelationId = 'a'.repeat(64);
+		const request = {
+			...contentRequest(),
+			operationCorrelationId,
+		} as unknown as BridgeProductContentRequestFor<'file.content'>;
+		const accepted = correlatedFrame(contentAcceptedFrame(), operationCorrelationId);
+		const data = correlatedFrame(contentDataFrame(), operationCorrelationId);
+		const end = correlatedFrame(contentEndFrame(), operationCorrelationId);
+		const encoder = new BridgeProductContentFrameEncoder(request);
+		const validator = new BridgeProductContentStreamValidator(request);
+
+		expect(() => encoder.encode(accepted)).not.toThrow();
+		expect(() => encoder.encode(data)).not.toThrow();
+		expect(() => encoder.encode(end)).not.toThrow();
+		expect(await validator.accept(accepted)).toBeNull();
+		expect(await validator.accept(data)).toBeNull();
+		expect(await validator.accept(end)).toMatchObject({ kind: 'complete' });
+		for (const terminalFrame of [
+			{
+				...contentErrorFrame(),
+				header: { ...contentErrorFrame().header, contentSequence: 1 },
+			},
+			contentResetFrame(),
+		]) {
+			const terminalEncoder = new BridgeProductContentFrameEncoder(request);
+			terminalEncoder.encode(accepted);
+			expect(() =>
+				terminalEncoder.encode(correlatedFrame(terminalFrame, operationCorrelationId)),
+			).not.toThrow();
+		}
+
+		const mismatchEncoder = new BridgeProductContentFrameEncoder(request);
+		expect(() =>
+			mismatchEncoder.encode(correlatedFrame(contentAcceptedFrame(), 'b'.repeat(64))),
+		).toThrow(/correlation|request/iu);
+		for (const mismatchedFrame of [
+			contentDataFrame(),
+			{ ...contentEndFrame(), header: { ...contentEndFrame().header, contentSequence: 1 } },
+			{ ...contentErrorFrame(), header: { ...contentErrorFrame().header, contentSequence: 1 } },
+			contentResetFrame(),
+		]) {
+			const postAcceptanceMismatchEncoder = new BridgeProductContentFrameEncoder(request);
+			postAcceptanceMismatchEncoder.encode(accepted);
+			expect(() =>
+				postAcceptanceMismatchEncoder.encode(correlatedFrame(mismatchedFrame, 'b'.repeat(64))),
+			).toThrow(/correlation|request/iu);
+		}
+	});
+
 	test('encodes sequence once and repeats full binding identity only in accepted', () => {
 		const encoder = new BridgeProductContentFrameEncoder(contentRequest());
 		const accepted = encoder.encode(contentAcceptedFrame());
@@ -55,6 +105,7 @@ describe('Bridge product content frame encoder and validator', () => {
 				contentDataFrame().header.contentSequence,
 				contentDataFrame().header.offsetBytes,
 				contentDataFrame().payload,
+				contentDataFrame().header.operationCorrelationId,
 			),
 		);
 		expect(end[4]).toBe(0x03);
@@ -89,11 +140,11 @@ describe('Bridge product content frame encoder and validator', () => {
 
 		expect(encodedFrames).toHaveLength(18);
 		for (const [index, dataFrame] of encodedFrames.slice(1, -1).entries()) {
-			expect(readUint32BigEndian(dataFrame, 0)).toBe(1 + 4 + 4 + payloadByteCount);
+			expect(readUint32BigEndian(dataFrame, 0)).toBe(1 + 4 + 4 + 33 + payloadByteCount);
 			expect(dataFrame[4]).toBe(0x02);
 			expect(readUint32BigEndian(dataFrame, 5)).toBe(index + 1);
 			expect(readUint32BigEndian(dataFrame, 9)).toBe(index * payloadByteCount);
-			expect(dataFrame.byteLength).toBe(4 + 1 + 4 + 4 + payloadByteCount);
+			expect(dataFrame.byteLength).toBe(4 + 1 + 4 + 4 + 33 + payloadByteCount);
 		}
 	});
 
@@ -177,7 +228,7 @@ describe('Bridge product content frame encoder and validator', () => {
 		}
 		expect(readUint32BigEndian(finalDataFrame, 5)).toBe(17);
 		expect(readUint32BigEndian(finalDataFrame, 9)).toBe(legacyPrefixByteCount);
-		expect(finalDataFrame).toHaveLength(4 + 1 + 4 + 4 + finalDataFrameByteCount);
+		expect(finalDataFrame).toHaveLength(4 + 1 + 4 + 4 + 33 + finalDataFrameByteCount);
 		expect(terminal).toEqual({
 			bytes: sourceBytes.buffer,
 			contentKind: 'file.content',
@@ -522,6 +573,16 @@ describe('Bridge product content frame encoder and validator', () => {
 	});
 });
 
+function correlatedFrame<TFrame extends BridgeProductContentFrame>(
+	frame: TFrame,
+	operationCorrelationId: string,
+): TFrame {
+	return {
+		...frame,
+		header: { ...frame.header, operationCorrelationId },
+	} as unknown as TFrame;
+}
+
 function comparisonTargetsContentRequest(): BridgeProductContentRequestFor<'review.comparisonTargets'> {
 	return {
 		contentKind: 'review.comparisonTargets',
@@ -533,6 +594,7 @@ function comparisonTargetsContentRequest(): BridgeProductContentRequestFor<'revi
 		},
 		kind: 'content.open',
 		leaseId: 'comparison-targets-lease-1',
+		operationCorrelationId: null,
 		paneSessionId: 'pane-session-1',
 		wireVersion: 2,
 		workerDerivationEpoch: 2,
@@ -563,6 +625,7 @@ function comparisonTargetsAcceptedFrame(): ComparisonTargetsAcceptedFrame {
 			kind: 'content.accepted',
 			leaseId: 'comparison-targets-lease-1',
 			maximumBytes: 1024 * 1024,
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			wireVersion: 2,
 			workerDerivationEpoch: 2,

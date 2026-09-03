@@ -381,7 +381,7 @@ struct WorkspaceSettingsStoreTests {
     }
 
     private func makeStore(
-        datastore: WorkspaceSQLiteDatastore,
+        datastore: WorkspaceSQLiteDatastoreActor,
         editorPreference: EditorPreferenceAtom = EditorPreferenceAtom(),
         repoExplorerPreferences: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
         inboxPreferences: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
@@ -416,7 +416,7 @@ struct WorkspaceSettingsStoreTests {
         return .init(datastore: datastore, localDatabaseQueue: localDatabaseQueue)
     }
 
-    private func makeFailingDatastore() async throws -> WorkspaceSQLiteDatastore {
+    private func makeFailingDatastore() async throws -> WorkspaceSQLiteDatastoreActor {
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
         try coreRepository.migrate()
@@ -444,7 +444,7 @@ struct WorkspaceSettingsStoreTests {
 }
 
 private struct SettingsFixture {
-    let datastore: WorkspaceSQLiteDatastore
+    let datastore: WorkspaceSQLiteDatastoreActor
     let localDatabaseQueue: DatabaseQueue
 }
 

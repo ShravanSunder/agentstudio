@@ -168,6 +168,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			}
 			hasRecordedFirstInteractionRef.current = true;
 			recordBridgeViewerFirstInteractionReady({
+				activationSequence: props.fileActivationSequence,
 				fallbackTraceContext: telemetryTraceContext,
 				mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
 				telemetryRecorder,

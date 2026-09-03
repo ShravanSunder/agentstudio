@@ -2,6 +2,11 @@ import { useMemo, type ReactElement } from 'react';
 import { vi } from 'vitest';
 
 import {
+	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
+	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
+} from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderFulfillmentCoordinator,
 } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -9,10 +14,14 @@ import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
+	BridgeWorkerReviewCandidateStartDisposition,
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
 	createBridgeWorkerRpcLifecycleStore,
@@ -35,12 +44,15 @@ import {
 
 export { hierarchicalReviewDisplayEvent };
 
+const prepareNoActiveEditorsForInstallation = (): Promise<boolean> => Promise.resolve(true);
+
 export function ReviewDirectDisplayProbe(props: {
 	readonly reviewClient: BridgePaneSurfaceClient;
 }): ReactElement {
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
+		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 		reviewClient: props.reviewClient,
 	});
 	return (
@@ -55,11 +67,13 @@ export function ReviewDirectDisplayProbe(props: {
 }
 
 export function ReviewIntakeLifecycleProbe(props: {
+	readonly pierreCourier?: ReturnType<typeof createBridgeReviewWorkerPierreCourier>;
 	readonly reviewClient: BridgePaneSurfaceClient;
 }): ReactElement {
-	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const defaultPierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const controller = useBridgeReviewRenderSnapshotController({
-		pierreCourier,
+		pierreCourier: props.pierreCourier ?? defaultPierreCourier,
+		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
 		reviewClient: props.reviewClient,
 	});
 	return (
@@ -93,7 +107,13 @@ export function FileDisplaySourceProbe(props: {
 
 export interface ReviewSurfaceHarness {
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
-	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
+	readonly publish: (
+		message: BridgeWorkerServerToMainMessage,
+		options?: {
+			readonly candidateDisposition?: BridgeWorkerReviewCandidateStartDisposition;
+			readonly completesReviewPublication?: boolean;
+		},
+	) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly sentCommands: BridgeWorkerRpcCommandInput[];
 }
@@ -135,8 +155,38 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	return {
 		lifecycleStore,
-		publish: (message): void => {
+		publish: (message, options): void => {
 			if (messageListener === null) throw new Error('Expected the Review message listener.');
+			if (message.kind === 'reviewDisplayPatch' && message.reviewPublicationIdentity !== null) {
+				const identity = message.reviewPublicationIdentity;
+				const candidateSequence = message.sequence * 3;
+				messageListener(
+					buildBridgeWorkerReviewCandidateStartedEvent({
+						disposition: options?.candidateDisposition ?? { kind: 'replacement' },
+						epoch: message.epoch,
+						packageId: identity.packageId,
+						publicationId: identity.publicationId,
+						reviewGeneration: identity.reviewGeneration,
+						revision: identity.revision,
+						sequence: candidateSequence,
+						sourceIdentity: identity.sourceIdentity,
+					}),
+				);
+				messageListener({ ...message, sequence: candidateSequence + 1 });
+				if (options?.completesReviewPublication === false) return;
+				messageListener(
+					buildBridgeWorkerReviewCandidateReadyEvent({
+						epoch: message.epoch,
+						packageId: identity.packageId,
+						publicationId: identity.publicationId,
+						reviewGeneration: identity.reviewGeneration,
+						revision: identity.revision,
+						sequence: candidateSequence + 2,
+						sourceIdentity: identity.sourceIdentity,
+					}),
+				);
+				return;
+			}
 			messageListener(message);
 		},
 		reviewClient: {
@@ -151,6 +201,24 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 					surface: 'review',
 				});
 				sentCommands.push(command);
+				if (command.command === 'reviewPublicationInstallAdmit') {
+					queueMicrotask((): void => {
+						messageListener?.(
+							buildBridgeWorkerReviewPublicationInstallAdmissionEvent({
+								candidatePublicationId: command.candidatePublicationId,
+								requestId,
+								status: 'admitted',
+							}),
+						);
+					});
+				} else if (command.command === 'reviewPublicationInstalled') {
+					queueMicrotask((): void => {
+						lifecycleStore.ackRequest({
+							acknowledgedAtSequence: sentCommands.length,
+							requestId,
+						});
+					});
+				}
 				return requestId;
 			}),
 			subscribeMessages: (listener): (() => void) => {
@@ -244,6 +312,7 @@ export function fileDisplayEvent(props: {
 export function reviewDisplayEvent(props: {
 	readonly itemId: string;
 	readonly path: string;
+	readonly publicationRevision?: number;
 	readonly projectionRevision: number;
 	readonly sequence: number;
 	readonly startIndex: number;
@@ -254,6 +323,11 @@ export function reviewDisplayEvent(props: {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			'review-browser-harness-package',
+			props.publicationRevision ?? props.projectionRevision,
+			'review-browser-harness-source',
+		),
 		patches: [
 			{
 				operation: 'upsert',
@@ -263,7 +337,7 @@ export function reviewDisplayEvent(props: {
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
 					packageId: 'review-browser-harness-package',
 					reviewGeneration: 1,
-					revision: props.projectionRevision,
+					revision: props.publicationRevision ?? props.projectionRevision,
 					status: 'ready',
 					summary: {
 						additions: 1,

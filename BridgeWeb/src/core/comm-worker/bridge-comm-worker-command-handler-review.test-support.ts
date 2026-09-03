@@ -1,3 +1,4 @@
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-metadata-applicator.js';
 
 export function reviewMetadataApplication(props: {
@@ -21,6 +22,7 @@ export function reviewMetadataApplication(props: {
 			contentItems: props.contentItems,
 			contentRequestDescriptors: props.contentRequestDescriptors,
 			renderSemantics: props.renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			rows: props.rows,
 		},
 		sourceEpoch: props.sourceEpoch,

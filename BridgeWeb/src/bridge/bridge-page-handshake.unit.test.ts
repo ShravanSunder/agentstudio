@@ -290,6 +290,45 @@ describe('bridge page handshake', () => {
 		expect(events).toEqual(['ack_timeout:request']);
 	});
 
+	test('recovers when the exact ready acknowledgement succeeds after the local timeout', async () => {
+		vi.useFakeTimers();
+		const target = new EventTarget();
+		const events: string[] = [];
+		let readyRequestId: string | null = null;
+
+		target.addEventListener('__bridge_ready', (event) => {
+			readyRequestId = extractReadyRequestId(event);
+		});
+		const session = installBridgePageHandshakeSession(target, {
+			onReady: (): void => {
+				events.push('ready');
+			},
+			onReadyError: (error): void => {
+				events.push(error.kind);
+			},
+			readyAcknowledgementTimeoutMilliseconds: 25,
+		});
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		await Promise.resolve();
+
+		vi.advanceTimersByTime(25);
+		expect(events).toEqual(['ack_timeout']);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready_ack', {
+				detail: { jsonrpc: '2.0', id: readyRequestId, result: null },
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready_ack', {
+				detail: { jsonrpc: '2.0', id: readyRequestId, result: null },
+			}),
+		);
+		session.uninstall();
+		vi.useRealTimers();
+
+		expect(events).toEqual(['ack_timeout', 'ready']);
+	});
+
 	test('notifies ready callback at most once for duplicate acknowledgements', async () => {
 		const target = new EventTarget();
 		const events: string[] = [];

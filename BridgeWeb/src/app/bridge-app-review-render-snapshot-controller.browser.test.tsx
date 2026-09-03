@@ -1,35 +1,40 @@
-import { parseDiffFromFile } from '@pierre/diffs';
 import { act } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
-import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import {
+	buildBridgeWorkerReviewCandidateFailedEvent,
+	buildBridgeWorkerReviewCandidateReadyEvent,
+} from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
-import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
-import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
-import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
-	FileDisplaySourceProbe,
 	ReviewDirectDisplayProbe,
-	ReviewIntakeLifecycleProbe,
-	fileDisplayEvent,
 	hierarchicalReviewDisplayEvent,
-	makeFileSurfaceHarness,
 	makeReviewSurfaceHarness,
-	requireDefined,
 	requireHTMLElement,
 	reviewDisplayEvent,
-	reviewIntakeReadyCommands,
-	reviewIntakeReadyRequestIds,
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
+
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
 
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
@@ -147,6 +152,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -214,6 +222,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -266,6 +277,384 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
 	});
 
+	test('holds an affected promoted Review update in stable header chrome and applies it by keyboard', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			await expect
+				.poll(
+					() =>
+						harness.sentCommands.filter(
+							(command) => command.command === 'reviewPublicationInstalled',
+						).length,
+				)
+				.toBe(1);
+			await Promise.resolve();
+		});
+		await expect.element(rendered.getByTestId('review-viewer-shell')).toBeVisible();
+		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
+		const headerHeight = header.getBoundingClientRect().height;
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+					completesReviewPublication: false,
+				},
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Updating…');
+		expect(header.getBoundingClientRect().height).toBe(headerHeight);
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				buildBridgeWorkerReviewCandidateReadyEvent({
+					epoch: 1,
+					packageId: 'review-browser-harness-package',
+					publicationId: '00000000-0000-7000-8000-000000000002',
+					reviewGeneration: 1,
+					revision: 2,
+					sequence: 8,
+					sourceIdentity: 'review-browser-harness-source',
+				}),
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Update ready');
+		const applyNow = rendered.getByRole('button', { name: 'Apply now' });
+		const installedReceiptsBeforeApply = harness.sentCommands.filter(
+			(command) => command.command === 'reviewPublicationInstalled',
+		).length;
+		await act(async (): Promise<void> => {
+			applyNow.element().focus();
+			await userEvent.keyboard('{Enter}');
+			await expect
+				.poll(
+					() =>
+						harness.sentCommands.filter(
+							(command) => command.command === 'reviewPublicationInstalled',
+						).length,
+				)
+				.toBe(installedReceiptsBeforeApply + 1);
+			await expect
+				.poll(() => rendered.getByTestId('bridge-review-refresh-header-group').query())
+				.toBeNull();
+			await settleRenderedReviewFrame();
+			await Promise.resolve();
+		});
+		expect(header.getBoundingClientRect().height).toBe(headerHeight);
+		expect(document.querySelector('[data-testid="bridge-review-refresh-status-row"]')).toBeNull();
+		expect(
+			harness.sentCommands.some((command) => command.command === 'reviewPublicationInstallAdmit'),
+		).toBe(true);
+		await act(async (): Promise<void> => {
+			await rendered.unmount();
+			await Promise.resolve();
+		});
+	});
+
+	test('keeps active Review interactive while same-source comparison remains loading', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEventWithContribution({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(reviewComparisonLoadingPanelChromeEventForHarness());
+			await settleRenderedReviewFrame();
+		});
+
+		const canvas = rendered.getByTestId('bridge-review-canvas').element();
+		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
+		expect(canvas.hasAttribute('inert')).toBe(false);
+		expect(tree.hasAttribute('inert')).toBe(false);
+		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).not.toBe('none');
+		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
+
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+				},
+			);
+			await settleRenderedReviewFrame();
+		});
+
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Update ready');
+		expect(canvas.hasAttribute('inert')).toBe(false);
+		expect(tree.hasAttribute('inert')).toBe(false);
+		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).not.toBe('none');
+		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
+	});
+
+	test('keeps explicit comparison replacement loading blocked without same-source authority', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEventWithContribution({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(
+				reviewComparisonLoadingPanelChromeEventForHarness({
+					activeTarget: { basis: 'commonCommit', kind: 'ref', name: 'feature/new-target' },
+				}),
+			);
+			await settleRenderedReviewFrame();
+		});
+
+		const canvas = rendered.getByTestId('bridge-review-canvas').element();
+		const tree = rendered.getByTestId('bridge-review-rail-tree-slot').element();
+		expect(canvas.hasAttribute('inert')).toBe(true);
+		expect(tree.hasAttribute('inert')).toBe(true);
+		expect(getComputedStyle(canvas).pointerEvents).toBe('none');
+		expect(getComputedStyle(tree).pointerEvents).toBe('none');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-status-banner'))
+			.toBeVisible();
+	});
+
+	test('automatically applies a held promoted Review update when Review attention leaves', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const modeProps = {
+			codeViewWorkerPoolEnabled: false,
+			isNavigationCommandStillEligible: bridgeReviewNavigationCommandIsAlwaysEligible,
+			onActiveSourceChange: vi.fn(),
+			onNavigationSourceChange: vi.fn(),
+			reviewClient: harness.reviewClient,
+			telemetryRecorderRef: { current: createBridgeTelemetryRecorder(null) },
+			viewerContextSwitcher: <div />,
+		} as const;
+		const rendered = await render(<BridgeReviewViewerMode {...modeProps} isActive />);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'lines' },
+					},
+				},
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Update ready');
+		const admissionsBeforeLeaving = harness.sentCommands.filter(
+			(command) => command.command === 'reviewPublicationInstallAdmit',
+		).length;
+
+		await act(async (): Promise<void> => {
+			await rendered.rerender(<BridgeReviewViewerMode {...modeProps} isActive={false} />);
+			await Promise.resolve();
+		});
+		await expect
+			.poll(
+				() =>
+					harness.sentCommands.filter(
+						(command) => command.command === 'reviewPublicationInstallAdmit',
+					).length,
+			)
+			.toBe(admissionsBeforeLeaving + 1);
+		expect(rendered.getByTestId('bridge-review-refresh-header-group').query()).toBeNull();
+	});
+
+	test('routes retryable promoted failure through the canonical active comparison target', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 1,
+					sequence: 1,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+			);
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+			harness.publish(reviewComparisonPanelChromeEventForHarness());
+			harness.publish(
+				reviewDisplayEvent({
+					itemId: 'item-1',
+					path: 'Sources/First.swift',
+					projectionRevision: 2,
+					publicationRevision: 2,
+					sequence: 2,
+					startIndex: 0,
+					totalItemCount: 1,
+				}),
+				{
+					candidateDisposition: {
+						affectedStableFileIdentities: ['item-1'],
+						kind: 'sameSource',
+						presentationClass: { kind: 'promoted', reason: 'commits' },
+					},
+					completesReviewPublication: false,
+				},
+			);
+			harness.publish(
+				buildBridgeWorkerReviewCandidateFailedEvent({
+					epoch: 1,
+					packageId: 'review-browser-harness-package',
+					publicationId: '00000000-0000-7000-8000-000000000002',
+					retryable: true,
+					reviewGeneration: 1,
+					revision: 2,
+					sequence: 8,
+					sourceIdentity: 'review-browser-harness-source',
+				}),
+			);
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Update unavailable');
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Retry' }).click();
+			await Promise.resolve();
+		});
+		expect(
+			harness.sentCommands.findLast((command) => command.command === 'reviewComparisonUpdate'),
+		).toMatchObject({
+			command: 'reviewComparisonUpdate',
+			target: { branchName: 'master', kind: 'localDefaultBranch' },
+		});
+	});
+
 	test('applies an exact commit through the Review product command', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
@@ -282,6 +671,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			/>,
 		);
 		await act(async (): Promise<void> => {
+			harness.publish(hierarchicalReviewDisplayEvent());
+			await Promise.resolve();
+			await Promise.resolve();
 			harness.publish(reviewComparisonPanelChromeEvent());
 			await Promise.resolve();
 		});
@@ -326,6 +718,11 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				direction: 'serverWorkerToMain',
 				epoch: 1,
 				kind: 'reviewDisplayPatch',
+				reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+					'review-package-browser-test',
+					1,
+					'review-source-browser-test',
+				),
 				patches: [
 					{
 						operation: 'upsert',
@@ -391,356 +788,6 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				.querySelectorAll('[data-item-path]'),
 		).toHaveLength(0);
 	});
-
-	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
-		// Arrange
-		const harness = makeReviewSurfaceHarness();
-		const rendered = await render(
-			<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />,
-		);
-		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
-		const initialRequestId = requireDefined(
-			reviewIntakeReadyRequestIds(harness.lifecycleStore)[0],
-			'Expected an initial Review intake-ready request.',
-		);
-
-		// Act: fail the flushed initial request after the component has already rendered.
-		await act(async (): Promise<void> => {
-			harness.lifecycleStore.timeoutRequest({ requestId: initialRequestId });
-			await Promise.resolve();
-		});
-
-		// Assert: exactly one retry uses the next shared Review epoch.
-		const retriedCommands = reviewIntakeReadyCommands(harness.sentCommands);
-		expect(retriedCommands).toHaveLength(2);
-		const initialCommand = requireDefined(
-			retriedCommands[0],
-			'Expected the initial Review intake-ready command.',
-		);
-		const retryCommand = requireDefined(
-			retriedCommands[1],
-			'Expected a retried Review intake-ready command.',
-		);
-		expect(retryCommand.epoch).toBeGreaterThan(initialCommand.epoch);
-		const retryRequestId = requireDefined(
-			reviewIntakeReadyRequestIds(harness.lifecycleStore)[1],
-			'Expected a retried Review intake-ready request.',
-		);
-
-		// Act: acknowledge the retry, rerender, then exercise later select and viewport intents.
-		await act(async (): Promise<void> => {
-			harness.lifecycleStore.ackRequest({
-				acknowledgedAtSequence: 1,
-				requestId: retryRequestId,
-			});
-			await rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
-			await Promise.resolve();
-		});
-		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
-		await act(async (): Promise<void> => {
-			requireHTMLElement(
-				document.querySelector('[data-testid="review-intake-lifecycle-probe"]'),
-			).click();
-			await Promise.resolve();
-		});
-		await expect
-			.poll(() =>
-				harness.sentCommands.some(
-					(command) =>
-						command.command === 'viewport' && command.visibleItemIds.includes('item-after-intake'),
-				),
-			)
-			.toBe(true);
-
-		// Assert: acknowledgement is terminal and subsequent Review intents remain newer.
-		const retryEpoch = retryCommand.epoch;
-		const laterSelectCommand = harness.sentCommands.findLast(
-			(command) => command.command === 'select',
-		);
-		const laterViewportCommand = harness.sentCommands.findLast(
-			(command) =>
-				command.command === 'viewport' && command.visibleItemIds.includes('item-after-intake'),
-		);
-		expect(laterSelectCommand?.epoch).toBeGreaterThan(retryEpoch);
-		expect(laterViewportCommand?.epoch).toBeGreaterThan(retryEpoch);
-		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
-	});
-
-	test('bounds unacknowledged Review intake-ready delivery attempts', async () => {
-		// Arrange
-		const harness = makeReviewSurfaceHarness();
-		const rendered = await render(
-			<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />,
-		);
-		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
-
-		// Act: exhaust each permitted attempt without acknowledging delivery.
-		for (let attemptIndex = 0; attemptIndex < 3; attemptIndex += 1) {
-			const requestId = requireDefined(
-				reviewIntakeReadyRequestIds(harness.lifecycleStore)[attemptIndex],
-				`Expected Review intake-ready request ${attemptIndex + 1}.`,
-			);
-			// oxlint-disable-next-line no-await-in-loop -- Each timeout synchronously creates the next bounded attempt.
-			await act(async (): Promise<void> => {
-				harness.lifecycleStore.timeoutRequest({ requestId });
-				await Promise.resolve();
-			});
-		}
-		await rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
-
-		// Assert
-		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(3);
-	});
-	test('keeps an inactive recovered Review mount stable across a streamed metadata-window burst', async () => {
-		// Arrange
-		const harness = makeReviewSurfaceHarness();
-		const streamedWindowCount = 32;
-		const rendered = await render(
-			<BridgeReviewViewerMode
-				isActive={false}
-				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
-				onActiveSourceChange={vi.fn()}
-				onNavigationSourceChange={vi.fn()}
-				reviewClient={harness.reviewClient}
-				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerContextSwitcher={<div />}
-			/>,
-		);
-		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
-		// Act
-		await act(async (): Promise<void> => {
-			for (let windowIndex = 0; windowIndex < streamedWindowCount; windowIndex += 1) {
-				harness.publish(
-					reviewDisplayEvent({
-						itemId: `item-${windowIndex + 1}`,
-						path: `Sources/Streamed-${windowIndex + 1}.swift`,
-						projectionRevision: windowIndex + 1,
-						sequence: windowIndex + 1,
-						startIndex: windowIndex,
-						totalItemCount: streamedWindowCount,
-					}),
-				);
-			}
-			await Promise.resolve();
-		});
-		// Assert
-		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
-		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
-		expect(harness.reviewClient.renderStore.getReviewCatalogSnapshot()).toMatchObject({
-			itemOrderLength: streamedWindowCount,
-			revision: streamedWindowCount,
-			treeRowOrderLength: streamedWindowCount,
-		});
-		expect(
-			harness.reviewClient.renderStore.getReviewTreeRowSnapshot(`row-item-${streamedWindowCount}`),
-		).toMatchObject({
-			itemId: `item-${streamedWindowCount}`,
-			path: `Sources/Streamed-${streamedWindowCount}.swift`,
-		});
-		const viewportCommands = harness.sentCommands.filter(
-			(command) => command.command === 'viewport',
-		);
-		expect(viewportCommands).toHaveLength(1);
-		expect(viewportCommands[0]).toMatchObject({
-			command: 'viewport',
-			phase: 'settled',
-			visibleItemIds: [],
-		});
-		expect(viewportCommands.filter((command) => command.visibleItemIds.length > 0)).toEqual([]);
-	});
-	test('reports a semantically stable File display source once across streamed patches', async () => {
-		// Arrange
-		const harness = makeFileSurfaceHarness();
-		const reportedSources: Array<{ readonly generation: number; readonly sourceId: string }> = [];
-		const rendered = await render(
-			<BridgeFileViewerSurfaceClientProvider surfaceClient={harness.fileViewClient}>
-				<FileDisplaySourceProbe
-					onDisplaySourceChange={(source): void => {
-						if (source !== null) reportedSources.push(source);
-					}}
-				/>
-			</BridgeFileViewerSurfaceClientProvider>,
-		);
-		await expect.element(rendered.getByTestId('file-display-source-probe')).toBeInTheDocument();
-		// Act
-		for (let patchIndex = 0; patchIndex < 32; patchIndex += 1) {
-			// oxlint-disable-next-line no-await-in-loop -- Separate React commits reproduce the passive-effect update boundary.
-			await act(async (): Promise<void> => {
-				harness.publish(
-					fileDisplayEvent({
-						projectionRevision: patchIndex + 1,
-						sequence: patchIndex + 1,
-					}),
-				);
-				await Promise.resolve();
-			});
-		}
-		// Assert
-		expect(reportedSources).toEqual([{ generation: 1, sourceId: 'source-1' }]);
-	});
-	test('mounts terminal Review content from worker display and Pierre messages', async () => {
-		// Arrange
-		const harness = makeReviewSurfaceHarness();
-		const onActiveSourceChange = vi.fn();
-		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
-		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
-			cancelAnimationFrame: (frameHandle): void => cancelAnimationFrame(frameHandle),
-			nowMilliseconds: (): number => performance.now(),
-			requestAnimationFrame: (callback): number => requestAnimationFrame(callback),
-			sendDisposition: (): void => {},
-		});
-		const reviewClient = {
-			...harness.reviewClient,
-			renderFulfillmentCoordinator,
-		};
-		const renderContainer = document.createElement('div');
-		renderContainer.style.height = '100vh';
-		renderContainer.style.width = '100vw';
-		document.body.append(renderContainer);
-		const rendered = await render(
-			<BridgeReviewViewerMode
-				codeViewWorkerPoolEnabled={false}
-				isActive={true}
-				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
-				onActiveSourceChange={onActiveSourceChange}
-				onNavigationSourceChange={vi.fn()}
-				reviewClient={reviewClient}
-				telemetryRecorderRef={telemetryRecorderRef}
-				viewerContextSwitcher={<div />}
-			/>,
-			{ container: renderContainer },
-		);
-
-		// Act
-		await act(async (): Promise<void> => {
-			harness.publish(hierarchicalReviewDisplayEvent());
-			await import('../review-viewer/shell/review-viewer-shell.js');
-			await settleRenderedReviewFrame();
-		});
-		await expect
-			.poll(() => harness.sentCommands.some((command) => command.command === 'select'))
-			.toBe(true);
-		await expect.element(rendered.getByTestId('bridge-review-trees-panel')).toBeInTheDocument();
-		await act(async (): Promise<void> => {
-			for (const message of reviewContentReadyEvents()) harness.publish(message);
-			await settleRenderedReviewFrame();
-		});
-
-		// Assert
-		const shell = rendered.getByTestId('review-viewer-shell');
-		const codePanel = rendered.getByTestId('bridge-code-view-panel');
-		await expect.element(rendered.getByTestId('bridge-review-trees-panel')).toBeInTheDocument();
-		await expect.element(shell).toHaveAttribute('data-selected-content-state', 'ready');
-		await expect
-			.element(shell)
-			.toHaveAttribute('data-selected-display-path', 'Sources/First.swift');
-		await expect
-			.element(codePanel)
-			.toHaveAttribute('data-selected-display-path', 'Sources/First.swift');
-		const codePanelElement = requireHTMLElement(
-			document.querySelector('[data-testid="bridge-code-view-panel"]'),
-		);
-		expect(
-			Number(codePanelElement.getAttribute('data-selected-content-character-count')),
-		).toBeGreaterThan(0);
-		expect(
-			Number(codePanelElement.getAttribute('data-selected-content-line-count')),
-		).toBeGreaterThan(0);
-		expect(
-			Number(codePanelElement.getAttribute('data-selected-content-cache-key-count')),
-		).toBeGreaterThan(0);
-		expect(document.querySelectorAll('[data-testid="review-viewer-shell"]')).toHaveLength(1);
-		expect(document.querySelector('[data-testid="bridge-review-tree-scroll"]')).toBeNull();
-		await expect
-			.poll(() =>
-				harness.sentCommands.some(
-					(command) => command.command === 'viewport' && command.visibleItemIds.length > 0,
-				),
-			)
-			.toBe(true);
-		await act(async (): Promise<void> => {
-			await settleRenderedReviewFrame();
-		});
-		const viewportCommandCountBeforeDeactivation = harness.sentCommands.filter(
-			(command) => command.command === 'viewport',
-		).length;
-		const commandCountBeforeViewSettingChange = harness.sentCommands.length;
-		const reviewShellElement = requireHTMLElement(
-			document.querySelector('[data-testid="review-viewer-shell"]'),
-		);
-		const reviewIdentityBeforeViewSettingChange = {
-			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
-			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
-			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
-		};
-		const codePanelBeforeViewSettingChange = requireHTMLElement(
-			document.querySelector('[data-testid="bridge-code-view-panel"]'),
-		);
-
-		// Act: change Review rendering through the real full-surface gear menu.
-		await act(async (): Promise<void> => {
-			requireHTMLElement(
-				document.querySelector('[data-testid="bridge-review-view-settings-trigger"]'),
-			).click();
-			await Promise.resolve();
-		});
-		await act(async (): Promise<void> => {
-			const wordWrapRow = [
-				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
-			].find(
-				(row): boolean =>
-					row.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
-					'Word wrap',
-			);
-			if (wordWrapRow === undefined) throw new Error('Missing Review Word wrap setting');
-			wordWrapRow.click();
-			await settleRenderedReviewFrame();
-		});
-
-		// Assert: rendering changes without selection, source, session command, or shell replacement.
-		expect(
-			requireHTMLElement(document.querySelector('[data-testid="bridge-code-view-panel"]')),
-		).toBe(codePanelBeforeViewSettingChange);
-		expect({
-			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
-			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
-			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
-		}).toEqual(reviewIdentityBeforeViewSettingChange);
-		expect(harness.sentCommands).toHaveLength(commandCountBeforeViewSettingChange);
-		await expect.element(codePanel).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
-
-		// Act: retain the recovered shell while Review becomes inactive.
-		await act(async (): Promise<void> => {
-			await rendered.rerender(
-				<BridgeReviewViewerMode
-					codeViewWorkerPoolEnabled={false}
-					isActive={false}
-					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
-					onActiveSourceChange={onActiveSourceChange}
-					onNavigationSourceChange={vi.fn()}
-					reviewClient={reviewClient}
-					telemetryRecorderRef={telemetryRecorderRef}
-					viewerContextSwitcher={<div />}
-				/>,
-			);
-			await settleRenderedReviewFrame();
-		});
-
-		// Assert: one transition clear replaces foreground Review demand.
-		const viewportCommands = harness.sentCommands.filter(
-			(command) => command.command === 'viewport',
-		);
-		const deactivationViewportCommands = viewportCommands.slice(
-			viewportCommandCountBeforeDeactivation,
-		);
-		expect(deactivationViewportCommands).toHaveLength(1);
-		expect(deactivationViewportCommands[0]).toMatchObject({
-			command: 'viewport',
-			phase: 'settled',
-			visibleItemIds: [],
-		});
-		renderFulfillmentCoordinator.dispose();
-	});
 });
 
 function reviewComparisonPanelChromeEvent(): Extract<
@@ -750,6 +797,7 @@ function reviewComparisonPanelChromeEvent(): Extract<
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'reviewRenderPatch',
+		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 		patches: [
 			{
 				operation: 'upsert',
@@ -776,91 +824,86 @@ function reviewComparisonPanelChromeEvent(): Extract<
 	};
 }
 
-function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] {
-	const job = buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'selected', priority: 0 },
-		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-		contentCacheKey: 'pierre-content:base|pierre-content:head',
-		contentHash: 'review-content-1',
-		itemId: 'item-1',
-		language: 'swift',
-		payload: {
-			item: {
-				bridgeMetadata: {
-					cacheKey: 'pierre-content:base|pierre-content:head',
-					contentRoles: ['base', 'head'],
-					contentState: 'hydrated',
-					displayPath: 'Sources/First.swift',
-					itemId: 'item-1',
-					lineCount: 2,
-				},
-				fileDiff: parseDiffFromFile(
-					{
-						cacheKey: 'pierre-content:base',
-						contents: 'let answer = 41\n',
-						name: 'Sources/First.swift',
+function reviewDisplayEventWithContribution(
+	props: Parameters<typeof reviewDisplayEvent>[0],
+): ReturnType<typeof reviewDisplayEvent> {
+	const event = reviewDisplayEvent(props);
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-source patch while replacing one nested source payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'reviewSource' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							...patch.payload,
+							comparisonOrigin: {
+								baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+								baseRole: 'commonCommit',
+								comparedRole: 'capturedWorkingTree',
+								kind: 'contribution',
+								resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+								reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
+								symbolicTarget: {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+							},
+						},
 					},
-					{
-						cacheKey: 'pierre-content:head',
-						contents: 'let answer = 42\n',
-						name: 'Sources/First.swift',
+		),
+	};
+}
+
+function reviewComparisonPanelChromeEventForHarness(): ReturnType<
+	typeof reviewComparisonPanelChromeEvent
+> {
+	return {
+		...reviewComparisonPanelChromeEvent(),
+		reviewPublicationIdentity: {
+			packageId: 'review-browser-harness-package',
+			publicationId: '00000000-0000-7000-8000-000000000001',
+			reviewGeneration: 1,
+			revision: 1,
+			sourceIdentity: 'review-browser-harness-source',
+		},
+	};
+}
+
+function reviewComparisonLoadingPanelChromeEventForHarness(
+	props: {
+		readonly activeTarget?: BridgeReviewComparisonTarget;
+	} = {},
+): ReturnType<typeof reviewComparisonPanelChromeEvent> {
+	const event = reviewComparisonPanelChromeEventForHarness();
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-panel patch while replacing one nested panel payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'panelChrome' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							reviewComparison: {
+								activeTarget: props.activeTarget ?? {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+								attempt: { reviewGeneration: 2, status: 'pending' },
+								displayedSnapshot: {
+									packageId: 'review-browser-harness-package',
+									reviewGeneration: 1,
+									revision: 1,
+									status: 'current',
+								},
+								repositoryDefaultTarget: null,
+							},
+						},
 					},
-				),
-				id: 'item-1',
-				type: 'diff',
-				version: 1,
-			},
-			kind: 'codeViewDiffItem',
-		},
-		renderKind: 'reviewDiff',
-		window: { endLine: 2, startLine: 1, totalLineCount: 2 },
-	});
-	return [
-		{
-			direction: 'serverWorkerToMain',
-			job,
-			kind: 'reviewPierreRenderJob',
-			publicationSequence: 2,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-				itemId: job.itemId,
-				publicationSequence: 2,
-				surface: 'review',
-				workerDerivationEpoch: 1,
-			}),
-			surface: 'review',
-			transferDescriptors: [
-				{
-					byteLength: job.payloadByteLength,
-					fieldPath: ['job', 'payload'],
-					messageKind: 'reviewPierreRenderJob',
-					mode: 'clone',
-				},
-			],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-		{
-			direction: 'serverWorkerToMain',
-			kind: 'reviewRenderPatch',
-			patches: [
-				{
-					itemId: 'item-1',
-					operation: 'upsert',
-					payload: { contentCacheKey: 'pierre-content:base|pierre-content:head' },
-					slice: 'rowPaint',
-				},
-				{
-					itemId: 'item-1',
-					operation: 'upsert',
-					payload: { state: 'ready' },
-					slice: 'contentAvailability',
-				},
-			],
-			publicationSequence: 2,
-			surface: 'review',
-			transferDescriptors: [],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-	];
+		),
+	};
 }

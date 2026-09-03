@@ -79,7 +79,7 @@ package final class WorkspaceStore {
     package let tabLayoutAtom: WorkspaceTabLayoutAtom
     package let mutationCoordinator: WorkspaceMutationCoordinator
 
-    private let sqliteDatastore: WorkspaceSQLiteDatastore?
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?
     private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
     private let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     private let persistDebounceDuration: Duration
@@ -104,7 +104,7 @@ package final class WorkspaceStore {
         paneAtom: WorkspacePaneAtom,
         tabLayoutAtom: WorkspaceTabLayoutAtom,
         mutationCoordinator: WorkspaceMutationCoordinator,
-        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
@@ -195,7 +195,7 @@ package final class WorkspaceStore {
     }
 
     private func initializeAndApplyDefaultWorkspace(
-        using sqliteDatastore: WorkspaceSQLiteDatastore
+        using sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) async -> WorkspaceStoreLoadResult {
         let persistedAt = Date()
         let workspaceSnapshot = WorkspaceSQLiteSnapshot(

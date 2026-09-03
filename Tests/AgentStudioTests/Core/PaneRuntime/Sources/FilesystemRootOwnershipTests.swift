@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -83,6 +84,36 @@ struct FilesystemRootOwnershipTests {
 
         #expect(owned?.worktreeId == worktreeId)
         #expect(owned?.relativePath == "src/main.swift")
+    }
+
+    @Test("routes a removed descendant through its nearest existing ancestor")
+    func routesRemovedDescendantThroughNearestExistingAncestor() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appending(
+            path: "removed-path-ownership-\(UUIDv7.generate().uuidString)"
+        )
+        let realRoot = temporaryRoot.appending(path: "real")
+        let linkedRoot = temporaryRoot.appending(path: "linked")
+        let removedFile = linkedRoot.appending(path: "tracked.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        try fileManager.createDirectory(at: realRoot, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(at: linkedRoot, withDestinationURL: realRoot)
+        try Data("tracked\n".utf8).write(to: removedFile)
+
+        let worktreeId = UUIDv7.generate()
+        let ownership = FilesystemRootOwnership(
+            rootsByWorktree: [worktreeId: linkedRoot]
+        )
+        try fileManager.removeItem(at: removedFile)
+
+        let owned = ownership.route(
+            sourceWorktreeId: worktreeId,
+            rawPath: removedFile.path
+        )
+
+        #expect(owned?.worktreeId == worktreeId)
+        #expect(owned?.relativePath == "tracked.txt")
     }
 
     @Test("unknown source worktree returns nil route")

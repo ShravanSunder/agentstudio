@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
 	createContentTransportHarness,
 	fileContentDescriptor,
+	waitForCondition,
 } from './test-fixtures/bridge-product-transport-content.test-support.js';
 
 afterEach((): void => {
@@ -52,6 +53,42 @@ describe('Bridge product content response admission lifecycle', () => {
 		expect(harness.server.contentRequestInvocationCount).toBe(1);
 		activeAbortController.abort(new DOMException('test cleanup', 'AbortError'));
 		await expect(active.terminal).rejects.toThrow();
+	});
+
+	test('aborting an admitted request releases replacement capacity before fetch settlement', async () => {
+		const harness = createContentTransportHarness(0, 1);
+		harness.server.holdNextContentRequestBeforeResponse = true;
+		const obsoleteAbortController = new AbortController();
+		const replacementAbortController = new AbortController();
+		const obsolete = harness.transport.openContent(
+			fileContentDescriptor('descriptor-obsolete-before-response'),
+			obsoleteAbortController.signal,
+		);
+		await harness.server.waitForContentRequestInvocationCount(1);
+		const replacement = harness.transport.openContent(
+			fileContentDescriptor('descriptor-replacement-after-abort'),
+			replacementAbortController.signal,
+		);
+
+		let replacementStartedBeforeFetchSettlement = false;
+		try {
+			obsoleteAbortController.abort(new DOMException('superseded content request', 'AbortError'));
+			await waitForCondition(() => harness.server.contentRequestInvocationCount === 2);
+			replacementStartedBeforeFetchSettlement = true;
+		} finally {
+			harness.server.releaseHeldContentRequestBeforeResponse();
+			replacementAbortController.abort(new DOMException('test cleanup', 'AbortError'));
+			await Promise.allSettled([obsolete.terminal, replacement.terminal]);
+		}
+
+		expect(replacementStartedBeforeFetchSettlement).toBe(true);
+		expect(
+			harness.server.frameAcknowledgements.filter(
+				(acknowledgement) =>
+					acknowledgement.streamKind === 'content' &&
+					acknowledgement.contentRequestId === obsolete.contentRequestId,
+			),
+		).toEqual([]);
 	});
 
 	test('releases exactly one admission after terminal EOF settlement', async () => {

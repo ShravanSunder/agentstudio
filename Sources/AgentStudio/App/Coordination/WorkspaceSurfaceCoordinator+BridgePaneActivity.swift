@@ -19,11 +19,6 @@ extension WorkspaceSurfaceCoordinator {
         let isZoomExcluded: Bool
     }
 
-    func bindBridgePaneActivities(toOwningWindowId windowId: UUID) {
-        bridgePaneActivityOwningWindowId = windowId
-        restartBridgePaneActivityObservation()
-    }
-
     func bridgePaneActivity(for paneId: UUID) -> BridgePaneActivity? {
         bridgePaneActivityCoordinatorsByPaneId[paneId]?.activity
     }
@@ -100,12 +95,6 @@ extension WorkspaceSurfaceCoordinator {
             }
             return paneFacts
         }
-        let windowPresentationFacts =
-            bridgePaneActivityOwningWindowId
-            .flatMap(windowLifecycleStore.presentationFacts(for:))
-            ?? .hidden
-        let isApplicationActive = appLifecycleStore.isActive && !appLifecycleStore.isTerminating
-
         let durableInputs = bridgePaneFacts.map { paneFacts in
             let workspaceFacts = workspaceActivityFacts(for: paneFacts)
             let isControllerInstalled =
@@ -125,10 +114,6 @@ extension WorkspaceSurfaceCoordinator {
                     isInExpandedDrawer: workspaceFacts.isInExpandedDrawer,
                     isMinimized: workspaceFacts.isMinimized,
                     isZoomExcluded: workspaceFacts.isZoomExcluded,
-                    isOwningWindowVisible: windowPresentationFacts.isVisible,
-                    isOwningWindowMiniaturized: windowPresentationFacts.isMiniaturized,
-                    isOwningWindowOccluded: windowPresentationFacts.isOccluded,
-                    isApplicationActive: isApplicationActive,
                     isAuthorityClosed: false
                 )
             )
@@ -164,10 +149,6 @@ extension WorkspaceSurfaceCoordinator {
                         isInExpandedDrawer: false,
                         isMinimized: false,
                         isZoomExcluded: !isVisibleZoom,
-                        isOwningWindowVisible: windowPresentationFacts.isVisible,
-                        isOwningWindowMiniaturized: windowPresentationFacts.isMiniaturized,
-                        isOwningWindowOccluded: windowPresentationFacts.isOccluded,
-                        isApplicationActive: isApplicationActive,
                         isAuthorityClosed: false
                     )
                 )

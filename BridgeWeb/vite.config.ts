@@ -30,8 +30,10 @@ export default defineConfig(async () => {
 	const bridgeProductDevBackendIsSupervised = bridgeProductDevBackendShouldBeSupervised(
 		process.env,
 	);
+	const bridgeWebViteCacheDirectory = resolveBridgeWebViteCacheDirectory(process.env);
 	return {
 		base: './',
+		...(bridgeWebViteCacheDirectory === null ? {} : { cacheDir: bridgeWebViteCacheDirectory }),
 		resolve: {
 			alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
 		},
@@ -80,6 +82,15 @@ export default defineConfig(async () => {
 		},
 	};
 });
+
+export function resolveBridgeWebViteCacheDirectory(
+	env: Readonly<Record<string, string | undefined>>,
+): string | null {
+	const configuredCacheDirectory = env['BRIDGE_WEB_VITE_CACHE_DIR'];
+	return configuredCacheDirectory === undefined || configuredCacheDirectory.length === 0
+		? null
+		: configuredCacheDirectory;
+}
 
 export function bridgeProductDevBackendShouldBeSupervised(
 	env: Readonly<Record<string, string | undefined>>,

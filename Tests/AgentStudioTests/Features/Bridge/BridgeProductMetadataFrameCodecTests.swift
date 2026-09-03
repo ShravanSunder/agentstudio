@@ -317,6 +317,31 @@ struct BridgeProductMetadataFrameCodecTests {
         #expect(decoder.diagnostics.failureCode == nil)
     }
 
+    @Test("pane presentation carries a nullable scrubbed Review operation correlation")
+    func panePresentationCarriesNullableReviewOperationCorrelation() throws {
+        let operationCorrelationID = String(repeating: "c", count: 64)
+        let frame = try BridgeProductMetadataFrame.panePresentation(
+            stream: BridgeProductMetadataStreamCorrelation(
+                metadataStreamId: "metadata-stream-correlation-test",
+                paneSessionId: "pane-session-correlation-test",
+                wireVersion: BridgeProductWireContract.version,
+                workerInstanceId: "worker-correlation-test"
+            ),
+            streamSequence: 1,
+            snapshot: BridgePaneProductPresentationSnapshot(
+                nativeActivity: .foreground,
+                presentationRevision: 1,
+                refreshingLanes: [.review],
+                operationCorrelationID: operationCorrelationID,
+                reviewComparison: nil
+            )
+        )
+
+        let encodedObject = try encodedJSONObject(frame)
+        #expect(encodedObject["operationCorrelationId"] as? String == operationCorrelationID)
+        #expect(try decode(BridgeProductMetadataFrame.self, from: encodedObject) == frame)
+    }
+
     @Test("pane presentation hostile corpus is rejected by the framed metadata codec")
     func panePresentationHostileCorpusIsRejectedByFramedMetadataCodec() throws {
         let corpus = try fixtureCorpus(

@@ -13,31 +13,47 @@ enum AgentStudioBridgeDevelopmentServerMain {
             )
             let host = try await BridgeDevelopmentProductHost(
                 source: coreComposition.productSource,
+                worktreeAnnotationStore: coreComposition.worktreeAnnotationStore,
+                worktreeAnnotationOutputCoordinator:
+                    coreComposition.worktreeAnnotationOutputCoordinator,
                 contributionTargetCommit: { target in
                     coreComposition.applyContributionTarget(target)
                 }
             )
+            let observation = BridgeDevelopmentSeededWorktreeObservation(
+                source: coreComposition.productSource,
+                invalidationSink: { invalidation in
+                    await host.handleObservedWorktreeInvalidation(invalidation)
+                }
+            )
+            let runtime = BridgeDevelopmentServerRuntime(
+                coreComposition: coreComposition,
+                host: host,
+                observation: observation
+            )
             do {
+                try await runtime.start()
                 let application = BridgeDevelopmentHTTPApplication.make(
                     host: host,
-                    configuration: configuration.applicationConfiguration
+                    configuration: configuration.applicationConfiguration,
+                    healthIsReady: {
+                        await runtime.healthIsReady()
+                    }
                 )
                 let serviceGroup = ServiceGroup(
                     configuration: .init(
                         services: [
                             application,
-                            BridgeDevelopmentProductHostShutdownService(host: host),
+                            BridgeDevelopmentServerRuntimeShutdownService(runtime: runtime),
                         ],
                         gracefulShutdownSignals: [.sigterm, .sigint],
                         logger: application.logger
                     )
                 )
                 try await serviceGroup.run()
-                await host.shutdown()
-                try await coreComposition.shutdown()
+                try await runtime.shutdown()
             } catch {
-                await host.shutdown()
-                try await coreComposition.shutdown()
+                try? await runtime.shutdown()
                 throw error
             }
         #else

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -13,9 +14,13 @@ import {
 } from './bridge-product-contract-primitives.js';
 import {
 	BridgeProductControlMux,
+	BridgeProductControlRequestError,
 	BridgeProductSessionAuthorityStore,
 } from './bridge-product-session-authority.js';
-import type { BridgeProductSessionBootstrap } from './bridge-product-session-contracts.js';
+import {
+	bridgeProductControlRequestSchema,
+	type BridgeProductSessionBootstrap,
+} from './bridge-product-session-contracts.js';
 
 const workerSessionOpenRequestId = 'worker-session-open-1';
 const workerSessionOpenRequestSequence = 1;
@@ -221,6 +226,57 @@ describe('Bridge product session authority', () => {
 				kind: 'product.call',
 				paneSessionId: 'pane-session-1',
 				requestId: 'publication-applied-1',
+				requestSequence: 2,
+				wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+				workerDerivationEpoch: 7,
+				workerInstanceId: 'worker-instance-1',
+			},
+		);
+	});
+
+	test('serializes an exact Review publication install admission through the typed call mux', async () => {
+		const candidatePublicationId = '22222222-2222-7222-8222-222222222222';
+		const expectedDisplayedPublicationId = '11111111-1111-7111-8111-111111111111';
+		const fetchSpy = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(responseWithJSON(workerSessionAcceptedResponse()))
+			.mockResolvedValueOnce(
+				responseWithJSON({
+					...workerSessionResponseIdentity(),
+					call: {
+						method: 'review.publication.install.admit',
+						result: { status: 'admitted' },
+					},
+					kind: 'call.completed',
+					requestId: 'publication-install-admit-1',
+					requestSequence: 2,
+				}),
+			);
+		const authority = installAuthority();
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (): string => 'publication-install-admit-1',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
+		});
+
+		await expect(
+			mux.call({
+				method: 'review.publication.install.admit',
+				request: { candidatePublicationId, expectedDisplayedPublicationId },
+				workerDerivationEpoch: 7,
+			}),
+		).resolves.toEqual({ status: 'admitted' });
+
+		const callRequest = fetchSpy.mock.calls[1];
+		expect(JSON.parse(new TextDecoder().decode(requireUint8Array(callRequest?.[1]?.body)))).toEqual(
+			{
+				call: {
+					method: 'review.publication.install.admit',
+					request: { candidatePublicationId, expectedDisplayedPublicationId },
+				},
+				kind: 'product.call',
+				paneSessionId: 'pane-session-1',
+				requestId: 'publication-install-admit-1',
 				requestSequence: 2,
 				wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 				workerDerivationEpoch: 7,
@@ -461,9 +517,17 @@ describe('Bridge product session authority', () => {
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
-		await expect(
-			mux.openSubscription(reviewSubscriptionOpenProps('review-subscription-after-error', 4)),
-		).rejects.toThrow('Subscription source is not installed');
+		const rejectedOpen = mux.openSubscription(
+			reviewSubscriptionOpenProps('review-subscription-after-error', 4),
+		);
+		await expect(rejectedOpen).rejects.toThrow('Subscription source is not installed');
+		await expect(rejectedOpen).rejects.toEqual(
+			expect.objectContaining<Partial<BridgeProductControlRequestError>>({
+				code: 'unsupported_subscription',
+				retryAfterMilliseconds: null,
+				retryable: false,
+			}),
+		);
 		await expect(
 			mux.cancelSubscription(reviewSubscriptionCancelProps('review-subscription-after-error', 4)),
 		).resolves.toMatchObject({ requestSequence: 3 });
@@ -528,6 +592,78 @@ describe('Bridge product session authority', () => {
 			new TextDecoder().decode(requireUint8Array(fetchSpy.mock.calls[2]?.[1]?.body)),
 		);
 		expect(cancelBody.requestSequence).toBe(3);
+	});
+
+	test('drains an admitted control response after feature abort before issuing the next sequence', async () => {
+		// Arrange
+		const requestSequences: number[] = [];
+		let productCallCount = 0;
+		const firstCallResponse = createBridgeProductDeferred<Response>();
+		const firstCallStarted = createBridgeProductDeferred<void>();
+		const executeProductRequest: ConstructorParameters<
+			typeof BridgeProductSessionAuthorityStore
+		>[0] = async (_route, requestInit): Promise<Response> => {
+			const body = bridgeProductControlRequestSchema.parse(
+				JSON.parse(new TextDecoder().decode(requireUint8Array(requestInit.body))),
+			);
+			requestSequences.push(body.requestSequence);
+			if (body['kind'] === 'workerSession.open') {
+				return responseWithJSON(workerSessionAcceptedResponse());
+			}
+			productCallCount += 1;
+			if (productCallCount === 1) {
+				firstCallStarted.resolve();
+				requestInit.signal?.addEventListener(
+					'abort',
+					(): void => firstCallResponse.reject(requestInit.signal?.reason),
+					{ once: true },
+				);
+				return await firstCallResponse.promise;
+			}
+			return responseWithJSON({
+				...productResponseIdentity('second-call', body.requestSequence),
+				call: { method: 'review.markFileViewed', result: null },
+				kind: 'call.completed',
+			});
+		};
+		const authority = new BridgeProductSessionAuthorityStore(executeProductRequest).install({
+			bootstrap: productSessionBootstrap(),
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		const requestIds = ['first-call', 'second-call'];
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest,
+		});
+		const abortController = new AbortController();
+
+		// Act
+		const firstCall = mux.call({
+			method: 'review.markFileViewed',
+			request: { itemId: 'item-1' },
+			signal: abortController.signal,
+			workerDerivationEpoch: 1,
+		});
+		await firstCallStarted.promise;
+		const secondCall = mux.call({
+			method: 'review.markFileViewed',
+			request: { itemId: 'item-2' },
+			workerDerivationEpoch: 1,
+		});
+		abortController.abort();
+		firstCallResponse.resolve(
+			responseWithJSON({
+				...productResponseIdentity('first-call', 2),
+				call: { method: 'review.markFileViewed', result: null },
+				kind: 'call.completed',
+			}),
+		);
+
+		// Assert
+		await expect(firstCall).resolves.toBeNull();
+		await expect(secondCall).resolves.toBeNull();
+		expect(requestSequences).toEqual([1, 2, 3]);
 	});
 });
 

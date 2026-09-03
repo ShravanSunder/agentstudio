@@ -9,14 +9,59 @@ enum BridgeProductDemandLane: String, Codable, Equatable, Sendable {
     case idle
 }
 
-enum BridgeProductSubscriptionKind: String, Codable, Equatable, Sendable {
-    case fileMetadata = "file.metadata"
-    case reviewMetadata = "review.metadata"
+struct BridgeProductSubscriptionKind: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+    static let fileAnnotations = Self(uncheckedRawValue: "file.annotations")
+    static let fileMetadata = Self(uncheckedRawValue: "file.metadata")
+    static let reviewAnnotations = Self(uncheckedRawValue: "review.annotations")
+    static let reviewMetadata = Self(uncheckedRawValue: "review.metadata")
 
-    var surface: BridgeProductSurface {
-        switch self {
-        case .fileMetadata: .file
-        case .reviewMetadata: .review
+    let rawValue: String
+
+    init(_ rawValue: String) throws {
+        guard Self.isValid(rawValue) else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid Bridge product subscription kind",
+                codingPath: []
+            )
+        }
+        self.rawValue = rawValue
+    }
+
+    init?(rawValue: String) {
+        guard Self.isValid(rawValue) else { return nil }
+        self.rawValue = rawValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        try self.init(container.decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    var surface: BridgeProductSurface? {
+        try? BridgeProductMetadataApplicationRegistry.product.registration(for: self).surface
+    }
+
+    private init(uncheckedRawValue: String) {
+        self.rawValue = uncheckedRawValue
+    }
+
+    private static func isValid(_ rawValue: String) -> Bool {
+        guard
+            !rawValue.isEmpty,
+            rawValue.utf8.count <= BridgeProductWireContract.maximumIdentifierByteLength
+        else { return false }
+        let segments = rawValue.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count >= 2 else { return false }
+        return segments.allSatisfy { segment in
+            guard let first = segment.utf8.first, first >= 97, first <= 122 else { return false }
+            return segment.utf8.dropFirst().allSatisfy { byte in
+                (byte >= 97 && byte <= 122) || (byte >= 48 && byte <= 57) || byte == 45
+            }
         }
     }
 }
@@ -80,56 +125,116 @@ struct BridgeProductFileSourceSpec: Codable, Equatable, Sendable {
     }
 }
 
-enum BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
-    case fileMetadata(BridgeProductFileSourceSpec)
-    case reviewMetadata
+struct BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey { case subscriptionKind }
 
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case source
-        case subscriptionKind
+    let subscriptionKind: BridgeProductSubscriptionKind
+    private let options: BridgeProductMetadataApplicationValue
+    private let registeredSurface: BridgeProductSurface
+
+    private init(
+        subscriptionKind: BridgeProductSubscriptionKind,
+        options: BridgeProductMetadataApplicationValue,
+        registeredSurface: BridgeProductSurface
+    ) {
+        self.subscriptionKind = subscriptionKind
+        self.options = options
+        self.registeredSurface = registeredSurface
     }
 
-    var subscriptionKind: BridgeProductSubscriptionKind {
-        switch self {
-        case .fileMetadata: .fileMetadata
-        case .reviewMetadata: .reviewMetadata
-        }
+    var surface: BridgeProductSurface { registeredSurface }
+
+    func initialInterestState() throws -> BridgeProductSubscriptionInterestState {
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
+        return BridgeProductSubscriptionInterestState(
+            subscriptionKind: subscriptionKind,
+            applicationState: try registration.initialInterestState(from: options)
+        )
     }
 
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var fileMetadataSource: BridgeProductFileSourceSpec? {
+        guard subscriptionKind == .fileMetadata,
+            let decoded = try? JSONDecoder().decode(
+                BridgeProductFileMetadataSubscriptionOptions.self,
+                from: options.encodedValue
+            )
+        else { return nil }
+        return decoded.source
+    }
 
     init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "Bridge product subscription request"
-        )
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
-        case .fileMetadata:
-            self = .fileMetadata(
-                try container.decode(BridgeProductFileSourceSpec.self, forKey: .source)
+        let rawValue = try BridgeProductJSONValue(from: decoder)
+        guard case .object(var members) = rawValue,
+            case .string(let rawKind)? = members.removeValue(forKey: CodingKeys.subscriptionKind.rawValue),
+            let kind = BridgeProductSubscriptionKind(rawValue: rawKind)
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Bridge product subscription request requires a valid subscriptionKind",
+                codingPath: decoder.codingPath
             )
-        case .reviewMetadata:
-            guard !container.contains(.source) else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Review metadata subscription cannot carry file source configuration",
-                    codingPath: decoder.codingPath
-                )
-            }
-            self = .reviewMetadata
         }
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: kind)
+        let encodedOptions = try JSONEncoder.bridgeProductSorted.encode(BridgeProductJSONValue.object(members))
+        self.subscriptionKind = kind
+        self.options = try registration.decodeSubscriptionOptions(from: encodedOptions)
+        self.registeredSurface = registration.surface
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(subscriptionKind, forKey: .subscriptionKind)
-        switch self {
-        case .fileMetadata(let source):
-            try container.encode(source, forKey: .source)
-        case .reviewMetadata:
-            break
+        guard
+            case .object(var members) = try JSONDecoder().decode(
+                BridgeProductJSONValue.self,
+                from: options.encodedValue
+            )
+        else {
+            throw BridgeProductMetadataApplicationRegistryError.typeErasureMismatch
         }
+        members[CodingKeys.subscriptionKind.rawValue] = .string(subscriptionKind.rawValue)
+        try BridgeProductJSONValue.object(members).encode(to: encoder)
+    }
+
+    static let fileAnnotations = try! registered(
+        kind: .fileAnnotations,
+        options: BridgeProductEmptySubscriptionOptions()
+    )
+
+    static func fileMetadata(_ source: BridgeProductFileSourceSpec) -> Self {
+        try! registered(
+            kind: .fileMetadata,
+            options: BridgeProductFileMetadataSubscriptionOptions(source: source)
+        )
+    }
+
+    static let reviewAnnotations = try! registered(
+        kind: .reviewAnnotations,
+        options: BridgeProductEmptySubscriptionOptions()
+    )
+
+    static let reviewMetadata = try! registered(
+        kind: .reviewMetadata,
+        options: BridgeProductEmptySubscriptionOptions()
+    )
+
+    private static func registered<TOptions: Encodable>(
+        kind: BridgeProductSubscriptionKind,
+        options: TOptions
+    ) throws -> Self {
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: kind)
+        return try registered(registration: registration, options: options)
+    }
+
+    static func registered<TOptions: Encodable>(
+        registration: AnyBridgeProductMetadataApplicationProtocol,
+        options: TOptions
+    ) throws -> Self {
+        let erasedOptions = try registration.decodeSubscriptionOptions(
+            from: JSONEncoder.bridgeProductSorted.encode(options)
+        )
+        return Self(
+            subscriptionKind: registration.kind,
+            options: erasedOptions,
+            registeredSurface: registration.surface
+        )
     }
 }
 
@@ -201,30 +306,17 @@ struct BridgeProductFileSourceIdentity: Codable, Equatable, Sendable {
     }
 }
 
-enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
-    case fileMetadata(BridgeProductFileMetadataEvent)
-    case reviewMetadata(BridgeProductReviewMetadataEvent)
-
+struct BridgeProductSubscriptionData: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case event
         case subscriptionKind
     }
 
-    var subscriptionKind: BridgeProductSubscriptionKind {
-        switch self {
-        case .fileMetadata: .fileMetadata
-        case .reviewMetadata: .reviewMetadata
-        }
-    }
-
-    var surface: BridgeProductSurface { subscriptionKind.surface }
-
-    var sourceGeneration: Int {
-        switch self {
-        case .fileMetadata(let event): event.sourceGeneration
-        case .reviewMetadata(let event): event.generation
-        }
-    }
+    let subscriptionKind: BridgeProductSubscriptionKind
+    let event: BridgeProductJSONValue
+    let sourceGeneration: Int
+    private let registeredSurface: BridgeProductSurface
+    var surface: BridgeProductSurface { registeredSurface }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -233,26 +325,101 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
             contract: "Bridge product subscription data"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
-        case .fileMetadata:
-            self = .fileMetadata(
-                try container.decode(BridgeProductFileMetadataEvent.self, forKey: .event)
-            )
-        case .reviewMetadata:
-            self = .reviewMetadata(
-                try container.decode(BridgeProductReviewMetadataEvent.self, forKey: .event)
-            )
-        }
+        subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        event = try container.decode(BridgeProductJSONValue.self, forKey: .event)
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        )
+        registeredSurface = registration.surface
+        sourceGeneration = try registration.sourceGeneration(
+            of: JSONEncoder.bridgeProductSorted.encode(event)
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(subscriptionKind, forKey: .subscriptionKind)
-        switch self {
-        case .fileMetadata(let event):
-            try container.encode(event, forKey: .event)
-        case .reviewMetadata(let event):
-            try container.encode(event, forKey: .event)
-        }
+        try container.encode(event, forKey: .event)
+    }
+
+    static func fileAnnotations(_ event: BridgeProductWorktreeAnnotationEvent) -> Self {
+        try! registered(event, subscriptionKind: .fileAnnotations)
+    }
+
+    static func fileMetadata(_ event: BridgeProductFileMetadataEvent) -> Self {
+        try! registered(event, subscriptionKind: .fileMetadata)
+    }
+
+    static func reviewAnnotations(_ event: BridgeProductWorktreeAnnotationEvent) -> Self {
+        try! registered(event, subscriptionKind: .reviewAnnotations)
+    }
+
+    static func reviewMetadata(_ event: BridgeProductReviewMetadataEvent) -> Self {
+        try! registered(event, subscriptionKind: .reviewMetadata)
+    }
+
+    func decodeEvent<TEvent: Decodable>(_ eventType: TEvent.Type) throws -> TEvent {
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        )
+        return try registration.decodeEvent(eventType, from: event)
+    }
+
+    var fileAnnotationsEvent: BridgeProductWorktreeAnnotationEvent? {
+        guard subscriptionKind == .fileAnnotations else { return nil }
+        return try? decodeEvent(BridgeProductWorktreeAnnotationEvent.self)
+    }
+
+    var fileMetadataEvent: BridgeProductFileMetadataEvent? {
+        guard subscriptionKind == .fileMetadata else { return nil }
+        return try? decodeEvent(BridgeProductFileMetadataEvent.self)
+    }
+
+    var reviewAnnotationsEvent: BridgeProductWorktreeAnnotationEvent? {
+        guard subscriptionKind == .reviewAnnotations else { return nil }
+        return try? decodeEvent(BridgeProductWorktreeAnnotationEvent.self)
+    }
+
+    var reviewMetadataEvent: BridgeProductReviewMetadataEvent? {
+        guard subscriptionKind == .reviewMetadata else { return nil }
+        return try? decodeEvent(BridgeProductReviewMetadataEvent.self)
+    }
+
+    static func registered<TEvent: Encodable>(
+        _ event: TEvent,
+        subscriptionKind: BridgeProductSubscriptionKind
+    ) throws -> Self {
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        )
+        let payload = try registration.encodeEvent(event)
+        return try Self(
+            subscriptionKind: subscriptionKind,
+            event: payload,
+            sourceGeneration: registration.sourceGeneration(
+                of: JSONEncoder.bridgeProductSorted.encode(payload)
+            )
+        )
+    }
+
+    private init(
+        subscriptionKind: BridgeProductSubscriptionKind,
+        event: BridgeProductJSONValue,
+        sourceGeneration: Int
+    ) throws {
+        self.subscriptionKind = subscriptionKind
+        self.event = event
+        self.sourceGeneration = sourceGeneration
+        self.registeredSurface = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        ).surface
+    }
+}
+
+extension JSONEncoder {
+    static var bridgeProductSorted: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 }

@@ -79,6 +79,7 @@ const allowedPostMessagePaths = new Set([
 	'src/core/comm-worker/bridge-comm-worker-entry.ts',
 	'src/core/comm-worker/bridge-pane-comm-worker-session.ts',
 	'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
+	'src/core/comm-worker/bridge-comm-worker-task-boundary.ts',
 	'src/core/comm-worker/bridge-product-session-contracts.ts',
 	'src/file-viewer/bridge-file-viewer-browser-test-comm-worker.ts',
 ]);

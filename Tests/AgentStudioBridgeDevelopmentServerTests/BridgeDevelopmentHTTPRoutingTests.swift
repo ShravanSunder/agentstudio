@@ -99,10 +99,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/health",
                     method: .get
@@ -111,6 +109,32 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     #expect(response.body.readableBytes == 0)
                 }
             }
+        }
+    }
+
+    @Test("health route reports unavailable after runtime readiness is lost")
+    func healthRouteReportsUnavailable() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-unavailable"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            // Act / Assert
+            try await withBridgeDevelopmentHTTPRouterTestClient(
+                host: host,
+                healthIsReady: { false },
+                test: { client in
+                    try await client.execute(
+                        uri: "/__bridge-product/health",
+                        method: .get
+                    ) { response in
+                        #expect(response.status == .serviceUnavailable)
+                        #expect(response.body.readableBytes == 0)
+                    }
+                })
         }
     }
 
@@ -124,14 +148,13 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
             let body = ByteBuffer(
                 string:
                     #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
             )
 
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -147,6 +170,49 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
+    @MainActor
+    @Test("first Review bootstrap does not create eager shared content files")
+    func firstReviewBootstrapDoesNotCreateEagerSharedContentFiles() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-review-bootstrap"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let dataRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-http-review-data-\(PaneId.generateUUIDv7().uuid.uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: dataRoot) }
+        let harness = try await makeHTTPDevelopmentServerHarness(
+            dataRoot: dataRoot,
+            worktreeRoot: repositoryURL
+        )
+
+        // Act / Assert
+        try await withDevelopmentServerHarness(harness) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: harness.host) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"dev:worktree:review","commandKind":"activateContext","surface":"review"},"reason":"initial"}"#
+                    )
+                ) { response in
+                    #expect(response.status == .ok)
+                    _ = try decodeHTTPBootstrapEnvelope(
+                        Data(response.body.readableBytesView)
+                    )
+                }
+            }
+
+            let sharedContentRoot = dataRoot.appending(path: "bridge-review-content")
+            #expect(!FileManager.default.fileExists(atPath: sharedContentRoot.path))
+        }
+    }
+
     @Test("command route forwards worker admission through the existing product adapter")
     func commandRouteForwardsWorkerAdmission() async throws {
         // Arrange
@@ -157,10 +223,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 let bootstrapResponse = try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -330,6 +394,55 @@ private func makeHTTPDevelopmentProductHost(
     )
 }
 
+@MainActor
+private struct HTTPDevelopmentServerHarness {
+    let composition: BridgeDevelopmentServerCoreComposition
+    let host: BridgeDevelopmentProductHost
+}
+
+@MainActor
+private func makeHTTPDevelopmentServerHarness(
+    dataRoot: URL,
+    worktreeRoot: URL
+) async throws -> HTTPDevelopmentServerHarness {
+    let configuration = try BridgeDevelopmentServerConfiguration(
+        dataRoot: dataRoot,
+        paneID: PaneId.generateUUIDv7().uuid,
+        port: 43_871,
+        seedContributionTarget: .ref(name: "HEAD"),
+        seedWorktreeRoot: worktreeRoot
+    )
+    let composition = try await BridgeDevelopmentServerCoreComposition.prepare(
+        configuration: configuration
+    )
+    let host = try await BridgeDevelopmentProductHost(
+        source: composition.productSource,
+        worktreeAnnotationStore: composition.worktreeAnnotationStore,
+        worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+        contributionTargetCommit: { target in
+            composition.applyContributionTarget(target)
+        }
+    )
+    return HTTPDevelopmentServerHarness(composition: composition, host: host)
+}
+
+@MainActor
+private func withDevelopmentServerHarness<Result>(
+    _ harness: HTTPDevelopmentServerHarness,
+    operation: () async throws -> Result
+) async throws -> Result {
+    do {
+        let result = try await operation()
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        return result
+    } catch {
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        throw error
+    }
+}
+
 private func withDevelopmentHost<Result>(
     _ host: BridgeDevelopmentProductHost,
     operation: () async throws -> Result
@@ -357,12 +470,12 @@ private actor BridgeDevelopmentHTTPBodyRecorder: ResponseBodyWriter {
     }
 }
 
-private struct DecodedHTTPBootstrapEnvelope {
+struct DecodedHTTPBootstrapEnvelope {
     let bootstrap: BridgeProductSessionBootstrap
     let capabilityBytes: Data
 }
 
-private func decodeHTTPBootstrapEnvelope(
+func decodeHTTPBootstrapEnvelope(
     _ data: Data
 ) throws -> DecodedHTTPBootstrapEnvelope {
     let envelopeVersionByteCount = 1

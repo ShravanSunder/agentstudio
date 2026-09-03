@@ -103,7 +103,9 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let comparisonPresentationRevision: Int
         let package: BridgeReviewPackage
         let publicationId: UUID
+        let classifiedRefreshImpact: BridgeReviewRefreshImpact?
         let reviewComparison: BridgePaneReviewComparisonPresentation?
+        let operationCorrelationID: String?
     }
 
     private enum EmissionOutcome {
@@ -132,7 +134,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard subscription.subscriptionKind == .reviewMetadata,
-            case .reviewMetadata = subscription.interestState
+            subscription.interestState.reviewMetadataState != nil
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
@@ -155,7 +157,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             throw BridgePaneProductReviewMetadataSourceError.unknownSubscription
         }
         guard subscription.subscriptionKind == .reviewMetadata,
-            case .reviewMetadata = subscription.interestState,
+            subscription.interestState.reviewMetadataState != nil,
             subscription.interestRevision >= activeContext.subscription.interestRevision
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
@@ -181,7 +183,9 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 comparisonPresentationRevision: 1,
                 package: package,
                 publicationId: publicationId,
-                reviewComparison: nil
+                classifiedRefreshImpact: nil,
+                reviewComparison: nil,
+                operationCorrelationID: nil
             )
         )
         guard (productAdmission.withValidAdmission { true }) == true else {
@@ -227,7 +231,9 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                     comparisonPresentationRevision: publication.comparisonPresentationRevision,
                     package: package,
                     publicationId: reservation.publicationId,
-                    reviewComparison: publication.reviewComparison
+                    classifiedRefreshImpact: publication.classifiedRefreshImpact,
+                    reviewComparison: publication.reviewComparison,
+                    operationCorrelationID: publication.operationCorrelationID
                 ),
                 context: context,
                 deliveryRevision: publishingDeliveryRevision,
@@ -329,11 +335,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         else { return [] }
         let currentPackage = currentPublication.package
         let nextPackage = nextPublication.package
-        if hasSameSourceIdentity(currentPackage, nextPackage),
+        if let classifiedRefreshImpact = nextPublication.classifiedRefreshImpact,
             canApplyDelta(from: currentPackage, to: nextPackage),
             let delta = try deltaEvent(
                 from: currentPublication,
-                to: nextPublication
+                to: nextPublication,
+                refreshImpact: classifiedRefreshImpact
             )
         {
             return [.delta(delta)]
@@ -344,6 +351,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 .init(
                     identity: identity,
                     comparisonOrigin: nextPackage.comparisonOrigin,
+                    refreshImpact: nextPublication.classifiedRefreshImpact,
                     reason: .sourceChanged,
                     reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
                 )
@@ -361,7 +369,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             packageId: package.packageId,
             publicationId: publication.publicationId,
             revision: package.revision,
-            sourceIdentity: package.query.queryId
+            sourceIdentity: package.query.queryId,
+            operationCorrelationID: publication.operationCorrelationID
         )
     }
 
@@ -408,7 +417,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     private static func deltaEvent(
         from currentPublication: DeliveredPublication,
-        to nextPublication: DeliveredPublication
+        to nextPublication: DeliveredPublication,
+        refreshImpact: BridgeReviewRefreshImpact
     ) throws -> BridgeProductReviewDeltaEvent? {
         let currentPackage = currentPublication.package
         let nextPackage = nextPublication.package
@@ -454,18 +464,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let contentSources = try changedItems.flatMap { try productContentSources(for: $0, package: nextPackage) }
         guard isContractBoundedDelta(operations: operations, contentSources: contentSources) else { return nil }
         let event = try BridgeProductReviewDeltaEvent(
-            identity: identity(
-                for: DeliveredPublication(
-                    comparisonPresentationRevision: nextPublication.comparisonPresentationRevision,
-                    package: nextPackage,
-                    publicationId: nextPublication.publicationId,
-                    reviewComparison: nextPublication.reviewComparison
-                )
-            ),
+            identity: identity(for: nextPublication),
             contentSources: contentSources,
             fromRevision: currentPackage.revision,
             operations: operations,
             presentationRevision: nextPublication.comparisonPresentationRevision,
+            refreshImpact: refreshImpact,
             reviewComparison: nextPublication.reviewComparison,
             summary: try productSummary(nextPackage.summary),
             toRevision: nextPackage.revision
@@ -494,15 +498,6 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 descriptorIds.count <= maximumCount
             }
         }
-    }
-
-    private static func hasSameSourceIdentity(
-        _ currentPackage: BridgeReviewPackage,
-        _ nextPackage: BridgeReviewPackage
-    ) -> Bool {
-        currentPackage.packageId == nextPackage.packageId
-            && currentPackage.reviewGeneration == nextPackage.reviewGeneration
-            && currentPackage.query.queryId == nextPackage.query.queryId
     }
 
     private static func canApplyDelta(

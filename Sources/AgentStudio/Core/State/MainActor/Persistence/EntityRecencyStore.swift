@@ -6,7 +6,7 @@ import Observation
 package final class EntityRecencyStore {
     private let applicationAtom: ApplicationEntityRecencyAtom
     private let workspaceAtom: WorkspaceEntityRecencyAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
 
@@ -32,7 +32,7 @@ package final class EntityRecencyStore {
     package init(
         applicationAtom: ApplicationEntityRecencyAtom,
         workspaceAtom: WorkspaceEntityRecencyAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil
     ) {

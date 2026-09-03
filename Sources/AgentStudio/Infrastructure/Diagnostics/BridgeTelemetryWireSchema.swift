@@ -54,12 +54,25 @@ package enum BridgeTelemetryWireSchema {
             return false
         }
         for (key, value) in stringAttributes {
-            guard allowedStringValuesByAttributeKey[key]?.contains(value) == true else {
+            let isAllowedOperationID =
+                key == "agentstudio.bridge.operation.id"
+                && value.count == 64
+                && value.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+            guard isAllowedOperationID || allowedStringValuesByAttributeKey[key]?.contains(value) == true else {
                 return false
             }
         }
         for (key, value) in numericAttributes {
-            guard allowedNumericAttributeKeys.contains(key), value.isFinite else {
+            let isSafeStageAttempt =
+                key == "agentstudio.bridge.stage.attempt"
+                && value.isFinite
+                && value >= 0
+                && value.rounded(.towardZero) == value
+                && value <= 9_007_199_254_740_991
+            guard allowedNumericAttributeKeys.contains(key),
+                value.isFinite,
+                key != "agentstudio.bridge.stage.attempt" || isSafeStageAttempt
+            else {
                 return false
             }
         }

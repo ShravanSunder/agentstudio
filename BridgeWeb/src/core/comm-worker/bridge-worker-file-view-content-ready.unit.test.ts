@@ -143,6 +143,9 @@ describe('Bridge worker File View content ready', () => {
 				sourceIdentity: 'file-source-1',
 			},
 		]);
+		expect(result?.message.job.payload.item.bridgeMetadata.sourceDescriptorId).toBe(
+			'descriptor-file-1',
+		);
 	});
 
 	test('commits File View content-ready slice patches only after the render job is accepted', () => {

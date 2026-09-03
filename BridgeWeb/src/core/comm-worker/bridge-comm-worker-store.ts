@@ -236,7 +236,7 @@ export function createBridgeCommWorkerStore(
 				surface: props.surface,
 				workerInstanceId: 'worker-local-unbound-instance',
 			},
-			now,
+			...(props.now === undefined ? {} : { now: props.now }),
 			receiptLeaseDurationMilliseconds: 5000,
 			retryBackoffMilliseconds: 25,
 		});
@@ -478,7 +478,7 @@ export function createBridgeCommWorkerStore(
 				const nextByteCache = new Map(previousState.byteCache);
 				const nextPaintReadyByItemId = new Map(previousState.paintReadyByItemId);
 				const touchedKeys: string[] = [];
-				if (previousContentCacheKey !== undefined) {
+				if (previousContentCacheKey !== undefined && props.surface !== 'file') {
 					nextPaintReadyByItemId.delete(fact.itemId);
 					nextByteCache.delete(previousContentCacheKey);
 					touchedKeys.push(`paintReady:${fact.itemId}`, `byteCache:${previousContentCacheKey}`);

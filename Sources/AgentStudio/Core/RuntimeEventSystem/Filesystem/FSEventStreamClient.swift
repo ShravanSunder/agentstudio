@@ -3,12 +3,37 @@ import Foundation
 package struct FSEventBatch: Sendable {
     let worktreeId: UUID
     let paths: [String]
+
+    package init(worktreeId: UUID, paths: [String]) {
+        self.worktreeId = worktreeId
+        self.paths = paths
+    }
+}
+
+package enum FSEventStreamRegistrationUnavailableReason: Sendable, Equatable {
+    case streamCreationFailed
+    case streamStartFailed
+    case clientShutdown
+}
+
+package enum FSEventStreamRegistrationOutcome: Sendable, Equatable {
+    case observing
+    case unavailable(FSEventStreamRegistrationUnavailableReason)
+}
+
+package enum FSEventStreamRuntimeTerminal: Sendable, Equatable {
+    case eventsEnded
 }
 
 package protocol FSEventStreamClient: Sendable {
     func events() -> AsyncStream<FSEventBatch>
     func consumeCoarseRefreshDebt() -> Set<UUID>
-    func register(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    @discardableResult
+    func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome
     func unregister(worktreeId: UUID)
     func shutdown()
 }

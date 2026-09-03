@@ -23,6 +23,10 @@ describe('Bridge comm worker product command sender', () => {
 			workerDerivationEpoch: (): number => 1,
 		} satisfies BridgeProductTransportSession;
 		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				reason: 'no-file-source-authority',
+				status: 'unavailable',
+			}),
 			onFileMetadataEvent: (): void => {},
 			productTransport,
 		});
@@ -46,6 +50,17 @@ describe('Bridge comm worker product command sender', () => {
 				streamId: 'review-stream',
 			},
 		});
+		await controller.sendProductControl({
+			method: 'review.publication.install.admit',
+			params: {
+				candidatePublicationId: '00000000-0000-7000-8000-000000000012',
+				expectedDisplayedPublicationId: '00000000-0000-7000-8000-000000000011',
+			},
+		});
+		await controller.sendProductControl({
+			method: 'review.publication.applied',
+			params: { publicationId: '00000000-0000-7000-8000-000000000012' },
+		});
 		await controller.sendProductControl(activeModeCommand('review'));
 		await controller.sendProductControl(activeModeCommand('file'));
 
@@ -57,6 +72,14 @@ describe('Bridge comm worker product command sender', () => {
 				{ target: { basis: 'commonCommit', kind: 'localDefaultBranch', branchName: 'main' } },
 			],
 			['review.intake.ready', { reason: 'sequence_gap', streamId: 'review-stream' }],
+			[
+				'review.publication.install.admit',
+				{
+					candidatePublicationId: '00000000-0000-7000-8000-000000000012',
+					expectedDisplayedPublicationId: '00000000-0000-7000-8000-000000000011',
+				},
+			],
+			['review.publication.applied', { publicationId: '00000000-0000-7000-8000-000000000012' }],
 			[
 				'review.activeViewerMode.update',
 				{

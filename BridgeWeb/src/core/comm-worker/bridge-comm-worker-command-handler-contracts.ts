@@ -1,6 +1,7 @@
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
 import type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
+import type { BridgeWorkerRenderDispositionApplication } from './bridge-comm-worker-render-disposition-application.js';
 import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-runtime-application.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerRow, BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
@@ -11,6 +12,7 @@ import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewProjectionUpdateCommand,
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerRenderDispositionCommand,
@@ -25,6 +27,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly contentRequestDescriptors?: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
+	readonly reviewPublicationIdentity?: BridgeWorkerReviewPublicationIdentity | null;
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
 	readonly createRenderIdentifier?: (
@@ -36,6 +39,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderFulfillmentNow?: () => number;
 	readonly renderReceiptLeaseDurationMilliseconds?: number;
 	readonly renderRetryBackoffMilliseconds?: number;
+	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
@@ -102,9 +106,15 @@ export interface BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest 
 }
 
 export interface BridgeCommWorkerCommandHandler {
+	readonly applyRenderDispositionCommand: (
+		command: BridgeWorkerRenderDispositionCommand,
+	) => BridgeWorkerRenderDispositionApplication;
+	readonly advanceFileRenderFulfillmentLifecycle: (
+		atMilliseconds: number,
+	) => BridgeCommWorkerRenderFulfillmentLifecycleAdvance;
 	readonly advanceReviewRenderFulfillmentLifecycle: (
 		atMilliseconds: number,
-	) => BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance;
+	) => BridgeCommWorkerRenderFulfillmentLifecycleAdvance;
 	readonly applyReviewMetadataApplication: (
 		application: BridgeCommWorkerReviewMetadataApplication,
 	) => readonly BridgeWorkerServerToMainMessage[];
@@ -124,7 +134,7 @@ export interface BridgeCommWorkerCommandHandler {
 	) => readonly BridgeWorkerServerToMainMessage[];
 }
 
-export interface BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance {
+export interface BridgeCommWorkerRenderFulfillmentLifecycleAdvance {
 	readonly nextWakeAtMilliseconds: number | null;
 }
 

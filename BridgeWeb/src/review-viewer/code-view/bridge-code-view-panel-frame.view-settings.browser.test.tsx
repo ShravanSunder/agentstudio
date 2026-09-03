@@ -9,6 +9,13 @@ import { bridgeCodeViewOptions } from './bridge-code-view-options.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 
 describe('BridgeCodeViewPanelFrame View Settings', () => {
+	test('keeps selected annotation rows on Pierre annotation background', () => {
+		expect(bridgeCodeViewOptions.unsafeCSS).toContain('[data-line-annotation][data-selected-line]');
+		expect(bridgeCodeViewOptions.unsafeCSS).toContain(
+			'--diffs-line-bg: var(--diffs-annotation-bg)',
+		);
+	});
+
 	test('updates options on the same mounted Pierre owner', async () => {
 		// Arrange
 		const mountedInstances: CodeView[] = [];
@@ -98,6 +105,7 @@ const frameProps = {
 	},
 	materializationResourceEntryCount: 0,
 	materializationResourceEntryItemIds: '',
+	onSelectedLinesChange: (): void => {},
 	selectedChangeKind: 'none',
 	selectedContentCacheKeyCount: 0,
 	selectedContentCacheKeys: '',
@@ -110,6 +118,7 @@ const frameProps = {
 	selectedInitialItemIndex: -1,
 	selectedInitialItemIsFirst: false,
 	selectedItemId: null,
+	selectedLines: null,
 	selectedPresentationKind: 'none',
 	selectedPresentationVersion: 'none',
 	selectionScrollDiagnostic: {

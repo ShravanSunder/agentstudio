@@ -506,6 +506,10 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             ("operation_class", "agentstudio.bridge.native_capacity.operation_class"),
             ("activity_rank", "agentstudio.bridge.native_capacity.activity_rank"),
             ("product_kind", "agentstudio.bridge.native_capacity.product_kind"),
+            ("semantic_class", "agentstudio.bridge.worker.semantic_class"),
+            ("viewer", "agentstudio.bridge.viewer"),
+            ("render_disposition_outcome", "agentstudio.bridge.render_disposition.outcome"),
+            ("render_publication_outcome", "agentstudio.bridge.render_publication.outcome"),
         ]
         for (name, attributeKey) in bridgeDimensionAttributes {
             appendBridgeDimension(
@@ -545,6 +549,10 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     }
 
     private static let counterMetricLabels: Set<String> = [
+        "agentstudio_bridge_render_disposition_accepted_count",
+        "agentstudio_bridge_render_disposition_batch_receipt_count",
+        "agentstudio_bridge_render_disposition_duplicate_count",
+        "agentstudio_bridge_render_disposition_rejected_count",
         "agentstudio_performance_filesystem_affected_key_request_count",
         "agentstudio_performance_filesystem_full_reconciliation_request_count",
         "agentstudio_performance_terminal_accumulator_equal_suppressed_count",
@@ -636,6 +644,19 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.native_capacity.tombstone.count",
         "agentstudio.bridge.native_capacity.waiter.count",
         "agentstudio.bridge.native_capacity.worktree.count",
+        "agentstudio.bridge.render_disposition.accepted_count",
+        "agentstudio.bridge.render_disposition.batch_receipt_count",
+        "agentstudio.bridge.render_disposition.duplicate_count",
+        "agentstudio.bridge.render_disposition.in_flight_count",
+        "agentstudio.bridge.render_disposition.oldest_pending_age_ms",
+        "agentstudio.bridge.render_disposition.pending_count",
+        "agentstudio.bridge.render_disposition.pending_high_water_mark",
+        "agentstudio.bridge.render_disposition.produced_count",
+        "agentstudio.bridge.render_disposition.rejected_count",
+        "agentstudio.bridge.render_disposition.retained_count",
+        "agentstudio.bridge.render_publication.current_count",
+        "agentstudio.bridge.render_publication.high_water_mark",
+        "agentstudio.bridge.render_publication.oldest_age_ms",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 

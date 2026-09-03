@@ -77,7 +77,13 @@ struct PreparedBridgeMountTopologyBoundaryTests {
         #expect(bridgeLifecycleSource.contains("bridgeReviewSourceProvider(for: pane, state: state)"))
         #expect(
             viewLifecycleSource.contains(
-                "case .webview, .codeViewer, .bridgePanel, .unsupported:\n            return mountCurrentNonterminalContent(pane: pane)"
+                """
+                case .webview, .codeViewer, .bridgePanel, .unsupported:
+                            return mountCurrentNonterminalContent(
+                                pane: pane,
+                                bridgeViewerOpenTelemetryAnchor: bridgeViewerOpenTelemetryAnchor
+                            )
+                """
             )
         )
         #expect(admissionSource.contains("PreparedNonterminalMountAdmissionPort"))

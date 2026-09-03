@@ -48,6 +48,7 @@ extension BridgeProductSession {
     func enqueueSubscriptionData(
         subscriptionId: String,
         data: BridgeProductSubscriptionData,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) throws -> BridgeProductProducerEnqueueResult {
@@ -60,8 +61,7 @@ extension BridgeProductSession {
                 else {
                     return .rejected(.unknownLease)
                 }
-                let correlation = delivery.correlation
-                let dataCorrelation = try correlation.replacingSourceGeneration(
+                let dataCorrelation = try delivery.correlation.replacingSourceGeneration(
                     with: data.sourceGeneration
                 )
                 let subscriptionSequence = delivery.nextSequence
@@ -74,6 +74,7 @@ extension BridgeProductSession {
                                 streamSequence: streamSequence,
                                 subscription: dataCorrelation,
                                 subscriptionSequence: subscriptionSequence,
+                                operationCorrelationID: operationCorrelationID,
                                 data: data
                             )
                         )

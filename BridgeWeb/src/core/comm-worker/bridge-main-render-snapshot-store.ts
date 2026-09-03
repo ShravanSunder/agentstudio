@@ -4,6 +4,14 @@ import {
 	type BridgeMainFileDisplayState,
 	type BridgeMainFileTreePatchStream,
 } from './bridge-main-file-display-patch-applier.js';
+import { reduceBridgeMainRenderSnapshotUpdate as buildSnapshotFromUpdate } from './bridge-main-render-snapshot-update-reducer.js';
+import {
+	BridgeMainReviewCandidateBankOwner,
+	mergeBridgeMainReviewCandidateSnapshot,
+	type BridgeMainReviewCandidateStore,
+	type BridgeMainReviewPublicationIdentity,
+	type BridgeMainReviewRefreshPresentation,
+} from './bridge-main-review-candidate-bank.js';
 import {
 	applyReviewDisplayPatchEventInPlace,
 	bridgeMainReviewRenderCopyInvalidationItemIds,
@@ -12,7 +20,7 @@ import {
 	emptyBridgeMainReviewDisplayState,
 	invalidateBridgeMainReviewRenderCopies,
 	readBridgeMainReviewCatalogChangesAfter,
-	reconcileBridgeMainReviewRenderCopyPaths,
+	reconcileBridgeMainReviewRenderCopyMetadata,
 	type MutableBridgeMainRenderSnapshot,
 } from './bridge-main-review-display-state.js';
 import type {
@@ -36,6 +44,16 @@ import type {
 	BridgeWorkerCodeViewDiffItem,
 	BridgeWorkerCodeViewFileItem,
 } from './bridge-worker-pierre-render-job.js';
+
+export type {
+	BridgeMainReviewCandidatePresentation,
+	BridgeMainReviewCandidateRole,
+	BridgeMainReviewCandidateSnapshotUpdate,
+	BridgeMainReviewCandidateStore,
+	BridgeMainReviewCandidateWorkerPatch,
+	BridgeMainReviewPublicationIdentity,
+	BridgeMainReviewRefreshPresentation,
+} from './bridge-main-review-candidate-bank.js';
 
 export type BridgeMainCodeViewItem = BridgeWorkerCodeViewFileItem | BridgeWorkerCodeViewDiffItem;
 export type BridgeMainReviewTreeDisplayRow = NonNullable<
@@ -166,7 +184,7 @@ export interface SetBridgeMainLocalViewportProps {
 	readonly visibleItemIds: readonly string[];
 }
 
-export interface BridgeMainRenderSnapshotStore {
+export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidateStore {
 	readonly dispose: () => void;
 	readonly getSnapshot: () => BridgeMainRenderSnapshot;
 	readonly getServerSnapshot: () => BridgeMainRenderSnapshot;
@@ -185,6 +203,7 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly getReviewTreeRowAtIndex: (
 		treeRowIndex: number,
 	) => BridgeMainReviewTreeDisplayRow | null | undefined;
+	readonly prepareForWorkerReplacement: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly subscribeReviewAvailability: (itemId: string, listener: () => void) => () => void;
 	readonly subscribeReviewCatalog: (listener: () => void) => () => void;
@@ -193,6 +212,7 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly subscribeReviewSelection: (listener: () => void) => () => void;
 	readonly subscribeReviewSource: (listener: () => void) => () => void;
 	readonly subscribeReviewTreeRow: (rowId: string, listener: () => void) => () => void;
+	readonly subscribeWorkerReplacement: (listener: () => void) => () => void;
 	readonly setLocalSelection: (props: SetBridgeMainLocalSelectionProps) => void;
 	readonly setLocalViewport: (props: SetBridgeMainLocalViewportProps) => void;
 	readonly setWorkerCodeViewItem: (props: {
@@ -212,9 +232,9 @@ export interface BridgeMainRenderSnapshotStoreProps extends BridgeMainFileDispla
 }
 
 export function createBridgeMainRenderSnapshotStore(
-	props: BridgeMainRenderSnapshotStoreProps = {},
+	storeProps: BridgeMainRenderSnapshotStoreProps = {},
 ): BridgeMainRenderSnapshotStore {
-	const { onFileQueryTransactionPublished, ...fileDisplayApplierProps } = props;
+	const { onFileQueryTransactionPublished, ...fileDisplayApplierProps } = storeProps;
 	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	let snapshot = emptyBridgeMainRenderSnapshot(fileDisplayPatchApplier.state);
 	const listeners = new Set<() => void>();
@@ -225,13 +245,16 @@ export function createBridgeMainRenderSnapshotStore(
 	const reviewItemListeners = new BridgeMainKeyedListenerRegistry<string>();
 	const reviewSelectionListeners = new Set<() => void>();
 	const reviewSourceListeners = new Set<() => void>();
+	const reviewRefreshPresentationListeners = new Set<() => void>();
 	const reviewTreeRowById = new Map<string, BridgeMainReviewTreeDisplayRow>();
 	const reviewTreeRowListeners = new BridgeMainKeyedListenerRegistry<string>();
+	const workerReplacementListeners = new Set<() => void>();
 	const fileTreePatchStreamUnsubscribers = new Set<() => void>();
 	let isDisposed = false;
 	let reviewCatalogChangeCursor = 0;
 	const reviewCatalogChanges: BridgeMainReviewCatalogChange[] = [];
 	let reviewCatalogSnapshot = emptyBridgeMainReviewCatalogSnapshot();
+	const reviewCandidateBankOwner = new BridgeMainReviewCandidateBankOwner();
 	const fileTreePatchStream: BridgeMainFileTreePatchStream = {
 		getCursor: (): number =>
 			isDisposed ? 0 : fileDisplayPatchApplier.fileTreePatchStream.getCursor(),
@@ -263,6 +286,78 @@ export function createBridgeMainRenderSnapshotStore(
 		}
 	};
 
+	const publishReviewRefreshPresentation = (): void => {
+		publishBridgeMainListeners(reviewRefreshPresentationListeners);
+	};
+
+	const discardReviewCandidate = (identity?: BridgeMainReviewPublicationIdentity): boolean => {
+		if (!reviewCandidateBankOwner.discard(identity)) return false;
+		publishReviewRefreshPresentation();
+		return true;
+	};
+
+	const promoteReviewCandidate = (identity: BridgeMainReviewPublicationIdentity): boolean => {
+		const candidate = reviewCandidateBankOwner.promote(identity);
+		if (candidate === null) return false;
+		const previousSnapshot = snapshot;
+		const previousItemIds = Object.keys(previousSnapshot.reviewItemById);
+		const nextItemIds = Object.keys(candidate.snapshot.reviewItemById);
+		const previousRowIds = [...reviewTreeRowById.keys()];
+		const nextRowIds = [...candidate.reviewTreeRowById.keys()];
+		const selectionChanged =
+			previousSnapshot.selectionSlice.selectedItemId !== null &&
+			candidate.snapshot.reviewItemById[previousSnapshot.selectionSlice.selectedItemId] ===
+				undefined;
+		snapshot = mergeBridgeMainReviewCandidateSnapshot({
+			activeSnapshot: previousSnapshot,
+			candidateSnapshot: candidate.snapshot,
+		});
+		reviewItemIndexById.clear();
+		for (const [itemId, itemIndex] of candidate.reviewItemIndexById) {
+			reviewItemIndexById.set(itemId, itemIndex);
+		}
+		reviewTreeRowById.clear();
+		for (const [rowId, row] of candidate.reviewTreeRowById) {
+			reviewTreeRowById.set(rowId, row);
+		}
+		reviewCatalogChangeCursor += 1;
+		reviewCatalogChanges.push({
+			cursor: reviewCatalogChangeCursor,
+			itemIds: [...new Set([...previousItemIds, ...nextItemIds])],
+			itemOrderMutations: [{ kind: 'replace', length: snapshot.reviewItemIdsByIndex.length }],
+			reset: true,
+			treeRowIds: [...new Set([...previousRowIds, ...nextRowIds])],
+			treeRowOrderMutations: [{ kind: 'replace', length: snapshot.reviewTreeRowsByIndex.length }],
+		});
+		if (reviewCatalogChanges.length > BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT) {
+			reviewCatalogChanges.splice(
+				0,
+				reviewCatalogChanges.length - BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT,
+			);
+		}
+		reviewCatalogSnapshot = {
+			changeCursor: reviewCatalogChangeCursor,
+			epoch: snapshot.reviewDisplayFreshness?.epoch ?? null,
+			itemOrderLength: snapshot.reviewItemIdsByIndex.length,
+			revision: snapshot.reviewDisplayFreshness?.projectionRevision ?? 0,
+			treeRowOrderLength: snapshot.reviewTreeRowsByIndex.length,
+		};
+		publish({ ...snapshot });
+		for (const itemId of new Set([...previousItemIds, ...nextItemIds])) {
+			reviewItemListeners.publish(itemId);
+			reviewAvailabilityListeners.publish(itemId);
+			reviewCodeViewItemListeners.publish(itemId);
+		}
+		for (const rowId of new Set([...previousRowIds, ...nextRowIds])) {
+			reviewTreeRowListeners.publish(rowId);
+		}
+		publishBridgeMainListeners(reviewSourceListeners);
+		if (selectionChanged) publishBridgeMainListeners(reviewSelectionListeners);
+		publishBridgeMainListeners(reviewCatalogListeners);
+		publishReviewRefreshPresentation();
+		return true;
+	};
+
 	return {
 		dispose: (): void => {
 			if (isDisposed) return;
@@ -274,17 +369,32 @@ export function createBridgeMainRenderSnapshotStore(
 			reviewItemListeners.clear();
 			reviewSelectionListeners.clear();
 			reviewSourceListeners.clear();
+			reviewRefreshPresentationListeners.clear();
 			reviewTreeRowListeners.clear();
+			workerReplacementListeners.clear();
 			for (const unsubscribe of fileTreePatchStreamUnsubscribers) unsubscribe();
 			reviewItemIndexById.clear();
 			reviewTreeRowById.clear();
 			reviewCatalogChanges.length = 0;
 			reviewCatalogChangeCursor = 0;
+			reviewCandidateBankOwner.dispose();
 			snapshot = emptyBridgeMainRenderSnapshot(new BridgeMainFileDisplayPatchApplier().state);
 			reviewCatalogSnapshot = emptyBridgeMainReviewCatalogSnapshot();
 		},
 		getSnapshot: (): BridgeMainRenderSnapshot => snapshot,
 		getServerSnapshot: (): BridgeMainRenderSnapshot => snapshot,
+		prepareForWorkerReplacement: (): void => {
+			if (isDisposed) return;
+			publishBridgeMainListeners(workerReplacementListeners);
+			discardReviewCandidate();
+			if (reviewCandidateBankOwner.clearFailure()) publishReviewRefreshPresentation();
+			const fileDisplayState = fileDisplayPatchApplier.prepareForWorkerReplacement();
+			publish({
+				...snapshot,
+				...fileDisplayState,
+				reviewDisplayFreshness: null,
+			});
+		},
 		getReviewAvailabilitySnapshot: (
 			itemId,
 		): BridgeWorkerContentAvailabilityPatchPayload | undefined =>
@@ -306,6 +416,8 @@ export function createBridgeMainRenderSnapshotStore(
 		getReviewSelectionSnapshot: (): BridgeMainSelectionSlice => snapshot.selectionSlice,
 		getReviewSourceSnapshot: (): BridgeMainReviewSourceDisplaySlice | null =>
 			snapshot.reviewSourceSlice,
+		getReviewRefreshPresentation: (): BridgeMainReviewRefreshPresentation =>
+			reviewCandidateBankOwner.currentPresentation,
 		getReviewTreeRowSnapshot: (rowId): BridgeMainReviewTreeDisplayRow | undefined =>
 			reviewTreeRowById.get(rowId),
 		getReviewTreeRowAtIndex: (treeRowIndex): BridgeMainReviewTreeDisplayRow | null | undefined =>
@@ -329,8 +441,16 @@ export function createBridgeMainRenderSnapshotStore(
 			isDisposed ? (): void => {} : subscribeBridgeMainListener(reviewSelectionListeners, listener),
 		subscribeReviewSource: (listener): (() => void) =>
 			isDisposed ? (): void => {} : subscribeBridgeMainListener(reviewSourceListeners, listener),
+		subscribeReviewRefreshPresentation: (listener): (() => void) =>
+			isDisposed
+				? (): void => {}
+				: subscribeBridgeMainListener(reviewRefreshPresentationListeners, listener),
 		subscribeReviewTreeRow: (rowId, listener): (() => void) =>
 			isDisposed ? (): void => {} : reviewTreeRowListeners.subscribe(rowId, listener),
+		subscribeWorkerReplacement: (listener): (() => void) =>
+			isDisposed
+				? (): void => {}
+				: subscribeBridgeMainListener(workerReplacementListeners, listener),
 		setLocalSelection: (props: SetBridgeMainLocalSelectionProps): void => {
 			if (isDisposed) return;
 			publish(
@@ -363,6 +483,81 @@ export function createBridgeMainRenderSnapshotStore(
 			);
 			reviewCodeViewItemListeners.publish(props.itemId);
 		},
+		setReviewCandidateCodeViewItem: (props): boolean => {
+			if (isDisposed) return false;
+			return reviewCandidateBankOwner.update(props.identity, (candidateSnapshot, containsItem) =>
+				containsItem(props.itemId)
+					? buildSnapshotFromUpdate(candidateSnapshot, {
+							codeViewItemPatches: [
+								{ item: props.item, itemId: props.itemId, operation: 'upsert' },
+							],
+						})
+					: null,
+			);
+		},
+		startReviewCandidate: (props): boolean => {
+			if (isDisposed) return false;
+			const started = reviewCandidateBankOwner.start({ activeSnapshot: snapshot, ...props });
+			if (started) publishReviewRefreshPresentation();
+			return started;
+		},
+		stageReviewCandidateDisplayEvent: (props): boolean => {
+			if (isDisposed) return false;
+			const presentationBeforeStage = reviewCandidateBankOwner.currentPresentation;
+			const staged = reviewCandidateBankOwner.stage({ activeSnapshot: snapshot, ...props });
+			if (staged && reviewCandidateBankOwner.currentPresentation !== presentationBeforeStage) {
+				publishReviewRefreshPresentation();
+			}
+			return staged;
+		},
+		applyReviewCandidateSnapshotUpdate: (update): boolean => {
+			if (isDisposed) return false;
+			return reviewCandidateBankOwner.update(update.identity, (candidateSnapshot, containsItem) =>
+				buildSnapshotFromUpdate(candidateSnapshot, {
+					...(update.codeViewItemPatches === undefined
+						? {}
+						: { codeViewItemPatches: update.codeViewItemPatches }),
+					...(update.workerPatches === undefined
+						? {}
+						: {
+								workerPatches: update.workerPatches.filter(
+									(patch): boolean =>
+										patch.slice === 'panelChrome' ||
+										patch.operation === 'reset' ||
+										containsItem(patch.itemId),
+								),
+							}),
+				}),
+			);
+		},
+		markReviewCandidateReady: (props): boolean => {
+			if (isDisposed) return false;
+			const marked = reviewCandidateBankOwner.markReady(props);
+			if (marked) publishReviewRefreshPresentation();
+			return marked;
+		},
+		escalateReviewCandidatePresentation: (props): boolean => {
+			if (isDisposed) return false;
+			const escalated = reviewCandidateBankOwner.escalatePresentation(props);
+			if (escalated) publishReviewRefreshPresentation();
+			return escalated;
+		},
+		failReviewCandidate: (props): boolean => {
+			if (isDisposed) return false;
+			const failed = reviewCandidateBankOwner.fail(props);
+			if (failed) publishReviewRefreshPresentation();
+			return failed;
+		},
+		clearReviewCandidateFailure: (): boolean => {
+			if (isDisposed) return false;
+			const cleared = reviewCandidateBankOwner.clearFailure();
+			if (cleared) publishReviewRefreshPresentation();
+			return cleared;
+		},
+		promoteReviewCandidate: (identity): boolean =>
+			isDisposed ? false : promoteReviewCandidate(identity),
+		discardReviewCandidate: (identity): boolean =>
+			isDisposed ? false : discardReviewCandidate(identity),
 		applyWorkerPatch: (patch: BridgeWorkerSlicePatch): void => {
 			if (isDisposed) return;
 			const availabilityItemIdsBeforeReset =
@@ -454,12 +649,12 @@ export function createBridgeMainRenderSnapshotStore(
 				}),
 				snapshot,
 			});
-			const renderCopyPathReconciliation = reconcileBridgeMainReviewRenderCopyPaths({
+			const renderCopyMetadataReconciliation = reconcileBridgeMainReviewRenderCopyMetadata({
 				currentItemsById: snapshot.reviewItemById,
 				previousItemsById: effect.previousItemsById,
 				snapshot: renderCopyInvalidation.snapshot,
 			});
-			snapshot = renderCopyPathReconciliation.snapshot;
+			snapshot = renderCopyMetadataReconciliation.snapshot;
 			reviewCatalogChangeCursor += 1;
 			const catalogChange: BridgeMainReviewCatalogChange = {
 				cursor: reviewCatalogChangeCursor,
@@ -487,7 +682,7 @@ export function createBridgeMainRenderSnapshotStore(
 				shouldPublishInitialRootSnapshot ||
 				effect.comparisonChanged ||
 				renderCopyInvalidation.changed ||
-				renderCopyPathReconciliation.changed
+				renderCopyMetadataReconciliation.changed
 			) {
 				publish({ ...snapshot });
 			}
@@ -503,7 +698,7 @@ export function createBridgeMainRenderSnapshotStore(
 			for (const itemId of renderCopyInvalidation.codeViewItemIds) {
 				reviewCodeViewItemListeners.publish(itemId);
 			}
-			for (const itemId of renderCopyPathReconciliation.codeViewItemIds) {
+			for (const itemId of renderCopyMetadataReconciliation.codeViewItemIds) {
 				reviewCodeViewItemListeners.publish(itemId);
 			}
 			publishBridgeMainListeners(reviewCatalogListeners);
@@ -626,161 +821,4 @@ function publishReviewCodeViewWorkerPatchListeners(props: {
 	if (props.patch.operation === 'delete') {
 		props.reviewCodeViewItemListeners.publish(props.patch.itemId);
 	}
-}
-
-function buildSnapshotFromUpdate(
-	snapshot: MutableBridgeMainRenderSnapshot,
-	update: BridgeMainRenderSnapshotUpdate,
-): MutableBridgeMainRenderSnapshot {
-	let selectionSlice = snapshot.selectionSlice;
-	let viewportSlice = snapshot.viewportSlice;
-	let panelChromeSlice = snapshot.panelChromeSlice;
-	let codeViewItemsById = snapshot.codeViewItemsById;
-	let rowPaintById = snapshot.rowPaintById;
-	let contentAvailabilityById = snapshot.contentAvailabilityById;
-	let mutableCodeViewItems: Record<string, BridgeMainCodeViewItem> | undefined;
-	let mutableRowPaint: Record<string, BridgeWorkerRowPaintPatchPayload> | undefined;
-	let mutableContentAvailability:
-		| Record<string, BridgeWorkerContentAvailabilityPatchPayload>
-		| undefined;
-	let didChange = false;
-
-	const ensureMutableCodeViewItems = (): Record<string, BridgeMainCodeViewItem> => {
-		if (mutableCodeViewItems !== undefined) return mutableCodeViewItems;
-		mutableCodeViewItems = { ...codeViewItemsById };
-		codeViewItemsById = mutableCodeViewItems;
-		return mutableCodeViewItems;
-	};
-	const ensureMutableRowPaint = (): Record<string, BridgeWorkerRowPaintPatchPayload> => {
-		if (mutableRowPaint !== undefined) return mutableRowPaint;
-		mutableRowPaint = { ...rowPaintById };
-		rowPaintById = mutableRowPaint;
-		return mutableRowPaint;
-	};
-	const ensureMutableContentAvailability = (): Record<
-		string,
-		BridgeWorkerContentAvailabilityPatchPayload
-	> => {
-		if (mutableContentAvailability !== undefined) return mutableContentAvailability;
-		mutableContentAvailability = { ...contentAvailabilityById };
-		contentAvailabilityById = mutableContentAvailability;
-		return mutableContentAvailability;
-	};
-
-	if (update.localSelection !== undefined) {
-		selectionSlice = update.localSelection;
-		didChange = true;
-	}
-	if (update.localViewport !== undefined) {
-		viewportSlice = {
-			firstVisibleIndex: update.localViewport.firstVisibleIndex,
-			lastVisibleIndex: update.localViewport.lastVisibleIndex,
-			visibleItemIds: [...update.localViewport.visibleItemIds],
-		};
-		didChange = true;
-	}
-	for (const patch of update.codeViewItemPatches ?? []) {
-		didChange = true;
-		if (patch.operation === 'reset') {
-			mutableCodeViewItems = {};
-			codeViewItemsById = mutableCodeViewItems;
-			continue;
-		}
-		const nextCodeViewItems = ensureMutableCodeViewItems();
-		if (patch.operation === 'delete') {
-			delete nextCodeViewItems[patch.itemId];
-		} else {
-			nextCodeViewItems[patch.itemId] = patch.item;
-		}
-	}
-	for (const patch of update.workerPatches ?? []) {
-		didChange = true;
-		switch (patch.slice) {
-			case 'selection':
-				selectionSlice = buildSelectionSliceFromPatch(patch);
-				break;
-			case 'viewport':
-				viewportSlice = buildViewportSliceFromPatch(patch);
-				break;
-			case 'rowPaint':
-				if (patch.operation === 'reset') {
-					mutableRowPaint = {};
-					rowPaintById = mutableRowPaint;
-					break;
-				}
-				const nextRowPaint = ensureMutableRowPaint();
-				if (patch.operation === 'delete') {
-					const nextCodeViewItems = ensureMutableCodeViewItems();
-					delete nextRowPaint[patch.itemId];
-					delete nextCodeViewItems[patch.itemId];
-				} else {
-					nextRowPaint[patch.itemId] = patch.payload;
-				}
-				break;
-			case 'contentAvailability':
-				if (patch.operation === 'reset') {
-					mutableContentAvailability = {};
-					contentAvailabilityById = mutableContentAvailability;
-					break;
-				}
-				const nextContentAvailability = ensureMutableContentAvailability();
-				if (patch.operation === 'delete') {
-					delete nextContentAvailability[patch.itemId];
-				} else {
-					nextContentAvailability[patch.itemId] = patch.payload;
-				}
-				break;
-			case 'panelChrome':
-				panelChromeSlice = patch.operation === 'upsert' ? patch.payload : {};
-				break;
-			default:
-				assertNeverBridgeWorkerSlicePatch(patch);
-		}
-	}
-	if (!didChange) return snapshot;
-	return {
-		...snapshot,
-		selectionSlice,
-		viewportSlice,
-		panelChromeSlice,
-		codeViewItemsById,
-		rowPaintById,
-		contentAvailabilityById,
-	};
-}
-
-function assertNeverBridgeWorkerSlicePatch(patch: never): never {
-	throw new Error(`Unhandled bridge worker slice patch: ${String(patch)}`);
-}
-
-function buildSelectionSliceFromPatch(
-	patch: Extract<BridgeWorkerSlicePatch, { slice: 'selection' }>,
-): BridgeMainSelectionSlice {
-	if (patch.operation === 'delete' || patch.operation === 'reset') {
-		return {
-			selectedItemId: null,
-			source: null,
-		};
-	}
-	return {
-		selectedItemId: patch.payload.selectedItemId,
-		source: patch.payload.source ?? null,
-	};
-}
-
-function buildViewportSliceFromPatch(
-	patch: Extract<BridgeWorkerSlicePatch, { slice: 'viewport' }>,
-): BridgeMainViewportSlice {
-	if (patch.operation === 'delete' || patch.operation === 'reset') {
-		return {
-			firstVisibleIndex: 0,
-			lastVisibleIndex: 0,
-			visibleItemIds: [],
-		};
-	}
-	return {
-		firstVisibleIndex: patch.payload.firstVisibleIndex,
-		lastVisibleIndex: patch.payload.lastVisibleIndex,
-		visibleItemIds: [...patch.payload.visibleItemIds],
-	};
 }

@@ -20,6 +20,18 @@ export interface BridgeCommWorkerFileViewRuntimeMutationApplication {
 	readonly selectedContentRequestChanged: boolean;
 }
 
+export function createEmptyBridgeCommWorkerFileViewRuntimeSource(): BridgeCommWorkerFileViewRuntimeSource {
+	return {
+		contentItems: [],
+		contentRequests: [],
+		contentRequestsByItemId: new Map(),
+		filePathsByItemId: new Map(),
+		rows: [],
+		rowIndexByItemId: new Map(),
+		rowsByIndex: new Map(),
+	};
+}
+
 export function applyFileViewRuntimeMutationToSource(
 	source: BridgeCommWorkerFileViewRuntimeSource,
 	mutation: BridgeCommWorkerFileViewRuntimeMutation,

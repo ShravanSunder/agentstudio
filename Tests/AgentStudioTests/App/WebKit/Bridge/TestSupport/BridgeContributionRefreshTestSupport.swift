@@ -158,10 +158,14 @@ func assertStaleContributionCaptureCannotCommit(
     await fixture.controller.handleWorktreeProductInvalidation(successorInvalidation)
     #expect(fixture.controller.nextReviewGeneration == 4)
     #expect(fixture.controller.pendingComparisonReviewGeneration == 4)
-    #expect(
+    let presentationAfterSuccessorReservation =
         fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
-            == presentationBeforeSuccessorReservation
+    #expect(presentationAfterSuccessorReservation.nativeActivity == .foreground)
+    #expect(
+        presentationAfterSuccessorReservation.reviewComparison
+            == presentationBeforeSuccessorReservation.reviewComparison
     )
+    #expect(presentationAfterSuccessorReservation.refreshingLanes == [.file, .review])
     await staleCaptureGate.releaseAll()
     await replacementCaptureGate.waitForStart()
 

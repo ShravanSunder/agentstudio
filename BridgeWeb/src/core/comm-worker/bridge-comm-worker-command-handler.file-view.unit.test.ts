@@ -230,7 +230,9 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				}),
 			]),
 		});
-		expect(scheduledFileViewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(10);
+		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
 
 		handler.applyFileViewRuntimeMutation({
 			epoch: 2,
@@ -251,7 +253,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				rowUpserts: [{ id: 'file-2', parentId: null, index: 1 }],
 			},
 		});
-		expect(scheduledFileViewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
 
 		handler.applyFileViewRuntimeMutation({
 			epoch: 2,
@@ -273,7 +275,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 			selectedPath: 'Sources/App/file-1.swift',
 			visiblePaths: [],
 		});
-		expect(scheduledFileViewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
 
 		handler.applyFileViewRuntimeMutation({
 			epoch: 2,
@@ -289,9 +291,9 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				rowUpserts: [],
 			},
 		});
-		expect(scheduledFileViewPreparations).toHaveLength(1);
-		expect(scheduledFileViewPreparations[0]?.epoch).toBe(2);
-		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+		expect(scheduledFileViewPreparations).toHaveLength(2);
+		expect(scheduledFileViewPreparations[1]?.epoch).toBe(2);
+		expect(scheduledFileViewPreparations[1]?.store.getState().demandByKey.get('file-1')).toBe(
 			'selected:2',
 		);
 	});

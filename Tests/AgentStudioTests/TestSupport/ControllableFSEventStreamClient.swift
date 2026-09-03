@@ -10,6 +10,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var continuation: AsyncStream<FSEventBatch>.Continuation?
     private var stream: AsyncStream<FSEventBatch>?
     private var coarseRefreshDebt = Set<UUID>()
+    private var nextRegistrationOutcome: FSEventStreamRegistrationOutcome = .observing
 
     package init() {
         let (stream, continuation) = AsyncStream<FSEventBatch>.makeStream(
@@ -39,11 +40,26 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     }
 
     package func sendCoarseRefreshDebt(worktreeId: UUID) {
-        lock.withLock { coarseRefreshDebt.insert(worktreeId) }
+        _ = lock.withLock { coarseRefreshDebt.insert(worktreeId) }
     }
 
-    package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {
-        lock.withLock { registeredIds.append(worktreeId) }
+    package func setNextRegistrationOutcome(_ outcome: FSEventStreamRegistrationOutcome) {
+        lock.withLock { nextRegistrationOutcome = outcome }
+    }
+
+    package func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome {
+        lock.withLock {
+            let outcome = nextRegistrationOutcome
+            nextRegistrationOutcome = .observing
+            if outcome == .observing {
+                registeredIds.append(worktreeId)
+            }
+            return outcome
+        }
     }
 
     package func unregister(worktreeId: UUID) {

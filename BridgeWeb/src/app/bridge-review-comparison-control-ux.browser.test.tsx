@@ -199,6 +199,18 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
 			.toHaveTextContent('journey-stack-base');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveAttribute('aria-label', 'Compare to: origin/main · Updating');
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-trigger')
+				.element()
+				.textContent?.includes('Updating'),
+		).toBe(false);
+		expect(rendered.getByTestId('bridge-review-comparison-pending-icon').element()).toBeInstanceOf(
+			SVGElement,
+		);
 	});
 
 	test('shows an exact commit as one direct base without a basis selector', async () => {

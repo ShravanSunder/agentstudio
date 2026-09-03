@@ -31,6 +31,11 @@ import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
+import type {
+	BridgeProductMetadataApplicationProtocol,
+	BridgeProductMetadataApplicationRegistry,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
 import {
 	BridgeProductMetadataStreamDecoder,
 	type BridgeProductMetadataStreamDecoderDiagnostics,
@@ -47,18 +52,12 @@ import {
 	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
 import {
-	bridgeProductSurfaceForSubscriptionKind,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOptions,
-} from './bridge-product-subscription-contracts.js';
-import {
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrameSink,
 } from './bridge-product-subscription-state.js';
 import type {
 	BridgeProductCallOptions,
 	BridgeProductContentStream,
-	BridgeProductSubscription,
 	BridgeProductTransport,
 } from './bridge-product-transport-contract.js';
 
@@ -78,13 +77,6 @@ type BridgeProductCallArguments = {
 	];
 }[BridgeProductCallKind];
 
-type BridgeProductSubscriptionArguments = {
-	[TSubscriptionKind in BridgeProductSubscriptionKind]: readonly [
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	];
-}[BridgeProductSubscriptionKind];
-
 export interface CreateBridgeProductTransportProps {
 	readonly authority: BridgeProductSessionAuthority;
 	readonly controlMux: Pick<
@@ -95,6 +87,9 @@ export interface CreateBridgeProductTransportProps {
 	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
 	readonly maximumConcurrentContentResponses?: number;
+	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	/** Maximum time an exact frame observation acknowledgement may remain pending. */
+	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
@@ -173,6 +168,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
+	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	readonly #frameAcknowledgementTimeoutMilliseconds: number;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
 	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
 		acknowledgedFrameCount: 0,
@@ -212,6 +209,15 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
 		this.#executeProductRequest = props.executeProductRequest;
+		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
+		this.#frameAcknowledgementTimeoutMilliseconds =
+			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
+		if (
+			!Number.isSafeInteger(this.#frameAcknowledgementTimeoutMilliseconds) ||
+			this.#frameAcknowledgementTimeoutMilliseconds <= 0
+		) {
+			throw new Error('Bridge frame acknowledgement timeout must be a positive safe integer.');
+		}
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
@@ -267,10 +273,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	openContent<TContentKind extends BridgeProductContentKind>(
 		descriptor: BridgeProductContentDescriptor<TContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId?: string | null,
 	): BridgeProductContentStream<TContentKind>;
 	openContent(
 		descriptor: BridgeProductContentDescriptor<BridgeProductContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId: string | null = null,
 	): BridgeProductContentStream<BridgeProductContentKind> {
 		const parsedDescriptor = bridgeProductContentDescriptorSchema.parse(descriptor);
 		const contentRequestId = this.#createIdentifier('content-request');
@@ -280,32 +288,87 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			descriptor: parsedDescriptor,
 			kind: 'content.open',
 			leaseId: this.#createIdentifier('lease'),
+			operationCorrelationId,
 			paneSessionId: this.#authority.bootstrap.paneSessionId,
 			wireVersion: this.#authority.bootstrap.wireVersion,
 			workerDerivationEpoch: this.workerDerivationEpoch(
-				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind),
+				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind, parsedDescriptor),
 			),
 			workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 		});
 		return this.#openValidatedContent(request, abortSignal);
 	}
 
-	subscribe<TSubscriptionArguments extends BridgeProductSubscriptionArguments>(
-		...arguments_: TSubscriptionArguments
-	): BridgeProductSubscription<TSubscriptionArguments[0]> {
-		const [subscriptionKind, options] = arguments_;
-		const state = this.#createSubscriptionState(subscriptionKind, options);
+	subscribe<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): {
+		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		cancel(): Promise<void>;
+		update(options: TUpdateOptions): Promise<void>;
+	} {
+		this.#metadataApplicationRegistry.requireProtocol(protocol);
+		const state = this.#createSubscriptionState(protocol, options);
 		this.#subscriptions.set(state.subscriptionId, state);
 		state.start();
 		return state.publicSubscription;
 	}
 
-	#createSubscriptionState<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	): BridgeProductSubscriptionState<TSubscriptionKind> {
-		const surface = bridgeProductSurfaceForSubscriptionKind(subscriptionKind);
-		return new BridgeProductSubscriptionState({
+	#createSubscriptionState<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): BridgeProductSubscriptionState<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	> {
+		return new BridgeProductSubscriptionState<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>({
 			controlMux: this.#controlMux,
 			createIdentifier: this.#createIdentifier,
 			ensureMetadataStream: (): Promise<void> => this.#ensureMetadataStream(),
@@ -313,9 +376,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			onTerminal: (subscriptionId): void => {
 				this.#subscriptions.delete(subscriptionId);
 			},
+			protocol,
+			readWorkerDerivationEpochAtAdmission: (): number =>
+				this.workerDerivationEpoch(protocol.surface),
 			subscriptionId: this.#createIdentifier('subscription'),
-			subscriptionKind,
-			workerDerivationEpoch: this.workerDerivationEpoch(surface),
 		});
 	}
 
@@ -498,24 +562,43 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	async #sendFrameAcknowledgement(
 		request: BridgeProductFrameAcknowledgementRequest,
 	): Promise<void> {
-		let response: Response;
+		const abortController = new AbortController();
+		let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
 		try {
-			response = await this.#executeProductRequest('command', {
-				body: encodeBridgeProductRequestBody(request),
-				headers: {
-					'Content-Type': 'application/json',
-					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
-				},
-				method: 'POST',
-			});
-		} catch {
+			const response = await Promise.race([
+				this.#executeProductRequest('command', {
+					body: encodeBridgeProductRequestBody(request),
+					headers: {
+						'Content-Type': 'application/json',
+						'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
+					},
+					method: 'POST',
+					signal: abortController.signal,
+				}),
+				new Promise<Response>((_, reject): void => {
+					timeout = globalThis.setTimeout((): void => {
+						abortController.abort();
+						reject(
+							new BridgeProductFrameAcknowledgementFailure(
+								'request_timeout',
+								null,
+								'Bridge product frame acknowledgement request timed out.',
+							),
+						);
+					}, this.#frameAcknowledgementTimeoutMilliseconds);
+				}),
+			]);
+			assertBridgeProductFrameAcknowledgementAccepted(response.status);
+		} catch (error) {
+			if (error instanceof BridgeProductFrameAcknowledgementFailure) throw error;
 			throw new BridgeProductFrameAcknowledgementFailure(
 				'request_failed',
 				null,
 				'Bridge product frame acknowledgement request failed.',
 			);
+		} finally {
+			if (timeout !== undefined) globalThis.clearTimeout(timeout);
 		}
-		assertBridgeProductFrameAcknowledgementAccepted(response.status);
 	}
 
 	#recordMetadataStreamFailure(
@@ -638,10 +721,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}): Promise<void> {
 		let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 		let responseAdmissionLease: BridgeProductContentResponseAdmissionLease | null = null;
-		const abortReader = (): void => {
+		const abortResponse = (): void => {
 			void reader?.cancel(props.abortSignal.reason).catch((): void => {});
+			responseAdmissionLease?.release();
 		};
-		props.abortSignal.addEventListener('abort', abortReader, { once: true });
+		props.abortSignal.addEventListener('abort', abortResponse, { once: true });
 		try {
 			props.abortSignal.throwIfAborted();
 			await this.#authority.open;
@@ -660,6 +744,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				method: 'POST',
 				signal: props.abortSignal,
 			});
+			props.abortSignal.throwIfAborted();
 			if (!response.ok || response.body === null) {
 				throw new Error(`Bridge product content stream failed with status ${response.status}.`);
 			}
@@ -690,7 +775,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.frames.fail(error, true);
 			props.terminal.reject(error);
 		} finally {
-			props.abortSignal.removeEventListener('abort', abortReader);
+			props.abortSignal.removeEventListener('abort', abortResponse);
 			reader?.releaseLock();
 			responseAdmissionLease?.release();
 		}
@@ -752,6 +837,7 @@ function assertBridgeProductFrameAcknowledgementAccepted(status: number): assert
 type BridgeProductFrameAcknowledgementFailureCode =
 	| 'rejected_status'
 	| 'request_failed'
+	| 'request_timeout'
 	| 'unsupported_status';
 
 class BridgeProductFrameAcknowledgementFailure extends Error {

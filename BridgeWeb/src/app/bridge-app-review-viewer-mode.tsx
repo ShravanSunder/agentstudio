@@ -23,6 +23,11 @@ import type {
 	BridgeReviewSearchMode,
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
+import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
+import {
+	WorktreeAnnotationSurfaceProvider,
+	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
+} from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
 	bridgeAppReviewNavigationSourceForDisplaySlice,
@@ -47,6 +52,10 @@ import {
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
 import {
+	BridgeReviewRefreshHeaderGroup,
+	bridgeReviewRefreshHeaderPresentation,
+} from './bridge-review-refresh-header-chrome.js';
+import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
 	type BridgeViewerSearchAction,
@@ -55,13 +64,18 @@ import {
 } from './bridge-viewer-search-state.js';
 import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu.js';
 import type { BridgeReviewViewSettings } from './bridge-viewer-view-settings.js';
+import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 import { useBridgeViewerToolbarShortcuts } from './use-bridge-viewer-toolbar-shortcuts.js';
 
 export interface BridgeReviewViewerModeProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly activationSequence?: number;
+	readonly activationStartedAtPerfNow?: number;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly isActive: boolean;
+	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly isNavigationCommandStillEligible: (
 		command: Extract<
 			BridgeProductNavigationCommand,
@@ -91,7 +105,22 @@ type BridgeReviewFilterCandidate = Extract<
 const bridgeReviewDefaultViewSettings =
 	createBridgeReviewViewSettingsDefaults(bridgeCodeViewOptions);
 export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
+	return (
+		<WorktreeAnnotationSurfaceProvider
+			markdownWorkerClient={props.markdownWorkerClient}
+			surfaceClient={props.reviewClient}
+			telemetryRecorder={props.telemetryRecorderRef.current}
+		>
+			<BridgeReviewViewerModeContent {...props} />
+		</WorktreeAnnotationSurfaceProvider>
+	);
+}
+
+function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
+		activationCause,
+		activationSequence,
+		activationStartedAtPerfNow,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		isActive,
@@ -107,8 +136,11 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const presentationPositionKey = useId();
+	const prepareActiveEditorsForInstallation =
+		useWorktreeAnnotationPrepareActiveEditorsForInstallation();
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
+		prepareActiveEditorsForInstallation,
 		reviewClient,
 		telemetryRecorderRef,
 	});
@@ -121,17 +153,45 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
 	const markFileViewed = controller.markFileViewed;
 	const panelChromeSlice = controller.panelChromeSlice;
+	const reviewRefreshPresentation = controller.reviewRefreshPresentation;
 	const reviewSourceSlice = controller.reviewSourceSlice;
 	const selectedCodeViewItem = controller.selectedCodeViewItem;
 	const selectedContentAvailability = controller.selectedContentAvailability;
 	const selectedItemId = controller.selectedItemId;
 	const selectedReviewItem = controller.selectedReviewItem;
 	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
+	const setReviewRefreshSemanticAttention = controller.setReviewRefreshSemanticAttention;
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
 	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
 	const queryReviewComparisonTargets = controller.queryReviewComparisonTargets;
 	const cancelReviewComparisonTargetsQuery = controller.cancelReviewComparisonTargetsQuery;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
+	const [readingPositionItemId, setReadingPositionItemId] = useState<string | null>(null);
+	const [annotationAttentionItemIds, setAnnotationAttentionItemIds] = useState<readonly string[]>(
+		[],
+	);
+	const [annotationEditorAttentionItemIds, setAnnotationEditorAttentionItemIds] = useState<
+		readonly string[]
+	>([]);
+	const semanticAttentionItemIds = useMemo((): readonly string[] => {
+		if (!isActive) return [];
+		const itemIds = new Set<string>();
+		if (selectedItemId !== null) itemIds.add(selectedItemId);
+		if (readingPositionItemId !== null) itemIds.add(readingPositionItemId);
+		for (const itemId of annotationAttentionItemIds) itemIds.add(itemId);
+		return [...itemIds].toSorted();
+	}, [annotationAttentionItemIds, isActive, readingPositionItemId, selectedItemId]);
+	useEffect((): void => {
+		setReviewRefreshSemanticAttention(
+			semanticAttentionItemIds,
+			isActive ? annotationEditorAttentionItemIds : [],
+		);
+	}, [
+		annotationEditorAttentionItemIds,
+		isActive,
+		semanticAttentionItemIds,
+		setReviewRefreshSemanticAttention,
+	]);
 	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
 	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
 	const treeSearchStateRef = useRef(treeSearchState);
@@ -304,9 +364,13 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	);
 	const displayedReviewPackage = presentationSnapshot?.reviewPackage ?? null;
 	const comparisonPresentation = panelChromeSlice.reviewComparison;
-	const comparisonPaneState = bridgeReviewComparisonPaneState({
+	const rawComparisonPaneState = bridgeReviewComparisonPaneState({
 		comparisonPresentation,
 		displayedReviewPackage,
+	});
+	const comparisonPaneState = reviewComparisonPaneStateForRefreshPresentation({
+		rawComparisonPaneState,
+		reviewRefreshPresentation,
 	});
 	const comparisonPackageMatch =
 		comparisonPresentation === null || comparisonPresentation === undefined
@@ -318,7 +382,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const comparisonAttemptTelemetryStatus =
 		bridgeReviewComparisonAttemptTelemetryStatus(comparisonPresentation);
 	const comparisonPaneTelemetryState =
-		bridgeReviewComparisonPaneTelemetryState(comparisonPaneState);
+		bridgeReviewComparisonPaneTelemetryState(rawComparisonPaneState);
 	useEffect((): void => {
 		recordBridgeReviewComparisonPaneTelemetrySample({
 			attemptStatus: comparisonAttemptTelemetryStatus,
@@ -333,8 +397,23 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		telemetryRecorderRef,
 	]);
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
+	const refreshRetryTarget = panelChromeSlice.reviewComparison?.activeTarget ?? null;
+	const refreshHeaderPresentation = bridgeReviewRefreshHeaderPresentation({
+		attentionItemIds: semanticAttentionItemIds,
+		canRetry: refreshRetryTarget !== null,
+		refreshPresentation: reviewRefreshPresentation,
+	});
 	const contentHeaderControls = (
 		<>
+			<BridgeReviewRefreshHeaderGroup
+				onApplyNow={(): void => void controller.applyReviewRefreshNow()}
+				onRetry={(): void => {
+					if (refreshRetryTarget !== null)
+						controller.updateReviewComparisonTarget(refreshRetryTarget);
+				}}
+				presentation={refreshHeaderPresentation}
+			/>
+			<WorktreeAnnotationShareHeaderControl />
 			<BridgeReviewComparisonControl
 				comparisonPresentation={panelChromeSlice.reviewComparison}
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
@@ -434,12 +513,18 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		selectReviewItem: selectReviewItemAndRevealTree,
 	});
 	const presentationState = reviewPresentationState({
+		activationCause,
+		activationSequence,
+		activationStartedAtPerfNow,
 		codeViewOptions,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
 		comparisonPaneState,
 		onRetryComparison: controller.updateReviewComparisonTarget,
+		onAnnotationAttentionItemIdsChange: setAnnotationAttentionItemIds,
+		onAnnotationEditorAttentionItemIdsChange: setAnnotationEditorAttentionItemIds,
+		onReadingPositionItemIdChange: setReadingPositionItemId,
 		projectionMode,
 		codeViewControlHandleRef,
 		facetMenuOpen,
@@ -451,6 +536,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
+		reviewRefreshStatusText: null,
 		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectedItemId,
@@ -521,9 +607,27 @@ function assertNeverBridgeReviewComparisonPaneTelemetryState(state: never): neve
 	throw new Error(`Unexpected Review comparison pane telemetry state: ${JSON.stringify(state)}`);
 }
 
+export function reviewComparisonPaneStateForRefreshPresentation(props: {
+	readonly rawComparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
+	readonly reviewRefreshPresentation: BridgeReviewRenderSnapshotController['reviewRefreshPresentation'];
+}): ReturnType<typeof bridgeReviewComparisonPaneState> {
+	const sameSourceCandidate =
+		props.reviewRefreshPresentation.candidate?.startDisposition.kind === 'sameSource';
+	const sameSourceFailure = props.reviewRefreshPresentation.failure !== null;
+	return sameSourceCandidate || sameSourceFailure
+		? { kind: 'settled' }
+		: props.rawComparisonPaneState;
+}
+
 function reviewPresentationState(props: {
+	readonly activationCause: BridgeReviewViewerModeProps['activationCause'];
+	readonly activationSequence: number | undefined;
+	readonly activationStartedAtPerfNow: number | undefined;
 	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
 	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
+	readonly onAnnotationAttentionItemIdsChange: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange: (itemIds: readonly string[]) => void;
+	readonly onReadingPositionItemIdChange: (itemId: string | null) => void;
 	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
@@ -539,6 +643,7 @@ function reviewPresentationState(props: {
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
 	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
+	readonly reviewRefreshStatusText: string | null;
 	readonly selectedCodeViewItem: BridgeReviewRenderSnapshotController['selectedCodeViewItem'];
 	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
 	readonly selectedItemId: string | null;
@@ -580,6 +685,13 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			...(props.activationCause === undefined ? {} : { activationCause: props.activationCause }),
+			...(props.activationSequence === undefined
+				? {}
+				: { activationSequence: props.activationSequence }),
+			...(props.activationStartedAtPerfNow === undefined
+				? {}
+				: { activationStartedAtPerfNow: props.activationStartedAtPerfNow }),
 			comparisonPaneState: props.comparisonPaneState,
 			codeViewOptions: props.codeViewOptions,
 			facetMenuOpen: props.facetMenuOpen,
@@ -595,6 +707,9 @@ function reviewPresentationState(props: {
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile }),
 			onRetryComparison: props.onRetryComparison,
+			onAnnotationAttentionItemIdsChange: props.onAnnotationAttentionItemIdsChange,
+			onAnnotationEditorAttentionItemIdsChange: props.onAnnotationEditorAttentionItemIdsChange,
+			onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,
 			presentationPositionKey: props.presentationPositionKey,
@@ -612,6 +727,7 @@ function reviewPresentationState(props: {
 			onTreeVisibleItemIdsChange: props.setReviewViewportItemIds,
 			projection: props.presentationSnapshot.projection,
 			reviewPackage: props.presentationSnapshot.reviewPackage,
+			reviewRefreshStatusText: props.reviewRefreshStatusText,
 			reviewTreeRows: props.presentationSnapshot.reviewTreeRows,
 			selectedCanvasLoadingReason: selectedContentIsLoading ? 'content' : null,
 			selectedCodeViewItem: props.selectedCodeViewItem,

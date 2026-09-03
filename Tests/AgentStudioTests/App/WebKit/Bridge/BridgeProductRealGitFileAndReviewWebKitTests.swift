@@ -64,21 +64,23 @@ private final class BridgeProductWebKitCarrierControllerTarget {
 
     func recordApplication(
         _ publicationId: UUID,
+        workerInstanceId: String,
         productAdmission: BridgeProductAdmissionContext
-    ) -> Bool {
-        let accepted =
-            controller?.reviewPublicationCoordinator.recordWorkerApplication(
+    ) -> BridgeReviewDisplayedApplicationResult {
+        let result =
+            controller?.reviewPublicationCoordinator.recordDisplayedApplication(
                 publicationId: publicationId,
+                workerInstanceId: workerInstanceId,
                 productAdmission: productAdmission
-            ) == true
+            ) ?? .rejected
         applicationReceipts.append(
             BridgeProductWebKitCarrierApplicationReceipt(
-                accepted: accepted,
+                accepted: result != .rejected,
                 publicationId: publicationId
             )
         )
         resumeApplicationReceiptWaitersIfReady()
-        return accepted
+        return result
     }
 
     func waitForAcceptedApplication(
@@ -345,9 +347,9 @@ extension WebKitSerializedTests {
                 proof.hiddenReviewPublicationCountAfterLateRelease
                     == proof.hiddenReviewPublicationCountBeforeLateRelease
             )
-            #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 1)
+            #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 2)
             #expect(proof.updatingReviewStatus.comparisonStatusText == nil)
-            #expect(proof.updatingReviewStatus.reviewStatusText == "Updating review…")
+            #expect(proof.updatingReviewStatus.reviewStatusText == nil)
             #expect(proof.updatingReviewStatus.fileStatusText == nil)
             #expect(proof.updatingFileStatus.fileStatusText == "Updating files…")
             #expect(proof.updatingFileStatus.reviewStatusText == nil)
@@ -487,9 +489,18 @@ extension WebKitSerializedTests {
                         productAdmission: productAdmission
                     )
                 },
-                recordReviewPublicationApplication: { publicationId, productAdmission in
+                admitReviewPublicationInstallation: { request, correlation, productAdmission in
+                    controllerTarget.controller?.reviewPublicationCoordinator.admitDisplayInstallation(
+                        expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                        candidatePublicationId: request.candidatePublicationId,
+                        workerInstanceId: correlation.workerInstanceId,
+                        productAdmission: productAdmission
+                    ) ?? .rejected
+                },
+                recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
                     controllerTarget.recordApplication(
                         publicationId,
+                        workerInstanceId: correlation.workerInstanceId,
                         productAdmission: productAdmission
                     )
                 },
@@ -827,7 +838,9 @@ extension WebKitSerializedTests {
 
         func makeController(
             repoURL: URL,
-            traceRecorder: BridgeProductWebKitCarrierTraceRecorder
+            traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
+            worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+            worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil
         ) -> BridgePaneController {
             let paneId = UUIDv7.generate()
             let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
@@ -859,6 +872,8 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                worktreeAnnotationStore: worktreeAnnotationStore,
+                worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,
@@ -952,7 +967,7 @@ extension WebKitSerializedTests {
                     && reviewDOM.reviewSelectedContentLineCount > 0
                     && reviewDOM.reviewSelectedContentHashes
                         == run.value.reviewSelectedContentHashes,
-                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native)"
+                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native), host=\(run.hostSnapshot)"
             )
             #expect(
                 reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,

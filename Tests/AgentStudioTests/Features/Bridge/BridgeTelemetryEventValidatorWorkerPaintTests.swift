@@ -42,6 +42,7 @@ struct BridgeTelemetryEventValidatorWorkerPaintTests {
                     "agentstudio.bridge.viewer": "review"
                 ],
                 extraNumbers: [
+                    "agentstudio.bridge.activation.sequence": 7,
                     "agentstudio.bridge.selected_content.click_to_paint_ms": 32,
                     "agentstudio.bridge.selected_content.frame_wait_ms": 8,
                     "agentstudio.bridge.selected_content.materialize_ms": 12,

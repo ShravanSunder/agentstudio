@@ -110,6 +110,81 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
     }
 
+    @Test("superseded contribution refresh remains pending until its successor settles")
+    func supersededContributionRefreshRemainsPendingUntilSuccessorSettles() async throws {
+        // Arrange
+        let fixture = makeContributionRefreshFixture()
+        let controller = fixture.controller
+        defer { controller.teardown() }
+        guard
+            case .success = await controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: UUIDv7.generate(),
+                correlationId: nil
+            )
+        else {
+            Issue.record("Expected the initial contribution load to succeed")
+            return
+        }
+        let pendingGeneration = controller.nextReviewGeneration.next()
+        controller.pendingComparisonReviewGeneration = pendingGeneration
+        controller.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+            activeTarget: .ref(name: "target"),
+            reviewGeneration: pendingGeneration.rawValue
+        )
+        let captureGate = BridgeContributionCaptureGate()
+        await fixture.provider.setContributionCaptureGate(captureGate)
+
+        // Act — generation 2 remains physically blocked while generation 3 becomes current.
+        await controller.handlePaneFilesystemContextEvent(
+            .cwdSubtreeChanged(
+                context: PaneFilesystemContext(
+                    paneId: PaneId(existingUUID: fixture.paneId),
+                    repoId: fixture.repoId,
+                    cwd: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+                    worktreeId: fixture.worktreeId
+                ),
+                paths: ["Sources/App/Generation2.swift"],
+                batchSeq: 1
+            )
+        )
+        await captureGate.waitForStartedCaptureCount(1)
+        await controller.handlePaneFilesystemContextEvent(
+            .cwdSubtreeChanged(
+                context: PaneFilesystemContext(
+                    paneId: PaneId(existingUUID: fixture.paneId),
+                    repoId: fixture.repoId,
+                    cwd: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+                    worktreeId: fixture.worktreeId
+                ),
+                paths: ["Sources/App/Generation3.swift"],
+                batchSeq: 2
+            )
+        )
+        await captureGate.waitForStartedCaptureCount(2)
+        await captureGate.releaseFirst()
+        #expect(await waitForRetiringReviewRefreshTasksToDrain(controller))
+
+        // Assert — stale cleanup cannot manufacture a failure for the live successor.
+        #expect(
+            controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                .attempt == .pending(reviewGeneration: pendingGeneration.rawValue)
+        )
+
+        await captureGate.releaseAll()
+        await waitForActiveReviewRefreshTaskToFinish(controller)
+        #expect(
+            controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                .attempt == .settled(reviewGeneration: controller.nextReviewGeneration.rawValue)
+        )
+    }
+
     @Test("filesystem context refresh preserves revisions across changed and no-op packages")
     func filesystemContextRefreshPreservesRevisionsAcrossChangedAndNoOpPackages() async throws {
         let fixture = makeRefreshRevisionFixture()
@@ -226,9 +301,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         expectRefreshPackageState(
             fixture,
             itemId: "item-newer",
-            revision: 2,
+            revision: 1,
             addedItemIds: ["item-newer"],
-            removedItemIds: ["item-new"]
+            removedItemIds: ["item-old"]
         )
     }
 

@@ -6,14 +6,49 @@ JOURNEY_STATE_FILE="${AGENTSTUDIO_BRIDGE_PACKAGED_JOURNEY_STATE_FILE:-$PROJECT_R
 LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 GIT_BIN=/usr/bin/git
 SHASUM_BIN=/usr/bin/shasum
+FIXTURE_REPOSITORY_URL=https://github.com/askluna/fork-for-fixture-agentstudio.git
+FIXTURE_BASE_REF=fixture-for-bridge-review-performance-2026-09-02-base
+FIXTURE_BASE_SHA=246c9a81c256ded9431620ae9c8cd99f4a27622d
+FIXTURE_HEAD_REF=fixture-for-bridge-review-performance-2026-09-02-head
+FIXTURE_HEAD_SHA=40441ec0ad71c48bdc9d8611c2308ed788f65216
+MINIMUM_REAL_FIXTURE_TRACKED_FILE_COUNT=3886
+MINIMUM_REAL_FIXTURE_REVIEW_DIFF_COUNT=925
+MINIMUM_REAL_FIXTURE_DIFF_HUNK_COUNT=4321
+MINIMUM_REAL_FIXTURE_CHANGED_CONTENT_LINE_COUNT=354002
+MINIMUM_REAL_FIXTURE_CHANGED_CONTENT_BYTE_COUNT=14000000
 
-if [ "${1:-}" = "--dry-run" ]; then
+dry_run=false
+complete_journey=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    --complete-journey)
+      complete_journey=true
+      shift
+      ;;
+    *)
+      echo "usage: verify-bridge-packaged-product-journey.sh [--dry-run] [--complete-journey]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ "$dry_run" = true ]; then
   cat <<'DRY_RUN'
 dry-run ok: binds bundle/executable/assets to the current candidate
+dry-run ok: interactive verification mode preserves the existing live semantic and visual proof
+dry-run ok: complete journey cohort mode validates exactly 3 stopped isolated launches and raw receipts
+dry-run ok: complete journey cohort mode reduces four native journeys with exact pane telemetry proof
 dry-run ok: uses one persistent authenticated semantic IPC session
-dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
+dry-run ok: interactive mode requires exactly 257 initial Review diffs before IPC authentication
+dry-run ok: complete mode requires the pinned real fixture identity, commits, and workload envelope
+dry-run ok: retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
 dry-run ok: proves two independent panes and hidden-to-foreground refresh
+dry-run ok: reactivates the exact packaged app before every foreground pane phase
 dry-run ok: hard-cuts Files and Review Filter candidates with semantic read-back
 dry-run ok: proves supported Search admission and length boundaries
 dry-run ok: proves the disposable worktree remains read-only
@@ -26,11 +61,6 @@ dry-run ok: does not embed desktop automation
 dry-run ok: interprets raw one-row comparison geometry
 DRY_RUN
   exit 0
-fi
-
-if [ "$#" -ne 0 ]; then
-  echo "usage: verify-bridge-packaged-product-journey.sh [--dry-run]" >&2
-  exit 2
 fi
 
 decode_state_value() {
@@ -50,16 +80,89 @@ fixture_digest_for_current_worktree() {
   local fixture_path="${1:?missing fixture path}"
   local fixture_baseline="${2:?missing fixture baseline}"
   local content_oid
+  local index_metadata
+  local index_mode
+  local index_oid
+  local index_record
+  local relative_path
   {
     printf 'baseline\0%s\0' "$fixture_baseline"
-    while IFS= read -r -d '' relative_path; do
-      content_oid="$($GIT_BIN -C "$fixture_path" hash-object -- "$relative_path")"
+    while IFS= read -r -d '' index_record; do
+      index_metadata="${index_record%%$'\t'*}"
+      relative_path="${index_record#*$'\t'}"
+      read -r index_mode index_oid _ <<<"$index_metadata"
+      if [ "$index_mode" = 160000 ]; then
+        content_oid="$index_oid"
+      else
+        content_oid="$($GIT_BIN -C "$fixture_path" hash-object -- "$relative_path")"
+      fi
       printf 'path\0%s\0blob\0%s\0' "$relative_path" "$content_oid"
-    done < <("$GIT_BIN" -C "$fixture_path" ls-files -z)
+    done < <("$GIT_BIN" -C "$fixture_path" ls-files -s -z)
   } | "$SHASUM_BIN" -a 256 | awk '{ print $1 }'
 }
 
+measure_fixture_counts() {
+  local fixture_path="${1:?missing fixture path}"
+  local fixture_baseline="${2:?missing fixture baseline}"
+  local fixture_head="${3:?missing fixture head}"
+  /usr/bin/python3 - "$fixture_path" "$fixture_baseline" "$fixture_head" "$GIT_BIN" <<'PY'
+import os
+import subprocess
+import sys
+
+fixture_root, base_sha, head_sha, git_bin = sys.argv[1:]
+
+
+def git_bytes(*arguments):
+    return subprocess.check_output([git_bin, "-C", fixture_root, *arguments])
+
+
+tracked_paths = [path for path in git_bytes("ls-files", "-z").split(b"\0") if path]
+changed_paths = [
+    os.fsdecode(path)
+    for path in git_bytes(
+        "diff", "--no-renames", "--name-only", "-z", base_sha, head_sha, "--"
+    ).split(b"\0")
+    if path
+]
+changed_content_line_count = 0
+changed_content_byte_count = 0
+for relative_path in changed_paths:
+    absolute_path = os.path.join(fixture_root, relative_path)
+    if not os.path.isfile(absolute_path):
+        continue
+    with open(absolute_path, "rb") as source_file:
+        content = source_file.read()
+    changed_content_line_count += content.count(b"\n")
+    changed_content_byte_count += len(content)
+
+diff_process = subprocess.Popen(
+    [git_bin, "-C", fixture_root, "diff", "--no-color", "--unified=0", base_sha, head_sha, "--"],
+    stdout=subprocess.PIPE,
+)
+if diff_process.stdout is None:
+    raise SystemExit("pinned fixture diff stream is unavailable")
+diff_hunk_count = sum(1 for line in diff_process.stdout if line.startswith(b"@@ "))
+if diff_process.wait() != 0:
+    raise SystemExit("pinned fixture diff failed while measuring hunks")
+
+print(
+    "\t".join(
+        str(value)
+        for value in (
+            len(tracked_paths),
+            diff_hunk_count,
+            changed_content_line_count,
+            changed_content_byte_count,
+        )
+    )
+)
+PY
+}
+
 journey_status=""
+journey_root=""
+journey_data_root=""
 observability_state_file=""
 fixture_root=""
 expected_file_count=""
@@ -72,6 +175,16 @@ final_path=""
 tracked_path=""
 reviewed_branch_name=""
 comparison_target_name=""
+journey_mode=""
+complete_journey_attempt_count=""
+source_head=""
+fixture_identity=""
+fixture_base_sha=""
+fixture_head_sha=""
+tracked_file_count=""
+diff_hunk_count=""
+changed_content_line_count=""
+changed_content_byte_count=""
 
 if [ ! -f "$JOURNEY_STATE_FILE" ]; then
   echo "Bridge packaged journey state is missing: $JOURNEY_STATE_FILE" >&2
@@ -82,8 +195,20 @@ while IFS='=' read -r key raw_value; do
   value="$(decode_state_value "$raw_value")"
   case "$key" in
     AGENTSTUDIO_BRIDGE_JOURNEY_STATUS) journey_status="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_MODE) journey_mode="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_COMPLETE_ATTEMPT_COUNT) complete_journey_attempt_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_SOURCE_HEAD) source_head="$value" ;;
+    JOURNEY_ROOT) journey_root="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT) journey_data_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE) observability_state_file="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT) fixture_root="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_IDENTITY) fixture_identity="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_BASE_SHA) fixture_base_sha="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_HEAD_SHA) fixture_head_sha="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_FILE_COUNT) tracked_file_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_DIFF_HUNK_COUNT) diff_hunk_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_CHANGED_CONTENT_LINE_COUNT) changed_content_line_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_CHANGED_CONTENT_BYTE_COUNT) changed_content_byte_count="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT) expected_file_count="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT) expected_review_diff_count="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST) expected_fixture_digest="$value" ;;
@@ -97,13 +222,20 @@ while IFS='=' read -r key raw_value; do
   esac
 done <"$JOURNEY_STATE_FILE"
 
-if [ "$journey_status" != "running" ]; then
-  echo "Bridge packaged journey is not running: ${journey_status:-<missing>}" >&2
-  exit 1
-fi
-if [ ! -f "$observability_state_file" ]; then
-  echo "Bridge packaged journey observability state is missing: ${observability_state_file:-<missing>}" >&2
-  exit 1
+if [ "$complete_journey" = true ]; then
+  if [ "$journey_mode" != "complete-journey" ] || [ "$journey_status" != "cohort_ready" ]; then
+    echo "Bridge packaged complete journey cohort is not ready: ${journey_status:-<missing>}" >&2
+    exit 1
+  fi
+else
+  if [ "$journey_status" != "running" ]; then
+    echo "Bridge packaged journey is not running: ${journey_status:-<missing>}" >&2
+    exit 1
+  fi
+  if [ ! -f "$observability_state_file" ]; then
+    echo "Bridge packaged journey observability state is missing: ${observability_state_file:-<missing>}" >&2
+    exit 1
+  fi
 fi
 if [ ! -d "$fixture_root/.git" ]; then
   echo "Bridge packaged journey fixture is not a Git worktree: ${fixture_root:-<missing>}" >&2
@@ -121,17 +253,50 @@ case "$expected_review_diff_count" in
     exit 1
     ;;
 esac
-if [ "$expected_file_count" -ne 257 ]; then
-  echo "Bridge packaged journey expected file count must be exactly 257: $expected_file_count" >&2
-  exit 1
-fi
-if [ "$expected_review_diff_count" -ne "$expected_file_count" ]; then
-  echo "Bridge packaged journey expected Review diff count must equal expected file count: expected $expected_file_count, observed $expected_review_diff_count" >&2
-  exit 1
-fi
-if [ "$expected_review_diff_count" -lt 100 ]; then
-  echo "Bridge packaged journey rejects fewer than 100 initial Review diffs: $expected_review_diff_count" >&2
-  exit 1
+if [ "$complete_journey" = true ]; then
+  if [ "$fixture_identity" != "pinned-real-worktree" ]; then
+    echo "Bridge packaged complete journey requires the pinned-real-worktree fixture" >&2
+    exit 1
+  fi
+  if [ "$fixture_base_sha" != "$FIXTURE_BASE_SHA" ] \
+    || [ "$fixture_head_sha" != "$FIXTURE_HEAD_SHA" ]; then
+    echo "Bridge packaged complete journey fixture commit identity mismatch" >&2
+    exit 1
+  fi
+  for profile_count in \
+    "$tracked_file_count" \
+    "$diff_hunk_count" \
+    "$changed_content_line_count" \
+    "$changed_content_byte_count"; do
+    case "$profile_count" in
+      ''|*[!0-9]*)
+        echo "Bridge packaged complete journey fixture profile is invalid" >&2
+        exit 1
+        ;;
+    esac
+  done
+  if [ "$expected_file_count" -ne "$tracked_file_count" ] \
+    || [ "$tracked_file_count" -lt "$MINIMUM_REAL_FIXTURE_TRACKED_FILE_COUNT" ] \
+    || [ "$expected_review_diff_count" -lt "$MINIMUM_REAL_FIXTURE_REVIEW_DIFF_COUNT" ] \
+    || [ "$diff_hunk_count" -lt "$MINIMUM_REAL_FIXTURE_DIFF_HUNK_COUNT" ] \
+    || [ "$changed_content_line_count" -lt "$MINIMUM_REAL_FIXTURE_CHANGED_CONTENT_LINE_COUNT" ] \
+    || [ "$changed_content_byte_count" -lt "$MINIMUM_REAL_FIXTURE_CHANGED_CONTENT_BYTE_COUNT" ]; then
+    echo "Bridge packaged complete journey fixture profile is below the required real-repository envelope" >&2
+    exit 1
+  fi
+else
+  if [ "$expected_file_count" -ne 257 ]; then
+    echo "Bridge packaged journey expected file count must be exactly 257: $expected_file_count" >&2
+    exit 1
+  fi
+  if [ "$expected_review_diff_count" -ne "$expected_file_count" ]; then
+    echo "Bridge packaged journey expected Review diff count must equal expected file count: expected $expected_file_count, observed $expected_review_diff_count" >&2
+    exit 1
+  fi
+  if [ "$expected_review_diff_count" -lt 100 ]; then
+    echo "Bridge packaged journey rejects fewer than 100 initial Review diffs: $expected_review_diff_count" >&2
+    exit 1
+  fi
 fi
 case "$expected_fixture_digest" in
   ''|*[!0-9a-f]*)
@@ -148,8 +313,42 @@ if [ -z "$baseline_commit" ] \
   echo "Bridge packaged journey baseline commit is invalid" >&2
   exit 1
 fi
+if [ "$complete_journey" = true ]; then
+  if [ "$baseline_commit" != "$FIXTURE_BASE_SHA" ] \
+    || [ "$("$GIT_BIN" -C "$fixture_root" rev-parse refs/fixture-source/base)" != "$FIXTURE_BASE_SHA" ] \
+    || [ "$("$GIT_BIN" -C "$fixture_root" rev-parse refs/fixture-source/head)" != "$FIXTURE_HEAD_SHA" ] \
+    || [ "$("$GIT_BIN" -C "$fixture_root" rev-parse "refs/heads/$reviewed_branch_name")" != "$FIXTURE_HEAD_SHA" ] \
+    || [ "$("$GIT_BIN" -C "$fixture_root" rev-parse "refs/heads/$comparison_target_name")" != "$FIXTURE_BASE_SHA" ]; then
+    echo "Bridge packaged complete journey disposable refs do not match pinned fixture authority" >&2
+    exit 1
+  fi
+  if [ "$("$GIT_BIN" -C "$fixture_root" remote get-url origin)" != "$FIXTURE_REPOSITORY_URL" ]; then
+    echo "Bridge packaged complete journey fixture remote identity mismatch" >&2
+    exit 1
+  fi
+  if [ -n "$("$GIT_BIN" -C "$fixture_root" status --porcelain --untracked-files=all)" ]; then
+    echo "Bridge packaged complete journey fixture is not clean before verification" >&2
+    exit 1
+  fi
+  if "$GIT_BIN" -C "$fixture_root" rev-list --objects --missing=print \
+    "$FIXTURE_BASE_SHA" "$FIXTURE_HEAD_SHA" | awk '/^\?/ { missing = 1 } END { exit missing ? 0 : 1 }'; then
+    echo "Bridge packaged complete journey fixture is missing reachable Git objects" >&2
+    exit 1
+  fi
+  measured_profile="$(measure_fixture_counts "$fixture_root" "$FIXTURE_BASE_SHA" "$FIXTURE_HEAD_SHA")"
+  IFS=$'\t' read -r measured_tracked_file_count measured_diff_hunk_count \
+    measured_changed_content_line_count measured_changed_content_byte_count \
+    <<<"$measured_profile"
+  if [ "$measured_tracked_file_count" -ne "$tracked_file_count" ] \
+    || [ "$measured_diff_hunk_count" -ne "$diff_hunk_count" ] \
+    || [ "$measured_changed_content_line_count" -ne "$changed_content_line_count" ] \
+    || [ "$measured_changed_content_byte_count" -ne "$changed_content_byte_count" ]; then
+    echo "Bridge packaged complete journey fixture profile receipt does not match materialized content" >&2
+    exit 1
+  fi
+fi
 actual_review_diff_count="$(
-  "$GIT_BIN" -C "$fixture_root" diff --name-only "$baseline_commit" -- \
+  "$GIT_BIN" -C "$fixture_root" diff --no-renames --name-only "$baseline_commit" -- \
     | awk 'NF { count += 1 } END { print count + 0 }'
 )"
 if [ "$actual_review_diff_count" -ne "$expected_review_diff_count" ]; then
@@ -167,6 +366,195 @@ for required_path in "$early_path" "$middle_path" "$final_path" "$tracked_path";
     exit 1
   fi
 done
+
+if [ "$complete_journey" = true ]; then
+  if [ "$journey_data_root" != "$journey_root/app-data" ]; then
+    echo "Bridge packaged complete journey data root is not isolated inside its journey" >&2
+    exit 1
+  fi
+  case "$complete_journey_attempt_count" in
+    ''|*[!0-9]*)
+      echo "Bridge packaged complete journey attempt count is invalid" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$complete_journey_attempt_count" -le 0 ]; then
+    echo "Bridge packaged complete journey attempt count must be positive" >&2
+    exit 1
+  fi
+  case "$source_head" in
+    ''|*[!0-9a-f]*)
+      echo "Bridge packaged complete journey source HEAD is invalid" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#source_head}" -ne 40 ]; then
+    echo "Bridge packaged complete journey source HEAD is invalid" >&2
+    exit 1
+  fi
+  if [ "$source_head" != "$($GIT_BIN -C "$PROJECT_ROOT" rev-parse HEAD)" ]; then
+    echo "Bridge packaged complete journey source HEAD no longer matches the current candidate" >&2
+    exit 1
+  fi
+
+  for launch_number in 1 2 3; do
+    launch_id="native-launch-$launch_number"
+    receipt_path="$journey_root/$launch_id.json"
+    observability_state_path="$journey_root/$launch_id-observability.env"
+    if [ ! -f "$receipt_path" ] || [ ! -f "$observability_state_path" ]; then
+      echo "Bridge packaged complete journey is missing $launch_id receipt or state" >&2
+      exit 1
+    fi
+    launch_pid="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_PID=//p' "$observability_state_path" | tail -1)")"
+    case "$launch_pid" in
+      ''|*[!0-9]*)
+        echo "Bridge packaged complete journey $launch_id PID is invalid" >&2
+        exit 1
+        ;;
+    esac
+    if kill -0 "$launch_pid" >/dev/null 2>&1; then
+      echo "Bridge packaged complete journey $launch_id exact PID is still live" >&2
+      exit 1
+    fi
+  done
+
+  candidate_state_path="$journey_root/native-launch-1-observability.env"
+  candidate_app="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_APP=//p' "$candidate_state_path" | tail -1)")"
+  candidate_executable="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=//p' "$candidate_state_path" | tail -1)")"
+  if [ -z "$candidate_app" ] || [ -z "$candidate_executable" ] || [ ! -x "$candidate_executable" ]; then
+    echo "Bridge packaged complete journey candidate identity is incomplete" >&2
+    exit 1
+  fi
+  /usr/bin/codesign --verify --deep --strict "$candidate_app"
+  packaged_bridge_web="$candidate_app/Contents/Resources/AgentStudio_AgentStudio.bundle/BridgeWeb/app"
+  source_bridge_web="$PROJECT_ROOT/Sources/AgentStudio/Resources/BridgeWeb/app"
+  if ! cmp -s "$source_bridge_web/agentstudio-app-assets.json" "$packaged_bridge_web/agentstudio-app-assets.json"; then
+    echo "Bridge packaged complete journey asset manifest does not match the current source build" >&2
+    exit 1
+  fi
+  audit_file="$PROJECT_ROOT/tmp/bridge-web-assets/latest-app-asset-audit.json"
+  if [ ! -f "$audit_file" ]; then
+    echo "Bridge packaged complete journey asset audit is missing" >&2
+    exit 1
+  fi
+  audit_commit="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git"]["commit"])' "$audit_file")"
+  if [ "$audit_commit" != "$source_head" ]; then
+    echo "Bridge packaged complete journey asset audit does not match its source HEAD" >&2
+    exit 1
+  fi
+
+  reducer_input="$journey_root/native-complete-journey-input.json"
+  reducer_output="$PROJECT_ROOT/tmp/bridge-complete-journey-native/$(basename "$journey_root")/bridge-complete-journey-native.json"
+  /usr/bin/python3 - "$journey_root" "$journey_data_root" "$source_head" \
+    "$expected_fixture_digest" "$complete_journey_attempt_count" "$reducer_input" <<'PY'
+import json
+import os
+import plistlib
+import shlex
+import sys
+
+journey_root, data_root, source_head, fixture_hash, raw_attempt_count, output_path = sys.argv[1:]
+attempt_count = int(raw_attempt_count)
+launches = []
+candidate_identity = None
+
+
+def read_state(path):
+    values = {}
+    with open(path, "r", encoding="utf-8") as state_file:
+        for line in state_file:
+            key, separator, raw_value = line.rstrip("\n").partition("=")
+            if not separator:
+                continue
+            decoded = shlex.split(raw_value)
+            values[key] = decoded[0] if decoded else ""
+    return values
+
+
+for launch_number in (1, 2, 3):
+    launch_id = f"native-launch-{launch_number}"
+    receipt_path = os.path.join(journey_root, f"{launch_id}.json")
+    state_path = os.path.join(journey_root, f"{launch_id}-observability.env")
+    state = read_state(state_path)
+    if state.get("AGENTSTUDIO_OBSERVABILITY_STATUS") != "running":
+        raise SystemExit(f"{launch_id} did not record a running candidate")
+    if state.get("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD") != "launchservices":
+        raise SystemExit(f"{launch_id} was not launched through LaunchServices")
+    expected_data_root = os.path.join(data_root, launch_id)
+    if os.path.realpath(state.get("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", "")) != os.path.realpath(expected_data_root):
+        raise SystemExit(f"{launch_id} did not use its isolated app-data root")
+    marker = state.get("AGENTSTUDIO_OBSERVABILITY_MARKER", "")
+    proof_token = state.get("AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN", "")
+    if not marker or not proof_token:
+        raise SystemExit(f"{launch_id} is missing marker/proof binding")
+    app_path = state.get("AGENTSTUDIO_OBSERVABILITY_APP", "")
+    executable_path = state.get("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE", "")
+    expected_executable = os.path.join(app_path, "Contents", "MacOS", "AgentStudio")
+    if not app_path or os.path.realpath(executable_path) != os.path.realpath(expected_executable):
+        raise SystemExit(f"{launch_id} candidate app/executable identity is invalid")
+    identity = (os.path.realpath(app_path), os.path.realpath(executable_path))
+    if candidate_identity is None:
+        candidate_identity = identity
+    elif candidate_identity != identity:
+        raise SystemExit("native launches did not use one exact packaged candidate")
+    plist_path = os.path.join(app_path, "Contents", "Info.plist")
+    with open(plist_path, "rb") as plist_file:
+        service_version = plistlib.load(plist_file).get("CFBundleShortVersionString")
+    if not isinstance(service_version, str) or not service_version:
+        raise SystemExit(f"{launch_id} candidate service version is missing")
+    with open(receipt_path, "r", encoding="utf-8") as receipt_file:
+        receipt = json.load(receipt_file)
+    if receipt.get("launchId") != launch_id:
+        raise SystemExit(f"{launch_id} raw receipt identity mismatch")
+    attempts = receipt.get("attemptsByJourney")
+    expected_journeys = {"firstFile", "firstReview", "fileToReview", "reviewToFile"}
+    if not isinstance(attempts, dict) or set(attempts) != expected_journeys:
+        raise SystemExit(f"{launch_id} raw receipt has an invalid journey catalog")
+    if any(not isinstance(attempts[journey], list) or len(attempts[journey]) != attempt_count for journey in expected_journeys):
+        raise SystemExit(f"{launch_id} raw receipt attempt count mismatch")
+    launches.append({
+        "launchId": launch_id,
+        "receipt": receipt,
+        "telemetryMarker": marker,
+        "telemetryServiceVersion": service_version,
+    })
+
+with open(output_path, "w", encoding="utf-8") as output_file:
+    json.dump(
+        {"launches": launches, "sourceHead": source_head, "worktreeHash": fixture_hash},
+        output_file,
+        separators=(",", ":"),
+    )
+    output_file.write("\n")
+os.chmod(output_path, 0o600)
+PY
+
+  reducer_status=0
+  node --experimental-strip-types \
+    "$PROJECT_ROOT/BridgeWeb/scripts/reduce-bridge-complete-journey-native.ts" \
+    --input "$reducer_input" \
+    --output "$reducer_output" || reducer_status=$?
+  /bin/rm -f "$reducer_input"
+  if [ "$reducer_status" -ne 0 ]; then
+    echo "Bridge packaged complete journey evidence missed a required cohort gate" >&2
+    echo "artifact preserved at: $reducer_output" >&2
+    exit "$reducer_status"
+  fi
+
+  diagnostic_only="$(
+    /usr/bin/python3 -c \
+      'import json,sys; print("true" if json.load(open(sys.argv[1], encoding="utf-8"))["diagnosticOnly"] else "false")' \
+      "$reducer_output"
+  )"
+  if [ "$diagnostic_only" = true ]; then
+    echo "Bridge packaged complete journey DIAGNOSTIC ONLY - no SLO claim"
+  else
+    echo "Bridge packaged complete journey cohort PASS"
+  fi
+  echo "artifact=$reducer_output"
+  echo "fixture=$fixture_root"
+  exit 0
+fi
 
 state_status=""
 state_pid=""
@@ -190,6 +578,15 @@ while IFS='=' read -r key raw_value; do
   esac
 done <"$observability_state_file"
 
+if [ "$journey_data_root" != "$journey_root/app-data" ]; then
+  echo "Bridge packaged journey application data root is not isolated inside its journey" >&2
+  exit 1
+fi
+if [ "$state_data_dir" != "$journey_data_root" ]; then
+  echo "Bridge packaged journey candidate did not launch with its isolated application data root" >&2
+  exit 1
+fi
+
 if [ "$state_status" != "running" ] || [ "$state_launch_method" != "launchservices" ]; then
   echo "Bridge packaged journey requires a running strict LaunchServices candidate" >&2
   exit 1
@@ -208,7 +605,7 @@ if [ -z "$state_app" ] || [ -z "$state_executable" ] || [ ! -x "$state_executabl
   echo "Bridge packaged journey app/executable identity is incomplete" >&2
   exit 1
 fi
-actual_executable="$($LSOF_BIN -a -p "$state_pid" -d txt -Fn 2>/dev/null | awk '/^n/ { print substr($0, 2); exit }')"
+actual_executable="$($LSOF_BIN -a -p "$state_pid" -d txt -Fn 2>/dev/null | awk '/^n/ && !found { print substr($0, 2); found = 1 }')"
 expected_executable="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$state_executable")"
 actual_executable="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$actual_executable")"
 if [ "$actual_executable" != "$expected_executable" ]; then
@@ -271,6 +668,7 @@ fi
 
 AGENTSTUDIO_BRIDGE_JOURNEY_MARKER="$state_marker" \
 AGENTSTUDIO_BRIDGE_JOURNEY_PROOF_TOKEN="$state_proof_token" \
+AGENTSTUDIO_BRIDGE_JOURNEY_APP="$state_app" \
 /usr/bin/python3 - \
   "$ipc_metadata" \
   "$ipc_token" \
@@ -284,6 +682,7 @@ AGENTSTUDIO_BRIDGE_JOURNEY_PROOF_TOKEN="$state_proof_token" \
   "$state_data_dir" \
   "$comparison_target_name" \
   "$reviewed_branch_name" \
+  "$baseline_commit" \
   "$GIT_BIN" <<'PY'
 import hashlib
 import json
@@ -302,7 +701,9 @@ tracked_path = sys.argv[9]
 data_root = sys.argv[10]
 comparison_target_name = sys.argv[11]
 reviewed_branch_name = sys.argv[12]
-git_bin = sys.argv[13]
+baseline_commit = sys.argv[13]
+git_bin = sys.argv[14]
+candidate_app = os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_APP", "")
 response_timeout = float(os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_IPC_TIMEOUT_SECONDS", "20"))
 
 
@@ -493,6 +894,9 @@ session = Session(socket_path)
 
 
 def focus_foreground_pane(handle, label):
+    activation = subprocess.run(["/usr/bin/open", "-a", candidate_app], check=False)
+    if activation.returncode != 0:
+        fail(f"{label} could not reactivate the packaged candidate")
     session.request("pane.focus", {"handle": handle})
     return wait_for(
         label,
@@ -573,22 +977,32 @@ try:
     focus_foreground_pane(review_handle, "Review pane foreground")
 
     source_hash_by_path = {}
-    corpus_paths = []
-    for directory, _, filenames in os.walk(os.path.join(fixture_root, "tree")):
-        for filename in sorted(filenames):
-            if filename.endswith(".swift"):
-                corpus_paths.append(os.path.relpath(os.path.join(directory, filename), fixture_root))
-    corpus_paths.sort()
-    if len(corpus_paths) != expected_file_count - 1:
+    corpus_paths = [
+        os.fsdecode(relative_path)
+        for relative_path in subprocess.check_output(
+            [
+                git_bin,
+                "-C",
+                fixture_root,
+                "diff",
+                "--no-renames",
+                "--name-only",
+                "-z",
+                baseline_commit,
+                "--",
+            ]
+        ).split(b"\0")
+        if relative_path
+    ]
+    if len(corpus_paths) != expected_review_diff_count:
         fail(
             f"Bridge packaged journey corpus count mismatch: "
-            f"expected {expected_file_count - 1}, observed {len(corpus_paths)}"
+            f"expected {expected_review_diff_count}, observed {len(corpus_paths)}"
         )
-    for relative_path in corpus_paths:
+    for relative_path in sentinel_paths:
         absolute_path = os.path.join(fixture_root, relative_path)
-        if relative_path in sentinel_paths:
-            with open(absolute_path, "rb") as file:
-                source_hash_by_path[relative_path] = hashlib.sha256(file.read()).hexdigest()
+        with open(absolute_path, "rb") as file:
+            source_hash_by_path[relative_path] = hashlib.sha256(file.read()).hexdigest()
     if set(source_hash_by_path) != set(sentinel_paths):
         fail("Bridge packaged journey failed to hash every traversal sentinel")
 
@@ -908,7 +1322,7 @@ finally:
 PY
 
 final_review_diff_count="$(
-  "$GIT_BIN" -C "$fixture_root" diff --name-only "$baseline_commit" -- \
+  "$GIT_BIN" -C "$fixture_root" diff --no-renames --name-only "$baseline_commit" -- \
     | awk 'NF { count += 1 } END { print count + 0 }'
 )"
 if [ "$final_review_diff_count" -ne "$expected_review_diff_count" ]; then

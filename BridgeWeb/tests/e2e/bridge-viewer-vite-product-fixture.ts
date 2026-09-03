@@ -77,6 +77,12 @@ export interface BridgeViewerOwnedViteProductServerCleanup {
 	readonly ownedProcessAliveAfterStop: boolean;
 }
 
+export interface BridgeViewerReviewedHeadAdvance {
+	readonly finalHeadOID: string;
+	readonly importedCommitCount: number;
+	readonly previousHeadOID: string;
+}
+
 export interface BridgeViewerOwnedViteProcessExit {
 	readonly code: number | null;
 	readonly signal: NodeJS.Signals | null;
@@ -94,8 +100,13 @@ export interface BridgeViewerOwnedViteShutdownDependencies {
 	) => Promise<BridgeViewerOwnedViteProcessExit | null>;
 }
 
-export async function createBridgeViewerViteProductFixture(): Promise<{
+export async function createBridgeViewerViteProductFixture(
+	options: { readonly reviewChangedFileCount?: number } = {},
+): Promise<{
 	readonly advanceComparisonTarget: () => Promise<string>;
+	readonly advanceReviewedHeadByCommitCount: (
+		commitCount: number,
+	) => Promise<BridgeViewerReviewedHeadAdvance>;
 	readonly dispose: () => Promise<void>;
 	readonly mutateLargeFile: () => Promise<BridgeViewerViteProductContentOracle>;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
@@ -104,8 +115,12 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 	let dataRootPath: string | null = null;
 	const comparisonTargetName = 'bridge-vite-comparison-target';
 	const paneId = randomUUID();
+	let reviewedHeadAdvanceSequence = 0;
 	const largeFilePath = 'zz-large-complete-file.txt';
-	const reviewChangedFileCount = 16;
+	const reviewChangedFileCount = options.reviewChangedFileCount ?? 16;
+	if (!Number.isSafeInteger(reviewChangedFileCount) || reviewChangedFileCount <= 0) {
+		throw new Error('Vite product fixture Review file count must be a positive safe integer.');
+	}
 	const routineCompleteFileLineCount = 128;
 	const routineCompleteFileMiddleLineIndex = 63;
 	const routineCompleteFileFinalLineIndex = 127;
@@ -182,9 +197,16 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 		if (observedLargeFileContent !== largeFileContent) {
 			throw new Error('Disposable live-worktree oracle did not preserve the complete large file.');
 		}
+		const fixtureFileIndexByPath = new Map(
+			nestedPaths.map((path, fileIndex): readonly [string, number] => [path, fileIndex]),
+		);
 		const reviewFiles = await Promise.all(
 			changedPaths.map(async (path): Promise<BridgeViewerViteProductReviewFileOracle> => {
-				const baseBody = await runFixtureGit(worktreeRoot, ['show', `${baseRef}:${path}`]);
+				const fileIndex = fixtureFileIndexByPath.get(path);
+				if (fileIndex === undefined) {
+					throw new Error(`Disposable live-worktree oracle has no source index for ${path}.`);
+				}
+				const baseBody = reviewFixtureBody({ fileIndex, phase: 'base' });
 				const headBody = await readFile(join(worktreeRoot, path), 'utf8');
 				return {
 					base: reviewRoleOracle('base', baseBody),
@@ -224,6 +246,81 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 					baseRef,
 				]);
 				return targetCommitOID;
+			},
+			advanceReviewedHeadByCommitCount: async (
+				commitCount,
+			): Promise<BridgeViewerReviewedHeadAdvance> => {
+				if (!Number.isSafeInteger(commitCount) || commitCount <= 0) {
+					throw new Error('Reviewed-head commit count must be a positive safe integer.');
+				}
+				const changedPath = nestedPaths[0];
+				if (changedPath === undefined) throw new Error('Promoted refresh fixture path is missing.');
+				const previousHeadOID = (await runFixtureGit(worktreeRoot, ['rev-parse', 'HEAD'])).trim();
+				const currentBody = await readFile(join(worktreeRoot, changedPath), 'utf8');
+				reviewedHeadAdvanceSequence += 1;
+				const constructionRoot = await mkdtemp(
+					join(tmpdir(), 'bridge-viewer-reviewed-head-chain-'),
+				);
+				const privateIndexPath = join(constructionRoot, 'index');
+				const committedBodyPath = join(constructionRoot, 'committed-body.ts');
+				const privateIndexEnvironment = { GIT_INDEX_FILE: privateIndexPath } as const;
+				try {
+					await writeFile(
+						committedBodyPath,
+						`${currentBody}export const promotedHeadChain${reviewedHeadAdvanceSequence} = ${reviewedHeadAdvanceSequence};\n`,
+					);
+					await runFixtureGit(worktreeRoot, ['read-tree', previousHeadOID], {
+						environment: privateIndexEnvironment,
+					});
+					const committedBodyBlobOID = (
+						await runFixtureGit(worktreeRoot, ['hash-object', '-w', committedBodyPath])
+					).trim();
+					await runFixtureGit(
+						worktreeRoot,
+						['update-index', '--add', '--cacheinfo', '100644', committedBodyBlobOID, changedPath],
+						{ environment: privateIndexEnvironment },
+					);
+					const committedTreeOID = (
+						await runFixtureGit(worktreeRoot, ['write-tree'], {
+							environment: privateIndexEnvironment,
+						})
+					).trim();
+					let finalHeadOID = previousHeadOID;
+					/* eslint-disable no-await-in-loop -- Each synthetic commit must name the preceding private parent. */
+					for (let commitIndex = 0; commitIndex < commitCount; commitIndex += 1) {
+						finalHeadOID = (
+							await runFixtureGit(worktreeRoot, [
+								'commit-tree',
+								committedTreeOID,
+								'-p',
+								finalHeadOID,
+								'-m',
+								`promoted refresh chain ${reviewedHeadAdvanceSequence} commit ${commitIndex + 1}`,
+							])
+						).trim();
+					}
+					/* eslint-enable no-await-in-loop */
+					const importedCommitCount = Number(
+						(
+							await runFixtureGit(worktreeRoot, [
+								'rev-list',
+								'--count',
+								`${previousHeadOID}..${finalHeadOID}`,
+							])
+						).trim(),
+					);
+					if (importedCommitCount !== commitCount) {
+						throw new Error(
+							`Reviewed-head chain expected ${commitCount} commits, received ${importedCommitCount}.`,
+						);
+					}
+					// This is the only observed reviewed-head transition. Private object and index construction
+					// above never move the checked-out ref or expose an intermediate reviewed head.
+					await runFixtureGit(worktreeRoot, ['update-ref', 'HEAD', finalHeadOID, previousHeadOID]);
+					return { finalHeadOID, importedCommitCount, previousHeadOID };
+				} finally {
+					await rm(constructionRoot, { force: true, recursive: true });
+				}
 			},
 			dispose: async (): Promise<void> => {
 				await runAllOwnedCleanupOperations({
@@ -335,6 +432,7 @@ export async function startBridgeViewerOwnedViteProductServer(
 				BRIDGE_WEB_DEV_BACKEND_ORIGIN: bridgeDevelopmentServer.origin,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_LOGS_URL: `${telemetryReceiver.origin}/v1/logs`,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_METRICS_URL: `${telemetryReceiver.origin}/v1/metrics`,
+				BRIDGE_WEB_VITE_CACHE_DIR: join(oracle.dataRootPath, 'vite-cache'),
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
 		},
@@ -399,18 +497,9 @@ export async function startBridgeViewerOwnedViteProductServer(
 		throw startupError;
 	}
 	const origin = `http://127.0.0.1:${port}`;
-	return {
-		backendPid: bridgeDevelopmentServer.pid,
-		diagnostics: (): string =>
-			JSON.stringify({
-				backendStderr: bridgeDevelopmentServer.stderrTail(),
-				backendStdout: bridgeDevelopmentServer.stdoutTail(),
-				viteStderr: stderrTail,
-				viteStdout: stdoutTail,
-			}),
-		origin,
-		pid: child.pid ?? 0,
-		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
+	let stopPromise: Promise<BridgeViewerOwnedViteProductServerCleanup> | null = null;
+	const stop = async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
+		stopPromise ??= (async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
 			const cleanupResults: {
 				backend: Awaited<ReturnType<typeof bridgeDevelopmentServer.stop>> | null;
 				vite: BridgeViewerOwnedViteProductServerCleanup | null;
@@ -444,7 +533,21 @@ export async function startBridgeViewerOwnedViteProductServer(
 					cleanupResults.vite.ownedProcessAliveAfterStop ||
 					cleanupResults.backend.ownedProcessAliveAfterStop,
 			};
-		},
+		})();
+		return await stopPromise;
+	};
+	return {
+		backendPid: bridgeDevelopmentServer.pid,
+		diagnostics: (): string =>
+			JSON.stringify({
+				backendStderr: bridgeDevelopmentServer.stderrTail(),
+				backendStdout: bridgeDevelopmentServer.stdoutTail(),
+				viteStderr: stderrTail,
+				viteStdout: stdoutTail,
+			}),
+		origin,
+		pid: child.pid ?? 0,
+		stop,
 		version: /VITE v(?<version>\d+\.\d+\.\d+)/u.exec(readinessOutput)?.groups?.['version'] ?? null,
 	};
 }
@@ -463,14 +566,7 @@ async function writeFixtureFiles(props: {
 		// oxlint-disable-next-line no-await-in-loop -- Fixture paths must exist before their deterministic writes.
 		await mkdir(join(absolutePath, '..'), { recursive: true });
 		// oxlint-disable-next-line no-await-in-loop -- Stable fixture order makes source identity reproducible.
-		await writeFile(
-			absolutePath,
-			[
-				`export const fixtureValue${fileIndex + 1} = '${props.phase}-${fileIndex + 1}-bridge-vite-product-source-correlation';`,
-				`export const fixtureDescription${fileIndex + 1} = 'deterministic-provider-worker-pierre-disposition-journey';`,
-				'',
-			].join('\n'),
-		);
+		await writeFile(absolutePath, reviewFixtureBody({ fileIndex, phase: props.phase }));
 	}
 	for (const [fileIndex, relativePath] of props.fileTreeOnlyPaths.entries()) {
 		const absolutePath = join(props.worktreeRoot, relativePath);
@@ -479,6 +575,18 @@ async function writeFixtureFiles(props: {
 		// oxlint-disable-next-line no-await-in-loop -- Stable fixture order makes the deep tree reproducible.
 		await writeFile(absolutePath, `unchanged-tree-entry-${fileIndex + 1}\n`);
 	}
+}
+
+function reviewFixtureBody(props: {
+	readonly fileIndex: number;
+	readonly phase: 'base' | 'head';
+}): string {
+	const fixtureOrdinal = props.fileIndex + 1;
+	return [
+		`export const fixtureValue${fixtureOrdinal} = '${props.phase}-${fixtureOrdinal}-bridge-vite-product-source-correlation';`,
+		`export const fixtureDescription${fixtureOrdinal} = 'deterministic-provider-worker-pierre-disposition-journey';`,
+		'',
+	].join('\n');
 }
 
 function fileContentOracle(props: {
@@ -512,10 +620,15 @@ function gitBlobHash(content: string): string {
 		.digest('hex');
 }
 
-async function runFixtureGit(cwd: string, arguments_: readonly string[]): Promise<string> {
+async function runFixtureGit(
+	cwd: string,
+	arguments_: readonly string[],
+	options: { readonly environment?: Readonly<Record<string, string>> } = {},
+): Promise<string> {
 	const { stdout } = await execFileAsync('git', [...arguments_], {
 		cwd,
 		encoding: 'utf8',
+		env: { ...process.env, ...options.environment },
 		maxBuffer: 16 * 1024 * 1024,
 	});
 	return stdout;

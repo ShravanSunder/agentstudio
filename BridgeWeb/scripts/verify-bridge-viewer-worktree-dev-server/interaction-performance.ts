@@ -6,7 +6,6 @@ import {
 	type ReviewClickReadinessBreakdownSummaries,
 	type ReviewDevContentResponseTimingProof,
 	type ReviewInteractionPerformanceProof,
-	type ReviewStartupLoadTimingProof,
 	type WorktreeFileClickPhaseDurationSummaries,
 	type WorktreeInteractionDurationSummary,
 	type WorktreeInteractionFailureDetail,
@@ -15,18 +14,12 @@ import {
 	type WorktreeStartupLoadTimingProof,
 } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import { readCurrentCommitSha, workerModeFromDevServerUrl } from './artifacts.ts';
-import {
-	proofRunCreatedAtUnixMilliseconds,
-	worktreeDevServerUrl,
-	worktreeReviewDevServerUrl,
-} from './config.ts';
+import { proofRunCreatedAtUnixMilliseconds, worktreeDevServerUrl } from './config.ts';
 import { dismissOpenBridgeMenus } from './content-state.ts';
 import { fillWorktreeFileSearch } from './file-search-filter.ts';
-import { assertObservedWorktreeDevServerUrl, reloadWorktreeDevServerPage } from './page-shell.ts';
 import {
 	clickVisibleWorktreeFilePath,
 	readReviewCodeViewItemCount,
-	waitForAnyWorktreeSelectedPathTiming,
 	waitForWorktreeFirstVisibleContentWindow,
 	waitForWorktreeOpenFileReadyMilliseconds,
 	waitForWorktreeSelectedPathMilliseconds,
@@ -38,7 +31,6 @@ import {
 	collectInPageReviewTreeClickPerformanceSample,
 	revealReviewTreeFilePath,
 	reviewTreeReachablePathScrollTopMap,
-	waitForAnyReviewSelectedContentState,
 	waitForReviewTreeScrollSettled,
 	waitForVisibleReviewTreeFilePath,
 } from './review-tree-click.ts';
@@ -57,6 +49,7 @@ import {
 	worktreeFilePathEligibleForPerformanceClick,
 	worktreeFileTreeReachablePathSet,
 } from './scroll-performance.ts';
+import { collectReviewStartupLoadTimingProof } from './startup-load-timing.ts';
 import {
 	interactionPerformanceSampleCount,
 	interactionPerformanceSampleTimeoutMilliseconds,
@@ -65,6 +58,11 @@ import {
 	type WorktreeBridgeTelemetrySampleProof,
 	type WorktreeFileDescriptor,
 } from './types.ts';
+
+export {
+	collectReviewStartupLoadTimingProof,
+	collectWorktreeStartupLoadTimingProof,
+} from './startup-load-timing.ts';
 
 export async function collectWorktreeInteractionPerformanceProof(props: {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
@@ -97,7 +95,7 @@ export async function collectWorktreeInteractionPerformanceProof(props: {
 export async function collectReviewInteractionPerformanceProof(props: {
 	readonly page: Page;
 }): Promise<ReviewInteractionPerformanceProof> {
-	const reviewStartupLoadTiming = await collectReviewStartupLoadTimingProof(props.page);
+	const reviewStartupLoadTiming = await collectReviewStartupLoadTimingProof({ page: props.page });
 	await resetReviewTreeForPerformanceSamples(props.page);
 	const reachablePathScrollTopByPath = await reviewTreeReachablePathScrollTopMap(props.page);
 	const clickTargets = normalWorktreeReviewPerformanceClickTargets(
@@ -231,71 +229,6 @@ export function summarizeBridgeTelemetryPhaseDurations(props: {
 			.filter((sample): boolean => sample.phase === props.phase)
 			.map((sample): number => sample.durationMilliseconds ?? Number.NaN),
 	);
-}
-
-export async function collectWorktreeStartupLoadTimingProof(props: {
-	readonly page: Page;
-}): Promise<WorktreeStartupLoadTimingProof> {
-	const pageLoadStartedAt = performance.now();
-	await reloadWorktreeDevServerPage(props.page);
-	await assertObservedWorktreeDevServerUrl(props.page);
-	const selectedPathTiming = await waitForAnyWorktreeSelectedPathTiming({
-		page: props.page,
-		startedAt: pageLoadStartedAt,
-		timeoutMilliseconds: 20_000,
-	});
-	const contentReadyMilliseconds = await waitForWorktreeOpenFileReadyMilliseconds({
-		page: props.page,
-		path: selectedPathTiming.path,
-		startedAt: pageLoadStartedAt,
-		timeoutMilliseconds: 20_000,
-	});
-	await waitForWorktreeFirstVisibleContentWindow({
-		page: props.page,
-		path: selectedPathTiming.path,
-		timeoutMilliseconds: 20_000,
-	});
-	const firstVisibleContentWindowMilliseconds = Math.max(0, performance.now() - pageLoadStartedAt);
-	return {
-		pageLoadToContentReady: summarizeInteractionSamples([contentReadyMilliseconds]),
-		pageLoadToFirstVisibleContentWindow: summarizeInteractionSamples([
-			firstVisibleContentWindowMilliseconds,
-		]),
-		pageLoadToSelectedPath: summarizeInteractionSamples([
-			selectedPathTiming.selectedPathMilliseconds,
-		]),
-	};
-}
-
-export async function collectReviewStartupLoadTimingProof(
-	page: Page,
-): Promise<ReviewStartupLoadTimingProof> {
-	const pageLoadStartedAt = performance.now();
-	await page.goto(worktreeReviewDevServerUrl, {
-		waitUntil: 'domcontentloaded',
-		timeout: 30_000,
-	});
-	await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
-	await page.waitForFunction(
-		(): boolean => {
-			const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-			return Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0') > 0;
-		},
-		undefined,
-		{ timeout: 30_000 },
-	);
-	const pageLoadToMetadataMilliseconds = Math.max(0, performance.now() - pageLoadStartedAt);
-	await waitForAnyReviewSelectedContentState({ page, state: 'ready' });
-	const pageLoadToSelectedContentReadyMilliseconds = Math.max(
-		0,
-		performance.now() - pageLoadStartedAt,
-	);
-	return {
-		pageLoadToMetadata: summarizeInteractionSamples([pageLoadToMetadataMilliseconds]),
-		pageLoadToSelectedContentReady: summarizeInteractionSamples([
-			pageLoadToSelectedContentReadyMilliseconds,
-		]),
-	};
 }
 
 export async function collectReviewTreeClickPerformanceSamples(props: {

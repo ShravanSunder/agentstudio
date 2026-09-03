@@ -5,7 +5,10 @@ import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contr
 describe('Bridge product session Review comparison contract', () => {
 	test('accepts the exact comparison-aware pane presentation and rejects the activity-only shape', () => {
 		const frame = {
+			fileRefreshFailure: null,
 			kind: 'pane.presentation',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-comparison-presentation',
 			nativeActivity: 'foreground',
 			paneSessionId: 'pane-session-1',
@@ -40,6 +43,28 @@ describe('Bridge product session Review comparison contract', () => {
 		expect(
 			bridgeProductMetadataFrameSchema.safeParse({ ...frame, reviewComparison: undefined }).success,
 		).toBe(false);
+		expect(
+			bridgeProductMetadataFrameSchema.safeParse({ ...frame, fileRefreshFailure: undefined })
+				.success,
+		).toBe(false);
+		expect(
+			bridgeProductMetadataFrameSchema.safeParse({
+				...frame,
+				fileRefreshFailure: {
+					failureKind: 'fileSourceUnavailable',
+					retryable: false,
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductMetadataFrameSchema.safeParse({
+				...frame,
+				fileRefreshFailure: {
+					failureKind: 'unknownFailure',
+					retryable: false,
+				},
+			}).success,
+		).toBe(false);
 	});
 
 	test('rejects retired target catalog metadata', () => {
@@ -54,7 +79,10 @@ describe('Bridge product session Review comparison contract', () => {
 			},
 		};
 		const frame = {
+			fileRefreshFailure: null,
 			kind: 'pane.presentation',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-invalid-target-catalog',
 			nativeActivity: 'foreground',
 			paneSessionId: 'pane-session-1',

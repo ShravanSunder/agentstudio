@@ -8,6 +8,7 @@ export interface PrepareBridgeMainPierreItemForPresentationProps<
 > {
 	readonly currentItem: TItem | undefined;
 	readonly presentationItem: TItem;
+	readonly reuseCurrentItemWhenFingerprintMatches?: boolean;
 }
 
 export interface PreparedBridgeMainPierreItem<TItem extends BridgeMainRenderPublicationItem> {
@@ -24,6 +25,7 @@ export function prepareBridgeMainPierreItemForPresentation<
 	const presentationItem = bridgeMainPierreItemWithPreservedPresentation(props);
 	if (
 		props.currentItem !== undefined &&
+		props.reuseCurrentItemWhenFingerprintMatches !== false &&
 		bridgeMainPierreItemFingerprint(props.currentItem) ===
 			bridgeMainPierreItemFingerprint(presentationItem)
 	) {
@@ -39,6 +41,13 @@ export function prepareBridgeMainPierreItemForPresentation<
 		item,
 		residency: 'replaced',
 	});
+}
+
+export function bridgeMainPierreItemsHaveEqualPresentationFingerprint(
+	leftItem: BridgeMainRenderPublicationItem,
+	rightItem: BridgeMainRenderPublicationItem,
+): boolean {
+	return bridgeMainPierreItemFingerprint(leftItem) === bridgeMainPierreItemFingerprint(rightItem);
 }
 
 function bridgeMainPierreItemWithPreservedPresentation<
@@ -64,6 +73,11 @@ function bridgeMainPierreItemFingerprint(item: BridgeMainRenderPublicationItem):
 		item.bridgeMetadata.contentState,
 		item.bridgeMetadata.cacheKey,
 		item.bridgeMetadata.lineCount === null ? 'unknown-lines' : `${item.bridgeMetadata.lineCount}`,
+		item.bridgeMetadata.sourceDescriptorId ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.base ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.head ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.diff ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.file ?? '',
 		...item.bridgeMetadata.contentRoles,
 	];
 	if (item.type === 'file') {

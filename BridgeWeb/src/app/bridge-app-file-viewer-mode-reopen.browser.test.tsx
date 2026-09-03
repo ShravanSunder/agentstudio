@@ -88,6 +88,41 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		handshake.dispose();
 	});
 
+	test('hands context-switcher focus to the newly visible retained surface', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await renderFileProductApp('worktree-file', {
+			currentSource: availableFileSource,
+			initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+		});
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		const outgoingReviewButton = activeContextButton('file', 'review');
+		await actUpdate((): void => outgoingReviewButton.focus());
+		expect(document.activeElement).toBe(outgoingReviewButton);
+
+		// Act
+		await actClick(outgoingReviewButton);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+
+		// Assert
+		const incomingReviewButton = activeContextButton('review', 'review');
+		const focusWasHandedOff = await pollWithinActUntilEqual(
+			() => document.activeElement === incomingReviewButton,
+			true,
+		);
+		if (!focusWasHandedOff) {
+			throw new Error(
+				`Expected focus on incoming Review control; actual=${document.activeElement?.outerHTML ?? 'none'}`,
+			);
+		}
+		expect(
+			document
+				.querySelector<HTMLElement>('[data-bridge-viewer-mode-host="file"]')
+				?.contains(document.activeElement),
+		).toBe(false);
+		handshake.dispose();
+	});
+
 	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
 		let sourceDiscoveryCount = 0;
 		let metadataSubscriptionOpenCount = 0;
@@ -232,6 +267,19 @@ function activeViewerMode(): string | null {
 			.querySelector('[data-testid="bridge-app-root"]')
 			?.getAttribute('data-bridge-viewer-mode') ?? null
 	);
+}
+
+function activeContextButton(
+	activeSurface: 'file' | 'review',
+	targetSurface: 'file' | 'review',
+): HTMLElement {
+	const button = document.querySelector<HTMLElement>(
+		`[data-bridge-viewer-mode-host="${activeSurface}"][data-bridge-viewer-mode-active="true"] [data-bridge-viewer-context-target="${targetSurface}"]`,
+	);
+	if (button === null) {
+		throw new Error(`Missing active ${activeSurface} context button for ${targetSurface}.`);
+	}
+	return button;
 }
 
 async function clickContext(context: 'file' | 'review'): Promise<void> {

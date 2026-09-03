@@ -118,13 +118,41 @@ final class WorkspaceActionExecutor {
     /// Open an independent read-only Bridge review pane in a new tab.
     @discardableResult
     func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {
-        coordinator.openBridgeReviewInNewTab(worktreeId: worktreeId)
+        openBridgeReviewInNewTab(
+            worktreeId: worktreeId,
+            viewerOpenTelemetryAnchor: nil
+        )
+    }
+
+    @discardableResult
+    func openBridgeReviewInNewTab(
+        worktreeId: UUID?,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
+    ) -> Pane? {
+        coordinator.openBridgeReviewInNewTab(
+            worktreeId: worktreeId,
+            viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
+        )
     }
 
     /// Open an independent Bridge file-viewer pane in a new tab.
     @discardableResult
     func openBridgeFilesInNewTab(worktreeId: UUID? = nil) -> Pane? {
-        coordinator.openBridgeFilesInNewTab(worktreeId: worktreeId)
+        openBridgeFilesInNewTab(
+            worktreeId: worktreeId,
+            viewerOpenTelemetryAnchor: nil
+        )
+    }
+
+    @discardableResult
+    func openBridgeFilesInNewTab(
+        worktreeId: UUID?,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
+    ) -> Pane? {
+        coordinator.openBridgeFilesInNewTab(
+            worktreeId: worktreeId,
+            viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
+        )
     }
 
     /// Undo the last close operation (tab or pane).

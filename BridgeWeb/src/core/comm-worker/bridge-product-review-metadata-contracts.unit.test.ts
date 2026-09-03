@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'vitest';
 
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	bridgeProductReviewItemMetadataSchema,
 	bridgeProductReviewMetadataEventSchema,
@@ -10,6 +11,7 @@ import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contr
 
 const reviewSourceIdentity = {
 	eventKind: 'review.sourceAccepted',
+	operationCorrelationId: null,
 	generation: 7,
 	packageId: 'review-package-1',
 	publicationId: '00000000-0000-7000-8000-000000000011',
@@ -49,6 +51,15 @@ const reviewComparison = {
 		status: 'current',
 	},
 	repositoryDefaultTarget: null,
+} as const;
+
+const reviewRefreshImpact = {
+	addedLineCount: 2,
+	affectedFileCount: 1,
+	affectedStableFileIdentities: ['review-item-1'],
+	deletedLineCount: 1,
+	newlyImportedCommitCount: 1,
+	preDeliveryPresentationClass: { kind: 'ordinary' },
 } as const;
 
 describe('Bridge product Review metadata contracts', () => {
@@ -106,6 +117,7 @@ describe('Bridge product Review metadata contracts', () => {
 			},
 			contentSources: [reviewContentSource],
 			eventKind: 'review.snapshot',
+			operationCorrelationId: null,
 			extentFacts: [{ contentRole: 'head', itemId: 'review-item-1', lineCount: 3 }],
 			headEndpoint: {
 				createdAtUnixMilliseconds: 2,
@@ -213,6 +225,12 @@ describe('Bridge product Review metadata contracts', () => {
 			comparisonOrigin: snapshot.comparisonOrigin,
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
+		expect(
+			bridgeProductReviewMetadataEventSchema.safeParse({
+				...snapshot,
+				...reviewRefreshImpact,
+			}).success,
+		).toBe(false);
 		expect(JSON.stringify(parsed)).not.toMatch(/resourceUrl|contentHandle|"contents":/i);
 		for (const mismatchedSource of [
 			{ ...reviewContentSource, packageId: 'review-package-2' },
@@ -273,6 +291,7 @@ describe('Bridge product Review metadata contracts', () => {
 			bridgeProductReviewMetadataEventSchema.parse({
 				contentSources: snapshot.contentSources,
 				eventKind: 'review.window',
+				operationCorrelationId: null,
 				extentFacts: snapshot.extentFacts,
 				generation: snapshot.generation,
 				itemMetadata: snapshot.itemMetadata,
@@ -301,8 +320,10 @@ describe('Bridge product Review metadata contracts', () => {
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
+				...reviewRefreshImpact,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 10,
 				operations: [
 					{
@@ -323,6 +344,7 @@ describe('Bridge product Review metadata contracts', () => {
 				...reviewSourceIdentity,
 				contentSources: [],
 				eventKind: 'review.delta',
+				operationCorrelationId: null,
 				fromRevision: 10,
 				operations: [
 					{
@@ -337,15 +359,32 @@ describe('Bridge product Review metadata contracts', () => {
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
+				...reviewRefreshImpact,
 				comparisonOrigin: snapshot.comparisonOrigin,
 				eventKind: 'review.reset',
+				operationCorrelationId: null,
 				reason: 'sourceChanged',
 				reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 			}),
 		).toMatchObject({
 			comparisonOrigin: snapshot.comparisonOrigin,
+			preDeliveryPresentationClass: { kind: 'ordinary' },
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
+		expect(
+			bridgeProductReviewMetadataEventSchema.parse({
+				...reviewSourceIdentity,
+				...reviewRefreshImpact,
+				affectedStableFileIdentities: [],
+				addedLineCount: null,
+				affectedFileCount: null,
+				deletedLineCount: null,
+				eventKind: 'review.reset',
+				newlyImportedCommitCount: null,
+				preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' },
+				reason: 'sourceChanged',
+			}),
+		).toMatchObject({ preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' } });
 		expect(() =>
 			bridgeProductReviewMetadataEventSchema.parse({
 				...snapshot,
@@ -362,6 +401,8 @@ describe('Bridge product Review metadata contracts', () => {
 			interestRevision: 1,
 			interestSha256: 'a'.repeat(64),
 			kind: 'subscription.data',
+
+			operationCorrelationId: null,
 			metadataStreamId: 'metadata-stream-1',
 			paneSessionId: 'pane-session-1',
 			sourceGeneration: 7,
@@ -373,12 +414,19 @@ describe('Bridge product Review metadata contracts', () => {
 			workerDerivationEpoch: 3,
 			workerInstanceId: 'worker-instance-1',
 		} as const;
-		expect(() =>
-			bridgeProductMetadataFrameSchema.parse({
-				...metadataFrame,
-				sourceGeneration: 8,
-			}),
-		).toThrow(/generation/i);
+		const mismatchedGenerationFrame = bridgeProductMetadataFrameSchema.parse({
+			...metadataFrame,
+			sourceGeneration: 8,
+		});
+		if (mismatchedGenerationFrame.kind !== 'subscription.data') {
+			throw new Error('Expected generic Review metadata data frame.');
+		}
+		const typedData = bridgeProductReviewMetadataApplicationProtocol.dataSchema.parse(
+			mismatchedGenerationFrame.data,
+		);
+		expect(
+			bridgeProductReviewMetadataApplicationProtocol.readEventSourceGeneration(typedData.event),
+		).not.toBe(mismatchedGenerationFrame.sourceGeneration);
 		expect(() =>
 			bridgeProductMetadataFrameSchema.parse({
 				...metadataFrame,
@@ -399,6 +447,7 @@ describe('Bridge product Review metadata contracts', () => {
 			bridgeProductReviewMetadataEventSchema.parse({
 				...reviewSourceIdentity,
 				eventKind: 'review.snapshot',
+				operationCorrelationId: null,
 				resourceUrl: 'agentstudio://resource/review/content/legacy',
 				selectedItemId: 'review-item-1',
 			}),

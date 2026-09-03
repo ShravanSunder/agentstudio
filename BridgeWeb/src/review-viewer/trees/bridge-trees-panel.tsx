@@ -1,7 +1,7 @@
 import type { FileTreeSortComparator } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import {
 	mountedPierreFileRowElementsForModel,
@@ -65,6 +65,9 @@ export interface BridgeReviewTreeSelectionRevealRequest {
 }
 
 export interface BridgeReviewTreesPanelProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
+	readonly activationSequence?: number;
+	readonly activationStartedAtPerfNow?: number;
 	readonly isActive: boolean;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -121,6 +124,19 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const controllerRef = useRef<BridgeTreesController | null>(null);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
+	const recordedActivationSequenceRef = useRef<number | null>(null);
+	useLayoutEffect((): void => {
+		if (
+			props.activationSequence === undefined ||
+			recordedActivationSequenceRef.current === props.activationSequence
+		) {
+			return;
+		}
+		recordedActivationSequenceRef.current = props.activationSequence;
+		firstInteractionMountStartedAtRef.current =
+			props.activationStartedAtPerfNow ?? performance.now();
+		hasRecordedFirstInteractionRef.current = false;
+	}, [props.activationSequence, props.activationStartedAtPerfNow]);
 	const onSelectionChange = useCallback((selectedPaths: readonly string[]): void => {
 		if (isSyncingClickedSelectionRef.current) {
 			return;
@@ -341,6 +357,9 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			if (!hasRecordedFirstInteractionRef.current && sourceRef.current.orderedPaths.length > 0) {
 				hasRecordedFirstInteractionRef.current = true;
 				recordBridgeViewerFirstInteractionReady({
+					...(props.activationSequence === undefined
+						? {}
+						: { activationSequence: props.activationSequence }),
 					viewer: 'review',
 					telemetryRecorder,
 					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
@@ -366,7 +385,13 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			scrollElement?.removeEventListener('scroll', handleTreeScroll);
 			unsubscribeModel();
 		};
-	}, [model, onVisibleItemIdsChange, telemetryRecorder, telemetryTraceContext]);
+	}, [
+		model,
+		onVisibleItemIdsChange,
+		props.activationSequence,
+		telemetryRecorder,
+		telemetryTraceContext,
+	]);
 
 	return (
 		<div

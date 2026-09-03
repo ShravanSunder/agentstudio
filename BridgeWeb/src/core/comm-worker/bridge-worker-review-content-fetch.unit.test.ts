@@ -6,6 +6,7 @@ import {
 	makeContentRequestDescriptor,
 	makeImmediateReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 import {
@@ -56,6 +57,88 @@ describe('Bridge worker review content fetch', () => {
 		}
 		expect(result.textBytes.byteLength).toBe(19);
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello bridge worker');
+	});
+
+	test('waits for current metadata interests immediately before a native content open', async () => {
+		// Arrange
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'gated content' });
+		const interestCommit = createBridgeProductDeferred<void>();
+		let openCallCount = 0;
+
+		// Act
+		const resultPromise = fetchBridgeWorkerReviewContentResource({
+			beforeOpenContent: async (): Promise<void> => await interestCommit.promise,
+			descriptor,
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'gated content');
+			},
+		});
+		await Promise.resolve();
+
+		// Assert
+		expect(openCallCount).toBe(0);
+		interestCommit.resolve();
+		await expect(resultPromise).resolves.toMatchObject({ disposition: 'ready' });
+		expect(openCallCount).toBe(1);
+	});
+
+	test('does not open native content when the current interest authority rejects', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'rejected content' });
+		let openCallCount = 0;
+
+		const result = await fetchBridgeWorkerReviewContentResource({
+			beforeOpenContent: async (): Promise<void> => {
+				throw new Error('retired Review interest authority');
+			},
+			descriptor,
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'rejected content');
+			},
+		});
+
+		expect(openCallCount).toBe(0);
+		expect(result).toMatchObject({
+			disposition: 'terminal',
+			localFailure: { code: 'internal_failure', kind: 'internal' },
+		});
+	});
+
+	test('runs the pre-open barrier only after resident and in-flight reuse miss', async () => {
+		// Arrange
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'shared gated content' });
+		const registry = createBridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>({
+			maxBytes: 1024,
+		});
+		const interestCommit = createBridgeProductDeferred<void>();
+		let barrierCallCount = 0;
+		let openCallCount = 0;
+		const fetchReviewContent = createSharedBridgeWorkerReviewContentResourceFetch({
+			beforeOpenContent: async (): Promise<void> => {
+				barrierCallCount += 1;
+				await interestCommit.promise;
+			},
+			bodyRegistry: registry,
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'shared gated content');
+			},
+		});
+
+		// Act
+		const first = fetchReviewContent(descriptor);
+		const coalesced = fetchReviewContent(descriptor);
+		await Promise.resolve();
+
+		// Assert
+		expect(barrierCallCount).toBe(1);
+		expect(openCallCount).toBe(0);
+		interestCommit.resolve();
+		await Promise.all([first, coalesced]);
+		await fetchReviewContent(descriptor);
+		expect(barrierCallCount).toBe(1);
+		expect(openCallCount).toBe(1);
 	});
 
 	test('accepts a completed stream for an inexact Review byte range', async () => {

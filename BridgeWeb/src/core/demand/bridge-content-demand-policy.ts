@@ -40,6 +40,14 @@ export const bridgeContentDemandRetentionPolicy = {
 	reviewContentRegistryMaxEntries: 2048,
 } as const;
 
+export const bridgeRenderDispositionAdmissionPolicy = {
+	/** Bounds current-worker receipt debt to three positive transitions per retained Review item. */
+	maximumPendingReceiptCount:
+		3 * bridgeContentDemandRetentionPolicy.reviewContentRegistryMaxEntries,
+	/** A timed-out batch permits one FIFO progress probe before receipt admission stalls. */
+	maximumUnknownDeliveryProbeCount: 1,
+} as const;
+
 export const bridgeWorkerPierreRenderPolicy = {
 	/** R57 Review courier byte/line ceiling; Review owns continuation/window-follow beyond this first window. */
 	reviewInteractiveRenderBudget: {

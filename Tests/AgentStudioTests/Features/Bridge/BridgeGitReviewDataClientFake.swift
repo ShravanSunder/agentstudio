@@ -128,11 +128,7 @@ actor BridgeGitReviewDataClientFake: BridgeGitReviewDataClient, BridgeSharedRevi
         _ = freshnessKey
         return BridgeSharedReviewContentBacking(
             artifactIdentity: UUIDv7.generate(),
-            directoryURL: FileManager.default.temporaryDirectory.appending(
-                path: "bridge-review-data-client-fake-\(UUIDv7.generate().uuidString)"
-            ),
-            sourceByIdentity: [:],
-            capturedByteCount: 0
+            sourceByIdentity: [:]
         )
     }
 

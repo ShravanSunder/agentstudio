@@ -1,6 +1,7 @@
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type {
 	BridgeWorkerReviewPierreRenderJobEvent,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderPatch,
 	BridgeWorkerReviewRenderPatchEvent,
 	BridgeWorkerReviewRenderSemantics,
@@ -30,6 +31,7 @@ export interface PrepareBridgeWorkerReviewContentReadyEventsProps {
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly publicationSequence: number;
 	readonly renderReceiptIdentity: BridgeWorkerReviewPierreRenderJobEvent['renderReceiptIdentity'];
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 	readonly workerDerivationEpoch: number;
@@ -37,14 +39,15 @@ export interface PrepareBridgeWorkerReviewContentReadyEventsProps {
 
 export type PlanBridgeWorkerReviewContentReadyRenderJobProps = Omit<
 	PrepareBridgeWorkerReviewContentReadyEventsProps,
-	'publicationSequence' | 'renderReceiptIdentity' | 'workerDerivationEpoch'
+	| 'publicationSequence'
+	| 'renderReceiptIdentity'
+	| 'reviewPublicationIdentity'
+	| 'workerDerivationEpoch'
 >;
 
 export interface CommitBridgeWorkerReviewContentReadyRenderPatchProps {
 	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
-	readonly publicationSequence: number;
 	readonly store: BridgeCommWorkerStore;
-	readonly workerDerivationEpoch: number;
 }
 
 export interface BridgeWorkerReviewContentReadyRenderPatchCommit {
@@ -78,6 +81,7 @@ export function prepareBridgeWorkerReviewContentRenderJobEvent(
 			: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 					job: result.job,
 					renderReceiptIdentity: props.renderReceiptIdentity,
+					reviewPublicationIdentity: props.reviewPublicationIdentity,
 				});
 	}
 }
@@ -118,13 +122,23 @@ export function createBridgeWorkerReviewContentRenderJobPreparation(
 export function commitBridgeWorkerReviewContentReadyRenderPatch(
 	props: CommitBridgeWorkerReviewContentReadyRenderPatchProps,
 ): BridgeWorkerReviewContentReadyRenderPatchCommit {
+	if (
+		props.preparedJobEvent.message.publicationSequence !==
+			props.preparedJobEvent.message.renderReceiptIdentity.publicationSequence ||
+		props.preparedJobEvent.message.workerDerivationEpoch !==
+			props.preparedJobEvent.message.renderReceiptIdentity.workerDerivationEpoch
+	) {
+		throw new Error(
+			'Bridge worker Review render patch does not match its render receipt authority.',
+		);
+	}
 	const contentReadyResult = props.store.actions.applyContentReady({
 		itemId: props.preparedJobEvent.message.job.itemId,
 		contentCacheKey: props.preparedJobEvent.message.job.contentCacheKey,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.workerDerivationEpoch,
-		sequence: props.publicationSequence,
+		epoch: props.preparedJobEvent.message.workerDerivationEpoch,
+		sequence: props.preparedJobEvent.message.publicationSequence,
 	});
 	const reviewRenderPatches = bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(slicePatchEvent);
 
@@ -132,8 +146,9 @@ export function commitBridgeWorkerReviewContentReadyRenderPatch(
 		touchedKeys: contentReadyResult.touchedKeys,
 		preparedMessage: prepareBridgeWorkerReviewRenderPatchEvent({
 			patches: reviewRenderPatches,
-			publicationSequence: props.publicationSequence,
-			workerDerivationEpoch: props.workerDerivationEpoch,
+			publicationSequence: props.preparedJobEvent.message.publicationSequence,
+			reviewPublicationIdentity: props.preparedJobEvent.message.reviewPublicationIdentity,
+			workerDerivationEpoch: props.preparedJobEvent.message.workerDerivationEpoch,
 		}),
 	};
 }
@@ -141,6 +156,7 @@ export function commitBridgeWorkerReviewContentReadyRenderPatch(
 export function prepareBridgeWorkerReviewRenderPatchEvent(props: {
 	readonly patches: readonly BridgeWorkerReviewRenderPatch[];
 	readonly publicationSequence: number;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly workerDerivationEpoch: number;
 }): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewRenderPatchEvent> {
 	return prepareBridgeWorkerStructuredMessage({
@@ -149,6 +165,7 @@ export function prepareBridgeWorkerReviewRenderPatchEvent(props: {
 			kind: 'reviewRenderPatch',
 			patches: props.patches,
 			publicationSequence: props.publicationSequence,
+			reviewPublicationIdentity: props.reviewPublicationIdentity,
 			surface: 'review',
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,

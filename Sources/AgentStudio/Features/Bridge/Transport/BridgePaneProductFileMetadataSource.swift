@@ -44,10 +44,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let subscription: BridgeProductSubscriptionSnapshot
     }
 
-    private struct MissingPathInvalidationRequest: Sendable {
+    private struct DescriptorUnavailablePathInvalidationRequest: Sendable {
         let emit: BridgePaneProductFileMetadataEventSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-        let missingPaths: Set<String>
+        let paths: Set<String>
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
         let subscription: BridgeProductSubscriptionSnapshot
@@ -55,8 +55,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
 
     private struct ChangesetEmissionRequest: Sendable {
         let changedPaths: Set<String>
-        let containsGitInternalChanges: Bool
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        let gitStatusResult: GitWorkingTreeStatusResult?
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
         let refreshed: BridgeWorktreeRefreshedTreeRows
@@ -67,6 +67,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     let authority: BridgePaneProductFileSourceAuthority
     let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
     let sharedConstructionBinder: BridgePaneProductFileSharedConstructionBinder
+    let statusProvider: any GitWorkingTreeStatusProvider
     var sourceAcceptedObserver: BridgePaneProductFileSourceAcceptedObserver
     let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
     var contextBySubscriptionId: [String: SubscriptionContext] = [:]
@@ -88,6 +89,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     ) {
         self.authority = authority
         self.descriptorMaterializer = descriptorMaterializer
+        self.statusProvider = statusProvider
         let resolvedPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader =
             if let snapshotPreparationLoader {
                 snapshotPreparationLoader
@@ -143,14 +145,36 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         sourceAcceptedObserver = observer
     }
 
+    func currentWorktreeAnnotationFingerprint(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceFingerprint {
+        try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
+    }
+
+    func currentWorktreeAnnotationSourceGeneration(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> Int {
+        try await worktreeAnnotationSourceGenerationImplementation(productAdmission: productAdmission)
+    }
+
+    func currentWorktreeAnnotationRefresh(
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceRefreshCapture {
+        try await worktreeAnnotationRefreshImplementation(
+            requirements: requirements,
+            productAdmission: productAdmission
+        )
+    }
+
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        guard case .fileMetadata(let sourceSpec) = subscription.subscription,
-            case .fileMetadata(_, let pathScope) = subscription.interestState
+        guard let sourceSpec = subscription.subscription.fileMetadataSource,
+            let interestState = subscription.interestState.fileMetadataState
         else {
             return
         }
@@ -159,7 +183,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             let context = try installContext(
                 subscription: subscription,
                 sourceSpec: sourceSpec,
-                pathScope: pathScope,
+                pathScope: interestState.pathScope,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
@@ -194,14 +218,31 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     productSource: productSource,
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission
-                ),
+                )
+            else {
+                await releaseContext(
+                    subscriptionId: subscription.subscriptionId,
+                    expectedSource: productSource
+                )
+                return
+            }
+            if sourceSpec.includeStatuses {
+                try await publishCurrentStatus(
+                    preparation.statusResult,
+                    emit: emit,
+                    productAdmission: productAdmission,
+                    productSource: productSource,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            }
+            guard
                 try await enumerateInitialTree(
                     .init(
                         emit: emit,
                         foregroundWorkAdmission: foregroundWorkAdmission,
                         manifestIndex: preparedContext.manifestIndex,
                         openedSource: preparedContext.openedSource,
-                        pathScope: pathScope,
+                        pathScope: interestState.pathScope,
                         productAdmission: productAdmission,
                         productSource: productSource,
                         subscription: subscription
@@ -215,14 +256,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 )
                 return
             }
-            guard sourceSpec.includeStatuses else { return }
-            try await publishCurrentStatus(
-                preparation.statusResult,
-                emit: emit,
-                productAdmission: productAdmission,
-                productSource: productSource,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
         } catch {
             await releaseContext(
                 subscriptionId: subscription.subscriptionId,
@@ -339,7 +372,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        guard case .fileMetadata(let interestGroups, _) = subscription.interestState else { return }
+        guard let interestGroups = subscription.interestState.fileMetadataState?.interests else { return }
         var acceptedContext: SubscriptionContext?
         let didAcceptContext =
             foregroundWorkAdmission.withValidAdmission {
@@ -376,6 +409,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             (productAdmission.withValidAdmission { true }) == true
         else { return }
         let refreshed = await treeRowRefresher(authority.worktree.path, manifestPaths, false)
+        let refreshedFilePaths = Set(
+            refreshed.rows.lazy.filter { !$0.isDirectory }.map(\.path)
+        )
+        let descriptorUnavailablePaths = manifestPaths.subtracting(refreshedFilePaths)
         try Task.checkCancellation()
         guard
             isCurrent(
@@ -437,11 +474,11 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 subscription: subscription
             )
         )
-        _ = try await emitMissingPathInvalidations(
+        _ = try await emitDescriptorUnavailablePathInvalidations(
             .init(
                 emit: emit,
                 foregroundWorkAdmission: foregroundWorkAdmission,
-                missingPaths: refreshed.missingPaths,
+                paths: descriptorUnavailablePaths,
                 productAdmission: productAdmission,
                 productSource: productSource,
                 subscription: subscription
@@ -480,10 +517,10 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         return true
     }
 
-    private func emitMissingPathInvalidations(
-        _ request: MissingPathInvalidationRequest
+    private func emitDescriptorUnavailablePathInvalidations(
+        _ request: DescriptorUnavailablePathInvalidationRequest
     ) async throws -> Bool {
-        for missingPath in request.missingPaths {
+        for path in request.paths.sorted() {
             try Task.checkCancellation()
             var acceptedContext: SubscriptionContext?
             let didAcceptContext =
@@ -506,8 +543,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             try await request.emit(
                 .invalidated(
                     try .init(
-                        fileId: currentContext.descriptorByPath[missingPath]?.fileId,
-                        path: missingPath,
+                        fileId: currentContext.descriptorByPath[path]?.fileId,
+                        path: path,
                         reason: .filesystemEvent,
                         replacementDescriptor: nil,
                         source: request.productSource
@@ -534,7 +571,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
                 contextBySubscriptionId.compactMap { subscriptionId, context in
-                    guard case .fileMetadata(let sourceSpec) = context.subscription.subscription,
+                    guard let sourceSpec = context.subscription.subscription.fileMetadataSource,
                         context.productAdmission.matches(productAdmission),
                         sourceSpec.includeStatuses
                     else { return nil }
@@ -562,6 +599,17 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         else {
             return []
         }
+        let gitStatusResult: GitWorkingTreeStatusResult? =
+            if changeset.containsGitInternalChanges
+                || changeset.suppressedGitInternalPathCount > 0
+            {
+                await statusProvider.statusResult(for: authority.worktree.path)
+            } else {
+                nil
+            }
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            (productAdmission.withValidAdmission { true }) == true
+        else { return [] }
         var emissions: [BridgePaneProductFileMetadataEmission] = []
         for subscriptionId in contextBySubscriptionId.keys.sorted() {
             guard let context = contextBySubscriptionId[subscriptionId],
@@ -606,8 +654,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 let subscriptionEmissions = try makeChangesetEmissions(
                     .init(
                         changedPaths: changedPaths,
-                        containsGitInternalChanges: changeset.containsGitInternalChanges,
                         foregroundWorkAdmission: foregroundWorkAdmission,
+                        gitStatusResult: gitStatusResult,
                         productAdmission: productAdmission,
                         productSource: productSource,
                         refreshed: refreshed,
@@ -678,12 +726,22 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             }
         guard (request.productAdmission.withValidAdmission { true }) == true else { return nil }
         emissions.append(contentsOf: invalidationEmissions)
-        if request.containsGitInternalChanges {
+        if let gitStatusResult = request.gitStatusResult {
+            let statusEvent: BridgeProductFileMetadataEvent
+            switch gitStatusResult {
+            case .available(let status):
+                statusEvent = BridgePaneProductFileMetadataEncoding.statusEvent(
+                    status,
+                    source: request.productSource
+                )
+            case .unavailable:
+                statusEvent = .statusPatch(
+                    .init(patch: .invalidated, source: request.productSource)
+                )
+            }
             emissions.append(
                 .init(
-                    event: .statusPatch(
-                        .init(patch: .invalidated, source: request.productSource)
-                    ),
+                    event: statusEvent,
                     subscriptionId: request.subscriptionId
                 )
             )

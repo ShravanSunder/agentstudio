@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import Foundation
 
 package enum BridgeReviewRepositoryLocation: Equatable, Sendable {

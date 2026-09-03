@@ -7,6 +7,81 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("explicit File retry cannot bypass stream-reset recovery without unavailable state")
+    func explicitFileRetryRequiresUnavailableState() {
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/StreamReset.swift"],
+                batchSequence: 63
+            ),
+            requiresReviewRefresh: false
+        )
+
+        #expect(!coordinator.beginExplicitFileRefreshRetry())
+        #expect(coordinator.diagnosticSnapshot.dirtyFact != nil)
+        #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
+    }
+
+    @Test("explicit File retry advances authority and clears retained failure")
+    func explicitFileRetryAdvancesAuthorityAndClearsRetainedFailure() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/Retry.swift"],
+                batchSequence: 64
+            ),
+            requiresReviewRefresh: false
+        )
+        let failedReservation = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .file)
+        )
+        coordinator.completeRefreshPass(failedReservation, outcome: .failed)
+        coordinator.recordFileRefreshFailure(
+            .init(failureKind: .fileSourceUnavailable)
+        )
+
+        // Act
+        let retryBegan = coordinator.beginExplicitFileRefreshRetry()
+        let retryReservation = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .file)
+        )
+
+        // Assert
+        #expect(retryBegan)
+        #expect(retryReservation.authorityGeneration > failedReservation.authorityGeneration)
+        #expect(retryReservation.filePaths == ["Sources/App/Retry.swift"])
+        #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
+    }
+
+    @Test("new File invalidation clears retained refresh failure and admits current dirty work")
+    func newFileInvalidationClearsRetainedRefreshFailureAndAdmitsCurrentDirtyWork() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordFileRefreshFailure(
+            .init(failureKind: .fileSourceUnavailable)
+        )
+        let unavailableRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/Recovered.swift"],
+                batchSequence: 65
+            ),
+            requiresReviewRefresh: false
+        )
+        let reservation = try #require(coordinator.reserveForegroundRefreshPass(for: .file))
+
+        // Assert
+        let presentation = coordinator.productPresentationSnapshot
+        #expect(presentation.fileRefreshFailure == nil)
+        #expect(presentation.presentationRevision > unavailableRevision)
+        #expect(presentation.refreshingLanes == [.file])
+        #expect(reservation.filePaths == ["Sources/App/Recovered.swift"])
+    }
+
     @Test("only the pending comparison attempt is current for publication")
     func onlyPendingComparisonAttemptIsCurrentForPublication() {
         // Arrange
@@ -151,6 +226,54 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
                     activeTarget: .branch(name: "stack/base"),
                     attempt: .settled(reviewGeneration: 9),
                     displayedSnapshot: .current(successor)
+                )
+        )
+    }
+
+    @Test("committed refresh repairs an unavailable comparison attempt")
+    func committedRefreshRepairsUnavailableComparisonAttempt() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let recovered = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-9",
+            reviewGeneration: 9,
+            revision: 13
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "providerUnavailable",
+            retryable: true
+        )
+
+        // Act
+        coordinator.recordCommittedReviewComparisonSnapshot(
+            reviewGeneration: 9,
+            displayedSnapshotIdentity: recovered
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison
+                == BridgePaneReviewComparisonPresentation(
+                    activeTarget: .branch(name: "stack/base"),
+                    attempt: .settled(reviewGeneration: 9),
+                    displayedSnapshot: .current(recovered)
                 )
         )
     }
@@ -321,8 +444,8 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(coordinator.diagnosticSnapshot.refreshPassCount == 0)
     }
 
-    @Test("foreground transition reserves one latest catch-up covering File and Review")
-    func foregroundTransitionReservesOneLatestCatchUpForBothLanes() throws {
+    @Test("foreground transition reserves independent latest File and Review catch-ups")
+    func foregroundTransitionReservesIndependentLatestCatchUps() throws {
         // Arrange
         let coordinator = BridgePaneRefreshAdmissionCoordinator()
         coordinator.applyActivity(.loadedHidden)
@@ -345,7 +468,7 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         coordinator.applyActivity(.foreground)
         let reservation = try #require(coordinator.reserveForegroundRefreshPass())
         coordinator.applyActivity(.foreground)
-        let repeatedForegroundReservation = coordinator.reserveForegroundRefreshPass()
+        let reviewReservation = try #require(coordinator.reserveForegroundRefreshPass())
         coordinator.applyActivity(.foreground)
         let thirdForegroundReservation = coordinator.reserveForegroundRefreshPass()
 
@@ -358,11 +481,86 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
                 ]
         )
         #expect(reservation.latestBatchSequence == 52)
-        #expect(reservation.requiresReviewRefresh)
-        #expect(repeatedForegroundReservation == nil)
+        #expect(reservation.lanes == [.file])
+        #expect(!reservation.requiresReviewRefresh)
+        #expect(reviewReservation.lanes == [.review])
+        #expect(reviewReservation.requiresReviewRefresh)
+        #expect(reservation.operationCorrelationID.count == 64)
+        #expect(reviewReservation.operationCorrelationID.count == 64)
+        #expect(reservation.operationCorrelationID != reviewReservation.operationCorrelationID)
+        #expect(
+            coordinator.productPresentationSnapshot.operationCorrelationID
+                == reviewReservation.operationCorrelationID
+        )
         #expect(thirdForegroundReservation == nil)
         #expect(coordinator.diagnosticSnapshot.activeRefreshPass?.id == reservation.id)
-        #expect(coordinator.diagnosticSnapshot.refreshPassCount == 1)
+        #expect(coordinator.productPresentationSnapshot.refreshingLanes == [.file, .review])
+        #expect(coordinator.diagnosticSnapshot.refreshPassCount == 2)
+    }
+
+    @Test("File reservation proceeds while a Review-only reservation remains active")
+    func fileReservationProceedsWhileReviewReservationRemainsActive() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(
+            fileChangeset: nil,
+            requiresReviewRefresh: true
+        )
+        let reviewReservation = try #require(coordinator.reserveForegroundRefreshPass())
+
+        // Act
+        coordinator.recordInvalidation(
+            fileChangeset: makeFileChangeset(
+                paths: ["Sources/App/FileWhileReviewDrains.swift"],
+                batchSequence: 53
+            ),
+            requiresReviewRefresh: false
+        )
+        let fileReservation = coordinator.reserveForegroundRefreshPass()
+
+        // Assert
+        #expect(reviewReservation.lanes == [.review])
+        #expect(fileReservation?.lanes == [.file])
+        #expect(fileReservation?.filePaths == ["Sources/App/FileWhileReviewDrains.swift"])
+        #expect(coordinator.productPresentationSnapshot.refreshingLanes == [.file, .review])
+    }
+
+    @Test("Review authority 12 rejects late completion from 10 and 11")
+    func newestReviewAuthorityRejectsLatePredecessorCompletion() throws {
+        // Arrange — operation 10 owns the first Review invalidation.
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        coordinator.recordInvalidation(fileChangeset: nil, requiresReviewRefresh: true)
+        let operation10 = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .review)
+        )
+
+        // Act — 11 and then 12 supersede current authority before either predecessor settles.
+        coordinator.recordInvalidation(fileChangeset: nil, requiresReviewRefresh: true)
+        let operation11 = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .review)
+        )
+        coordinator.recordInvalidation(fileChangeset: nil, requiresReviewRefresh: true)
+        let operation12 = try #require(
+            coordinator.reserveForegroundRefreshPass(for: .review)
+        )
+        coordinator.completeRefreshPass(operation10, outcome: .succeeded)
+        coordinator.completeRefreshPass(operation11, outcome: .failed)
+
+        // Assert — late predecessors cannot clear 12 or restore their facts over it.
+        #expect(operation10.authorityGeneration < operation11.authorityGeneration)
+        #expect(operation11.authorityGeneration < operation12.authorityGeneration)
+        #expect(operation10.operationCorrelationID != operation11.operationCorrelationID)
+        #expect(operation11.operationCorrelationID != operation12.operationCorrelationID)
+        #expect(!coordinator.isRefreshPassCurrent(operation10))
+        #expect(!coordinator.isRefreshPassCurrent(operation11))
+        #expect(coordinator.isRefreshPassCurrent(operation12))
+        #expect(coordinator.diagnosticSnapshot.activeRefreshPass?.id == operation12.id)
+        #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
+
+        // Act / Assert — only 12 can settle current Review authority.
+        coordinator.completeRefreshPass(operation12, outcome: .succeeded)
+        #expect(coordinator.diagnosticSnapshot.activeRefreshPass == nil)
+        #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
     }
 
     @Test("loaded-hidden coalescing retains only the latest File status snapshot")
@@ -395,13 +593,15 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
             requiresReviewRefresh: true
         )
         coordinator.applyActivity(.foreground)
-        let reservation = try #require(coordinator.reserveForegroundRefreshPass())
+        let fileReservation = try #require(coordinator.reserveForegroundRefreshPass())
+        let reviewReservation = try #require(coordinator.reserveForegroundRefreshPass())
 
         // Assert
-        #expect(reservation.fileChangeset == nil)
-        #expect(reservation.latestFileStatus == latestStatus)
-        #expect(reservation.lanes == [.file, .review])
-        #expect(coordinator.diagnosticSnapshot.refreshPassCount == 1)
+        #expect(fileReservation.fileChangeset == nil)
+        #expect(fileReservation.latestFileStatus == latestStatus)
+        #expect(fileReservation.lanes == [.file])
+        #expect(reviewReservation.lanes == [.review])
+        #expect(coordinator.diagnosticSnapshot.refreshPassCount == 2)
     }
 
     @Test("successful completion clears dirty while failure retains it for explicit retry")
@@ -433,11 +633,21 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         let retryReservation = try #require(coordinator.reserveForegroundRefreshPass())
         coordinator.completeRefreshPass(retryReservation, outcome: .succeeded)
 
-        // Assert
+        // Assert — the File lane is current, while the independent Review lane remains dirty.
         #expect(retryReservation.dirtyGeneration == failedReservation.dirtyGeneration)
-        #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
+        #expect(coordinator.diagnosticSnapshot.dirtyFact?.requiresReviewRefresh == true)
         #expect(coordinator.diagnosticSnapshot.activeRefreshPass == nil)
         #expect(coordinator.diagnosticSnapshot.refreshPassCount == 2)
+
+        // Act — settle the retained Review lane independently.
+        let reviewReservation = try #require(coordinator.reserveForegroundRefreshPass())
+        coordinator.completeRefreshPass(reviewReservation, outcome: .succeeded)
+
+        // Assert
+        #expect(reviewReservation.lanes == [.review])
+        #expect(coordinator.diagnosticSnapshot.dirtyFact == nil)
+        #expect(coordinator.diagnosticSnapshot.activeRefreshPass == nil)
+        #expect(coordinator.diagnosticSnapshot.refreshPassCount == 3)
         #expect(coordinator.reserveForegroundRefreshPass() == nil)
     }
 

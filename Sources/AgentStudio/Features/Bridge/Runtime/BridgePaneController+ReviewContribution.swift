@@ -11,6 +11,7 @@ extension BridgePaneController {
             let contributionTargetCommit
         else {
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
         let mutationResult = contributionTargetCommit(request.target)
@@ -21,12 +22,14 @@ extension BridgePaneController {
             canonicalState = state
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
         else {
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
 
@@ -41,7 +44,8 @@ extension BridgePaneController {
         )
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)
-        activeReviewRefreshTask?.cancel()
+        refreshAdmissionCoordinator.advanceAuthority(for: .review)
+        retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible()
         return true
     }
