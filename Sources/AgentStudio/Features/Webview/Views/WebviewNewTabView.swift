@@ -314,7 +314,7 @@ private struct FaviconView: View {
                     image
                         .resizable()
                         .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
+                        .scaledToFit()
                         .frame(width: size, height: size)
                 default:
                     fallbackInitial
