@@ -525,7 +525,8 @@ The same capture path owns every contribution refresh. The existing catch-up
 reservation still coalesces filesystem work:
 
 ```text
-contribution invalidation → new generation → fresh identity resolution
+contribution invalidation → new attempt authority → fresh identity resolution
+  → retain or advance source-lineage generation as the later design requires
   → proportional Git calculation when exact and safe, otherwise complete
 ```
 
@@ -629,16 +630,18 @@ PROPOSED CONTRIBUTION PATH
   → [+] controller adopts only the returned canonical intent
   ← [=] product-call dispatcher returns after the committed handler completes
 
-[~] BridgePaneController begins a new contribution generation
+[~] BridgePaneController begins a new contribution attempt authority
+  → [~] retains or advances source-lineage generation according to the later
+        Incremental Review Git Refresh design
   → [+] agentstudio-git contribution operation
       → resolved target + reviewed HEAD + unique merge base + diff
   → [+] shared resolved-contribution builder binds the pipeline request + origin
   → [~] BridgeReviewPipeline consumes it once; no endpoint re-comparison
   → [~] shared-template bind writes request origin into BridgeReviewPackage
-  → [~] controller rechecks attempt generation before publication staging
-  → [~] controller rechecks attempt generation immediately before commit
+  → [~] controller rechecks attempt authority before publication staging
+  → [~] controller rechecks attempt authority immediately before commit
   → [=] publication coordinator applies its existing admission guards
-  → [~] metadata reset/snapshot includes origin and retains the active
+  → [~] metadata delta or reset/snapshot includes origin and retains the active
         predecessor until the successor is admitted
   → [~] Review View renders target/kind and current validity
 
@@ -1084,23 +1087,25 @@ exact-worktree admission. Without both changes the widened
 route would be silently discarded at the controller.
 
 Observation of either relevant event immediately advances the affected
-controller's existing Review comparison generation before catch-up is queued.
-That same transition publishes pending presentation and makes any in-flight or
-already-leased predecessor generation ineligible to become current. Native
-task cancellation remains best effort; publication must recheck the generation
+controller's existing Review attempt authority before catch-up is queued. That
+same transition publishes pending presentation and makes any in-flight or
+already-leased predecessor attempt ineligible to become current. Native task
+cancellation remains best effort; publication must recheck attempt authority
 after package construction and before commit. The widened same-repository route
 uses this same controller-owned invalidation transition rather than adding a
 second epoch or admission owner.
 
-The prepared publication retains the generation of the attempt that captured
-its origin. `BridgePaneController` compares that generation with its current
-generation after package construction and again immediately before the
-publication coordinator commit. The existing publication coordinator continues
-to own reservation, commit, and delivery admission; it is not redefined as the
-comparison-generation owner. The final generation check and coordinator commit
-run in one non-suspending `MainActor` critical section, so invalidation cannot
-interleave between them. A mismatch rejects any staged reservation, releases
-the artifact pin, and leaves the successor attempt pending.
+The prepared publication retains the public source-lineage generation selected
+by the later
+[Incremental Review Git Refresh design](../2026-09-03-incremental-review-git-refresh/2026-09-03-program-design.md).
+`BridgePaneController` compares its attempt authority with current authority
+after package construction and again immediately before the publication
+coordinator commit. The existing publication coordinator continues to own
+reservation, commit, and delivery admission. The final attempt-authority check
+and coordinator commit run in one non-suspending `MainActor` critical section,
+so invalidation cannot interleave between them. A mismatch rejects any staged
+reservation, releases the artifact pin, and leaves the successor attempt
+pending.
 
 ## Failure and recovery
 

@@ -18,12 +18,20 @@ not use that information. A one-file edit therefore starts another complete
 base-to-working-tree comparison and rebuilds metadata for every file in a large
 Review before publication can discover that only one item changed.
 
-In the shared observability stack's last-30-day debug/test window, Review
-construction recorded 10,706 invalidations for 271 builds: about 39.5
-invalidations per build. This is debug-configuration and fixture evidence, not
-production usage. Repeating the complete Git comparison for ordinary same-path
-edits makes live Review work scale with unrelated branch size and competes with
-commenting, reading, and subsequent refreshes.
+On the default contribution-target path, that refresh also advances the public
+Review generation and recreates source endpoints. The existing Review delta is
+therefore not admitted: native sends a reset and every metadata window, the
+worker rebuilds its complete projection and re-prepares demanded content, and
+an active annotation projection re-applies annotations to every mounted Review
+item. Making only the private Git comparison proportional would leave this
+downstream cost scaling with unrelated Review size.
+
+In the shared observability stack's retained debug/test window (15-day
+retention, DEBUG runtime and proof scenarios), Review construction recorded
+10,706 invalidations for 271 builds: about 39.5 invalidations per build. This is
+fixture evidence, not production usage. Repeating the complete Git comparison
+for ordinary same-path edits makes live Review work scale with unrelated branch
+size and competes with commenting, reading, and subsequent refreshes.
 
 ## Affected people
 
@@ -37,15 +45,19 @@ commenting, reading, and subsequent refreshes.
 ## Goal boundary
 
 Preserve one complete, exact, immutable Review successor while allowing an
-ordinary, exhaustively identified same-path file modification to recompute only
-the affected Git metadata. Any structural, incomplete, or uncertain change
-continues through the existing complete comparison.
+ordinary, exhaustively identified same-path file modification to recompute,
+deliver, prepare, and apply only affected expensive work. Native may still
+assemble complete immutable metadata privately. Any structural, incomplete, or
+uncertain change continues through the existing complete comparison and reset
+path.
 
 ```text
 ordinary exact file modification
   -> calculate affected Git metadata only
   -> assemble one complete successor privately
-  -> publish through the existing atomic Review path
+  -> publish one existing Review metadata delta
+  -> prepare changed demanded content only
+  -> update only Review items whose presentation actually changed
 
 structural or uncertain change
   -> existing complete comparison
@@ -53,9 +65,10 @@ structural or uncertain change
 ```
 
 This work may change Agent Studio’s Review refresh calculation contract and the
-`agentstudio-git` API used by Agent Studio. It must not change comparison-target
-meaning, comment behavior, presentation classification, metadata transport, or
-visible partial-result policy.
+`agentstudio-git` API used by Agent Studio, the application-specific Review
+metadata-delta admission, and Review annotation application. It must not change
+comparison-target meaning, comment behavior, presentation classification, the
+generic transport mechanism, or visible partial-result policy.
 
 ## Authorized needs
 
@@ -145,12 +158,24 @@ visible partial-result policy.
 - Authority state: authorized by the Agent Studio owner and existing
   performance requirements.
 
+### U-IRR-009 — Keep unchanged Review items out of expensive downstream work
+
+- Affected class: reviewer, developer, agent, and maintainer.
+- Need: A safe same-source one-file refresh must not resend unchanged metadata,
+  reopen unchanged demanded content, or dirty unchanged mounted Pierre items.
+- Why: Git calculation speed does not make Review responsive if the worker,
+  content bridge, and renderer still repeat unrelated work.
+- Priority: must.
+- Authority state: authorized by the Agent Studio owner’s end-to-end refresh
+  performance goal and the existing demand-driven transport design.
+
 ## Non-goals
 
 - Changing Review UI, update-bar policy, focus holds, or comment commands.
 - Publishing path-by-path or partially complete Review state.
-- Making rename, add, delete, type-change, conflict, attribute, ignore, or
-  Git-internal changes incremental in the first realization.
+- Making scoped Git calculation for rename, add, delete, type-change, conflict,
+  attribute, ignore, or Git-internal changes incremental in the first
+  realization.
 - Caching source-file contents, rendered diffs, comments, transport frames, or
   historical Review generations.
 - Adding another filesystem watcher, worker, queue, scheduler, database, store,
@@ -158,6 +183,9 @@ visible partial-result policy.
 - Modifying vendored libgit2.
 - Weakening exact hashes, binary classification, rename behavior, modes, sizes,
   ordering, or additions/deletions.
+- Replacing complete immutable native/worker candidates or eliminating every
+  internal full-array scan when it does not trigger unrelated I/O, transport,
+  preparation, or render work.
 
 ## Success evidence
 
@@ -166,8 +194,12 @@ visible partial-result policy.
 - The resulting complete snapshot is byte-equivalent to a fresh complete
   comparison.
 - Structural and uncertain cases demonstrably take the complete path.
-- Edits racing calculation converge on the newest complete generation.
+- Edits racing calculation converge on the newest admitted attempt and complete
+  source-lineage successor.
 - The existing Review/comment/Vite/packaged journeys remain functional and
   interactive.
 - Retained Git metadata remains within its declared active/candidate bound and
   is released with its owning Review calculation lifetime.
+- A same-source one-file contribution refresh emits one bounded Review delta,
+  performs no unchanged content opens, and sends no unchanged Pierre item
+  updates; replacement, ambiguous, and over-cap cases still reset completely.

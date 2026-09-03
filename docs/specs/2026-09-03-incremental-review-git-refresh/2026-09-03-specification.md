@@ -25,6 +25,12 @@ is the affected scope exact and safely proportional?
         |             |
         |             v
         |         assemble complete private successor
+        |             |
+        |             v
+        |         deliver bounded Review delta
+        |             |
+        |             v
+        |         prepare/apply affected items only
         |
         `-- no ---> fresh complete comparison
                       |
@@ -38,6 +44,12 @@ is the affected scope exact and safely proportional?
 The calculation choice is not visible product state. Review still presents
 complete snapshots, complete deltas between snapshots, retained predecessors,
 and explicit failure according to the existing Review contracts.
+
+The public Review generation identifies one semantic source lineage. A refresh
+attempt has separate newest-work authority. A same-lineage successor keeps its
+Review generation and advances its package revision; a source-lineage
+replacement advances generation and uses the complete reset path. Publication
+identity continues to identify the exact installed candidate.
 
 ## Terms
 
@@ -90,7 +102,13 @@ The cost of this refresh class MUST be bounded by affected-path work plus
 complete-successor metadata assembly; it MUST NOT repeat per-file Git content
 calculation across the unrelated predecessor file set.
 
-Basis: U-IRR-001, U-IRR-008.
+For a safe same-source successor, unchanged Review items MUST NOT be resent as
+metadata, reopened through content demand, or version-bumped merely because a
+new publication was installed. Internal complete-candidate assembly MAY remain
+linear in metadata count when it performs no unrelated Git/content I/O,
+transport, preparation, or renderer update.
+
+Basis: U-IRR-001, U-IRR-008, U-IRR-009.
 
 ### R-IRR-003 — Exact-scope admission
 
@@ -148,15 +166,27 @@ Basis: U-IRR-002, U-IRR-003.
 ### R-IRR-005 — Current identity and generation
 
 Every attempt MUST freshly resolve and bind the selected target, reviewed HEAD,
-effective comparison base, worktree identity, and newest admitted Review
-generation before its result may become current.
+effective comparison base, worktree identity, source-lineage Review generation,
+and newest admitted attempt authority before its result may become current.
+
+Every invalidation or retry MUST advance an attempt authority that prevents a
+new attempt from joining or committing physical Git work captured for an older
+attempt. A same-source refresh MAY retain the public Review generation only
+when repository, worktree, symbolic target, package, query/source, and semantic
+comparison scope remain one lineage. Explicit source, selected-target, package,
+or query-lineage replacement MUST advance the public Review generation.
 
 A proportional attempt MUST use a predecessor whose bound identities and
 comparison options equal the attempt’s identities. A mismatch retires
 proportional authority and requires a complete comparison.
 
-Only the newest admitted generation may install. A stale proportional or
-complete result MUST be rejected without changing the retained complete Review.
+Only the newest admitted attempt may install. A stale proportional or complete
+result MUST be rejected without changing the retained complete Review.
+
+Within one retained generation, only the newest admitted attempt and a strictly
+higher package revision may install. Resolved target, HEAD, or base movement
+inside one retained symbolic source MUST update comparison origin and MUST NOT
+be discarded as unchanged merely because visible file rows are equal.
 
 Basis: U-IRR-002, U-IRR-005.
 
@@ -171,7 +201,12 @@ continuity rules as a complete refresh.
 The calculation mechanism MUST NOT become a second presentation class or
 source of visible Review truth.
 
-Basis: U-IRR-004.
+A safe same-source successor that fits the existing Review-delta contract MUST
+emit that bounded delta rather than a reset. Unchanged metadata and content
+sources remain installed. Replacement, ambiguous, unavailable-predecessor, and
+over-cap successors MUST continue through reset plus complete windows.
+
+Basis: U-IRR-004, U-IRR-009.
 
 ### R-IRR-007 — Concurrent mutation and retry
 
@@ -212,8 +247,10 @@ Basis: U-IRR-006, U-IRR-007.
 Initial Review construction without a compatible complete predecessor MUST use
 a complete comparison. Existing target selection, contribution-base semantics,
 staged-deletion/same-path-recreation behavior, content demand, annotation
-commands, metadata transport, and ordinary/promoted presentation MUST remain
-unchanged.
+commands, generic metadata transport mechanics, and ordinary/promoted
+presentation MUST remain unchanged. The application-specific Review protocol
+MAY use its existing delta and affected-item contracts so unchanged work is not
+repeated.
 
 No caller may emulate Git combination or rename policy outside
 `agentstudio-git`. No path-by-path result may cross the metadata transport as a
@@ -235,6 +272,20 @@ Proof MUST compare proportional results with fresh complete results across:
   attribute/ignore, index, ref, target, and base changes;
 - missing, stale, mismatched, and capacity-rejected predecessors.
 
+Proof MUST also cover:
+
+- same-source contribution refresh preserving generation, advancing revision,
+  and emitting exactly one existing Review delta;
+- attempt-authority movement preventing a newer refresh from joining an older
+  physical Git read;
+- source/origin-only movement with equal file rows producing a current reset,
+  not an unchanged short-circuit;
+- unchanged demanded content producing no native content open;
+- one affected item updating without notifying or version-bumping an unchanged
+  mounted item;
+- annotation placement relocation, rename, unavailable transitions, active
+  composer preservation, held publication, and unknown-affectedness fallback.
+
 The rich-fixture proof MUST establish identical complete encoded metadata and
 must separately measure complete initial capture, ordinary one-file refresh,
 fallback refresh, complete successor assembly, publication, and usable paint.
@@ -246,7 +297,32 @@ MUST exercise the real filesystem, `agentstudio-git`, native construction,
 metadata transport, and displayed Review. Failed or missing attempts remain
 failed evidence rather than discarded samples.
 
-Basis: U-IRR-008.
+Basis: U-IRR-008, U-IRR-009.
+
+### R-IRR-011 — Proportional downstream application
+
+For a safe same-source one-file successor within the existing delta bounds, the
+system MUST:
+
+- retain stable source-lineage generation, package, query/source, and endpoint
+  identity while advancing attempt authority, revision, and publication
+  identity;
+- transport only the existing Review delta operations and changed content
+  sources;
+- retain unchanged worker content bodies and main render copies without opening
+  unchanged native content;
+- carry exact affected Review item identities through candidate promotion;
+- evaluate annotations against the exact installed publication, while applying
+  a Pierre item update only when that item's derived annotation presentation
+  actually changed.
+
+Unknown affectedness, source-lineage replacement, selected-target/query change,
+rename or both-side ambiguity, placement uncertainty, active-editor
+preservation failure, and contract-capacity rejection MUST fall back to complete
+safe application. An empty affected list with unknown meaning MUST NOT be
+treated as no affected work.
+
+Basis: U-IRR-004, U-IRR-005, U-IRR-008, U-IRR-009.
 
 ## Observable journeys
 
@@ -258,11 +334,13 @@ reviewer sees complete Review A
   -> Review A remains usable
   -> one complete Review B becomes ready
   -> B is semantically identical to a fresh complete comparison
-  -> existing presentation policy installs or holds B
+  -> one bounded metadata delta carries affected Review facts
+  -> unchanged demanded content and mounted items remain untouched
+  -> existing presentation policy installs or holds B atomically
 ```
 
-Unrelated Review files must not undergo new Git content calculation during this
-journey.
+Unrelated Review files must not undergo new Git content calculation, metadata
+transport, content opening, or Pierre item update during this journey.
 
 ### Several ordinary edits arrive together
 
@@ -297,3 +375,4 @@ recovery without compatible retained metadata use a complete comparison.
 | U-IRR-006 | one Git semantics owner | R-IRR-009 | callers cannot combine Git rows independently | architecture enforcement and integration behavior |
 | U-IRR-007 | acceleration remains bounded | R-IRR-008 | no source bytes or unbounded history retained | state inspection and stress measurement |
 | U-IRR-008 | improvement is real | R-IRR-010 | parity and proportional cost on rich fixture | automated parity, performance, Vite, and packaged evidence |
+| U-IRR-009 | downstream work currently repeats unchanged items | R-IRR-002, R-IRR-006, R-IRR-011 | unchanged metadata/content/Pierre work is absent on safe same-source refresh | transport counters, content-open counters, keyed item updates, Vite and packaged evidence |
