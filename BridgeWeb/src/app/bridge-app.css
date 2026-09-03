@@ -115,6 +115,7 @@
 	--palette-stroke-muted: rgb(255 255 255 / 0.15);
 	--palette-stroke-hover: rgb(255 255 255 / 0.2);
 	--palette-stroke-visible: rgb(255 255 255 / 0.25);
+	--palette-stroke-floating: #58585c;
 	/* ANSI palette: Pierre's fixed 16-color terminal contract. */
 	--palette-ansi-black: #1d1f21;
 	--palette-ansi-red: #cc6666;
@@ -148,6 +149,8 @@
 	--popover: var(--card);
 	/* Primary text on popovers. */
 	--popover-foreground: var(--palette-text-primary);
+	/* Visible neutral outline around floating popover frames. */
+	--popover-border: var(--palette-stroke-floating);
 	/* Primary has exactly three tonal rungs: solid, 15% tint, and text. */
 	/* Brand accent for actions and active identity. */
 	--primary: var(--palette-primary-blue);
@@ -205,6 +208,9 @@
 	--motion-fast: 120ms;
 	--motion-standard: 200ms;
 	/* System shadows preserve the approved chrome elevations. */
+	--shadow-popover:
+		0 10px 24px -8px color-mix(in srgb, var(--palette-black) 45%, transparent),
+		0 3px 8px -2px color-mix(in srgb, var(--palette-black) 35%, transparent);
 	--shadow-floating-panel: 0 18px 48px color-mix(in srgb, var(--palette-black) 45%, transparent);
 	--shadow-menu: 0 24px 68px color-mix(in srgb, var(--palette-black) 86%, transparent);
 	--shadow-divider: 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);

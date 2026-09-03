@@ -33,6 +33,7 @@ export const bridgeDesignPalette = {
 	'--palette-stroke-muted': 'rgb(255 255 255 / 0.15)',
 	'--palette-stroke-hover': 'rgb(255 255 255 / 0.2)',
 	'--palette-stroke-visible': 'rgb(255 255 255 / 0.25)',
+	'--palette-stroke-floating': '#58585c',
 	'--palette-ansi-black': '#1d1f21',
 	'--palette-ansi-red': '#cc6666',
 	'--palette-ansi-green': '#b5bd68',
