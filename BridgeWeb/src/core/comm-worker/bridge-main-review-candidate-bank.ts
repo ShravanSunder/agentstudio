@@ -12,6 +12,7 @@ import {
 	bridgeMainReviewRenderCopyInvalidationItemIds,
 	invalidateBridgeMainReviewRenderCopies,
 	reconcileBridgeMainReviewRenderCopyMetadata,
+	type BridgeMainReviewDisplayPatchEffect,
 	type MutableBridgeMainRenderSnapshot,
 } from './bridge-main-review-display-state.js';
 import type {
@@ -105,11 +106,22 @@ export interface BridgeMainReviewCandidateStore {
 export interface MutableBridgeMainReviewCandidateBank {
 	effectivePresentationClass: BridgeMainReviewEffectivePresentationClass;
 	readonly identity: BridgeMainReviewPublicationIdentity;
+	readonly promotionImpact: MutableBridgeMainReviewCandidatePromotionImpact;
 	readonly reviewItemIndexById: Map<string, number>;
 	readonly reviewTreeRowById: Map<string, BridgeMainReviewTreeDisplayRow>;
 	role: BridgeMainReviewCandidateRole;
 	snapshot: MutableBridgeMainRenderSnapshot;
 	readonly startDisposition: BridgeWorkerReviewCandidateStartDisposition;
+}
+
+export interface MutableBridgeMainReviewCandidatePromotionImpact {
+	comparisonChanged: boolean;
+	readonly itemIds: Set<string>;
+	readonly itemOrderMutations: BridgeMainReviewDisplayPatchEffect['itemOrderMutations'][number][];
+	reset: boolean;
+	sourceChanged: boolean;
+	readonly treeRowIds: Set<string>;
+	readonly treeRowOrderMutations: BridgeMainReviewDisplayPatchEffect['treeRowOrderMutations'][number][];
 }
 
 export class BridgeMainReviewCandidateBankOwner {
@@ -153,6 +165,7 @@ export class BridgeMainReviewCandidateBankOwner {
 			previousItemsById: effect.previousItemsById,
 			snapshot: invalidation.snapshot,
 		}).snapshot;
+		accumulateCandidatePromotionImpact(candidate.promotionImpact, effect);
 		return true;
 	}
 
@@ -360,6 +373,7 @@ function cloneCandidate(
 				? startDisposition.presentationClass
 				: { kind: 'ordinary' },
 		identity,
+		promotionImpact: emptyCandidatePromotionImpact(),
 		reviewItemIndexById: itemIndex(snapshot.reviewItemIdsByIndex),
 		reviewTreeRowById: rowIndex(snapshot.reviewTreeRowsByIndex),
 		role: 'provisional',
@@ -375,6 +389,31 @@ function cloneCandidate(
 			rowPaintById: { ...snapshot.rowPaintById },
 		},
 	};
+}
+
+function emptyCandidatePromotionImpact(): MutableBridgeMainReviewCandidatePromotionImpact {
+	return {
+		comparisonChanged: false,
+		itemIds: new Set(),
+		itemOrderMutations: [],
+		reset: false,
+		sourceChanged: false,
+		treeRowIds: new Set(),
+		treeRowOrderMutations: [],
+	};
+}
+
+function accumulateCandidatePromotionImpact(
+	impact: MutableBridgeMainReviewCandidatePromotionImpact,
+	effect: BridgeMainReviewDisplayPatchEffect,
+): void {
+	impact.comparisonChanged ||= effect.comparisonChanged;
+	for (const itemId of effect.itemIds) impact.itemIds.add(itemId);
+	impact.itemOrderMutations.push(...effect.itemOrderMutations);
+	impact.reset ||= effect.reset;
+	impact.sourceChanged ||= effect.sourceChanged;
+	for (const rowId of effect.treeRowIds) impact.treeRowIds.add(rowId);
+	impact.treeRowOrderMutations.push(...effect.treeRowOrderMutations);
 }
 function isExact(
 	left: BridgeMainReviewPublicationIdentity,

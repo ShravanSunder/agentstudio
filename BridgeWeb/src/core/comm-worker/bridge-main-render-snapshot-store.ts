@@ -9,6 +9,7 @@ import {
 	BridgeMainReviewCandidateBankOwner,
 	mergeBridgeMainReviewCandidateSnapshot,
 	type BridgeMainReviewCandidateStore,
+	type MutableBridgeMainReviewCandidateBank,
 	type BridgeMainReviewPublicationIdentity,
 	type BridgeMainReviewRefreshPresentation,
 } from './bridge-main-review-candidate-bank.js';
@@ -304,14 +305,48 @@ export function createBridgeMainRenderSnapshotStore(
 		const nextItemIds = Object.keys(candidate.snapshot.reviewItemById);
 		const previousRowIds = [...reviewTreeRowById.keys()];
 		const nextRowIds = [...candidate.reviewTreeRowById.keys()];
-		const selectionChanged =
-			previousSnapshot.selectionSlice.selectedItemId !== null &&
-			candidate.snapshot.reviewItemById[previousSnapshot.selectionSlice.selectedItemId] ===
-				undefined;
+		const publishesKeyedSameSourceChange = candidatePublishesKeyedSameSourceChange({
+			candidate,
+			previousSnapshot,
+		});
+		const completeItemIds = new Set([...previousItemIds, ...nextItemIds]);
+		const completeRowIds = new Set([...previousRowIds, ...nextRowIds]);
+		const affectedStableFileIdentities =
+			candidate.startDisposition.kind === 'sameSource'
+				? candidate.startDisposition.affectedStableFileIdentities
+				: [];
+		const promotedItemIds = publishesKeyedSameSourceChange
+			? new Set([...candidate.promotionImpact.itemIds, ...affectedStableFileIdentities])
+			: completeItemIds;
+		const promotedRowIds = publishesKeyedSameSourceChange
+			? candidate.promotionImpact.treeRowIds
+			: completeRowIds;
 		snapshot = mergeBridgeMainReviewCandidateSnapshot({
 			activeSnapshot: previousSnapshot,
 			candidateSnapshot: candidate.snapshot,
 		});
+		const selectionChanged = previousSnapshot.selectionSlice !== snapshot.selectionSlice;
+		const availabilityItemIds = publishesKeyedSameSourceChange
+			? changedRecordItemIds(
+					previousSnapshot.contentAvailabilityById,
+					snapshot.contentAvailabilityById,
+					promotedItemIds,
+				)
+			: promotedItemIds;
+		const codeViewItemIds = publishesKeyedSameSourceChange
+			? changedRecordItemIds(
+					previousSnapshot.codeViewItemsById,
+					snapshot.codeViewItemsById,
+					promotedItemIds,
+				)
+			: promotedItemIds;
+		const rowPaintChanged = publishesKeyedSameSourceChange
+			? changedRecordItemIds(
+					previousSnapshot.rowPaintById,
+					snapshot.rowPaintById,
+					promotedItemIds,
+				).size > 0
+			: true;
 		reviewItemIndexById.clear();
 		for (const [itemId, itemIndex] of candidate.reviewItemIndexById) {
 			reviewItemIndexById.set(itemId, itemIndex);
@@ -323,11 +358,15 @@ export function createBridgeMainRenderSnapshotStore(
 		reviewCatalogChangeCursor += 1;
 		reviewCatalogChanges.push({
 			cursor: reviewCatalogChangeCursor,
-			itemIds: [...new Set([...previousItemIds, ...nextItemIds])],
-			itemOrderMutations: [{ kind: 'replace', length: snapshot.reviewItemIdsByIndex.length }],
-			reset: true,
-			treeRowIds: [...new Set([...previousRowIds, ...nextRowIds])],
-			treeRowOrderMutations: [{ kind: 'replace', length: snapshot.reviewTreeRowsByIndex.length }],
+			itemIds: [...promotedItemIds],
+			itemOrderMutations: publishesKeyedSameSourceChange
+				? candidate.promotionImpact.itemOrderMutations
+				: [{ kind: 'replace', length: snapshot.reviewItemIdsByIndex.length }],
+			reset: !publishesKeyedSameSourceChange,
+			treeRowIds: [...promotedRowIds],
+			treeRowOrderMutations: publishesKeyedSameSourceChange
+				? candidate.promotionImpact.treeRowOrderMutations
+				: [{ kind: 'replace', length: snapshot.reviewTreeRowsByIndex.length }],
 		});
 		if (reviewCatalogChanges.length > BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT) {
 			reviewCatalogChanges.splice(
@@ -342,16 +381,25 @@ export function createBridgeMainRenderSnapshotStore(
 			revision: snapshot.reviewDisplayFreshness?.projectionRevision ?? 0,
 			treeRowOrderLength: snapshot.reviewTreeRowsByIndex.length,
 		};
-		publish({ ...snapshot });
-		for (const itemId of new Set([...previousItemIds, ...nextItemIds])) {
-			reviewItemListeners.publish(itemId);
-			reviewAvailabilityListeners.publish(itemId);
-			reviewCodeViewItemListeners.publish(itemId);
+		if (
+			!publishesKeyedSameSourceChange ||
+			candidate.promotionImpact.comparisonChanged ||
+			selectionChanged ||
+			availabilityItemIds.size > 0 ||
+			codeViewItemIds.size > 0 ||
+			rowPaintChanged
+		) {
+			publish({ ...snapshot });
 		}
-		for (const rowId of new Set([...previousRowIds, ...nextRowIds])) {
+		for (const itemId of promotedItemIds) reviewItemListeners.publish(itemId);
+		for (const itemId of availabilityItemIds) reviewAvailabilityListeners.publish(itemId);
+		for (const itemId of codeViewItemIds) reviewCodeViewItemListeners.publish(itemId);
+		for (const rowId of promotedRowIds) {
 			reviewTreeRowListeners.publish(rowId);
 		}
-		publishBridgeMainListeners(reviewSourceListeners);
+		if (!publishesKeyedSameSourceChange || candidate.promotionImpact.sourceChanged) {
+			publishBridgeMainListeners(reviewSourceListeners);
+		}
 		if (selectionChanged) publishBridgeMainListeners(reviewSelectionListeners);
 		publishBridgeMainListeners(reviewCatalogListeners);
 		publishReviewRefreshPresentation();
@@ -768,6 +816,40 @@ function subscribeBridgeMainListener(listeners: Set<() => void>, listener: () =>
 
 function publishBridgeMainListeners(listeners: ReadonlySet<() => void>): void {
 	for (const listener of listeners) listener();
+}
+
+function candidatePublishesKeyedSameSourceChange(props: {
+	readonly candidate: MutableBridgeMainReviewCandidateBank;
+	readonly previousSnapshot: MutableBridgeMainRenderSnapshot;
+}): boolean {
+	const disposition = props.candidate.startDisposition;
+	if (disposition.kind !== 'sameSource' || props.candidate.promotionImpact.reset) return false;
+	if (
+		disposition.presentationClass.kind === 'promoted' &&
+		disposition.presentationClass.reason === 'unknown'
+	) {
+		return false;
+	}
+	const previousSource = props.previousSnapshot.reviewSourceSlice;
+	return (
+		previousSource !== null &&
+		previousSource.status !== 'failed' &&
+		previousSource.packageId === props.candidate.identity.packageId &&
+		previousSource.reviewGeneration === props.candidate.identity.generation &&
+		previousSource.metadataSourceId === props.candidate.identity.sourceIdentity
+	);
+}
+
+function changedRecordItemIds<TValue>(
+	previous: Readonly<Record<string, TValue>>,
+	next: Readonly<Record<string, TValue>>,
+	candidateItemIds: ReadonlySet<string>,
+): ReadonlySet<string> {
+	const changedItemIds = new Set<string>();
+	for (const itemId of candidateItemIds) {
+		if (previous[itemId] !== next[itemId]) changedItemIds.add(itemId);
+	}
+	return changedItemIds;
 }
 
 function publishReviewWorkerPatchListeners(props: {
