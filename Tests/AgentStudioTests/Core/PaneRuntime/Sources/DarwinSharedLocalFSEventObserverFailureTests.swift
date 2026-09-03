@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite("DarwinSharedLocalFSEventObserverFailureTests")
+@Suite("DarwinSharedLocalFSEventObserverFailureTests", .serialized)
 struct DarwinSharedLocalFSEventObserverFailureTests {
     @Test("nine repositories on one volume do not exceed the native exclusion limit")
     func nineRepositoriesOnOneVolumeDoNotExceedNativeExclusionLimit() throws {

@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite("DarwinSharedLocalFSEventObserver")
+@Suite("DarwinSharedLocalFSEventObserver", .serialized)
 struct DarwinSharedLocalFSEventObserverTests {
     @Test("one real stream delivers changes to multiple logical worktrees")
     func oneRealStreamDeliversChangesToMultipleLogicalWorktrees() async throws {
