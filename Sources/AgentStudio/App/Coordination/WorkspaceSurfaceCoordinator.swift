@@ -782,14 +782,12 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
         applyTopologyAdoptions(from: [delta])
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 

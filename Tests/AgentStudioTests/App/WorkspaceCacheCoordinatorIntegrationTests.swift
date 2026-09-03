@@ -357,11 +357,11 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
     }
 
-    @Test("authoritative scan healing availability restores orphaned pane residency")
-    func authoritativeScanAvailabilityHealForwardsTopologyEffects() throws {
+    @Test("authoritative scan healing availability preserves pane residency")
+    func authoritativeScanAvailabilityHealPreservesPaneResidency() throws {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let effectHandler = RestoringTopologyEffectHandler(workspaceStore: workspaceStore)
+        let effectHandler = RecordingTopologyEffectHandler()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -383,14 +383,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         )
         workspaceStore.appendTab(Tab(paneId: layoutPane.id))
         workspaceStore.markRepoUnavailable(repo.id)
-        workspaceStore.setResidency(
-            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
-            for: layoutPane.id
-        )
-        workspaceStore.setResidency(
-            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
-            for: backgroundPane.id
-        )
+        workspaceStore.setResidency(.backgrounded, for: backgroundPane.id)
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -882,20 +875,5 @@ private final class RecordingTopologyEffectHandler: TopologyEffectHandler {
 
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         deltas.append(delta)
-    }
-}
-
-@MainActor
-private final class RestoringTopologyEffectHandler: TopologyEffectHandler {
-    private let workspaceStore: WorkspaceStore
-    private(set) var deltas: [WorktreeTopologyDelta] = []
-
-    init(workspaceStore: WorkspaceStore) {
-        self.workspaceStore = workspaceStore
-    }
-
-    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
-        deltas.append(delta)
-        _ = workspaceStore.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
     }
 }

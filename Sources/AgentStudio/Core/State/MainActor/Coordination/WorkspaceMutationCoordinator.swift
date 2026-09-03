@@ -229,36 +229,6 @@ package final class WorkspaceMutationCoordinator {
         return changedPaneIDs
     }
 
-    @discardableResult
-    package func restoreOrphanedPaneResidencyForCurrentTopology() -> Bool {
-        let activeLayoutPaneIDs = workspaceTab.allPaneIds
-        let currentWorktreeIDs = Set(repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
-        let restorablePaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
-            guard pane.residency.isOrphaned else { return nil }
-            guard let cwd = pane.metadata.cwd else { return nil }
-            guard
-                repositoryTopologyAtom.repoAndWorktree(
-                    containing: cwd,
-                    among: currentWorktreeIDs
-                ) != nil
-            else { return nil }
-            return pane.id
-        }
-        for paneID in restorablePaneIDs {
-            workspacePaneAtom.setResidency(
-                activeLayoutPaneIDs.contains(paneID) ? .active : .backgrounded,
-                for: paneID
-            )
-        }
-        return !restorablePaneIDs.isEmpty
-    }
-
-    private nonisolated static func path(_ root: URL, contains candidate: URL) -> Bool {
-        let rootComponents = root.standardizedFileURL.pathComponents
-        let candidateComponents = candidate.standardizedFileURL.pathComponents
-        return candidateComponents.starts(with: rootComponents)
-    }
-
     package func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
         let tabs = workspaceTab.tabs
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }

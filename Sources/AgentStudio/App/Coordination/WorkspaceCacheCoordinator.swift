@@ -447,7 +447,7 @@ final class WorkspaceCacheCoordinator {
         }
         if !delta.removedWorktrees.isEmpty, topologyEffectHandler == nil {
             Self.logger.warning(
-                "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
+                "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane association cleanup skipped"
             )
         }
         if shouldApplyTopologyEffects {

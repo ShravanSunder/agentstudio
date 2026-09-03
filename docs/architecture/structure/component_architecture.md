@@ -208,11 +208,11 @@ editing is exposed only for main layout panes.
 - `.persistent` — zmx-backed, saved to disk and restored on launch.
 - `.temporary` — Ephemeral, never persisted. Filtered out during save/restore.
 
-**`SessionResidency`** — Where the pane currently lives in the app lifecycle. Prevents false-positive orphan detection:
-- `.active` — In a layout, view exists, fully visible
+**`SessionResidency`** — The pane's application placement lifecycle, independent of filesystem and Git availability:
+- `.active` — Eligible for workspace presentation and content mounting; it may be in an inactive tab or otherwise not currently visible
 - `.pendingUndo(expiresAt: Date)` — Closed but in the undo window. Not an orphan.
-- `.backgrounded` — Alive but not visible in the current view. Not an orphan.
-- `.orphaned(reason: WorktreeUnavailableReason)` — Backing worktree path is unavailable.
+- `.backgrounded` — Retained outside active presentation until explicitly reactivated.
+- `.orphaned(reason: WorktreeUnavailableReason)` — Legacy persisted input normalized at boot from canonical tab/drawer ownership; current runtime code does not create it.
 
 **`Drawer`** — A container holding child panes attached to a parent layout pane. Mirrors tab container capabilities:
 
@@ -522,7 +522,7 @@ The `WorkspaceSurfaceCoordinator` is the canonical App orchestration boundary fo
 - Owns the `RuntimeRegistry`, subscribes to the `EventBus`, feeds the `NotificationReducer`, and dispatches `PaneRuntimeCommand`s to individual runtimes.
 - Applies action intent through command validation and mutation APIs.
 - Manages undo sequencing with deterministic restore/reattach behavior.
-- Conforms to `TopologyEffectHandler` for orphan pane detection and filesystem root sync after topology changes.
+- Conforms to `TopologyEffectHandler` for pane-association cleanup and filesystem root sync after topology changes.
 
 **Responsibility groups** — WSC is split across extensions under
 [`App/Coordination/`](../../../Sources/AgentStudio/App/Coordination). Group by job, then open the matching
@@ -989,7 +989,7 @@ Before writing to disk:
 On app launch:
 1. Load the authoritative core SQLite snapshot; local rows load independently or default when unavailable
 2. Filter out `.temporary` panes
-3. Preserve panes whose live facet worktree no longer exists; normalize dangling facet refs to NULL and/or mark residency `.orphaned`
+3. Preserve panes whose live facet worktree no longer exists and normalize dangling facet refs to NULL without changing residency
 4. Prune dangling pane IDs from all tab layouts
 5. Remove empty tabs, fix `activeTabId` pointers
 
@@ -1008,7 +1008,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 7. **No NSView in model** — No model type holds `NSView` references
 8. **Persistence safety** — `disableSuddenTermination()` while dirty; `flush()` on quit
 9. **Drawer consistency** — Drawer child panes always have `kind == .drawerChild(parentPaneId:)` referencing the owning layout pane. A drawer child cannot have a sub-drawer.
-10. **Worktree/repo references are live facets** — `PaneMetadata.facets` may reference a worktree or repo that no longer exists on disk or has moved out from under the pane. Persistence normalizes dangling facet refs to NULL instead of rejecting the save. The pane survives; UI shows fallback text and topology changes can use `SessionResidency.orphaned` for restore behavior.
+10. **Worktree/repo references are live facets** — `PaneMetadata.facets` may reference a worktree or repo that no longer exists on disk or has moved out from under the pane. Persistence normalizes dangling facet refs to NULL instead of rejecting the save. The pane, residency, runtime, CWD, and tab/drawer ownership survive; UI shows fallback text while topology is unavailable.
 
 ---
 
@@ -1075,7 +1075,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | [`Infrastructure/SQLite/SQLiteSidecarQuarantine.swift`](../../../Sources/AgentStudio/Infrastructure/SQLite/SQLiteSidecarQuarantine.swift) | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
 | [`Infrastructure/ProcessExecutor.swift`](../../../Sources/AgentStudio/Infrastructure/ProcessExecutor.swift) | Protocol + default impl for CLI execution |
 | **App** | |
-| [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift) | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift) | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (pane-association cleanup + filesystem root sync after topology changes) |
 | [`App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift) | Action command execution flow |
 | [`App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift) | Filesystem root sync for pane runtimes |
 | [`App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift) | Runtime command dispatch to pane runtimes |

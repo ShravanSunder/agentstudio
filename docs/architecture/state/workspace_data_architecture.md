@@ -679,7 +679,7 @@ Note: ForgeActor gets `.branchChanged` directly from the bus fan-out. The coordi
 
 When a repo directory moves on disk, the plan is:
 1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
-2. Coordinator marks panes orphaned, prunes cache, keeps canonical entries for re-association
+2. Coordinator clears stale pane repo/worktree associations, preserves pane residency and tab membership, and prunes cache
 3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
 
 ### Deferred Launch Restore
@@ -924,7 +924,7 @@ Reader             Sidebar                          Rendering truth via @Observa
 - `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
 - It handles cache cleanup itself (it owns `repoCache`)
 - It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects and a full filesystem reconciliation
-- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it orphans panes for removed worktrees and reconciles filesystem roots after accepted topology changes
+- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it clears invalid pane associations while preserving pane lifecycle, then reconciles filesystem roots after accepted topology changes
 - `WorkspaceSurfaceCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
 
 Ordinary pane mount/removal/CWD and active-pane changes do not re-enter this

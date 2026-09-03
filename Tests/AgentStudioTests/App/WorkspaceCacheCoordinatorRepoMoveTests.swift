@@ -20,7 +20,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
+            topologyEffectHandler: RepoMoveTopologyEffectHandler(),
             scopeSyncHandler: { _ in }
         )
 
@@ -95,7 +95,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
+            topologyEffectHandler: RepoMoveTopologyEffectHandler(),
             scopeSyncHandler: { _ in }
         )
 
@@ -161,7 +161,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
+            topologyEffectHandler: RepoMoveTopologyEffectHandler(),
             scopeSyncHandler: { _ in }
         )
 
@@ -214,7 +214,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
+            topologyEffectHandler: RepoMoveTopologyEffectHandler(),
             scopeSyncHandler: { _ in }
         )
 
@@ -264,8 +264,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.pane(pane.id)?.residency == .backgrounded)
     }
 
-    @Test("re-association rejection preserves orphaned pane residency and topology")
-    func reassociationRejectionPreservesOrphanedPaneAndTopology() throws {
+    @Test("re-association rejection preserves pane residency and topology")
+    func reassociationRejectionPreservesPaneResidencyAndTopology() throws {
         let workspaceStore = makeWorkspaceStore()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
@@ -284,7 +284,6 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         )
         workspaceStore.appendTab(Tab(paneId: pane.id))
         workspaceStore.markRepoUnavailable(firstRepo.id)
-        _ = workspaceStore.orphanPanesForRepo(firstRepo.id)
         let reposBeforeRejection = workspaceStore.repos
         let unavailableRepoIdsBeforeRejection = workspaceStore.repositoryTopologyAtom.unavailableRepoIds
         let generationBeforeRejection = workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration
@@ -309,7 +308,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.repos == reposBeforeRejection)
         #expect(workspaceStore.repositoryTopologyAtom.unavailableRepoIds == unavailableRepoIdsBeforeRejection)
         #expect(workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration == generationBeforeRejection)
-        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
     }
 
     @Test("repoRemoved does not overwrite pendingUndo residency")
@@ -354,14 +353,6 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
 }
 
 @MainActor
-private final class RepoMoveRestoringTopologyEffectHandler: TopologyEffectHandler {
-    private let workspaceStore: WorkspaceStore
-
-    init(workspaceStore: WorkspaceStore) {
-        self.workspaceStore = workspaceStore
-    }
-
-    func topologyDidChange(_: WorktreeTopologyDelta) {
-        _ = workspaceStore.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
-    }
+private final class RepoMoveTopologyEffectHandler: TopologyEffectHandler {
+    func topologyDidChange(_: WorktreeTopologyDelta) {}
 }

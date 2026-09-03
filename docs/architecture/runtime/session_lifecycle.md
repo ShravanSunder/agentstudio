@@ -172,18 +172,42 @@ Pane
 
 ### Residency (Persisted)
 
-`SessionResidency` tracks where a pane lives in the application lifecycle. This prevents false-positive orphan detection — a pane in `pendingUndo` is not an orphan.
+`SessionResidency` tracks application placement. Filesystem availability and
+repository/worktree association are separate dimensions and never transition a
+pane between residency states. `.active` means eligible for workspace
+presentation and content mounting; an active pane may still be in an inactive
+tab, minimized, or otherwise not currently visible.
 
 ```mermaid
 stateDiagram-v2
     [*] --> active: createPane()
     active --> pendingUndo: closeTab (enters undo window)
-    active --> backgrounded: view switch (pane leaves active view)
+    active --> backgrounded: explicit background action
     pendingUndo --> active: undoCloseTab()
     pendingUndo --> [*]: undo expires / GC
-    backgrounded --> active: view switch (pane enters active view)
+    backgrounded --> active: explicit reactivation
     backgrounded --> [*]: explicit removal
+    legacyOrphaned --> active: boot repair; tab/drawer owned
+    legacyOrphaned --> backgrounded: boot repair; unowned
 ```
+
+The legacy persisted `.orphaned(worktreeNotFound:)` value is accepted only as
+boot-repair input. Current runtime code does not create it. Boot reconciliation
+uses canonical tab/drawer ownership, not path existence or Git topology, to
+convert it to `.active` or `.backgrounded` and persist the repaired state.
+
+Filesystem and Git state evolve independently:
+
+```mermaid
+stateDiagram-v2
+    associated --> unassociated: worktree/repository disappears
+    unassociated --> associated: current CWD matches topology
+    associated --> associated: shell changes CWD within known topology
+    unassociated --> unassociated: CWD absent or outside topology
+```
+
+Every transition in this second diagram preserves pane identity, residency,
+tab/drawer ownership, terminal runtime, and the last observed CWD value.
 
 ### Runtime Status (Not Persisted)
 
