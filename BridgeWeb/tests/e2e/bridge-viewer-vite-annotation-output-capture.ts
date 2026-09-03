@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Locator, Page } from 'playwright';
+import type { Locator, Page, Response } from 'playwright';
 import { expect } from 'vitest';
 
 interface AnnotationOutputCaptureJourneyProps {
@@ -27,11 +27,11 @@ export async function verifyAnnotationOutputCaptures(
 	const outputDirectory = join(props.dataRootPath, 'annotation-output-captures');
 	const markdownNamesBefore = await outputCaptureNames(outputDirectory, '.md');
 
-	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	await props.page.getByRole('button', { name: 'Share comments' }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 	const copyButton = props.page.getByRole('button', { name: 'Copy Markdown' });
 	await waitForEnabledOutputButton(copyButton, props.timeoutMilliseconds);
-	await copyButton.press('Enter');
+	await copyButton.click();
 	await props.page
 		.getByRole('region', { name: 'Share comments' })
 		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
@@ -46,25 +46,42 @@ export async function verifyAnnotationOutputCaptures(
 	expect(markdown).not.toContain(props.worktreeRoot);
 	expect(markdown.match(/^# /gmu)).toHaveLength(1);
 
-	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	await props.page.getByRole('button', { name: 'Share comments' }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const history = props.page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/u });
 	await history.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
-	await history.press('Enter');
+	await history.click();
 	await props.page
 		.getByRole('region', { name: 'Output history' })
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
-		.press('Enter');
+		.click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 
 	const jsonNamesBefore = await outputCaptureNames(outputDirectory, '.json');
 	const exportButton = props.page.getByRole('button', { name: 'Export JSON' });
 	await waitForEnabledOutputButton(exportButton, props.timeoutMilliseconds);
-	await exportButton.press('Enter');
-	await props.page
-		.getByRole('region', { name: 'Share comments' })
-		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
+	const exportResponsePromise = waitForOutputCommandResponse(
+		props.page,
+		'jsonFile',
+		props.timeoutMilliseconds,
+	);
+	await exportButton.click();
+	const exportResponse = await exportResponsePromise;
+	const exportResponseBody = await exportResponse.text();
+	try {
+		await props.page
+			.getByRole('region', { name: 'Share comments' })
+			.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
+	} catch (error: unknown) {
+		const alerts = await props.page.getByRole('alert').allTextContents();
+		const namesAfter = await outputCaptureNames(outputDirectory, '.json');
+		const createdNames = [...namesAfter].filter((name): boolean => !jsonNamesBefore.has(name));
+		throw new Error(
+			`Export did not dismiss Share comments: status=${exportResponse.status()} body=${exportResponseBody} alerts=${JSON.stringify(alerts)} captures=${JSON.stringify(createdNames)}.`,
+			{ cause: error },
+		);
+	}
 	const jsonPath = await requireNewOutputCapture({
 		extension: '.json',
 		namesBefore: jsonNamesBefore,
@@ -111,16 +128,16 @@ export async function verifyAnnotationOutputCaptures(
 		throw new Error('Annotation JSON capture omitted the saved message identity.');
 	}
 
-	await props.page.getByRole('button', { name: 'Share comments' }).press('Enter');
+	await props.page.getByRole('button', { name: 'Share comments' }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const completedHistory = props.page.getByRole('button', { name: /^History \([2-9][0-9]*\)$/u });
 	await completedHistory.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
-	await completedHistory.press('Enter');
+	await completedHistory.click();
 	await props.page
 		.getByRole('region', { name: 'Output history' })
 		.getByRole('button', { name: 'Mark as not handled' })
 		.first()
-		.press('Enter');
+		.click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 	return matchingIdentity;
 }
@@ -217,6 +234,31 @@ async function waitForEnabledOutputButton(
 	await expect
 		.poll(async (): Promise<boolean> => button.isEnabled(), { timeout: timeoutMilliseconds })
 		.toBe(true);
+}
+
+async function waitForOutputCommandResponse(
+	page: Page,
+	outputKind: 'clipboardMarkdown' | 'jsonFile',
+	timeoutMilliseconds: number,
+): Promise<Response> {
+	return await page.waitForResponse(
+		(response): boolean => {
+			const request = response.request();
+			if (
+				request.method() !== 'POST' ||
+				new URL(request.url()).pathname !== '/__bridge-product/command'
+			) {
+				return false;
+			}
+			const body: unknown = request.postDataJSON();
+			if (!isRecord(body) || !isRecord(body['call'])) return false;
+			const call = body['call'];
+			if (!isRecord(call['request']) || !isRecord(call['request']['operation'])) return false;
+			const operation = call['request']['operation'];
+			return operation['kind'] === 'output.scope.commit' && operation['outputKind'] === outputKind;
+		},
+		{ timeout: timeoutMilliseconds },
+	);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

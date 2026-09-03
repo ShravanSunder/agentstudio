@@ -49,7 +49,6 @@ extension WorkspaceSurfaceCoordinator {
         refreshBridgePaneActivities()
         registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
         controller.loadApp()
-        controller.scheduleInitialReviewPackageLoadIfPossible()
         Self.logger.info("Created bridge panel view for pane \(pane.id)")
         return view
     }

@@ -227,7 +227,13 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			const appliedReceiptResponse = page.waitForResponse(isReviewPublicationAppliedResponse, {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 			});
-			await page.getByRole('button', { name: 'Apply now' }).press('Enter');
+			const applyNowButton = page.getByRole('button', { name: 'Apply now' });
+			await expect
+				.poll(async (): Promise<boolean> => applyNowButton.isEnabled(), {
+					timeout: annotationComposedConvergenceTimeoutMilliseconds,
+				})
+				.toBe(true);
+			await applyNowButton.press('Enter');
 			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
 			const appliedComparison = await waitForInstalledReviewPackage({
 				expectedTargetLabel: 'HEAD',

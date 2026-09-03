@@ -7,14 +7,6 @@ private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", categ
 
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
-    package func scheduleInitialReviewPackageLoadIfPossible() {
-        guard paneState.diff.status != .error else {
-            scheduleRetainedReviewPackageBuildIfPossible()
-            return
-        }
-        scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
-    }
-
     func scheduleInitialReviewPackageLoadIfPossible(reason: BridgeReviewPackageBuildReason) {
         guard case .workspace = bridgePaneState.source,
             runtime.metadata.worktreeId != nil,
@@ -625,10 +617,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let currentPublication = reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission
             )
-        else {
-            pendingReviewPackageBuildReasons.insert(.filesystemRefresh)
-            return .succeeded
-        }
+        else { return .succeeded }
         let currentPackage = currentPublication.package
         guard
             let refreshGeneration = beginReviewPackageRefresh(

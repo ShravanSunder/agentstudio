@@ -484,6 +484,73 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 });
 
 describe('Bridge comm worker Review production demand scheduling', () => {
+	test('retires membership and refill authority before a replacement generation is admitted', async () => {
+		// Arrange
+		const itemId = 'retired-authority-item';
+		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];
+		const contentRequestDescriptors = [
+			makeContentRequestDescriptor({ itemId, role: 'base', text: 'base body\n' }),
+			makeContentRequestDescriptor({ itemId, role: 'head', text: 'head body\n' }),
+		];
+		const renderSemantics = [makeRenderSemantics({ itemId })];
+		const rows = [{ id: itemId, index: 0, parentId: null }];
+		const openedSignals: AbortSignal[] = [];
+		const activeDemandSnapshots: Array<readonly BridgeCommWorkerReviewCurrentActiveDemand[]> = [];
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
+		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
+		store.actions.applyViewportFact({
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 0,
+			visibleItemIds: [itemId],
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+		const scheduling = createBridgeCommWorkerReviewDemandScheduling({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 50 },
+			createSequence: (): number => 1,
+			markPreparationDrainRequired: () => {},
+			openReviewContent: (descriptor, signal) => {
+				openedSignals.push(signal);
+				return createDeferredReviewContentStream(descriptor).stream;
+			},
+			port: dispatch.port,
+			pump,
+			recordPreparationCompletion: () => {},
+			replaceReviewMetadataInterests: ({ activeDemand }): Promise<void> => {
+				activeDemandSnapshots.push(activeDemand);
+				return Promise.resolve();
+			},
+			requestPreparationDrain: () => {},
+			usesProductTransport: true,
+		});
+		scheduling.updateRuntimeSource({
+			contentItems,
+			contentRequestDescriptors,
+			renderSemantics,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
+			rows,
+		});
+		scheduling.updateWorkerDerivationEpoch(7);
+		scheduling.resume();
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(openedSignals).toHaveLength(2);
+
+		// Act
+		scheduling.updateWorkerDerivationEpoch(null);
+		scheduling.updateWorkerDerivationEpoch(8);
+		scheduling.resume();
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(openedSignals.every((signal) => signal.aborted)).toBe(true);
+		expect(activeDemandSnapshots.at(-1)).toEqual([]);
+		expect(openedSignals).toHaveLength(2);
+	});
+
 	test('retains departed current-generation bodies without publishing stale Review UI', async () => {
 		const itemId = 'departed-item';
 		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];

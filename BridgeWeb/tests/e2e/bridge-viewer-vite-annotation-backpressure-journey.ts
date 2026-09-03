@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import {
 	annotationCatalogLongTasksOverlappingMainStaging,
 	beginAnnotationCatalogLongTaskObservation,
-	cloneSavedAnnotationMessages,
+	cloneSavedAnnotationMessagesIntoCompletedSession,
 	finishAnnotationCatalogLongTaskObservation,
 	latestAnnotationCatalogCommit,
 	markAnnotationCatalogLongTaskPhase,
@@ -224,10 +224,11 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 					server,
 					surface: 'file',
 				});
-				const releaseLargeCatalogFixture = await cloneSavedAnnotationMessages({
+				const releaseLargeCatalogFixture = await cloneSavedAnnotationMessagesIntoCompletedSession({
 					cloneCount: stressAnnotationCatalogCloneCount,
 					dataRootPath: createdFixture.oracle.dataRootPath,
 					sourceMessageId: fileSeed.outputIdentity.messageId,
+					sourceSessionId: fileSeed.outputIdentity.sessionId,
 					sourceThreadId: fileSeed.outputIdentity.threadId,
 				});
 				const observations = await runAnnotationBackpressureJourney({
@@ -255,6 +256,10 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 				expect(
 					observations.catalogTelemetry.undemandedSessionRichFetchCount,
 					'undemanded-session rich-fetch count',
+				).toBe(0);
+				expect(
+					observations.catalogTelemetry.undemandedSessionAcquireCount,
+					'completed seed Review demand-acquire count',
 				).toBe(0);
 				expect(observations.fileTelemetry.currentCount, 'File outstanding publication count').toBe(
 					0,
@@ -359,6 +364,7 @@ interface AnnotationCatalogTelemetryObservation {
 	readonly maximumUnitByteCount: number;
 	readonly presentationRevisionAfter: number;
 	readonly presentationRevisionBefore: number;
+	readonly undemandedSessionAcquireCount: number;
 	readonly undemandedSessionRichFetchCount: number;
 	readonly windowCount: number;
 }
@@ -366,6 +372,7 @@ interface AnnotationCatalogTelemetryObservation {
 interface CommittedAnnotationOutcome {
 	readonly messageId: string;
 	readonly requestId: string;
+	readonly sessionId: string;
 }
 
 async function runAnnotationBackpressureJourney(props: {
@@ -486,15 +493,18 @@ async function runAnnotationBackpressureJourney(props: {
 		let catalogTransferTelemetry: AnnotationCatalogTransferTelemetryObservation;
 		let catalogLongTaskObservation: AnnotationCatalogLongTaskObservation;
 		try {
-			messageIds.push(
-				await createAndSaveRoot({
-					body: rootBody,
-					milestones: props.milestones,
-					onPerformancePhase: async (phase): Promise<void> =>
-						await markAnnotationCatalogLongTaskPhase(createdPage, phase),
-					page: createdPage,
-				}),
-			);
+			const rootOutcome = await createAndSaveRoot({
+				body: rootBody,
+				milestones: props.milestones,
+				onPerformancePhase: async (phase): Promise<void> =>
+					await markAnnotationCatalogLongTaskPhase(createdPage, phase),
+				page: createdPage,
+			});
+			expect(
+				rootOutcome.sessionId.toLowerCase(),
+				'completed File seed must remain distinct from the living Review root session',
+			).not.toBe(props.undemandedSessionId.toLowerCase());
+			messageIds.push(rootOutcome.messageId);
 			catalogTransferTelemetry = await waitForAnnotationCatalogCommit({
 				minimumCatalogRevisionExclusive: catalogBaseline.catalogRevision,
 				page: createdPage,
@@ -514,6 +524,10 @@ async function runAnnotationBackpressureJourney(props: {
 				catalogTransferTelemetry,
 			).length,
 			longTaskObservation: catalogLongTaskObservation,
+			undemandedSessionAcquireCount: projectionQueries
+				.acquiredSessionIds()
+				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
+				.length,
 			undemandedSessionRichFetchCount: projectionQueries
 				.sessionIdsForOperation(catalogTransferTelemetry.operationCorrelationId)
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
@@ -693,7 +707,7 @@ async function createAndSaveRoot(props: {
 	readonly milestones: AnnotationBackpressureMilestones;
 	readonly onPerformancePhase: (phase: string) => Promise<void>;
 	readonly page: Page;
-}): Promise<string> {
+}): Promise<CommittedAnnotationOutcome> {
 	const composer = props.page.getByRole('textbox', { name: 'Write an annotation in Markdown' });
 	props.milestones.transition('root.create.waiting');
 	const createOutcome = waitForCommittedAnnotationOutcome(props.page, 'root.create');
@@ -741,7 +755,7 @@ async function createAndSaveRoot(props: {
 	);
 	await props.onPerformancePhase('root_body_visible');
 	props.milestones.transition('root.body.visible');
-	return created.messageId;
+	return created;
 }
 
 async function createAndSaveReply(props: {
@@ -803,6 +817,9 @@ function assertSameMessage(
 	if (created.messageId !== updated.messageId) {
 		throw new Error('Annotation message identity changed across committed outcomes.');
 	}
+	if (created.sessionId !== updated.sessionId) {
+		throw new Error('Annotation session identity changed across committed outcomes.');
+	}
 }
 
 async function waitForCommittedAnnotationOutcome(
@@ -830,10 +847,15 @@ async function waitForCommittedAnnotationOutcome(
 	}
 	const messageId = outcome['receipt']['messageId'];
 	const requestId = outcome['requestId'];
-	if (typeof messageId !== 'string' || typeof requestId !== 'string') {
+	const sessionId = outcome['sessionId'];
+	if (
+		typeof messageId !== 'string' ||
+		typeof requestId !== 'string' ||
+		typeof sessionId !== 'string'
+	) {
 		throw new Error(`Committed ${operationKind} outcome has invalid identity.`);
 	}
-	return { messageId, requestId };
+	return { messageId, requestId, sessionId };
 }
 
 function annotationCommandResponseMatches(

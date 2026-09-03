@@ -4,8 +4,56 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioBridge
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests.BridgePaneControllerTests {
+    @Test("File invalidation does not admit initial Review before File warm-up")
+    func fileInvalidationDoesNotAdmitInitialReview() async {
+        // Arrange
+        let worktreeId = UUIDv7.generate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [:]
+        )
+        let controller = BridgePaneController(
+            paneId: UUIDv7.generate(),
+            state: BridgePaneState(
+                panelKind: .fileViewer,
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+            ),
+            appRootURL: testBridgeAppRootURL(),
+            metadata: PaneMetadata(
+                contentType: .diff,
+                title: "Bridge Review",
+                facets: PaneContextFacets(worktreeId: worktreeId)
+            ),
+            reviewSourceProvider: provider,
+            initialPaneActivity: .foreground
+        )
+        defer { controller.teardown() }
+
+        // Act
+        await controller.handleWorktreeProductInvalidation(
+            .statusChanged(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: nil,
+                    origin: nil
+                )
+            )
+        )
+        await waitForActiveReviewRefreshTaskToFinish(controller)
+
+        // Assert
+        #expect(controller.paneState.diff.packageMetadata == nil)
+        #expect(await provider.recordedComparisonRequestsCount() == 0)
+    }
+
     @Test("loaded-hidden presentation precedes cancellation-ignoring metadata producer drain")
     func loadedHiddenPresentationPrecedesCancellationIgnoringMetadataProducerDrain() async throws {
         // Arrange — the producer opening is already consumed by fixture installation, so the

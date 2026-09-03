@@ -78,7 +78,7 @@ export interface BridgeCommWorkerReviewDemandScheduling {
 	) => void;
 	readonly suspend: () => void;
 	readonly updateRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
-	readonly updateWorkerDerivationEpoch: (workerDerivationEpoch: number) => void;
+	readonly updateWorkerDerivationEpoch: (workerDerivationEpoch: number | null) => void;
 }
 
 export interface BridgeCommWorkerVisibleSourceChurnIdentity {
@@ -637,8 +637,22 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		updateRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
 			reviewRuntimeSource = source;
 		},
-		updateWorkerDerivationEpoch: (workerDerivationEpoch: number): void => {
+		updateWorkerDerivationEpoch: (workerDerivationEpoch: number | null): void => {
+			if (activeWorkerDerivationEpoch === workerDerivationEpoch) return;
 			activeWorkerDerivationEpoch = workerDerivationEpoch;
+			latestMetadataInterestCommit = null;
+			latestDemandExecutionRequest = null;
+			latestMetadataResetRequest = null;
+			latestSchedulingStore = null;
+			latestSchedulingEpoch = null;
+			currentMembershipByItemId = new Map();
+			currentActiveDemand = [];
+			previousFirstVisibleOrderedIndex = null;
+			visibleSourceChurnDedupeState = createBridgeCommWorkerVisibleSourceChurnDedupeState();
+			if (activeSourceResetEpoch !== null) {
+				props.pump.cancel(`review-source-reset:${activeSourceResetEpoch}`);
+				activeSourceResetEpoch = null;
+			}
 			reviewDemandLedger.updateGeneration(workerDerivationEpoch);
 			retryAttemptByItemId.clear();
 		},

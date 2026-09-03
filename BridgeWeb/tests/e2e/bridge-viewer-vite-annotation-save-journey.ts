@@ -7,6 +7,11 @@ import {
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
 import {
+	drainAnnotationLifecycleTelemetry,
+	requiredAnnotationLifecycleStageCount,
+	waitForCompleteAnnotationLifecycleTelemetry,
+} from './bridge-viewer-vite-annotation-lifecycle-telemetry.ts';
+import {
 	type AnnotationOutputIdentityCapture,
 	verifyAnnotationOutputCaptures,
 } from './bridge-viewer-vite-annotation-output-capture.ts';
@@ -32,26 +37,6 @@ import {
 
 const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
-const requiredAnnotationLifecycleStages = [
-	'annotation_invalidation_received',
-	'annotation_paint_started',
-	'annotation_paint_terminal',
-	'content_transfer_started',
-	'content_transfer_terminal',
-	'main_thread_install_started',
-	'main_thread_install_terminal',
-	'projection_convergence_started',
-	'projection_query_started',
-	'projection_store_started',
-	'projection_store_terminal',
-	'projection_validation_started',
-	'projection_validation_terminal',
-	'projection_query_terminal',
-	'projection_convergence_terminal',
-	'worker_application_started',
-	'worker_application_terminal',
-] as const;
-
 export interface AnnotationSaveJourneyObservations {
 	readonly correlatedLifecycleStageCount: number;
 	readonly gatedProjectionRequestCount: number;
@@ -85,7 +70,7 @@ export function registerBridgeViewerViteAnnotationSaveJourneyTests(props: {
 			expect(observations.savingControlCountAfterCommit).toBe(0);
 			expect(observations.committedBodyCountWhileProjectionGated).toBe(1);
 			expect(observations.correlatedLifecycleStageCount).toBe(
-				requiredAnnotationLifecycleStages.length,
+				requiredAnnotationLifecycleStageCount,
 			);
 			expect(observations.projectedSavedMessageCount).toBe(1);
 			expect(observations.reloadedSavedMessageCount).toBe(1);
@@ -255,6 +240,7 @@ export async function runAnnotationSaveJourney(props: {
 		let gatedProjectionRequestCount = 0;
 		let savingControlCountAfterCommit = 0;
 		let committedBodyCountWhileProjectionGated = 0;
+		let projectionOperationCorrelationId: string | null = null;
 		const projectionRoutePattern = '**/__bridge-product/content**';
 		const projectionRouteHandler = async (route: Route): Promise<void> => {
 			const body: unknown = route.request().postDataJSON();
@@ -286,7 +272,20 @@ export async function runAnnotationSaveJourney(props: {
 			);
 			await page.getByRole('button', { name: 'Save annotation' }).click();
 			await draftSaveCommitted;
-			await gatedProjectionRequest;
+			const projectionRequest = await gatedProjectionRequest;
+			const projectionRequestBody: unknown = projectionRequest.postDataJSON();
+			projectionOperationCorrelationId =
+				isUnknownRecord(projectionRequestBody) &&
+				typeof projectionRequestBody['operationCorrelationId'] === 'string'
+					? projectionRequestBody['operationCorrelationId']
+					: null;
+			if (projectionOperationCorrelationId === null) {
+				throw new Error(
+					`Saved annotation projection request did not carry lifecycle correlation: ${JSON.stringify(
+						annotationProjectionContentRequestDiagnostic(projectionRequestBody),
+					)}.`,
+				);
+			}
 			await settleBrowserFrames(page, 2);
 			savingControlCountAfterCommit = await page
 				.getByRole('button', { name: 'Saving annotation' })
@@ -306,7 +305,15 @@ export async function runAnnotationSaveJourney(props: {
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const projectedSavedMessageCount = await savedThreadBody.count();
-		const correlatedLifecycleStageCount = await waitForCompleteAnnotationLifecycleTelemetry(page);
+		if (projectionOperationCorrelationId === null) {
+			throw new Error('Saved annotation projection lifecycle correlation was not retained.');
+		}
+		const sidecarDrainReport = await drainAnnotationLifecycleTelemetry(page);
+		const correlatedLifecycleStageCount = await waitForCompleteAnnotationLifecycleTelemetry({
+			operationCorrelationId: projectionOperationCorrelationId,
+			page,
+			sidecarDrainReport,
+		});
 
 		await page.reload({
 			timeout: annotationSaveJourneyTimeoutMilliseconds,
@@ -379,76 +386,6 @@ function annotationSaveJourneyCause(error: unknown): Readonly<Record<string, str
 	return error instanceof Error
 		? { kind: error.name, message: error.message }
 		: { kind: typeof error, message: String(error) };
-}
-
-async function waitForCompleteAnnotationLifecycleTelemetry(page: Page): Promise<number> {
-	const statusUrl = new URL('/__bridge-dev-telemetry/status', page.url()).toString();
-	let completedStageCount: number | null = null;
-	await expect
-		.poll(
-			async (): Promise<boolean> => {
-				const response = await fetch(statusUrl, { cache: 'no-store' });
-				if (!response.ok) return false;
-				const body: unknown = await response.json();
-				if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
-				const recentSamples = body.recentSamples;
-				const operationLifecycle = Reflect.get(body, 'operationLifecycle');
-				if (!Array.isArray(recentSamples)) return false;
-				const stagesByOperation = new Map<string, Set<string>>();
-				for (const sample of recentSamples) {
-					if (typeof sample !== 'object' || sample === null || !('stringAttributes' in sample)) {
-						continue;
-					}
-					const attributes = sample.stringAttributes;
-					if (typeof attributes !== 'object' || attributes === null) continue;
-					const operationId = Reflect.get(attributes, 'agentstudio.bridge.operation.id');
-					const phase = Reflect.get(attributes, 'agentstudio.bridge.phase');
-					if (typeof operationId !== 'string' || typeof phase !== 'string') continue;
-					const stages = stagesByOperation.get(operationId) ?? new Set<string>();
-					stages.add(phase);
-					stagesByOperation.set(operationId, stages);
-				}
-				for (const [operationId, stages] of stagesByOperation) {
-					if (!requiredAnnotationLifecycleStages.every((stage) => stages.has(stage))) continue;
-					if (typeof operationLifecycle !== 'object' || operationLifecycle === null) continue;
-					const completedOperationIds = Reflect.get(operationLifecycle, 'completedOperationIds');
-					const malformed = Reflect.get(operationLifecycle, 'malformed');
-					const missingTerminals = Reflect.get(operationLifecycle, 'missingTerminals');
-					const matchingMalformed = Array.isArray(malformed)
-						? malformed.filter(
-								(entry): boolean =>
-									typeof entry === 'object' &&
-									entry !== null &&
-									Reflect.get(entry, 'operationCorrelationId') === operationId,
-							)
-						: null;
-					const matchingMissingTerminals = Array.isArray(missingTerminals)
-						? missingTerminals.filter(
-								(entry): boolean =>
-									typeof entry === 'object' &&
-									entry !== null &&
-									Reflect.get(entry, 'operationCorrelationId') === operationId,
-							)
-						: null;
-					if (
-						Array.isArray(completedOperationIds) &&
-						completedOperationIds.includes(operationId) &&
-						matchingMalformed?.length === 0 &&
-						matchingMissingTerminals?.length === 0
-					) {
-						completedStageCount = requiredAnnotationLifecycleStages.length;
-						return true;
-					}
-				}
-				return false;
-			},
-			{ timeout: annotationProjectionResponseTimeoutMilliseconds },
-		)
-		.toBe(true);
-	if (completedStageCount === null) {
-		throw new Error('Annotation lifecycle telemetry completed without a stage count');
-	}
-	return completedStageCount;
 }
 
 function observeAnnotationJourneyDiagnostics(page: Page, diagnostics: string[]): void {

@@ -91,8 +91,8 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("create-before-tab Bridge Review reaches its coordinator provider after foreground promotion")
-        func createBeforeTabBridgeReviewReachesProviderAfterForegroundPromotion() async throws {
+        @Test("create-before-tab Bridge Review waits for accepted Review mode after foreground promotion")
+        func createBeforeTabBridgeReviewWaitsForAcceptedModeAfterForegroundPromotion() async throws {
             // Arrange
             let harness = makeBridgePaneActivityTestHarness()
             let repo = harness.store.addRepo(
@@ -143,7 +143,7 @@ extension WebKitSerializedTests {
             #expect(await reviewProvider.recordedComparisonRequestsCount() == 0)
             #expect(view.controller.paneState.diff.packageMetadata == nil)
 
-            // Act — tab ownership under active visible window facts must promote and retry once.
+            // Act — tab ownership promotes activity but does not choose a viewer mode.
             let tab = Tab(paneId: pane.id, name: "Create-before-tab Review")
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -152,6 +152,20 @@ extension WebKitSerializedTests {
                 for: pane.id,
                 in: harness.coordinator,
                 because: "the newly activated create-before-tab Review tab became visible"
+            )
+
+            // Assert — foreground promotion alone still admits no Review construction.
+            #expect(view.controller.activeReviewRefreshTask == nil)
+            #expect(await reviewProvider.recordedComparisonRequestsCount() == 0)
+
+            // Act — the committed initial Review mode is the construction admission.
+            let productAdmission = try #require(view.controller.productAdmissionGate.acquire())
+            await view.controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "create-before-tab-product-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission
             )
             await comparisonGate.waitForStartedComparisonCount(1)
             await comparisonGate.releaseAll()
@@ -168,8 +182,8 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("production Review open admits initial construction before returning")
-        func productionReviewOpenAdmitsInitialConstructionBeforeReturning() async throws {
+        @Test("production Review open waits for the committed initial Review mode")
+        func productionReviewOpenWaitsForCommittedInitialReviewMode() async throws {
             // Arrange
             let repositoryURL = try FilesystemTestGitRepo.create(
                 named: "bridge-production-review-open-activity"
@@ -203,7 +217,7 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[pane.id]?.controller
             )
 
-            // Assert — the production open must establish foreground admission synchronously.
+            // Assert — pane creation establishes activity but does not choose a metadata mode.
             guard case .bridgePanel(let persistedBridgeState) = harness.store.pane(pane.id)?.content,
                 case .workspace(_, let comparisonIntent) = persistedBridgeState.source
             else {
@@ -216,6 +230,20 @@ extension WebKitSerializedTests {
             )
             #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .foreground)
             #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
+            #expect(controller.activeReviewRefreshTask == nil)
+            #expect(controller.paneState.diff.packageMetadata == nil)
+
+            // Act — the committed null-source Review mode admits initial construction.
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "production-review-open-product-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission
+            )
+
+            // Assert
             let admittedReviewTask = controller.activeReviewRefreshTask
             #expect(admittedReviewTask != nil)
             await admittedReviewTask?.value
@@ -257,6 +285,11 @@ extension WebKitSerializedTests {
             #expect(
                 comparisonIntent == nil
             )
+            let controller = try #require(
+                harness.viewRegistry.allBridgeViews[pane.id]?.controller
+            )
+            #expect(controller.activeReviewRefreshTask == nil)
+            #expect(controller.paneState.diff.packageMetadata == nil)
 
             await harness.finish()
         }
@@ -329,12 +362,29 @@ extension WebKitSerializedTests {
             let replacementController = try #require(
                 harness.viewRegistry.allBridgeViews[pane.id]?.controller
             )
-            await waitForActiveReviewRefreshTaskToFinish(replacementController)
 
-            // Assert — replay reconstructs immutable provider identity and retries automatically.
+            // Assert — topology repair restores identity but does not choose Review.
             #expect(replacementController !== initialView.controller)
             #expect(replacementController.runtime.metadata.repoId == restoredRepo.id)
             #expect(replacementController.runtime.metadata.worktreeId == restoredWorktree.id)
+            #expect(replacementController.activeReviewRefreshTask == nil)
+            #expect(replacementController.paneState.diff.packageMetadata == nil)
+            #expect(await reviewProvider.recordedComparisonRequestsCount() == 0)
+
+            // Act — the repaired pane starts Review only after its committed mode arrives.
+            let productAdmission = try #require(
+                replacementController.productAdmissionGate.acquire()
+            )
+            await replacementController.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "restored-topology-product-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission
+            )
+            await waitForActiveReviewRefreshTaskToFinish(replacementController)
+
+            // Assert — accepted Review mode uses the reconstructed immutable provider identity.
             #expect(replacementController.paneState.diff.status == .ready)
             #expect(replacementController.paneState.diff.packageMetadata != nil)
             #expect(await reviewProvider.recordedComparisonRequestsCount() == 1)

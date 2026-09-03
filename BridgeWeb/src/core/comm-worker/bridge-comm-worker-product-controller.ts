@@ -80,6 +80,7 @@ export class BridgeCommWorkerProductController {
 	readonly #onActiveViewerModeAdmitted: (mode: 'file' | 'review') => void;
 	readonly #onReviewMetadataEvent: ReviewMetadataEventHandler;
 	readonly #onReviewMetadataFailure: ReviewMetadataFailureHandler;
+	readonly #onReviewWorkerDerivationEpochChanged: (workerDerivationEpoch: number | null) => void;
 	readonly #onFileSourceUnavailable: () => void;
 	readonly #productTransport: BridgeProductTransportSession;
 	readonly #annotationSessionIdsBySurface: Record<'file' | 'review', Set<string>> = {
@@ -145,6 +146,7 @@ export class BridgeCommWorkerProductController {
 		readonly onFileSourceUnavailable?: () => void;
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
+		readonly onReviewWorkerDerivationEpochChanged?: (workerDerivationEpoch: number | null) => void;
 		readonly productTransport: BridgeProductTransportSession;
 		readonly telemetryClient?: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 		readonly subscribeFile?: (
@@ -162,6 +164,8 @@ export class BridgeCommWorkerProductController {
 		this.#onFileSourceUnavailable = props.onFileSourceUnavailable ?? ignoreFileSourceUnavailable;
 		this.#onReviewMetadataEvent = props.onReviewMetadataEvent ?? ignoreReviewMetadataEvent;
 		this.#onReviewMetadataFailure = props.onReviewMetadataFailure ?? ignoreReviewMetadataFailure;
+		this.#onReviewWorkerDerivationEpochChanged =
+			props.onReviewWorkerDerivationEpochChanged ?? ignoreReviewWorkerDerivationEpochChange;
 		this.#productTransport = props.productTransport;
 		const onConvergence =
 			props.onAnnotationProjectionConvergence ?? ignoreAnnotationProjectionConvergence;
@@ -299,6 +303,7 @@ export class BridgeCommWorkerProductController {
 			return;
 		}
 		const subscription = this.#reviewSubscription;
+		if (subscription !== null) this.#onReviewWorkerDerivationEpochChanged(null);
 		this.#reviewSubscription = null;
 		this.#reviewInterestItemIdsByLane.clear();
 		this.#reviewDesiredInterestSignature = null;
@@ -336,6 +341,7 @@ export class BridgeCommWorkerProductController {
 		try {
 			const subscription = this.#subscribeReview({ interests });
 			this.#reviewSubscription = subscription;
+			this.#onReviewWorkerDerivationEpochChanged(workerDerivationEpoch);
 			void this.#consumeReviewMetadataEvents(subscription, workerDerivationEpoch).catch(
 				(): void => {},
 			);
@@ -492,6 +498,7 @@ export class BridgeCommWorkerProductController {
 		subscription: ReviewMetadataSubscription,
 	): Promise<void> {
 		if (subscription !== this.#reviewSubscription) return;
+		this.#onReviewWorkerDerivationEpochChanged(null);
 		this.#reviewSubscription = null;
 		this.#reviewInterestItemIdsByLane.clear();
 		this.#reviewDesiredInterestSignature = null;
@@ -542,6 +549,7 @@ export class BridgeCommWorkerProductController {
 			}
 		} catch (error) {
 			if (subscription === this.#reviewSubscription) {
+				this.#onReviewWorkerDerivationEpochChanged(null);
 				this.#reviewSubscription = null;
 				this.#reviewInterestItemIdsByLane.clear();
 				this.#reviewDesiredInterestSignature = null;
@@ -562,6 +570,7 @@ export class BridgeCommWorkerProductController {
 		}
 		if (subscription === this.#reviewSubscription) {
 			const error = new Error('Bridge Review metadata subscription ended unexpectedly.');
+			this.#onReviewWorkerDerivationEpochChanged(null);
 			this.#reviewSubscription = null;
 			this.#reviewInterestItemIdsByLane.clear();
 			this.#reviewDesiredInterestSignature = null;
@@ -578,6 +587,7 @@ export class BridgeCommWorkerProductController {
 	): Promise<void> {
 		if (subscription !== this.#reviewSubscription) return;
 		this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+		this.#onReviewWorkerDerivationEpochChanged(null);
 		const shouldReopen = this.#reviewRecoveryPublicationId !== publicationId;
 		this.#reviewRecoveryPublicationId = publicationId;
 		try {
@@ -952,6 +962,8 @@ function ignoreReviewMetadataEvent(
 }
 
 function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}
+
+function ignoreReviewWorkerDerivationEpochChange(_workerDerivationEpoch: number | null): void {}
 
 function ignoreAnnotationProjectionConvergence(
 	_publication: BridgeCommWorkerAnnotationProjectionPublication,

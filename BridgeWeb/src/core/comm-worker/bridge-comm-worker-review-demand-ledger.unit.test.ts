@@ -354,6 +354,11 @@ describe('Bridge comm worker Review published-position ownership', () => {
 
 		// Act
 		ledger.updateGeneration(2);
+
+		// Assert: retiring generation 1 immediately withdraws its interest projection.
+		expect(activeSnapshots.at(-1)).toEqual([]);
+
+		// Act: generation 2 may reconcile only from its own fresh membership.
 		ledger.reconcile(
 			reviewMembership(13).map((member) => ({ ...member, itemId: `new-${member.itemId}` })),
 		);

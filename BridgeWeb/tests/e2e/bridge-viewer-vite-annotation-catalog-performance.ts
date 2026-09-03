@@ -32,6 +32,7 @@ export interface AnnotationCatalogLongTaskObservation {
 }
 
 export interface AnnotationProjectionQueryObservation {
+	readonly acquiredSessionIds: () => readonly string[];
 	readonly dispose: () => void;
 	readonly sessionIdsForOperation: (operationCorrelationId: string) => readonly string[];
 }
@@ -44,10 +45,11 @@ interface TelemetryStatusSample {
 	readonly stringAttributes: Readonly<Record<string, string>>;
 }
 
-export async function cloneSavedAnnotationMessages(props: {
+export async function cloneSavedAnnotationMessagesIntoCompletedSession(props: {
 	readonly cloneCount: number;
 	readonly dataRootPath: string;
 	readonly sourceMessageId: string;
+	readonly sourceSessionId: string;
 	readonly sourceThreadId: string;
 }): Promise<() => Promise<void>> {
 	const identifiers = Array.from({ length: props.cloneCount }, (): string => uuidv7());
@@ -67,19 +69,48 @@ SELECT
 FROM annotation_message AS source
 WHERE lower(source.id) = lower('${props.sourceMessageId}');`,
 	);
+	const captureSeedSessionState = `
+CREATE TEMP TABLE seeded_session_before AS
+SELECT semantic_revision, updated_at
+FROM annotation_session
+WHERE lower(id) = lower('${props.sourceSessionId}');`;
+	const completeSeedSession = `
+UPDATE annotation_session
+SET lifecycle = 'completed',
+    semantic_revision = semantic_revision + 1,
+    updated_at = updated_at + 1,
+    completed_at = updated_at + 1
+WHERE lower(id) = lower('${props.sourceSessionId}');`;
+	const verifyCompletedSeedSession = `
+SELECT
+  (SELECT COUNT(*) FROM annotation_message
+   WHERE lower(thread_id) = lower('${props.sourceThreadId}'))
+  || '|'
+  ||
+  (SELECT COUNT(*)
+   FROM annotation_session AS session
+   JOIN seeded_session_before AS before
+   WHERE lower(session.id) = lower('${props.sourceSessionId}')
+     AND session.lifecycle = 'completed'
+     AND session.semantic_revision = before.semantic_revision + 1
+     AND session.updated_at > before.updated_at
+     AND session.completed_at = session.updated_at);`;
 	const sql = [
 		'.bail on',
 		'PRAGMA busy_timeout = 10000;',
+		captureSeedSessionState,
 		'BEGIN IMMEDIATE;',
 		...statements,
+		completeSeedSession,
 		'COMMIT;',
-		`SELECT COUNT(*) FROM annotation_message WHERE lower(thread_id) = lower('${props.sourceThreadId}');`,
+		verifyCompletedSeedSession,
 	].join('\n');
 	const result = await runSQLiteScript(join(props.dataRootPath, 'local.sqlite'), sql);
-	const messageCount = Number(result.trim().split('\n').at(-1));
-	if (messageCount !== props.cloneCount + 1) {
+	const verification = result.trim().split('\n').at(-1);
+	const expectedVerification = `${props.cloneCount + 1}|1`;
+	if (verification !== expectedVerification) {
 		throw new Error(
-			`Large annotation catalog fixture expected ${props.cloneCount + 1} messages, received ${result.trim()}.`,
+			`Large annotation catalog fixture expected ${expectedVerification} message/session verification, received ${result.trim()}.`,
 		);
 	}
 	return async (): Promise<void> => {
@@ -122,6 +153,7 @@ export async function latestAnnotationCatalogCommit(
 export function observeAnnotationProjectionQueries(
 	page: Page,
 ): AnnotationProjectionQueryObservation {
+	const acquiredSessionIds: string[] = [];
 	const sessionIdsByOperationCorrelationId = new Map<string, string[]>();
 	const handleRequest = (request: Request): void => {
 		if (
@@ -133,6 +165,16 @@ export function observeAnnotationProjectionQueries(
 		const body: unknown = request.postDataJSON();
 		if (!isRecord(body) || !isRecord(body['call'])) return;
 		const call = body['call'];
+		if (call['method'] === 'review.annotations.command' && isRecord(call['request'])) {
+			const operation = call['request']['operation'];
+			if (
+				isRecord(operation) &&
+				operation['kind'] === 'demand.acquire' &&
+				typeof operation['sessionId'] === 'string'
+			) {
+				acquiredSessionIds.push(operation['sessionId']);
+			}
+		}
 		if (call['method'] !== 'review.annotations.projection.query' || !isRecord(call['request'])) {
 			return;
 		}
@@ -150,6 +192,7 @@ export function observeAnnotationProjectionQueries(
 	};
 	page.on('request', handleRequest);
 	return {
+		acquiredSessionIds: (): readonly string[] => acquiredSessionIds,
 		dispose: (): void => {
 			page.off('request', handleRequest);
 		},

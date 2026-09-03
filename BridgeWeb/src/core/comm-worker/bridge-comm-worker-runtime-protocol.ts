@@ -800,8 +800,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				);
 			},
 			onReviewMetadataEvent: (event, workerDerivationEpoch) => {
-				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
-				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 				const receipt = activeReviewMetadataApplicator.apply(event, workerDerivationEpoch);
 				reviewRenderPublicationAuthority.recordReviewPublicationIdentity(
 					activeReviewMetadataApplicator.admittedPublicationIdentity(),
@@ -813,9 +811,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				return receipt;
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
-				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				installedReviewSource.handleMetadataFailure(_error);
-				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 				publishUpdatingChrome();
 				const failureDisposition =
 					activeReviewMetadataApplicator.handleMetadataFailure(workerDerivationEpoch);
@@ -832,6 +828,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					});
 				}
 				startFileMetadataInBackground();
+			},
+			onReviewWorkerDerivationEpochChanged: (workerDerivationEpoch): void => {
+				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
+				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
 			},
 			productTransport,
 		});

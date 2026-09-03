@@ -48,7 +48,7 @@ export interface BridgeCommWorkerReviewDemandLedger {
 		receiptIdentity: BridgeWorkerRenderReceiptIdentity,
 	) => boolean;
 	readonly setSuspended: (suspended: boolean) => void;
-	readonly updateGeneration: (generation: number) => void;
+	readonly updateGeneration: (generation: number | null) => void;
 	readonly reconcile: (membership: readonly BridgeCommWorkerDemandMember[]) => {
 		readonly active: readonly BridgeCommWorkerReviewDemandAdmission[];
 		readonly started: readonly BridgeCommWorkerReviewDemandAdmission[];
@@ -304,6 +304,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			completedItemIds.clear();
 			retryWaitingAttemptTokenByItemId.clear();
 			latestMembership = [];
+			publishCurrentActiveDemand();
 		},
 		release: (itemId, attemptToken, disposition): boolean => {
 			const activeRecord = activeRecordsByItemId.get(itemId);

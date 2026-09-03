@@ -82,6 +82,7 @@ describe('Bridge comm worker product controller Review interests', () => {
 		let failureCount = 0;
 		let reviewEpoch = 0;
 		let subscriptionIndex = 0;
+		const authorityChanges: Array<number | null> = [];
 		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
@@ -106,6 +107,9 @@ describe('Bridge comm worker product controller Review interests', () => {
 		];
 		const controller = new BridgeCommWorkerProductController({
 			onFileMetadataEvent: (): void => {},
+			onReviewWorkerDerivationEpochChanged: (workerDerivationEpoch): void => {
+				authorityChanges.push(workerDerivationEpoch);
+			},
 			onReviewMetadataFailure: (): void => {
 				failureCount += 1;
 			},
@@ -133,6 +137,7 @@ describe('Bridge comm worker product controller Review interests', () => {
 		expect(cancelCount).toBe(1);
 		expect(failureCount).toBe(1);
 		expect(reviewEpoch).toBe(2);
+		expect(authorityChanges).toEqual([1, null, 2]);
 		expect(subscriptionOptions).toEqual([{ interests: [] }, { interests: [] }]);
 
 		await controller.replaceReviewMetadataInterestsFromActiveDemand({
