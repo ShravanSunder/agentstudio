@@ -98,41 +98,65 @@ import Foundation
                 return
             }
             let paneIDs = manifest.entries.map(\.paneID)
+            let expectedSessionIDs = Dictionary(
+                uniqueKeysWithValues: manifest.entries.map { ($0.paneID, $0.sessionID) }
+            )
+            let restoredSessionIDs = rendererLifecycleSessionIDs(for: paneIDs)
+            guard restoredSessionIDs.count == 20,
+                Set(restoredSessionIDs.values).count == 20,
+                restoredSessionIDs.allSatisfy({ expectedSessionIDs[$0.key] == $0.value.rawValue })
+            else {
+                recordRendererLifecycleDiagnosticResult(
+                    action: action, succeeded: false, reason: "restart_session_identity_changed")
+                return
+            }
+
+            let initiallyVisiblePaneIDs = paneIDs.filter {
+                workspaceSurfaceCoordinator.visibilityTierResolver.tier(
+                    for: PaneId(existingUUID: $0)
+                ) == .p0Visible
+            }
+            let deferredPaneIDs = Set(paneIDs).subtracting(initiallyVisiblePaneIDs)
+            guard !initiallyVisiblePaneIDs.isEmpty, !deferredPaneIDs.isEmpty else {
+                recordRendererLifecycleDiagnosticResult(
+                    action: action, succeeded: false, reason: "restart_restore_partition_invalid")
+                return
+            }
             guard
                 await waitForRendererLifecycleCondition(
                     timeout: .seconds(20),
                     {
-                        paneIDs.allSatisfy { paneID in
-                            self.store.paneAtom.pane(paneID) != nil
-                                && self.viewRegistry.terminalView(for: paneID)?.ghosttySurface != nil
-                                && self.workspaceSurfaceCoordinator.runtimeForPane(PaneId(existingUUID: paneID))?
-                                    .lifecycle == .ready
-                        }
+                        initiallyVisiblePaneIDs.allSatisfy(self.rendererLifecyclePaneIsReady)
                     })
             else {
                 recordRendererLifecycleDiagnosticResult(
-                    action: action, succeeded: false, reason: "restart_restore_not_ready")
+                    action: action, succeeded: false, reason: "restart_foreground_restore_not_ready")
+                return
+            }
+            guard rendererLifecycleSurfaceIDs(for: Array(deferredPaneIDs)).isEmpty else {
+                recordRendererLifecycleDiagnosticResult(
+                    action: action, succeeded: false, reason: "restart_deferred_surface_eagerly_created")
+                return
+            }
+            guard
+                performanceTraceRecorder.rendererLifecycleSnapshot().successfulCreatedTotal
+                    == initiallyVisiblePaneIDs.count
+            else {
+                recordRendererLifecycleDiagnosticResult(
+                    action: action, succeeded: false, reason: "restart_foreground_population_mismatch")
                 return
             }
 
-            let restoredSessionIDs = rendererLifecycleSessionIDs(for: paneIDs)
+            if let restoreFailure = await restoreRendererLifecycleFixtureTabsOnDemand(paneIDs) {
+                recordRendererLifecycleDiagnosticResult(
+                    action: action, succeeded: false, reason: restoreFailure)
+                return
+            }
+
             let restoredSurfaceIDs = rendererLifecycleSurfaceIDs(for: paneIDs)
-            let expectedSessionIDs = Dictionary(
-                uniqueKeysWithValues: manifest.entries.map { ($0.paneID, $0.sessionID) }
-            )
-            guard restoredSessionIDs.count == 20, restoredSurfaceIDs.count == 20 else {
+            guard restoredSurfaceIDs.count == 20 else {
                 recordRendererLifecycleDiagnosticResult(
                     action: action, succeeded: false, reason: "restart_identity_missing")
-                return
-            }
-            guard Set(restoredSessionIDs.values).count == 20 else {
-                recordRendererLifecycleDiagnosticResult(
-                    action: action, succeeded: false, reason: "restart_session_identity_not_unique")
-                return
-            }
-            guard restoredSessionIDs.allSatisfy({ expectedSessionIDs[$0.key] == $0.value.rawValue }) else {
-                recordRendererLifecycleDiagnosticResult(
-                    action: action, succeeded: false, reason: "restart_session_identity_changed")
                 return
             }
             guard manifest.entries.allSatisfy({ restoredSurfaceIDs[$0.paneID] != $0.priorSurfaceID }) else {
@@ -160,6 +184,46 @@ import Foundation
             scheduleRendererLifecycleDiagnosticTermination {
                 NSApp.terminate(nil)
             }
+        }
+
+        private func rendererLifecyclePaneIsReady(_ paneID: UUID) -> Bool {
+            store.paneAtom.pane(paneID) != nil
+                && viewRegistry.terminalView(for: paneID)?.ghosttySurface != nil
+                && workspaceSurfaceCoordinator.runtimeForPane(PaneId(existingUUID: paneID))?.lifecycle == .ready
+        }
+
+        private func restoreRendererLifecycleFixtureTabsOnDemand(_ paneIDs: [UUID]) async -> String? {
+            let paneIDSet = Set(paneIDs)
+            let fixtureTabs = store.tabLayoutAtom.tabs.filter {
+                !Set($0.allPaneIds).isDisjoint(with: paneIDSet)
+            }
+            guard fixtureTabs.count == 2 else { return "restart_tab_partition_invalid" }
+
+            for tab in fixtureTabs {
+                if store.tabLayoutAtom.activeTabId != tab.id,
+                    !executor.execute(.selectTab(tabId: tab.id))
+                {
+                    return "restart_tab_reveal_rejected"
+                }
+                workspaceSurfaceCoordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+                let visibleTabPaneIDs = paneIDs.filter {
+                    tab.allPaneIds.contains($0)
+                        && workspaceSurfaceCoordinator.visibilityTierResolver.tier(
+                            for: PaneId(existingUUID: $0)
+                        ) == .p0Visible
+                }
+                guard !visibleTabPaneIDs.isEmpty else { return "restart_tab_visible_partition_empty" }
+                guard
+                    await waitForRendererLifecycleCondition(
+                        timeout: .seconds(20),
+                        {
+                            visibleTabPaneIDs.allSatisfy(self.rendererLifecyclePaneIsReady)
+                        })
+                else {
+                    return "restart_deferred_restore_not_ready"
+                }
+            }
+            return nil
         }
 
         func writeRendererLifecycleRestartManifest(

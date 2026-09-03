@@ -138,9 +138,13 @@ import GhosttyKit
         private func exerciseRendererLifecycleStructuralProjection(
             _ fixture: RendererLifecycleContinuityFixture
         ) async -> (succeeded: Bool, reason: String) {
+            guard !store.paneAtom.isDrawerExpanded(for: fixture.drawerParentID) else {
+                return (false, "drawer_fixture_initially_expanded")
+            }
             let actions: [(name: String, command: WorkspaceActionCommand)] = [
-                ("drawer_close", .toggleDrawer(paneId: fixture.drawerParentID)),
                 ("drawer_open", .toggleDrawer(paneId: fixture.drawerParentID)),
+                ("drawer_close", .toggleDrawer(paneId: fixture.drawerParentID)),
+                ("drawer_reopen", .toggleDrawer(paneId: fixture.drawerParentID)),
                 (
                     "arrangement_alternate",
                     .switchArrangement(tabId: fixture.firstTabID, arrangementId: fixture.secondArrangementID)
@@ -180,6 +184,9 @@ import GhosttyKit
                 else {
                     return (false, "projection_action_not_reconciled_\(action.name)")
                 }
+            }
+            guard store.paneAtom.isDrawerExpanded(for: fixture.drawerParentID) else {
+                return (false, "drawer_fixture_not_expanded")
             }
             guard
                 await executeRendererLifecycleSoakAction(
