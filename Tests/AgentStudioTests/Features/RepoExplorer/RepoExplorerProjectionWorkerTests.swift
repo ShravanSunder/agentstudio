@@ -19,7 +19,9 @@ struct RepoExplorerProjectionWorkerTests {
     private enum CancellationProbe: Error {
         case cancelled
     }
+}
 
+extension RepoExplorerProjectionWorkerTests {
     @Test("one rendered repo favorite change is classified as a scoped row delta")
     func renderedRepoFavoriteChangeIsScoped() {
         let repoId = UUID()
@@ -206,7 +208,7 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.rowIndex.entries.count == 3)
         let visibleWorktreeIds = result.projection.resolvedGroups.first?.repos.first?.worktrees.map { $0.id }
         #expect(visibleWorktreeIds == [matchingWorktree.id])
-        #expect(result.branchNameByWorktreeId[matchingWorktree.id] == "Unknown branch")
+        #expect(result.branchNameByWorktreeId[matchingWorktree.id]?.isEmpty == true)
     }
 
     @Test("worker preserves favorites-first section ordering off caller isolation")
@@ -270,11 +272,15 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.snapshot == snapshot)
         #expect(
             result.rowIndex.entries.map(\.id) == [
-                "section-header:repositories",
-                "group:remote:askluna/agent-studio",
-                "worktree:remote:askluna/agent-studio:\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
+                .sectionHeader(.repositories),
+                .group(groupID: "remote:askluna/agent-studio"),
+                .worktree(
+                    groupID: "remote:askluna/agent-studio",
+                    repoID: repoId,
+                    worktreeID: repo.worktrees[0].id
+                ),
             ])
-        #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
+        #expect(result.branchNameByWorktreeId[repo.worktrees[0].id]?.isEmpty == true)
     }
 
     @Test("generated requests preserve pane and tab presentation facts")
@@ -460,6 +466,8 @@ struct RepoExplorerProjectionWorkerTests {
         ]
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         for (offset, snapshot) in snapshots.enumerated() {
             let request = RepoExplorerProjectionRequest(
@@ -529,6 +537,8 @@ struct RepoExplorerProjectionWorkerTests {
             onProjectionSuppressed: suppressionProbe.record
         )
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(initialRequest)
         let initialResult = try await publishedResult(generation: 1, from: adapter)
@@ -553,6 +563,8 @@ struct RepoExplorerProjectionWorkerTests {
         let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [repo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)
@@ -589,17 +601,19 @@ struct RepoExplorerProjectionWorkerTests {
     func changedEmptyStateRepublishesToViewAdapter() async throws {
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [], generation: 1))
         let initialResult = try await publishedResult(generation: 1, from: adapter)
-        let initialRevision = try #require(adapter.materializedProjection).revision
+        let initialRevision = try #require(host.acceptedBaseline).revision
 
         adapter.admit(request(repos: [], generation: 2, query: "missing"))
         let changedResult = try await publishedResult(generation: 2, from: adapter)
 
         #expect(initialResult.projection.emptyState == .noRepositories)
         #expect(changedResult.projection.emptyState == .searchNoResults)
-        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+        #expect(host.acceptedBaseline?.revision == initialRevision + 1)
     }
 
     @Test("changed visible pane destinations republish to the view adapter")
@@ -611,6 +625,8 @@ struct RepoExplorerProjectionWorkerTests {
         let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [repo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)
@@ -657,6 +673,8 @@ struct RepoExplorerProjectionWorkerTests {
         )
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(initialRequest)
         let initialResult = try await publishedResult(generation: 1, from: adapter)
@@ -689,6 +707,8 @@ struct RepoExplorerProjectionWorkerTests {
         )
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
+        let host = registerProjectionTestMaterializationHost(adapter: adapter)
+        defer { host.detach() }
 
         adapter.admit(request(repos: [initialRepo], generation: 1))
         _ = try await publishedResult(generation: 1, from: adapter)
@@ -717,10 +737,11 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(adapter.materializedProjection?.revision == initialRevision + 1)
     }
 
-    private func repo(
+    func repo(
         id: UUID,
         worktreeId: UUID = UUIDv7.generate(),
         name: String,
+        stableKey: String? = nil,
         isFavorite: Bool = false,
         note: String? = nil,
         worktreePath: String? = nil
@@ -729,7 +750,7 @@ struct RepoExplorerProjectionWorkerTests {
             id: id,
             name: name,
             repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
-            stableKey: name,
+            stableKey: stableKey ?? name,
             isFavorite: isFavorite,
             note: note,
             worktrees: [
@@ -744,7 +765,7 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func request(
+    func request(
         repos: [RepoPresentationItem],
         unavailablePullRequestRepoIds: Set<UUID> = [],
         loadingPullRequestRepoIds: Set<UUID> = []
@@ -757,33 +778,39 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func request(
+    func request(
         repos: [RepoPresentationItem],
         generation: Int,
         enrichmentUpdatedAt: Date = Date(timeIntervalSince1970: 0),
+        resolvesRemotes: Bool = true,
         branchNameByWorktreeId: [UUID: String] = [:],
         query: String = "",
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
         unavailablePullRequestRepoIds: Set<UUID> = [],
-        loadingPullRequestRepoIds: Set<UUID> = []
+        loadingPullRequestRepoIds: Set<UUID> = [],
+        localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition = .pending,
+        repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity] = [:],
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress] = [:],
+        activityReferenceDate: Date = Date(timeIntervalSince1970: 10_000_000)
     ) -> RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
             generation: generation,
             snapshot: RepoExplorerSnapshot(
                 repos: repos,
-                repoEnrichmentByRepoId: Dictionary(
-                    uniqueKeysWithValues: repos.map {
-                        (
-                            $0.id,
-                            resolvedRemote(
-                                repoId: $0.id,
-                                displayName: $0.name,
-                                updatedAt: enrichmentUpdatedAt
+                repoEnrichmentByRepoId: resolvesRemotes
+                    ? Dictionary(
+                        uniqueKeysWithValues: repos.map {
+                            (
+                                $0.id,
+                                resolvedRemote(
+                                    repoId: $0.id,
+                                    displayName: $0.name,
+                                    updatedAt: enrichmentUpdatedAt
+                                )
                             )
-                        )
-                    }
-                ),
+                        }
+                    ) : [:],
                 groupingMode: .repo,
                 query: query,
                 paneLocationsByWorktreeId: paneLocationsByWorktreeId,
@@ -807,11 +834,15 @@ struct RepoExplorerProjectionWorkerTests {
                 }
             ),
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds,
+            localActivityHydrationDisposition: localActivityHydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate
         )
     }
 
-    private func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
+    func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
         RepoPresentationItem(
             id: repo.id,
             name: repo.name,
@@ -824,7 +855,7 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func resolvedRemote(
+    func resolvedRemote(
         repoId: UUID,
         displayName: String,
         updatedAt: Date = Date(timeIntervalSince1970: 0)
@@ -843,7 +874,7 @@ struct RepoExplorerProjectionWorkerTests {
     }
 
     @MainActor
-    private func publishedResult(
+    func publishedResult(
         generation: Int,
         from adapter: RepoExplorerProjectionAdapter
     ) async throws -> RepoExplorerProjectionResult {

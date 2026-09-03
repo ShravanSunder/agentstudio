@@ -57,7 +57,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -86,6 +87,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
             #expect(posted.subscriberCount > 0)
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
+            )
 
             let resolved = await eventually("repo enrichment should resolve from projector origin") {
                 guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
@@ -116,7 +124,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -143,6 +152,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                         source: .builtin(.filesystemWatcher)
                     )
                 )
+            )
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
             )
 
             let resolved = await eventually("local-only repo enrichment should resolve") {
@@ -228,7 +244,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -257,6 +274,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
 
             // Phase 2: Register worktree -> triggers enrichment via projector
             let worktreeId = UUID()
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
+            )
             _ = await bus.post(
                 .system(
                     SystemEnvelope.test(
@@ -274,9 +298,9 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                     return false
                 }
                 return identity.groupKey == "remote:askluna/agent-studio"
+                    && repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
             }
             #expect(enriched)
-            #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
             // Phase 3: User removes repo
             coordinator.handleRepoRemoval(repoId: repo.id)

@@ -455,7 +455,10 @@ extension WebKitSerializedTests {
                         )
                     ),
                     gitReadContext: makeBridgeGitReadContext(rootURL: repoURL),
-                    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator()
+                    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                    statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                        physicalGate: AgentStudioGitStatusPhysicalGate()
+                    )
                 )
             )
         }
@@ -859,6 +862,9 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: AgentStudioGitStatusPhysicalGate()
+                ),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,

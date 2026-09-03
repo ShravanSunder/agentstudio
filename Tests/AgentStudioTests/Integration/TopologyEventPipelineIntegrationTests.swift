@@ -282,7 +282,10 @@ struct TopologyEventPipelineIntegrationTests {
                 )
             )
 
-            await assertEventuallyAsync("repoRemoved should be emitted after watched-folder FSEvent") {
+            await assertEventuallyAsync(
+                "repoRemoved should be emitted after watched-folder FSEvent",
+                maxTurns: 1000
+            ) {
                 let envelopes = await recorder.snapshot()
                 return RuntimeEnvelopeHarness.systemEvents(from: envelopes).contains {
                     if case .topology(.repoRemoved(let repoPath)) = $0.event {

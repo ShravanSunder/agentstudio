@@ -306,7 +306,15 @@ struct PaneDisplayDerivedTests {
                 facets: PaneContextFacets(repoId: repoB.id, worktreeId: worktreeB.id, cwd: worktreeB.path),
             )
 
-            let sidebarRepos = [RepoPresentationItem(repo: repoA), RepoPresentationItem(repo: repoB)]
+            let sidebarRepos = [repoA, repoB].map {
+                RepoPresentationItem(
+                    repo: $0,
+                    stableKey: $0.stableKey,
+                    worktreeStableKeysByID: Dictionary(
+                        uniqueKeysWithValues: $0.worktrees.map { ($0.id, $0.stableKey) }
+                    )
+                )
+            }
             let metadata = RepoPresentationColoring.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: atoms.repoCache.repoEnrichmentByRepoId

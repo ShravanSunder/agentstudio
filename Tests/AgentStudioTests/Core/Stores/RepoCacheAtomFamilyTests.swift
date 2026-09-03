@@ -32,8 +32,201 @@ private func observePullRequestFacts(
 }
 
 @MainActor
+private func observePullRequestLoading(
+    in cacheAtom: RepoEnrichmentCacheAtom,
+    repoId: UUID,
+    counter: RepoCacheAtomFamilyInvalidationCounter
+) {
+    withObservationTracking {
+        _ = cacheAtom.isPullRequestLoading(forRepository: repoId)
+    } onChange: {
+        MainActor.assumeIsolated {
+            counter.record()
+            observePullRequestLoading(in: cacheAtom, repoId: repoId, counter: counter)
+        }
+    }
+}
+
+@MainActor
+private func observePullRequestUnavailability(
+    in cacheAtom: RepoEnrichmentCacheAtom,
+    repoId: UUID,
+    counter: RepoCacheAtomFamilyInvalidationCounter
+) {
+    withObservationTracking {
+        _ = cacheAtom.isPullRequestDataUnavailable(forRepository: repoId)
+    } onChange: {
+        MainActor.assumeIsolated {
+            counter.record()
+            observePullRequestUnavailability(in: cacheAtom, repoId: repoId, counter: counter)
+        }
+    }
+}
+
+@MainActor
 @Suite(.serialized)
 struct RepoCacheAtomFamilyTests {
+    @Test("repository fact update progress is keyed and equal writes are suppressed")
+    func repositoryFactUpdateProgressIsKeyedAndEqualWritesAreSuppressed() {
+        let cacheAtom = RepoCacheAtom()
+        let watchedRepoID = UUIDv7.generate()
+        let unrelatedRepoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let progress = RepositoryFactUpdateProgress.captured(
+            repoId: watchedRepoID,
+            attemptId: attemptID
+        )
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        withObservationTracking {
+            _ = cacheAtom.repositoryFactUpdateProgress(for: watchedRepoID)
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        cacheAtom.setRepositoryFactUpdateProgress(
+            .captured(repoId: unrelatedRepoID, attemptId: UUIDv7.generate())
+        )
+        #expect(!invalidationCounter.didFire)
+
+        cacheAtom.setRepositoryFactUpdateProgress(progress)
+        #expect(invalidationCounter.count == 1)
+        let acceptedRevision = cacheAtom.repositoryFactUpdateRevision
+
+        cacheAtom.setRepositoryFactUpdateProgress(progress)
+        #expect(cacheAtom.repositoryFactUpdateRevision == acceptedRevision)
+        #expect(cacheAtom.repositoryFactUpdateProgress(for: watchedRepoID) == progress)
+    }
+
+    @Test("repository removal clears runtime-only fact update progress")
+    func repositoryRemovalClearsFactUpdateProgress() {
+        let cacheAtom = RepoCacheAtom()
+        let repoID = UUIDv7.generate()
+        cacheAtom.setRepositoryFactUpdateProgress(
+            .captured(repoId: repoID, attemptId: UUIDv7.generate())
+        )
+
+        cacheAtom.removeRepo(repoID)
+
+        #expect(cacheAtom.repositoryFactUpdateProgress(for: repoID) == nil)
+    }
+
+    @Test("unrelated repository projection does not invalidate keyed loading reader")
+    func unrelatedRepositoryProjectionPreservesLoadingReader() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let watchedRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        observePullRequestLoading(
+            in: cacheAtom,
+            repoId: watchedRepoId,
+            counter: invalidationCounter
+        )
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .loading(baseline: .unknown, requestIdentity: 1),
+            forRepository: unrelatedRepoId
+        )
+
+        #expect(!invalidationCounter.didFire)
+        #expect(cacheAtom.isPullRequestLoading(forRepository: unrelatedRepoId))
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: watchedRepoId))
+    }
+
+    @Test("unrelated repository projection does not invalidate keyed unavailability reader")
+    func unrelatedRepositoryProjectionPreservesUnavailabilityReader() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let watchedRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        observePullRequestUnavailability(
+            in: cacheAtom,
+            repoId: watchedRepoId,
+            counter: invalidationCounter
+        )
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(.unavailable(previousConfirmedFactsByBranch: [:])),
+            forRepository: unrelatedRepoId
+        )
+
+        #expect(!invalidationCounter.didFire)
+        #expect(cacheAtom.isPullRequestDataUnavailable(forRepository: unrelatedRepoId))
+        #expect(!cacheAtom.isPullRequestDataUnavailable(forRepository: watchedRepoId))
+    }
+
+    @Test("repository projection atomically completes loading with confirmed facts")
+    func repositoryProjectionCompletesLoadingAndFactsInOneRevision() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUIDv7.generate()
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "feature/atomic")!
+        let confirmedFacts = PullRequestFacts(openCount: 1, exactOpenURL: nil)
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .loading(baseline: .unknown, requestIdentity: 1),
+            forRepository: repoId
+        )
+        let loadingRevision = cacheAtom.cacheRevision
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(.ready(confirmedFactsByBranch: [branchKey.branch: confirmedFacts])),
+            forRepository: repoId
+        )
+
+        #expect(cacheAtom.cacheRevision == loadingRevision + 1)
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: repoId))
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == confirmedFacts)
+        #expect(!cacheAtom.isPullRequestDataUnavailable(forRepository: repoId))
+    }
+
+    @Test("repository projection preserves honest unknown empty unavailable and recovery states")
+    func repositoryProjectionPreservesHonestPresentationStates() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUIDv7.generate()
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "feature/honest")!
+        let confirmedEmpty = PullRequestFacts(openCount: 0, exactOpenURL: nil)
+        let confirmedFactsByBranch = [branchKey.branch: confirmedEmpty]
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(.unknown),
+            forRepository: repoId
+        )
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == nil)
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: repoId))
+        #expect(!cacheAtom.isPullRequestDataUnavailable(forRepository: repoId))
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(.ready(confirmedFactsByBranch: confirmedFactsByBranch)),
+            forRepository: repoId
+        )
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == confirmedEmpty)
+
+        let unavailable = PullRequestStablePresentation.unavailable(
+            previousConfirmedFactsByBranch: confirmedFactsByBranch
+        )
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(unavailable),
+            forRepository: repoId
+        )
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == confirmedEmpty)
+        #expect(cacheAtom.isPullRequestDataUnavailable(forRepository: repoId))
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .loading(baseline: unavailable, requestIdentity: 2),
+            forRepository: repoId
+        )
+        #expect(cacheAtom.isPullRequestLoading(forRepository: repoId))
+        #expect(!cacheAtom.isPullRequestDataUnavailable(forRepository: repoId))
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == confirmedEmpty)
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(unavailable),
+            forRepository: repoId
+        )
+        #expect(!cacheAtom.isPullRequestLoading(forRepository: repoId))
+        #expect(cacheAtom.isPullRequestDataUnavailable(forRepository: repoId))
+        #expect(cacheAtom.pullRequestFacts(for: branchKey) == confirmedEmpty)
+    }
+
     @Test
     func pullRequestLoadingIsKeyedAndOnlyExplicitLifecycleEdgesClearIt() {
         let cacheAtom = RepoEnrichmentCacheAtom()
@@ -251,6 +444,59 @@ struct RepoCacheAtomFamilyTests {
 
         #expect(cacheAtom.pullRequestFacts(for: removedKey) == nil)
         #expect(cacheAtom.pullRequestFacts(for: retainedKey)?.openCount == 2)
+    }
+
+    @Test("repository fact index stays coherent across every keyed lifecycle")
+    func repositoryFactIndexStaysCoherentAcrossKeyedLifecycle() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repositoryAId = UUIDv7.generate()
+        let repositoryBId = UUIDv7.generate()
+        let repositoryAMainKey = RepoBranchKey(repoId: repositoryAId, branch: "main")!
+        let repositoryAFeatureKey = RepoBranchKey(repoId: repositoryAId, branch: "feature/a")!
+        let repositoryBMainKey = RepoBranchKey(repoId: repositoryBId, branch: "main")!
+
+        cacheAtom.applyPullRequestFacts([
+            repositoryAMainKey: PullRequestFacts(openCount: 1, exactOpenURL: nil),
+            repositoryAFeatureKey: PullRequestFacts(openCount: 2, exactOpenURL: nil),
+            repositoryBMainKey: PullRequestFacts(openCount: 3, exactOpenURL: nil),
+        ])
+
+        cacheAtom.applyPullRequestRepositoryProjection(
+            .stable(
+                .ready(
+                    confirmedFactsByBranch: [
+                        repositoryAFeatureKey.branch: PullRequestFacts(
+                            openCount: 4,
+                            exactOpenURL: nil
+                        )
+                    ]
+                )
+            ),
+            forRepository: repositoryAId
+        )
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAMainKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAFeatureKey)?.openCount == 4)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 3)
+
+        cacheAtom.removePullRequestFacts(keys: [repositoryAFeatureKey])
+        cacheAtom.applyPullRequestFacts([
+            repositoryAMainKey: PullRequestFacts(openCount: 5, exactOpenURL: nil)
+        ])
+        cacheAtom.markPullRequestsUnavailable(forRepository: repositoryAId)
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAMainKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 3)
+
+        cacheAtom.clear()
+        cacheAtom.applyPullRequestFacts([
+            repositoryAFeatureKey: PullRequestFacts(openCount: 6, exactOpenURL: nil),
+            repositoryBMainKey: PullRequestFacts(openCount: 7, exactOpenURL: nil),
+        ])
+        cacheAtom.removePullRequestFacts(forRepository: repositoryAId)
+
+        #expect(cacheAtom.pullRequestFacts(for: repositoryAFeatureKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: repositoryBMainKey)?.openCount == 7)
     }
 
     @Test

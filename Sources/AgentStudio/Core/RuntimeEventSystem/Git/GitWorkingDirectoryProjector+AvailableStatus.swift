@@ -4,6 +4,7 @@ import Foundation
 extension GitWorkingDirectoryProjector {
     func handleAvailableStatusResult(
         _ statusSnapshot: GitWorkingTreeStatus,
+        materialized: MaterializedGitStatus,
         changeset: FileChangeset,
         computeStart: ContinuousClock.Instant,
         scope: GitStatusScope,
@@ -28,6 +29,55 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         )
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
+        guard isCurrentForPublication(changeset) else { return }
+        let currentStatusSnapshot = await prepareRemoteReferenceCurrentStatus(
+            statusSnapshot,
+            changeset: changeset
+        )
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
+        clearCapacityRetryState(worktreeId: changeset.worktreeId)
+        resetStatusBackoff(worktreeId: changeset.worktreeId)
+        let previousAccepted = acceptedStatusBaseline(for: changeset.worktreeId)
+        let currentAcceptedFacts = GitWorkingTreeStatusFacts(status: currentStatusSnapshot)
+        let completeStatusChanged =
+            previousAccepted.facts != currentAcceptedFacts
+            || previousAccepted.detail != materialized.detail
+        lastStatusEntriesByWorktreeId[changeset.worktreeId] = currentStatusSnapshot.entries
+        lastAcceptedStatusFactsByWorktreeId[changeset.worktreeId] = currentAcceptedFacts
+        acceptExactCleanAuthority(from: materialized, scope: scope, changeset: changeset)
+        if let detail = materialized.detail {
+            lastAcceptedLineDetailByWorktreeId[changeset.worktreeId] = detail
+            if materialized.refreshedDetail {
+                lastAcceptedLineDetailAtByWorktreeId[changeset.worktreeId] = deadlineClock.now
+            }
+        }
+
+        let nextSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: changeset.worktreeId,
+            repoId: changeset.repoId,
+            rootPath: changeset.rootPath,
+            summary: currentStatusSnapshot.summary,
+            branch: currentStatusSnapshot.branch
+        )
+        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
+        let snapshotChanged = previousSnapshot != nextSnapshot
+        if completeStatusChanged {
+            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
+        } else if pendingByWorktreeId[changeset.worktreeId] == nil {
+            unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
+        }
+        if snapshotChanged {
+            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
+        } else {
+            aggregatePerformance.increment(\.snapshotEqual)
+            flushAggregatePerformanceSnapshotIfNeeded()
+        }
+        settleCompletedRepositoryRecomputationTarget(worktreeId: changeset.worktreeId)
+        completeAdmittedRequiredIntent(worktreeId: changeset.worktreeId)
+        recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
+
         await emitGitWorkingDirectoryEvent(
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
@@ -40,46 +90,16 @@ extension GitWorkingDirectoryProjector {
                     consecutiveFailureCount: 0
                 ))
         )
-        guard !Task.isCancelled, !isShuttingDown else { return }
-        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrent(changeset) else { return }
-        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        clearCapacityRetryState(worktreeId: changeset.worktreeId)
-        resetStatusBackoff(worktreeId: changeset.worktreeId)
-        lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
-
-        let nextSnapshot = GitWorkingTreeSnapshot(
-            worktreeId: changeset.worktreeId,
-            repoId: changeset.repoId,
-            rootPath: changeset.rootPath,
-            summary: statusSnapshot.summary,
-            branch: statusSnapshot.branch
-        )
-        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
-        if previousSnapshot != nextSnapshot {
-            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
-            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
+        if snapshotChanged {
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
                 event: .snapshotChanged(snapshot: nextSnapshot)
             )
-        } else {
-            performanceTraceRecorder?.record(
-                .gitSnapshotDedup,
-                attributes: [
-                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
-                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
-                ]
-            )
-            if pendingByWorktreeId[changeset.worktreeId] == nil {
-                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
-            }
         }
 
         if let previousSnapshot,
-            let nextBranch = statusSnapshot.branch,
+            let nextBranch = currentStatusSnapshot.branch,
             previousSnapshot.branch != nextBranch
         {
             await emitGitWorkingDirectoryEvent(
@@ -93,7 +113,29 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         }
-        guard shouldCheckOrigin(for: changeset) else { return }
-        await emitOriginResolutionIfChanged(changeset: changeset, statusSnapshot: statusSnapshot)
+    }
+
+    private func acceptExactCleanAuthority(
+        from materialized: MaterializedGitStatus,
+        scope: GitStatusScope,
+        changeset: FileChangeset
+    ) {
+        let authority = materialized.facts.exactCleanAuthority
+        let worktreeId = changeset.worktreeId
+        if scope == .full, let authority {
+            exactCleanAuthorityByWorktreeId[worktreeId] = authority
+            recordExactCleanBaselineAcceptedTelemetry()
+        } else {
+            exactCleanAuthorityByWorktreeId.removeValue(forKey: worktreeId)
+        }
+    }
+
+    private func acceptedStatusBaseline(
+        for worktreeId: UUID
+    ) -> (facts: GitWorkingTreeStatusFacts?, detail: GitWorkingTreeLineDetail?) {
+        (
+            facts: lastAcceptedStatusFactsByWorktreeId[worktreeId],
+            detail: lastAcceptedLineDetailByWorktreeId[worktreeId]
+        )
     }
 }

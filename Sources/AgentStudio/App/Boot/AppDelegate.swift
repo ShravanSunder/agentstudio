@@ -26,6 +26,9 @@ enum WorkspacePreparedContentMountBootState {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
+    #if DEBUG
+        var sidebarPerformanceProofSession: SidebarPerformanceProofSession?
+    #endif
     let octiconLoader: OcticonLoader
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
@@ -47,18 +50,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.core.repoCache }
     var uiState: WorkspaceSidebarState! { atomStore.core.workspaceSidebarState }
+    // Inbox presentation and ingestion are intentionally retired. These dormant
+    // references remain only for the later data-safe source removal.
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
-    var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
-    var hasLoadedInboxNotificationStore = false
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
     var entityRecencyStore: EntityRecencyStore!
+    var repositoryLocalActivityStore: RepositoryLocalActivityStore!
     var repositoryTopologyStore: RepositoryTopologyStore!
     var workspacePaneRecencyObserver: WorkspacePaneRecencyObserver?
     var sidebarCacheStore: SidebarCacheStore!
@@ -69,6 +73,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var bridgeGitReadScheduler: BridgeGitReadScheduler!
     var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
+    var repositoryFactUpdateSource: (any RepositoryFactUpdateStarting)?
+    var repositoryFactUpdateTasksByRepoId: [UUID: Task<Void, Never>] = [:]
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
@@ -257,15 +263,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if DEBUG
+            sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
+        #endif
         mainWindowController?.shutdown()
         guard let store else { return .terminateNow }
 
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
             await self?.flushApplicationStateBeforeTermination(store: store)
+            self?.cancelAllRepositoryFactUpdates()
             if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
                 await workspaceSurfaceCoordinator.shutdown()
             }
+            await self?.waitForRepositoryFactUpdatesToSettle()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -548,7 +559,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return nil
                 }
                 switch topologyEvent {
-                case .repoDiscovered(let repoPath, let parentPath, _):
+                case .repoDiscovered(let repoPath, let parentPath, _, _):
                     guard
                         parentPath.standardizedFileURL.path == normalizedRoot
                             || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)

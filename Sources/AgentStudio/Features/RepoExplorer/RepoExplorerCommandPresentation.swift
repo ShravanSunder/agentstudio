@@ -29,23 +29,104 @@ package struct RepoExplorerCommandPresentationRequest: Hashable, Sendable {
 }
 
 package struct RepoExplorerCommandPresentationSnapshot: Equatable, Sendable {
-    package static let empty = Self(generation: 0, results: [:])
+    package static let empty = Self(
+        generation: 0,
+        results: [:],
+        favoriteStateByRepositoryID: [:]
+    )
 
     package let generation: UInt64
     package let results: [RepoExplorerCommandPresentationRequest: Bool]
+    package let favoriteStateByRepositoryID: [UUID: Bool]
 
     package init(
         generation: UInt64,
-        results: [RepoExplorerCommandPresentationRequest: Bool]
+        results: [RepoExplorerCommandPresentationRequest: Bool],
+        favoriteStateByRepositoryID: [UUID: Bool] = [:]
     ) {
         self.generation = generation
         self.results = results
+        self.favoriteStateByRepositoryID = favoriteStateByRepositoryID
     }
 }
 
-struct RepoExplorerPresentedCommand {
-    let commandSpec: AppCommandSpec
-    let isEnabled: Bool
+package struct RepoExplorerCommandPresentationTarget: Equatable, Sendable {
+    let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
+    let materializationGeneration: UInt64
+    let visibleRevision: UInt64
+}
+
+package struct RepoExplorerVisibleWorktreeSnapshot: Equatable, Sendable {
+    package let target: RepoExplorerCommandPresentationTarget
+    package let worktreeIDs: Set<UUID>
+    package let repositoryIDs: Set<UUID>
+    package let settledUpdateAttemptByRepositoryID: [UUID: UUID]
+
+    package init(
+        target: RepoExplorerCommandPresentationTarget,
+        worktreeIDs: Set<UUID>,
+        repositoryIDs: Set<UUID> = [],
+        settledUpdateAttemptByRepositoryID: [UUID: UUID] = [:]
+    ) {
+        self.target = target
+        self.worktreeIDs = worktreeIDs
+        self.repositoryIDs = repositoryIDs
+        self.settledUpdateAttemptByRepositoryID = settledUpdateAttemptByRepositoryID
+    }
+}
+
+package struct RepoExplorerCommandPresentationDelta: Equatable, Sendable {
+    package let commandGeneration: UInt64
+    package let target: RepoExplorerCommandPresentationTarget
+    package let snapshot: RepoExplorerCommandPresentationSnapshot
+    package let affectedWorktreeIDs: Set<UUID>
+    package let affectedRepositoryIDs: Set<UUID>
+    package let affectedRequestIdentities: Set<RepoExplorerCommandPresentationRequest>
+    package let toolbarChanged: Bool
+
+    package init(
+        commandGeneration: UInt64,
+        target: RepoExplorerCommandPresentationTarget,
+        snapshot: RepoExplorerCommandPresentationSnapshot,
+        affectedWorktreeIDs: Set<UUID>,
+        affectedRepositoryIDs: Set<UUID>,
+        affectedRequestIdentities: Set<RepoExplorerCommandPresentationRequest>,
+        toolbarChanged: Bool
+    ) {
+        precondition(commandGeneration == snapshot.generation)
+        self.commandGeneration = commandGeneration
+        self.target = target
+        self.snapshot = snapshot
+        self.affectedWorktreeIDs = affectedWorktreeIDs
+        self.affectedRepositoryIDs = affectedRepositoryIDs
+        self.affectedRequestIdentities = affectedRequestIdentities
+        self.toolbarChanged = toolbarChanged
+    }
+}
+
+enum RepoExplorerCommandPresentationDeltaDisposition: Equatable {
+    case accepted(reboundRowCount: Int)
+    case stale(currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot)
+    case duplicateOrOlderCommandGeneration
+}
+
+@MainActor
+struct RepoExplorerTableInteractions {
+    static let inert = Self(
+        onCommandRequest: { _ in },
+        onToggleGroup: { _ in },
+        onFocusPane: { _ in }
+    )
+
+    let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
+    let onToggleGroup: (String) -> Void
+    let onFocusPane: (UUID) -> Void
+}
+
+package struct RepoExplorerPresentedCommand {
+    package let request: RepoExplorerCommandPresentationRequest
+    package let commandSpec: AppCommandSpec
+    package let isEnabled: Bool
 
     var command: AppCommand {
         commandSpec.command
@@ -59,8 +140,31 @@ enum RepoExplorerCommandPresentation {
     ) -> RepoExplorerPresentedCommand? {
         guard let isEnabled = snapshot.results[request] else { return nil }
         return RepoExplorerPresentedCommand(
+            request: request,
             commandSpec: request.command.definition,
             isEnabled: isEnabled
+        )
+    }
+}
+
+package struct RepoExplorerRepositoryCommandPresentation {
+    package static func request(repoID: UUID) -> RepoExplorerCommandPresentationRequest {
+        RepoExplorerCommandPresentationRequest(
+            command: .updateRepositoryFacts,
+            surface: .inlineControl,
+            target: repoID,
+            targetType: .repo,
+            arguments: .noArguments
+        )
+    }
+
+    package static func resolve(
+        repoID: UUID,
+        snapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> RepoExplorerPresentedCommand? {
+        RepoExplorerCommandPresentation.presentedCommand(
+            for: request(repoID: repoID),
+            snapshot: snapshot
         )
     }
 }

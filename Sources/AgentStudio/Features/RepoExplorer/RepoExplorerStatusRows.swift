@@ -44,12 +44,13 @@ struct RepoExplorerLoadingSectionHeaderRow: View {
                 }
 
                 Text(title)
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     .foregroundStyle(.secondary)
             }
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+            .frame(minHeight: AppStyles.Shell.Sidebar.nativeLoadingCaptionLineHeight)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, AppStyles.General.Spacing.standard)
-            .padding(.vertical, 4)
+            .padding(.vertical, AppStyles.Shell.Sidebar.loadingSectionCapsuleVerticalPadding)
             .background(
                 Capsule()
                     .fill(Color.primary.opacity(0.06))

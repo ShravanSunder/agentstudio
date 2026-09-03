@@ -30,6 +30,24 @@ func makeRepoExplorerTestOcticonLoader(from testFilePath: String = #filePath) ->
 }
 
 @MainActor
+private func makeProjectionInputCapture(
+    store: WorkspaceStore,
+    preferences: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
+    bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot = { _ in nil }
+) -> RepoExplorerProjectionInputCapture {
+    RepoExplorerProjectionInputCapture(
+        store: store,
+        preferences: preferences,
+        repoCache: atom(\.repoCache),
+        sidebarState: atom(\.workspaceSidebarState),
+        sidebarCache: atom(\.sidebarCache),
+        coreAtoms: CoreAtomScope.store,
+        bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
+        latestPaneMessageSnapshot: { _ in nil }
+    )
+}
+
+@MainActor
 private final class BridgeAttendanceSnapshotReadRecorder {
     private(set) var readCount = 0
     private let ordinalByPaneId: [UUID: UInt64]
@@ -79,7 +97,7 @@ private func repoExplorerProjectionRequestKey(
     worktreeIds: [UUID],
     repoCache: RepoCacheAtom
 ) -> RepoExplorerProjectionRequestKey {
-    let worktreeEnrichmentSnapshot = RepoExplorerView.worktreeEnrichmentSnapshot(
+    let worktreeEnrichmentSnapshot = RepoExplorerProjectionInputCapture.worktreeEnrichmentSnapshot(
         for: worktreeIds,
         repoCache: repoCache
     )
@@ -95,7 +113,7 @@ private func repoExplorerProjectionRequestKey(
             isFiltering: false,
             trigger: .startupDiagnostic,
             worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
-            pullRequestFactsSnapshot: RepoExplorerView.pullRequestFactsSnapshot(
+            pullRequestFactsSnapshot: RepoExplorerProjectionInputCapture.pullRequestFactsSnapshot(
                 for: worktreeEnrichmentSnapshot,
                 repoCache: repoCache
             ),
@@ -107,6 +125,61 @@ private func repoExplorerProjectionRequestKey(
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("activity and progress inputs are exhaustive in the admitted request key")
+    func activityAndProgressInputsAreExhaustiveInRequestKey() throws {
+        let repoID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let baseline = RepoExplorerProjectionRequest(
+            generation: 0,
+            snapshot: RepoExplorerSnapshot(repos: [], repoEnrichmentByRepoId: [:], query: ""),
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .startupDiagnostic
+        )
+        let baselineKey = RepoExplorerView.projectionRequestKey(for: baseline)
+        let activity = try RepositoryLocalActivity(
+            repositoryStableKey: "0123456789abcdef",
+            lastQualifyingActivityAt: referenceDate,
+            continuousCoverageStartedAt: referenceDate,
+            updatedAt: referenceDate,
+            ownedPromotionAttemptID: nil,
+            ownedPromotionStartedAt: nil,
+            ownedPromotionUnsettled: false
+        )
+
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(localActivityHydrationDisposition: .authoritative)
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(
+                    repositoryLocalActivityByStableKey: [activity.repositoryStableKey: activity]
+                )
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(
+                    repositoryFactUpdateProgressByRepoId: [
+                        repoID: .captured(repoId: repoID, attemptId: attemptID)
+                    ]
+                )
+            ) != baselineKey
+        )
+        #expect(
+            RepoExplorerView.projectionRequestKey(
+                for: baseline.replacing(activityReferenceDate: referenceDate)
+            ) != baselineKey
+        )
+    }
+
     @Test("pane title keeps activity titles and falls back to the shell for path-shaped titles")
     func paneSecondaryTextUsesShortFallbackVocabulary() {
         #expect(
@@ -180,13 +253,13 @@ struct RepoExplorerViewProjectionHelperTests {
         // already-normalized title from RepoExplorerPaneDisplayTitleCache, never re-derive it
         // inline by calling paneSecondaryText (or doing ad hoc path parsing) on every capture.
         let helperSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+ProjectionHelpers.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionInputCapture.swift",
             encoding: .utf8
         )
         guard
             let captureRange = helperSource.range(of: "func paneRowFactsByPaneId("),
             let captureBodyEnd = helperSource.range(
-                of: "\n    func tabGroupFactsByTabId()",
+                of: "\n    private func tabGroupFactsByTabId()",
                 range: captureRange.upperBound..<helperSource.endIndex
             )
         else {
@@ -219,7 +292,7 @@ struct RepoExplorerViewProjectionHelperTests {
         let counter = RepoExplorerProjectionInputInvalidationCounter()
 
         withObservationTracking {
-            _ = RepoExplorerView.observeRepoEnrichmentInputs(
+            _ = RepoExplorerProjectionInputCapture.observeRepoEnrichmentInputs(
                 repositoryIDs: [repoId],
                 repoCache: repoCache
             )
@@ -461,8 +534,6 @@ struct RepoExplorerViewProjectionHelperTests {
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
-            onShowNotificationsForWorktree: { _ in },
-            unreadCount: { _ in 0 }
         )
 
         view.focusPane(paneId)
@@ -486,17 +557,9 @@ struct RepoExplorerViewProjectionHelperTests {
                 secondPane.id: 19,
             ]
         )
-        let view = RepoExplorerView(
+        let capture = makeProjectionInputCapture(
             store: store,
-            octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            bridgeAttendanceSnapshot: snapshotRecorder.readOrdinal,
-            commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetSortOrder: { _ in },
-            onRefocusActivePane: {},
-            onSidebarVisibleWorktreesChanged: {},
-            onShowNotificationsForWorktree: { _ in },
-            unreadCount: { _ in 0 }
+            bridgeAttendanceSnapshot: snapshotRecorder.readOrdinal
         )
         let paneLocationsByWorktreeId = [
             worktreeId: [
@@ -518,7 +581,7 @@ struct RepoExplorerViewProjectionHelperTests {
         ]
 
         // Act
-        let candidatesByWorktreeId = view.bridgePaneCommandCandidatesByWorktreeId(
+        let candidatesByWorktreeId = capture.bridgePaneCommandCandidatesByWorktreeId(
             paneLocationsByWorktreeId: paneLocationsByWorktreeId
         )
 
@@ -545,22 +608,21 @@ struct RepoExplorerViewProjectionHelperTests {
                 facets: PaneContextFacets(cwd: worktree.path)
             )
             store.appendTab(Tab(paneId: pane.id))
-            let view = RepoExplorerView(
+            let capture = makeProjectionInputCapture(
                 store: store,
-                octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                bridgeAttendanceSnapshot: { _ in nil },
-                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-                onSetSortOrder: { _ in },
-                onRefocusActivePane: {},
-                onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
             withObservationTracking {
-                _ = view.makeSidebarSnapshot(
-                    repos: store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
+                _ = capture.makeSidebarSnapshot(
+                    repos: store.repositoryTopologyAtom.repos.map { repo in
+                        RepoPresentationItem(
+                            repo: repo,
+                            stableKey: repo.stableKey,
+                            worktreeStableKeysByID: Dictionary(
+                                uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                            )
+                        )
+                    },
                     repoEnrichmentByRepoId: [:],
                     groupingMode: .repo,
                     sortOrder: .ascending,
@@ -596,23 +658,22 @@ struct RepoExplorerViewProjectionHelperTests {
                 facets: PaneContextFacets(cwd: renderedWorktree.path)
             )
             store.appendTab(Tab(paneId: pane.id))
-            let view = RepoExplorerView(
+            let capture = makeProjectionInputCapture(
                 store: store,
-                octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                bridgeAttendanceSnapshot: { _ in nil },
-                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-                onSetSortOrder: { _ in },
-                onRefocusActivePane: {},
-                onSidebarVisibleWorktreesChanged: {},
-                onShowNotificationsForWorktree: { _ in },
-                unreadCount: { _ in 0 }
             )
-            let renderedRepos = [RepoPresentationItem(repo: renderedRepo)]
+            let renderedRepos = [
+                RepoPresentationItem(
+                    repo: renderedRepo,
+                    stableKey: renderedRepo.stableKey,
+                    worktreeStableKeysByID: Dictionary(
+                        uniqueKeysWithValues: renderedRepo.worktrees.map { ($0.id, $0.stableKey) }
+                    )
+                )
+            ]
             let invalidationRecorder = RepoProjectionInvalidationRecorder()
 
             withObservationTracking {
-                _ = view.makeSidebarSnapshot(
+                _ = capture.makeSidebarSnapshot(
                     repos: renderedRepos,
                     repoEnrichmentByRepoId: [:],
                     groupingMode: .repo,

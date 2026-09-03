@@ -35,7 +35,6 @@ struct FlatTabStripContainer: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
 
@@ -101,7 +100,6 @@ struct FlatTabStripContainer: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         paneNotePresentation: PaneNotePresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation
     ) {
@@ -124,7 +122,6 @@ struct FlatTabStripContainer: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.paneNotePresentation = paneNotePresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
     }
@@ -326,7 +323,6 @@ struct FlatTabStripContainer: View {
                 paneInboxPresentation: paneInboxPresentation,
                 paneNotePresentation: paneNotePresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 workspaceWindowId: workspaceWindowId,
                 paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
             )
@@ -354,7 +350,6 @@ struct FlatTabStripContainer: View {
             onFocusPane: onFocusPane,
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub,
-            notificationCountForWorktree: notificationCountForWorktree,
             drawerDropTarget: drawerDropTarget,
             dismissCoordinateView: drawerDismissCoordinateView,
             workspaceWindowId: workspaceWindowId,

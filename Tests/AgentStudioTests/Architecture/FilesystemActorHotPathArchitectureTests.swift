@@ -44,6 +44,18 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"
+            ),
+            encoding: .utf8
+        )
+        let workspaceSurfaceCoordinatorSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(pathFilterSource.contains("@concurrent nonisolated package static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
@@ -51,7 +63,7 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(!gitProviderSource.contains("ShellGitWorkingTreeStatusProvider"))
         #expect(!gitProviderSource.contains("command: \"git\""))
         #expect(sdkGitProviderSource.contains("import AgentStudioGit"))
-        #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
+        #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatusResult"))
         assertNoProductionGitShellSignature(in: sdkGitProviderSource)
         assertNoProductionGitShellSignature(in: repoScannerSource)
         #expect(
@@ -62,7 +74,25 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(repoScannerSource.contains("case .validationRequired(let request):"))
         #expect(repoScannerSource.contains("await discoveryProvider.discoveryOutcome("))
         #expect(repoScannerSource.contains("session.consumeValidationCompletion("))
-        #expect(filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
+        #expect(!filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
+        #expect(workspaceBootSource.contains("let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()"))
+        #expect(
+            workspaceBootSource.contains(
+                "AgentStudioGitWorkingTreeStatusProvider(\n            physicalGate: gitStatusPhysicalGate"
+            )
+        )
+        #expect(workspaceBootSource.contains("let fseventStreamClient = DarwinFSEventStreamClient()"))
+        #expect(workspaceBootSource.contains("continuityWitness: fseventStreamClient"))
+        #expect(workspaceBootSource.contains("fseventStreamClient: fseventStreamClient"))
+        #expect(workspaceSurfaceCoordinatorSource.contains("suppliedFilesystemTrioCount == 0"))
+        #expect(workspaceSurfaceCoordinatorSource.contains("suppliedFilesystemTrioCount == 3"))
+        let projectorShutdown = try #require(
+            filesystemGitPipelineSource.range(of: "await gitWorkingDirectoryProjector.shutdown()")
+        )
+        let filesystemShutdown = try #require(
+            filesystemGitPipelineSource.range(of: "await filesystemActor.shutdown()")
+        )
+        #expect(projectorShutdown.lowerBound < filesystemShutdown.lowerBound)
         try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }
 
@@ -89,19 +119,38 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let filesystemActorIngressSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor+Ingress.swift"
+            ),
+            encoding: .utf8
+        )
         let ingressBody = try #require(
+            filesystemActorIngressSource.slice(
+                from: "func ingestRawPaths(",
+                to: "private func recordRequiredFullGitRefresh("
+            )
+        )
+        let rebuildRootOwnershipBody = try #require(
             filesystemActorSource.slice(
-                from: "private func ingestRawPaths(worktreeId: UUID, paths: [String]) async",
+                from: "private func rebuildRootOwnership()",
                 to: "func startIngressTaskIfNeeded()"
             )
         )
 
+        #expect(ingressBody.contains("rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)"))
+        #expect(!ingressBody.contains("roots.mapValues"))
+        #expect(!ingressBody.contains("canonicalRootsByWorktree:"))
         #expect(
-            ingressBody.contains(
+            rebuildRootOwnershipBody.contains(
                 "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
             )
         )
-        #expect(!ingressBody.contains("rootsByWorktree: roots.mapValues(\\.rootPath)"))
+        #expect(
+            filesystemActorSource.components(
+                separatedBy: "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
+            ).count == 2
+        )
     }
 
     @Test("git snapshot projection skips workspace topology root lookup")

@@ -31,7 +31,7 @@ package final class TerminalActivityRouter {
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
-    private let lastOutputLineReader: @MainActor (UUID) -> String?
+    private let lastOutputLineReader: @MainActor (UUID) -> TerminalViewportTextReadResult
     private let recordSettledActivityStatus: @MainActor (UUID, String?) -> Void
     private let clearPaneActivityStatus: @MainActor (UUID) -> Void
 
@@ -52,7 +52,7 @@ package final class TerminalActivityRouter {
         surfaceIDForPaneID: (@MainActor (UUID) -> UUID?)? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
-        lastOutputLineReader: (@MainActor (UUID) -> String?)? = nil,
+        lastOutputLineReader: (@MainActor (UUID) -> TerminalViewportTextReadResult)? = nil,
         recordSettledActivityStatus: (@MainActor (UUID, String?) -> Void)? = nil,
         clearPaneActivityStatus: (@MainActor (UUID) -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
@@ -98,7 +98,7 @@ package final class TerminalActivityRouter {
 
         await projector.configure(
             lastOutputLineReader: { [weak self] surfaceID in
-                self?.lastOutputLineReader(surfaceID)
+                self?.lastOutputLineReader(surfaceID) ?? .surfaceStale
             },
             outcomeSink: { [weak self] outcomes in
                 self?.consumeProjectionOutcomes(outcomes)
@@ -311,17 +311,16 @@ package final class TerminalActivityRouter {
             !RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(.terminal(event)),
             let surfaceID = surfaceIDForPaneID(paneEnvelope.paneId.uuid)
         {
-            await Ghostty.ActionRouter.applyOrderedActivityControl(
-                surfaceID: surfaceID,
-                paneID: paneEnvelope.paneId.uuid,
-                control: .semanticSignal
-            )
             if case .commandFinished = event {
-                // RC2: commandFinished is a contracted semantic settle boundary, admitted as a
-                // second settle-evidence source alongside scrollbar-derived activity (Contract 7).
-                // It fires regardless of attention state, covering the case scrollbar/unseen-window
-                // tracking structurally excludes: typing into your own focused pane.
-                await projector.commandFinished(surfaceID: surfaceID, paneID: paneEnvelope.paneId.uuid)
+                // Source delivery already applied the exact ordered settle before this ordinary
+                // semantic fact entered the lossy bus. Other consumers retain the fact; this
+                // projector must not settle it twice or depend on subscriber delivery.
+            } else {
+                await Ghostty.ActionRouter.applyOrderedActivityControl(
+                    surfaceID: surfaceID,
+                    paneID: paneEnvelope.paneId.uuid,
+                    control: .semanticSignal
+                )
             }
         }
         await traceTerminalActivity(paneEnvelope)

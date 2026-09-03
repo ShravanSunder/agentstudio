@@ -1,15 +1,167 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
-import AgentStudioRepoExplorer
 import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("keyed repository progress re-resolves only the visible update control")
+    func keyedRepositoryProgressReresolvesVisibleUpdateControl() async throws {
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { coreAtoms in
+                    let store = WorkspaceStore()
+                    let repository = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-progress-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let request = RepoExplorerRepositoryCommandPresentation.request(
+                        repoID: repository.id
+                    )
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(
+                            worktreeIDs: [],
+                            repositoryIDs: [repository.id]
+                        )
+                    )
+
+                    _ = await handler.batchArrivals.wait { $0.contains(request) }
+                    #expect(batch.snapshot.results[request] == true)
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+                    handler.capabilityResult = false
+                    coreAtoms.repoCache.setRepositoryFactUpdateProgress(
+                        .captured(repoId: repository.id, attemptId: UUIDv7.generate())
+                    )
+
+                    let progressRequests = await handler.batchArrivals.wait { requests in
+                        requests.contains(request) && requests.count == 1
+                    }
+                    #expect(progressRequests == [request])
+                    #expect(batch.snapshot.results[request] == false)
+                    #expect(batch.latestDelta?.affectedRepositoryIDs == [repository.id])
+                    #expect(batch.latestDelta?.affectedWorktreeIDs.isEmpty == true)
+                }
+            }
+        )
+    }
+
+    @Test("equal command results retarget to a newer native materialization target")
+    func equalCommandResultsRetargetToNewerNativeTarget() async throws {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repo = store.addRepo(
+                at: FileManager.default.temporaryDirectory.appending(
+                    path: "repo-command-retarget-\(UUIDv7.generate().uuidString)"
+                )
+            )
+            let worktree = try! #require(repo.worktrees.first)
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
+            let initialVisibleSnapshot = makeVisibleWorktreeSnapshot(
+                worktreeIDs: [worktree.id],
+                visibleRevision: 1
+            )
+            batch.acceptVisibleWorktreeSnapshot(initialVisibleSnapshot)
+            await eventually("initial command delta") {
+                batch.latestDelta != nil
+            }
+            let initialDelta = try! #require(batch.latestDelta)
+            let target = RepoExplorerCommandPresentationTarget(
+                materializationHostLifetimeID: initialVisibleSnapshot.target.materializationHostLifetimeID,
+                materializationGeneration: 2,
+                visibleRevision: 4
+            )
+
+            batch.acceptVisibleWorktreeSnapshot(
+                RepoExplorerVisibleWorktreeSnapshot(
+                    target: target,
+                    worktreeIDs: [worktree.id]
+                )
+            )
+
+            await eventually("retargeted equal command delta") {
+                batch.latestDelta?.target == target
+            }
+            let retargetedDelta = try! #require(batch.latestDelta)
+            #expect(retargetedDelta.commandGeneration > initialDelta.commandGeneration)
+            #expect(retargetedDelta.snapshot.results == initialDelta.snapshot.results)
+            #expect(retargetedDelta.affectedWorktreeIDs == [worktree.id])
+        }
+    }
+
+    @Test("favorite transition includes both old and new request identities")
+    func favoriteTransitionIncludesOldAndNewRequestIdentities() async throws {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repo = store.addRepo(
+                at: FileManager.default.temporaryDirectory.appending(
+                    path: "repo-command-favorite-union-\(UUIDv7.generate().uuidString)"
+                )
+            )
+            let worktree = try! #require(repo.worktrees.first)
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
+            batch.acceptVisibleWorktreeSnapshot(
+                makeVisibleWorktreeSnapshot(worktreeIDs: [worktree.id])
+            )
+            await eventually("initial favorite command delta") {
+                batch.latestDelta != nil
+            }
+
+            store.mutationCoordinator.setRepoFavorite(repo.id, isFavorite: true)
+
+            await eventually("favorite command identity transition") {
+                batch.latestDelta?.affectedRequestIdentities.contains { request in
+                    request.command == .removeRepoFavorite
+                } == true
+            }
+            let delta = try! #require(batch.latestDelta)
+            #expect(
+                delta.affectedRequestIdentities.contains { request in
+                    request.command == .addRepoFavorite
+                        && request.target == repo.id
+                }
+            )
+            #expect(
+                delta.affectedRequestIdentities.contains { request in
+                    request.command == .removeRepoFavorite
+                        && request.target == repo.id
+                }
+            )
+            #expect(delta.affectedRepositoryIDs == [repo.id])
+            #expect(delta.affectedWorktreeIDs == [worktree.id])
+        }
+    }
+
     @Test("toolbar capability requests keep both sort destinations mounted")
     func toolbarCapabilityRequestsKeepBothSortDestinationsMounted() {
         let requestsBeforeToggle = RepoExplorerToolbarCommandPresentation.requests(
@@ -56,22 +208,29 @@ struct RepoExplorerCommandPresentationBatchTests {
                     )
                     let firstWorktree = try! #require(firstRepo.worktrees.first)
                     let secondWorktree = try! #require(secondRepo.worktrees.first)
-                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
-                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id])
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                        visibleWorktrees: visibleWorktrees,
                         dispatcher: .shared
                     )
                     batch.start()
                     defer { batch.stop() }
+                    let initialVisibleSnapshot = makeVisibleWorktreeSnapshot(
+                        worktreeIDs: [firstWorktree.id]
+                    )
+                    batch.acceptVisibleWorktreeSnapshot(initialVisibleSnapshot)
 
                     _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
 
                     coreAtoms.managementLayer.toggle()
-                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(
+                            hostLifetimeID: initialVisibleSnapshot.target.materializationHostLifetimeID,
+                            worktreeIDs: [firstWorktree.id, secondWorktree.id],
+                            visibleRevision: 2
+                        )
+                    )
 
                     _ = await handler.batchArrivals.wait { requests in
                         requests.contains { request in
@@ -132,21 +291,28 @@ struct RepoExplorerCommandPresentationBatchTests {
                     )
                     let firstWorktree = try! #require(firstRepo.worktrees.first)
                     let secondWorktree = try! #require(secondRepo.worktrees.first)
-                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
-                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id])
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                        visibleWorktrees: visibleWorktrees,
                         dispatcher: .shared
                     )
                     batch.start()
                     defer { batch.stop() }
+                    let initialVisibleSnapshot = makeVisibleWorktreeSnapshot(
+                        worktreeIDs: [firstWorktree.id]
+                    )
+                    batch.acceptVisibleWorktreeSnapshot(initialVisibleSnapshot)
 
                     _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
 
-                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(
+                            hostLifetimeID: initialVisibleSnapshot.target.materializationHostLifetimeID,
+                            worktreeIDs: [firstWorktree.id, secondWorktree.id],
+                            visibleRevision: 2
+                        )
+                    )
 
                     _ = await handler.batchArrivals.wait { requests in
                         requests.contains { request in
@@ -191,21 +357,21 @@ struct RepoExplorerCommandPresentationBatchTests {
             )
             let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
             let store = WorkspaceStore()
-            let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
-            visibleWorktrees.setVisibleWorktreeIds([])
             let expectedResolutionCount = RepoExplorerToolbarCommandPresentation.requests(
                 nextSortOrder: .default.toggled
             ).count
             let batch = RepoExplorerCommandPresentationBatch(
                 store: store,
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                visibleWorktrees: visibleWorktrees,
                 dispatcher: .shared,
                 performanceTraceRecorder: recorder
             )
 
             batch.start()
             defer { batch.stop() }
+            batch.acceptVisibleWorktreeSnapshot(
+                makeVisibleWorktreeSnapshot(worktreeIDs: [])
+            )
             await eventually("initial command presentation batch") {
                 batch.snapshot.generation == 1
             }
@@ -290,7 +456,6 @@ struct RepoExplorerCommandPresentationBatchTests {
                     defer { coreAtoms.managementLayer.deactivate() }
 
                     let store = WorkspaceStore()
-                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
                     let prefs = RepoExplorerSidebarPrefsAtom()
                     let visibleRepo = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
@@ -301,16 +466,16 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let pane = store.createPane()
                     let tab = Tab(paneId: pane.id)
                     store.appendTab(tab)
-                    visibleWorktrees.setVisibleWorktreeIds([visibleWorktree.id])
-
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
                         repoExplorerPrefs: prefs,
-                        visibleWorktrees: visibleWorktrees,
                         dispatcher: .shared
                     )
                     batch.start()
                     defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(worktreeIDs: [visibleWorktree.id])
+                    )
 
                     await eventually("initial command presentation generation") {
                         batch.snapshot.generation > 0
@@ -422,16 +587,16 @@ struct RepoExplorerCommandPresentationBatchTests {
                         )
                     )
                     store.appendTab(Tab(paneId: pane.id))
-                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
-                    visibleWorktrees.setVisibleWorktreeIds(Set(worktrees.map(\.id)))
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                        visibleWorktrees: visibleWorktrees,
                         dispatcher: .shared
                     )
                     batch.start()
                     defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeVisibleWorktreeSnapshot(worktreeIDs: Set(worktrees.map(\.id)))
+                    )
 
                     _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
@@ -462,11 +627,13 @@ struct RepoExplorerCommandPresentationBatchTests {
             let batch = RepoExplorerCommandPresentationBatch(
                 store: store,
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
                 dispatcher: .shared
             )
             batch.start()
             defer { batch.stop() }
+            batch.acceptVisibleWorktreeSnapshot(
+                makeVisibleWorktreeSnapshot(worktreeIDs: [])
+            )
 
             await eventually("initial drawer capability generation") {
                 batch.snapshot.generation > 0
@@ -487,10 +654,31 @@ struct RepoExplorerCommandPresentationBatchTests {
     }
 }
 
+private func makeVisibleWorktreeSnapshot(
+    hostLifetimeID: RepoExplorerMaterializationHostLifetimeID = RepoExplorerMaterializationHostLifetimeID(
+        rawValue: UUIDv7.generate()
+    ),
+    worktreeIDs: Set<UUID>,
+    repositoryIDs: Set<UUID> = [],
+    materializationGeneration: UInt64 = 1,
+    visibleRevision: UInt64 = 1
+) -> RepoExplorerVisibleWorktreeSnapshot {
+    RepoExplorerVisibleWorktreeSnapshot(
+        target: RepoExplorerCommandPresentationTarget(
+            materializationHostLifetimeID: hostLifetimeID,
+            materializationGeneration: materializationGeneration,
+            visibleRevision: visibleRevision
+        ),
+        worktreeIDs: worktreeIDs,
+        repositoryIDs: repositoryIDs
+    )
+}
+
 @MainActor
 private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCommandHandling {
     let batchArrivals = ExactEventAcknowledgement<Set<RepoExplorerCommandPresentationRequest>>()
     var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
+    var capabilityResult = true
 
     func execute(_: AppCommand) {}
 
@@ -509,6 +697,6 @@ private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCo
     ) -> [RepoExplorerCommandPresentationRequest: Bool] {
         repoExplorerCapabilityRequestBatches.append(requests)
         batchArrivals.record(requests)
-        return Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
+        return Dictionary(uniqueKeysWithValues: requests.map { ($0, capabilityResult) })
     }
 }

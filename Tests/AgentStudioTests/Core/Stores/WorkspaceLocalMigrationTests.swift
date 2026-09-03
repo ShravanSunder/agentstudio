@@ -35,6 +35,8 @@ struct WorkspaceLocalMigrationTests {
             "local_window_sidebar_collapsed_group",
             "local_entity_recency",
             "local_workspace_entity_recency",
+            "local_repository_activity",
+            "local_repository_activity_cursor",
             "local_notification_inbox_collapsed_group",
             "local_notification_inbox_item",
             "local_editor_preferences",
@@ -70,8 +72,112 @@ struct WorkspaceLocalMigrationTests {
                     "003_invert_sidebar_group_memory",
                     "004_remove_persisted_pull_request_counts",
                     "005_move_repo_grouping_to_window_sidebar_memory",
+                    "006_add_repository_local_activity_facts",
                 ]
         )
+    }
+
+    @Test("repository activity migration stores facts and one checked boolean only")
+    func repositoryActivityMigrationStoresFactsAndOneCheckedBooleanOnly() throws {
+        // Arrange
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        // Act
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        // Assert
+        let schema = try databaseQueue.read { database in
+            let tableSQL = try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT name, sql
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name IN ('local_repository_activity', 'local_repository_activity_cursor')
+                    ORDER BY name
+                    """
+            ).reduce(into: [String: String]()) { result, row in
+                result[row["name"] as String] = row["sql"] as String
+            }
+            let columnsByTable = try Dictionary(
+                uniqueKeysWithValues: tableSQL.keys.map { tableName in
+                    let columns = try Row.fetchAll(
+                        database,
+                        sql: "PRAGMA table_info(\(tableName))"
+                    ).map { row in
+                        "\(row["name"] as String):\(row["type"] as String)"
+                    }
+                    return (tableName, columns)
+                }
+            )
+            return (tableSQL, columnsByTable)
+        }
+
+        #expect(
+            schema.1["local_repository_activity"]
+                == [
+                    "repository_stable_key:TEXT",
+                    "last_qualifying_activity_at:REAL",
+                    "continuous_coverage_started_at:REAL",
+                    "updated_at:REAL",
+                    "owned_promotion_attempt_id:TEXT",
+                    "owned_promotion_started_at:REAL",
+                    "owned_promotion_unsettled:INTEGER",
+                ]
+        )
+        #expect(
+            schema.1["local_repository_activity_cursor"]
+                == [
+                    "volume_identifier:TEXT",
+                    "last_event_id:INTEGER",
+                    "updated_at:REAL",
+                ]
+        )
+        let activitySQL = schema.0["local_repository_activity"] ?? ""
+        let cursorSQL = schema.0["local_repository_activity_cursor"] ?? ""
+        #expect(activitySQL.contains("CHECK (owned_promotion_unsettled IN (0, 1))"))
+        #expect(activitySQL.components(separatedBy: "CHECK (").count - 1 == 1)
+        #expect(!cursorSQL.contains("CHECK ("))
+        #expect(!activitySQL.contains(" state "))
+        #expect(!activitySQL.contains(" status "))
+        #expect(!activitySQL.contains(" disposition "))
+        #expect(!cursorSQL.contains(" state "))
+        #expect(!cursorSQL.contains(" status "))
+        #expect(!cursorSQL.contains(" disposition "))
+    }
+
+    @Test("repository activity migration preserves a nonempty pre-006 local database")
+    func repositoryActivityMigrationPreservesNonemptyPre006Database() throws {
+        // Arrange
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_move_repo_grouping_to_window_sidebar_memory"
+        )
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_entity_recency(
+                        entity_kind, entity_key, interaction_kind, last_interacted_at
+                    ) VALUES ('repository', 'aaaaaaaaaaaaaaaa', 'opened', 100)
+                    """
+            )
+        }
+
+        // Act
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        // Assert
+        let state = try databaseQueue.read { database in
+            (
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_entity_recency"),
+                try database.tableExists("local_repository_activity"),
+                try database.tableExists("local_repository_activity_cursor")
+            )
+        }
+        #expect(state.0 == 1)
+        #expect(state.1)
+        #expect(state.2)
     }
 
     @Test("repo grouping belongs only to main-window sidebar memory")

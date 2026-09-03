@@ -405,6 +405,18 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.logical_debt.count",
         "agentstudio.performance.git.logical_pending.count",
         "agentstudio.performance.git.logical_running.count",
+        "agentstudio.performance.git.future_automatic.count",
+        "agentstudio.performance.git.future_failure.count",
+        "agentstudio.performance.git.ready_pending.count",
+        "agentstudio.performance.git.capacity_pending.count",
+        "agentstudio.performance.git.active_follow_up.count",
+        "agentstudio.performance.git.unclassified_pending.count",
+        "agentstudio.performance.git.overdue_deadline.count",
+        "agentstudio.performance.git.oldest_preparation_ms",
+        "agentstudio.performance.git.next_deadline_ms",
+        "agentstudio.performance.git.background_only_automatic.current",
+        "agentstudio.performance.git.background_only_automatic_deadline.current",
+        "agentstudio.performance.git.background_only_resolved_visible_tier.current",
         "agentstudio.performance.git.pending.count",
         "agentstudio.performance.git.registered.count",
         "agentstudio.performance.git.request.sequence",
@@ -456,6 +468,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms",
         "agentstudio.performance.repo_explorer.frame_sample.sequence",
+        "agentstudio.performance.repo_explorer.interval.count",
         "agentstudio.performance.repo_explorer.scroll_burst.sequence",
         "agentstudio.performance.repo_explorer.visible_set.count",
         "agentstudio.performance.repo_explorer.visible_set_delta.count",
@@ -481,6 +494,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.tabbar.tab.count",
         "agentstudio.performance.trace_queue.dropped_record.count",
         "agentstudio.performance.trace_queue.high_watermark",
+        "agentstudio.performance.trace_queue.pending_request.count",
         "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
         "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
         "agentstudio.performance.terminal.accumulator.mainactor_task.count",
@@ -644,8 +658,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
         "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.active_pty.count",
+        "agentstudio.startup_diagnostic.fixture.pane.count",
         "agentstudio.startup_diagnostic.fixture.repo.count",
         "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.tab.count",
         "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.startup_diagnostic.repo_explorer_key_mutation.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
@@ -662,6 +679,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.threshold_rows",
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
+        .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
@@ -681,6 +699,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.row_mounted",
         "agentstudio.bridge.scroll.active",
         "agentstudio.performance.repo_explorer.scroll_active",
+        "agentstudio.startup_diagnostic.sidebar_proof.control_root_present",
+        "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present",
+        "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present",
         "agentstudio.bridge.selected",
         "agentstudio.bridge.telemetry.lossy",
         "agentstudio.bridge.telemetry.proof_eligible",
@@ -774,7 +795,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_agent_settled_candidate",
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
-    ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+    ]).union(AgentStudioOTLPRepoExplorerTaxonomy.booleanAttributeKeys)
+        .union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
@@ -832,7 +854,13 @@ extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
         -> AgentStudioTraceValue?
     {
-        guard !isIdentifierKey(key), !isErrorKey(key) else {
+        guard
+            !isIdentifierKey(key)
+                || AgentStudioOTLPRepoExplorerTaxonomy.controlledIdentifierAttributeKeys.contains(
+                    key
+                ),
+            !isErrorKey(key)
+        else {
             return nil
         }
         switch value {
@@ -840,7 +868,7 @@ extension AgentStudioOTLPTraceProjection {
             guard
                 !isPayloadKey(key) || allowedPayloadNamedStringAttributeKeys.contains(key),
                 allowedStringAttributeKeys.contains(key),
-                isSafeControlledString(stringValue),
+                isSafeControlledString(key: key, value: stringValue),
                 isAllowedControlledStringValue(key: key, value: stringValue)
             else { return nil }
             return .string(stringValue)
@@ -912,8 +940,11 @@ extension AgentStudioOTLPTraceProjection {
                 || scalar == ":"
         }
     }
-    private static func isSafeControlledString(_ value: String) -> Bool {
-        isSafeEventName(value)
+    private static func isSafeControlledString(key: String, value: String) -> Bool {
+        if AgentStudioOTLPRepoExplorerTaxonomy.structuredStringAttributeKeys.contains(key) {
+            return AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) == true
+        }
+        return isSafeEventName(value)
     }
     private static func isSafeResourceValue(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 160 else {

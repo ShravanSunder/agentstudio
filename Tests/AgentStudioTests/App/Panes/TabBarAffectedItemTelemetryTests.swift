@@ -36,7 +36,6 @@ struct TabBarAffectedItemTelemetryTests {
             let adapter = TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: InboxNotificationAtom(),
                 performanceTraceRecorder: recorder
             )
             let firstPane = store.createPane(title: "First")
@@ -103,7 +102,6 @@ struct TabBarAffectedItemTelemetryTests {
             let adapter = TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: InboxNotificationAtom(),
                 performanceTraceRecorder: recorder
             )
             let firstPane = store.createPane(title: "First")
@@ -218,7 +216,6 @@ struct TabBarAffectedItemTelemetryTests {
             let adapter = TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: InboxNotificationAtom(),
                 performanceTraceRecorder: recorder,
                 project: projectionController.project,
                 onProjectionCompletion: completionRecorder.record

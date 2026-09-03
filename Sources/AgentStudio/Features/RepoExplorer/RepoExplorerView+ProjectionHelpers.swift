@@ -16,6 +16,10 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     /// compare equal and silently skip re-projection.
     let unavailablePullRequestRepoIds: Set<UUID>
     let loadingPullRequestRepoIds: Set<UUID>
+    let localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition
+    let repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity]
+    let repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]
+    let activityReferenceDate: Date
 }
 
 extension RepoExplorerView {
@@ -46,88 +50,6 @@ extension RepoExplorerView {
         return shellName ?? "zsh"
     }
 
-    static func measureRowBodyEvaluationProxy<Content>(
-        rowKind: RepoExplorerRowKind,
-        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        resolve: () -> Content
-    ) -> RepoExplorerRowBodyEvaluationMeasurement<Content> {
-        let startedAtNanoseconds = nowNanoseconds()
-        let content = resolve()
-        let completedAtNanoseconds = nowNanoseconds()
-        return RepoExplorerRowBodyEvaluationMeasurement(
-            content: content,
-            duration: .nanoseconds(
-                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
-            ),
-            rowKind: rowKind,
-            outcome: .success
-        )
-    }
-
-    static func measureOutlineApplyProxy(
-        previousRowIDs: [String],
-        nextRowIDs: [String],
-        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        apply: () -> Void
-    ) -> RepoExplorerOutlineApplyMeasurement {
-        let startedAtNanoseconds = nowNanoseconds()
-        apply()
-        let completedAtNanoseconds = nowNanoseconds()
-        let previousIndexByRowID = Dictionary(
-            uniqueKeysWithValues: previousRowIDs.enumerated().map { ($0.element, $0.offset) }
-        )
-        let nextIndexByRowID = Dictionary(
-            uniqueKeysWithValues: nextRowIDs.enumerated().map { ($0.element, $0.offset) }
-        )
-        let changedRowCount = Set(previousIndexByRowID.keys).union(nextIndexByRowID.keys).count { rowID in
-            previousIndexByRowID[rowID] != nextIndexByRowID[rowID]
-        }
-        let isContentIdentical = previousRowIDs == nextRowIDs
-        return RepoExplorerOutlineApplyMeasurement(
-            duration: .nanoseconds(
-                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
-            ),
-            totalRowCount: nextRowIDs.count,
-            changedRowCount: changedRowCount,
-            equalPublishCount: isContentIdentical ? 1 : 0,
-            outcome: isContentIdentical ? .equal : .changed
-        )
-    }
-
-    static func measureSuppressedOutlineApplyProxy(rowCount: Int) -> RepoExplorerOutlineApplyMeasurement {
-        RepoExplorerOutlineApplyMeasurement(
-            duration: .zero,
-            totalRowCount: rowCount,
-            changedRowCount: 0,
-            equalPublishCount: 1,
-            outcome: .suppressed
-        )
-    }
-
-    static func worktreeEnrichmentSnapshot(
-        for worktreeIds: [UUID],
-        repoCache: RepoCacheAtom
-    ) -> [UUID: WorktreeEnrichment] {
-        var enrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:]
-        enrichmentByWorktreeId.reserveCapacity(worktreeIds.count)
-        for worktreeId in worktreeIds {
-            enrichmentByWorktreeId[worktreeId] = repoCache.worktreeEnrichment(for: worktreeId)
-        }
-        return enrichmentByWorktreeId
-    }
-
-    static func pullRequestFactsSnapshot(
-        for worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment],
-        repoCache: RepoCacheAtom
-    ) -> [RepoBranchKey: PullRequestFacts] {
-        var factsByBranch: [RepoBranchKey: PullRequestFacts] = [:]
-        for enrichment in worktreeEnrichmentSnapshot.values {
-            guard let key = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch) else { continue }
-            factsByBranch[key] = repoCache.pullRequestFacts(for: key)
-        }
-        return factsByBranch
-    }
-
     static func projectionRequestKey(
         for request: RepoExplorerProjectionRequest
     ) -> RepoExplorerProjectionRequestKey {
@@ -140,7 +62,11 @@ extension RepoExplorerView {
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             unavailablePullRequestRepoIds: request.unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: request.loadingPullRequestRepoIds,
+            localActivityHydrationDisposition: request.localActivityHydrationDisposition,
+            repositoryLocalActivityByStableKey: request.repositoryLocalActivityByStableKey,
+            repositoryFactUpdateProgressByRepoId: request.repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: request.activityReferenceDate
         )
     }
 
@@ -164,209 +90,6 @@ extension RepoExplorerView {
         ]
         attributes.merge(extra) { _, newValue in newValue }
         return attributes
-    }
-
-    func makeSidebarSnapshot(
-        repos: [RepoPresentationItem],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
-        groupingMode: RepoExplorerGroupingMode,
-        sortOrder: RepoExplorerSortOrder,
-        query: String
-    ) -> RepoExplorerSnapshot {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let paneLocationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
-            repositoryTopology: store.repositoryTopologyAtom,
-            workspacePane: store.paneAtom,
-            workspaceTab: workspaceTab,
-            declaredWorktreeIDs: Set(repos.flatMap(\.worktrees).map(\.id))
-        )
-        let associatedPaneIds = Set(paneLocationsByWorktreeId.values.flatMap { $0 }.map(\.paneId))
-        let unassociatedPaneLocations = Self.unassociatedPaneLocations(
-            repositoryTopology: store.repositoryTopologyAtom,
-            workspacePane: store.paneAtom,
-            workspaceTab: workspaceTab,
-            associatedPaneIds: associatedPaneIds
-        )
-        return RepoExplorerSnapshot(
-            repos: repos,
-            repoEnrichmentByRepoId: repoEnrichmentByRepoId,
-            groupingMode: groupingMode,
-            sortOrder: sortOrder,
-            query: query,
-            paneLocationsByWorktreeId: paneLocationsByWorktreeId,
-            unassociatedPaneLocations: unassociatedPaneLocations,
-            bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId(
-                paneLocationsByWorktreeId: paneLocationsByWorktreeId
-            )
-        )
-    }
-
-    static func unassociatedPaneLocations(
-        repositoryTopology: RepositoryTopologyAtom,
-        workspacePane: WorkspacePaneAtom,
-        workspaceTab: WorkspaceTabLayoutDerived,
-        associatedPaneIds: Set<UUID>
-    ) -> [WorkspacePaneLocation] {
-        var locations: [WorkspacePaneLocation] = []
-        var seenPaneIds = Set<UUID>()
-
-        for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
-            for paneId in tab.allPaneIds {
-                guard seenPaneIds.insert(paneId).inserted, !associatedPaneIds.contains(paneId),
-                    let paneFacts = workspacePane.graphAtom.paneStructuralFacts(paneId),
-                    paneFacts.residency == .active,
-                    repositoryTopology.validatedAssociation(
-                        repoId: paneFacts.repoID,
-                        worktreeId: paneFacts.worktreeID
-                    ) == nil
-                else { continue }
-
-                let paneIndexInTab =
-                    tab.activePaneIds.firstIndex(of: paneId)
-                    ?? tab.allPaneIds.firstIndex(of: paneId)
-                    ?? 0
-                locations.append(
-                    WorkspacePaneLocation(
-                        paneId: paneId,
-                        tabId: tab.id,
-                        tabIndex: tabIndex,
-                        paneIndexInTab: paneIndexInTab,
-                        isActiveInTab: tab.activePaneId == paneId
-                    )
-                )
-            }
-        }
-
-        return locations
-    }
-
-    func bridgePaneCommandCandidatesByWorktreeId(
-        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
-    ) -> [UUID: [BridgePaneCommandCandidate]] {
-        let paneGraph = store.paneAtom.graphAtom
-        let activeTabId = store.tabLayoutAtom.activeTabId
-        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
-        var candidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
-        candidatesByWorktreeId.reserveCapacity(paneLocationsByWorktreeId.count)
-
-        for (worktreeId, paneLocations) in paneLocationsByWorktreeId {
-            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location -> BridgePaneCommandCandidate? in
-                guard let paneFacts = paneGraph.paneStructuralFacts(location.paneId) else { return nil }
-                return BridgePaneCommandCandidate(
-                    paneId: paneFacts.paneID,
-                    worktreeId: worktreeId,
-                    isBridgePane: paneFacts.isBridgeEligible,
-                    isPaneActive: paneFacts.residency == .active,
-                    isCurrentActivePane: activeTabId == location.tabId && activePaneId == paneFacts.paneID,
-                    attendanceOrdinal: bridgeAttendanceSnapshot(paneFacts.paneID),
-                    tabIndex: location.tabIndex,
-                    paneIndexInTab: location.paneIndexInTab
-                )
-            }
-        }
-
-        return candidatesByWorktreeId
-    }
-
-    func paneRowFactsByPaneId(now: Date = Date()) -> [UUID: RepoExplorerPaneRowFacts] {
-        typealias PaneRowFactsEntry = (UUID, RepoExplorerPaneRowFacts)
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let lastInteractionByPaneId: [UUID: Date] = Dictionary(
-            uniqueKeysWithValues: atom(\.workspaceEntityRecency).recentEntities.compactMap { recency -> (UUID, Date)? in
-                guard case .pane(let paneId) = recency.entity else { return nil }
-                return (paneId, recency.lastInteractedAt)
-            }
-        )
-        // F5/N2b: "active" means this pane currently holds real user attention, not merely that
-        // it is the selected pane within its tab's arrangement. A pane stays selected while the
-        // sidebar has keyboard focus, another window is key, the app itself is inactive, or a
-        // transient surface (command bar, arrangement panel, rename field, etc.) owns keyboard
-        // input, none of which should keep rendering the '● active' chip. attendedPane already
-        // gates on the workspace window being key and the management layer being inactive.
-        // KeyboardRoutingContext is the richer canonical fact (used by CommandBarState and
-        // AppDelegate+CommandBar for real keyboard routing): only its `.stable(.mainWindowChain)`
-        // surface means the main pane chain genuinely owns the keyboard right now -- `.commandBar`
-        // and `.transient` cases must drop the active dot even though the underlying window/
-        // management-layer/sidebar-focus facts alone would otherwise resolve to mainWindowChain.
-        let focusedPaneId: UUID? = {
-            let routingContext = KeyboardRoutingContext.current(
-                windowLifecycle: atom(\.windowLifecycle),
-                managementLayer: atom(\.managementLayer),
-                uiState: atom(\.workspaceSidebarState),
-                commandBarSurface: atom(\.commandBarSurface),
-                transientKeyboardSurface: atom(\.transientKeyboardSurface)
-            )
-            guard routingContext.isStableMainWindowChain else { return nil }
-            return atom(\.attendedPane).attendedPaneId
-        }()
-        let allPaneIds = workspaceTab.tabs.flatMap(\.allPaneIds)
-        let paneRowFactsByPaneId = Dictionary(
-            uniqueKeysWithValues: allPaneIds.compactMap { paneId -> PaneRowFactsEntry? in
-                guard let pane = store.paneAtom.pane(paneId) else { return nil }
-                // F6: capture reads the memoized, already-normalized title; URL/shell-path
-                // derivation itself lives only in RepoExplorerPaneDisplayTitleCache.resolve, which
-                // re-derives only when this pane's title/cwd/shell inputs actually changed.
-                let terminalTitle = paneDisplayTitleCache.resolve(
-                    paneId: paneId,
-                    liveTitle: pane.title,
-                    cwd: pane.metadata.facets.cwd,
-                    shellExecutablePath: pane.metadata.contentType == .terminal
-                        ? SessionConfiguration.defaultShell()
-                        : nil
-                )
-                let lastInteractedAt = lastInteractionByPaneId[paneId]
-                let recencyReferenceDate = lastInteractedAt ?? pane.metadata.createdAt
-                return (
-                    paneId,
-                    RepoExplorerPaneRowFacts(
-                        terminalTitle: terminalTitle,
-                        noteText: pane.metadata.note,
-                        latestMessageText: latestPaneMessageSnapshot(paneId),
-                        recencyReferenceDate: recencyReferenceDate,
-                        recencyText: RepoExplorerPaneRecencyText.display(
-                            lastInteractedAt: recencyReferenceDate,
-                            now: now
-                        ),
-                        recencyTier: RepoExplorerPaneRecencyTier.classify(
-                            referenceDate: recencyReferenceDate,
-                            now: now
-                        ),
-                        isActive: paneId == focusedPaneId,
-                        isDrawerPane: store.paneAtom.graphAtom.paneState(paneId)?.isDrawerChild == true
-                    )
-                )
-            }
-        )
-        paneDisplayTitleCache.retainOnly(paneIds: Set(allPaneIds))
-        return paneRowFactsByPaneId
-    }
-
-    func tabGroupFactsByTabId() -> [UUID: RepoExplorerTabGroupFacts] {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        return Dictionary(
-            uniqueKeysWithValues: workspaceTab.tabs.map { tab in
-                (
-                    tab.id,
-                    RepoExplorerTabGroupFacts(
-                        displayTitle: atom(\.tabDisplay).displayTitle(
-                            for: tab,
-                            workspacePane: store.paneAtom,
-                            workspaceRepositoryTopology: store.repositoryTopologyAtom,
-                            repoCache: atom(\.repoCache)
-                        )
-                    )
-                )
-            }
-        )
     }
 
     static func checkoutColorHex(
@@ -550,6 +273,20 @@ extension RepoExplorerView {
         "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.paneDisplayLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
     }
 
+    private static func paneDestinationFingerprint(
+        _ destination: RepoExplorerProjectedPaneDestination
+    ) -> String {
+        switch destination {
+        case .associated(let associatedDestination):
+            return "associated:\(paneDestinationFingerprint(associatedDestination))"
+        case .unassociated(let unassociatedDestination):
+            return
+                "unassociated:\(unassociatedDestination.paneId.uuidString):"
+                + "\(unassociatedDestination.tabId.uuidString):\(unassociatedDestination.tabIndex):"
+                + "\(unassociatedDestination.paneIndexInTab):\(unassociatedDestination.isActiveInTab)"
+        }
+    }
+
     private static func paneBranchStatusFingerprint(_ status: GitBranchStatus?) -> String {
         guard let status else { return "none" }
         let syncFingerprint =
@@ -619,19 +356,6 @@ extension RepoExplorerView {
     ) -> RepoPresentationItem? {
         guard groupingMode == .repo || groupingMode == .pane, group.repos.count == 1 else { return nil }
         return group.repos.first
-    }
-
-    func panePresentation(for destination: RepoExplorerPaneDestination) -> RepoExplorerPanePresentation {
-        RepoExplorerPanePresentation(
-            destination: destination,
-            label: destination.label
-        )
-    }
-
-    func panePresentations(
-        _ destinations: [RepoExplorerPaneDestination]
-    ) -> [RepoExplorerPanePresentation] {
-        destinations.map(panePresentation(for:))
     }
 
     func focusPane(_ paneId: UUID) {

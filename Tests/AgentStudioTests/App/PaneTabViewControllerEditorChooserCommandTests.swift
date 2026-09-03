@@ -71,12 +71,10 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             tabBarAdapter: TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: inboxAtom
             ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
-            inboxAtom: inboxAtom,
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true },

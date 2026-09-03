@@ -12,7 +12,7 @@ struct FilesystemRootOwnership: Sendable {
         let comparisonPath: String
     }
 
-    private let roots: [Root]
+    private let ownerByComparisonPath: [String: Root]
     private let sourceRootByWorktreeId: [UUID: Root]
 
     init(rootsByWorktree: [UUID: URL]) {
@@ -23,18 +23,26 @@ struct FilesystemRootOwnership: Sendable {
 
     init(canonicalRootsByWorktree: [UUID: String]) {
         let resolvedRoots = canonicalRootsByWorktree.map { worktreeId, canonicalPath in
-            Root(
+            let normalizedCanonicalPath = Self.canonicalizeKernelPath(canonicalPath)
+            return Root(
                 worktreeId: worktreeId,
-                canonicalPath: canonicalPath,
-                comparisonPath: Self.normalizedComparisonKey(canonicalPath)
+                canonicalPath: normalizedCanonicalPath,
+                comparisonPath: Self.normalizedComparisonKey(normalizedCanonicalPath)
             )
         }
-        self.roots = resolvedRoots
+        self.ownerByComparisonPath = resolvedRoots.reduce(into: [:]) { owners, root in
+            if let existing = owners[root.comparisonPath],
+                existing.worktreeId.uuidString > root.worktreeId.uuidString
+            {
+                return
+            }
+            owners[root.comparisonPath] = root
+        }
         self.sourceRootByWorktreeId = Dictionary(uniqueKeysWithValues: resolvedRoots.map { ($0.worktreeId, $0) })
     }
 
     static func canonicalRootPath(for rootPath: URL) -> String {
-        canonicalize(path: rootPath.path)
+        trimTrailingSlash(from: DarwinFSEventPathCanonicalizer.canonicalURL(rootPath).path)
     }
 
     func route(sourceWorktreeId: UUID, rawPath: String) -> FilesystemOwnedPath? {
@@ -54,28 +62,19 @@ struct FilesystemRootOwnership: Sendable {
     }
 
     private func owningRoot(forCanonicalPath canonicalPath: String) -> Root? {
-        let pathKey = Self.normalizedComparisonKey(canonicalPath)
-        return
-            roots
-            .filter { root in
-                Self.isDescendantPath(pathKey, of: root.comparisonPath)
+        var candidatePath = Self.normalizedComparisonKey(canonicalPath)
+        while true {
+            if let owner = ownerByComparisonPath[candidatePath] {
+                return owner
             }
-            .max { lhs, rhs in
-                if lhs.comparisonPath.count != rhs.comparisonPath.count {
-                    return lhs.comparisonPath.count < rhs.comparisonPath.count
-                }
-                return lhs.worktreeId.uuidString < rhs.worktreeId.uuidString
+            guard candidatePath != "/", let separator = candidatePath.lastIndex(of: "/") else {
+                return nil
             }
-    }
-
-    private static func isDescendantPath(_ path: String, of rootPath: String) -> Bool {
-        if path == rootPath {
-            return true
+            candidatePath =
+                separator == candidatePath.startIndex
+                ? "/"
+                : String(candidatePath[..<separator])
         }
-        if rootPath == "/" {
-            return path.hasPrefix("/")
-        }
-        return path.hasPrefix(rootPath + "/")
     }
 
     private static func canonicalize(rawPath: String, sourceRootPath: String) -> String {
@@ -83,20 +82,49 @@ struct FilesystemRootOwnership: Sendable {
         guard !normalizedInput.isEmpty else { return sourceRootPath }
 
         if normalizedInput.hasPrefix("/") {
-            return canonicalize(path: normalizedInput)
+            return canonicalizeKernelPath(normalizedInput)
         }
 
-        let joinedPath = URL(fileURLWithPath: sourceRootPath)
-            .appending(path: normalizedInput)
-            .path
-        return canonicalize(path: joinedPath)
+        return canonicalizeKernelPath(sourceRootPath + "/" + normalizedInput)
     }
 
-    private static func canonicalize(path: String) -> String {
-        let canonicalURL = URL(fileURLWithPath: path)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        return trimTrailingSlash(from: canonicalURL.path)
+    private static func canonicalizeKernelPath(_ path: String) -> String {
+        let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(path)
+        if let privateAlias = privateAliasPath(
+            normalizedPath,
+            publicPath: "/etc",
+            privatePath: "/private/etc"
+        ) {
+            return privateAlias
+        }
+        if let privateAlias = privateAliasPath(
+            normalizedPath,
+            publicPath: "/tmp",
+            privatePath: "/private/tmp"
+        ) {
+            return privateAlias
+        }
+        if let privateAlias = privateAliasPath(
+            normalizedPath,
+            publicPath: "/var",
+            privatePath: "/private/var"
+        ) {
+            return privateAlias
+        }
+        return trimTrailingSlash(from: normalizedPath)
+    }
+
+    private static func privateAliasPath(
+        _ path: String,
+        publicPath: String,
+        privatePath: String
+    ) -> String? {
+        if path == publicPath {
+            return privatePath
+        }
+        let publicPrefix = publicPath + "/"
+        guard path.hasPrefix(publicPrefix) else { return nil }
+        return privatePath + path.dropFirst(publicPath.count)
     }
 
     private static func relativePath(

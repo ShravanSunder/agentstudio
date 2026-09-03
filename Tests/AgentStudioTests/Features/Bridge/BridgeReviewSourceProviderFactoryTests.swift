@@ -79,11 +79,13 @@ struct BridgeReviewSourceProviderFactoryTests {
         // Act
         let launchProvider = BridgeReviewSourceProviderFactory.gitProvider(
             location: .launchDirectory(launchDirectory),
-            gitReadContext: launchContext
+            gitReadContext: launchContext,
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let currentWorkingDirectoryProvider = BridgeReviewSourceProviderFactory.gitProvider(
             location: .currentWorkingDirectory(currentWorkingDirectory),
-            gitReadContext: currentWorkingDirectoryContext
+            gitReadContext: currentWorkingDirectoryContext,
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
 
         // Assert
@@ -108,7 +110,8 @@ struct BridgeReviewSourceProviderFactoryTests {
         )
         let provider = BridgeReviewSourceProviderFactory.gitProvider(
             location: location,
-            gitReadContext: context
+            gitReadContext: context,
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
 
         // Assert

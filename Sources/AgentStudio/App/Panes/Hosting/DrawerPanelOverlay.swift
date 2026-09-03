@@ -164,7 +164,6 @@ struct DrawerPanelOverlay: View {
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let drawerDropTarget: DrawerRearrangeTarget?
     let dismissCoordinateView: NSView?
     let workspaceWindowId: UUID?
@@ -267,7 +266,6 @@ struct DrawerPanelOverlay: View {
                     appLifecycleStore: appLifecycleStore,
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    notificationCountForWorktree: notificationCountForWorktree,
                     dropTarget: drawerDropTarget,
                     dragSourcePaneId: dragSourcePaneId,
                     workspaceWindowId: workspaceWindowId

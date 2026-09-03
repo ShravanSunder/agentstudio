@@ -28,7 +28,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         context.store.setActiveTab(tab.id)
         let source = OrderedRecordingFilesystemSource()
         let coordinator = makeCoordinator(context: context, source: source)
-        defer { Task { await coordinator.shutdown() } }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
@@ -36,10 +35,11 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         #expect(await source.operations().isEmpty)
+        await coordinator.shutdown()
     }
 
-    @Test("active tab selection writes only the changed active worktree")
-    func activeTabSelectionWritesOnlyChangedActiveWorktree() async throws {
+    @Test("active tab selection performs no direct filesystem source write")
+    func activeTabSelectionPerformsNoDirectFilesystemSourceWrite() async throws {
         try await withAsyncTestCoreAtoms { _ in
             let context = makeContext(named: "active-selection")
             defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
@@ -69,7 +69,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             context.store.setActiveTab(firstTab.id)
             let source = OrderedRecordingFilesystemSource()
             let coordinator = makeCoordinator(context: context, source: source)
-            defer { Task { await coordinator.shutdown() } }
             await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
             await source.resetOperations()
 
@@ -98,15 +97,15 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
                 )
             )
             focusExecutor.apply(.command(focusDecision))
-            await source.waitForOperationCount(1)
             await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-            #expect(await source.operations() == [.activePane(worktreeId: secondWorktree.id)])
+            #expect(await source.operations().isEmpty)
+            await coordinator.shutdown()
         }
     }
 
-    @Test("direct worktree open writes only the changed active worktree")
-    func directWorktreeOpenWritesOnlyChangedActiveWorktree() async throws {
+    @Test("direct worktree open performs no direct filesystem source write")
+    func directWorktreeOpenPerformsNoDirectFilesystemSourceWrite() async throws {
         let context = makeContext(named: "direct-open")
         defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
         let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))
@@ -135,19 +134,18 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         context.store.setActiveTab(firstTab.id)
         let source = OrderedRecordingFilesystemSource()
         let coordinator = makeCoordinator(context: context, source: source)
-        defer { Task { await coordinator.shutdown() } }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
         _ = coordinator.openTerminal(for: secondWorktree, in: repo)
-        await source.waitForOperationCount(1)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        #expect(await source.operations() == [.activePane(worktreeId: secondWorktree.id)])
+        #expect(await source.operations().isEmpty)
+        await coordinator.shutdown()
     }
 
-    @Test("surface CWD change updates only old and new activity plus active worktree")
-    func surfaceCWDChangeUpdatesOnlyAffectedKeys() async throws {
+    @Test("surface CWD change performs no direct filesystem source write")
+    func surfaceCWDChangePerformsNoDirectFilesystemSourceWrite() async throws {
         let context = makeContext(named: "cwd-effect")
         defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
         let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))
@@ -179,36 +177,20 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
                 paneId: PaneId(existingUUID: pane.id)
             )
         )
-        await source.waitForOperationCount(3)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        let operations = await source.operations()
-        #expect(operations.count == 3)
-        let activityOperations = Array(operations.dropLast())
-        #expect(activityOperations.count == 2)
-        #expect(
-            activityOperations.contains(
-                .activity(worktreeId: firstWorktree.id, isActiveInApp: false)
-            )
-        )
-        #expect(
-            activityOperations.contains(
-                .activity(worktreeId: secondWorktree.id, isActiveInApp: true)
-            )
-        )
-        #expect(operations.last == .activePane(worktreeId: secondWorktree.id))
+        #expect(await source.operations().isEmpty)
         await coordinator.shutdown()
     }
 
-    @Test("pane mount and removal write only affected worktree activity")
-    func paneMountAndRemovalWriteOnlyAffectedActivity() async throws {
+    @Test("pane mount and removal perform no direct filesystem source writes")
+    func paneMountAndRemovalPerformNoDirectFilesystemSourceWrites() async throws {
         let context = makeContext(named: "pane-lifecycle")
         defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
         let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))
         let worktree = try #require(context.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
         let source = OrderedRecordingFilesystemSource()
         let coordinator = makeCoordinator(context: context, source: source)
-        defer { Task { await coordinator.shutdown() } }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
@@ -217,15 +199,14 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         coordinator.upsertPaneFilesystemProjectionContext(for: pane)
-        await source.waitForOperationCount(1)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
-        #expect(await source.operations() == [.activity(worktreeId: worktree.id, isActiveInApp: true)])
+        #expect(await source.operations().isEmpty)
 
         await source.resetOperations()
         coordinator.removePaneFilesystemProjectionContext(paneId: pane.id)
-        await source.waitForOperationCount(1)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
-        #expect(await source.operations() == [.activity(worktreeId: worktree.id, isActiveInApp: false)])
+        #expect(await source.operations().isEmpty)
+        await coordinator.shutdown()
     }
 
     @Test("failed current mount and failed insertion leave no filesystem membership")
@@ -240,7 +221,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         )
         let source = OrderedRecordingFilesystemSource()
         let coordinator = makeCoordinator(context: context, source: source)
-        defer { Task { await coordinator.shutdown() } }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
@@ -259,6 +239,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
 
         #expect(mountedView == nil)
         #expect(await source.operations().isEmpty)
+        await coordinator.shutdown()
     }
 
     @Test("accepted pane effects request one trace identity fleet capture per drain")
@@ -278,7 +259,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             source: source,
             traceIdentityRefreshHandler: { traceIdentityRecorder.recordFleetCapture() }
         )
-        defer { Task { await coordinator.shutdown() } }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         coordinator.upsertPaneFilesystemProjectionContext(for: pane)
@@ -286,6 +266,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         #expect(traceIdentityRecorder.fleetCaptureCount == 1)
+        await coordinator.shutdown()
     }
 
     private func makeContext(named name: String) -> FilesystemEffectsTestContext {
@@ -303,13 +284,16 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         surfaceManager: WorkspaceSurfaceManaging = MockFilesystemCoordinatorSurfaceManager(),
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) -> WorkspaceSurfaceCoordinator {
-        WorkspaceSurfaceCoordinator(
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        return WorkspaceSurfaceCoordinator(
             store: context.store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: context.store),
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: context.bus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: source,
             filesystemProjectionIndex: FilesystemProjectionIndex(),
             windowLifecycleStore: WindowLifecycleAtom(),

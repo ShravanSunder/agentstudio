@@ -13,8 +13,8 @@ import Testing
 @MainActor
 @Suite("PaneInboxNotificationPopover", .serialized)
 struct PaneInboxNotificationPopoverTests {
-    @Test("pane clear presentation targets its physical pane independently of global context")
-    func paneClearPresentationTargetsItsPhysicalPaneIndependentlyOfGlobalContext() {
+    @Test("retired pane clear command has no presentation")
+    func retiredPaneClearCommandHasNoPresentation() {
         let paneId = UUID()
         let dispatcher = PaneInboxCommandDispatcherProbe()
 
@@ -23,40 +23,21 @@ struct PaneInboxNotificationPopoverTests {
             dispatcher: dispatcher
         )
 
-        #expect(presentation?.spec.command == .clearPaneInboxNotifications)
-        #expect(
-            dispatcher.capabilityQueries == [
-                PaneInboxCommandQuery(
-                    command: .clearPaneInboxNotifications,
-                    target: paneId,
-                    targetType: .pane
-                )
-            ])
+        #expect(presentation == nil)
+        #expect(dispatcher.capabilityQueries.isEmpty)
     }
 
-    @Test("pane clear presentation stays present but disabled and rechecks capability")
-    func paneClearPresentationStaysPresentButDisabledAndRechecksCapability() throws {
+    @Test("retired pane clear command does not query capability")
+    func retiredPaneClearCommandDoesNotQueryCapability() {
         let paneId = UUID()
         let dispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
-        let expectedQuery = PaneInboxCommandQuery(
-            command: .clearPaneInboxNotifications,
-            target: paneId,
-            targetType: .pane
+        let presentation = PaneInboxClearCommandPresentation.resolve(
+            targetPaneId: paneId,
+            dispatcher: dispatcher
         )
 
-        let presentation = try #require(
-            PaneInboxClearCommandPresentation.resolve(
-                targetPaneId: paneId,
-                dispatcher: dispatcher
-            )
-        )
-
-        #expect(!presentation.isEnabled)
-        #expect(dispatcher.capabilityQueries == [expectedQuery])
-
-        presentation.perform()
-
-        #expect(dispatcher.capabilityQueries == [expectedQuery, expectedQuery])
+        #expect(presentation == nil)
+        #expect(dispatcher.capabilityQueries.isEmpty)
         #expect(dispatcher.dispatchedTargets.isEmpty)
     }
 
@@ -274,40 +255,24 @@ struct PaneInboxNotificationPopoverTests {
         #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == false)
     }
 
-    @Test("mounted pane inbox clear button dispatches the exact targeted pane command")
-    func mountedPaneInboxClearButtonDispatchesExactTargetedPaneCommand() throws {
+    @Test("mounted dormant pane Inbox omits the retired clear command")
+    func mountedDormantPaneInboxOmitsRetiredClearCommand() throws {
         let commandDispatcher = PaneInboxCommandDispatcherProbe()
 
-        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, parentPaneId in
-            let expectedQuery = PaneInboxCommandQuery(
-                command: .clearPaneInboxNotifications,
-                target: parentPaneId,
-                targetType: .pane
-            )
-
-            #expect(clearButton.isAccessibilityEnabled())
-            pressAccessibleElement(clearButton)
-
-            #expect(commandDispatcher.capabilityQueries == [expectedQuery, expectedQuery])
-            #expect(commandDispatcher.dispatchedTargets == [expectedQuery])
+        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, _ in
+            #expect(clearButton == nil)
+            #expect(commandDispatcher.capabilityQueries.isEmpty)
+            #expect(commandDispatcher.dispatchedTargets.isEmpty)
         }
     }
 
-    @Test("mounted pane inbox clear button stays present but disabled when targeted capability denies")
-    func mountedPaneInboxClearButtonStaysPresentButDisabled() throws {
+    @Test("retired clear command stays absent when capability denies")
+    func retiredClearCommandStaysAbsentWhenCapabilityDenies() throws {
         let commandDispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
 
-        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, parentPaneId in
-            let expectedQuery = PaneInboxCommandQuery(
-                command: .clearPaneInboxNotifications,
-                target: parentPaneId,
-                targetType: .pane
-            )
-
-            #expect(!clearButton.isAccessibilityEnabled())
-            pressAccessibleElement(clearButton)
-
-            #expect(commandDispatcher.capabilityQueries == [expectedQuery])
+        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, _ in
+            #expect(clearButton == nil)
+            #expect(commandDispatcher.capabilityQueries.isEmpty)
             #expect(commandDispatcher.dispatchedTargets.isEmpty)
         }
     }
@@ -532,7 +497,7 @@ struct PaneInboxNotificationPopoverTests {
 
     private func withMountedClearButton(
         commandDispatcher: PaneInboxCommandDispatcherProbe,
-        assertions: (AccessibilityPressBridgeView, UUID) -> Void
+        assertions: (AccessibilityPressBridgeView?, UUID) -> Void
     ) throws {
         let parentPaneId = UUID()
         let inboxAtom = InboxNotificationAtom()
@@ -592,10 +557,9 @@ struct PaneInboxNotificationPopoverTests {
             defer { window.orderOut(nil) }
             hostingView.layoutSubtreeIfNeeded()
 
-            let clearButton = try #require(
+            let clearButton =
                 findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
-                    as? AccessibilityPressBridgeView
-            )
+                as? AccessibilityPressBridgeView
             assertions(clearButton, parentPaneId)
         }
     }

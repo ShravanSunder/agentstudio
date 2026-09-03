@@ -188,7 +188,7 @@ EntityRecencyStore (application local.sqlite)
 
 WorkspaceSQLiteDatastore (authoritative core.sqlite + non-authoritative app-root local.sqlite)
 ├── WorkspaceCoreRepository            ← authoritative graph/topology rows
-├── cached WorkspaceLocalRepository    ← non-authoritative local UX/cache/inbox rows
+├── cached WorkspaceLocalRepository    ← active local UX/cache plus dormant retained Inbox rows
 └── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not a row projection
 
 WorkspaceSidebarMemoryAtom (window-keyed rows in app-root local.sqlite)

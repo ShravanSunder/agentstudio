@@ -62,13 +62,16 @@ package actor BridgeDevelopmentProductHost {
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult
     ) async throws {
+        let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         try await self.init(
             source: source,
             contributionTargetCommit: contributionTargetCommit,
+            statusPhysicalGate: statusPhysicalGate,
             makeReviewProvider: { repositoryPath, gitReadContext in
                 BridgeReviewSourceProviderFactory.gitProvider(
                     repositoryPath: repositoryPath,
-                    gitReadContext: gitReadContext
+                    gitReadContext: gitReadContext,
+                    statusPhysicalGate: statusPhysicalGate
                 )
             }
         )
@@ -79,6 +82,7 @@ package actor BridgeDevelopmentProductHost {
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
         makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider
     ) async throws {
         let source = try Self.validatedFilesystemSource(source)
@@ -106,7 +110,8 @@ package actor BridgeDevelopmentProductHost {
         let fileMetadataSource = Self.makeFileMetadataSource(
             source: source,
             gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator
+            constructionCoordinator: constructionCoordinator,
+            statusPhysicalGate: statusPhysicalGate
         )
         let reviewMetadataSource = BridgePaneProductReviewMetadataSource()
         let reviewContentLoaderCache = BridgeReviewContentLoaderCache(provider: reviewProvider)
@@ -734,7 +739,8 @@ package actor BridgeDevelopmentProductHost {
     private static func makeFileMetadataSource(
         source: BridgeDevelopmentProductSource,
         gitReadContext: BridgeGitReadContext,
-        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     ) -> BridgePaneProductFileMetadataSource {
         BridgePaneProductFileMetadataSource(
             authority: BridgePaneProductFileSourceAuthority(
@@ -747,7 +753,10 @@ package actor BridgeDevelopmentProductHost {
                 )
             ),
             gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator
+            constructionCoordinator: constructionCoordinator,
+            statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                physicalGate: statusPhysicalGate
+            )
         )
     }
 

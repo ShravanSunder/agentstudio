@@ -41,7 +41,11 @@ struct ShortcutCatalogTests {
     func shortcutAndCommandDefinitions_stayBidirectionallyConsistent() {
         for shortcut in AppShortcut.allCases {
             let definition = AppCommandDispatcher.shared.definition(for: shortcut.command)
-            #expect(definition.shortcut == shortcut)
+            if shortcut == .showInboxNotifications || shortcut == .showPaneInboxNotifications {
+                #expect(definition.shortcut == nil)
+            } else {
+                #expect(definition.shortcut == shortcut)
+            }
         }
     }
 
@@ -61,8 +65,7 @@ struct ShortcutCatalogTests {
         #expect(terminalQuickOpenDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(paneInboxDefinition.keyBinding?.key == "u")
-        #expect(paneInboxDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(paneInboxDefinition.keyBinding == nil)
         #expect(paneInboxDefinition.actionSpec.label == "Toggle Pane Inbox")
     }
 
@@ -102,7 +105,7 @@ struct ShortcutCatalogTests {
             in: .global
         )
 
-        #expect(showInbox == .showInboxNotifications)
+        #expect(showInbox == nil)
         #expect(showRepos == .showWorktreeSidebar)
     }
 
@@ -162,7 +165,7 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesPaneInboxShortcut() {
+    func shortcutDecoder_rejectsRetiredPaneInboxShortcut() {
         let showPaneInbox = ShortcutDecoder.shortcut(
             for: .init(key: .character(.u), modifiers: [.command, .shift]),
             in: .global
@@ -172,8 +175,8 @@ struct ShortcutCatalogTests {
             in: .terminalAppOwned
         )
 
-        #expect(showPaneInbox == .showPaneInboxNotifications)
-        #expect(terminalShowPaneInbox == .showPaneInboxNotifications)
+        #expect(showPaneInbox == nil)
+        #expect(terminalShowPaneInbox == nil)
     }
 
     @Test
@@ -187,7 +190,7 @@ struct ShortcutCatalogTests {
             in: .terminalAppOwned
         )
 
-        #expect(showInbox == .showInboxNotifications)
+        #expect(showInbox == nil)
         #expect(showRepos == .showWorktreeSidebar)
     }
 

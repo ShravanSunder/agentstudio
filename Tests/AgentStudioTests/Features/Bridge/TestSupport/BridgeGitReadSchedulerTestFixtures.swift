@@ -31,6 +31,7 @@ func makeBridgeGitReadContext(rootURL: URL) -> BridgeGitReadContext {
 func loadTestBridgeFileIgnorePolicy(rootURL: URL) async -> BridgeWorktreeFileIgnorePolicy {
     await BridgeWorktreeFileIgnorePolicy.load(
         rootURL: rootURL,
-        gitReadContext: makeBridgeGitReadContext(rootURL: rootURL)
+        gitReadContext: makeBridgeGitReadContext(rootURL: rootURL),
+        statusProvider: ProductFileSourceStatusProvider()
     )
 }

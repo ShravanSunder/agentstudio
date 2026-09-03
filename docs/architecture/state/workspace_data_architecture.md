@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, terminal activity router, and inbox router consume their own matched facts. The sidebar is a pure reader of the state owners via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer is the sole sidebar and is a pure reader of state owners via `@Observable` binding — zero imperative fetches, zero mutations.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -20,6 +20,13 @@ decode failure defaults only its logical slice. Neither changes or blocks
 accepted core startup. Historical
 core GRDB migrations remain so valid older core databases can open;
 `preferences.global.json` remains independently owned.
+
+Inbox source, schema, preference rows, and history rows are retained but
+dormant. Normal boot does not load, observe, route, promote, present, or write
+them. Unrelated settings saves must leave every retained row and timestamp
+unchanged. There is no active Inbox presentation, command/query, router/store,
+settings, or notification-count read lane. Reconnecting any of those edges
+requires a new product decision.
 
 ---
 
@@ -43,13 +50,10 @@ TIER B: APPLICATION LOCAL DATABASE (rebuildable enrichment + entity recency)
               paths for application recency, attended-pane transitions for pane recency
   Contains: global repo enrichment, worktree enrichment, PR counts,
            global repository/worktree recency, and workspace-keyed pane recency
-           (notification unread counts are derived from
-            InboxNotificationAtom.unreadCount(forWorktreeId:)
-            per LUNA-361)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
   Live source: ~/.agentstudio/local.sqlite
-  Owner: WorkspaceSidebarMemoryAtom and feature-local preference/inbox owners
+  Owner: WorkspaceSidebarMemoryAtom and active feature-local preferences
   Mutated by: sidebar view actions, MainSplitViewController
               (publishing sidebar collapsed state), composite commands
               (⌘I / ⌘S), and repo sidebar filter actions
@@ -104,7 +108,8 @@ struct Worktree: Codable, Identifiable, Hashable {
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
 - PR counts → `RepoEnrichmentCacheAtom` dictionaries
-- Notification unread counts → `InboxNotificationAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
+- Retained Inbox unread-count code is dormant historical source. No active
+  sidebar, pane chrome, command, query, or projection reads it.
 
 ### Identity Semantics
 
@@ -172,10 +177,8 @@ struct WorkspaceCacheState: Codable {
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
     // Live PR lane is RepoCacheAtom.pullRequestFacts(for:) keyed by RepoBranchKey,
     // not a worktree-id Int map named pullRequestCounts.
-    // notificationCounts removed per LUNA-361: unread counts are now
-    // derived from InboxNotificationAtom.unreadCount(forWorktreeId:)
-    // in Features/InboxNotification/State/MainActor/Atoms/, not stored
-    // in the cache tier. The bell pill reads directly from the atom.
+    // Historical notificationCounts remain absent from this cache shape.
+    // Retained Inbox atom/source code is dormant and has no active App reader.
 }
 ```
 
@@ -232,8 +235,8 @@ struct WorkspaceUIState: Codable {
                                            //   from the legacy UserDefaults
                                            //   value. UserDefaults key is
                                            //   dead code after LUNA-361.
-    var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
-                                           //   extend the enum monotonically
+    var sidebarSurface: SidebarSurface     // live value is always .repos;
+                                           // legacy .inbox input normalizes
     // sidebarHasFocus is NOT persisted — runtime-only, resets to false
     // on launch. Published by each sidebar surface view via @FocusState.
 }
@@ -519,8 +522,6 @@ RepositoryTopologyAtom             → canonical global repo/worktree structure 
 RepoCacheAtom.repoEnrichmentByRepoId           → org name, display name, groupKey
 RepoCacheAtom.worktreeEnrichmentByWorktreeId   → branch, git status
 RepoCacheAtom.pullRequestFacts(for:)           → PR badges (facts by RepoBranchKey)
-InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
-                                 (per LUNA-361; moved from RepoCacheAtom)
 WorkspaceSidebarState          → filter and sidebar shell composition
                                  (collapsed / surface / runtime focus)
 
@@ -528,7 +529,7 @@ ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
 Repo Explorer captures only the declared repo/worktree membership and keyed
-topology, cache, pane-placement, unread, zoom, capability, and Bridge-attendance
+topology, cache, pane-placement, zoom, capability, and Bridge-attendance
 facts needed by its rendered rows. The immutable capture is admitted to the
 existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
 projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
@@ -537,6 +538,13 @@ from binding. MainActor owns only keyed capture, current-generation result
 binding, and command-presentation snapshot publication. Whole dictionaries and
 topology snapshots remain persistence/cold-batch bridges, not hot sidebar
 observation inputs.
+
+`By Tab` membership comes from `WorkspaceTabGraph`: every canonical active pane
+belongs to its canonical tab regardless of repository association. Repository
+topology optionally enriches those pane rows with repo, worktree, branch, Git,
+and pull-request facts; it never admits or suppresses tab membership. `By Repo`
+remains repository-only, and `All Panes` continues to place unassociated panes
+under `No Repositories`.
 
 This is not a broad live "join" problem — each store has one clear job and the
 capture declares the exact keys being combined. The bus keeps owners current;

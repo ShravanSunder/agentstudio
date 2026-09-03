@@ -311,7 +311,7 @@ struct GhosttyActionRouterTests {
         #expect(sealedTitle.metadata.runtimeTitle == .titleChanged("A"))
 
         #expect(
-            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
                 precedingTitle: sealedTitle,
                 actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
                 payload: .commandFinished(exitCode: 7, duration: 42),
@@ -352,7 +352,7 @@ struct GhosttyActionRouterTests {
         }
         #expect(precedingTitle == nil)
         #expect(
-            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
                 precedingTitle: precedingTitle,
                 actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
                 payload: .commandFinished(exitCode: 3, duration: 9),
@@ -400,7 +400,7 @@ struct GhosttyActionRouterTests {
             return
         }
         #expect(
-            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
                 precedingTitle: precedingTitle,
                 actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
                 payload: .cwdChanged("/tmp/project"),
@@ -435,7 +435,7 @@ struct GhosttyActionRouterTests {
             return
         }
         #expect(
-            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
                 precedingTitle: changedPrecedingTitle,
                 actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
                 payload: .cwdChanged("/tmp/other"),
@@ -480,7 +480,7 @@ struct GhosttyActionRouterTests {
             accumulator.detachTitleBeforeExactBarrier(for: originalSurfaceID)
         )
 
-        let routed = Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+        let routed = await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
             precedingTitle: sealedTitle,
             actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
             payload: .commandFinished(exitCode: 9, duration: 12),

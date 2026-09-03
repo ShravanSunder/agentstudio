@@ -79,13 +79,12 @@ struct MainWindowControllerPresentationFactsTests {
         let completionRecorder = PresentationFactsProjectionCompletionRecorder()
 
         try await withPresentationFactsWindowHarness(
-            tabBarAdapterBuilder: { store, repoCache, inboxAtom in
+            tabBarAdapterBuilder: { store, repoCache in
                 let pane = store.createPane(title: "Held projection")
                 store.appendTab(Tab(paneId: pane.id, name: "Held projection"))
                 return TabBarAdapter(
                     store: store,
                     repoCache: repoCache,
-                    inboxAtom: inboxAtom,
                     project: projectionGate.project,
                     onProjectionCompletion: completionRecorder.record
                 )
@@ -138,13 +137,11 @@ private func withPresentationFactsWindowHarness<T>(
     tabBarAdapterBuilder:
         @MainActor (
             _ store: WorkspaceStore,
-            _ repoCache: RepoCacheAtom,
-            _ inboxAtom: InboxNotificationAtom
-        ) -> TabBarAdapter = { store, repoCache, inboxAtom in
+            _ repoCache: RepoCacheAtom
+        ) -> TabBarAdapter = { store, repoCache in
             TabBarAdapter(
                 store: store,
-                repoCache: repoCache,
-                inboxAtom: inboxAtom
+                repoCache: repoCache
             )
         },
     body: @MainActor (PresentationFactsWindowHarness) async throws -> T
@@ -180,8 +177,7 @@ private func withPresentationFactsWindowHarness<T>(
     let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
         let tabBarAdapter = tabBarAdapterBuilder(
             store,
-            atoms.core.repoCache,
-            atoms.inboxNotification
+            atoms.core.repoCache
         )
         let windowController = MainWindowController(
             workspaceWindowId: windowId,
@@ -198,15 +194,10 @@ private func withPresentationFactsWindowHarness<T>(
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atoms.bridgePaneAttendance,
             editorChooser: atoms.editorChooser,
-            inboxAtom: atoms.inboxNotification,
-            inboxPrefsAtom: InboxNotificationPrefsAtom(),
-            inboxSidebarState: InboxSidebarState(),
-            paneInboxPresentationState: atoms.paneInboxPresentationState,
             repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
             bridgeAttendanceSnapshot: { paneId in
                 atoms.bridgePaneAttendance.ordinal(for: paneId)
-            },
-            paneInboxPresenter: PaneInboxNotificationPresenter()
+            }
         )
         controller = windowController
         windowController.showWindow(nil)

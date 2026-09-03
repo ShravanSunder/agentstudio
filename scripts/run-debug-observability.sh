@@ -12,6 +12,7 @@ CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
 SECURITY_BIN="${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}"
+NORMAL_QUIT_BIN="${AGENTSTUDIO_NORMAL_QUIT_BIN:-/usr/bin/osascript}"
 DEBUG_LAUNCH_ACTIVATE="${AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE:-0}"
 
 if [ "$DEBUG_LAUNCH_ACTIVATE" != "0" ] && [ "$DEBUG_LAUNCH_ACTIVATE" != "1" ]; then
@@ -58,6 +59,12 @@ validate_observability_controls() {
   if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES:-0}" = "1" ]; then
     return
   fi
+  if [ -n "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ] ||
+    [ "$NORMAL_QUIT_BIN" != "/usr/bin/osascript" ]
+  then
+    echo "candidate identity and normal-quit overrides require AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES=1" >&2
+    exit 2
+  fi
   if [ "$(canonical_path "$STACK_HELPER")" != "$(canonical_path "$DEFAULT_STACK_HELPER")" ]; then
     echo "AI_TOOLS_OBSERVABILITY_STACK_HELPER must point to the trusted ai-tools helper: $DEFAULT_STACK_HELPER" >&2
     exit 2
@@ -71,6 +78,8 @@ usage() {
 Usage: run-debug-observability.sh [--build-path <dir>] [--skip-build] [--detach]
        run-debug-observability.sh --print-identity
        run-debug-observability.sh --preflight-idle
+       run-debug-observability.sh --validate-candidate
+       run-debug-observability.sh --retire-candidate
 
 Builds the debug AgentStudio binary, wraps it in a per-worktree Debug .app, and
 launches that app with full trace tags exported to the already-running shared
@@ -124,6 +133,14 @@ print(parsed[0] if parsed else "")
 PY
 }
 
+read_state_value() {
+  local key="${1:?missing state key}"
+  local state_path="${2:?missing state path}"
+  local raw_value
+  raw_value="$(sed -n "s/^${key}=//p" "$state_path" | tail -1)"
+  decode_state_value "$raw_value"
+}
+
 agentstudio_pids_for_binary() {
   local binary_path="${1:?missing binary path}"
   local executable_path
@@ -164,6 +181,220 @@ process_executable_path() {
   awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output"
 }
 
+process_start_identity() {
+  local pid="${1:?missing pid}"
+  if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES:-0}" = "1" ]; then
+    printf '%s\n' "${AGENTSTUDIO_OBSERVABILITY_TEST_PROCESS_START_IDENTITY:-test-process-start-$pid}"
+    return 0
+  fi
+  /usr/bin/python3 - "$pid" <<'PY'
+import ctypes
+import sys
+
+MAXCOMLEN = 16
+PROC_PIDTBSDINFO = 3
+
+class ProcBSDInfo(ctypes.Structure):
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * MAXCOMLEN),
+        ("pbi_name", ctypes.c_char * (2 * MAXCOMLEN)),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+libproc.proc_pidinfo.argtypes = [
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint64,
+    ctypes.c_void_p,
+    ctypes.c_int,
+]
+libproc.proc_pidinfo.restype = ctypes.c_int
+info = ProcBSDInfo()
+size = ctypes.sizeof(info)
+result = libproc.proc_pidinfo(int(sys.argv[1]), PROC_PIDTBSDINFO, 0, ctypes.byref(info), size)
+if result != size or info.pbi_pid != int(sys.argv[1]):
+    sys.exit(1)
+print(f"{info.pbi_start_tvsec}:{info.pbi_start_tvusec}")
+PY
+}
+
+candidate_test_identity_value() {
+  local key="${1:?missing candidate identity key}"
+  /usr/bin/python3 - "$key" "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" <<'PY'
+import json
+import sys
+
+key, raw = sys.argv[1:]
+value = json.loads(raw).get(key)
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is not None:
+    print(value)
+PY
+}
+
+retire_debug_candidate() {
+  local state_path="${1:?missing state path}"
+  local expected_code="${2:?missing debug code}"
+  local expected_debug_root="${3:?missing debug root}"
+  local expected_data_root="${4:?missing data root}"
+  local operation="${5:-retire}"
+  [ -f "$state_path" ] || {
+    echo "candidate retirement state is missing: $state_path" >&2
+    return 1
+  }
+
+  local state_status state_runtime state_code state_marker state_pid state_start_identity
+  local state_bundle_identifier state_app state_executable state_data_dir state_zmx_dir
+  state_status="$(read_state_value AGENTSTUDIO_OBSERVABILITY_STATUS "$state_path")"
+  state_runtime="$(read_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR "$state_path")"
+  state_code="$(read_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$state_path")"
+  state_marker="$(read_state_value AGENTSTUDIO_OBSERVABILITY_MARKER "$state_path")"
+  state_pid="$(read_state_value AGENTSTUDIO_OBSERVABILITY_PID "$state_path")"
+  state_start_identity="$(read_state_value AGENTSTUDIO_OBSERVABILITY_PROCESS_START_IDENTITY "$state_path")"
+  state_bundle_identifier="$(read_state_value AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER "$state_path")"
+  state_app="$(read_state_value AGENTSTUDIO_OBSERVABILITY_APP "$state_path")"
+  state_executable="$(read_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$state_path")"
+  state_data_dir="$(read_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$state_path")"
+  state_zmx_dir="$(read_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$state_path")"
+
+  local expected_bundle_identifier="com.agentstudio.app.debug.d$expected_code"
+  local expected_app="$expected_debug_root/apps/AgentStudio Debug $expected_code.app"
+  local expected_executable="$expected_app/Contents/MacOS/AgentStudio"
+  local expected_zmx_dir="$expected_data_root/z"
+  case "$state_pid" in
+    ''|*[!0-9]*)
+      echo "candidate identity mismatch: invalid PID" >&2
+      return 1
+      ;;
+  esac
+  if [ "$state_status" != "running" ] || [ "$state_runtime" != "debug" ] ||
+    [ "$state_code" != "$expected_code" ] || ! trace_name_is_safe_path_component "$state_marker" ||
+    [ -z "$state_start_identity" ] || [ "$state_bundle_identifier" != "$expected_bundle_identifier" ] ||
+    [ "$(realpath_value "$state_app")" != "$(realpath_value "$expected_app")" ] ||
+    [ "$(realpath_value "$state_executable")" != "$(realpath_value "$expected_executable")" ] ||
+    [ "$(realpath_value "$state_data_dir")" != "$(realpath_value "$expected_data_root")" ] ||
+    [ "$(realpath_value "$state_zmx_dir")" != "$(realpath_value "$expected_zmx_dir")" ]
+  then
+    echo "candidate identity mismatch: state tuple" >&2
+    return 1
+  fi
+
+  local actual_present actual_pid actual_runtime actual_code actual_marker actual_start_identity
+  local actual_bundle_identifier actual_app actual_executable actual_data_dir actual_zmx_dir
+  if [ -n "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ]; then
+    actual_present="$(candidate_test_identity_value present)"
+    actual_pid="$(candidate_test_identity_value pid)"
+    actual_runtime="$(candidate_test_identity_value runtime_flavor)"
+    actual_code="$(candidate_test_identity_value debug_code)"
+    actual_marker="$(candidate_test_identity_value marker)"
+    actual_start_identity="$(candidate_test_identity_value process_start_identity)"
+    actual_bundle_identifier="$(candidate_test_identity_value bundle_identifier)"
+    actual_app="$(candidate_test_identity_value app)"
+    actual_executable="$(candidate_test_identity_value executable)"
+    actual_data_dir="$(candidate_test_identity_value data_dir)"
+    actual_zmx_dir="$(candidate_test_identity_value zmx_dir)"
+  else
+    if ! kill -0 "$state_pid" >/dev/null 2>&1; then
+      printf '%s\n' "candidate_retirement=absent"
+      return 0
+    fi
+    actual_present=true
+    actual_pid="$state_pid"
+    actual_runtime=debug
+    actual_code="$expected_code"
+    actual_marker="$state_marker"
+    actual_start_identity="$(process_start_identity "$state_pid" || true)"
+    actual_executable="$(process_executable_path "$state_pid" || true)"
+    actual_app="$(bundle_path_for_executable "$actual_executable")"
+    actual_bundle_identifier="$(bundle_identifier_for_executable "$actual_executable")"
+    actual_data_dir="$expected_data_root"
+    actual_zmx_dir="$expected_zmx_dir"
+  fi
+
+  if [ "$actual_present" = "false" ]; then
+    if [ "$operation" = "validate" ]; then
+      echo "candidate identity mismatch: candidate is absent" >&2
+      return 1
+    fi
+    printf '%s\n' "candidate_retirement=absent"
+    return 0
+  fi
+  if [ "$actual_pid" != "$state_pid" ] || [ "$actual_runtime" != "$state_runtime" ] ||
+    [ "$actual_code" != "$state_code" ] || [ "$actual_marker" != "$state_marker" ] ||
+    [ "$actual_start_identity" != "$state_start_identity" ] ||
+    [ "$actual_bundle_identifier" != "$state_bundle_identifier" ] ||
+    [ "$(realpath_value "$actual_app")" != "$(realpath_value "$state_app")" ] ||
+    [ "$(realpath_value "$actual_executable")" != "$(realpath_value "$state_executable")" ] ||
+    [ "$(realpath_value "$actual_data_dir")" != "$(realpath_value "$state_data_dir")" ] ||
+    [ "$(realpath_value "$actual_zmx_dir")" != "$(realpath_value "$state_zmx_dir")" ]
+  then
+    echo "candidate identity mismatch: live tuple" >&2
+    return 1
+  fi
+  if [ "$operation" = "validate" ]; then
+    printf '%s\n' "candidate_validation=valid"
+    return 0
+  fi
+
+  # Revalidate the non-reusable identity immediately before the sole normal
+  # AppKit quit request. A POSIX signal would bypass application termination
+  # drains and make the idle completion receipt impossible to prove.
+  if [ -z "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ] &&
+    [ "$(process_start_identity "$state_pid" || true)" != "$state_start_identity" ]
+  then
+    echo "candidate identity mismatch: process start changed before graceful quit" >&2
+    return 1
+  fi
+  if ! request_normal_candidate_quit \
+    "$state_pid" "$state_bundle_identifier" "$state_app" "$state_executable"
+  then
+    echo "graceful quit request failed for exact candidate PID $state_pid" >&2
+    return 1
+  fi
+  if [ -n "${AGENTSTUDIO_OBSERVABILITY_TEST_CANDIDATE_IDENTITY:-}" ]; then
+    printf '%s\n' "candidate_retirement=graceful"
+    return 0
+  fi
+  local observed_start_identity
+  for _ in $(seq 1 400); do
+    if ! kill -0 "$state_pid" >/dev/null 2>&1; then
+      printf '%s\n' "candidate_retirement=graceful"
+      return 0
+    fi
+    observed_start_identity="$(process_start_identity "$state_pid" || true)"
+    if [ -n "$observed_start_identity" ] &&
+      [ "$observed_start_identity" != "$state_start_identity" ]
+    then
+      echo "candidate identity mismatch: process start changed after graceful quit" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  echo "graceful candidate retirement timed out for exact candidate PID $state_pid" >&2
+  return 1
+}
+
 bundle_path_for_executable() {
   local executable_path="${1:?missing executable path}"
   case "$executable_path" in
@@ -179,6 +410,41 @@ bundle_identifier_for_executable() {
   bundle_path="$(bundle_path_for_executable "$executable_path")"
   [ -n "$bundle_path" ] || return 0
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle_path/Contents/Info.plist" 2>/dev/null || true
+}
+
+request_normal_candidate_quit() {
+  local candidate_pid="${1:?missing candidate PID}"
+  local expected_bundle_identifier="${2:?missing expected bundle identifier}"
+  local expected_app="${3:?missing expected app path}"
+  local expected_executable="${4:?missing expected executable path}"
+  "$NORMAL_QUIT_BIN" -l JavaScript -e '
+ObjC.import("AppKit");
+function run(arguments) {
+  const processIdentifier = Number(arguments[0]);
+  const expectedBundleIdentifier = arguments[1];
+  const expectedAppPath = arguments[2];
+  const expectedExecutablePath = arguments[3];
+  const candidate = $.NSRunningApplication.runningApplicationWithProcessIdentifier(processIdentifier);
+  if (candidate.isNil()) {
+    throw new Error("candidate is absent before graceful quit");
+  }
+  const bundleIdentifier = candidate.bundleIdentifier.isNil()
+    ? "" : ObjC.unwrap(candidate.bundleIdentifier);
+  const appPath = candidate.bundleURL.isNil()
+    ? "" : ObjC.unwrap(candidate.bundleURL.path);
+  const executablePath = candidate.executableURL.isNil()
+    ? "" : ObjC.unwrap(candidate.executableURL.path);
+  if (Number(candidate.processIdentifier) !== processIdentifier
+      || bundleIdentifier !== expectedBundleIdentifier
+      || appPath !== expectedAppPath
+      || executablePath !== expectedExecutablePath) {
+    throw new Error("candidate AppKit identity mismatch");
+  }
+  if (!candidate.terminate) {
+    throw new Error("candidate rejected graceful quit");
+  }
+  return "graceful_quit_requested";
+}' "$candidate_pid" "$expected_bundle_identifier" "$expected_app" "$expected_executable"
 }
 
 debug_signing_identity() {
@@ -312,6 +578,7 @@ write_launch_failed_state() {
 write_running_state() {
   local launch_method="${1:?missing launch method}"
   local launched_pid="${2:?missing pid}"
+  local process_start="${3:?missing process start identity}"
   local launched_executable="$app_binary_path"
   {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS running
@@ -322,6 +589,8 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD "$launch_method"
     write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "$query_start"
     write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$launched_pid"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_PROCESS_START_IDENTITY "$process_start"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER "com.agentstudio.app.debug.d$debug_code"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
     write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$launched_executable"
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
@@ -552,6 +821,8 @@ skip_build=false
 detach=false
 print_identity=false
 preflight_idle=false
+retire_candidate=false
+validate_candidate=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-path)
@@ -574,6 +845,14 @@ while [ "$#" -gt 0 ]; do
       preflight_idle=true
       shift
       ;;
+    --retire-candidate)
+      retire_candidate=true
+      shift
+      ;;
+    --validate-candidate)
+      validate_candidate=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -589,13 +868,27 @@ cd "$PROJECT_ROOT"
 
 debug_code="$(worktree_debug_code)"
 debug_root="$HOME/.agentstudio-db/$debug_code"
-debug_zmx_dir="$debug_root/z"
+launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
+debug_zmx_dir="$launch_data_root/z"
 state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
+
+if [ "$retire_candidate" = true ] && [ "$validate_candidate" = true ]; then
+  echo "--validate-candidate and --retire-candidate are mutually exclusive" >&2
+  exit 2
+fi
+if [ "$retire_candidate" = true ]; then
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" retire
+  exit $?
+fi
+if [ "$validate_candidate" = true ]; then
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" validate
+  exit $?
+fi
 
 if [ "$print_identity" = true ]; then
   write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
   write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
   write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
   write_state_value AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER "com.agentstudio.app.debug.d$debug_code"
   write_state_value AGENTSTUDIO_OBSERVABILITY_APP_NAME "Agent Studio Debug $debug_code"
@@ -819,13 +1112,12 @@ fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
-launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"
 fi
 launch_zmx_dir="$launch_data_root/z"
 launch_ipc_socket_dir="${AGENTSTUDIO_IPC_SOCKET_DIR:-$debug_root/ipc-socket}"
-launch_zmx_bin_dir="$debug_root/bin"
+launch_zmx_bin_dir="$launch_data_root/bin"
 launch_zmx_path="$launch_zmx_bin_dir/zmx"
 otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
@@ -1015,7 +1307,14 @@ else
   fi
 fi
 
-write_running_state "$launch_method" "$pid"
+process_start_identity_value="$(process_start_identity "$pid" || true)"
+if [ -z "$process_start_identity_value" ]; then
+  write_launch_failed_state process_start_identity_unavailable
+  echo "unable to capture kernel process-start identity for debug candidate PID $pid" >&2
+  echo "candidate was left running because a safe retirement identity is unavailable" >&2
+  exit 1
+fi
+write_running_state "$launch_method" "$pid" "$process_start_identity_value"
 
 echo "pid: $pid"
 echo "launch method: $launch_method"

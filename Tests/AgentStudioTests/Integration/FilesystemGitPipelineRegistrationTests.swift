@@ -4,12 +4,12 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
-/// End-to-end proof for the `GitWorktreeRegistrationValidator` accept/reject boundary through
-/// `FilesystemGitPipeline`: registration must accept every outcome except certain
-/// "this is not a git repository" evidence, and must never leave a worktree unregistered forever
-/// on an uncertain probe. See `GitWorktreeRegistrationValidatorTests` for the validator's unit
-/// coverage of the same boundary.
+/// End-to-end proof for both membership ingress paths through `FilesystemGitPipeline`.
+/// Direct candidate registration validates certain non-repository evidence; canonical topology
+/// assertions reconcile their complete owner-supplied membership without becoming a second
+/// discovery authority. See `GitWorktreeRegistrationValidatorTests` for validator unit coverage.
 @MainActor
 @Suite(.serialized)
 struct FilesystemGitPipelineRegistrationTests {
@@ -31,6 +31,7 @@ struct FilesystemGitPipelineRegistrationTests {
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(outcome: outcome),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
@@ -82,6 +83,7 @@ struct FilesystemGitPipelineRegistrationTests {
             registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(
                 outcome: .authoritativeNegative(reason)
             ),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
@@ -115,12 +117,16 @@ struct FilesystemGitPipelineRegistrationTests {
         await shutdownWorld(pipeline: pipeline, observerTasks: [consumerTask], bus: bus)
     }
 
-    @Test("registering forty worktrees with unresolved probes completes without cumulative retry delay")
-    func massRegistrationCompletesWithoutCumulativeRetryDelay() async throws {
+    @Test("canonical topology assertion registers the complete fleet without secondary discovery")
+    func canonicalTopologyAssertionRegistersCompleteFleetWithoutSecondaryDiscovery() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let discoveryProvider = RecordingRegistrationDiscoveryProvider(
+            outcome: .authoritativeNegative(.invalidRepository)
+        )
         let pipeline = FilesystemGitPipeline(
             bus: bus,
-            registrationDiscoveryProvider: FixedOutcomeRegistrationDiscoveryProvider(outcome: .timeout),
+            registrationDiscoveryProvider: discoveryProvider,
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero
@@ -132,7 +138,7 @@ struct FilesystemGitPipelineRegistrationTests {
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
         var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
-        for index in 0..<40 {
+        for index in 0..<146 {
             let worktreeId = UUID()
             let worktreeRoot = fixtureRoot.appending(path: "worktree-\(index)")
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
@@ -151,23 +157,17 @@ struct FilesystemGitPipelineRegistrationTests {
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
 
-        let clock = ContinuousClock()
-        let startedAt = clock.now
         await pipeline.assertTopology(
             FilesystemTopologyAssertion(generation: 1, contextsByWorktreeId: contextsByWorktreeId)
         )
-        let elapsed = startedAt.duration(to: clock.now)
 
         for worktreeId in contextsByWorktreeId.keys {
-            let registered = await eventually("worktree should register despite an unresolved probe") {
+            let registered = await eventually("canonical topology worktree should remain registered") {
                 await observed.isRegistered(worktreeId)
             }
             #expect(registered)
         }
-        // The old 3-attempt/250ms-per-attempt serial retry loop would have taken tens of seconds
-        // for 40 worktrees that never resolve; the single-probe, concurrent-TaskGroup path
-        // should complete in well under a second.
-        #expect(elapsed < .seconds(3))
+        #expect(await discoveryProvider.callCount == 0)
 
         await shutdownWorld(pipeline: pipeline, observerTasks: [consumerTask], bus: bus)
     }
@@ -262,21 +262,35 @@ private struct FixedOutcomeRegistrationDiscoveryProvider: RepoScanner.GitReposit
     }
 }
 
+private actor RecordingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
+    let outcome: GitRepositoryDiscoveryOutcome
+    private(set) var callCount = 0
+
+    init(outcome: GitRepositoryDiscoveryOutcome) {
+        self.outcome = outcome
+    }
+
+    func discoveryOutcome(for _: URL) async -> GitRepositoryDiscoveryOutcome {
+        callCount += 1
+        return outcome
+    }
+}
+
 private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
-    private let stream: AsyncStream<FSEventBatch>
-    private let continuation: AsyncStream<FSEventBatch>.Continuation
+    private let stream: AsyncStream<FSEventIngressItem>
+    private let continuation: AsyncStream<FSEventIngressItem>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: FSEventIngressItem.self)
         self.stream = stream
         self.continuation = continuation
     }
 
-    func events() -> AsyncStream<FSEventBatch> {
+    func events() -> AsyncStream<FSEventIngressItem> {
         stream
     }
 
-    func consumeCoarseRefreshDebt() -> Set<UUID> {
+    func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] {
         []
     }
 

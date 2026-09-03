@@ -63,7 +63,7 @@ package enum AppCommand: String, CaseIterable {
     case copyCurrentPanePath
     case openPullRequest
     // Repo commands
-    case watchFolder, removeRepo
+    case watchFolder, updateRepositoryFacts, removeRepo
     case addRepoFavorite, removeRepoFavorite
     case openWorktree
     case openWorktreeInPane

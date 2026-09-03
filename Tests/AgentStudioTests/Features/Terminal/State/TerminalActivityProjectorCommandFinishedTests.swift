@@ -7,13 +7,28 @@ import Testing
 @testable import AgentStudioTerminal
 
 @MainActor
+private final class TerminalViewportReadSequence {
+    private var results: [TerminalViewportTextReadResult]
+    private(set) var readCount = 0
+
+    init(_ results: [TerminalViewportTextReadResult]) {
+        self.results = results
+    }
+
+    func read() -> TerminalViewportTextReadResult {
+        readCount += 1
+        return results.isEmpty ? .empty : results.removeFirst()
+    }
+}
+
+@MainActor
 struct TerminalActivityProjectorCommandFinishedTests {
     @Test("commandFinished publishes the literal trailing viewport line with zero scrollbar evidence")
     func commandFinishedPublishesLiteralTrailingLine() async {
         let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in "todo1-live-proof-071342\n$ " },
+            lastOutputLineReader: { _ in .value("todo1-live-proof-071342\n$ ") },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let paneID = UUIDv7.generate()
@@ -37,7 +52,7 @@ struct TerminalActivityProjectorCommandFinishedTests {
         let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in nil },
+            lastOutputLineReader: { _ in .empty },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let paneID = UUIDv7.generate()
@@ -54,7 +69,7 @@ struct TerminalActivityProjectorCommandFinishedTests {
         let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in "⚡ ➜ agent-studio (main) " },
+            lastOutputLineReader: { _ in .value("⚡ ➜ agent-studio (main) ") },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let paneID = UUIDv7.generate()
@@ -78,7 +93,7 @@ struct TerminalActivityProjectorCommandFinishedTests {
         let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in "same output\n⚡ ➜ agent-studio (main) " },
+            lastOutputLineReader: { _ in .value("same output\n⚡ ➜ agent-studio (main) ") },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let paneID = UUIDv7.generate()
@@ -103,7 +118,7 @@ struct TerminalActivityProjectorCommandFinishedTests {
         )
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in "final streamed line\n$ " },
+            lastOutputLineReader: { _ in .value("final streamed line\n$ ") },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let context = TerminalActivityProjectionContext(
@@ -133,6 +148,71 @@ struct TerminalActivityProjectorCommandFinishedTests {
         #expect(settled?.rowsAdded == 40)
         #expect(settled?.lastOutputLine == "$")
         #expect(await projector.scheduledTimerCount == 0)
+        await projector.reset()
+    }
+
+    @Test("ordered commandFinished reads once and emits one batch after preceding aggregate outcomes")
+    func orderedCommandFinishedReadsOnceAndEmitsOneBatch() async {
+        let projector = TerminalActivityProjector(clock: TestPushClock(), nowMilliseconds: { 5000 })
+        let recorder = OutcomeRecorder()
+        let readSequence = TerminalViewportReadSequence([.value("final line")])
+        await projector.configure(
+            lastOutputLineReader: { _ in readSequence.read() },
+            outcomeSink: { outcomes in recorder.record(outcomes) }
+        )
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+
+        await projector.applyOrderedControl(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            precedingAggregate: TerminalActivityAggregateInput(
+                aggregate: makeAggregate(firstTotal: 100, latestTotal: 140),
+                latestState: ScrollbarState(top: 100, bottom: 140, total: 140),
+                context: TerminalActivityProjectionContext(
+                    isAttended: false,
+                    isAgentClassified: false,
+                    outputBurstThreshold: 30
+                )
+            ),
+            control: .commandFinished
+        )
+
+        #expect(readSequence.readCount == 1)
+        #expect(recorder.batches.count == 1)
+        #expect(recorder.batches[0].count == 4)
+        guard case .unseenActivitySettled(_, _, let activity) = recorder.batches[0].last else {
+            Issue.record("Expected ordered settlement after preceding aggregate outcomes")
+            return
+        }
+        #expect(activity.lastOutputLine == "final line")
+        #expect(activity.rowsAdded == 40)
+        #expect(await projector.scheduledTimerCount == 0)
+        await projector.reset()
+    }
+
+    @Test("non-value viewport outcomes leave confirmed unchanged-line state intact")
+    func nonValueViewportOutcomePreservesConfirmedLineState() async {
+        let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
+        let recorder = OutcomeRecorder()
+        let readSequence = TerminalViewportReadSequence([
+            .value("same line"),
+            .readFailed,
+            .value("same line"),
+        ])
+        await projector.configure(
+            lastOutputLineReader: { _ in readSequence.read() },
+            outcomeSink: { outcomes in recorder.record(outcomes) }
+        )
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+
+        await projector.commandFinished(surfaceID: surfaceID, paneID: paneID)
+        await projector.commandFinished(surfaceID: surfaceID, paneID: paneID)
+        await projector.commandFinished(surfaceID: surfaceID, paneID: paneID)
+
+        #expect(readSequence.readCount == 3)
+        #expect(recorder.outcomes.count == 1)
         await projector.reset()
     }
 

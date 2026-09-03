@@ -1,155 +1,25 @@
-import Foundation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
-@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("SidebarSurfaceHost", .serialized)
 struct SidebarSurfaceHostTests {
-    @Test("surface switches publish mounted cached content before delta admission")
-    func surfaceSwitchUsesCachedPublication() {
-        #expect(SidebarSurfaceHost.surfaceSwitchPublicationMode == .cachedThenDelta)
-    }
-
-    @Test("surface switch timing completes only for the pending surface and sequence")
-    func surfaceSwitchTimingMatchesPendingProjection() {
-        let clock = ContinuousClock()
-        let start = clock.now
-        var state = SidebarSurfaceSwitchMetricState()
-
-        state.begin(sequence: 3, surface: .inbox, at: start)
-
-        #expect(state.complete(sequence: 2, surface: .inbox, at: start) == nil)
-        #expect(state.complete(sequence: 3, surface: .repos, at: start) == nil)
-        #expect(state.complete(sequence: 3, surface: .inbox, at: start) == .zero)
-        #expect(state.complete(sequence: 3, surface: .inbox, at: start) == nil)
-    }
-
-    @Test("new surface switch supersedes stale projection completion")
-    func newerSurfaceSwitchSupersedesStaleCompletion() {
-        let clock = ContinuousClock()
-        let start = clock.now
-        var state = SidebarSurfaceSwitchMetricState()
-
-        state.begin(sequence: 4, surface: .inbox, at: start)
-        state.begin(sequence: 5, surface: .repos, at: start)
-
-        #expect(state.complete(sequence: 4, surface: .inbox, at: start) == nil)
-        #expect(state.complete(sequence: 5, surface: .repos, at: start) == .zero)
-    }
-
-    @Test("repos surface maps to repo explorer child")
-    func childKindRepos() {
+    @Test("Repo Explorer is the only sidebar child")
+    func repoExplorerIsOnlySidebarChild() {
         let uiState = WorkspaceSidebarState()
+
         #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .repoExplorer)
     }
 
-    @Test("inbox surface maps to inbox child")
-    func childKindInbox() {
+    @Test("legacy Inbox selection normalizes to Repo Explorer")
+    func legacyInboxSelectionNormalizesToRepoExplorer() {
         let uiState = WorkspaceSidebarState()
+
         uiState.setSidebarSurface(.inbox)
 
-        #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .inbox)
-    }
-
-    @Test("worktree roll-up alert count excludes activity notifications")
-    func worktreeRollUpAlertCountExcludesActivityNotifications() {
-        let worktreeId = UUID()
-        let actionPaneId = UUID()
-        let activityPaneId = UUID()
-        let inboxAtom = InboxNotificationAtom()
-        inboxAtom.append(
-            InboxNotification(
-                id: UUID(),
-                timestamp: Date(timeIntervalSince1970: 100),
-                kind: .approvalRequested,
-                title: "Approval requested",
-                body: nil,
-                source: .pane(
-                    .init(
-                        paneId: actionPaneId,
-                        worktreeId: worktreeId,
-                        worktreeName: "main"
-                    )
-                ),
-                claimKey: .init(
-                    paneId: actionPaneId,
-                    lane: .actionNeeded,
-                    semantic: .approvalRequested,
-                    sessionId: nil
-                ),
-                isRead: false,
-                isDismissedFromPaneInbox: false
-            )
-        )
-        inboxAtom.append(
-            InboxNotification(
-                id: UUID(),
-                timestamp: Date(timeIntervalSince1970: 101),
-                kind: .unseenActivity,
-                title: "Activity",
-                body: nil,
-                source: .pane(
-                    .init(
-                        paneId: activityPaneId,
-                        worktreeId: worktreeId,
-                        worktreeName: "main"
-                    )
-                ),
-                claimKey: .init(
-                    paneId: activityPaneId,
-                    lane: .activity,
-                    semantic: .unseenActivity,
-                    sessionId: nil
-                ),
-                isRead: false,
-                isDismissedFromPaneInbox: false
-            )
-        )
-
-        let worktree = Worktree(
-            id: worktreeId,
-            repoId: UUID(),
-            name: "main",
-            path: URL(fileURLWithPath: "/tmp/repo")
-        )
-
-        #expect(SidebarSurfaceHost.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom) == 1)
-    }
-
-    @Test("worktree notification action sets sidebar state before dispatching inbox command")
-    func worktreeNotificationActionSetsDraftBeforeDispatch() async throws {
-        let router = MockAppCommandRouter()
-        router.appCommands = [.showInboxNotifications]
-        let worktree = Worktree(
-            id: UUID(),
-            repoId: UUID(),
-            name: "main",
-            path: URL(fileURLWithPath: "/tmp/repo")
-        )
-        let sidebarState = InboxSidebarState()
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.appCommandRouter = router
-                AppCommandDispatcher.shared.handler = nil
-            },
-            body: {
-                SidebarSurfaceHost.showNotifications(
-                    for: worktree,
-                    inboxSidebarState: sidebarState,
-                    dispatcher: .shared
-                )
-
-                #expect(sidebarState.peekPendingFilter() == .worktree(id: worktree.id))
-                #expect(
-                    sidebarState.peekPendingDisplayOverride()
-                        == .init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
-                )
-                #expect(router.handledCommands == [.showInboxNotifications])
-            }
-        )
+        #expect(uiState.sidebarSurface == .repos)
+        #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .repoExplorer)
     }
 }

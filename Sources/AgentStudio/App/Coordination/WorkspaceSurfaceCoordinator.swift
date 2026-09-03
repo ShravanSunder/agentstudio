@@ -54,6 +54,8 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    let gitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
+    let gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let windowLifecycleStore: WindowLifecycleAtom
@@ -79,12 +81,8 @@ final class WorkspaceSurfaceCoordinator {
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
     var pendingFilesystemPaneUpdatesByPaneId: [UUID: FilesystemProjectionPaneUpdate] = [:]
-    var pendingActivePaneWorktreeUpdate = false
     var filesystemFullReconciliationRequestCount: UInt64 = 0
     var filesystemAffectedKeyRequestCount: UInt64 = 0
-    var isObservingActivePaneWorktree = false
-    var activePaneWorktreeObservationGeneration: UInt64 = 0
-    var lastObservedActivePaneWorktreeId: UUID?
     var pendingPaneRefocusReasonsByPaneId: [UUID: PaneRefocusRequestTrigger.Reason] = [:]
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
@@ -107,6 +105,13 @@ final class WorkspaceSurfaceCoordinator {
     var pullRequestDemandInFlightWorktreeIds: Set<UUID>?
     var pendingPullRequestDemandWorktreeIds: Set<UUID>?
     var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
+    var repositoryFactDemandOwningWindowId: UUID?
+    var repositoryFactDemandObservationGeneration: UInt64 = 0
+    lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator(
+        performanceRecorder: performanceTraceRecorder
+    ) { [weak self] snapshot in
+        await self?.filesystemSource.setRepositoryFactDemand(snapshot)
+    }
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
@@ -162,6 +167,8 @@ final class WorkspaceSurfaceCoordinator {
         bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
             BridgeWorktreeProductConstructionCoordinator(),
+        gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)? = nil,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate? = nil,
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         windowLifecycleStore: WindowLifecycleAtom,
@@ -171,12 +178,35 @@ final class WorkspaceSurfaceCoordinator {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        let resolvedFilesystemSource =
-            filesystemSource
-            ?? FilesystemGitPipeline(
+        let suppliedFilesystemTrioCount = [
+            filesystemSource != nil,
+            gitWorkingTreeStatusProvider != nil,
+            gitStatusPhysicalGate != nil,
+        ].filter { $0 }.count
+        precondition(
+            suppliedFilesystemTrioCount == 0 || suppliedFilesystemTrioCount == 3,
+            "filesystem source, Git status provider, and physical gate must be injected together"
+        )
+        let resolvedGitStatusPhysicalGate = gitStatusPhysicalGate ?? AgentStudioGitStatusPhysicalGate()
+        let resolvedGitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
+        let resolvedFilesystemSource: any WorkspaceFilesystemSourceManaging
+        if let filesystemSource, let gitWorkingTreeStatusProvider {
+            resolvedGitWorkingTreeStatusProvider = gitWorkingTreeStatusProvider
+            resolvedFilesystemSource = filesystemSource
+        } else {
+            let fseventStreamClient = DarwinFSEventStreamClient()
+            let provider = AgentStudioGitWorkingTreeStatusProvider(
+                physicalGate: resolvedGitStatusPhysicalGate,
+                continuityWitness: fseventStreamClient
+            )
+            resolvedGitWorkingTreeStatusProvider = provider
+            resolvedFilesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
+                gitWorkingTreeProvider: provider,
+                fseventStreamClient: fseventStreamClient,
                 performanceTraceRecorder: performanceTraceRecorder
             )
+        }
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
         self.viewRegistry = viewRegistry
@@ -192,6 +222,8 @@ final class WorkspaceSurfaceCoordinator {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.bridgeGitReadScheduler = bridgeGitReadScheduler
         self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
+        self.gitWorkingTreeStatusProvider = resolvedGitWorkingTreeStatusProvider
+        self.gitStatusPhysicalGate = resolvedGitStatusPhysicalGate
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.windowLifecycleStore = windowLifecycleStore
@@ -206,15 +238,12 @@ final class WorkspaceSurfaceCoordinator {
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         setupPrePersistHook()
         setupFilesystemSourceSync()
-        startObservingActivePaneWorktree()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
         startBridgePaneActivityObservation()
     }
 
     isolated deinit {
-        isObservingActivePaneWorktree = false
-        activePaneWorktreeObservationGeneration &+= 1
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
             task.cancel()
@@ -224,12 +253,13 @@ final class WorkspaceSurfaceCoordinator {
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
         bridgePaneActivityObservationGeneration &+= 1
+        repositoryFactDemandObservationGeneration &+= 1
         pullRequestDemandObservationGeneration &+= 1
         pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
         Task {
-            await filesystemSource.setPullRequestDemandWorktrees([])
+            await filesystemSource.setRepositoryFactDemand(.empty)
             await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
         }
@@ -239,6 +269,7 @@ final class WorkspaceSurfaceCoordinator {
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
+        stopRepositoryFactDemandObservation()
         pullRequestDemandObservationGeneration &+= 1
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
@@ -260,8 +291,6 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask = nil
         filesystemSyncRequested = false
         pendingFilesystemPaneUpdatesByPaneId.removeAll()
-        pendingActivePaneWorktreeUpdate = false
-        stopObservingActivePaneWorktree()
         pullRequestDemandDeliveryTask?.cancel()
         pullRequestDemandDeliveryTask = nil
         pullRequestDemandInFlightWorktreeIds = nil
@@ -272,6 +301,7 @@ final class WorkspaceSurfaceCoordinator {
         }
         runtimeEventBridgeTasks.removeAll()
 
+        await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
 
         if let activePaneEventIngressTask {
@@ -297,7 +327,6 @@ final class WorkspaceSurfaceCoordinator {
         await drainBridgeGitReadActivityPropagation()
         await worktreeProductConstructionCoordinator.shutdown()
         await bridgeGitReadScheduler.shutdown()
-        await filesystemSource.setPullRequestDemandWorktrees([])
         await filesystemSource.shutdown()
     }
 

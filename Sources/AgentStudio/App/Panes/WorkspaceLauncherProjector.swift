@@ -1,5 +1,5 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
+import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import Foundation
 
@@ -54,10 +54,14 @@ struct WorkspaceEmptyStateModel: Equatable {
 
 @MainActor
 enum WorkspaceLauncherProjector {
-    static func project(
-        store: WorkspaceStore,
-        inboxAtom: InboxNotificationAtom
-    ) -> WorkspaceEmptyStateModel {
+    private struct RecentCardInput {
+        let target: ApplicationRecentEntity
+        let worktree: Worktree
+        let repo: Repo
+        let iconColorHex: String?
+    }
+
+    static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
@@ -89,7 +93,6 @@ enum WorkspaceLauncherProjector {
                     recentEntities: applicationRecency.recentEntities,
                     store: store,
                     repoCache: repoCache,
-                    inboxAtom: inboxAtom,
                     checkoutColorHexByRepoId: checkoutColorHexByRepoId
                 )
                 .prefix(15)
@@ -108,7 +111,6 @@ enum WorkspaceLauncherProjector {
         recentEntities: [ApplicationEntityRecency],
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> [WorkspaceRecentCardModel] {
         recentEntities.compactMap { recency in
@@ -116,17 +118,17 @@ enum WorkspaceLauncherProjector {
                 target: recency.entity,
                 store: store,
                 repoCache: repoCache,
-                inboxAtom: inboxAtom,
                 checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
         }
+        .prefix(AppPolicies.EntityRecency.maximumApplicationPresentationCountPerKind)
+        .map(\.self)
     }
 
     private static func projectCard(
         target: ApplicationRecentEntity,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
         switch target {
@@ -139,12 +141,14 @@ enum WorkspaceLauncherProjector {
                 return nil
             }
             return makeWorktreeCard(
-                target: target,
-                worktree: worktree,
-                repo: repo,
+                input: RecentCardInput(
+                    target: target,
+                    worktree: worktree,
+                    repo: repo,
+                    iconColorHex: checkoutColorHexByRepoId[repo.id]
+                ),
                 repoCache: repoCache,
-                inboxAtom: inboxAtom,
-                iconColorHex: checkoutColorHexByRepoId[repo.id]
+                repositoryTopology: store.repositoryTopologyAtom
             )
         case .worktree(let worktreeStableKey):
             guard
@@ -155,24 +159,26 @@ enum WorkspaceLauncherProjector {
                 return nil
             }
             return makeWorktreeCard(
-                target: target,
-                worktree: worktree,
-                repo: repo,
+                input: RecentCardInput(
+                    target: target,
+                    worktree: worktree,
+                    repo: repo,
+                    iconColorHex: checkoutColorHexByRepoId[repo.id]
+                ),
                 repoCache: repoCache,
-                inboxAtom: inboxAtom,
-                iconColorHex: checkoutColorHexByRepoId[repo.id]
+                repositoryTopology: store.repositoryTopologyAtom
             )
         }
     }
 
     private static func makeWorktreeCard(
-        target: ApplicationRecentEntity,
-        worktree: Worktree,
-        repo: Repo,
+        input: RecentCardInput,
         repoCache: RepoCacheAtom,
-        inboxAtom: InboxNotificationAtom,
-        iconColorHex: String?
+        repositoryTopology: RepositoryTopologyAtom
     ) -> WorkspaceRecentCardModel {
+        let target = input.target
+        let worktree = input.worktree
+        let repo = input.repo
         let worktreeEnrichment = repoCache.worktreeEnrichment(for: worktree.id)
         let pullRequestFacts = worktreeEnrichment.flatMap { enrichment in
             RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
@@ -182,13 +188,7 @@ enum WorkspaceLauncherProjector {
             enrichment: worktreeEnrichment,
             pullRequestFacts: pullRequestFacts
         )
-        let chipModel = WorkspaceStatusChipsModel(
-            branchStatus: branchStatus,
-            notificationCount: WorkspaceNotificationCountProjection.rollUpAlertCount(
-                worktreeId: worktree.id,
-                inboxAtom: inboxAtom
-            )
-        )
+        let chipModel = WorkspaceStatusChipsModel(branchStatus: branchStatus)
         let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: worktreeEnrichment
@@ -211,7 +211,8 @@ enum WorkspaceLauncherProjector {
             icon: worktree.isMainWorktree ? .mainWorktree : .gitWorktree,
             statusChips: chipModel,
             checkoutIconKind: worktree.isMainWorktree ? .mainCheckout : .gitWorktree,
-            iconColorHex: iconColorHex ?? fallbackCheckoutColorHex(for: repo),
+            iconColorHex: input.iconColorHex
+                ?? fallbackCheckoutColorHex(for: repo, repositoryTopology: repositoryTopology),
             repoName: repo.name,
             worktreeDisplayName: worktreeDisplayName
         )
@@ -254,7 +255,16 @@ enum WorkspaceLauncherProjector {
     ) -> [UUID: String] {
         let repoEnrichmentByRepoId = repoCache.repoEnrichmentSnapshot()
         let sidebarRepos = RepoExplorerView.resolvedRepos(
-            store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
+            store.repositoryTopologyAtom.repos.compactMap { repository -> RepoPresentationItem? in
+                guard let stableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repository.id) else {
+                    return nil
+                }
+                return RepoPresentationItem(
+                    repo: repository,
+                    stableKey: stableKey,
+                    worktreeStableKeysByID: store.repositoryTopologyAtom.worktreeStableKeysByID
+                )
+            },
             enrichmentByRepoId: repoEnrichmentByRepoId
         )
         let metadataByRepoId = RepoPresentationColoring.buildRepoMetadata(
@@ -278,14 +288,23 @@ enum WorkspaceLauncherProjector {
         return checkoutColorHexByRepoId
     }
 
-    private static func fallbackCheckoutColorHex(for repo: Repo) -> String {
-        RepoPresentationColoring.checkoutColorHex(
-            for: RepoPresentationItem(repo: repo),
+    private static func fallbackCheckoutColorHex(
+        for repo: Repo,
+        repositoryTopology: RepositoryTopologyAtom
+    ) -> String {
+        guard let stableKey = repositoryTopology.repositoryStableKey(for: repo.id) else { return "" }
+        let presentation = RepoPresentationItem(
+            repo: repo,
+            stableKey: stableKey,
+            worktreeStableKeysByID: repositoryTopology.worktreeStableKeysByID
+        )
+        return RepoPresentationColoring.checkoutColorHex(
+            for: presentation,
             in: RepoPresentationGroup(
                 id: "path:\(repo.repoPath.standardizedFileURL.path)",
                 repoTitle: repo.name,
                 organizationName: nil,
-                repos: [RepoPresentationItem(repo: repo)]
+                repos: [presentation]
             )
         )
     }

@@ -44,6 +44,7 @@ struct BridgeProductSessionDependencyInput {
     let state: BridgePaneState
     let gitReadContext: BridgeGitReadContext?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
+    let gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -503,12 +504,14 @@ extension BridgePaneController {
                 runtime: input.runtime,
                 state: input.state
             ), let gitReadContext = input.gitReadContext,
-                let constructionCoordinator = input.worktreeProductConstructionCoordinator
+                let constructionCoordinator = input.worktreeProductConstructionCoordinator,
+                let gitWorkingTreeStatusProvider = input.gitWorkingTreeStatusProvider
             {
                 BridgePaneProductFileMetadataSource(
                     authority: authority,
                     gitReadContext: gitReadContext,
-                    constructionCoordinator: constructionCoordinator
+                    constructionCoordinator: constructionCoordinator,
+                    statusProvider: gitWorkingTreeStatusProvider
                 )
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()

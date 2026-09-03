@@ -141,6 +141,7 @@ struct TerminalLocalAccumulatorMetrics: Sendable, Equatable {
     var equalSuppressedCount: UInt64 = 0
     var scheduledDrainCount: UInt64 = 0
     var followUpDrainCount: UInt64 = 0
+    var outputAdvancementCount: UInt64 = 0
 
     func subtracting(_ subset: Self) -> Self? {
         guard
@@ -148,7 +149,8 @@ struct TerminalLocalAccumulatorMetrics: Sendable, Equatable {
             replacedCount >= subset.replacedCount,
             equalSuppressedCount >= subset.equalSuppressedCount,
             scheduledDrainCount >= subset.scheduledDrainCount,
-            followUpDrainCount >= subset.followUpDrainCount
+            followUpDrainCount >= subset.followUpDrainCount,
+            outputAdvancementCount >= subset.outputAdvancementCount
         else { return nil }
 
         return Self(
@@ -156,7 +158,8 @@ struct TerminalLocalAccumulatorMetrics: Sendable, Equatable {
             replacedCount: replacedCount - subset.replacedCount,
             equalSuppressedCount: equalSuppressedCount - subset.equalSuppressedCount,
             scheduledDrainCount: scheduledDrainCount - subset.scheduledDrainCount,
-            followUpDrainCount: followUpDrainCount - subset.followUpDrainCount
+            followUpDrainCount: followUpDrainCount - subset.followUpDrainCount,
+            outputAdvancementCount: outputAdvancementCount - subset.outputAdvancementCount
         )
     }
 }
@@ -301,6 +304,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var cwdPublicationState: PublicationState<String> = .unknown
         var cwdRetryRequired = false
         var publicationRetryAwaitingDemand: Set<TerminalLocalActionLane> = []
+        var latestObservedScrollbarTotalRows: Int?
 
         func phase(for lane: TerminalLocalActionLane) -> DrainPhase {
             phases[lane] ?? .idle
@@ -878,6 +882,12 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         observedAtMilliseconds: Int64,
         to state: inout SurfaceState
     ) -> TerminalLocalAccumulatorOfferResult {
+        if let latestTotalRows = state.latestObservedScrollbarTotalRows,
+            scrollbarState.total > latestTotalRows
+        {
+            state.pending.metrics.outputAdvancementCount &+= 1
+        }
+        state.latestObservedScrollbarTotalRows = scrollbarState.total
         let hadCurrentValue = state.pending.presentation.scrollbarState != nil
         let result = replacementResult(current: state.pending.presentation.scrollbarState, next: scrollbarState)
         if result == .equalSuppressed {

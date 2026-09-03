@@ -175,8 +175,12 @@ package final class WorkspaceStore {
 
         switch await sqliteDatastore.loadAuthoritativeCoreSnapshot() {
         case .loaded(let snapshot):
+            let topologyRestoreReasons =
+                await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(
+                    snapshot.repositoryTopology
+                )
             let restoreReasons = snapshot.persistenceReasons.union(
-                WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot.repositoryTopology)
+                topologyRestoreReasons
             )
             for reason in restoreReasons {
                 persistenceReasonReporter?(reason)

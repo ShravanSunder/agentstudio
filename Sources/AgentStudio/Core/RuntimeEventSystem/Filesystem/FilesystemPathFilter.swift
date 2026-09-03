@@ -10,6 +10,7 @@ package enum FilesystemPathDisposition: Sendable, Equatable {
 /// Lightweight, cached filtering policy for filesystem projection payloads.
 ///
 /// Current policy:
+/// - ignore `FETCH_HEAD` bookkeeping because it does not alter working-tree status inputs
 /// - suppress `.git` internals from projection-facing changed-path payloads
 /// - apply root-level `.gitignore` rules for projection payload suppression
 package struct FilesystemPathFilter: Sendable {
@@ -55,6 +56,12 @@ package struct FilesystemPathFilter: Sendable {
     }
 
     package func classify(relativePath: String) -> FilesystemPathDisposition {
+        if Self.isAgentStudioPrivateStagingRefPath(relativePath) {
+            return .ignoredByPolicy
+        }
+        if Self.isFetchHeadBookkeepingPath(relativePath: relativePath) {
+            return .ignoredByPolicy
+        }
         if Self.isOriginConfigPath(relativePath: relativePath) {
             return .projected
         }
@@ -91,6 +98,22 @@ package struct FilesystemPathFilter: Sendable {
 
     package static func isOriginConfigPath(relativePath: String) -> Bool {
         normalized(relativePath: relativePath) == ".git/config"
+    }
+
+    package static func isFetchHeadBookkeepingPath(relativePath: String) -> Bool {
+        let pathComponents = normalized(relativePath: relativePath).split(separator: "/")
+        guard pathComponents.contains(".git"), let fileName = pathComponents.last else {
+            return false
+        }
+        return fileName == "FETCH_HEAD" || fileName == "FETCH_HEAD.lock"
+    }
+
+    package static func isAgentStudioPrivateStagingRefPath(_ path: String) -> Bool {
+        let normalizedPath = normalized(relativePath: path)
+        return normalizedPath == "refs/agentstudio/staged"
+            || normalizedPath.hasPrefix("refs/agentstudio/staged/")
+            || normalizedPath.hasSuffix("/refs/agentstudio/staged")
+            || normalizedPath.contains("/refs/agentstudio/staged/")
     }
 
     private static func normalized(relativePath: String) -> String {
@@ -134,6 +157,51 @@ package struct FilesystemPathFilter: Sendable {
             }
         }
         return "unknown"
+    }
+}
+
+package enum RepositoryLocalActivityPathClassifier {
+    package static func qualifiesWorktreePath(
+        relativePath: String,
+        disposition: FilesystemPathDisposition
+    ) -> Bool {
+        let normalizedPath = normalized(relativePath)
+        if normalizedPath == ".gitignore" {
+            return true
+        }
+        if FilesystemPathFilter.isGitInternal(relativePath: normalizedPath) {
+            return qualifiesGitMetadataPath(normalizedPath)
+        }
+        return disposition == .projected
+    }
+
+    package static func qualifiesGitMetadataPath(_ path: String) -> Bool {
+        let normalizedPath = normalized(path)
+        guard !FilesystemPathFilter.isAgentStudioPrivateStagingRefPath(normalizedPath) else {
+            return false
+        }
+        guard !normalizedPath.hasSuffix(".lock") else { return false }
+
+        let components = normalizedPath.split(separator: "/")
+        guard let leaf = components.last else { return false }
+        if leaf == "HEAD" || leaf == "index" || leaf == "FETCH_HEAD" || leaf == "packed-refs" {
+            return true
+        }
+        return normalizedPath.contains("/refs/heads/")
+            || normalizedPath.contains("/refs/remotes/")
+            || normalizedPath.hasPrefix("refs/heads/")
+            || normalizedPath.hasPrefix("refs/remotes/")
+    }
+
+    private static func normalized(_ path: String) -> String {
+        var normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        while normalizedPath.hasPrefix("./") {
+            normalizedPath.removeFirst(2)
+        }
+        while normalizedPath.hasSuffix("/") && normalizedPath.count > 1 {
+            normalizedPath.removeLast()
+        }
+        return normalizedPath
     }
 }
 

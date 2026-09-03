@@ -43,12 +43,26 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.performance.filesystem.stage": .string("coarse_refresh_debt"),
+                "agentstudio.performance.filesystem.stage": .string("overflow_recovery"),
+                "agentstudio.performance.filesystem.outcome": .string("overflow_scoped"),
+            ]
+        )
+        let coarseFilesystemRecord = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 143,
+            severityText: .info,
+            body: "performance.filesystem.stage_outcome",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.filesystem.stage": .string("overflow_recovery"),
                 "agentstudio.performance.filesystem.outcome": .string("overflow_coarse"),
             ]
         )
         let forgeRecord = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 143,
+            timeUnixNano: 144,
             severityText: .info,
             body: "performance.forge.refresh",
             traceID: nil,
@@ -63,10 +77,14 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
         )
 
         let filesystemMetric = try #require(AgentStudioOTLPPerformanceMetricEvent(record: filesystemRecord))
+        let coarseFilesystemMetric = try #require(
+            AgentStudioOTLPPerformanceMetricEvent(record: coarseFilesystemRecord)
+        )
         let forgeMetric = try #require(AgentStudioOTLPPerformanceMetricEvent(record: forgeRecord))
 
-        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("stage", "coarse_refresh_debt") })
-        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("outcome", "overflow_coarse") })
+        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("stage", "overflow_recovery") })
+        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("outcome", "overflow_scoped") })
+        #expect(coarseFilesystemMetric.dimensionTuples.contains { $0 == ("outcome", "overflow_coarse") })
         #expect(forgeMetric.dimensionTuples.contains { $0 == ("stage", "follow_up") })
         #expect(forgeMetric.dimensionTuples.contains { $0 == ("outcome", "deferred") })
     }

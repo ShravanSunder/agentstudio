@@ -11,5 +11,6 @@ enum BridgeProviderFailure: Error, Equatable, Sendable {
     case oversizedContent(handleId: String, sizeBytes: Int)
     case binaryContent(handleId: String)
     case providerUnavailable
+    case sourceCapacityDeferred
     case providerFailed(message: String)
 }

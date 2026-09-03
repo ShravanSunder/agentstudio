@@ -50,6 +50,56 @@ struct WorkspacePersistenceTransformerTests {
         #expect(topologyAtom.worktree(worktreeID)?.note == "worktree note")
     }
 
+    @Test("topology hydration preserves stored stable identity instead of hashing paths")
+    func topologyHydrationPreservesStoredStableIdentity() {
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let watchedPathID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agent-studio-persisted-stable-identity")
+        let storedRepositoryKey = "stored-repo-key"
+        let storedWatchedPathKey = "stored-watch-key"
+        let snapshot = RepositoryTopologySQLiteSnapshot(
+            repos: [
+                CanonicalRepo(
+                    id: repositoryID,
+                    name: "persisted-stable-identity",
+                    repoPath: repositoryPath,
+                    stableKey: storedRepositoryKey
+                )
+            ],
+            worktrees: [
+                CanonicalWorktree(
+                    id: worktreeID,
+                    repoId: repositoryID,
+                    name: "main",
+                    path: repositoryPath,
+                    stableKey: storedRepositoryKey,
+                    isMainWorktree: true
+                )
+            ],
+            watchedPaths: [
+                WatchedPath(
+                    id: watchedPathID,
+                    path: URL(filePath: "/tmp/agent-studio-persisted-watched")
+                )
+            ],
+            watchedPathStableKeysByID: [watchedPathID: storedWatchedPathKey],
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let topologyAtom = RepositoryTopologyAtom()
+
+        WorkspacePersistenceTransformer.hydrateRepositoryTopology(
+            snapshot,
+            repositoryTopologyAtom: topologyAtom
+        )
+
+        #expect(topologyAtom.repositoryStableKey(for: repositoryID) == storedRepositoryKey)
+        #expect(topologyAtom.worktreeStableKey(for: worktreeID) == storedRepositoryKey)
+        #expect(topologyAtom.repo(stableKey: storedRepositoryKey)?.id == repositoryID)
+        #expect(topologyAtom.watchedPath(stableKey: storedWatchedPathKey)?.id == watchedPathID)
+        #expect(topologyAtom.repo(stableKey: StableKey.fromPath(repositoryPath)) == nil)
+    }
+
     @Test("topology restore promotes the unique repository-root worktree without changing identity")
     func topologyRestorePromotesUniqueRepositoryRootWorktree() async throws {
         let repositoryID = UUIDv7.generate()
@@ -82,7 +132,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("Expected stored topology normalization to be accepted")
@@ -120,7 +170,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("Expected degraded stored topology to remain loadable")
@@ -143,7 +193,8 @@ struct WorkspacePersistenceTransformerTests {
                 CanonicalRepo(
                     id: repositoryID,
                     name: repositoryPath.lastPathComponent,
-                    repoPath: repositoryPath
+                    repoPath: repositoryPath,
+                    stableKey: "persisted-repository-identity"
                 )
             ],
             worktrees: [
@@ -152,6 +203,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "root-one",
                     path: repositoryPath,
+                    stableKey: "persisted-root-one-identity",
                     isMainWorktree: true
                 ),
                 CanonicalWorktree(
@@ -159,6 +211,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "root-two",
                     path: repositoryPath,
+                    stableKey: "persisted-root-two-identity",
                     isMainWorktree: false
                 ),
                 CanonicalWorktree(
@@ -166,6 +219,7 @@ struct WorkspacePersistenceTransformerTests {
                     repoId: repositoryID,
                     name: "linked",
                     path: linkedWorktreePath,
+                    stableKey: "persisted-linked-identity",
                     isMainWorktree: false,
                     note: "linked note survives"
                 ),
@@ -174,7 +228,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         let preparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(snapshot)
-        let reasons = WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot)
+        let reasons = await WorkspacePersistenceTransformer.topologyRestoreReasonsOffMain(snapshot)
 
         guard case .prepared(let replacement) = preparation else {
             Issue.record("expected duplicate roots to degrade without rejecting startup")

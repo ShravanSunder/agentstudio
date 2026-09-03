@@ -1,7 +1,6 @@
 import AgentStudioBridge
 import AgentStudioCore
 import AgentStudioEditorChooser
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AppKit
@@ -17,12 +16,7 @@ struct AppDelegateMainWindowCreationDependencies {
     let viewRegistry: ViewRegistry
     let bridgePaneAttendance: BridgePaneAttendanceAtom
     let editorChooser: EditorChooserState
-    let inboxNotification: InboxNotificationAtom
-    let inboxNotificationPrefs: InboxNotificationPrefsAtom
-    let inboxSidebarState: InboxSidebarState
-    let paneInboxPresentationState: PaneInboxPresentationAtom
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
-    let paneInboxNotificationPresenter: PaneInboxNotificationPresenter
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
 }
@@ -38,7 +32,6 @@ extension AppDelegate {
         if appLifecycleStore == nil { missingDependencies.append("appLifecycleStore") }
         if viewRegistry == nil { missingDependencies.append("viewRegistry") }
         if atomStore == nil { missingDependencies.append("atomStore") }
-        if paneInboxNotificationPresenter == nil { missingDependencies.append("paneInboxNotificationPresenter") }
         if performanceTraceRecorder == nil { missingDependencies.append("performanceTraceRecorder") }
         if closeTransitionCoordinator == nil { missingDependencies.append("closeTransitionCoordinator") }
         return missingDependencies
@@ -53,7 +46,6 @@ extension AppDelegate {
             let appLifecycleStore,
             let viewRegistry,
             let atomStore,
-            let paneInboxNotificationPresenter,
             let performanceTraceRecorder,
             let closeTransitionCoordinator
         else {
@@ -88,12 +80,7 @@ extension AppDelegate {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
             editorChooser: atomStore.editorChooser,
-            inboxNotification: atomStore.inboxNotification,
-            inboxNotificationPrefs: atomStore.inboxNotificationPrefs,
-            inboxSidebarState: atomStore.inboxSidebarState,
-            paneInboxPresentationState: atomStore.paneInboxPresentationState,
             repoExplorerSidebarPrefs: atomStore.repoExplorerSidebarPrefs,
-            paneInboxNotificationPresenter: paneInboxNotificationPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -105,7 +92,6 @@ extension AppDelegate {
         let tabBarAdapter = TabBarAdapter(
             store: dependencies.store,
             repoCache: dependencies.repoCache,
-            inboxAtom: dependencies.inboxNotification,
             performanceTraceRecorder: dependencies.performanceTraceRecorder
         )
         let mainWindowController = MainWindowController(
@@ -120,18 +106,16 @@ extension AppDelegate {
             viewRegistry: dependencies.viewRegistry,
             bridgePaneAttendance: dependencies.bridgePaneAttendance,
             editorChooser: dependencies.editorChooser,
-            inboxAtom: dependencies.inboxNotification,
-            inboxPrefsAtom: dependencies.inboxNotificationPrefs,
-            inboxSidebarState: dependencies.inboxSidebarState,
-            paneInboxPresentationState: dependencies.paneInboxPresentationState,
             repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
             bridgeAttendanceSnapshot: { paneId in
                 dependencies.bridgePaneAttendance.ordinal(for: paneId)
             },
-            paneInboxPresenter: dependencies.paneInboxNotificationPresenter,
             performanceTraceRecorder: dependencies.performanceTraceRecorder,
-            onSidebarVisibleWorktreesChanged: { [weak workspaceSurfaceCoordinator] in
-                workspaceSurfaceCoordinator?.scheduleSidebarVisibleWorktreesUpdate()
+            onPerformanceProofReadback: { [weak self] readback in
+                self?.receiveSidebarPerformanceProofReadback(readback)
+            },
+            onRepositoryFactUpdateProgressPresented: { [weak self] repoID, attemptID in
+                self?.acknowledgePresentedRepositoryFactUpdate(repoId: repoID, attemptId: attemptID)
             },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
@@ -142,5 +126,15 @@ extension AppDelegate {
             toOwningWindowId: workspaceWindowId
         )
         return mainWindowController
+    }
+
+    private func receiveSidebarPerformanceProofReadback(
+        _ readback: RepoExplorerPerformanceProofReadback
+    ) {
+        #if DEBUG
+            sidebarPerformanceProofSession?.receive(readback)
+        #else
+            _ = readback
+        #endif
     }
 }

@@ -16,6 +16,25 @@ struct FilesystemPathFilterTests {
         #expect(filter.classify(relativePath: ".git/config") == .projected)
     }
 
+    @Test("FETCH_HEAD bookkeeping is ignored without suppressing status-relevant Git state")
+    func ignoresFetchHeadButPreservesStatusRelevantGitState() {
+        let filter = FilesystemPathFilter.empty
+
+        #expect(filter.classify(relativePath: ".git/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".git/FETCH_HEAD.lock") == .ignoredByPolicy)
+        #expect(
+            filter.classify(relativePath: ".git/refs/agentstudio/staged/attempt/heads/main")
+                == .ignoredByPolicy
+        )
+        #expect(filter.classify(relativePath: ".git/modules/vendor/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: "nested/.git/FETCH_HEAD") == .ignoredByPolicy)
+        #expect(filter.classify(relativePath: ".git/HEAD") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/packed-refs") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/refs/remotes/origin/main") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/config") == .projected)
+    }
+
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")
     func supportsNegationAnchoringDirectoryAndSingleWildcard() throws {
         let rootPath = try makeRootWithGitIgnore(
@@ -64,6 +83,57 @@ struct FilesystemPathFilterTests {
         let filter = FilesystemPathFilter.load(forRootPath: rootPath)
         #expect(filter.classify(relativePath: "Sources/App.swift") == .projected)
         #expect(!filter.isIgnored(relativePath: "debug.log"))
+    }
+
+    @Test("repository activity qualifies projected content and gitignore but not ignored content")
+    func repositoryActivityQualifiesWorktreeContent() {
+        #expect(
+            RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
+                relativePath: "Sources/App.swift",
+                disposition: .projected
+            )
+        )
+        #expect(
+            RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
+                relativePath: ".gitignore",
+                disposition: .ignoredByPolicy
+            )
+        )
+        #expect(
+            !RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
+                relativePath: "build/output.o",
+                disposition: .ignoredByPolicy
+            )
+        )
+    }
+
+    @Test("repository activity admits exact git state and excludes bookkeeping")
+    func repositoryActivityClassifiesGitMetadata() {
+        let qualifyingPaths = [
+            "/repo/.git/HEAD",
+            "/repo/.git/index",
+            "/repo/.git/FETCH_HEAD",
+            "/repo/.git/packed-refs",
+            "/repo/.git/refs/heads/main",
+            "/repo/.git/refs/remotes/origin/main",
+        ]
+        let excludedPaths = [
+            "/repo/.git/config",
+            "/repo/.git/objects/aa/object",
+            "/repo/.git/HEAD.lock",
+            "/repo/.git/index.lock",
+            "/repo/.git/refs/heads/main.lock",
+            "/repo/.git/refs/agentstudio/staged/attempt/heads/main",
+            "/Users/example/.gitconfig",
+            "/Users/example/.gitignore-global",
+        ]
+
+        for path in qualifyingPaths {
+            #expect(RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(path))
+        }
+        for path in excludedPaths {
+            #expect(!RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(path))
+        }
     }
 
     @Test("empty/comment-only .gitignore does not ignore paths")

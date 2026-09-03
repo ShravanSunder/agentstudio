@@ -76,6 +76,7 @@ struct GitEnrichmentEventPipelineIntegrationTests {
                 )
             )
 
+            await harness.advanceCacheApplyTick()
             await assertEventuallyMain("cache should converge snapshot + branch enrichment") {
                 guard let enrichment = harness.repoCache.worktreeEnrichmentByWorktreeId[worktreeId] else {
                     return false
@@ -158,6 +159,10 @@ struct GitEnrichmentEventPipelineIntegrationTests {
                 )
             )
 
+            await harness.waitForStableForgeProjection(repoId: repoA)
+            await harness.waitForStableForgeProjection(repoId: repoB)
+            await harness.synchronizeCacheCoordinator(repoId: repoA, worktreeId: worktreeA)
+            await harness.advanceCacheApplyTick()
             await assertEventuallyMain("forge counts should converge independently per repo") {
                 harness.repoCache.pullRequestFactsForTest(worktreeId: worktreeA)?.openCount == 1
                     && harness.repoCache.pullRequestFactsForTest(worktreeId: worktreeB)?.openCount == 2
