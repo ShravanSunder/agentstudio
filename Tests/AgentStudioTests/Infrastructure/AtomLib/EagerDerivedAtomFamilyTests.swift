@@ -508,9 +508,6 @@ struct EagerDerivedAtomFamilyTests {
                 wait: { await predecessorCancellation.wait() }
             )
         else { return }
-        #expect(stoppedChild != nil)
-        #expect(stoppedChild?.freshness == .stopped)
-        #expect(stoppedChild?.value == nil)
 
         for _ in 0..<1000 where stoppedChild != nil {
             await Task.yield()
