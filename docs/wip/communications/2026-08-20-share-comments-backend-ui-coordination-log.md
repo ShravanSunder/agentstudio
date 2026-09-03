@@ -2145,3 +2145,21 @@ allow the existing `lastCloseReasonRef.current === 'imperative-action'` close.
 Do not remove pending admission, weaken terminal semantics, or suppress the
 browser failure guard. Then rerun the Share surface file, the four combined
 annotation suites, complete Browser Mode, and the aggregate.
+
+## 2026-09-02 21:25 EDT — Review content-demand expansion handed to UI owner
+
+Fresh packaged marker `debug-observability-1owk-1788397210-78213` proves that
+Review CodeView visible-body demand expanded from 26 initial items to 1,424
+items twice, producing 2,874 physical `selected_visible_content` Git reads.
+The complete path is CodeView rendered-item IDs -> Review viewport IDs ->
+communication-worker demand membership -> native content cache/read. The
+packaged harness never emits viewport demand; it only kept the real pane alive
+long enough for the product sweep to complete. All three isolated databases
+contained zero annotations, excluding annotation source capture.
+
+The unresolved UI-side boundary is why `getRenderedItems()` or the visible
+header/item union expands to nearly the whole Review manifest. The transport
+and backend lane will not edit Pierre or UI. UI owner should capture the
+rendered-item count, viewport-item count, demand-role counts, and descriptor
+count at the 26 -> 1,424 transition before selecting a correction. Existing
+Review demand admission, cache, worker queues, and transport remain unchanged.
