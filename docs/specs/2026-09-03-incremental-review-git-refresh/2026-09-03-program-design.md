@@ -278,8 +278,8 @@ Git review comparison result
 ```
 
 `GitReviewCalculationReason` is package-owned and exhaustive over ordinary
-complete request, proportional acceptance, and fallback families: missing
-seed, seed identity mismatch, invalid path, structural Git-control path,
+complete request, proportional acceptance, and fallback families: seed
+identity mismatch, invalid path, structural Git-control path,
 missing or ineligible scoped row, duplicate or out-of-scope row, capacity
 rejection, identity movement, or scoped calculation failure. It is scrub-safe
 and carries no path, hash, ref, or source content. Bridge may record the value
