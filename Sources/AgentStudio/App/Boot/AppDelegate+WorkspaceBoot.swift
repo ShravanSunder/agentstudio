@@ -3,6 +3,7 @@ import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -155,7 +156,7 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        configurePerformanceTelemetry()
         CoreAtomScope.setUp(atomStore.core)
         atomStore.core.workspaceRepositoryTopology.setWorktreePathAmbiguityReporter { [weak self] in
             Task { @MainActor [weak self] in
@@ -210,6 +211,7 @@ extension AppDelegate {
             workspaceAtom: atomStore.core.workspaceEntityRecency,
             sqliteDatastore: sqliteDatastore
         )
+        repositoryLocalActivityStore = makeRepositoryLocalActivityStore(sqliteDatastore: sqliteDatastore)
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.core.sidebarCache,
             sqliteDatastore: sqliteDatastore,
@@ -225,7 +227,6 @@ extension AppDelegate {
             }
         )
         workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)
-        paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
         case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):
@@ -256,6 +257,14 @@ extension AppDelegate {
         )
     }
 
+    private func configurePerformanceTelemetry() {
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        RepoExplorerPerformanceTelemetry.shared.configure(
+            traceRuntime: traceRuntime,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
     private func configureInteractionPerformanceProbeOwners() {
         let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
         managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
@@ -275,7 +284,6 @@ extension AppDelegate {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
             repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
-            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -286,6 +294,7 @@ extension AppDelegate {
     private func bootLoadCacheStore() async {
         await entityRecencyStore.restoreApplicationAsync()
         await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
+        await repositoryLocalActivityStore.restoreAsync()
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
@@ -294,7 +303,6 @@ extension AppDelegate {
     private func bootLoadUIStore() async {
         await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
-        await bootLoadInboxNotificationStore()
     }
 
     private func bootEstablishRuntimeBus(
@@ -317,13 +325,24 @@ extension AppDelegate {
                 )
             )
         seedSlotsForInstalledPanes()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        let fseventStreamClient = DarwinFSEventStreamClient()
+        bootRegisterFilesystemIngressPerformanceReporter(for: fseventStreamClient)
+        let repositoryLocalActivityProjector = makeRepositoryLocalActivityProjector()
+        let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
+            physicalGate: gitStatusPhysicalGate,
+            continuityWitness: fseventStreamClient
+        )
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient(),
+            gitWorkingTreeProvider: gitWorkingTreeStatusProvider,
+            fseventStreamClient: fseventStreamClient,
+            repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             performanceTraceRecorder: performanceTraceRecorder
         )
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        repositoryFactUpdateSource = pipeline
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -337,6 +356,8 @@ extension AppDelegate {
             closeTransitionCoordinator: closeTransitionCoordinator,
             bridgeGitReadScheduler: bridgeGitReadScheduler,
             worktreeProductConstructionCoordinator: bridgeWorktreeProductConstructionCoordinator,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
@@ -364,6 +385,7 @@ extension AppDelegate {
             performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
+            self?.cancelRepositoryFactUpdate(repoId: repoId)
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
@@ -380,14 +402,50 @@ extension AppDelegate {
                     placement: placement
                 )
             },
-            notificationInboxCommands: makeInboxNotificationCommands(),
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
+    }
+
+    private func makeRepositoryLocalActivityStore(
+        sqliteDatastore: WorkspaceSQLiteDatastore
+    ) -> RepositoryLocalActivityStore {
+        RepositoryLocalActivityStore(
+            atom: atomStore.core.repositoryLocalActivity,
+            sqliteDatastore: sqliteDatastore
+        )
+    }
+
+    private func makeRepositoryLocalActivityProjector() -> RepositoryLocalActivityProjector {
+        let localActivityStore = repositoryLocalActivityStore!
+        return RepositoryLocalActivityProjector(
+            authorityRevocationSink: { repositoryStableKeys in
+                await localActivityStore.revokeCurrentSessionAuthority(
+                    for: repositoryStableKeys
+                )
+            },
+            commitSink: { commit in
+                _ = try await localActivityStore.commitAsync(commit)
+            }
+        )
+    }
+
+    private func bootRegisterFilesystemIngressPerformanceReporter(
+        for fseventStreamClient: DarwinFSEventStreamClient
+    ) {
+        guard let performanceTraceRecorder else { return }
+        let client = fseventStreamClient
+        let recorder = performanceTraceRecorder
+        performanceTraceRecorder.registerPeriodicSnapshotReporter { [weak client, weak recorder] in
+            guard let client, let recorder else { return }
+            recorder.record(
+                .filesystemIngressSnapshot,
+                attributes: client.snapshotAndResetIngressPerformance().traceAttributes
+            )
+        }
     }
 
     private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {

@@ -372,7 +372,11 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(largeSerialFilter.contains("BridgePackagedProductJourneyScriptTests"))
-        #expect(largeRunner.contains("--skip \"$(large_serial_non_webkit_filter_pattern)\""))
+        #expect(
+            largeRunner.contains(
+                "--skip \"$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)\""
+            )
+        )
         #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
     }
 
@@ -528,6 +532,12 @@ struct CIFastLaneWorkflowTests {
             "TerminalPaneMountViewExitBehaviorTests",
             "TerminalActivityProjectorTests",
             "GitWorkingDirectoryProjectorTests",
+            "AgentStudioAppIPCServiceTests",
+            "AgentStudioAppIPCServiceAuthModeTests",
+            "AgentStudioAppIPCServiceCommandTests",
+            "AgentStudioAppIPCServiceContributionTests",
+            "AgentStudioIPCBridgeServiceTests",
+            "AgentStudioAppIPCCommandExecuteContractTests",
             "WorkspaceStoreTests",
             "WorkspaceComparisonIntentProcessRestartTests",
         ] {
@@ -571,6 +581,74 @@ struct CIFastLaneWorkflowTests {
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+    }
+
+    @Test("large lane process-isolates suites that retain process-global runtimes")
+    func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let largeRunner = try shellFunction(named: "run_large_non_webkit_swift_tests", in: helperScript)
+        let largeProcessGlobalRunner = try shellFunction(
+            named: "run_large_process_global_swift_tests",
+            in: helperScript
+        )
+        let discoveredLargeProcessGlobalSuites = Set(
+            try runBash(
+                "source scripts/swift-test-helpers.sh; large_process_global_suite_filters"
+            ).split(separator: "\n").map(String.init)
+        )
+
+        #expect(
+            largeRunner.contains(
+                "--skip \"$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)\""
+            )
+        )
+        #expect(
+            largeRunner.components(
+                separatedBy: "--skip \"$(large_process_global_filter_pattern)\""
+            ).count - 1 == 1
+        )
+        #expect(largeRunner.contains("fi\n\n  run_large_process_global_swift_tests"))
+        #expect(
+            largeProcessGlobalRunner.contains(
+                "isolated large process-global suite: $large_process_global_suite_filter"
+            )
+        )
+        #expect(
+            largeProcessGlobalRunner.contains(
+                "\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""
+            )
+        )
+        #expect(
+            largeProcessGlobalRunner.contains("--filter \"$large_process_global_suite_filter\"")
+        )
+        for suiteName in [
+            "AgentStudioOTLPBootstrapSmokeTests",
+            "DarwinCompositeFSEventContinuityTests",
+            "DarwinFSEventStreamClientTests",
+            "DarwinSharedExactItemObserverTests",
+            "DarwinSharedExactItemRealStreamIntegrationTests",
+            "DerivedActivityNotificationIntegrationTests",
+            "DrawerCommandIntegrationTests",
+            "FilesystemActorActivityTests",
+            "FilesystemGitPipelineDemandIntegrationTests",
+            "FilesystemGitPipelineIntegrationTests",
+            "FilesystemToPrimarySidebarIntegrationTests",
+            "GitEnrichmentEventPipelineIntegrationTests",
+            "InboxNotificationIntegrationTests",
+            "MainWindowControllerInboxToolbarButtonTests",
+            "MinimizeLayoutIntegrationTests",
+            "TopologyEventPipelineIntegrationTests",
+            "WorkspaceCacheCoordinatorIntegrationTests",
+            "WorkspaceDrawerRestoreIntegrationTests",
+            "WorkspaceSurfaceCoordinatorFilesystemSourceTests",
+            "WorkspaceSurfaceTerminalRestoreIntegrationTests",
+            "WorkspaceStrictStartupSubprocessTests",
+            "WorkspaceTopologyBootRepairIntegrationTests",
+        ] {
+            #expect(discoveredLargeProcessGlobalSuites.contains(suiteName))
+        }
+        #expect(!discoveredLargeProcessGlobalSuites.contains("BridgeTransportIntegrationTests"))
+        #expect(!discoveredLargeProcessGlobalSuites.contains("ZmxBackendIntegrationTests"))
     }
 
     @Test("serialized suite discovery respects formatted declaration boundaries")

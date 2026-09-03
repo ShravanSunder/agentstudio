@@ -21,6 +21,7 @@ extension WorkspaceSurfaceCoordinator {
             reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
             gitReadContext: bridgeGitReadContext(for: pane, state: state),
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
             traceRuntime: traceRuntime,
             initialPaneActivity: .dormant,
             initialContributionTargetCommit: initialContributionTargetCommit

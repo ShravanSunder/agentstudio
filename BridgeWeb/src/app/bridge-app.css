@@ -1,7 +1,7 @@
 /*
  * BridgeWeb design-token source of truth. It is correlated by convention with
  * Sources/AgentStudio/Infrastructure/AppStyles.swift; see
- * docs/architecture/bridgeweb_design_token_architecture.md for the tri-system map.
+ * docs/architecture/bridge/bridgeweb_design_token_architecture.md for the tri-system map.
  * Layers flow primitives -> roles -> contexts. To add a token, add its canonical
  * :root value, register a semantic role in @theme inline when utilities consume it,
  * and place a one-line meaning comment beside the definition.

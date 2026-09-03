@@ -362,6 +362,26 @@ Tag selection for that workload (narrow
 `performance,app.startup,terminal.startup`, atoms opt-in) is in
 [Tag Semantics](#tag-semantics).
 
+The strict sidebar CPU workload is descriptor-driven and fail-closed. It uses
+the complete `open-source` and `project-dev` watched roots through production
+owners, positive repository/worktree discovery, exactly five tabs and twenty
+pane models, and zero debug-owned PTYs for idle and action populations. One
+disposable control repository first proves cold FSEvent local correctness and
+no automatic successor, then runs the targeted repository-update command and
+becomes the warm self-heal/continuity control for the timed population.
+
+CPU samples come from one absolute-phase, continuous libproc sampler bound to
+the state-file debug PID. Action issue records must begin inside the projected
+phase envelope and carry generation-matched semantic, accepted, and native
+visible-projection fingerprints through settlement. Any debug-owned descendant
+observed inside a sample invalidates the population; unrelated host processes
+and process names are never gates. Marker-scoped Victoria evidence must show
+positive warm and inactive membership, zero cold automatic local/remote/Forge
+starts or deadlines, at least one warm periodic completion and continuity
+renewal, complete source-specific explicit-update settlement, zero required
+loss, and graceful exact-candidate retirement. Future ineligible deadlines are
+classified state, not active debt. JSONL cannot substitute for these checks.
+
 ### Local beta diagnostic path
 
 ```bash

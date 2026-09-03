@@ -532,8 +532,7 @@ private struct WorkspaceRecentRowView: View {
                         linesAdded: 0,
                         linesDeleted: 0,
                         untrackedFileCount: 0
-                    ),
-                    notificationCount: 0
+                    )
                 ),
             accentColor: iconColor
         )
@@ -577,8 +576,7 @@ private struct AppLogoView: View {
                 let image = NSImage(contentsOf: url)
             {
                 Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .resizable().scaledToFit()
             } else {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
                     .font(.system(size: size * 0.4, weight: .semibold))

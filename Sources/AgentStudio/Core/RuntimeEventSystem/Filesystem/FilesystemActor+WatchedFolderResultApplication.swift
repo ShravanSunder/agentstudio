@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import CryptoKit
 import Foundation
 
 extension FilesystemActor {
@@ -229,11 +230,34 @@ extension FilesystemActor {
 
     func watchedFolderRefreshSummary() -> WatchedFolderRefreshSummary {
         var repoPathsByWatchedFolder: [URL: [URL]] = [:]
+        var linkedWorktreePathsByWatchedFolder: [URL: [URL]] = [:]
+        var fingerprintComponents: [String] = []
         for (sourceID, registration) in watchedFolderScanState.registrationsBySourceID {
-            repoPathsByWatchedFolder[registration.watchedPath.path.standardizedFileURL] =
-                watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups
-                .map(\.clonePath).sorted(by: Self.sortByPath) ?? []
+            let watchedRoot = registration.watchedPath.path.standardizedFileURL
+            let groups = watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups ?? []
+            let repoPaths = groups.map(\.clonePath).sorted(by: Self.sortByPath)
+            let linkedWorktreePaths = groups.flatMap(\.linkedWorktreePaths).sorted(by: Self.sortByPath)
+            repoPathsByWatchedFolder[watchedRoot] = repoPaths
+            linkedWorktreePathsByWatchedFolder[watchedRoot] = linkedWorktreePaths
+            fingerprintComponents.append("root:\(StableKey.fromPath(watchedRoot))")
+            fingerprintComponents.append(contentsOf: repoPaths.map { "repo:\(StableKey.fromPath($0))" })
+            fingerprintComponents.append(
+                contentsOf: linkedWorktreePaths.map { "worktree:\(StableKey.fromPath($0))" }
+            )
         }
-        return WatchedFolderRefreshSummary(repoPathsByWatchedFolder: repoPathsByWatchedFolder)
+        let topologyFingerprint: String?
+        if repoPathsByWatchedFolder.values.allSatisfy({ !$0.isEmpty }) {
+            let digest = SHA256.hash(
+                data: Data(fingerprintComponents.sorted().joined(separator: "\n").utf8)
+            )
+            topologyFingerprint = digest.map { String(format: "%02x", $0) }.joined()
+        } else {
+            topologyFingerprint = nil
+        }
+        return WatchedFolderRefreshSummary(
+            repoPathsByWatchedFolder: repoPathsByWatchedFolder,
+            linkedWorktreePathsByWatchedFolder: linkedWorktreePathsByWatchedFolder,
+            topologyFingerprint: topologyFingerprint
+        )
     }
 }

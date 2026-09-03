@@ -146,6 +146,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         _ = await currentContentOperation.waitUntilStarted()
         await oldContentOperation.waitUntilCancelled()
         let staleContentPullResult = await staleContentPull.value
+        #expect(await harness.session.stopProducer(oldContentLease))
 
         let staleOperation = ProducerInvocationProbe()
         let staleContentRequest = try fileContentRequest(

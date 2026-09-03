@@ -111,6 +111,29 @@ struct PaneAgentLaunchOwnerTests {
         #expect(!target.contains(#""AgentStudio""#))
         #expect(!target.contains(#""AgentStudioAppIPC""#))
     }
+
+    @Test("pane agent launch remains unreachable from production composition")
+    func paneAgentLaunchHasNoProductionCaller() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourceRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let sourceEnumerator = try #require(
+            FileManager.default.enumerator(
+                at: sourceRoot,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        )
+        var callerPaths: [String] = []
+
+        for case let sourceURL as URL in sourceEnumerator where sourceURL.pathExtension == "swift" {
+            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            if source.contains(".launchPaneAgent(") {
+                callerPaths.append(sourceURL.path)
+            }
+        }
+
+        #expect(callerPaths.isEmpty)
+    }
 }
 
 #if canImport(Darwin)

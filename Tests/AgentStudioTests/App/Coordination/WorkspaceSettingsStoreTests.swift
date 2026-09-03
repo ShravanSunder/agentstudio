@@ -5,7 +5,6 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioEditorChooser
-@testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioRepoExplorer
 @testable import AgentStudioTestSupport
@@ -19,46 +18,28 @@ struct WorkspaceSettingsStoreTests {
         let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
         let store = makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         )
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.tab)
         repoExplorerPreferences.setSortOrder(.descending)
-        inboxPreferences.setGrouping(.byRepo)
-        inboxPreferences.setSort(.oldestFirst)
-        inboxPreferences.setBellEnabled(true)
-        inboxPreferences.setGlobalInboxContentMode(.activity)
-        inboxPreferences.setGlobalInboxRowStateFilter(.all)
-        inboxPreferences.setPaneInboxContentMode(.all)
-        inboxPreferences.setPaneInboxRowStateFilter(.unreadOnly)
 
         try await store.flush(for: workspaceId)
 
         let restoredEditorPreference = EditorPreferenceAtom()
         let restoredRepoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let restoredInboxPreferences = InboxNotificationPrefsAtom()
         await makeStore(
             datastore: fixture.datastore,
             editorPreference: restoredEditorPreference,
-            repoExplorerPreferences: restoredRepoExplorerPreferences,
-            inboxPreferences: restoredInboxPreferences
+            repoExplorerPreferences: restoredRepoExplorerPreferences
         ).restoreAsync(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
         #expect(restoredRepoExplorerPreferences.groupingMode == .repo)
         #expect(restoredRepoExplorerPreferences.sortOrder == .descending)
-        #expect(restoredInboxPreferences.grouping == .byRepo)
-        #expect(restoredInboxPreferences.sort == .oldestFirst)
-        #expect(restoredInboxPreferences.bellEnabled)
-        #expect(restoredInboxPreferences.globalInboxContentMode == .activity)
-        #expect(restoredInboxPreferences.globalInboxRowStateFilter == .all)
-        #expect(restoredInboxPreferences.paneInboxContentMode == .all)
-        #expect(restoredInboxPreferences.paneInboxRowStateFilter == .unreadOnly)
 
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
@@ -75,25 +56,19 @@ struct WorkspaceSettingsStoreTests {
         let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.pane)
         repoExplorerPreferences.setSortOrder(.descending)
-        inboxPreferences.setGrouping(.byRepo)
-        inboxPreferences.setSort(.oldestFirst)
-        inboxPreferences.setBellEnabled(true)
 
         await makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         ).restoreAsync(for: UUID())
 
         assertDefaultSettings(
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         )
         #expect(repoExplorerPreferences.groupingMode == .pane)
     }
@@ -124,44 +99,20 @@ struct WorkspaceSettingsStoreTests {
             ),
             updatedAt: Date(timeIntervalSince1970: 1)
         )
-        try repository.replaceInboxNotificationPreferences(
-            try #require(
-                WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
-                    grouping: SQLiteLocalUXStorage.inboxNotificationGroupingByRepo,
-                    sortOrder: SQLiteLocalUXStorage.inboxNotificationSortOldestFirst,
-                    bellEnabled: true,
-                    globalFilter: .init(
-                        contentMode: SQLiteLocalUXStorage.inboxNotificationContentActivity,
-                        rowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateAll
-                    ),
-                    paneFilter: .init(
-                        contentMode: SQLiteLocalUXStorage.inboxNotificationContentAll,
-                        rowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateAll
-                    )
-                )
-            ),
-            updatedAt: Date(timeIntervalSince1970: 1)
-        )
         try await fixture.localDatabaseQueue.write { database in
             try database.execute(sql: "DROP TABLE \(unavailableLane.tableName)")
         }
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
 
         await makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         ).restoreAsync(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == (unavailableLane == .editor ? nil : "cursor"))
         #expect(repoExplorerPreferences.groupingMode == .repo)
-        #expect(
-            inboxPreferences.grouping
-                == (unavailableLane == .inboxNotification ? .byTab : .byRepo)
-        )
         let tableStillMissing = try await fixture.localDatabaseQueue.read { database in
             try !database.tableExists(unavailableLane.tableName)
         }
@@ -203,12 +154,10 @@ struct WorkspaceSettingsStoreTests {
         }
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
         let store = makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         )
 
         await store.restoreAsync(for: workspaceId)
@@ -216,13 +165,6 @@ struct WorkspaceSettingsStoreTests {
         #expect(editorPreference.bookmarkedEditorId == "cursor")
         #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
-        #expect(inboxPreferences.grouping == .byRepo)
-        #expect(inboxPreferences.sort == .oldestFirst)
-        #expect(inboxPreferences.bellEnabled)
-        #expect(inboxPreferences.globalInboxContentMode == .activity)
-        #expect(inboxPreferences.globalInboxRowStateFilter == .all)
-        #expect(inboxPreferences.paneInboxContentMode == .all)
-        #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
 
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
@@ -248,29 +190,86 @@ struct WorkspaceSettingsStoreTests {
     }
 
     @Test
+    func unrelatedSettingsLifecyclePreservesEveryInboxRowAndTimestamp() async throws {
+        let workspaceId = UUID()
+        let fixture = try await makeFixture()
+        try await fixture.localDatabaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_inbox_notification_preferences(
+                        workspace_id, grouping, sort_order, bell_enabled, global_content_mode,
+                        global_row_state_filter, pane_content_mode, pane_row_state_filter, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    workspaceId.uuidString, "byRepo", "oldestFirst", 1,
+                    "activity", "all", "all", "unreadOnly", 123.5,
+                ]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_notification_inbox_item(
+                        workspace_id, id, timestamp, kind, title, body, source_kind,
+                        is_read, is_dismissed_from_pane_inbox
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    workspaceId.uuidString, UUID().uuidString, 456.25, "agentRpc",
+                    "Preserved notification", "Preserved body", "global", 0, 0,
+                ]
+            )
+        }
+        let before = try await inboxRetirementSnapshot(
+            databaseQueue: fixture.localDatabaseQueue,
+            workspaceId: workspaceId
+        )
+        let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let clock = TestPushClock()
+        let store = makeStore(
+            datastore: fixture.datastore,
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+
+        await store.restoreAsync(for: workspaceId)
+        store.startObserving()
+        editorPreference.setBookmarkedEditor("cursor")
+        repoExplorerPreferences.setSortOrder(.descending)
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
+        await store.waitForPendingAutosave()
+        try await store.flush(for: workspaceId)
+
+        let after = try await inboxRetirementSnapshot(
+            databaseQueue: fixture.localDatabaseQueue,
+            workspaceId: workspaceId
+        )
+        #expect(after == before)
+    }
+
+    @Test
     func unavailableLocalDatabaseDefaultsWithoutBlockingAndReportsRecovery() async throws {
         let workspaceId = UUID()
         let datastore = try await makeFailingDatastore()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.pane)
-        inboxPreferences.setBellEnabled(true)
         var recoveryEvents: [PersistenceRecoveryEvent] = []
 
         await makeStore(
             datastore: datastore,
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences,
             recoveryReporter: { recoveryEvents.append($0) }
         ).restoreAsync(for: workspaceId)
 
         assertDefaultSettings(
             editorPreference: editorPreference,
-            repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences
+            repoExplorerPreferences: repoExplorerPreferences
         )
         #expect(repoExplorerPreferences.groupingMode == .pane)
         #expect(
@@ -286,13 +285,11 @@ struct WorkspaceSettingsStoreTests {
         let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
-        let inboxPreferences = InboxNotificationPrefsAtom()
         let clock = TestPushClock()
         let store = makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences,
-            inboxPreferences: inboxPreferences,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -302,8 +299,6 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.pane)
         repoExplorerPreferences.setSortOrder(.descending)
-        inboxPreferences.setGrouping(.byRepo)
-        inboxPreferences.setBellEnabled(true)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
         await store.waitForPendingAutosave()
@@ -314,8 +309,6 @@ struct WorkspaceSettingsStoreTests {
         )
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
         #expect(try repository.fetchRepoExplorerPreferences().sortOrder == "descending")
-        #expect(try repository.fetchInboxNotificationPreferences().grouping == "byRepo")
-        #expect(try repository.fetchInboxNotificationPreferences().bellEnabled)
     }
 
     @Test
@@ -384,7 +377,6 @@ struct WorkspaceSettingsStoreTests {
         datastore: WorkspaceSQLiteDatastore,
         editorPreference: EditorPreferenceAtom = EditorPreferenceAtom(),
         repoExplorerPreferences: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
-        inboxPreferences: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
         persistDebounceDuration: Duration = .zero,
         clock: (any Clock<Duration> & Sendable)? = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -392,7 +384,6 @@ struct WorkspaceSettingsStoreTests {
         WorkspaceSettingsStore(
             editorPreferenceAtom: editorPreference,
             repoExplorerSidebarPrefsAtom: repoExplorerPreferences,
-            inboxNotificationPrefsAtom: inboxPreferences,
             sqliteDatastore: datastore,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
@@ -428,18 +419,50 @@ struct WorkspaceSettingsStoreTests {
 
     private func assertDefaultSettings(
         editorPreference: EditorPreferenceAtom,
-        repoExplorerPreferences: RepoExplorerSidebarPrefsAtom,
-        inboxPreferences: InboxNotificationPrefsAtom
+        repoExplorerPreferences: RepoExplorerSidebarPrefsAtom
     ) {
         #expect(editorPreference.bookmarkedEditorId == nil)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
-        #expect(inboxPreferences.grouping == .byTab)
-        #expect(inboxPreferences.sort == .newestFirst)
-        #expect(!inboxPreferences.bellEnabled)
-        #expect(inboxPreferences.globalInboxContentMode == .rollUpAlerts)
-        #expect(inboxPreferences.globalInboxRowStateFilter == .unreadOnly)
-        #expect(inboxPreferences.paneInboxContentMode == .rollUpAlerts)
-        #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
+    }
+
+    private func inboxRetirementSnapshot(
+        databaseQueue: DatabaseQueue,
+        workspaceId: UUID
+    ) async throws -> InboxRetirementDatabaseSnapshot {
+        try await databaseQueue.read { database in
+            let preferences = try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT * FROM local_inbox_notification_preferences
+                    WHERE workspace_id = ? ORDER BY workspace_id
+                    """,
+                arguments: [workspaceId.uuidString]
+            ).map(String.init(describing:))
+            let history = try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT * FROM local_notification_inbox_item
+                    WHERE workspace_id = ? ORDER BY timestamp, id
+                    """,
+                arguments: [workspaceId.uuidString]
+            ).map(String.init(describing:))
+            let schema = try String.fetchAll(
+                database,
+                sql: """
+                    SELECT COALESCE(sql, '') FROM sqlite_master
+                    WHERE tbl_name IN (
+                        'local_inbox_notification_preferences',
+                        'local_notification_inbox_item'
+                    )
+                    ORDER BY type, name
+                    """
+            )
+            return InboxRetirementDatabaseSnapshot(
+                preferences: preferences,
+                history: history,
+                schema: schema
+            )
+        }
     }
 }
 
@@ -448,10 +471,15 @@ private struct SettingsFixture {
     let localDatabaseQueue: DatabaseQueue
 }
 
+private struct InboxRetirementDatabaseSnapshot: Equatable {
+    let preferences: [String]
+    let history: [String]
+    let schema: [String]
+}
+
 enum SettingsPreferenceLane: CaseIterable {
     case editor
     case repoExplorer
-    case inboxNotification
 
     var tableName: String {
         switch self {
@@ -459,8 +487,6 @@ enum SettingsPreferenceLane: CaseIterable {
             "local_editor_preferences"
         case .repoExplorer:
             "local_repo_explorer_preferences"
-        case .inboxNotification:
-            "local_inbox_notification_preferences"
         }
     }
 }

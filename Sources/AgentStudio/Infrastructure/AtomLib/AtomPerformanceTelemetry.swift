@@ -6,10 +6,6 @@ package final class AtomPerformanceTelemetry {
 
     private var traceRuntime: AgentStudioTraceRuntime?
     private var eventQueue: AgentStudioTraceEventQueue?
-    private var repoExplorerKeyClass: String?
-    private var repoExplorerFacet: String?
-    private var repoExplorerRowRelation: String?
-    private var repoExplorerStageSequence: [String: UInt64] = [:]
 
     private init() {}
 
@@ -28,10 +24,6 @@ package final class AtomPerformanceTelemetry {
         eventQueue?.cancel()
         traceRuntime = nil
         eventQueue = nil
-        repoExplorerKeyClass = nil
-        repoExplorerFacet = nil
-        repoExplorerRowRelation = nil
-        repoExplorerStageSequence = [:]
     }
 
     func drainForTests() async throws {
@@ -39,46 +31,6 @@ package final class AtomPerformanceTelemetry {
         if eventQueue == nil {
             try await traceRuntime?.flush()
         }
-    }
-
-    package func setRepoExplorerKeyedWakeContext(
-        keyClass: String?,
-        facet: String? = nil,
-        rowRelation: String? = nil
-    ) {
-        repoExplorerKeyClass = keyClass
-        repoExplorerFacet = facet
-        repoExplorerRowRelation = rowRelation
-    }
-
-    package var isRepoExplorerKeyedWakeContextActive: Bool {
-        repoExplorerKeyClass != nil
-    }
-
-    package func repoExplorerKeyedWakeSequence(for stage: String) -> UInt64 {
-        repoExplorerStageSequence[stage, default: 0]
-    }
-
-    package func recordRepoExplorerKeyedWake(stage: String, outcome: String) {
-        guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue else { return }
-        repoExplorerStageSequence[stage, default: 0] &+= 1
-        var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.repo_explorer.stage": .string(stage),
-            "agentstudio.performance.repo_explorer.key_class": .string(repoExplorerKeyClass ?? "ordinary_run"),
-            "agentstudio.performance.repo_explorer.outcome": .string(outcome),
-        ]
-        if let repoExplorerFacet {
-            attributes["agentstudio.performance.repo_explorer.facet"] = .string(repoExplorerFacet)
-        }
-        if let repoExplorerRowRelation {
-            attributes["agentstudio.performance.repo_explorer.row_relation"] = .string(repoExplorerRowRelation)
-        }
-        eventQueue.record(
-            tag: .performance,
-            body: AgentStudioPerformanceTraceRecorder.Event.repoExplorerKeyedWake.rawValue,
-            eventTimeUnixNano: traceRuntime.timestampUnixNano(),
-            attributes: attributes
-        )
     }
 
     func recordRead(

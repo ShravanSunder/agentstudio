@@ -1,0 +1,76 @@
+import Foundation
+
+extension GitWorkingDirectoryProjector {
+    struct MaterializedGitStatus: Sendable {
+        let result: GitWorkingTreeStatusResult
+        let facts: GitWorkingTreeStatusFacts
+        let detail: GitWorkingTreeLineDetail?
+        let refreshedDetail: Bool
+        let capacityCompletionGeneration: UInt64?
+    }
+
+    func materializeCompleteStatus(
+        facts: GitWorkingTreeStatusFacts,
+        changeset: FileChangeset
+    ) async -> MaterializedGitStatus {
+        let worktreeId = changeset.worktreeId
+        let acceptedFacts = lastAcceptedStatusFactsByWorktreeId[worktreeId]
+        let acceptedDetail = lastAcceptedLineDetailByWorktreeId[worktreeId]
+        let detailIsFresh =
+            lastAcceptedLineDetailAtByWorktreeId[worktreeId].map {
+                deadlineClock.now - $0 < refreshPolicy.lineDetailFreshnessInterval
+            } ?? false
+        // Synthetic registration/attention refreshes intentionally carry an
+        // empty path set even when their changeset is marked Git-internal.
+        // They refresh facts, but do not prove that worktree content changed.
+        let contentWasInvalidated = !changeset.paths.isEmpty
+        let isExplicit = refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "explicit"
+        if facts.exactCleanAuthority != nil {
+            recordAvoidedPhysicalDetailReadTelemetry()
+            let exactEmptyDetail = GitWorkingTreeLineDetail(linesAdded: 0, linesDeleted: 0)
+            return MaterializedGitStatus(
+                result: .available(facts.composing(exactEmptyDetail)),
+                facts: facts,
+                detail: exactEmptyDetail,
+                refreshedDetail: true,
+                capacityCompletionGeneration: nil
+            )
+        }
+        let needsDetail =
+            acceptedDetail == nil
+            || acceptedFacts != facts
+            || contentWasInvalidated
+            || isExplicit
+            || !detailIsFresh
+
+        if !needsDetail, let acceptedDetail {
+            return MaterializedGitStatus(
+                result: .available(facts.composing(acceptedDetail)),
+                facts: facts,
+                detail: acceptedDetail,
+                refreshedDetail: false,
+                capacityCompletionGeneration: nil
+            )
+        }
+
+        let capacityCompletionGeneration = gitWorkingTreeProvider.physicalCompletionGeneration()
+        switch await gitWorkingTreeProvider.lineDetailResult(for: changeset.rootPath) {
+        case .available(let detail):
+            return MaterializedGitStatus(
+                result: .available(facts.composing(detail)),
+                facts: facts,
+                detail: detail,
+                refreshedDetail: true,
+                capacityCompletionGeneration: capacityCompletionGeneration
+            )
+        case .unavailable(let unavailable):
+            return MaterializedGitStatus(
+                result: .unavailable(unavailable),
+                facts: facts,
+                detail: nil,
+                refreshedDetail: false,
+                capacityCompletionGeneration: capacityCompletionGeneration
+            )
+        }
+    }
+}

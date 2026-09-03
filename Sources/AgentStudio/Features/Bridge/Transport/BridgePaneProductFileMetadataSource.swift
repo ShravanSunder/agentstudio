@@ -77,7 +77,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         gitReadContext: BridgeGitReadContext,
         constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
         sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver = { _ in },
-        statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        statusProvider: any GitWorkingTreeStatusProvider,
         snapshotPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader? = nil,
         sharedSnapshotBuilder: @escaping BridgePaneProductFileSharedSnapshotBuilder =
             BridgeWorktreeFileMaterializer.buildSharedSnapshot,

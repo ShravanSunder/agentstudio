@@ -30,7 +30,8 @@ struct SplitContainerDropCaptureOverlayTests {
         let coordinator = SplitContainerDropCaptureOverlay.Coordinator(
             targetBinding: targetState,
             sourcePaneIdBinding: .constant(nil),
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            modifierFlagsProvider: { [] }
         )
         coordinator.updateLayout(
             paneFrames: [paneId: CGRect(x: 0, y: 0, width: 200, height: 100)],
@@ -68,7 +69,8 @@ struct SplitContainerDropCaptureOverlayTests {
         let coordinator = SplitContainerDropCaptureOverlay.Coordinator(
             targetBinding: targetState,
             sourcePaneIdBinding: .constant(nil),
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            modifierFlagsProvider: { [] }
         )
         coordinator.updateLayout(
             paneFrames: [paneId: CGRect(x: 0, y: 0, width: 200, height: 100)],

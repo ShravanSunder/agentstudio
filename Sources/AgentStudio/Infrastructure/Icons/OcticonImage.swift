@@ -17,11 +17,11 @@ package struct OcticonImage: View {
                 Image(nsImage: image)
                     .renderingMode(.template)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFit()
             } else {
                 Image(systemName: "questionmark.square.dashed")
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFit()
             }
         }
         .frame(width: size, height: size)

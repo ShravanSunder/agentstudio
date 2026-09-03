@@ -24,7 +24,7 @@ extension GitWorkingDirectoryProjector {
     }
 
     struct ResolvedGitStatus: Sendable {
-        let result: GitWorkingTreeStatusResult
+        let result: GitWorkingTreeStatusFactsResult
         let scope: GitStatusScope
         let pathspecCount: Int
     }
@@ -41,10 +41,42 @@ extension GitWorkingDirectoryProjector {
     func resolveStatusResult(for changeset: FileChangeset) async -> ResolvedGitStatus {
         switch scopeDecision(for: changeset) {
         case .full:
-            let result = await gitWorkingTreeProvider.statusResult(for: changeset.rootPath, pathspecs: nil)
+            let result: GitWorkingTreeStatusFactsResult
+            if let exactCleanProvider = gitWorkingTreeProvider as? any GitExactCleanStatusProviding {
+                recordExactCleanBaselinePreparedTelemetry()
+                switch await exactCleanProvider.exactCleanStatusFactsResult(
+                    for: changeset.worktreeId,
+                    rootPath: changeset.rootPath
+                ) {
+                case .available(let facts):
+                    if facts.exactCleanAuthority == nil {
+                        recordExactCleanBaselineRejectedTelemetry()
+                    }
+                    result = .available(facts)
+                case .requiresExact(let reason):
+                    // The observed scan raced a mutation or uncertainty. Publish
+                    // nothing from it and run exactly one ordinary full fallback
+                    // inside the already admitted priority/capacity flow.
+                    recordExactCleanBaselineRejectedTelemetry()
+                    recordContinuityUncertaintyTelemetry(reason)
+                    recordExactFallbackTelemetry(admitted: true)
+                    result = await gitWorkingTreeProvider.statusFactsResult(
+                        for: changeset.rootPath,
+                        pathspecs: nil
+                    )
+                case .unavailable(let unavailable):
+                    recordExactCleanBaselineRejectedTelemetry()
+                    result = .unavailable(unavailable)
+                }
+            } else {
+                result = await gitWorkingTreeProvider.statusFactsResult(
+                    for: changeset.rootPath,
+                    pathspecs: nil
+                )
+            }
             return ResolvedGitStatus(result: result, scope: .full, pathspecCount: 0)
         case .scoped(let pathspecs, let cachedEntries):
-            let scopedResult = await gitWorkingTreeProvider.statusResult(
+            let scopedResult = await gitWorkingTreeProvider.statusFactsResult(
                 for: changeset.rootPath,
                 pathspecs: pathspecs
             )
@@ -61,7 +93,10 @@ extension GitWorkingDirectoryProjector {
                 )
             else {
                 // Rename guard tripped: recompute the full worktree for this batch.
-                let fullResult = await gitWorkingTreeProvider.statusResult(for: changeset.rootPath, pathspecs: nil)
+                let fullResult = await gitWorkingTreeProvider.statusFactsResult(
+                    for: changeset.rootPath,
+                    pathspecs: nil
+                )
                 return ResolvedGitStatus(result: fullResult, scope: .full, pathspecCount: 0)
             }
             return ResolvedGitStatus(result: .available(folded), scope: .pathspec, pathspecCount: pathspecs.count)
@@ -93,9 +128,9 @@ extension GitWorkingDirectoryProjector {
     /// reconciled against the cache, signalling a full-recompute fallback.
     nonisolated static func foldScopedStatus(
         cachedEntries: [GitWorkingTreeStatusEntry],
-        scoped: GitWorkingTreeStatus,
+        scoped: GitWorkingTreeStatusFacts,
         pathspecs: [String]
-    ) -> GitWorkingTreeStatus? {
+    ) -> GitWorkingTreeStatusFacts? {
         guard !scoped.containsPathIdentityAmbiguity else { return nil }
 
         for entry in scoped.entries {
@@ -116,21 +151,20 @@ extension GitWorkingDirectoryProjector {
         let foldedEntries = Array(entriesByPath.values)
 
         let counts = GitWorkingTreeStatus.fileCounts(for: foldedEntries)
-        let foldedSummary = GitWorkingTreeSummary(
-            changed: counts.changed,
-            staged: counts.staged,
-            untracked: counts.untracked,
-            linesAdded: scoped.summary.linesAdded,
-            linesDeleted: scoped.summary.linesDeleted,
-            aheadCount: scoped.summary.aheadCount,
-            behindCount: scoped.summary.behindCount,
-            hasUpstream: scoped.summary.hasUpstream
-        )
-        return GitWorkingTreeStatus(
-            summary: foldedSummary,
-            branch: scoped.branch,
-            originResolution: scoped.originResolution,
-            entries: foldedEntries
+        return GitWorkingTreeStatusFacts(
+            status: GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(
+                    changed: counts.changed,
+                    staged: counts.staged,
+                    untracked: counts.untracked,
+                    aheadCount: scoped.aheadCount,
+                    behindCount: scoped.behindCount,
+                    hasUpstream: scoped.hasUpstream
+                ),
+                branch: scoped.branch,
+                originResolution: scoped.originResolution,
+                entries: foldedEntries
+            )
         )
     }
 

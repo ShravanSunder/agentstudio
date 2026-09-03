@@ -146,12 +146,10 @@ func makePaneTabViewControllerCommandHarness(
         runtimeCommandDispatcher: coordinator,
         tabBarAdapter: makeCommandHarnessTabBarAdapter(
             store: store,
-            inboxAtom: atomRegistry.inboxNotification
         ),
         viewRegistry: viewRegistry,
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         editorChooser: atomRegistry.editorChooser,
-        inboxAtom: atomRegistry.inboxNotification,
         paneInboxPresentation: paneInboxPresentation,
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
@@ -202,13 +200,11 @@ func makePaneTabViewControllerCommandHarness(
 
 @MainActor
 private func makeCommandHarnessTabBarAdapter(
-    store: WorkspaceStore,
-    inboxAtom: InboxNotificationAtom
+    store: WorkspaceStore
 ) -> TabBarAdapter {
     TabBarAdapter(
         store: store,
-        repoCache: RepoCacheAtom(),
-        inboxAtom: inboxAtom
+        repoCache: RepoCacheAtom()
     )
 }
 

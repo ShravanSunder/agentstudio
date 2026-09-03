@@ -93,6 +93,7 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         private var targetBinding: Binding<PaneDropTarget?>
         private var sourcePaneIdBinding: Binding<UUID?>
         private var actionDispatcher: PaneActionDispatching
+        private let modifierFlagsProvider: () -> NSEvent.ModifierFlags
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
@@ -103,11 +104,13 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         init(
             targetBinding: Binding<PaneDropTarget?>,
             sourcePaneIdBinding: Binding<UUID?>,
-            actionDispatcher: PaneActionDispatching
+            actionDispatcher: PaneActionDispatching,
+            modifierFlagsProvider: @escaping () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
         ) {
             self.targetBinding = targetBinding
             self.sourcePaneIdBinding = sourcePaneIdBinding
             self.actionDispatcher = actionDispatcher
+            self.modifierFlagsProvider = modifierFlagsProvider
         }
 
         func updateHandlers(
@@ -157,7 +160,8 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         private func resolveTarget(
             at location: CGPoint,
-            payload: SplitDropPayload
+            payload: SplitDropPayload,
+            isShiftHeld: Bool
         ) -> PaneDropTarget? {
             PaneDragCoordinator.resolveLatchedTarget(
                 location: location,
@@ -165,7 +169,7 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 containerBounds: containerBounds,
                 minimizedPaneIds: minimizedPaneIds,
                 currentTarget: targetBinding.wrappedValue,
-                isShiftHeld: NSEvent.modifierFlags.contains(.shift),
+                isShiftHeld: isShiftHeld,
                 sourcePaneId: sourcePaneId(from: payload),
                 shouldAcceptDrop: { paneId, zone, sizingMode in
                     actionDispatcher.shouldAcceptDrop(
@@ -204,7 +208,12 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return nil
             }
 
-            if let resolvedTarget = resolveTarget(at: location, payload: payload) {
+            let isShiftHeld = modifierFlagsProvider().contains(.shift)
+            if let resolvedTarget = resolveTarget(
+                at: location,
+                payload: payload,
+                isShiftHeld: isShiftHeld
+            ) {
                 RestoreTrace.log(
                     "SplitContainer.handleDragUpdate target=\(resolvedTarget.paneId) zone=\(resolvedTarget.zone) location=\(NSStringFromPoint(location))"
                 )
@@ -234,8 +243,13 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 dragSession = .teardown
                 return false
             }
+            let isShiftHeld = modifierFlagsProvider().contains(.shift)
             guard
-                let resolvedTarget = resolveTarget(at: location, payload: payload)
+                let resolvedTarget = resolveTarget(
+                    at: location,
+                    payload: payload,
+                    isShiftHeld: isShiftHeld
+                )
             else {
                 dragSession = .teardown
                 return false
@@ -245,7 +259,7 @@ package struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             dragSession = .committing(candidate: candidate)
             let sizingMode = DropSizingModeResolver.mode(
                 for: resolvedTarget.sizingTarget,
-                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                isShiftHeld: isShiftHeld
             )
             actionDispatcher.handleDrop(
                 payload,

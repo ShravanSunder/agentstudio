@@ -1,4 +1,3 @@
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import Foundation
 
@@ -41,20 +40,7 @@ extension AppDelegate {
     }
 
     func applyFullDiskAccessHealthCheckResult(_ result: FullDiskAccessHealthCheckResult) {
-        guard hasLoadedInboxNotificationStore else { return }
-
         recordFullDiskAccessHealthCheck(result)
-        if result.isHealthy {
-            _ = atomStore.inboxNotification.markRead(id: InboxNotification.fullDiskAccessWarningId)
-            _ = atomStore.inboxNotification.dismissFromPaneInbox(id: InboxNotification.fullDiskAccessWarningId)
-            return
-        }
-
-        atomStore.inboxNotification.append(
-            .fullDiskAccessDenied(
-                documentsResult: result.documents.result,
-                protectedDataResult: result.protectedData.result
-            ))
     }
 
     private func recordFullDiskAccessHealthCheck(_ result: FullDiskAccessHealthCheckResult) {

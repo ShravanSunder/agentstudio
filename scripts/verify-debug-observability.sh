@@ -305,8 +305,7 @@ logsql_exact_filter() {
 json_truthy_field() {
   local field="${1:?missing JSON field}"
   local payload="${2:-}"
-  grep -q "\"$field\":true" <<<"$payload" ||
-    grep -q "\"$field\":\"true\"" <<<"$payload"
+  grep -Eq "\"$field\":(\"true\"|true|\"1\"|1)([,}[:space:]]|$)" <<<"$payload"
 }
 
 json_exact_string_field() {
@@ -618,7 +617,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,$file_view_diagnostic_fields,$file_view_click_fields,$file_view_stress_fields,$file_view_worker_fields,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
-    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.projection_proof.succeeded"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.native_table_pilot.scale.count,agentstudio.startup_diagnostic.native_table_pilot.completed,agentstudio.startup_diagnostic.native_table_pilot.passed"
   fi
   diagnostic_command_response="$(
     wait_for_log_query \
@@ -661,7 +660,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   fi
   diagnostic_proof_field="agentstudio.startup_diagnostic.render_proof.succeeded"
   if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
-    diagnostic_proof_field="agentstudio.startup_diagnostic.projection_proof.succeeded"
+    diagnostic_proof_field="agentstudio.startup_diagnostic.native_table_pilot.passed"
   fi
   if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ]; then
     diagnostic_proof_field="agentstudio.startup_diagnostic.association_proof.succeeded"

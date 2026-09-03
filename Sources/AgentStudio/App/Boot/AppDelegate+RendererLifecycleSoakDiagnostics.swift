@@ -4,6 +4,14 @@ import AppKit
 import Foundation
 
 #if DEBUG
+    private func rendererLifecycleViewportReadContains(
+        _ result: TerminalViewportTextReadResult,
+        marker: String
+    ) -> Bool {
+        guard case .value(let text) = result else { return false }
+        return text.contains(marker)
+    }
+
     enum RendererLifecycleSoakSchedule {
         static let surfaceCount = 20
         static let transitionCycleCount = 20
@@ -153,8 +161,10 @@ import Foundation
             return await waitForRendererLifecycleCondition(timeout: .seconds(20)) {
                 fixture.paneIDs.allSatisfy { paneID in
                     guard let surfaceID = initialSurfaceIDs[paneID] else { return false }
-                    return SurfaceManager.shared.readViewportTrailingText(forSurfaceID: surfaceID)?.contains(marker)
-                        == true
+                    return rendererLifecycleViewportReadContains(
+                        SurfaceManager.shared.readViewportTrailingText(forSurfaceID: surfaceID),
+                        marker: marker
+                    )
                 }
             }
         }

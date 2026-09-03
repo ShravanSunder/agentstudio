@@ -148,13 +148,8 @@ struct WelcomeSidebarIllustration: View {
                     checkoutIconKind: .mainCheckout,
                     iconColor: ghosttyColor,
                     branchStatus: ghosttyMainStatus,
-                    unreadCount: 0,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -166,13 +161,8 @@ struct WelcomeSidebarIllustration: View {
                     checkoutIconKind: .gitWorktree,
                     iconColor: ghosttyColor,
                     branchStatus: gpuRendererStatus,
-                    unreadCount: 0,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -184,13 +174,8 @@ struct WelcomeSidebarIllustration: View {
                     checkoutIconKind: .gitWorktree,
                     iconColor: ghosttyColor,
                     branchStatus: fixKeybindsStatus,
-                    unreadCount: 0,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }
@@ -217,13 +202,8 @@ struct WelcomeSidebarIllustration: View {
                     checkoutIconKind: .mainCheckout,
                     iconColor: uvColor,
                     branchStatus: uvMainStatus,
-                    unreadCount: 0,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -235,13 +215,8 @@ struct WelcomeSidebarIllustration: View {
                     checkoutIconKind: .gitWorktree,
                     iconColor: uvColor,
                     branchStatus: fixResolverStatus,
-                    unreadCount: 2,
                     commandPresentation: .notPresented,
-                    onOpen: {},
-                    onOpenNew: {},
-                    onReview: {},
-                    onOpenFiles: {},
-                    onOpenInPane: {}
+                    onOpen: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }

@@ -11,6 +11,9 @@ private let inboxNotificationSidebarLogger = Logger(
     category: "InboxNotificationSidebarView"
 )
 
+/// Inbox presentation and ingestion are intentionally retired.
+/// Source and persisted rows remain only for a later data-safe removal.
+/// Do not reconnect these owners to App, command, toolbar, shortcut, IPC, or runtime-bus composition without a new product decision.
 @MainActor
 package struct InboxNotificationSidebarView: View {
     package static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
@@ -100,7 +103,9 @@ package struct InboxNotificationSidebarView: View {
         )
         let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
-            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId
+            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId,
+            repositoryStableKeysByID: workspaceRepositoryTopologyAtom.repositoryStableKeysByID,
+            worktreeStableKeysByID: workspaceRepositoryTopologyAtom.worktreeStableKeysByID
         )
         let initialKey = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
@@ -221,7 +226,9 @@ package struct InboxNotificationSidebarView: View {
             repoEnrichmentByRepoId: Self.repoEnrichmentByRepoId(
                 repos: workspaceRepositoryTopologyAtom.repos,
                 repoCache: repoCache
-            )
+            ),
+            repositoryStableKeysByID: workspaceRepositoryTopologyAtom.repositoryStableKeysByID,
+            worktreeStableKeysByID: workspaceRepositoryTopologyAtom.worktreeStableKeysByID
         )
     }
 
@@ -466,9 +473,18 @@ package struct InboxNotificationSidebarView: View {
 
     package static func repoPresentationByRepoId(
         repos: [Repo],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        repositoryStableKeysByID: [UUID: String]? = nil,
+        worktreeStableKeysByID: [UUID: String]? = nil
     ) -> [UUID: InboxNotificationRepoGroupPresentation] {
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map { repository in
+            RepoPresentationItem(
+                repo: repository,
+                stableKey: repositoryStableKeysByID?[repository.id] ?? repository.stableKey,
+                worktreeStableKeysByID: worktreeStableKeysByID
+                    ?? Dictionary(uniqueKeysWithValues: repository.worktrees.map { ($0.id, $0.stableKey) })
+            )
+        }
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId

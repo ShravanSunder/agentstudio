@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
@@ -22,6 +23,12 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
             case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
             case sidebarPerformanceProof = "sidebar-performance-proof"
+            case sidebarCPUZeroPTYIdle = "sidebar-cpu-zero-pty-idle"
+            case sidebarCPUQuiescentPTYIdle = "sidebar-cpu-quiescent-pty-idle"
+            case sidebarCPUSearchClear = "sidebar-cpu-search-clear"
+            case sidebarCPUGrouping = "sidebar-cpu-grouping"
+            case sidebarCPUHideShow = "sidebar-cpu-hide-show"
+            case sidebarCPUTabSwitch = "sidebar-cpu-tab-switch"
             case repoExplorerKeyMutationProof = "repo-explorer-key-mutation-proof"
             case repoExplorerInteractionProof = "repo-explorer-interaction-proof"
             case rendererLifecycleContinuity = "renderer-lifecycle-continuity"
@@ -40,6 +47,9 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 || kind == .bridgeReviewToFileViewObservabilitySmoke
                 || kind == .bridgeProductPaintCorrelation
                 || kind == .bridgeProductStreamWebKitFeasibility
+                || kind == .sidebarCPUZeroPTYIdle || kind == .sidebarCPUQuiescentPTYIdle
+                || kind == .sidebarCPUSearchClear || kind == .sidebarCPUGrouping
+                || kind == .sidebarCPUHideShow || kind == .sidebarCPUTabSwitch
         #else
             false
         #endif
@@ -76,6 +86,18 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "bridgeProductStreamWebKitFeasibility"
             case .sidebarPerformanceProof:
                 "sidebarPerformanceProof"
+            case .sidebarCPUZeroPTYIdle:
+                "sidebarCPUZeroPTYIdle"
+            case .sidebarCPUQuiescentPTYIdle:
+                "sidebarCPUQuiescentPTYIdle"
+            case .sidebarCPUSearchClear:
+                "sidebarCPUSearchClear"
+            case .sidebarCPUGrouping:
+                "sidebarCPUGrouping"
+            case .sidebarCPUHideShow:
+                "sidebarCPUHideShow"
+            case .sidebarCPUTabSwitch:
+                "sidebarCPUTabSwitch"
             case .repoExplorerKeyMutationProof:
                 "repoExplorerKeyMutationProof"
             case .repoExplorerInteractionProof:
@@ -104,5 +126,42 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }
         return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL
+    }
+
+    func sidebarPerformanceControlRootURL(
+        from environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        #if DEBUG
+            guard AppDataPaths.allowsDebugHarnessEnvironmentOverrides(environment: environment) else {
+                return nil
+            }
+            switch kind {
+            case .sidebarCPUZeroPTYIdle, .sidebarCPUQuiescentPTYIdle,
+                .sidebarCPUSearchClear, .sidebarCPUGrouping, .sidebarCPUHideShow,
+                .sidebarCPUTabSwitch:
+                break
+            default:
+                return nil
+            }
+
+            guard let candidate = Self.watchFolderURL(from: environment) else { return nil }
+            let dataRoot = AppDataPaths.rootDirectory(environment: environment)
+                .resolvingSymlinksInPath().standardizedFileURL
+            let resolvedCandidate = candidate.resolvingSymlinksInPath().standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard
+                FileManager.default.fileExists(
+                    atPath: resolvedCandidate.path,
+                    isDirectory: &isDirectory
+                ), isDirectory.boolValue
+            else { return nil }
+            let descendantPrefix = dataRoot.path.hasSuffix("/") ? dataRoot.path : dataRoot.path + "/"
+            guard resolvedCandidate.path != dataRoot.path,
+                resolvedCandidate.path.hasPrefix(descendantPrefix)
+            else { return nil }
+            return resolvedCandidate
+        #else
+            return nil
+        #endif
     }
 }

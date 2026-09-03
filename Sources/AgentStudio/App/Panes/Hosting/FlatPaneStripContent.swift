@@ -51,7 +51,6 @@ struct FlatPaneStripContent: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     @State private var isSplitResizing = false
@@ -120,7 +119,6 @@ struct FlatPaneStripContent: View {
                             paneInboxPresentation: paneInboxPresentation,
                             paneNotePresentation: paneNotePresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
-                            notificationCountForWorktree: notificationCountForWorktree,
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot,
                             ordinal: ordinalMap.ordinal(forPaneId: segment.paneId),
@@ -174,7 +172,6 @@ private struct PaneSegmentSlotView: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
     let ordinal: Int?
@@ -214,7 +211,6 @@ private struct PaneSegmentSlotView: View {
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    notificationCountForWorktree: notificationCountForWorktree,
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference,
                     paneInboxPresentation: paneInboxPresentation,

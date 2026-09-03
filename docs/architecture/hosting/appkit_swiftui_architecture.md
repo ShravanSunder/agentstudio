@@ -679,8 +679,6 @@ Load next in this file:
 | `openPaneLocationInBookmarkedEditor` | `⌘⌥O` | `PaneTabViewController` | Opens the active pane location in the configured/default editor. |
 | `openPaneLocationInEditorMenu` | `⌘⌥⌃O` | `PaneTabViewController` | Opens the editor chooser for the active pane. |
 | `copyCurrentPanePath` | `⌥O` | `PaneTabViewController` | Copies the active main pane's actual live cwd. |
-| `showInboxNotifications` | `⌘U` | `AppDelegate` shell | Shows the inbox sidebar notification surface. |
-| `showPaneInboxNotifications` | `⌘⇧U` | `PaneTabViewController` | Shows notifications scoped to the active pane/drawer family. |
 | Ghostty clear scrollback | none | `GhosttySurfaceView` host override | `⌘K` is swallowed and never forwarded to Ghostty. |
 
 ## Command Bar Scope Ownership
@@ -753,10 +751,9 @@ Path actions use `LocalActionSpec.copyPath` and
 `LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
 shared so sidebar context menus and command-bar rows do not drift.
 
-Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
-commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
-belong in the `>` command surface when exposed as command rows; they are not
-repo-object rows in `#`. Programmatic tests execute headless sidebar
+Repo sidebar grouping commands (`repo`, `pane`, `tab`) are app/sidebar shell
+commands. They belong in the `>` command surface when exposed as command rows;
+they are not repo-object rows in `#`. Programmatic tests execute headless sidebar
 `AppCommandSpec` definitions through authenticated generic `command.execute`;
 command-bar presentation is not proof. Repo sidebar sort order is a
 deterministic headless app command for IPC proof: `setRepoSidebarSortOrder`
@@ -770,10 +767,10 @@ interactive command surfaces, resolve to `WorkspaceActionCommand.setRepoFavorite
 and are exposed automatically through authenticated generic `command.execute`.
 Internal restore, reconciliation, and fact-consumption paths may still call the
 owning atom's typed mutation methods directly; user-facing controls may not.
-Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
-the same rule. Filter and content-mode buttons dispatch typed arguments through
-`setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
-the preference-atom writes.
+Inbox command identities are retained only so stale callers and exhaustive
+switches remain explicit. They have no interactive surface, shortcut, shell
+execution, or IPC exposure and must not be reconnected without a new product
+decision.
 
 ## Repo And Worktree Command Implementation
 
@@ -799,7 +796,6 @@ Stable owners are long-lived focus regions:
 - `.mainWindowChain`
 - `.managementLayer`
 - `.sidebar(.repos)`
-- `.sidebar(.inbox)`
 - `.otherWindow`
 
 Command bar is a privileged overlay surface. While active, it owns keyboard
@@ -858,14 +854,14 @@ Arrangement panel presentation is tab-local. Command dispatch may create a
 request in `ArrangementPanelPresentationAtom`, but the tab bar or collapsed bar
 consumes that request only when its tab matches. Switching tabs while the tab
 bar arrangement panel is open closes that panel instead of retargeting it to
-the new active tab. Pane inbox popovers are pane-local panels; inbox sidebar
-remains the stable `.sidebar(.inbox)` surface.
+the new active tab. The retained `.paneInbox` transient kind is dormant and is
+not constructed by App composition.
 
 This suppression intentionally includes destructive global shortcuts such as
 `closeWindow`. When a transient popover or editor is open, local cancellation
 or close behavior belongs to that responder; the workspace window should not
 close from an app-level shortcut underneath it.
 
-Repo sidebar and inbox sidebar are separate stable keyboard surfaces. They are
-tested by setting sidebar visibility, selected surface, and sidebar focus; they
-do not require a shortcut that creates the surface.
+Repo Explorer is the sole stable sidebar keyboard surface. Legacy `.inbox`
+selection decodes only to normalize immediately to `.repos`; the retired Inbox
+shortcuts decode to no command.

@@ -569,10 +569,7 @@ package actor WorkspaceSQLiteDatastore {
             return .loaded(
                 .init(
                     editor: localSettingsValue { try repository.fetchEditorPreferences() },
-                    repoExplorer: localSettingsValue { try repository.fetchRepoExplorerPreferences() },
-                    inboxNotification: localSettingsValue {
-                        try repository.fetchInboxNotificationPreferences()
-                    }
+                    repoExplorer: localSettingsValue { try repository.fetchRepoExplorerPreferences() }
                 )
             )
         } catch {
@@ -583,14 +580,12 @@ package actor WorkspaceSQLiteDatastore {
     package func saveWorkspaceSettings(
         editor: WorkspaceLocalRepository.EditorPreferencesRecord,
         repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord,
-        inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord,
         workspaceId: UUID
     ) async throws {
         let repository = try preparedLocalRepository(workspaceId: workspaceId)
         let updatedAt = Date()
         try repository.replaceEditorPreferences(editor, updatedAt: updatedAt)
         try repository.replaceRepoExplorerPreferences(repoExplorer, updatedAt: updatedAt)
-        try repository.replaceInboxNotificationPreferences(inboxNotification, updatedAt: updatedAt)
     }
 
     private func localSettingsValue<Value: Equatable & Sendable>(
@@ -615,6 +610,22 @@ package actor WorkspaceSQLiteDatastore {
     func saveApplicationEntityRecency(_ recentEntities: [ApplicationEntityRecency]) async throws {
         let repository = try preparedApplicationLocalRepository()
         try repository.replaceApplicationEntityRecency(recentEntities)
+    }
+
+    func loadRepositoryLocalActivity() async -> RepositoryLocalActivityLoadResult {
+        do {
+            let repository = try preparedApplicationLocalRepository()
+            return .loaded(try repository.fetchRepositoryLocalActivitySnapshot())
+        } catch {
+            return .unavailable(.init(error))
+        }
+    }
+
+    func commitRepositoryLocalActivity(
+        _ commit: RepositoryLocalActivityCommit
+    ) async throws -> RepositoryLocalActivitySnapshot {
+        let repository = try preparedApplicationLocalRepository()
+        return try repository.commitRepositoryLocalActivity(commit)
     }
 
     func loadWorkspaceEntityRecency(workspaceId: UUID) async -> WorkspaceEntityRecencyLoadResult {

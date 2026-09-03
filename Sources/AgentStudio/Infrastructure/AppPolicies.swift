@@ -16,11 +16,17 @@ package enum AppPolicies {
     }
 
     package enum EntityRecency {
-        package static let maximumRetainedEntityCountPerKind: Int = 15
+        package static let maximumApplicationPresentationCountPerKind: Int = 15
+        package static let maximumWorkspaceRetainedEntityCount: Int = 15
+        package static let applicationActivityHorizon: TimeInterval = 60 * 24 * 60 * 60
         package static let strongBlueDuration: TimeInterval = 10 * 60
         package static let mediumBlueDuration: TimeInterval = 60 * 60
         package static let mutedBlueDuration: TimeInterval = 12 * 60 * 60
         package static let faintBlueDuration: TimeInterval = 24 * 60 * 60
+    }
+
+    package enum RepoExplorer {
+        package static let inactiveRefreshRevealDuration: Duration = .seconds(30)
     }
 
     package enum SidebarProjection {
@@ -39,8 +45,69 @@ package enum AppPolicies {
         }
     }
 
+    package enum SidebarPerformanceProof {
+        package static let policyID = "strict-sidebar-cpu"
+        package static let policyVersion: Int = 6
+        package static let nativeTablePilotPolicyID = "sidebar-native-table-pilot"
+        package static let nativeTablePilotPolicyVersion: Int = 1
+        package static let repositoryCount: Int = 150
+        package static let worktreeCount: Int = 180
+        package static let doubledWorktreeCount: Int = 360
+        package static let tabCount: Int = 12
+        package static let paneCount: Int = 36
+        package static let activePTYCount: Int = 1
+        package static let strictWatchedRootURLs: [URL] = [
+            URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/open-source", isDirectory: true),
+            URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev", isDirectory: true),
+        ]
+        package static let strictTabCount: Int = 5
+        package static let strictPaneModelCount: Int = 20
+        package static let zeroPTYExpectedSessionCount: Int = 0
+        package static let zmxInventoryInterval: Duration = .seconds(5)
+        package static let fixturePreparationTimeout: Duration = .seconds(300)
+        package static let fixtureStateObservationInterval: Duration = .milliseconds(10)
+        package static let representedRowCount: Int = 24
+        package static let warmupTransactionCountPerScale: Int = 20
+        package static let measuredTransactionCountPerScale: Int = 200
+        package static let maximumMembershipP95Milliseconds: Double = 4
+        package static let maximumDoubledOffscreenGrowthPercent: Double = 20
+        package static let nativeTablePilotCompletionTimeout: Duration = .seconds(30)
+        package static let scaleWorktreeCounts = [worktreeCount, doubledWorktreeCount]
+        package static let invalidatesWholePopulationOnFailure = true
+        package static let fixtureQuery = "worktree"
+        package static let populatedFixtureTabCount: Int = 2
+        package static let idleProcessCPUP99MaximumPercent: Double = 10
+        package static let actionProcessCPUP95MaximumPercent: Double = 20
+        package static let sampleInterval: Duration = .seconds(1)
+        package static let metricsExportInterval: Duration = Diagnostics.otlpMetricsExportInterval
+        package static let requiredIdleUsableSampleCount: Int = 1000
+        package static let requiredSuccessfulActionCount: Int = 100
+        package static let requiredActionBearingSampleCount: Int = 200
+        package static let searchCharacterCount: Int = 8
+        package static let searchCharacterInterval: Duration = .milliseconds(100)
+        package static let quiescenceInterval: Duration = .seconds(5)
+        package static let actionReadbackTimeout: Duration = .seconds(5)
+        package static let maximumSamplerGap: Duration = .milliseconds(1250)
+        package static let maximumActionSampleBoundaryOffset: Duration = .milliseconds(50)
+        package static let actionSampleStartOffset: Duration = .milliseconds(20)
+        package static let maximumDiagnosticCPUP95DeltaPercentagePoints: Double = 5
+        package static let maximumDiagnosticInteractionP95GrowthPercent: Double = 10
+        package static let gitStatusPhysicalLimit = GitRefresh.defaultDetachedStatusReadLimit
+        package static let remoteReferencePhysicalLimit = RemoteReferenceRefresh.maximumConcurrentFetches
+        package static let forgePhysicalLimit = ForgeRefresh.maximumConcurrentProviderRequests
+        package static let gitMaximumSettlementInterval =
+            GitRefresh.defaultPolicy.maximumSettlementInterval
+        package static let standardTraceTags = ["performance", "app.startup", "terminal.startup"]
+        package static let diagnosticTraceTags = [
+            "performance", "atoms", "app.startup", "terminal.startup",
+        ]
+        package static let idlePopulationNames = ["zero_pty_idle"]
+        package static let actionPopulationNames = ["search_clear", "grouping", "hide_show", "tab_switch"]
+    }
+
     package enum Diagnostics {
         package static let traceEventQueueBufferLimit: Int = 4096
+        package static let repoExplorerExactAttributionRecordLimit: Int = 2048
         package static let repoExplorerScrollBurstSeparationNanoseconds: UInt64 = 250_000_000
         /// Native hot-path performance facts must shed before reaching
         /// swift-otel. Topology lookup telemetry is informational, so repeated
@@ -142,13 +209,14 @@ package enum AppPolicies {
         package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
     }
 
-    /// Bounds for the source-side "last output line" contraction (Contract 7):
-    /// how large the resulting candidate line may be before it can reach the
-    /// EventBus. The Ghostty viewport read itself is unbounded (full
-    /// viewport, one call per settle) — see
-    /// `SurfaceManager.readViewportTrailingText`.
+    /// Bounds for the source-side "last output line" contraction (Contract 7).
+    /// The pinned Ghostty C API cannot select the last N written viewport rows,
+    /// so one full-viewport read remains a measured exception after this
+    /// preflight cell cap. Raw bytes are rejected before String construction.
     package enum TerminalOutputCapture {
         package static let maxLastOutputLineUTF8Bytes: Int = 120
+        package static let maxViewportCellsPerSettleRead: Int = 250_000
+        package static let maxRawViewportUTF8Bytes: Int = 1_048_576
     }
 
     package enum NonterminalContentMount {
@@ -156,8 +224,14 @@ package enum AppPolicies {
     }
 
     package enum GitRefresh {
+        package static let sharedExactItemFingerprintAlgorithm = "sha256-v1"
+        package static let sharedExactItemFingerprintMaximumItemBytes: Int = 8 * 1024 * 1024
+        package static let sharedExactItemFingerprintMaximumUniqueItems: Int = 64
+        package static let sharedExactItemFingerprintMaximumTransactionBytes: Int = 32 * 1024 * 1024
         package static let statusUnavailableConsecutiveFailureThreshold: Int = 2
-        package static let defaultPolicy = Policy()
+        package static let defaultPolicy = Policy(
+            minimumAutomaticStartInterval: .milliseconds(300)
+        )
         package static let defaultStatusReadTimeout: Duration = .seconds(1)
         package static let defaultDiscoveryReadTimeout: Duration = .seconds(2)
         package static let defaultDetachedStatusReadLimit: Int = 4
@@ -165,6 +239,7 @@ package enum AppPolicies {
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
         package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
+        package static let telemetryFlushEventCount: UInt64 = 64
 
         package struct Policy: Equatable, Sendable {
             package let activePaneCadence: Duration
@@ -179,8 +254,6 @@ package enum AppPolicies {
             package let backgroundMaxConcurrent: Int
             package let visibleSidebarStripeSize: Int
             package let suppressedWorktreeTombstoneLimit: Int
-            package let maxNilStatusRetries: Int
-            package let nilStatusRetryDelay: Duration
             /// First backoff step applied when a worktree's status compute times
             /// out. The per-worktree circuit breaker doubles this per consecutive
             /// failure up to `statusFailureBackoffMaxDelay`, coalescing file-change
@@ -198,6 +271,18 @@ package enum AppPolicies {
             /// projector falls back to a full-worktree status, since a very large
             /// pathspec set approaches full-tree walk cost anyway.
             package let maxScopedStatusPathspecCount: Int
+            /// Maximum age of a reusable exact line-count detail when status facts
+            /// remain equal. A due detail is refreshed without discarding the last
+            /// complete accepted candidate.
+            package let lineDetailFreshnessInterval: Duration
+            /// Process-wide spacing between automatic local-status starts. A
+            /// 300ms production interval spreads 148 visible eligibility slots
+            /// across 44.4 seconds, leaving duty-gap headroom inside 60 seconds.
+            package let minimumAutomaticStartInterval: Duration
+            /// Multiplier applied to completed physical duty before another
+            /// automatic start may run. Freshness cadence remains the primary
+            /// floor; this prevents slow reads from creating continuous duty.
+            package let automaticDutyGapMultiplier: Int
             /// Periodic cadence multipliers indexed by consecutive unchanged
             /// results. The default reaches 4x after two equal outcomes, reducing
             /// admissions by 75% while retaining a bounded refresh backstop.
@@ -216,15 +301,16 @@ package enum AppPolicies {
                 backgroundMaxConcurrent: Int = 1,
                 visibleSidebarStripeSize: Int = 8,
                 suppressedWorktreeTombstoneLimit: Int = 1024,
-                maxNilStatusRetries: Int = 1,
-                nilStatusRetryDelay: Duration = .seconds(5),
                 statusFailureBackoffBaseDelay: Duration = .seconds(5),
                 statusFailureBackoffMultiplier: Int = 2,
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
                 capacityRetryBaseDelay: Duration = .milliseconds(500),
                 capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
                 maxScopedStatusPathspecCount: Int = 128,
-                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
+                lineDetailFreshnessInterval: Duration = .seconds(960),
+                automaticDutyGapMultiplier: Int = 4,
+                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4],
+                minimumAutomaticStartInterval: Duration = .zero
             ) {
                 precondition(activePaneCadence > .zero)
                 precondition(visibleSidebarCadence >= activePaneCadence)
@@ -238,13 +324,15 @@ package enum AppPolicies {
                 precondition(backgroundMaxConcurrent > 0)
                 precondition(visibleSidebarStripeSize > 0)
                 precondition(suppressedWorktreeTombstoneLimit > 0)
-                precondition(maxNilStatusRetries >= 0)
                 precondition(statusFailureBackoffBaseDelay > .zero)
                 precondition(statusFailureBackoffMultiplier >= 1)
                 precondition(statusFailureBackoffMaxDelay >= statusFailureBackoffBaseDelay)
                 precondition(capacityRetryBaseDelay > .zero)
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
+                precondition(lineDetailFreshnessInterval > .zero)
+                precondition(minimumAutomaticStartInterval >= .zero)
+                precondition(automaticDutyGapMultiplier >= 1)
                 precondition(unchangedStatusCadenceMultipliers.first == 1)
                 precondition(
                     unchangedStatusCadenceMultipliers.elementsEqual(
@@ -264,14 +352,15 @@ package enum AppPolicies {
                 self.backgroundMaxConcurrent = backgroundMaxConcurrent
                 self.visibleSidebarStripeSize = visibleSidebarStripeSize
                 self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
-                self.maxNilStatusRetries = maxNilStatusRetries
-                self.nilStatusRetryDelay = nilStatusRetryDelay
                 self.statusFailureBackoffBaseDelay = statusFailureBackoffBaseDelay
                 self.statusFailureBackoffMultiplier = statusFailureBackoffMultiplier
                 self.statusFailureBackoffMaxDelay = statusFailureBackoffMaxDelay
                 self.capacityRetryBaseDelay = capacityRetryBaseDelay
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
+                self.lineDetailFreshnessInterval = lineDetailFreshnessInterval
+                self.minimumAutomaticStartInterval = minimumAutomaticStartInterval
+                self.automaticDutyGapMultiplier = automaticDutyGapMultiplier
                 self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
 
@@ -301,34 +390,40 @@ package enum AppPolicies {
                     )
             }
 
+            package func adaptiveCadence(
+                base: Duration,
+                unchangedResultCount: Int
+            ) -> Duration {
+                let index = min(max(unchangedResultCount, 0), unchangedStatusCadenceMultipliers.count - 1)
+                return Self.scaled(base, by: unchangedStatusCadenceMultipliers[index])
+            }
+
+            package func automaticDutyGap(for completedDuty: Duration) -> Duration {
+                Self.scaled(completedDuty, by: automaticDutyGapMultiplier)
+            }
+
+            package var maximumSettlementInterval: Duration {
+                max(
+                    adaptiveCadence(base: backgroundCadence, unchangedResultCount: .max),
+                    max(lineDetailFreshnessInterval, statusFailureBackoffMaxDelay)
+                )
+            }
+
+            package func backgroundRegistrationDelay(for worktreeId: UUID) -> Duration {
+                registrationPhaseDelay(for: worktreeId, cadence: backgroundCadence)
+            }
+
+            package func registrationPhaseDelay(
+                for worktreeId: UUID,
+                cadence: Duration
+            ) -> Duration {
+                let stripe = backgroundStripe(for: worktreeId) + 1
+                let cadenceNanoseconds = Self.nanoseconds(from: cadence)
+                return .nanoseconds(cadenceNanoseconds * Int64(stripe) / Int64(backgroundStripeCount))
+            }
+
             package func backgroundStripe(for worktreeId: UUID) -> Int {
                 Int(Self.stableHash(for: worktreeId) % UInt64(backgroundStripeCount))
-            }
-
-            package func isBackgroundWorktreeDue(_ worktreeId: UUID, tick: UInt64) -> Bool {
-                let currentStripe = Int(tick % UInt64(backgroundStripeCount))
-                return backgroundStripe(for: worktreeId) == currentStripe
-            }
-
-            package func cadenceTickInterval(forUnchangedResultCount count: Int) -> UInt64 {
-                let index = min(max(count, 0), unchangedStatusCadenceMultipliers.count - 1)
-                return UInt64(unchangedStatusCadenceMultipliers[index])
-            }
-
-            package var activeCadence: Duration {
-                activePaneCadence
-            }
-
-            package func cadenceTickInterval(
-                for cadence: Duration,
-                unchangedResultCount: Int
-            ) -> UInt64 {
-                let baseTicks = Self.tickCount(for: cadence, baseCadence: activePaneCadence)
-                return baseTicks * cadenceTickInterval(forUnchangedResultCount: unchangedResultCount)
-            }
-
-            package func isCadenceDue(_ cadence: Duration, tick: UInt64) -> Bool {
-                tick.isMultiple(of: Self.tickCount(for: cadence, baseCadence: activePaneCadence))
             }
 
             private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
@@ -337,16 +432,6 @@ package enum AppPolicies {
                     scaledDuration += duration
                 }
                 return scaledDuration
-            }
-
-            private static func tickCount(for cadence: Duration, baseCadence: Duration) -> UInt64 {
-                var elapsed = Duration.zero
-                var tickCount: UInt64 = 0
-                while elapsed < cadence {
-                    elapsed += baseCadence
-                    tickCount &+= 1
-                }
-                return max(1, tickCount)
             }
 
             private static func jitterDelay(maxDelay: Duration, worktreeId: UUID) -> Duration {
@@ -380,7 +465,9 @@ package enum AppPolicies {
     }
 
     package enum FilesystemIngress {
-        package static let bufferedFineBatchCapacity: Int = 64
+        package static let bufferedFineBatchCapacity: Int = 512
+        package static let maximumRetainedOverflowPathsPerRegistration: Int = 256
+        package static let maximumRetainedActivityOverflowParticipantScopes: Int = 256
     }
 
     package enum FilesystemSourceSync {
@@ -389,7 +476,26 @@ package enum AppPolicies {
         package static let maximumWorktreeKeysPerBatch: Int = 32
     }
 
+    package enum RemoteReferenceRefresh {
+        package static let automaticFreshnessFloor: Duration = .seconds(180)
+        package static let automaticFailureRetryFloor: Duration = .seconds(180)
+        package static let maximumConcurrentFetches: Int = 1
+        package static let childProcessTimeoutSeconds: Double = 120
+        package static let capacityRecheckDelay: Duration = .milliseconds(500)
+    }
+
+    package enum RepositoryFactDemand {
+        package static let telemetryFlushInputCount: UInt64 = 64
+    }
+
     package enum ForgeRefresh {
+        package static let automaticFailureRetryFloor: Duration = .seconds(180)
+        package static let maximumConcurrentProviderRequests: Int = 2
+        package static let maximumBranchAliasesPerBatch: Int = 8
+        package static let graphQLPageSize: Int = 25
+        package static let maximumPagesPerBranch: Int = 4
+        package static let providerTimeoutSeconds: Double = 8
+        package static let capacityRecheckDelay: Duration = .milliseconds(500)
         package static let defaultPollingInterval: Duration = .seconds(45)
         package static let pendingFollowUpDelay: Duration = .seconds(1)
         package static let failureBackoffBaseDelay: Duration = .seconds(5)
@@ -416,9 +522,6 @@ package enum AppPolicies {
     }
 
     package enum Forge {
-        /// Hard cap for one repository-wide pull request query. Reaching the
-        /// cap is treated as potentially truncated rather than complete.
-        package static let pullRequestResultLimit: Int = 200
         /// Shared floor for automatic-refresh freshness and retries after a
         /// failed, truncated, or rate-limited pull request query.
         package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
@@ -488,9 +591,9 @@ package enum AppPolicies {
         package static let agentSettledMinimumActiveDuration: Duration = .seconds(360)
         package static let agentSettledQuietDuration: Duration = .seconds(180)
         package static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
-        /// Timerless leading-edge rate limit for a pane's activity-status fact (sidebar L2 text):
-        /// at most one publish per pane within this window. A settle inside the window is dropped
-        /// entirely, not deferred; the next settle after the window naturally carries the latest line.
+        /// Minimum publication interval for a pane's activity-status fact (sidebar L2 text).
+        /// A distinct settle inside the window is retained as the pane's latest pending value and
+        /// published at the deadline without requiring another settle.
         package static let paneActivityStatusMinimumPublishInterval: Duration = .seconds(10)
     }
 

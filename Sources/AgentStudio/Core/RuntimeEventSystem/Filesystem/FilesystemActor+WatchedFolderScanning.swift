@@ -105,21 +105,35 @@ extension FilesystemActor {
         watchedFolderScanState.sourceIDByLegacyCallbackRoutingID[worktreeID] != nil
     }
 
-    func handleWatchedFolderFSEvent(_ batch: FSEventBatch) async {
+    func handleWatchedFolderFSEvent(
+        _ batch: FSEventBatch,
+        shouldRecordLogicalDebt: Bool = true
+    ) async {
         guard batch.paths.contains(where: Self.isGitTopologyPath) else { return }
         guard
             let sourceID = watchedFolderScanState.sourceIDByLegacyCallbackRoutingID[
                 batch.worktreeId
             ]
         else { return }
-        await submitWatchedFolderScan(sourceID: sourceID, cause: .callback)
+        await submitWatchedFolderScan(
+            sourceID: sourceID,
+            cause: .callback,
+            shouldRecordLogicalDebt: shouldRecordLogicalDebt
+        )
     }
 
-    func handleCoarseWatchedFolderFSEvent(worktreeId: UUID) async {
+    func handleCoarseWatchedFolderFSEvent(
+        worktreeId: UUID,
+        shouldRecordLogicalDebt: Bool = true
+    ) async {
         guard
             let sourceID = watchedFolderScanState.sourceIDByLegacyCallbackRoutingID[worktreeId]
         else { return }
-        await submitWatchedFolderScan(sourceID: sourceID, cause: .callback)
+        await submitWatchedFolderScan(
+            sourceID: sourceID,
+            cause: .callback,
+            shouldRecordLogicalDebt: shouldRecordLogicalDebt
+        )
     }
 
     private func reconcileWatchedFolderRegistrations(
@@ -238,8 +252,10 @@ extension FilesystemActor {
 
     private func submitWatchedFolderScan(
         sourceID: FilesystemSourceID,
-        cause: WatchedFolderScanCause
+        cause: WatchedFolderScanCause,
+        shouldRecordLogicalDebt: Bool = true
     ) async {
+        guard !watchedFolderScanState.isShuttingDown else { return }
         guard let registration = watchedFolderScanState.registrationsBySourceID[sourceID] else {
             return
         }
@@ -251,7 +267,9 @@ extension FilesystemActor {
         case .accepted(let acceptance):
             watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] = acceptance.coverage
             ensureWatchedFolderResultDrainStarted()
-            await recordLogicalDebtSnapshotIfChanged()
+            if shouldRecordLogicalDebt {
+                await recordLogicalDebtSnapshotIfChanged()
+            }
         case .rejected:
             return
         }

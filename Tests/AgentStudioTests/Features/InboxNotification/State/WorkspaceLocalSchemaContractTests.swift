@@ -164,6 +164,15 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("workspace_id", 1), ("entity_kind", 2), ("entity_key", 3),
         ("interaction_kind", 0), ("last_interacted_at", 0),
     ],
+    "local_repository_activity": [
+        ("repository_stable_key", 1), ("last_qualifying_activity_at", 0),
+        ("continuous_coverage_started_at", 0), ("updated_at", 0),
+        ("owned_promotion_attempt_id", 0), ("owned_promotion_started_at", 0),
+        ("owned_promotion_unsettled", 0),
+    ],
+    "local_repository_activity_cursor": [
+        ("volume_identifier", 1), ("last_event_id", 0), ("updated_at", 0),
+    ],
     "local_notification_inbox_collapsed_group": [
         ("workspace_id", 1), ("group_key", 2),
     ],
@@ -220,6 +229,8 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_workspace_entity_recency": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
+    "local_repository_activity": ["TEXT", "REAL", "REAL", "REAL", "TEXT", "REAL", "INTEGER"],
+    "local_repository_activity_cursor": ["TEXT", "INTEGER", "REAL"],
     "local_notification_inbox_collapsed_group": ["TEXT", "TEXT"],
     "local_notification_inbox_item": [
         "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "INTEGER",
@@ -254,6 +265,10 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
     "local_workspace_entity_recency": [
         "workspace_id", "entity_kind", "entity_key", "interaction_kind", "last_interacted_at",
     ],
+    "local_repository_activity": [
+        "continuous_coverage_started_at", "updated_at", "owned_promotion_unsettled",
+    ],
+    "local_repository_activity_cursor": ["last_event_id", "updated_at"],
     "local_notification_inbox_collapsed_group": ["workspace_id", "group_key"],
     "local_notification_inbox_item": [
         "workspace_id", "id", "timestamp", "kind", "title", "source_kind", "is_read",
@@ -363,6 +378,8 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_window_sidebar_collapsed_group": 0,
         "local_entity_recency": 0,
         "local_workspace_entity_recency": 0,
+        "local_repository_activity": 1,
+        "local_repository_activity_cursor": 0,
         "local_notification_inbox_collapsed_group": 0,
         "local_notification_inbox_item": 2,
         "local_editor_preferences": 0,
@@ -383,6 +400,12 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["local_window_sidebar_collapsed_group"]?.contains("ON DELETE CASCADE") == true)
     #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)
+    #expect(
+        tableSQL["local_repository_activity"]?.contains("owned_promotion_unsettled IN (0, 1)")
+            == true
+    )
+    #expect(tableSQL["local_repository_activity"]?.components(separatedBy: "CHECK (").count == 2)
+    #expect(tableSQL["local_repository_activity_cursor"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_notification_inbox_item"]?.components(separatedBy: "CHECK (").count == 3)
     #expect(tableSQL["local_notification_inbox_item"]?.contains("is_read IN (0, 1)") == true)
     #expect(

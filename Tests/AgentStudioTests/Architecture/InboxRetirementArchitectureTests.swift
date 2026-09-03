@@ -1,0 +1,286 @@
+import Foundation
+import Testing
+
+@testable import AgentStudioTestSupport
+
+@Suite("InboxRetirementArchitectureTests")
+struct InboxRetirementArchitectureTests {
+    @Test("dormant Inbox owners carry the canonical retirement contract")
+    func dormantInboxOwnersCarryCanonicalRetirementContract() throws {
+        let retirementContract = """
+            /// Inbox presentation and ingestion are intentionally retired.
+            /// Source and persisted rows remain only for a later data-safe removal.
+            /// Do not reconnect these owners to App, command, toolbar, shortcut, IPC, or runtime-bus composition without a new product decision.
+            """
+        let dormantOwnerDeclarations = [
+            (
+                "Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift",
+                "package final class InboxNotificationStore"
+            ),
+            (
+                "Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift",
+                "package struct InboxNotificationSidebarView"
+            ),
+            (
+                "Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift",
+                "package final class InboxNotificationRouter"
+            ),
+        ]
+
+        for (path, declaration) in dormantOwnerDeclarations {
+            let source = try sourceFile(path)
+            #expect(
+                source.contains("\(retirementContract)\n@MainActor\n\(declaration)"),
+                "Missing canonical retirement contract at \(path)'s owner entrypoint"
+            )
+        }
+    }
+
+    @Test("application sidebar composition is Repo Explorer only")
+    func applicationSidebarCompositionIsRepoExplorerOnly() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift")
+
+        #expect(!source.contains("import AgentStudioInboxNotification"))
+        #expect(!source.contains("InboxNotificationSidebarView("))
+        #expect(!source.contains("InboxNotificationAtom"))
+        #expect(!source.contains("InboxNotificationPrefsAtom"))
+        #expect(!source.contains("InboxSidebarState"))
+        #expect(!source.contains("onShowNotificationsForWorktree"))
+        #expect(!source.contains("rollUpAlertCount"))
+        #expect(!source.contains("showNotifications("))
+    }
+
+    @Test("workspace boot does not activate Inbox persistence or routing")
+    func workspaceBootDoesNotActivateInboxPersistenceOrRouting() throws {
+        let workspaceBoot = try sourceFile("Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift")
+        let inboxBoot = try sourceFile("Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationBoot.swift")
+
+        #expect(!workspaceBoot.contains("bootLoadInboxNotificationStore()"))
+        #expect(!workspaceBoot.contains("bootStartInboxNotificationRouter("))
+        #expect(!inboxBoot.contains("func bootStartTerminalActivityRouter("))
+        #expect(inboxBoot.contains("Inbox presentation and ingestion are intentionally retired"))
+    }
+
+    @Test("active workspace settings do not read or write Inbox preferences")
+    func activeWorkspaceSettingsDoNotReadOrWriteInboxPreferences() throws {
+        let settingsStore = try sourceFile(
+            "Sources/AgentStudio/App/Coordination/WorkspaceSettingsStore.swift"
+        )
+        let datastore = try sourceFile(
+            "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift"
+        )
+
+        #expect(!settingsStore.contains("InboxNotificationPrefsAtom"))
+        #expect(!settingsStore.contains("inboxNotificationPrefs"))
+        #expect(!datastore.contains("replaceInboxNotificationPreferences"))
+    }
+
+    @Test("window pane and projection composition expose no Inbox presentation")
+    func appCompositionExposesNoInboxPresentation() throws {
+        let mainWindow = try sourceFile("Sources/AgentStudio/App/Windows/MainWindowController.swift")
+        let mainSplit = try sourceFile("Sources/AgentStudio/App/Windows/MainSplitViewController.swift")
+        let tabBar = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift")
+        let launcher = try sourceFile("Sources/AgentStudio/App/Panes/WorkspaceLauncherProjector.swift")
+
+        #expect(!mainWindow.contains(".inboxSidebar"))
+        #expect(!mainWindow.contains("showInboxToolbarAction"))
+        #expect(!mainSplit.contains("makePaneInboxPresentation()"))
+        #expect(!tabBar.contains("attentionLane"))
+        #expect(!launcher.contains("notificationCount"))
+    }
+
+    @Test("performance diagnostics and Repo Explorer contain no retained Inbox execution seams")
+    func performanceDiagnosticsAndRepoExplorerContainNoInboxExecutionSeams() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appBootRoot = projectRoot.appending(path: "Sources/AgentStudio/App/Boot")
+        let startupDiagnosticSources = try FileManager.default.contentsOfDirectory(
+            at: appBootRoot,
+            includingPropertiesForKeys: nil
+        )
+        .filter {
+            $0.pathExtension == "swift"
+                && $0.lastPathComponent.contains("StartupDiagnostic")
+        }
+        .map { try String(contentsOf: $0, encoding: .utf8) }
+        let repoExplorerView = try sourceFile(
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
+        )
+        let worktreeRow = try sourceFile(
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift"
+        )
+        let retiredProjectionPath = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Panes/WorkspaceNotificationCountProjection.swift"
+        )
+
+        for startupDiagnosticSource in startupDiagnosticSources {
+            #expect(!startupDiagnosticSource.contains("AgentStudioInboxNotification"))
+            #expect(!startupDiagnosticSource.contains("runInboxSidebarProjectionProof"))
+            #expect(!startupDiagnosticSource.contains("atomStore.inboxNotification"))
+            #expect(!startupDiagnosticSource.contains("InboxNotification("))
+            #expect(!startupDiagnosticSource.contains("InboxNotificationListProjectionWorker"))
+        }
+        #expect(!repoExplorerView.contains("onShowNotificationsForWorktree"))
+        #expect(!repoExplorerView.contains("unreadCount"))
+        #expect(!worktreeRow.contains("onUnreadPillTap"))
+        #expect(!worktreeRow.contains("unreadCount"))
+        #expect(!FileManager.default.fileExists(atPath: retiredProjectionPath.path))
+    }
+
+    @Test("App IPC sidebar composition is repository-only")
+    func appIPCSidebarCompositionIsRepositoryOnly() throws {
+        let adapter = try sourceFile(
+            "Sources/AgentStudio/App/IPCComposition/AgentStudioIPCSidebarAdapter.swift"
+        )
+        let appIPC = try sourceFile("Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
+
+        #expect(!adapter.contains("InboxNotificationPrefsAtom"))
+        #expect(!adapter.contains("case .inbox"))
+        #expect(!appIPC.contains("inboxPrefs:"))
+    }
+
+    @Test("authoritative architecture contracts record Inbox retirement")
+    func authoritativeArchitectureContractsRecordInboxRetirement() throws {
+        let requiredStatements = [
+            ("docs/architecture/commands/command_specs.md", "intentionally retained but retired"),
+            ("docs/architecture/commands/ipc.md", "Retained Inbox command identities are not exposed"),
+            ("docs/architecture/hosting/appkit_swiftui_architecture.md", "sole stable sidebar keyboard surface"),
+            ("docs/architecture/state/workspace_data_architecture.md", "dormant. Normal boot"),
+            ("docs/architecture/state/atom_persistence_boundaries.md", "not activated by App boot"),
+            ("docs/architecture/structure/component_architecture.md", "no active App owner loads"),
+            ("docs/architecture/README.md", "dormant retained Inbox rows"),
+        ]
+
+        for (path, statement) in requiredStatements {
+            #expect(try sourceFile(path).contains(statement), "Missing retirement contract in \(path)")
+        }
+    }
+
+    @Test("authoritative architecture contracts contain no active Inbox ownership claims")
+    func authoritativeArchitectureContractsContainNoActiveInboxOwnershipClaims() throws {
+        let contracts:
+            [(
+                path: String,
+                requiredRetirementStatements: [String],
+                forbiddenActiveClaims: [String]
+            )] = [
+                (
+                    "docs/architecture/state/workspace_data_architecture.md",
+                    [
+                        "There is no active Inbox presentation, command/query, router/store,",
+                        "Retained Inbox atom/source code is dormant and has no active App reader.",
+                    ],
+                    [
+                        "Notification unread counts → `InboxNotificationAtom.unreadCount",
+                        "derived from InboxNotificationAtom.unreadCount",
+                        "The bell pill reads directly from the atom",
+                        "InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells",
+                        "pane-placement, unread, zoom",
+                    ]
+                ),
+                (
+                    "docs/architecture/commands/command_specs.md",
+                    [
+                        "Retained Inbox command identities are historical compatibility source, not",
+                        "no bell control, pane",
+                    ],
+                    [
+                        "`toggleSidebar`, `showInboxNotifications`, `showWorktreeSidebar`",
+                        "`openPaneLocationInFinder`, `showPaneInboxNotifications`",
+                        "`showPaneInboxNotifications` is pane-scoped",
+                        "It must stay enabled for a focused",
+                    ]
+                ),
+                (
+                    "docs/architecture/state/atom_persistence_boundaries.md",
+                    [
+                        "All retained Inbox atom,",
+                        "historical examples, not live owners",
+                    ],
+                    [
+                        "`InboxNotificationAtom` exists because",
+                        "the sidebar observes the list",
+                        "`WorkspacePaneGraphAtom` pane slots, `InboxNotificationAtom` unread counts",
+                    ]
+                ),
+                (
+                    "docs/architecture/structure/directory_structure.md",
+                    [
+                        "`AgentStudioInboxNotification` is a retained dormant module dependency",
+                        "Active workspace settings persistence covers editor and Repo Explorer",
+                        "Do not reconnect the retained Inbox module",
+                        "without a new product decision.",
+                    ],
+                    [
+                        "Notification inbox state, persistence, and UI",
+                        "`InboxNotificationAtom` exists because\n  the sidebar observes the list",
+                        "`WorkspaceSettingsStore` co-persists editor, repo-explorer, and\ninbox preferences",
+                    ]
+                ),
+                (
+                    "docs/architecture/runtime/pane_runtime_eventbus_design.md",
+                    [
+                        "Retained `InboxNotificationRouter` source is dormant and historical.",
+                        "Do not reconnect it to App or runtime-bus composition",
+                        "without a new product decision.",
+                    ],
+                    [
+                        "Inbox promotion consumes `PaneRuntimeEvent.terminal(.bellRang)`"
+                    ]
+                ),
+                (
+                    "docs/architecture/runtime/pane_runtime_architecture.md",
+                    [
+                        "Inbox classification is not an active runtime contract.",
+                        "Retained Inbox reducer and router source is dormant historical implementation",
+                    ],
+                    [
+                        "disposition and Inbox classification must stay exhaustive without silent defaults"
+                    ]
+                ),
+                (
+                    "docs/architecture/structure/architecture_lint_inventory.md",
+                    [
+                        "The retained `InboxNotificationRouter` source is dormant historical implementation",
+                        "must not be reconnected without a new product decision.",
+                    ],
+                    [
+                        "`InboxNotificationRouter`\nindependently uses exhaustive top-level and nested owned-event switches"
+                    ]
+                ),
+            ]
+
+        try assertRetiredInboxArchitectureContracts(contracts)
+    }
+
+    private func assertRetiredInboxArchitectureContracts(
+        _ contracts: [(
+            path: String,
+            requiredRetirementStatements: [String],
+            forbiddenActiveClaims: [String]
+        )]
+    ) throws {
+        for contract in contracts {
+            let source = try sourceFile(contract.path)
+            for requiredStatement in contract.requiredRetirementStatements {
+                #expect(
+                    source.contains(requiredStatement),
+                    "Missing explicit Inbox retirement statement in \(contract.path): \(requiredStatement)"
+                )
+            }
+            for forbiddenActiveClaim in contract.forbiddenActiveClaims {
+                #expect(
+                    !source.contains(forbiddenActiveClaim),
+                    "Stale active Inbox claim in \(contract.path): \(forbiddenActiveClaim)"
+                )
+            }
+        }
+    }
+
+    private func sourceFile(_ relativePath: String) throws -> String {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        return try String(
+            contentsOf: projectRoot.appending(path: relativePath),
+            encoding: .utf8
+        )
+    }
+}

@@ -103,6 +103,36 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
 
         #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == .string(cadenceTier))
     }
+
+    @Test(
+        "git projection keeps every bounded refresh trigger",
+        arguments: [
+            "registration", "filesystem_change", "periodic", "visibility_change",
+            "remote_reference_refresh", "retry",
+        ]
+    )
+    func gitProjectionKeepsBoundedRefreshTrigger(triggerSource: String) {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 503,
+            severityText: .info,
+            body: "performance.git.status",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.trigger_source": .string(triggerSource)
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.performance.git.trigger_source"]
+                == .string(triggerSource)
+        )
+    }
 }
 
 extension AgentStudioOTLPProjectedLogRecord {

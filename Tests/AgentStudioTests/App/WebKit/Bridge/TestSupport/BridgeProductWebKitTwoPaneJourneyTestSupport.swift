@@ -154,6 +154,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private struct ControllerInput {
         let gitReadContext: BridgeGitReadContext
         let initialActivity: BridgePaneActivity
+        let gitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
         let repoURL: URL
         let reviewProvider: any BridgeReviewSourceProvider
         let title: String
@@ -203,6 +204,9 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
         let worktreeProductConstructionCoordinator =
             BridgeWorktreeProductConstructionCoordinator()
+        let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
+            physicalGate: AgentStudioGitStatusPhysicalGate()
+        )
         let paneOneGitReadContext = makeBridgeGitReadContext(rootURL: paneOneRepoURL)
         let paneTwoGitReadContext = makeBridgeGitReadContext(rootURL: paneTwoRepoURL)
         let paneOneReviewProvider = BridgeProductWebKitGatedReviewSourceProvider(
@@ -221,6 +225,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             ControllerInput(
                 gitReadContext: paneOneGitReadContext,
                 initialActivity: .foreground,
+                gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
                 repoURL: paneOneRepoURL,
                 reviewProvider: paneOneReviewProvider,
                 title: "Hosted Pane One",
@@ -232,6 +237,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             ControllerInput(
                 gitReadContext: paneTwoGitReadContext,
                 initialActivity: .dormant,
+                gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
                 repoURL: paneTwoRepoURL,
                 reviewProvider: paneTwoReviewProvider,
                 title: "Hosted Pane Two",
@@ -553,6 +559,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             reviewSourceProvider: input.reviewProvider,
             gitReadContext: input.gitReadContext,
             worktreeProductConstructionCoordinator: input.worktreeProductConstructionCoordinator,
+            gitWorkingTreeStatusProvider: input.gitWorkingTreeStatusProvider,
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             telemetryRecorder: input.traceRecorder,

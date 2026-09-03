@@ -13,6 +13,55 @@ struct AgentStudioOTLPStartupDiagnosticProjectionTests {
         #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
     }
 
+    @Test
+    func sidebarProofFixtureProjectionKeepsEveryScrubbedRootVerdict() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 101,
+            severityText: .info,
+            body: "app.startup_diagnostic.sidebar_proof.fixture_ready",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
+            attributes: [
+                "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.control_root_present": .bool(true),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count": .int(1),
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count": .int(2),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present"
+            ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present"
+            ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.control_root_present"
+            ] == .bool(true)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count"
+            ] == .int(2)
+        )
+    }
+
     private func assertStartupDiagnosticProjectionKeepsExpectedAttributes(
         _ projection: AgentStudioOTLPProjectedLogRecord
     ) {

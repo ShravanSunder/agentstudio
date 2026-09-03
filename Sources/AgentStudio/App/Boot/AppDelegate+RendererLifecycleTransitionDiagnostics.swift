@@ -6,6 +6,14 @@ import Foundation
 import GhosttyKit
 
 #if DEBUG
+    private func rendererLifecycleViewportReadContains(
+        _ result: TerminalViewportTextReadResult,
+        marker: String
+    ) -> Bool {
+        guard case .value(let text) = result else { return false }
+        return text.contains(marker)
+    }
+
     struct RendererLifecycleDeliveryValidation {
         static func isExact(
             before: [UUID: Bool],
@@ -99,8 +107,10 @@ import GhosttyKit
                 await waitForRendererLifecycleCondition(
                     timeout: .seconds(10),
                     {
-                        SurfaceManager.shared.readViewportTrailingText(forSurfaceID: hiddenSurfaceID)?
-                            .contains(hiddenOutputMarker) == true
+                        rendererLifecycleViewportReadContains(
+                            SurfaceManager.shared.readViewportTrailingText(forSurfaceID: hiddenSurfaceID),
+                            marker: hiddenOutputMarker
+                        )
                     })
             else { return (false, "hidden_output_not_observed") }
             let revealSnapshot = performanceTraceRecorder.rendererLifecycleSnapshot()
@@ -117,8 +127,10 @@ import GhosttyKit
                 return (false, "tab_surface_identity_changed")
             }
             guard
-                SurfaceManager.shared.readViewportTrailingText(forSurfaceID: hiddenSurfaceID)?
-                    .contains(hiddenOutputMarker) == true
+                rendererLifecycleViewportReadContains(
+                    SurfaceManager.shared.readViewportTrailingText(forSurfaceID: hiddenSurfaceID),
+                    marker: hiddenOutputMarker
+                )
             else { return (false, "hidden_output_readback_failed") }
             return (true, "none")
         }

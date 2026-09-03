@@ -69,7 +69,6 @@ struct DrawerPanel: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let dropTarget: DrawerRearrangeTarget?
     /// Active drag's source pane id, used to omit self/adjacent
     /// targets from the visuals dict the overlay paints (R1, R2, R8).
@@ -128,7 +127,6 @@ struct DrawerPanel: View {
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation?,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        notificationCountForWorktree: @escaping (UUID) -> Int,
         dropTarget: DrawerRearrangeTarget?,
         dragSourcePaneId: UUID?,
         workspaceWindowId: UUID? = nil
@@ -154,7 +152,6 @@ struct DrawerPanel: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.dropTarget = dropTarget
         self.dragSourcePaneId = dragSourcePaneId
         self.workspaceWindowId = workspaceWindowId
@@ -238,7 +235,6 @@ struct DrawerPanel: View {
             paneInboxPresentation: paneInboxPresentation,
             paneNotePresentation: nil,
             onOpenPaneGitHub: onOpenPaneGitHub,
-            notificationCountForWorktree: notificationCountForWorktree,
             workspaceWindowId: workspaceWindowId,
             paneSurfaceToolbarPresentation: { paneId in
                 guard let pane = store.paneAtom.pane(paneId) else {
@@ -437,7 +433,6 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     appLifecycleStore: AppLifecycleAtom(),
                     paneInboxPresentation: nil,
                     onOpenPaneGitHub: { _ in },
-                    notificationCountForWorktree: { _ in 0 },
                     dropTarget: nil,
                     dragSourcePaneId: nil
                 )

@@ -109,7 +109,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let viewRegistry: ViewRegistry
     private let bridgePaneAttendance: BridgePaneAttendanceAtom
     private let editorChooser: EditorChooserState
-    private let inboxAtom: InboxNotificationAtom
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -195,9 +194,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private var emptyStateView: NSHostingView<AnyView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
-    #if DEBUG
-        private(set) var paneRepresentableDismantleCount = 0
-    #endif
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
@@ -230,7 +226,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         viewRegistry: ViewRegistry,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         editorChooser: EditorChooserState,
-        inboxAtom: InboxNotificationAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
@@ -277,7 +272,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.viewRegistry = viewRegistry
         self.bridgePaneAttendance = bridgePaneAttendance
         self.editorChooser = editorChooser
-        self.inboxAtom = inboxAtom
         self.paneInboxPresentation = paneInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
@@ -309,12 +303,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
     }
-
-    #if DEBUG
-        func recordPaneRepresentableDismantleForTesting() {
-            paneRepresentableDismantleCount += 1
-        }
-    #endif
 
     // MARK: - View Lifecycle
 
@@ -1227,7 +1215,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 viewRegistry.ensureSlot(for: paneId)
             }
         }
-        let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
             octiconLoader: octiconLoader,
@@ -1251,12 +1238,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneNotePresentation: paneNotePresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
-            },
-            notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.rollUpAlertCount(
-                    worktreeId: worktreeId,
-                    inboxAtom: inboxAtom
-                )
             },
             workspaceWindowId: workspaceWindowId,
             paneSurfaceToolbarPresentation: { [weak self] paneId in
@@ -1481,6 +1462,46 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func activeTabHost() -> PersistentTabHostView? {
         guard let activeTabId = store.tabLayoutAtom.activeTabId else { return nil }
         return tabContentHosts[activeTabId]
+    }
+
+    func sidebarPerformanceProofTabReadback(
+        window: NSWindow?
+    ) -> SidebarPerformanceProofTabReadback {
+        let orderedTabIDs = store.tabShellAtom.orderedTabIds
+        let activeTabID = store.tabLayoutAtom.activeTabId
+        let activePaneID = activeTabID.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let activePaneIDByTabID = Dictionary(
+            uniqueKeysWithValues: orderedTabIDs.compactMap { tabID in
+                store.tabLayoutAtom.tab(tabID)?.activePaneId.map { (tabID, $0) }
+            }
+        )
+        let activeHost = activeTabID.flatMap { tabContentHosts[$0] }
+        let activePaneView = activePaneID.flatMap { viewRegistry.view(for: $0) }
+        let responderView = window?.firstResponder as? NSView
+
+        return SidebarPerformanceProofTabReadback(
+            orderedTabIDs: orderedTabIDs,
+            activeTabID: activeTabID,
+            activePaneID: activePaneID,
+            activePaneIDByTabID: activePaneIDByTabID,
+            nativeActiveTabIsVisible: activeHost.map(Self.isEffectivelyVisible) ?? false,
+            nativeActivePaneIsVisible: activePaneView.map(Self.isEffectivelyVisible) ?? false,
+            nativeActivePaneHasFocus: activePaneView.map { paneView in
+                responderView.map { responder in
+                    responder === paneView || responder.isDescendant(of: paneView)
+                } ?? false
+            } ?? false
+        )
+    }
+
+    private static func isEffectivelyVisible(_ view: NSView) -> Bool {
+        guard view.window != nil, !view.frame.isEmpty else { return false }
+        var currentView: NSView? = view
+        while let candidate = currentView {
+            if candidate.isHidden { return false }
+            currentView = candidate.superview
+        }
+        return true
     }
 
     private func handleTerminalContainerBoundsChanged(reason: StaticString) {
@@ -1727,10 +1748,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Empty State
 
     private var emptyStateModel: WorkspaceEmptyStateModel {
-        WorkspaceLauncherProjector.project(
-            store: store,
-            inboxAtom: inboxAtom
-        )
+        WorkspaceLauncherProjector.project(store: store)
     }
 
     private func createEmptyStateView() -> NSHostingView<AnyView> {
@@ -4851,13 +4869,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         return PaneManagementContext.project(
             paneId: paneId,
-            store: store,
-            notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.rollUpAlertCount(
-                    worktreeId: worktreeId,
-                    inboxAtom: inboxAtom
-                )
-            }
+            store: store
         )
     }
 
@@ -4968,9 +4980,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         var appLifecycleStoreForTesting: AppLifecycleAtom { appLifecycleStore }
         func tabHostViewForTesting(tabId: UUID) -> NSView? {
             tabContentHosts[tabId]
-        }
-        var paneRepresentableDismantleCountForTesting: Int {
-            paneRepresentableDismantleCount
         }
         var managementNavigationScopeDescriptionForTesting: String {
             switch managementNavigationScope {

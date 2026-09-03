@@ -18,14 +18,7 @@ enum WorkspacePersistenceTransformer {
         _ snapshot: RepositoryTopologySQLiteSnapshot,
         repositoryTopologyAtom: RepositoryTopologyAtom
     ) {
-        guard
-            let replacement = preparedTopologyReplacement(
-                canonicalRepos: snapshot.repos,
-                canonicalWorktrees: snapshot.worktrees,
-                watchedPaths: snapshot.watchedPaths,
-                unavailableRepositoryIDs: snapshot.unavailableRepoIds
-            )
-        else {
+        guard case .prepared(let replacement) = prepareRepositoryTopology(snapshot) else {
             workspacePersistenceTransformerLogger.error(
                 "Rejected invalid repository topology snapshot before hydration"
             )
@@ -112,22 +105,41 @@ enum WorkspacePersistenceTransformer {
             ),
             unavailableRepositoryIDs: snapshot.unavailableRepoIds
         )
+        let normalizedWorktreeIDs = Set(normalizedTopology.repositories.flatMap(\.worktrees).map(\.id))
         return RepositoryTopologyReplacement.prepare(
             repositories: normalizedTopology.repositories,
             watchedPaths: snapshot.watchedPaths,
-            unavailableRepositoryIDs: normalizedTopology.unavailableRepositoryIDs
+            unavailableRepositoryIDs: normalizedTopology.unavailableRepositoryIDs,
+            stableIdentity: RepositoryTopologyStableIdentity(
+                repositoryStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: snapshot.repos.map { ($0.id, $0.stableKey) }
+                ),
+                worktreeStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: snapshot.worktrees.compactMap { worktree in
+                        normalizedWorktreeIDs.contains(worktree.id) ? (worktree.id, worktree.stableKey) : nil
+                    }
+                ),
+                watchedPathStableKeysByID: snapshot.watchedPathStableKeysByID
+            )
         )
     }
 
-    nonisolated static func topologyRestoreReasons(
+    @concurrent nonisolated static func topologyRestoreReasonsOffMain(
+        _ snapshot: RepositoryTopologySQLiteSnapshot
+    ) async -> Set<PaneTopologyPersistenceReason> {
+        topologyRestoreReasons(snapshot)
+    }
+
+    private nonisolated static func topologyRestoreReasons(
         _ snapshot: RepositoryTopologySQLiteSnapshot
     ) -> Set<PaneTopologyPersistenceReason> {
         let worktreesByRepositoryID = Dictionary(grouping: snapshot.worktrees, by: \.repoId)
         var reasons = Set<PaneTopologyPersistenceReason>()
         for repository in snapshot.repos {
             let repositoryWorktrees = worktreesByRepositoryID[repository.id] ?? []
+            let canonicalRepositoryPath = canonicalRecoveryPath(repository.repoPath)
             let rootWorktrees = repositoryWorktrees.filter {
-                $0.stableKey == repository.stableKey
+                canonicalRecoveryPath($0.path) == canonicalRepositoryPath
             }
             guard rootWorktrees.count == 1, let rootWorktree = rootWorktrees.first else {
                 reasons.insert(.topologyRestoreMissingMainDegraded)
@@ -147,6 +159,10 @@ enum WorkspacePersistenceTransformer {
         return reasons
     }
 
+    private nonisolated static func canonicalRecoveryPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     static func applyPreparedRepositoryTopology(
         _ replacement: RepositoryTopologyReplacement,
         repositoryTopologyAtom: RepositoryTopologyAtom
@@ -156,25 +172,56 @@ enum WorkspacePersistenceTransformer {
 
     @concurrent nonisolated static func makeRepositoryTopologySQLiteSnapshotOffMain(
         repositories: [Repo],
+        stableIdentity: RepositoryTopologyStableIdentity,
         unavailableRepositoryIDs: Set<UUID>,
         watchedPaths: [WatchedPath],
         persistedAt: Date
     ) async -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
-            repos: canonicalRepos(from: repositories),
-            worktrees: canonicalWorktrees(from: repositories),
+            repos: canonicalRepos(
+                from: repositories,
+                stableKeysByID: stableIdentity.repositoryStableKeysByID
+            ),
+            worktrees: canonicalWorktrees(
+                from: repositories,
+                stableKeysByID: stableIdentity.worktreeStableKeysByID
+            ),
             unavailableRepoIds: unavailableRepositoryIDs,
             watchedPaths: watchedPaths,
+            watchedPathStableKeysByID: stableIdentity.watchedPathStableKeysByID,
             updatedAt: persistedAt
         )
     }
 
-    private nonisolated static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
+    @concurrent nonisolated static func makeRepositoryTopologySQLiteSnapshotOffMain(
+        repositories: [Repo],
+        unavailableRepositoryIDs: Set<UUID>,
+        watchedPaths: [WatchedPath],
+        persistedAt: Date
+    ) async -> RepositoryTopologySQLiteSnapshot {
+        let stableIdentity = RepositoryTopologyStableIdentity.derived(
+            repositories: repositories,
+            watchedPaths: watchedPaths
+        )
+        return await makeRepositoryTopologySQLiteSnapshotOffMain(
+            repositories: repositories,
+            stableIdentity: stableIdentity,
+            unavailableRepositoryIDs: unavailableRepositoryIDs,
+            watchedPaths: watchedPaths,
+            persistedAt: persistedAt
+        )
+    }
+
+    private nonisolated static func canonicalRepos(
+        from repos: [Repo],
+        stableKeysByID: [UUID: String]
+    ) -> [CanonicalRepo] {
         repos.map { repo in
             CanonicalRepo(
                 id: repo.id,
                 name: repo.name,
                 repoPath: repo.repoPath,
+                stableKey: stableKeysByID[repo.id],
                 createdAt: repo.createdAt,
                 isFavorite: repo.isFavorite,
                 note: repo.note,
@@ -183,7 +230,10 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private nonisolated static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
+    private nonisolated static func canonicalWorktrees(
+        from repos: [Repo],
+        stableKeysByID: [UUID: String]
+    ) -> [CanonicalWorktree] {
         repos.flatMap { repo in
             repo.worktrees.map { worktree in
                 CanonicalWorktree(
@@ -191,6 +241,7 @@ enum WorkspacePersistenceTransformer {
                     repoId: repo.id,
                     name: worktree.name,
                     path: worktree.path,
+                    stableKey: stableKeysByID[worktree.id],
                     isMainWorktree: worktree.isMainWorktree,
                     note: worktree.note
                 )
@@ -224,31 +275,6 @@ enum WorkspacePersistenceTransformer {
                 note: canonicalRepo.note,
                 tags: canonicalRepo.tags
             )
-        }
-    }
-
-    private nonisolated static func preparedTopologyReplacement(
-        canonicalRepos: [CanonicalRepo],
-        canonicalWorktrees: [CanonicalWorktree],
-        watchedPaths: [WatchedPath],
-        unavailableRepositoryIDs: Set<UUID>
-    ) -> RepositoryTopologyReplacement? {
-        let normalizedTopology = normalizeRepositoryMainWorktrees(
-            repositories: runtimeRepos(
-                canonicalRepos: canonicalRepos,
-                canonicalWorktrees: canonicalWorktrees
-            ),
-            unavailableRepositoryIDs: unavailableRepositoryIDs
-        )
-        switch RepositoryTopologyReplacement.prepare(
-            repositories: normalizedTopology.repositories,
-            watchedPaths: watchedPaths,
-            unavailableRepositoryIDs: normalizedTopology.unavailableRepositoryIDs
-        ) {
-        case .prepared(let replacement):
-            return replacement
-        case .rejected:
-            return nil
         }
     }
 

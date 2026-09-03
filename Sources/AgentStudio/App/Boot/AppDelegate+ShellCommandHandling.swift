@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import Foundation
 
@@ -9,9 +10,7 @@ extension AppDelegate: ShellCommandHandling {
         }
         guard atomStore != nil else { return false }
         switch (request.command, request.arguments) {
-        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
-            (.setInboxRowStateFilter, .inboxRowStateFilter),
-            (.setInboxContentMode, .inboxContentMode):
+        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder):
             return true
         default:
             return false
@@ -21,10 +20,8 @@ extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .toggleInboxNotificationSort,
-            .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
+            .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
@@ -51,13 +48,18 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .removeRepo, .addRepoFavorite, .removeRepoFavorite, .openWorktree, .openWorktreeInPane,
+            .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .setRepoSidebarSortOrder,
@@ -72,6 +74,8 @@ extension AppDelegate: ShellCommandHandling {
         case .watchFolder:
             Task { await handleWatchFolderRequested() }
             return true
+        case .updateRepositoryFacts:
+            return false
         case .toggleSidebar:
             mainWindowController?.toggleSidebar()
             return true
@@ -79,29 +83,24 @@ extension AppDelegate: ShellCommandHandling {
             mainWindowController?.showSidebarFilter()
             return true
         case .showInboxNotifications:
-            mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
-            return true
+            return false
         case .toggleInboxNotificationSort:
-            guard let atomStore else { return true }
-            atomStore.inboxNotificationPrefs.setSort(
-                atomStore.inboxNotificationPrefs.sort == .newestFirst ? .oldestFirst : .newestFirst
-            )
-            return true
+            return false
         case .clearReadInboxNotifications:
-            atomStore?.inboxNotification.clearReadHistory()
-            return true
+            return false
         case .clearAllInboxNotifications:
-            atomStore?.inboxNotification.clearAll()
-            return true
+            return false
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()
             return true
-        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
+        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab:
             return executeSidebarGroupingCommand(command) == .applied
         case .setRepoSidebarSortOrder:
             return false
         case .setInboxRowStateFilter, .setInboxContentMode:
+            return false
+        case .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone:
             return false
         case .newWindow:
             newWindow()
@@ -167,9 +166,9 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        _ = target
-        _ = targetType
         switch command {
+        case .updateRepositoryFacts:
+            return executeRepositoryFactUpdate(repoId: target, targetType: targetType)
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
             .selectTab, .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -216,31 +215,179 @@ extension AppDelegate: ShellCommandHandling {
         }
     }
 
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        guard command == .updateRepositoryFacts else {
+            return canExecute(command)
+        }
+        guard
+            targetType == .repo,
+            repositoryFactUpdateSource != nil,
+            store?.repositoryTopologyAtom.repo(target) != nil
+        else {
+            return false
+        }
+        return repositoryFactUpdateTasksByRepoId[target] == nil
+    }
+
+    func cancelRepositoryFactUpdate(repoId: UUID) {
+        repositoryFactUpdateTasksByRepoId[repoId]?.cancel()
+        repoCache?.removeRepositoryFactUpdateProgress(for: repoId)
+    }
+
+    func cancelAllRepositoryFactUpdates() {
+        for task in repositoryFactUpdateTasksByRepoId.values {
+            task.cancel()
+        }
+        guard let repoCache else { return }
+        for repoId in repositoryFactUpdateTasksByRepoId.keys {
+            repoCache.removeRepositoryFactUpdateProgress(for: repoId)
+        }
+    }
+
+    func waitForRepositoryFactUpdatesToSettle() async {
+        let tasks = Array(repositoryFactUpdateTasksByRepoId.values)
+        for task in tasks {
+            await task.value
+        }
+    }
+
+    func acknowledgePresentedRepositoryFactUpdate(repoId: UUID, attemptId: UUID) {
+        guard
+            repositoryFactUpdateTasksByRepoId[repoId] == nil,
+            let progress = repoCache?.repositoryFactUpdateProgress(for: repoId),
+            progress.attemptId == attemptId,
+            progress.phase == .settled
+        else { return }
+        repoCache.removeRepositoryFactUpdateProgress(for: repoId)
+    }
+
+    private func executeRepositoryFactUpdate(repoId: UUID, targetType: SearchItemType) -> Bool {
+        guard
+            canExecute(.updateRepositoryFacts, target: repoId, targetType: targetType),
+            let repository = store.repositoryTopologyAtom.repo(repoId),
+            let repositoryFactUpdateSource
+        else {
+            return false
+        }
+
+        let attemptId = UUIDv7.generate()
+        repoCache.setRepositoryFactUpdateProgress(
+            .captured(repoId: repoId, attemptId: attemptId)
+        )
+        recordRepositoryFactUpdateProgress(
+            .captured(repoId: repoId, attemptId: attemptId),
+            stage: "captured"
+        )
+        repositoryFactUpdateTasksByRepoId[repoId] = Task { @MainActor [weak self, repositoryFactUpdateSource] in
+            let admission = await repositoryFactUpdateSource.startRepositoryFactUpdate(
+                repoId: repoId,
+                attemptId: attemptId
+            )
+            guard self?.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) == true else {
+                _ = await admission.settlement()
+                self?.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+                return
+            }
+
+            let admittedProgress = RepositoryFactUpdateProgress.admitted(
+                repoId: repoId,
+                attemptId: attemptId,
+                applicableSources: admission.acceptedSources,
+                terminalResultsBySource: admission.terminalResultsBySource
+            )
+            if !admission.acceptedSources.isEmpty {
+                self?.repoCache.setRepositoryFactUpdateProgress(admittedProgress)
+            }
+            self?.recordRepositoryFactUpdateProgress(admittedProgress, stage: "admitted")
+            let outcomesBySource = await admission.settlement()
+            guard let self else { return }
+            if self.isCurrentRepositoryFactUpdate(repoId: repoId, attemptId: attemptId) {
+                self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+                let settledProgress = admittedProgress.settled(outcomesBySource)
+                self.repoCache.setRepositoryFactUpdateProgress(settledProgress)
+                self.recordRepositoryFactUpdateProgress(settledProgress, stage: "settled")
+                return
+            }
+            self.finishRepositoryFactUpdateTask(repoId: repoId, attemptId: attemptId)
+        }
+        return true
+    }
+
+    private func recordRepositoryFactUpdateProgress(
+        _ progress: RepositoryFactUpdateProgress,
+        stage: String
+    ) {
+        let outcome: String
+        switch progress.phase {
+        case .captured: outcome = "captured"
+        case .inProgress: outcome = "loading"
+        case .settled: outcome = Self.repositoryFactUpdateSettlementOutcome(progress)
+        }
+        performanceTraceRecorder?.record(
+            .repositoryFactUpdate,
+            attributes: [
+                "agentstudio.performance.repository_update.stage": .string(stage),
+                "agentstudio.performance.repository_update.outcome": .string(outcome),
+                "agentstudio.performance.repository_update.applicable_source.count": .int(
+                    progress.applicableSources.count),
+                "agentstudio.performance.repository_update.unsettled_source.count": .int(
+                    progress.unsettledSources.count),
+                "agentstudio.performance.repository_update.terminal_source.count": .int(
+                    progress.settledResultsBySource.count),
+            ]
+        )
+    }
+
+    static func repositoryFactUpdateSettlementOutcome(
+        _ progress: RepositoryFactUpdateProgress
+    ) -> String {
+        guard !progress.applicableSources.isEmpty else { return "no_applicable" }
+        let applicableResults = progress.applicableSources.compactMap {
+            progress.settledResultsBySource[$0]
+        }
+        guard applicableResults.count == progress.applicableSources.count else {
+            return "incomplete"
+        }
+        let completedCount = applicableResults.count { $0 == .completed }
+        if completedCount == applicableResults.count { return "complete" }
+        if completedCount > 0 { return "partial_failure" }
+        if applicableResults.contains(.failed) { return "failed" }
+        if applicableResults.allSatisfy({ $0 == .cancelled }) { return "cancelled" }
+        if applicableResults.allSatisfy({ $0 == .obsolete }) { return "obsolete" }
+        return "mixed_terminal"
+    }
+
+    private func isCurrentRepositoryFactUpdate(repoId: UUID, attemptId: UUID) -> Bool {
+        repoCache.repositoryFactUpdateProgress(for: repoId)?.attemptId == attemptId
+    }
+
+    private func finishRepositoryFactUpdateTask(repoId: UUID, attemptId: UUID) {
+        guard
+            repositoryFactUpdateTasksByRepoId[repoId] != nil,
+            repoCache.repositoryFactUpdateProgress(for: repoId)?.attemptId == attemptId
+                || repoCache.repositoryFactUpdateProgress(for: repoId) == nil
+        else {
+            return
+        }
+        repositoryFactUpdateTasksByRepoId.removeValue(forKey: repoId)
+    }
+
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
         switch (request.command, request.arguments) {
         case (.showWorktreeSidebar, .noArguments) where request.executionContext == .headlessIPC:
             return executeHeadlessRepoSidebarCommand()
-        case (.showInboxNotifications, .noArguments) where request.executionContext == .headlessIPC:
-            return executeHeadlessInboxSidebarCommand()
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
             return executeRepoSidebarSortOrderCommand(order)
-        case (.setInboxRowStateFilter, .inboxRowStateFilter(let filter)):
-            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
-                return .stateUnavailable
-            }
-            inboxNotificationPrefs.setGlobalInboxRowStateFilter(filter)
-            return .applied
-        case (.setInboxContentMode, .inboxContentMode(let mode)):
-            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
-                return .stateUnavailable
-            }
-            inboxNotificationPrefs.setGlobalInboxContentMode(mode)
-            return .applied
         case (.setRepoSidebarGroupingRepo, .noArguments), (.setRepoSidebarGroupingPane, .noArguments),
-            (.setRepoSidebarGroupingTab, .noArguments), (.setInboxGroupingTab, .noArguments),
-            (.setInboxGroupingRepo, .noArguments), (.setInboxGroupingPane, .noArguments),
-            (.setInboxGroupingNone, .noArguments):
+            (.setRepoSidebarGroupingTab, .noArguments):
             return executeSidebarGroupingCommand(request.command)
+        case (.showInboxNotifications, _), (.toggleInboxNotificationSort, _),
+            (.clearReadInboxNotifications, _), (.clearAllInboxNotifications, _),
+            (.showPaneInboxNotifications, _), (.clearPaneInboxNotifications, _),
+            (.setInboxGroupingTab, _), (.setInboxGroupingRepo, _),
+            (.setInboxGroupingPane, _), (.setInboxGroupingNone, _),
+            (.setInboxRowStateFilter, _), (.setInboxContentMode, _):
+            return .unsupportedCommand
         default:
             return execute(request.command) ? .applied : .unsupportedCommand
         }
@@ -258,18 +405,6 @@ extension AppDelegate: ShellCommandHandling {
         case .setRepoSidebarGroupingTab:
             atomStore.repoExplorerSidebarPrefs.setGroupingMode(.tab)
             return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab ? .applied : .stateUnavailable
-        case .setInboxGroupingTab:
-            atomStore.inboxNotificationPrefs.setGrouping(.byTab)
-            return atomStore.inboxNotificationPrefs.grouping == .byTab ? .applied : .stateUnavailable
-        case .setInboxGroupingRepo:
-            atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
-            return atomStore.inboxNotificationPrefs.grouping == .byRepo ? .applied : .stateUnavailable
-        case .setInboxGroupingPane:
-            atomStore.inboxNotificationPrefs.setGrouping(.byPane)
-            return atomStore.inboxNotificationPrefs.grouping == .byPane ? .applied : .stateUnavailable
-        case .setInboxGroupingNone:
-            atomStore.inboxNotificationPrefs.setGrouping(.none)
-            return atomStore.inboxNotificationPrefs.grouping == .none ? .applied : .stateUnavailable
         default:
             return .unsupportedCommand
         }
@@ -281,19 +416,6 @@ extension AppDelegate: ShellCommandHandling {
         mainWindowController?.expandSidebar()
         guard
             atomStore.core.workspaceSidebarState.sidebarSurface == .repos,
-            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
-        else {
-            return .stateUnavailable
-        }
-        return .applied
-    }
-
-    private func executeHeadlessInboxSidebarCommand() -> AppCommandExecutionOutcome {
-        guard let atomStore else { return .stateUnavailable }
-        atomStore.core.workspaceSidebarState.setSidebarSurface(.inbox)
-        mainWindowController?.expandSidebar()
-        guard
-            atomStore.core.workspaceSidebarState.sidebarSurface == .inbox,
             atomStore.core.workspaceSidebarState.sidebarCollapsed == false
         else {
             return .stateUnavailable

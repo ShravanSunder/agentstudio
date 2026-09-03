@@ -23,7 +23,6 @@ struct ActiveTabContent: View {
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation? = nil
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
     let workspaceWindowId: UUID? = nil
 
     private static func traceBody(
@@ -55,7 +54,7 @@ struct ActiveTabContent: View {
             hasTree: tab != nil && registeredPaneCount > 0
         )
 
-        if let activeTabId, let tab {
+        if let activeTabId, tab != nil {
             let arrangementView = atom(\.arrangementView)
             if let activeLayout = arrangementView.activeLayout(forTab: activeTabId) {
                 FlatTabStripContainer(
@@ -77,7 +76,6 @@ struct ActiveTabContent: View {
                     appLifecycleStore: appLifecycleStore,
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    notificationCountForWorktree: notificationCountForWorktree,
                     workspaceWindowId: workspaceWindowId,
                     paneSurfaceToolbarPresentation: { _ in .hidden }
                 )

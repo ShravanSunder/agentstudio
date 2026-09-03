@@ -149,7 +149,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(actionDebugGuardIndex < actionIPCSmokeCaseIndex)
         #expect(actionIPCSmokeCaseIndex < actionDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
-        #expect(startupDiagnosticsSource.contains("\"agentstudio.performance.sidebar.surface\": .string(\"inbox\")"))
+        #expect(startupDiagnosticsSource.contains("\"agentstudio.performance.sidebar.surface\": .string(\"repo\")"))
         #expect(startupDiagnosticsSource.contains(".string(projectionTrigger.rawValue)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
@@ -229,7 +229,7 @@ struct ApplicationEntrypointArchitectureTests {
                 "await waitForRepoExplorerProjectionReadiness(fixture: fixture)"))
         let readinessIndex = try #require(
             diagnosticSource.range(
-                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+                of: "await settleRepoExplorerProjection("
             )?.lowerBound)
         let mutationIndex = try #require(
             diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)

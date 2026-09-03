@@ -32,6 +32,11 @@ final class WorkspaceCacheCoordinator {
         var updateKind: UpdateKind
     }
 
+    private struct PendingRepositoryProjection: Sendable {
+        let envelopeSequence: UInt64
+        let projection: PullRequestRepositoryProjection
+    }
+
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
     private let repoCache: RepoCacheAtom
@@ -46,6 +51,7 @@ final class WorkspaceCacheCoordinator {
     private var consumeTask: Task<Void, Never>?
     private var pendingConsumeStartGeneration: UInt64?
     private var nextConsumeStartGeneration: UInt64 = 0
+    private var lastAppliedForgeProjectionSequenceByRepoId: [UUID: UInt64] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -94,23 +100,32 @@ final class WorkspaceCacheCoordinator {
         )
         guard pendingConsumeStartGeneration == startGeneration else { return }
         pendingConsumeStartGeneration = nil
-        let applyGovernor = makeEnrichmentApplyGovernor()
-        applyGovernor.start()
+        let enrichmentApplyGovernor = makeEnrichmentApplyGovernor()
+        let repositoryProjectionApplyGovernor = makeRepositoryProjectionApplyGovernor()
+        enrichmentApplyGovernor.start()
+        repositoryProjectionApplyGovernor.start()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
             self?.consume(envelope)
         }
         // swiftlint:disable:next no_task_detached
-        consumeTask = Task.detached { [subscription, applyGovernor, consumeDirect] in
+        consumeTask = Task.detached {
             for await envelope in subscription {
                 if Task.isCancelled { break }
-                if Self.canCoalesce(envelope) {
-                    Self.enqueueCoalescedEnrichment(envelope, on: applyGovernor)
+                if Self.isCoalescableEnrichment(envelope) {
+                    Self.enqueueCoalescedEnrichment(envelope, on: enrichmentApplyGovernor)
+                } else if Self.isRepositoryProjection(envelope) {
+                    Self.enqueueCoalescedRepositoryProjection(
+                        envelope,
+                        on: repositoryProjectionApplyGovernor
+                    )
                 } else {
-                    await applyGovernor.flushPending()
+                    await enrichmentApplyGovernor.flushPending()
+                    await repositoryProjectionApplyGovernor.flushPending()
                     await consumeDirect(envelope)
                 }
             }
-            await applyGovernor.shutdown()
+            await enrichmentApplyGovernor.shutdown()
+            await repositoryProjectionApplyGovernor.shutdown()
         }
     }
 
@@ -167,7 +182,32 @@ final class WorkspaceCacheCoordinator {
         )
     }
 
-    nonisolated private static func canCoalesce(_ envelope: RuntimeEnvelope) -> Bool {
+    private func makeRepositoryProjectionApplyGovernor()
+        -> BackgroundFactApplyGovernor<UUID, PendingRepositoryProjection>
+    {
+        let apply: @MainActor @Sendable (UUID, PendingRepositoryProjection) -> Void = { [weak self] repoId, pending in
+            self?.applyCoalescedRepositoryProjection(for: repoId, pending: pending)
+        }
+        if let enrichmentApplyClock {
+            return BackgroundFactApplyGovernor(
+                tickCadence: enrichmentApplyTickCadence,
+                drainBudget: enrichmentApplyDrainBudget,
+                clock: enrichmentApplyClock,
+                performanceTraceRecorder: performanceTraceRecorder,
+                mergeFacts: Self.latestRepositoryProjection,
+                apply: apply
+            )
+        }
+        return BackgroundFactApplyGovernor(
+            tickCadence: enrichmentApplyTickCadence,
+            drainBudget: enrichmentApplyDrainBudget,
+            performanceTraceRecorder: performanceTraceRecorder,
+            mergeFacts: Self.latestRepositoryProjection,
+            apply: apply
+        )
+    }
+
+    nonisolated private static func isCoalescableEnrichment(_ envelope: RuntimeEnvelope) -> Bool {
         guard case .worktree(let worktreeEnvelope) = envelope else { return false }
         guard case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event else { return false }
         switch gitEvent {
@@ -176,6 +216,13 @@ final class WorkspaceCacheCoordinator {
         case .statusOutcome, .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return false
         }
+    }
+
+    nonisolated private static func isRepositoryProjection(_ envelope: RuntimeEnvelope) -> Bool {
+        guard case .worktree(let worktreeEnvelope) = envelope,
+            case .forge(.pullRequestRepositoryProjectionChanged) = worktreeEnvelope.event
+        else { return false }
+        return true
     }
 
     nonisolated private static func enqueueCoalescedEnrichment(
@@ -238,6 +285,31 @@ final class WorkspaceCacheCoordinator {
         )
     }
 
+    nonisolated private static func enqueueCoalescedRepositoryProjection(
+        _ envelope: RuntimeEnvelope,
+        on governor: BackgroundFactApplyGovernor<UUID, PendingRepositoryProjection>
+    ) {
+        guard case .worktree(let worktreeEnvelope) = envelope,
+            case .forge(
+                .pullRequestRepositoryProjectionChanged(let repoId, let projection, _)
+            ) = worktreeEnvelope.event
+        else { return }
+        _ = governor.enqueue(
+            PendingRepositoryProjection(
+                envelopeSequence: worktreeEnvelope.seq,
+                projection: projection
+            ),
+            for: repoId
+        )
+    }
+
+    nonisolated private static func latestRepositoryProjection(
+        _ older: PendingRepositoryProjection,
+        _ newer: PendingRepositoryProjection
+    ) -> PendingRepositoryProjection {
+        newer.envelopeSequence >= older.envelopeSequence ? newer : older
+    }
+
     private func applyCoalescedEnrichment(for worktreeId: UUID, pending: PendingWorktreeEnrichment) {
         let enrichment: WorktreeEnrichment
         switch pending.updateKind {
@@ -256,14 +328,30 @@ final class WorkspaceCacheCoordinator {
         }
     }
 
+    private func applyCoalescedRepositoryProjection(
+        for repoId: UUID,
+        pending: PendingRepositoryProjection
+    ) {
+        guard
+            pending.envelopeSequence
+                > (lastAppliedForgeProjectionSequenceByRepoId[repoId] ?? 0)
+        else { return }
+        lastAppliedForgeProjectionSequenceByRepoId[repoId] = pending.envelopeSequence
+        repoCache.applyPullRequestRepositoryProjection(
+            pending.projection,
+            forRepository: repoId
+        )
+    }
+
     func handleTopology(_ envelope: SystemEnvelope) {
         guard case .topology(let topologyEvent) = envelope.event else { return }
 
         switch topologyEvent {
-        case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+        case .repoDiscovered(let repoPath, _, let linkedWorktrees, let stableIdentity):
             handleRepoDiscovered(
                 repoPath: repoPath,
                 linkedWorktrees: linkedWorktrees,
+                stableIdentity: stableIdentity,
                 eventId: envelope.eventId
             )
         case .reposDiscovered(_, let repositories):
@@ -284,23 +372,30 @@ final class WorkspaceCacheCoordinator {
     private func handleRepoDiscovered(
         repoPath: URL,
         linkedWorktrees: LinkedWorktreeInfo,
+        stableIdentity: DiscoveredRepoStableIdentity?,
         eventId: UUID,
         shouldRefreshTraceIdentity: Bool = true,
         shouldApplyTopologyEffects: Bool = true
     ) -> WorktreeTopologyDelta? {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
         let normalizedRepoPath = repoPath.standardizedFileURL
-        let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
-        let existingRepo = repositoryTopology.repos.first {
-            $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == incomingStableKey
-        }
+        let preparedStableIdentity =
+            stableIdentity
+            ?? .prepare(repoPath: normalizedRepoPath, linkedWorktrees: linkedWorktrees)
+        let incomingStableKey = preparedStableIdentity.repositoryStableKey
+        let existingRepo =
+            repositoryTopology.repo(stableKey: incomingStableKey)
+            ?? repositoryTopology.repos.first { $0.repoPath.standardizedFileURL == normalizedRepoPath }
         let repoId: UUID
         let shouldInitializeRepoEnrichment: Bool
         if let repo = existingRepo {
             repoId = repo.id
             shouldInitializeRepoEnrichment = repoCache.repoEnrichment(for: repo.id) == nil
         } else {
-            let repo = workspaceStore.mutationCoordinator.addRepo(at: normalizedRepoPath)
+            let repo = workspaceStore.mutationCoordinator.addRepo(
+                at: normalizedRepoPath,
+                stableKey: incomingStableKey
+            )
             repoId = repo.id
             shouldInitializeRepoEnrichment = true
         }
@@ -326,6 +421,7 @@ final class WorkspaceCacheCoordinator {
             repo: repo,
             normalizedRepoPath: normalizedRepoPath,
             linkedPaths: linkedPaths,
+            stableIdentity: preparedStableIdentity,
             eventId: eventId
         ) {
         case .accepted(let acceptedDelta):
@@ -380,12 +476,14 @@ final class WorkspaceCacheCoordinator {
         repo: Repo,
         normalizedRepoPath: URL,
         linkedPaths: [URL],
+        stableIdentity: DiscoveredRepoStableIdentity,
         eventId: UUID
     ) -> ScannedWorktreeDiscoveryResult {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
         let scannedWorktrees = Self.buildDiscoveredWorktreeList(
             clonePath: normalizedRepoPath,
-            linkedPaths: linkedPaths
+            linkedPaths: linkedPaths,
+            stableIdentity: stableIdentity
         )
         if repositoryTopology.isRepoUnavailable(repo.id) {
             let reassociation = workspaceStore.mutationCoordinator.reassociateRepo(
@@ -426,6 +524,7 @@ final class WorkspaceCacheCoordinator {
                 if let delta = handleRepoDiscovered(
                     repoPath: repository.repoPath,
                     linkedWorktrees: repository.linkedWorktrees,
+                    stableIdentity: repository.stableIdentity,
                     eventId: eventId,
                     shouldRefreshTraceIdentity: false,
                     shouldApplyTopologyEffects: false
@@ -631,30 +730,25 @@ final class WorkspaceCacheCoordinator {
                 break
             }
         case .forge(let forgeEvent):
-            handleForgeEnrichment(forgeEvent)
+            handleForgeEnrichment(forgeEvent, envelopeSequence: envelope.seq)
         case .filesystem, .security:
             break
         }
     }
 
-    private func handleForgeEnrichment(_ forgeEvent: ForgeEvent) {
+    private func handleForgeEnrichment(
+        _ forgeEvent: ForgeEvent,
+        envelopeSequence: UInt64
+    ) {
         switch forgeEvent {
-        case .pullRequestRefreshStateChanged(let repoId, let isLoading):
-            repoCache.setPullRequestLoading(isLoading, forRepository: repoId)
-        case .pullRequestsChanged(let repoId, let factsByBranch):
-            repoCache.applyPullRequestFacts(
-                Self.validPullRequestFactsByKey(repoId: repoId, factsByBranch: factsByBranch)
+        case .pullRequestRepositoryProjectionChanged(let repoId, let projection, _):
+            applyCoalescedRepositoryProjection(
+                for: repoId,
+                pending: PendingRepositoryProjection(
+                    envelopeSequence: envelopeSequence,
+                    projection: projection
+                )
             )
-        case .pullRequestBranchesInvalidated(let repoId, let branches):
-            repoCache.removePullRequestFacts(
-                keys: Self.validPullRequestBranchKeys(repoId: repoId, branches: branches)
-            )
-        case .pullRequestRepositoryInvalidated(let repoId):
-            repoCache.setPullRequestLoading(false, forRepository: repoId)
-            repoCache.removePullRequestFacts(forRepository: repoId)
-        case .pullRequestsUnavailable(let repoId):
-            repoCache.setPullRequestLoading(false, forRepository: repoId)
-            repoCache.markPullRequestsUnavailable(forRepository: repoId)
         case .refreshFailed(let repoId, let error):
             Self.logger.error(
                 "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
@@ -668,39 +762,6 @@ final class WorkspaceCacheCoordinator {
                 "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(String(describing: retryAfterSeconds), privacy: .public)"
             )
         }
-    }
-
-    private static func validPullRequestFactsByKey(
-        repoId: UUID,
-        factsByBranch: [String: PullRequestFacts]
-    ) -> [RepoBranchKey: PullRequestFacts] {
-        Dictionary(
-            uniqueKeysWithValues: factsByBranch.compactMap { branch, facts in
-                RepoBranchKey(repoId: repoId, branch: branch).map { ($0, facts) }
-            }
-        )
-    }
-
-    private static func validPullRequestBranchKeys(
-        repoId: UUID,
-        branches: Set<String>
-    ) -> Set<RepoBranchKey> {
-        Set(branches.compactMap { RepoBranchKey(repoId: repoId, branch: $0) })
-    }
-
-    private static func fallbackDisplayName(for remote: String) -> String {
-        if let parsedURL = URL(string: remote), !parsedURL.lastPathComponent.isEmpty {
-            let name = parsedURL.lastPathComponent
-            return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
-        }
-
-        let cleanedRemote = remote.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let components = cleanedRemote.split(separator: "/")
-        guard let last = components.last else {
-            return cleanedRemote.isEmpty ? remote : cleanedRemote
-        }
-        let name = String(last)
-        return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
     }
 
     /// Hard-deletes a repo and all associated cache/forge state.
@@ -723,6 +784,7 @@ final class WorkspaceCacheCoordinator {
 
         // 2. Prune repo-level cache
         repoCache.removeRepo(repoId)
+        lastAppliedForgeProjectionSequenceByRepoId.removeValue(forKey: repoId)
 
         // 3. Unregister from forge scope
         Task { [weak self] in
@@ -770,7 +832,8 @@ final class WorkspaceCacheCoordinator {
 
     private static func buildDiscoveredWorktreeList(
         clonePath: URL,
-        linkedPaths: [URL]
+        linkedPaths: [URL],
+        stableIdentity: DiscoveredRepoStableIdentity
     ) -> RepositoryScannedWorktrees {
         let normalizedClonePath = clonePath.standardizedFileURL
         let normalizedLinkedPaths = Array(Set(linkedPaths.map(\.standardizedFileURL)))
@@ -779,12 +842,14 @@ final class WorkspaceCacheCoordinator {
 
         let mainWorktree = RepositoryScannedMainWorktree(
             name: normalizedClonePath.lastPathComponent,
-            path: normalizedClonePath
+            path: normalizedClonePath,
+            stableKey: stableIdentity.worktreeStableKeysByPath[normalizedClonePath]
         )
         let linkedWorktrees = normalizedLinkedPaths.map { linkedPath in
             RepositoryScannedLinkedWorktree(
                 name: linkedPath.lastPathComponent,
-                path: linkedPath
+                path: linkedPath,
+                stableKey: stableIdentity.worktreeStableKeysByPath[linkedPath]
             )
         }
         return RepositoryScannedWorktrees(main: mainWorktree, linked: linkedWorktrees)
@@ -792,6 +857,23 @@ final class WorkspaceCacheCoordinator {
 
     private static func sortPaths(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+    }
+}
+
+extension WorkspaceCacheCoordinator {
+    fileprivate static func fallbackDisplayName(for remote: String) -> String {
+        if let parsedURL = URL(string: remote), !parsedURL.lastPathComponent.isEmpty {
+            let name = parsedURL.lastPathComponent
+            return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
+        }
+
+        let cleanedRemote = remote.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let components = cleanedRemote.split(separator: "/")
+        guard let last = components.last else {
+            return cleanedRemote.isEmpty ? remote : cleanedRemote
+        }
+        let name = String(last)
+        return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
     }
 }
 

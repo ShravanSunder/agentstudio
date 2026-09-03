@@ -1,7 +1,9 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 struct AgentStudioStartupDiagnosticActionParsingTests {
     @Test("startup diagnostic action is disabled unless exact env value is present")
@@ -212,6 +214,60 @@ struct AgentStudioStartupDiagnosticActionParsingTests {
             AgentStudioStartupDiagnosticAction.watchFolderURL(from: [
                 AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: "   "
             ]) == nil)
+    }
+
+    @Test("sidebar CPU proof control root stays inside the authenticated debug data root")
+    func sidebarCPUProofControlRootStaysInsideAuthenticatedDebugDataRoot() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "agentstudio-sidebar-control-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let dataRoot = fixtureRoot.appending(path: "debug-data", directoryHint: .isDirectory)
+        let controlRoot = dataRoot.appending(path: "control", directoryHint: .isDirectory)
+        let siblingRoot = fixtureRoot.appending(path: "debug-data-sibling", directoryHint: .isDirectory)
+        let symlinkRoot = dataRoot.appending(path: "escaped-control", directoryHint: .notDirectory)
+        try FileManager.default.createDirectory(at: controlRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: siblingRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: symlinkRoot, withDestinationURL: siblingRoot)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let action = AgentStudioStartupDiagnosticAction(kind: .sidebarCPUZeroPTYIdle)
+        let baseEnvironment = [
+            AppDataPaths.dataDirectoryEnvironmentKey: dataRoot.path,
+            AppDataPaths.traceProofTokenEnvironmentKey: "proof-token",
+        ]
+        #expect(
+            action.sidebarPerformanceControlRootURL(
+                from: baseEnvironment.merging([
+                    AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: controlRoot.path
+                ]) { _, right in right }
+            ) == controlRoot.resolvingSymlinksInPath().standardizedFileURL
+        )
+        #expect(
+            action.sidebarPerformanceControlRootURL(
+                from: [
+                    AppDataPaths.dataDirectoryEnvironmentKey: dataRoot.path,
+                    AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: controlRoot.path,
+                ]
+            ) == nil
+        )
+        for rejectedRoot in [dataRoot, siblingRoot, symlinkRoot] {
+            #expect(
+                action.sidebarPerformanceControlRootURL(
+                    from: baseEnvironment.merging([
+                        AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: rejectedRoot.path
+                    ]) { _, right in right }
+                ) == nil
+            )
+        }
+        #expect(
+            AgentStudioStartupDiagnosticAction(kind: .addWatchFolder)
+                .sidebarPerformanceControlRootURL(
+                    from: baseEnvironment.merging([
+                        AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: controlRoot.path
+                    ]) { _, right in right }
+                ) == nil
+        )
     }
 
     @Test("cross-tab smoke render proof requires visible terminal views, mounted surfaces, and valid geometry")

@@ -7,7 +7,7 @@ import Foundation
 /// A terminal's durable `ZmxSessionID` is an independent stored identity; it is not
 /// derived from the pane ID. Surface IDs remain runtime associations.
 ///
-/// See: `session_lifecycle.md`, section "Identity Contract (Canonical)".
+/// See: `docs/architecture/runtime/session_lifecycle.md`, section "Identity Contract (Canonical)".
 ///
 /// UUID v7 gives time-ordering at millisecond granularity: new panes
 /// generally sort by creation time via standard string comparison.

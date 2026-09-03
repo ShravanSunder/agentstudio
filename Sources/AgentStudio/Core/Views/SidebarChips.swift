@@ -27,7 +27,7 @@ package struct SidebarGitStatusChips: View {
         self.octiconLoader = octiconLoader
     }
 
-    package static func diffDetail(
+    package nonisolated static func diffDetail(
         branchStatus: GitBranchStatus
     ) -> SidebarDiffChip.WorkingTreeDetail? {
         SidebarDiffChip.workingTreeDetail(
@@ -38,7 +38,7 @@ package struct SidebarGitStatusChips: View {
         )
     }
 
-    package static func showsSync(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func showsSync(branchStatus: GitBranchStatus) -> Bool {
         switch branchStatus.syncState {
         case .ahead(let count), .behind(let count): count > 0
         case .diverged(let ahead, let behind): ahead > 0 || behind > 0
@@ -46,14 +46,14 @@ package struct SidebarGitStatusChips: View {
         }
     }
 
-    package static func hasContent(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func hasContent(branchStatus: GitBranchStatus) -> Bool {
         showsPendingPullRequestFacts(branchStatus: branchStatus)
-            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
+            || (branchStatus.prCount ?? 0) > 0
             || diffDetail(branchStatus: branchStatus) != nil
             || showsSync(branchStatus: branchStatus)
     }
 
-    package static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
+    package nonisolated static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
         branchStatus.pullRequestIsLoading
             && !branchStatus.pullRequestDataUnavailable
     }
@@ -72,8 +72,7 @@ package struct SidebarGitStatusChips: View {
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
             if let prCount = branchStatus.prCount,
-                prCount > 0,
-                !branchStatus.pullRequestDataUnavailable
+                prCount > 0
             {
                 SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
             }
@@ -112,23 +111,39 @@ package struct SidebarPendingPullRequestIndicator: View {
     }
 }
 
-extension View {
-    package func sidebarPendingPullRequestIndicator(isVisible: Bool) -> some View {
-        frame(minHeight: isVisible ? AppStyles.Shell.Sidebar.chipLineHeight : nil)
-            .overlay(alignment: .leading) {
-                if isVisible {
+package struct SidebarStatusChipRow<Content: View>: View {
+    let isPendingPullRequestFacts: Bool
+    @ViewBuilder let content: () -> Content
+
+    package init(
+        isPendingPullRequestFacts: Bool,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isPendingPullRequestFacts = isPendingPullRequestFacts
+        self.content = content
+    }
+
+    package var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+            Group {
+                if isPendingPullRequestFacts {
                     SidebarPendingPullRequestIndicator()
-                        .frame(
-                            width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                            alignment: .trailing
-                        )
-                        .offset(
-                            x:
-                                -(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
-                                + AppStyles.Shell.Sidebar.groupIconTitleSpacing)
-                        )
+                } else {
+                    Color.clear
+                        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
                 }
             }
+            .frame(
+                width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                alignment: .leading
+            )
+
+            HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -309,7 +324,7 @@ package struct SidebarDiffChip: View {
 
     /// Resolves the chip for a branch status, or `nil` when the checkout is clean and the row shows no
     /// diff chip at all.
-    package static func workingTreeDetail(
+    package nonisolated static func workingTreeDetail(
         isDirty: Bool,
         linesAdded: Int,
         linesDeleted: Int,

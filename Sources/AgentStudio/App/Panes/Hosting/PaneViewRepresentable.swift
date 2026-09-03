@@ -18,10 +18,6 @@ private func ancestorChainDescription(for view: NSView) -> String {
 struct PaneViewRepresentable: NSViewRepresentable {
     let paneHost: PaneHostView
 
-    #if DEBUG
-        static var onDismantleForTesting: (() -> Void)?
-    #endif
-
     func makeNSView(context: Context) -> NSView {
         RestoreTrace.log(
             "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
@@ -40,9 +36,6 @@ struct PaneViewRepresentable: NSViewRepresentable {
         RestoreTrace.log(
             "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
         )
-        #if DEBUG
-            onDismantleForTesting?()
-        #endif
     }
 }
 

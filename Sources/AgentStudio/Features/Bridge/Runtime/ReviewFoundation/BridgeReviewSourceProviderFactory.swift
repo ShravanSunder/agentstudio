@@ -39,31 +39,43 @@ package enum BridgeReviewSourceProviderFactory {
 
     package static func gitProvider(
         repositoryPath: URL?,
-        gitReadContext: BridgeGitReadContext?
+        gitReadContext: BridgeGitReadContext?,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     ) -> any BridgeReviewSourceProvider {
         guard let repositoryPath, let gitReadContext else {
             return BridgeUnavailableReviewSourceProvider()
         }
-        return makeGitProvider(repositoryPath: repositoryPath, gitReadContext: gitReadContext)
+        return makeGitProvider(
+            repositoryPath: repositoryPath,
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: statusPhysicalGate
+        )
     }
 
     package static func gitProvider(
         location: BridgeReviewRepositoryLocation,
-        gitReadContext: BridgeGitReadContext?
+        gitReadContext: BridgeGitReadContext?,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     ) -> any BridgeReviewSourceProvider {
         guard let repositoryURL = location.repositoryURL, let gitReadContext else {
             return BridgeUnavailableReviewSourceProvider()
         }
-        return makeGitProvider(repositoryPath: repositoryURL, gitReadContext: gitReadContext)
+        return makeGitProvider(
+            repositoryPath: repositoryURL,
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: statusPhysicalGate
+        )
     }
 
     private static func makeGitProvider(
         repositoryPath: URL,
-        gitReadContext: BridgeGitReadContext
+        gitReadContext: BridgeGitReadContext,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     ) -> any BridgeReviewSourceProvider {
         let dataClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
-            gitReadContext: gitReadContext
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: statusPhysicalGate
         )
         return BridgeGitReviewSourceProvider(client: dataClient)
     }

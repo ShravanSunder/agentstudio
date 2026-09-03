@@ -9,90 +9,34 @@ package actor ForgeActor {
         var branch: String?
     }
 
-    private struct RepositoryRefreshState {
-        var origin: String?
-        var generation: UInt64 = 0
-        var lastSuccessfulRefreshAt: Duration?
-        var lastAttemptAt: Duration?
-        var backoffUntil: Duration?
-        var activeRequestId: UInt64?
-        var pendingFollowUp = false
-        var pendingFollowUpRequiresRefresh = false
-        var pendingFollowUpEligibleAt: Duration?
-        var consecutiveFailureCount = 0
-        var lastPublishedFactsByBranch: [String: PullRequestFacts]?
-        /// Consecutive non-`.complete` provider outcomes (truncated, rate
-        /// limited, or failed), independent of `consecutiveFailureCount`
-        /// which drives `.failed`-specific backoff timing. Crossing
-        /// `AppPolicies.Forge.consecutiveFailureHonestyThreshold` resolves
-        /// this repository to terminal-unavailable.
-        var consecutiveUnsuccessfulAttempts = 0
-        /// True once a terminal `.pullRequestsUnavailable` fact has been
-        /// emitted for the repository's current origin generation. Guards
-        /// against re-emitting on every subsequent failure; cleared whenever
-        /// a fresh origin arrives or a query succeeds.
-        var hasEmittedUnavailable = false
-    }
-
-    private struct ProviderRequest: Sendable {
-        let id: UInt64
-        let repoId: UUID
-        let origin: String
-        let generation: UInt64
-        let demandedBranches: Set<String>
-        let correlationId: UUID?
-
-        var signature: ProviderRequestSignature {
-            ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
-        }
-    }
-
-    private struct ProviderRequestSignature: Equatable, Sendable {
-        let origin: String
-        let demandedBranches: Set<String>
-    }
-
-    private enum RefreshTrigger {
-        case automatic
-        case manual
-        case followUp
-
-        var bypassesFreshness: Bool {
-            switch self {
-            case .automatic: false
-            case .manual, .followUp: true
-            }
-        }
-
-        var requiresFollowUpRefresh: Bool {
-            switch self {
-            case .manual: true
-            case .automatic, .followUp: false
-            }
-        }
-    }
-
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
 
     private let runtimeBus: EventBus<RuntimeEnvelope>
     private let statusProvider: any ForgeStatusProvider
     private let providerName: String
     private let envelopeClock: ContinuousClock
-    private let monotonicNow: @Sendable () -> Duration
+    let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
-    private let performanceTraceRecorder: (any ForgePerformanceRecording)?
+    let maximumConcurrentProviderRequests: Int
+    let performanceTraceRecorder: (any ForgePerformanceRecording)?
+    private let beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)?
+    private let providerRequestDidReturn: (@Sendable (UInt64) -> Void)?
 
     private var subscriptionTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
-    private var providerTasksByRepoId: [UUID: Task<Void, Never>] = [:]
+    var providerTasksByRequestId: [UInt64: Task<Void, Never>] = [:]
+    var providerRepoIdByRequestId: [UInt64: UUID] = [:]
     private var nextDeadlineGeneration: UInt64 = 0
     private var nextProviderRequestId: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
     private var membershipByWorktreeId: [UUID: WorktreeMembership] = [:]
     private var demandedWorktreeIds: Set<UUID> = []
-    private var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
-    private var isShuttingDown = false
+    var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
+    var explicitUpdateAttemptsById: [UUID: ExplicitRepositoryUpdateAttempt] = [:]
+    var performanceAccumulator = ForgePerformanceAccumulator()
+    var lastRecordedSettlementSnapshot: ForgePerformanceSnapshot.Settlement?
+    var isShuttingDown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -104,7 +48,11 @@ package actor ForgeActor {
         },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256,
-        performanceTraceRecorder: (any ForgePerformanceRecording)? = nil
+        maximumConcurrentProviderRequests: Int =
+            AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
+        performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
+        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil,
+        providerRequestDidReturn: (@Sendable (UInt64) -> Void)? = nil
     ) {
         runtimeBus = bus
         self.statusProvider = statusProvider
@@ -113,13 +61,16 @@ package actor ForgeActor {
         self.monotonicNow = monotonicNow
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
+        self.maximumConcurrentProviderRequests = max(1, maximumConcurrentProviderRequests)
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.beforeEventEmission = beforeEventEmission
+        self.providerRequestDidReturn = providerRequestDidReturn
     }
 
     isolated deinit {
         subscriptionTask?.cancel()
         deadlineTask?.cancel()
-        for task in providerTasksByRepoId.values {
+        for task in providerTasksByRequestId.values {
             task.cancel()
         }
     }
@@ -137,6 +88,7 @@ package actor ForgeActor {
                 await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
             }
         }
+        flushPerformanceSnapshot()
     }
 
     package func register(
@@ -145,7 +97,8 @@ package actor ForgeActor {
         rootPath: URL,
         branch: String? = nil
     ) async {
-        let normalizedBranch = Self.normalizedBranch(branch)
+        defer { flushPerformanceSnapshot() }
+        let normalizedBranch = ForgePresentationFacts.normalizedBranch(branch)
         let priorMembership = membershipByWorktreeId[worktreeId]
         membershipByWorktreeId[worktreeId] = WorktreeMembership(
             repoId: repoId,
@@ -161,18 +114,21 @@ package actor ForgeActor {
                 branch: priorMembership.branch
             )
         }
-        requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        refreshExplicitUpdateScopes(repoId: repoId)
+        await requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
         rescheduleDeadline()
     }
 
     package func unregister(worktreeId: UUID) async {
         guard let removedMembership = membershipByWorktreeId.removeValue(forKey: worktreeId) else { return }
+        defer { flushPerformanceSnapshot() }
         demandedWorktreeIds.remove(worktreeId)
         await invalidateBranchIfUnrepresented(
             repoId: removedMembership.repoId,
             branch: removedMembership.branch
         )
-        requestRefreshIfDemanded(
+        refreshExplicitUpdateScopes(repoId: removedMembership.repoId)
+        await requestRefreshIfDemanded(
             repoId: removedMembership.repoId,
             trigger: .automatic,
             correlationId: nil
@@ -188,37 +144,50 @@ package actor ForgeActor {
 
         var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
         guard state.origin != normalizedOrigin else { return }
+        defer { flushPerformanceSnapshot() }
         let replacedExistingOrigin = state.origin != nil
 
         cancelProviderRequest(repoId: repoId)
+        settleExplicitUpdateAttemptsAfterLogicalInvalidation(repoId: repoId)
         state.generation &+= 1
         state.origin = normalizedOrigin
         state.lastSuccessfulRefreshAt = nil
         state.lastAttemptAt = nil
         state.backoffUntil = nil
         state.activeRequestId = nil
+        state.activeRequestSignature = nil
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.consecutiveUnsuccessfulAttempts = 0
         state.hasEmittedUnavailable = false
-        state.lastPublishedFactsByBranch = nil
+        state.stablePresentation = .unknown
+        let originResetProjection = PullRequestRepositoryProjection.stable(.unknown)
+        let shouldEmitOriginReset = state.acceptedProjection != originResetProjection
+        state.acceptedProjection = originResetProjection
         refreshStateByRepoId[repoId] = state
 
-        if replacedExistingOrigin {
+        if replacedExistingOrigin, shouldEmitOriginReset {
             await emitForgeEvent(
                 repoId: repoId,
                 correlationId: nil,
-                event: .pullRequestRepositoryInvalidated(repoId: repoId)
+                event: .pullRequestRepositoryProjectionChanged(
+                    repoId: repoId,
+                    projection: originResetProjection,
+                    invalidatedBranches: []
+                )
             )
         }
-        requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        await requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
         rescheduleDeadline()
     }
 
     package func removeRepository(repo repoId: UUID) async {
+        defer { flushPerformanceSnapshot() }
         cancelProviderRequest(repoId: repoId)
+        settleExplicitUpdateAttemptsAfterLogicalInvalidation(repoId: repoId)
         refreshStateByRepoId.removeValue(forKey: repoId)
         let removedWorktreeIds = Set(
             membershipByWorktreeId.compactMap { worktreeId, membership in
@@ -232,33 +201,74 @@ package actor ForgeActor {
         await emitForgeEvent(
             repoId: repoId,
             correlationId: nil,
-            event: .pullRequestRepositoryInvalidated(repoId: repoId)
+            event: .pullRequestRepositoryProjectionChanged(
+                repoId: repoId,
+                projection: .stable(.unknown),
+                invalidatedBranches: []
+            )
         )
         rescheduleDeadline()
     }
 
     package func setDemand(worktreeIds: Set<UUID>) async {
         guard demandedWorktreeIds != worktreeIds else { return }
+        defer { flushPerformanceSnapshot() }
         let previouslyDemandedRepoIds = demandedRepoIds()
+        let previouslyDemandedBranchesByRepoId = Dictionary(
+            uniqueKeysWithValues: previouslyDemandedRepoIds.map { repoId in
+                (repoId, demandedBranches(repoId: repoId))
+            }
+        )
         demandedWorktreeIds = worktreeIds
         let currentlyDemandedRepoIds = demandedRepoIds()
 
         for repoId in previouslyDemandedRepoIds.subtracting(currentlyDemandedRepoIds) {
+            if !hasExplicitUpdateInterest(repoId: repoId) {
+                cancelProviderRequest(repoId: repoId)
+            }
             if var state = refreshStateByRepoId[repoId] {
-                state.pendingFollowUp = false
-                state.pendingFollowUpRequiresRefresh = false
-                state.pendingFollowUpEligibleAt = nil
+                if !hasExplicitUpdateInterest(repoId: repoId) {
+                    state.pendingFollowUp = false
+                    state.pendingFollowUpRequiresRefresh = false
+                    state.pendingFollowUpHasUnconfirmedScopeChange = false
+                    state.pendingFollowUpEligibleAt = nil
+                }
+                let restoredProjection = PullRequestRepositoryProjection.stable(
+                    state.stablePresentation
+                )
+                let shouldEmitRestoredProjection = state.acceptedProjection != restoredProjection
+                state.acceptedProjection = restoredProjection
                 refreshStateByRepoId[repoId] = state
+                if shouldEmitRestoredProjection {
+                    await emitForgeEvent(
+                        repoId: repoId,
+                        correlationId: nil,
+                        event: .pullRequestRepositoryProjectionChanged(
+                            repoId: repoId,
+                            projection: restoredProjection,
+                            invalidatedBranches: []
+                        )
+                    )
+                }
             }
         }
         for repoId in currentlyDemandedRepoIds {
-            requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+            let currentDemandedBranches = demandedBranches(repoId: repoId)
+            let previouslyDemandedBranches = previouslyDemandedBranchesByRepoId[repoId] ?? []
+            let confirmedBranches: Set<String>
+            if let confirmedFacts = ForgePresentationFacts.confirmedFacts(
+                in: refreshStateByRepoId[repoId]?.stablePresentation ?? .unknown
+            ) {
+                confirmedBranches = Set(confirmedFacts.keys)
+            } else {
+                confirmedBranches = []
+            }
+            let trigger: RefreshTrigger =
+                previouslyDemandedBranches != currentDemandedBranches
+                    && !currentDemandedBranches.isSubset(of: confirmedBranches)
+                ? .scopeChanged : .automatic
+            await requestRefreshIfDemanded(repoId: repoId, trigger: trigger, correlationId: nil)
         }
-        rescheduleDeadline()
-    }
-
-    package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
-        requestRefreshIfDemanded(repoId: repoId, trigger: .manual, correlationId: correlationId)
         rescheduleDeadline()
     }
 
@@ -267,24 +277,31 @@ package actor ForgeActor {
         isShuttingDown = true
         let activeSubscriptionTask = subscriptionTask
         let activeDeadlineTask = deadlineTask
-        let activeProviderTasks = Array(providerTasksByRepoId.values)
+        let activeProviderTasks = Array(providerTasksByRequestId.values)
 
         subscriptionTask?.cancel()
         deadlineTask?.cancel()
+        if deadlineTask != nil {
+            performanceAccumulator.recordDeadline(.cancelled)
+        }
         for task in activeProviderTasks {
+            performanceAccumulator.recordExecution(.cancelled)
             task.cancel()
         }
         subscriptionTask = nil
         deadlineTask = nil
-        providerTasksByRepoId.removeAll(keepingCapacity: false)
 
         if let activeSubscriptionTask { await activeSubscriptionTask.value }
         if let activeDeadlineTask { await activeDeadlineTask.value }
         for task in activeProviderTasks { await task.value }
+        providerTasksByRequestId.removeAll(keepingCapacity: false)
+        providerRepoIdByRequestId.removeAll(keepingCapacity: false)
 
         membershipByWorktreeId.removeAll(keepingCapacity: false)
         demandedWorktreeIds.removeAll(keepingCapacity: false)
         refreshStateByRepoId.removeAll(keepingCapacity: false)
+        settleAllExplicitUpdateAttempts(.cancelled)
+        flushPerformanceSnapshot()
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -346,6 +363,10 @@ package actor ForgeActor {
         }
     }
 
+    package func appliedAutomaticDemandWorktreeIds() -> Set<UUID> {
+        demandedWorktreeIds
+    }
+
     private func updateMembershipBranch(
         worktreeId: UUID,
         repoId: UUID,
@@ -354,22 +375,25 @@ package actor ForgeActor {
         correlationId: UUID?
     ) async {
         guard let priorMembership = membershipByWorktreeId[worktreeId] else { return }
-        let normalizedBranch = Self.normalizedBranch(branch)
+        defer { flushPerformanceSnapshot() }
+        let normalizedBranch = ForgePresentationFacts.normalizedBranch(branch)
         membershipByWorktreeId[worktreeId] = WorktreeMembership(
             repoId: repoId,
             rootPath: rootPath.standardizedFileURL,
             branch: normalizedBranch
         )
+        refreshExplicitUpdateScopes(repoId: repoId)
         if priorMembership.repoId != repoId || priorMembership.branch != normalizedBranch {
             await invalidateBranchIfUnrepresented(
                 repoId: priorMembership.repoId,
                 branch: priorMembership.branch
             )
         }
-        if demandedWorktreeIds.contains(worktreeId) {
-            requestRefreshIfDemanded(
+        if demandedWorktreeIds.contains(worktreeId) || hasExplicitUpdateInterest(repoId: repoId) {
+            await requestRefreshIfDemanded(
                 repoId: repoId,
-                trigger: .automatic,
+                trigger: priorMembership.repoId != repoId || priorMembership.branch != normalizedBranch
+                    ? .scopeChanged : .automatic,
                 correlationId: correlationId
             )
         }
@@ -387,26 +411,46 @@ package actor ForgeActor {
     private func clearOrigin(repoId: UUID) async {
         var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
         guard state.origin != nil || !state.hasEmittedUnavailable else { return }
+        defer { flushPerformanceSnapshot() }
         cancelProviderRequest(repoId: repoId)
+        settleExplicitUpdateAttemptsAfterLogicalInvalidation(repoId: repoId)
         state.generation &+= 1
         state.origin = nil
         state.lastSuccessfulRefreshAt = nil
         state.lastAttemptAt = nil
         state.backoffUntil = nil
         state.activeRequestId = nil
+        state.activeRequestSignature = nil
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.consecutiveUnsuccessfulAttempts = 0
-        state.lastPublishedFactsByBranch = nil
-        state.hasEmittedUnavailable = true
-        refreshStateByRepoId[repoId] = state
-        await emitForgeEvent(
-            repoId: repoId,
-            correlationId: nil,
-            event: .pullRequestsUnavailable(repoId: repoId)
+        let previousConfirmedFacts = ForgePresentationFacts.confirmedFacts(
+            in: state.stablePresentation
         )
+        state.stablePresentation = .unavailable(
+            previousConfirmedFactsByBranch: previousConfirmedFacts
+        )
+        state.hasEmittedUnavailable = true
+        let unavailableProjection = PullRequestRepositoryProjection.stable(
+            state.stablePresentation
+        )
+        let shouldEmitUnavailable = state.acceptedProjection != unavailableProjection
+        state.acceptedProjection = unavailableProjection
+        refreshStateByRepoId[repoId] = state
+        if shouldEmitUnavailable {
+            await emitForgeEvent(
+                repoId: repoId,
+                correlationId: nil,
+                event: .pullRequestRepositoryProjectionChanged(
+                    repoId: repoId,
+                    projection: unavailableProjection,
+                    invalidatedBranches: []
+                )
+            )
+        }
         rescheduleDeadline()
     }
 
@@ -416,36 +460,78 @@ package actor ForgeActor {
                 $0.repoId == repoId && $0.branch == branch
             }) == false
         else { return }
-        await emitForgeEvent(
-            repoId: repoId,
-            correlationId: nil,
-            event: .pullRequestBranchesInvalidated(repoId: repoId, branches: [branch])
+        guard var state = refreshStateByRepoId[repoId] else {
+            await emitForgeEvent(
+                repoId: repoId,
+                correlationId: nil,
+                event: .pullRequestRepositoryProjectionChanged(
+                    repoId: repoId,
+                    projection: .stable(.unknown),
+                    invalidatedBranches: [branch]
+                )
+            )
+            return
+        }
+        let updatedStablePresentation = ForgePresentationFacts.removingConfirmedBranches(
+            [branch],
+            from: state.stablePresentation
         )
+        state.stablePresentation = updatedStablePresentation
+        let updatedProjection: PullRequestRepositoryProjection
+        if let activeRequestId = state.activeRequestId {
+            updatedProjection = .loading(
+                baseline: updatedStablePresentation,
+                requestIdentity: activeRequestId
+            )
+        } else {
+            updatedProjection = .stable(updatedStablePresentation)
+        }
+        let shouldEmitProjection = state.acceptedProjection != updatedProjection
+        state.acceptedProjection = updatedProjection
+        refreshStateByRepoId[repoId] = state
+        if shouldEmitProjection || !branch.isEmpty {
+            await emitForgeEvent(
+                repoId: repoId,
+                correlationId: nil,
+                event: .pullRequestRepositoryProjectionChanged(
+                    repoId: repoId,
+                    projection: updatedProjection,
+                    invalidatedBranches: [branch]
+                )
+            )
+        }
     }
+}
 
-    private func requestRefreshIfDemanded(
+extension ForgeActor {
+    func requestRefreshIfDemanded(
         repoId: UUID,
         trigger: RefreshTrigger,
         correlationId: UUID?
-    ) {
-        guard !isShuttingDown else { return }
-        let demandedBranches = demandedBranches(repoId: repoId)
+    ) async {
+        performanceAccumulator.recordInput(trigger.performanceInput)
+        guard !isShuttingDown else {
+            performanceAccumulator.recordAdmission(.noDemandRejected)
+            return
+        }
+        let demandedBranches = repositoryFactRefreshBranches(repoId: repoId)
         guard !demandedBranches.isEmpty else {
-            if var state = refreshStateByRepoId[repoId] {
+            performanceAccumulator.recordAdmission(.noDemandRejected)
+            if var state = refreshStateByRepoId[repoId], !hasExplicitUpdateInterest(repoId: repoId) {
                 state.pendingFollowUp = false
                 state.pendingFollowUpRequiresRefresh = false
+                state.pendingFollowUpHasUnconfirmedScopeChange = false
                 state.pendingFollowUpEligibleAt = nil
                 refreshStateByRepoId[repoId] = state
             }
             return
         }
-        guard var state = refreshStateByRepoId[repoId], let origin = state.origin else { return }
+        guard var state = refreshStateByRepoId[repoId], let origin = state.origin else {
+            performanceAccumulator.recordAdmission(.missingOriginRejected)
+            return
+        }
 
-        if state.activeRequestId != nil {
-            state.pendingFollowUp = true
-            state.pendingFollowUpRequiresRefresh =
-                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
-            refreshStateByRepoId[repoId] = state
+        if coalesceRefreshWhileProviderActive(repoId: repoId, trigger: trigger, state: &state) {
             return
         }
 
@@ -453,7 +539,16 @@ package actor ForgeActor {
         if let nextEligibleAt = nextEligibleRefreshAt(state: state, bypassFreshness: trigger.bypassesFreshness),
             now < nextEligibleAt
         {
+            if let backoffUntil = state.backoffUntil, backoffUntil >= nextEligibleAt {
+                performanceAccumulator.recordAdmission(.backoffDeferred)
+            } else {
+                performanceAccumulator.recordAdmission(.freshnessDeferred)
+            }
             state.pendingFollowUp = true
+            state.pendingFollowUpRequiresRefresh =
+                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
+            state.pendingFollowUpHasUnconfirmedScopeChange =
+                state.pendingFollowUpHasUnconfirmedScopeChange || trigger.hasUnconfirmedScopeChange
             state.pendingFollowUpEligibleAt = max(
                 state.pendingFollowUpEligibleAt ?? .zero,
                 nextEligibleAt
@@ -462,6 +557,8 @@ package actor ForgeActor {
             return
         }
 
+        if deferStartIfPhysicallyBlocked(repoId: repoId, trigger: trigger, now: now, state: &state) { return }
+
         nextProviderRequestId &+= 1
         let request = ProviderRequest(
             id: nextProviderRequestId,
@@ -469,73 +566,102 @@ package actor ForgeActor {
             origin: origin,
             generation: state.generation,
             demandedBranches: demandedBranches,
-            correlationId: correlationId
+            trigger: trigger,
+            correlationId: correlationId,
+            explicitAttemptIds: explicitAttemptIds(repoId: repoId)
         )
         state.activeRequestId = request.id
+        state.activeRequestSignature = request.signature
         state.lastAttemptAt = now
         state.pendingFollowUp = false
         state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpHasUnconfirmedScopeChange = false
         state.pendingFollowUpEligibleAt = nil
+        let loadingProjection = PullRequestRepositoryProjection.loading(
+            baseline: state.stablePresentation,
+            requestIdentity: request.id
+        )
+        state.acceptedProjection = loadingProjection
         refreshStateByRepoId[repoId] = state
-        if case .followUp = trigger {
-            recordFollowUpOutcome("admitted")
-        }
+        performanceAccumulator.recordAdmission(.admitted)
+
+        await emitForgeEvent(
+            repoId: repoId,
+            correlationId: correlationId,
+            event: .pullRequestRepositoryProjectionChanged(
+                repoId: repoId,
+                projection: loadingProjection,
+                invalidatedBranches: []
+            )
+        )
+
+        guard !isShuttingDown,
+            let currentState = refreshStateByRepoId[repoId],
+            currentState.activeRequestId == request.id,
+            currentState.generation == request.generation,
+            currentState.origin == request.origin
+        else { return }
 
         let statusProvider = self.statusProvider
-        providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
+        recordProviderStartPerformance(for: request)
+        providerRepoIdByRequestId[request.id] = request.repoId
+        providerTasksByRequestId[request.id] = Task { [weak self, statusProvider] in
+            defer { self?.providerRequestDidReturn?(request.id) }
             guard let self else { return }
-            await self.providerRequestDidStart(request)
-            let outcome = await statusProvider.pullRequests(origin: request.origin)
+            let outcome = await statusProvider.pullRequests(
+                origin: request.origin,
+                demandedBranches: request.demandedBranches
+            )
             await self.completeProviderRequest(request, outcome: outcome)
         }
+        recordPhysicalPerformanceState()
+        flushPerformanceSnapshot()
     }
 
-    private func providerRequestDidStart(_ request: ProviderRequest) async {
-        guard !isShuttingDown,
-            let state = refreshStateByRepoId[request.repoId],
-            state.activeRequestId == request.id,
-            state.generation == request.generation,
-            state.origin == request.origin
-        else { return }
-        await emitForgeEvent(
-            repoId: request.repoId,
-            correlationId: request.correlationId,
-            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: true)
-        )
+    private func recordProviderStartPerformance(for request: ProviderRequest) {
+        if !demandedRepoIds().contains(request.repoId), request.explicitAttemptIds.isEmpty {
+            performanceAccumulator.recordAutomaticWithoutDemandStart()
+        }
+        performanceAccumulator.recordExecution(.started)
+        recordQueryPlan(for: request)
     }
 
-    /// Applies one provider outcome to `state` and returns the per-outcome
-    /// fact to publish, if any. Does not touch the shared honesty-threshold
-    /// bookkeeping (`hasEmittedUnavailable`); the caller applies that
-    /// uniformly across all outcome kinds after this returns.
     private func applyOutcome(
         _ outcome: ForgePullRequestQueryOutcome,
         to state: inout RepositoryRefreshState,
         request: ProviderRequest,
         completionTime: Duration
     ) -> ForgeEvent? {
+        performanceAccumulator.recordQueryOutcome(outcome)
         switch outcome {
         case .complete(let pullRequests):
+            if state.hasEmittedUnavailable {
+                performanceAccumulator.recordRecovery()
+            }
+            let priorConfirmedFacts = ForgePresentationFacts.confirmedFacts(in: state.stablePresentation) ?? [:]
+            let representedBranches = representedBranches(repoId: request.repoId)
+            var confirmedFactsByBranch = priorConfirmedFacts.filter { branch, _ in
+                representedBranches.contains(branch)
+            }
+            let refreshedFactsByBranch = ForgePullRequestFactsProjector.project(
+                pullRequests: pullRequests,
+                demandedBranches: request.demandedBranches
+            )
+            for branch in request.demandedBranches {
+                confirmedFactsByBranch[branch] = refreshedFactsByBranch[branch]
+            }
+            if priorConfirmedFacts == confirmedFactsByBranch {
+                performanceAccumulator.recordPublication(.equal)
+            }
             state.lastSuccessfulRefreshAt = completionTime
             state.backoffUntil = nil
             state.consecutiveFailureCount = 0
             state.consecutiveUnsuccessfulAttempts = 0
             state.hasEmittedUnavailable = false
-            let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
-                representedBranches(repoId: request.repoId)
+            state.stablePresentation = .ready(
+                confirmedFactsByBranch: confirmedFactsByBranch
             )
-            let factsByBranch = ForgePullRequestFactsProjector.project(
-                pullRequests: pullRequests,
-                demandedBranches: stillRepresentedRequestedBranches
-            )
-            let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
-            state.lastPublishedFactsByBranch = factsByBranch
-            if !factsChanged {
-                recordForgeOutcome(stage: "facts_publication", outcome: "equal")
-            }
-            return factsChanged
-                ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
-                : nil
+            return nil
         case .truncated:
             state.consecutiveUnsuccessfulAttempts += 1
             state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
@@ -556,117 +682,21 @@ package actor ForgeActor {
         case .failed(let message):
             state.consecutiveFailureCount += 1
             state.consecutiveUnsuccessfulAttempts += 1
-            state.backoffUntil =
+            let manualBackoffUntil =
                 completionTime
                 + AppPolicies.ForgeRefresh.failureBackoffDelay(
                     forConsecutiveFailureCount: state.consecutiveFailureCount
                 )
+            if request.trigger.usesAutomaticFailureFloor {
+                let automaticRetryFloor =
+                    (state.lastAttemptAt ?? completionTime)
+                    + AppPolicies.ForgeRefresh.automaticFailureRetryFloor
+                state.backoffUntil = max(manualBackoffUntil, automaticRetryFloor)
+            } else {
+                state.backoffUntil = manualBackoffUntil
+            }
             return .refreshFailed(repoId: request.repoId, error: message)
         }
-    }
-
-    private func completeProviderRequest(
-        _ request: ProviderRequest,
-        outcome: ForgePullRequestQueryOutcome
-    ) async {
-        guard !isShuttingDown else {
-            providerTasksByRepoId.removeValue(forKey: request.repoId)
-            return
-        }
-        guard var state = refreshStateByRepoId[request.repoId],
-            state.activeRequestId == request.id,
-            state.generation == request.generation,
-            state.origin == request.origin
-        else { return }
-
-        providerTasksByRepoId.removeValue(forKey: request.repoId)
-        state.activeRequestId = nil
-        let completionTime = monotonicNow()
-        let event = applyOutcome(outcome, to: &state, request: request, completionTime: completionTime)
-
-        // Bounded retries keep running at the normal backoff cadence past this
-        // point; only the row's honesty signal changes. Emit the terminal fact
-        // once per crossing so a still-loading UI never lies about "pending".
-        let shouldEmitUnavailable =
-            !state.hasEmittedUnavailable
-            && state.consecutiveUnsuccessfulAttempts >= AppPolicies.Forge.consecutiveFailureHonestyThreshold
-        if shouldEmitUnavailable {
-            state.hasEmittedUnavailable = true
-            // The unavailable transition discards the repository's cached facts on
-            // RepoCacheAtom's side (see markPullRequestsUnavailable). Forget this actor's own
-            // last-published baseline too, so a later success resolving to the exact same facts
-            // as before the outage is not equal-content-suppressed and still republishes — the
-            // same forced-recovery pattern clearOrigin/setOrigin already apply for origin
-            // transitions.
-            state.lastPublishedFactsByBranch = nil
-        }
-
-        refreshStateByRepoId[request.repoId] = state
-        // Commit the accepted completion before the external bus await. ForgeActor is
-        // reentrant across that await, and a concurrent manual refresh must observe the
-        // completed request rather than append a follow-up to stale active-request state.
-        await emitForgeEvent(
-            repoId: request.repoId,
-            correlationId: request.correlationId,
-            event: .pullRequestRefreshStateChanged(repoId: request.repoId, isLoading: false)
-        )
-        if requestRemainsCurrentForResultPublication(request) {
-            if let event {
-                await emitForgeEvent(
-                    repoId: request.repoId,
-                    correlationId: request.correlationId,
-                    event: event
-                )
-            }
-            if shouldEmitUnavailable {
-                await emitForgeEvent(
-                    repoId: request.repoId,
-                    correlationId: request.correlationId,
-                    event: .pullRequestsUnavailable(repoId: request.repoId)
-                )
-            }
-        }
-
-        guard var currentState = refreshStateByRepoId[request.repoId],
-            currentState.generation == request.generation,
-            currentState.activeRequestId == nil
-        else { return }
-        if currentState.pendingFollowUp {
-            let pendingFollowUpRequiresRefresh = currentState.pendingFollowUpRequiresRefresh
-            let currentSignature = currentState.origin.map {
-                ProviderRequestSignature(
-                    origin: $0,
-                    demandedBranches: demandedBranches(repoId: request.repoId)
-                )
-            }
-            if pendingFollowUpRequiresRefresh || currentSignature != request.signature {
-                currentState.pendingFollowUp = false
-                currentState.pendingFollowUpRequiresRefresh = false
-                currentState.pendingFollowUpEligibleAt = nil
-                refreshStateByRepoId[request.repoId] = currentState
-                requestRefreshIfDemanded(
-                    repoId: request.repoId,
-                    trigger: .followUp,
-                    correlationId: nil
-                )
-            } else {
-                currentState.pendingFollowUpEligibleAt =
-                    completionTime + AppPolicies.ForgeRefresh.pendingFollowUpDelay
-                refreshStateByRepoId[request.repoId] = currentState
-                recordFollowUpOutcome("deferred")
-            }
-        }
-        rescheduleDeadline()
-    }
-
-    private func requestRemainsCurrentForResultPublication(_ request: ProviderRequest) -> Bool {
-        guard !isShuttingDown,
-            let currentState = refreshStateByRepoId[request.repoId],
-            currentState.generation == request.generation,
-            currentState.origin == request.origin
-        else { return false }
-
-        return demandedBranches(repoId: request.repoId) == request.demandedBranches
     }
 
     private func minimumRetryAt(
@@ -676,7 +706,7 @@ package actor ForgeActor {
         (state.lastAttemptAt ?? completionTime) + AppPolicies.Forge.automaticRefreshMinimumInterval
     }
 
-    private func nextEligibleRefreshAt(
+    func nextEligibleRefreshAt(
         state: RepositoryRefreshState,
         bypassFreshness: Bool
     ) -> Duration? {
@@ -689,25 +719,23 @@ package actor ForgeActor {
         return nextEligibleAt
     }
 
-    private func rescheduleDeadline() {
+    func rescheduleDeadline() {
         nextDeadlineGeneration &+= 1
         let deadlineGeneration = nextDeadlineGeneration
+        if deadlineTask != nil {
+            performanceAccumulator.recordDeadline(.cancelled)
+            performanceAccumulator.recordDeadline(.rescheduled)
+        }
         deadlineTask?.cancel()
         deadlineTask = nil
         guard !isShuttingDown else { return }
 
         let now = monotonicNow()
-        let deadlines = demandedRepoIds().compactMap { repoId -> Duration? in
-            guard let state = refreshStateByRepoId[repoId],
-                state.origin != nil,
-                state.activeRequestId == nil
-            else { return nil }
-            return state.pendingFollowUpEligibleAt
-                ?? nextEligibleRefreshAt(state: state, bypassFreshness: false)
-        }
+        let deadlines = deadlineCandidates()
         guard let earliestDeadline = deadlines.min() else { return }
         let waitDuration = max(.zero, earliestDeadline - now)
         let delay = self.delay
+        performanceAccumulator.recordDeadline(.scheduled)
         deadlineTask = Task { [weak self, delay] in
             do {
                 try await delay.wait(waitDuration)
@@ -719,53 +747,53 @@ package actor ForgeActor {
         }
     }
 
-    private func deadlineDidFire(generation: UInt64) {
+    private func deadlineDidFire(generation: UInt64) async {
         guard generation == nextDeadlineGeneration else { return }
+        performanceAccumulator.recordDeadline(.fired)
         deadlineTask = nil
-        let repoIds = demandedRepoIds()
+        let now = monotonicNow()
+        if consumeCapacityFallbacksDue(at: now) {
+            rescheduleDeadline()
+            flushPerformanceSnapshot()
+            return
+        }
+        let repoIds = repositoryFactRefreshRepoIds()
+            .filter { deadlineCandidate(repoId: $0).map { $0 <= now } == true }
+            .sorted { $0.uuidString < $1.uuidString }
         for repoId in repoIds {
-            if let state = refreshStateByRepoId[repoId],
-                let pendingFollowUpEligibleAt = state.pendingFollowUpEligibleAt,
-                pendingFollowUpEligibleAt <= monotonicNow()
-            {
-                requestRefreshIfDemanded(repoId: repoId, trigger: .followUp, correlationId: nil)
-            } else {
-                requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
-            }
+            let trigger =
+                refreshStateByRepoId[repoId].map { state in
+                    state.pendingFollowUp ? pendingFollowUpTrigger(for: state) : .automatic
+                } ?? .automatic
+            await requestRefreshIfDemanded(repoId: repoId, trigger: trigger, correlationId: nil)
         }
         rescheduleDeadline()
+        flushPerformanceSnapshot()
     }
 
     private func cancelProviderRequest(repoId: UUID) {
-        providerTasksByRepoId.removeValue(forKey: repoId)?.cancel()
+        if let activeRequestId = refreshStateByRepoId[repoId]?.activeRequestId,
+            let providerTask = providerTasksByRequestId[activeRequestId]
+        {
+            performanceAccumulator.recordExecution(.cancelled)
+            providerTask.cancel()
+        }
         if var state = refreshStateByRepoId[repoId] {
             state.activeRequestId = nil
+            state.activeRequestSignature = nil
             state.pendingFollowUp = false
             state.pendingFollowUpRequiresRefresh = false
+            state.pendingFollowUpHasUnconfirmedScopeChange = false
             state.pendingFollowUpEligibleAt = nil
             refreshStateByRepoId[repoId] = state
         }
     }
 
-    private func recordFollowUpOutcome(_ outcome: String) {
-        recordForgeOutcome(stage: "follow_up", outcome: outcome)
-    }
-
-    private func recordForgeOutcome(stage: String, outcome: String) {
-        performanceTraceRecorder?.record(
-            .forgeRefresh,
-            attributes: [
-                "agentstudio.performance.forge.stage": .string(stage),
-                "agentstudio.performance.forge.outcome": .string(outcome),
-            ]
-        )
-    }
-
-    private func demandedRepoIds() -> Set<UUID> {
+    func demandedRepoIds() -> Set<UUID> {
         Set(demandedWorktreeIds.compactMap { membershipByWorktreeId[$0]?.repoId })
     }
 
-    private func demandedBranches(repoId: UUID) -> Set<String> {
+    func demandedBranches(repoId: UUID) -> Set<String> {
         Set(
             demandedWorktreeIds.compactMap { worktreeId in
                 guard let membership = membershipByWorktreeId[worktreeId],
@@ -776,7 +804,35 @@ package actor ForgeActor {
         )
     }
 
-    private func representedBranches(repoId: UUID) -> Set<String> {
+    func repositoryFactRefreshBranches(repoId: UUID) -> Set<String> {
+        demandedBranches(repoId: repoId).union(
+            explicitUpdateAttemptsById.values
+                .filter { $0.repoId == repoId }
+                .reduce(into: Set<String>()) { branches, attempt in
+                    branches.formUnion(attempt.branches)
+                }
+        )
+    }
+
+    func refreshExplicitUpdateScopes(repoId: UUID) {
+        let currentBranches = representedBranches(repoId: repoId)
+        guard !currentBranches.isEmpty else { return }
+        for attemptId in explicitUpdateAttemptsById.keys {
+            guard var attempt = explicitUpdateAttemptsById[attemptId], attempt.repoId == repoId,
+                attempt.branches != currentBranches
+            else { continue }
+            attempt.branches = currentBranches
+            explicitUpdateAttemptsById[attemptId] = attempt
+            if var state = refreshStateByRepoId[repoId] {
+                state.pendingFollowUp = true
+                state.pendingFollowUpHasUnconfirmedScopeChange = true
+                state.pendingFollowUpEligibleAt = nil
+                refreshStateByRepoId[repoId] = state
+            }
+        }
+    }
+
+    func representedBranches(repoId: UUID) -> Set<String> {
         Set(
             membershipByWorktreeId.values.compactMap { membership in
                 guard membership.repoId == repoId else { return nil }
@@ -785,21 +841,23 @@ package actor ForgeActor {
         )
     }
 
-    private static func normalizedBranch(_ branch: String?) -> String? {
-        guard let branch, !branch.isEmpty else { return nil }
-        return branch
-    }
-
     private func emitForgeEvent(
         repoId: UUID,
         correlationId: UUID?,
         event: ForgeEvent
     ) async {
+        if case .pullRequestRepositoryProjectionChanged(_, _, let invalidatedBranches) = event {
+            performanceAccumulator.recordPublication(.published)
+            if !invalidatedBranches.isEmpty {
+                performanceAccumulator.recordPublication(.invalidated)
+            }
+        }
         nextEnvelopeSequence &+= 1
+        let envelopeSequence = nextEnvelopeSequence
         let runtimeEnvelope = RuntimeEnvelope.worktree(
             WorktreeEnvelope(
                 source: .system(.service(.gitForge(provider: providerName))),
-                seq: nextEnvelopeSequence,
+                seq: envelopeSequence,
                 timestamp: envelopeClock.now,
                 correlationId: correlationId,
                 repoId: repoId,
@@ -808,11 +866,120 @@ package actor ForgeActor {
             )
         )
 
+        await beforeEventEmission?(event)
         let droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
         if droppedCount > 0 {
             Self.logger.warning(
-                "Forge event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
+                "Forge event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(envelopeSequence, privacy: .public)"
             )
         }
     }
+}
+
+extension ForgeActor {
+    private func completeProviderRequest(
+        _ request: ProviderRequest,
+        outcome: ForgePullRequestQueryOutcome
+    ) async {
+        defer { flushPerformanceSnapshot() }
+        providerTasksByRequestId.removeValue(forKey: request.id)
+        providerRepoIdByRequestId.removeValue(forKey: request.id)
+        recordPhysicalPerformanceState()
+        guard !isShuttingDown else { return }
+        performanceAccumulator.recordExecution(.completed)
+        guard var state = await validatedStateForProviderCompletion(request) else { return }
+
+        state.activeRequestId = nil
+        state.activeRequestSignature = nil
+        let completionTime = monotonicNow()
+        let diagnosticEvent: ForgeEvent?
+        if requestRemainsCurrentForResultPublication(request) {
+            performanceAccumulator.recordValidation(.current)
+            switch outcome {
+            case .complete:
+                break
+            case .truncated, .rateLimited, .failed:
+                performanceAccumulator.recordExecution(.failed)
+            }
+            diagnosticEvent = applyOutcome(
+                outcome,
+                to: &state,
+                request: request,
+                completionTime: completionTime
+            )
+            applyFailureHonestyThreshold(to: &state)
+        } else {
+            performanceAccumulator.recordValidation(.staleScope)
+            diagnosticEvent = nil
+        }
+
+        let completionProjection = PullRequestRepositoryProjection.stable(
+            state.stablePresentation
+        )
+        let projectionChanged = state.acceptedProjection != completionProjection
+        if !projectionChanged {
+            performanceAccumulator.recordPublication(.equal)
+        }
+        state.acceptedProjection = completionProjection
+        let followUpTrigger = captureFollowUpDecision(
+            state: &state,
+            request: request,
+            completionTime: completionTime
+        )
+        refreshStateByRepoId[request.repoId] = state
+
+        if projectionChanged {
+            await emitForgeEvent(
+                repoId: request.repoId,
+                correlationId: request.correlationId,
+                event: .pullRequestRepositoryProjectionChanged(
+                    repoId: request.repoId,
+                    projection: completionProjection,
+                    invalidatedBranches: []
+                )
+            )
+        }
+        if let diagnosticEvent {
+            await emitForgeEvent(
+                repoId: request.repoId,
+                correlationId: request.correlationId,
+                event: diagnosticEvent
+            )
+        }
+
+        switch outcome {
+        case .complete:
+            settleExplicitUpdateAttempts(
+                matching: request,
+                outcome: .completed,
+                requiresMatchingScope: true
+            )
+        case .failed:
+            settleExplicitUpdateAttempts(
+                matching: request,
+                outcome: .failed,
+                requiresMatchingScope: true
+            )
+        case .truncated, .rateLimited:
+            break
+        }
+
+        guard !isShuttingDown,
+            let currentState = refreshStateByRepoId[request.repoId],
+            currentState.generation == request.generation,
+            currentState.activeRequestId == nil
+        else {
+            await rearmAfterProviderPhysicalCompletion()
+            return
+        }
+        if let followUpTrigger {
+            await requestRefreshIfDemanded(
+                repoId: request.repoId,
+                trigger: followUpTrigger,
+                correlationId: nil
+            )
+        }
+        await rearmAfterProviderPhysicalCompletion()
+    }
+
 }

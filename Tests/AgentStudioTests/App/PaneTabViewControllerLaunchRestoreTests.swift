@@ -77,12 +77,10 @@ struct PaneTabViewControllerLaunchRestoreTests {
             tabBarAdapter: TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: atomRegistry.inboxNotification
             ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
-            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
         let window = NSWindow(

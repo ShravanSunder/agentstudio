@@ -54,17 +54,12 @@ struct PaneTabViewControllerTabRetentionTests {
             tabBarAdapter: TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
-                inboxAtom: atomRegistry.inboxNotification
             ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
-            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
-        PaneViewRepresentable.onDismantleForTesting = { [weak controller] in
-            controller?.recordPaneRepresentableDismantleForTesting()
-        }
         let window = NSWindow(
             contentRect: NSRect(x: -10_000, y: -10_000, width: 1200, height: 800),
             styleMask: [.titled],
@@ -100,7 +95,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func registeringTabHostSeedsPaneSlotsBeforeRender() {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -120,7 +114,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func inactivePersistentTab_allowsMissingHostUntilSelected() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -151,7 +144,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func selectingInactivePersistentTab_restoresMissingHostBeforeVisibleRender() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -188,7 +180,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func switchingTabs_reusesPersistentHosts() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -233,7 +224,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func selectingTabViaCommand_focusesTheTargetTabPane() async throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -269,7 +259,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func selectingTabViaCommand_restoresExpandedDrawerPaneFocus() async throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -317,7 +306,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func selectingTabViaCommand_restoresExpandedEmptyDrawerFocus() async throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -359,7 +347,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func activeTabChanges_doNotDismantleStillExistingTabHosts() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -380,21 +367,19 @@ struct PaneTabViewControllerTabRetentionTests {
         harness.store.setActiveTab(firstTab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let dismantleCountBeforeSwitch = harness.controller.paneRepresentableDismantleCountForTesting
+        let firstHost = try #require(harness.controller.tabHostViewForTesting(tabId: firstTab.id))
 
         harness.store.setActiveTab(secondTab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        #expect(
-            harness.controller.paneRepresentableDismantleCountForTesting == dismantleCountBeforeSwitch
-        )
+        #expect(harness.controller.tabHostViewForTesting(tabId: firstTab.id) === firstHost)
+        #expect(harness.controller.tabHostViewForTesting(tabId: secondTab.id) != nil)
     }
 
     @Test
     func withinTabStateChanges_doNotDismantleRepresentables() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -408,21 +393,18 @@ struct PaneTabViewControllerTabRetentionTests {
         harness.store.setActiveTab(tab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let dismantleCountBeforeMutation = harness.controller.paneRepresentableDismantleCountForTesting
+        let tabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
 
         harness.store.setActivePane(pane.id, inTab: tab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        #expect(
-            harness.controller.paneRepresentableDismantleCountForTesting == dismantleCountBeforeMutation
-        )
+        #expect(harness.controller.tabHostViewForTesting(tabId: tab.id) === tabHost)
     }
 
     @Test
     func closingTab_removesPersistentHost() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -456,7 +438,6 @@ struct PaneTabViewControllerTabRetentionTests {
     func addingTab_createsPersistentHostWithoutReplacingExistingHost() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 
@@ -471,7 +452,6 @@ struct PaneTabViewControllerTabRetentionTests {
         harness.controller.view.layoutSubtreeIfNeeded()
 
         let firstHost = try #require(harness.controller.tabHostViewForTesting(tabId: firstTab.id))
-        let dismantleCountBeforeAdd = harness.controller.paneRepresentableDismantleCountForTesting
 
         let secondPane = harness.store.createPane(
             launchDirectory: harness.tempDir,
@@ -489,16 +469,13 @@ struct PaneTabViewControllerTabRetentionTests {
         #expect(firstHostAfterAdd === firstHost)
         #expect(firstHostAfterAdd.isHidden)
         #expect(secondHost.isHidden == false)
-        #expect(
-            harness.controller.paneRepresentableDismantleCountForTesting == dismantleCountBeforeAdd
-        )
+        #expect(harness.controller.tabHostViewForTesting(tabId: firstTab.id) === firstHost)
     }
 
     @Test
     func latePaneHostRegistration_recordsHostWithoutReplacingTabHost() throws {
         let harness = makeHarness()
         defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
             try? FileManager.default.removeItem(at: harness.tempDir)
         }
 

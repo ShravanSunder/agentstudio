@@ -2,8 +2,70 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
+protocol RepositoryFactUpdateStarting: AnyObject, Sendable {
+    func startRepositoryFactUpdate(repoId: UUID, attemptId: UUID) async -> RepositoryFactUpdateAdmissionBatch
+}
+
+struct RepositoryFactUpdateSourceAdmissionHandler: Sendable {
+    let source: RepositoryFactSource
+    let admit: @Sendable (UUID, UUID) async -> RepositoryFactSourceUpdateAdmission
+
+    init(
+        source: RepositoryFactSource,
+        admit: @escaping @Sendable (UUID, UUID) async -> RepositoryFactSourceUpdateAdmission
+    ) {
+        self.source = source
+        self.admit = admit
+    }
+}
+
+struct RepositoryFactUpdateAdmissionBatch: Sendable {
+    let acceptedLeasesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateLease]
+    let terminalResultsBySource: [RepositoryFactSource: RepositoryFactUpdateSourceResult]
+
+    init(admissionsBySource: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission]) {
+        var acceptedLeasesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateLease] = [:]
+        var terminalResultsBySource: [RepositoryFactSource: RepositoryFactUpdateSourceResult] = [:]
+        for (source, admission) in admissionsBySource {
+            switch admission {
+            case .accepted(let lease):
+                acceptedLeasesBySource[source] = lease
+            case .notApplicable:
+                terminalResultsBySource[source] = .notApplicable
+            case .obsolete:
+                terminalResultsBySource[source] = .obsolete
+            }
+        }
+        self.acceptedLeasesBySource = acceptedLeasesBySource
+        self.terminalResultsBySource = terminalResultsBySource
+    }
+
+    var acceptedSources: Set<RepositoryFactSource> {
+        Set(acceptedLeasesBySource.keys)
+    }
+
+    func settlement() async -> [RepositoryFactSource: RepositoryFactSourceUpdateOutcome] {
+        await withTaskGroup(
+            of: (RepositoryFactSource, RepositoryFactSourceUpdateOutcome).self,
+            returning: [RepositoryFactSource: RepositoryFactSourceUpdateOutcome].self
+        ) { group in
+            for (source, lease) in acceptedLeasesBySource {
+                group.addTask {
+                    (source, await lease.settlement())
+                }
+            }
+            var outcomesBySource: [RepositoryFactSource: RepositoryFactSourceUpdateOutcome] = [:]
+            for await (source, outcome) in group {
+                outcomesBySource[source] = outcome
+            }
+            return outcomesBySource
+        }
+    }
+}
+
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
+    func filesystemLogicalDebtCount() async -> Int
     func refreshRegisteredWorktreesAndWatchedFolders(
         _ watchedPaths: [WatchedPath]
     ) async -> WatchedFolderRefreshSummary
@@ -14,45 +76,78 @@ protocol WatchedFolderCommandHandling: AnyObject, Sendable {
 /// `FilesystemActor` owns filesystem ingestion/routing and emits filesystem facts.
 /// `GitWorkingDirectoryProjector` subscribes to those facts and emits git snapshot projections.
 final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFolderCommandHandling,
-    Sendable
+    RepositoryFactUpdateStarting, Sendable
 {
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
+    private let remoteReferenceRefreshActor: RemoteReferenceRefreshActor
     private let forgeActor: ForgeActor
     private let registrationValidator: GitWorktreeRegistrationValidator
+    private let repositoryFactDemandPerformanceRecorder: (any RepositoryFactDemandPerformanceRecording)?
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
             RepoScannerGitDiscoveryClient(),
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider,
+        remoteReferenceRefreshProvider: any RemoteReferenceRefreshProviding =
+            AgentStudioGitRemoteReferenceRefreshProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
-        gitPeriodicRefreshInterval: Duration? = nil,
         gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        repositoryFactDemandPerformanceRecorder:
+            (any RepositoryFactDemandPerformanceRecording)? = nil
     ) {
+        self.repositoryFactDemandPerformanceRecorder =
+            repositoryFactDemandPerformanceRecorder ?? performanceTraceRecorder
         self.filesystemActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventStreamClient,
+            repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             debounceWindow: filesystemDebounceWindow,
             maxFlushLatency: filesystemMaxFlushLatency,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
+        let remoteReferenceAuthoritySink = RemoteReferenceAuthoritySink()
+        let remoteReferenceRefreshActor = RemoteReferenceRefreshActor(
+            provider: remoteReferenceRefreshProvider,
+            performanceRecorder: performanceTraceRecorder,
+            onAuthorityUpdate: { update in
+                await remoteReferenceAuthoritySink.send(update)
+            },
+            onPromotedRecomputation: { acceptance in
+                await remoteReferenceAuthoritySink.waitForRecomputation(
+                    authorityRevision: acceptance.authorityRevision
+                )
+            }
+        )
+        self.remoteReferenceRefreshActor = remoteReferenceRefreshActor
+        let gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow,
-            periodicRefreshInterval: gitPeriodicRefreshInterval ?? gitRefreshPolicy.activeCadence,
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
             performanceTraceRecorder: performanceTraceRecorder,
+            remoteReferenceOriginHandler: { repoId, expectedOrigin in
+                await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: expectedOrigin)
+            },
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
+        self.gitWorkingDirectoryProjector = gitWorkingDirectoryProjector
+        remoteReferenceAuthoritySink.install { update in
+            await gitWorkingDirectoryProjector.applyRemoteReferenceAuthorityUpdate(update)
+        } waitForRecomputation: { authorityRevision in
+            await gitWorkingDirectoryProjector.waitForRemoteReferenceRecomputation(
+                authorityRevision: authorityRevision
+            )
+        }
         self.registrationValidator = GitWorktreeRegistrationValidator(
             discoveryProvider: registrationDiscoveryProvider
         )
@@ -84,8 +179,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func shutdown() async {
         await forgeActor.setDemand(worktreeIds: [])
-        await filesystemActor.shutdown()
+        await remoteReferenceRefreshActor.setDemand(repositoryIds: [])
+        await remoteReferenceRefreshActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
+        await filesystemActor.shutdown()
         await forgeActor.shutdown()
     }
 
@@ -99,68 +196,133 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             break
         case .authoritativeNegative:
             await forgeActor.unregister(worktreeId: worktreeId)
+            await remoteReferenceRefreshActor.unregister(worktreeId: worktreeId)
             await filesystemActor.unregister(worktreeId: worktreeId)
             return
         }
+        await remoteReferenceRefreshActor.register(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            repositoryPath: rootPath,
+            remoteName: "origin",
+            expectedOrigin: nil
+        )
         await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
         await forgeActor.unregister(worktreeId: worktreeId)
+        await remoteReferenceRefreshActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         await startGitProjector()
-        // Probes are independent libgit2 discovery reads; run them concurrently so one slow or
-        // stalled worktree cannot serialize the whole fleet behind it.
-        let validatedContextsByWorktreeId = await withTaskGroup(
-            of: (UUID, WorktreeFilesystemContext?).self,
-            returning: [UUID: WorktreeFilesystemContext].self
-        ) { group in
-            for (worktreeId, context) in assertion.contextsByWorktreeId {
-                group.addTask { [registrationValidator] in
-                    switch await registrationValidator.registrationDecision(context: context) {
-                    case .validated:
-                        return (worktreeId, context)
-                    case .authoritativeNegative:
-                        return (worktreeId, nil)
-                    }
-                }
-            }
-            var validatedContexts: [UUID: WorktreeFilesystemContext] = [:]
-            for await (worktreeId, context) in group {
-                if let context {
-                    validatedContexts[worktreeId] = context
-                }
-            }
-            return validatedContexts
-        }
-        let validatedAssertion = FilesystemTopologyAssertion(
-            generation: assertion.generation,
-            contextsByWorktreeId: validatedContextsByWorktreeId
+        await filesystemActor.assertTopology(assertion)
+        await remoteReferenceRefreshActor.assertTopology(assertion.contextsByWorktreeId)
+        await gitWorkingDirectoryProjector.assertTopology(assertion)
+    }
+
+    func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async {
+        await filesystemActor.setRepositoryFactAttention(
+            activePaneWorktreeId: snapshot.activePaneWorktreeId,
+            openWorktreeIds: snapshot.openWorktreeIds
         )
-        await filesystemActor.assertTopology(validatedAssertion)
-        await gitWorkingDirectoryProjector.assertTopology(validatedAssertion)
+        await gitWorkingDirectoryProjector.setRepositoryFactAttention(
+            activePaneWorktreeId: snapshot.activePaneWorktreeId,
+            sidebarAttendedWorktreeIds: snapshot.sidebarAttendedWorktreeIds,
+            visibleActiveTabWorktreeIds: snapshot.visibleActiveTabWorktreeIds,
+            openWorktreeIds: snapshot.openWorktreeIds,
+            warmAutomaticWorktreeIds: snapshot.automaticLocalGitWorktreeIds,
+            backgroundOnlyAutomaticWorktreeIds: snapshot.backgroundOnlyAutomaticWorktreeIds
+        )
+        await remoteReferenceRefreshActor.setDemand(repositoryIds: snapshot.demandedRepositoryIds)
+        await forgeActor.setDemand(worktreeIds: snapshot.forgeDemandedWorktreeIds)
+        guard let repositoryFactDemandPerformanceRecorder else { return }
+        let appliedBackgroundOnlyAutomaticWorktreeIds =
+            await gitWorkingDirectoryProjector.appliedBackgroundOnlyAutomaticWorktreeIds()
+        let appliedRemoteDemandRepositoryIds =
+            await remoteReferenceRefreshActor.appliedAutomaticDemandRepositoryIds()
+        let appliedForgeDemandWorktreeIds =
+            await forgeActor.appliedAutomaticDemandWorktreeIds()
+        repositoryFactDemandPerformanceRecorder.recordRepositoryFactDemandPerformanceSnapshot(
+            Self.appliedDemandPerformanceSnapshot(
+                snapshot: snapshot,
+                backgroundOnlyAutomaticWorktreeIds: appliedBackgroundOnlyAutomaticWorktreeIds,
+                remoteDemandRepositoryIds: appliedRemoteDemandRepositoryIds,
+                forgeDemandWorktreeIds: appliedForgeDemandWorktreeIds
+            )
+        )
     }
 
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
-        await filesystemActor.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
-        await gitWorkingDirectoryProjector.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
+    static func appliedDemandPerformanceSnapshot(
+        snapshot: RepositoryFactDemandSnapshot,
+        backgroundOnlyAutomaticWorktreeIds: Set<UUID>,
+        remoteDemandRepositoryIds: Set<UUID>,
+        forgeDemandWorktreeIds: Set<UUID>
+    ) -> RepositoryFactDemandPerformanceSnapshot {
+        var performance = RepositoryFactDemandPerformanceSnapshot()
+        performance.applied = 1
+        performance.appliedUnknownWorktreeCurrent = UInt64(snapshot.unknownWorktreeIds.count)
+        performance.appliedUnknownBackgroundOnlyCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(backgroundOnlyAutomaticWorktreeIds).count
+        )
+        performance.appliedUnknownRemoteDemandCurrent = UInt64(
+            snapshot.unknownRepositoryIds.intersection(remoteDemandRepositoryIds).count
+        )
+        performance.appliedUnknownForgeDemandCurrent = UInt64(
+            snapshot.unknownWorktreeIds.intersection(forgeDemandWorktreeIds).count
+        )
+        return performance
     }
 
-    func setActivePaneWorktree(worktreeId: UUID?) async {
-        await filesystemActor.setActivePaneWorktree(worktreeId: worktreeId)
-        await gitWorkingDirectoryProjector.setActivePaneWorktree(worktreeId: worktreeId)
+    func waitForRepositoryFactDemandAdmission() async {
+        await gitWorkingDirectoryProjector.waitForVisibilityAdmission()
     }
 
-    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async {
-        await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
+    func startRepositoryFactUpdate(
+        repoId: UUID,
+        attemptId: UUID
+    ) async -> RepositoryFactUpdateAdmissionBatch {
+        await Self.admitRepositoryFactUpdateSources(
+            repoId: repoId,
+            attemptId: attemptId,
+            handlers: [
+                RepositoryFactUpdateSourceAdmissionHandler(source: .remoteReferences) { [self] repoId, attemptId in
+                    await remoteReferenceRefreshActor.startExplicitRepositoryUpdate(
+                        repoId: repoId,
+                        attemptId: attemptId
+                    )
+                }
+            ]
+        )
     }
 
-    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async {
-        await forgeActor.setDemand(worktreeIds: worktreeIds)
+    static func admitRepositoryFactUpdateSources(
+        repoId: UUID,
+        attemptId: UUID,
+        handlers: [RepositoryFactUpdateSourceAdmissionHandler]
+    ) async -> RepositoryFactUpdateAdmissionBatch {
+        let admissionsBySource = await withTaskGroup(
+            of: (RepositoryFactSource, RepositoryFactSourceUpdateAdmission).self,
+            returning: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission].self
+        ) { group in
+            for handler in handlers {
+                group.addTask {
+                    (
+                        handler.source,
+                        await handler.admit(repoId, attemptId)
+                    )
+                }
+            }
+            var admissionsBySource: [RepositoryFactSource: RepositoryFactSourceUpdateAdmission] = [:]
+            for await (source, admission) in group {
+                admissionsBySource[source] = admission
+            }
+            return admissionsBySource
+        }
+        return RepositoryFactUpdateAdmissionBatch(admissionsBySource: admissionsBySource)
     }
 
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
@@ -177,6 +339,14 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         return summary
     }
 
+    func filesystemLogicalDebtCount() async -> Int {
+        await filesystemActor.logicalDebtCount()
+    }
+
+    func gitLogicalDebtSnapshot() async -> GitLogicalDebtSnapshot {
+        await gitWorkingDirectoryProjector.logicalDebtSnapshot()
+    }
+
     func refreshRegisteredWorktreesAndWatchedFolders(
         _ watchedPaths: [WatchedPath]
     ) async -> WatchedFolderRefreshSummary {
@@ -188,14 +358,47 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     func applyScopeChange(_ change: ScopeChange) async {
         switch change {
         case .registerForgeRepo(let repoId, let remote):
+            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: remote)
             await forgeActor.setOrigin(repo: repoId, remote: remote)
         case .unregisterForgeRepo(let repoId):
+            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: nil)
             await forgeActor.removeRepository(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
+            await remoteReferenceRefreshActor.refresh(repoId: repoId)
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
         case .updateWatchedFolders(let watchedPaths):
             _ = await filesystemActor.refreshWatchedFolders(watchedPaths)
         }
+    }
+}
+
+private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
+    typealias Handler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
+    typealias RecomputationHandler = @Sendable (UInt64) async -> RepositoryFactSourceUpdateOutcome
+
+    private let lock = NSLock()
+    private var handler: Handler?
+    private var recomputationHandler: RecomputationHandler?
+
+    func install(
+        _ handler: @escaping Handler,
+        waitForRecomputation recomputationHandler: @escaping RecomputationHandler
+    ) {
+        lock.lock()
+        self.handler = handler
+        self.recomputationHandler = recomputationHandler
+        lock.unlock()
+    }
+
+    func send(_ update: RemoteReferenceAuthorityUpdate) async {
+        let handler = lock.withLock { self.handler }
+        await handler?(update)
+    }
+
+    func waitForRecomputation(authorityRevision: UInt64) async -> RepositoryFactSourceUpdateOutcome {
+        let handler = lock.withLock { recomputationHandler }
+        guard let handler else { return .obsolete }
+        return await handler(authorityRevision)
     }
 }
 

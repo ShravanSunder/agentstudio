@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AgentStudioSharedComponents
@@ -41,26 +40,19 @@ struct SidebarSurfaceHost: View {
 
     enum ChildKind: Equatable {
         case repoExplorer
-        case inbox
     }
 
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
-    let uiState: WorkspaceSidebarState
-    let sidebarCache: SidebarCacheState
-    let inboxSidebarState: InboxSidebarState
-    let inboxAtom: InboxNotificationAtom
     let paneActivityStatusAtom: PaneActivityStatusAtom
-    let prefsAtom: InboxNotificationPrefsAtom
-    let repoCache: RepoCacheAtom
+    let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
-    let onDismissInbox: @MainActor @Sendable () -> Void
-    @State private var surfaceSwitchSequence = 0
-    @State private var surfaceSwitchMetricState = SidebarSurfaceSwitchMetricState()
+    let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
     @State private var repoCommandPresentationBatch: RepoExplorerCommandPresentationBatch?
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
@@ -71,34 +63,14 @@ struct SidebarSurfaceHost: View {
 
     var body: some View {
         SidebarSurfaceChrome {
-            currentSurface
-        }
-        .onChange(of: uiState.sidebarSurface) { _, newSurface in
-            surfaceSwitchSequence += 1
-            surfaceSwitchMetricState.begin(
-                sequence: surfaceSwitchSequence,
-                surface: newSurface,
-                at: ContinuousClock().now
-            )
-            let sequence = surfaceSwitchSequence
-            Task { @MainActor in
-                await Task.yield()
-                completeSurfaceSwitch(sequence: sequence, surface: newSurface)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var currentSurface: some View {
-        let initialProjectionTrigger = surfaceSwitchSequence == 0 ? "data_refresh" : "surface_switch"
-        ZStack {
             RepoExplorerView(
                 store: store,
                 octiconLoader: octiconLoader,
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
+                isProjectionDemanded: !sidebarState.sidebarCollapsed,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
-                commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,
+                commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
                 onSetSortOrder: { order in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(
@@ -109,36 +81,24 @@ struct SidebarSurfaceHost: View {
                 },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
-                onShowNotificationsForWorktree: { worktree in
-                    Self.showNotifications(
-                        for: worktree,
-                        inboxSidebarState: inboxSidebarState,
-                        dispatcher: AppCommandDispatcher.shared
-                    )
+                onVisibleWorktreeSnapshotChanged: { snapshot in
+                    repoCommandPresentationBatch?.acceptVisibleWorktreeSnapshot(snapshot)
+                    for (repoID, attemptID) in snapshot.settledUpdateAttemptByRepositoryID {
+                        onRepositoryFactUpdateProgressPresented(repoID, attemptID)
+                    }
                 },
-                unreadCount: { worktree in
-                    Self.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom)
-                },
+                onPerformanceProofReadback: onPerformanceProofReadback,
                 latestPaneMessageSnapshot: { paneId in
-                    // The pane's own runtime status fact (written at every settle regardless of
-                    // inbox notification suppression) wins; fall back to the inbox's latest
-                    // content-bearing/generic message text, unchanged from before.
                     paneActivityStatusAtom.status(for: paneId)?.lastOutputLine
-                        ?? inboxAtom.latestMessageText(forPaneId: paneId)
                 },
                 performanceTraceRecorder: performanceTraceRecorder,
-                initialProjectionTrigger: initialProjectionTrigger,
-                initialProjectionSequence: surfaceSwitchSequence,
-                onInitialProjectionApplied: { sequence in
-                    completeSurfaceSwitch(sequence: sequence, surface: .repos)
-                }
+                initialProjectionTrigger: "data_refresh"
             )
             .task {
                 guard repoCommandPresentationBatch == nil else { return }
                 let batch = RepoExplorerCommandPresentationBatch(
                     store: store,
                     repoExplorerPrefs: repoExplorerSidebarPrefs,
-                    visibleWorktrees: atom(\.sidebarVisibleWorktreesRuntime),
                     dispatcher: .shared,
                     performanceTraceRecorder: performanceTraceRecorder
                 )
@@ -149,124 +109,11 @@ struct SidebarSurfaceHost: View {
                 repoCommandPresentationBatch?.stop()
                 repoCommandPresentationBatch = nil
             }
-            .opacity(uiState.sidebarSurface == .repos ? 1 : 0)
-            .allowsHitTesting(uiState.sidebarSurface == .repos)
-            .accessibilityHidden(uiState.sidebarSurface != .repos)
-
-            InboxNotificationSidebarView(
-                inboxAtom: inboxAtom,
-                octiconLoader: octiconLoader,
-                prefsAtom: prefsAtom,
-                uiState: uiState,
-                sidebarCache: sidebarCache,
-                inboxSidebarState: inboxSidebarState,
-                workspacePaneAtom: store.paneAtom,
-                workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
-                repoCache: repoCache,
-                dispatcher: AppCommandDispatcher.shared,
-                canSetRowStateFilter: { filter in
-                    AppCommandDispatcher.shared.canDispatch(
-                        AppCommandExecutionRequest(
-                            command: .setInboxRowStateFilter,
-                            arguments: .inboxRowStateFilter(filter)
-                        )
-                    )
-                },
-                canSetContentMode: { mode in
-                    AppCommandDispatcher.shared.canDispatch(
-                        AppCommandExecutionRequest(
-                            command: .setInboxContentMode,
-                            arguments: .inboxContentMode(mode)
-                        )
-                    )
-                },
-                onSetRowStateFilter: { filter in
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setInboxRowStateFilter,
-                            arguments: .inboxRowStateFilter(filter)
-                        )
-                    )
-                },
-                onSetContentMode: { mode in
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setInboxContentMode,
-                            arguments: .inboxContentMode(mode)
-                        )
-                    )
-                },
-                performanceTraceRecorder: performanceTraceRecorder,
-                initialProjectionTrigger: initialProjectionTrigger,
-                initialProjectionSequence: surfaceSwitchSequence,
-                onInitialProjectionApplied: { sequence in
-                    completeSurfaceSwitch(sequence: sequence, surface: .inbox)
-                },
-                onRefocusActivePane: onDismissInbox
-            )
-            .opacity(uiState.sidebarSurface == .inbox ? 1 : 0)
-            .allowsHitTesting(uiState.sidebarSurface == .inbox)
-            .accessibilityHidden(uiState.sidebarSurface != .inbox)
         }
-    }
-
-    private func completeSurfaceSwitch(sequence: Int, surface: SidebarSurface) {
-        guard
-            let switchDuration = surfaceSwitchMetricState.complete(
-                sequence: sequence,
-                surface: surface,
-                at: ContinuousClock().now
-            )
-        else { return }
-
-        performanceTraceRecorder?.recordDuration(
-            .sidebarProjection,
-            duration: switchDuration,
-            attributes: sidebarSurfaceSwitchTraceAttributes(for: surface, duration: switchDuration)
-        )
-    }
-
-    private func sidebarSurfaceSwitchTraceAttributes(
-        for surface: SidebarSurface,
-        duration: Duration
-    ) -> [String: AgentStudioTraceValue] {
-        [
-            "agentstudio.performance.sidebar.surface": .string(surface == .repos ? "repo" : "inbox"),
-            "agentstudio.performance.sidebar.phase": .string("surface_switch"),
-            "agentstudio.performance.sidebar.trigger": .string("surface_switch"),
-            "agentstudio.performance.sidebar.query_state": .string("empty"),
-            "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
-            "agentstudio.performance.sidebar.group.count": .int(0),
-            "agentstudio.performance.sidebar.surface_switch_elapsed_ms": .double(
-                AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)),
-        ]
     }
 
     static func currentChildKind(uiState: WorkspaceSidebarState) -> ChildKind {
-        switch uiState.sidebarSurface {
-        case .repos:
-            .repoExplorer
-        case .inbox:
-            .inbox
-        }
-    }
-
-    static func rollUpAlertCount(
-        for worktree: Worktree,
-        inboxAtom: InboxNotificationAtom
-    ) -> Int {
-        inboxAtom.rollUpAlertCount(forWorktreeId: worktree.id)
-    }
-
-    static func showNotifications(
-        for worktree: Worktree,
-        inboxSidebarState: InboxSidebarState,
-        dispatcher: AppCommandDispatcher
-    ) {
-        inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))
-        inboxSidebarState.setPendingDisplayOverride(
-            .init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
-        )
-        dispatcher.dispatch(.showInboxNotifications)
+        _ = uiState
+        return .repoExplorer
     }
 }

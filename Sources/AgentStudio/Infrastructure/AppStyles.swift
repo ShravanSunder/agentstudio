@@ -106,10 +106,10 @@ package enum AppStyles {
             package static let shadowOffsetY: CGFloat = 0
             package static let rowContentSpacing: CGFloat = 4
             package static let rowVerticalInset: CGFloat = 6
-            package static let listRowLeadingInset: CGFloat = 2
+            package static let listRowLeadingInset: CGFloat = Header.contentPadding
             package static let groupIconSize: CGFloat = 14
             package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
-            package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let rowLeadingIconColumnWidth: CGFloat = groupIconSize
             package static let groupIconColumnWidth: CGFloat = rowLeadingIconColumnWidth
             package static let rowIdentityIconSize: CGFloat = 11
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
@@ -123,6 +123,21 @@ package enum AppStyles {
             package static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
             package static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
             package static let groupRowVerticalPadding: CGFloat = 2
+            package static let nativeItemSpacing: CGFloat = 8
+            package static let nativeGroupSpacing: CGFloat = 12
+            package static let nativeRowVerticalInset: CGFloat = nativeItemSpacing / 2
+            package static let nativePrimaryTextLineHeight: CGFloat = 17
+            package static let nativeMetadataTextLineHeight: CGFloat = 15
+            package static let nativeGroupTitleLineHeight: CGFloat = 18
+            package static let nativeInlineControlLineHeight: CGFloat = AppStyles.General.Button.compact
+            package static let nativeLoadingCaptionLineHeight: CGFloat = 14
+            package static let loadingSectionCapsuleVerticalPadding: CGFloat = 4
+            package static let nativeLoadingSectionContentHeight: CGFloat =
+                nativeLoadingCaptionLineHeight + loadingSectionCapsuleVerticalPadding * 2
+            package static let nativeGroupHeaderTopPadding: CGFloat =
+                nativeGroupSpacing - nativeRowVerticalInset - groupRowVerticalPadding
+            package static let nativeGroupHeaderBottomPadding: CGFloat =
+                nativeItemSpacing - groupRowVerticalPadding - nativeRowVerticalInset
             package static let countBadgeHorizontalPadding: CGFloat = 6
             package static let countBadgeVerticalPadding: CGFloat = 2
             package static let countBadgeBackgroundOpacity: CGFloat = 0.15
@@ -203,6 +218,8 @@ package enum AppStyles {
                 listRowLeadingInset
                 + sectionHeaderChevronColumnWidth
                 + sectionHeaderChevronLabelSpacing
+            package static let nativeGroupChildRowLeadingInset: CGFloat =
+                groupChildRowLeadingInset - rowHorizontalInset
 
             package static let statusRowLeadingIndent: CGFloat =
                 rowLeadingIconColumnWidth + groupIconTitleSpacing

@@ -57,13 +57,16 @@ struct WorkspaceSurfaceCoordinatorTests {
         filesystemSource: some WorkspaceFilesystemSourceManaging,
         paneEventBus: EventBus<RuntimeEnvelope>
     ) -> WorkspaceSurfaceCoordinator {
-        WorkspaceSurfaceCoordinator(
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        return WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
             surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
@@ -469,8 +472,8 @@ struct WorkspaceSurfaceCoordinatorTests {
         #expect(coordinator.undoStack.count == 10)
     }
 
-    @Test("syncRootsAndActivity")
-    func syncRootsAndActivity() async throws {
+    @Test("filesystem sync owns roots without publishing direct activity demand")
+    func filesystemSyncOwnsRootsWithoutPublishingDirectActivityDemand() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-roots-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -516,9 +519,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             timeout: .milliseconds(600)
         ) { snapshot in
             Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledSecondaryWorktree.id])
-                && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[reconciledSecondaryWorktree.id] == false
-                && snapshot.activePaneWorktreeId == primaryWorktree.id
+                && snapshot.activityByWorktreeId.isEmpty
+                && snapshot.activePaneWorktreeId == nil
         }
 
         let tertiaryWorktree = Worktree(
@@ -550,9 +552,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             timeout: .milliseconds(600)
         ) { snapshot in
             Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledTertiaryWorktree.id])
-                && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == false
-                && snapshot.activePaneWorktreeId == primaryWorktree.id
+                && snapshot.activityByWorktreeId.isEmpty
+                && snapshot.activePaneWorktreeId == nil
         }
 
         let tertiaryPane = store.createPane(
@@ -572,8 +573,9 @@ struct WorkspaceSurfaceCoordinatorTests {
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == true
-                && snapshot.activePaneWorktreeId == reconciledTertiaryWorktree.id
+            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledTertiaryWorktree.id])
+                && snapshot.activityByWorktreeId.isEmpty
+                && snapshot.activePaneWorktreeId == nil
         }
     }
 
@@ -589,6 +591,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let filesystemSource = RecordingFilesystemSource()
         let paneEventBus = EventBus<RuntimeEnvelope>()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -596,6 +599,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
@@ -649,6 +654,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let filesystemSource = DelayingRecordingFilesystemSource(operationDelayTurns: 32)
         let paneEventBus = EventBus<RuntimeEnvelope>()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -656,6 +662,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
@@ -688,9 +696,8 @@ struct WorkspaceSurfaceCoordinatorTests {
         ) { snapshot in
             Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, latestWorktree.id])
                 && snapshot.registeredRoots[reconciledStaleWorktree.id] == nil
-                && snapshot.activityByWorktreeId[mainWorktree.id] == true
-                && snapshot.activityByWorktreeId[latestWorktree.id] == false
-                && snapshot.activePaneWorktreeId == mainWorktree.id
+                && snapshot.activityByWorktreeId.isEmpty
+                && snapshot.activePaneWorktreeId == nil
         }
     }
 
