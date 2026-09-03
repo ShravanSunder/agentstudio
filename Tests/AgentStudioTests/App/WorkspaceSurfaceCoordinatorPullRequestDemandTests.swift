@@ -44,6 +44,20 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
             )
             let tab = Tab(paneId: associatedPane.id)
             store.appendTab(tab)
+            let unrelatedDrawerPane = try #require(
+                store.paneAtom.addDrawerPane(
+                    to: unassociatedPane.id,
+                    parentFallbackCWD: unassociatedPane.metadata.launchDirectory,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            )
+            _ = try #require(
+                store.paneAtom.addDrawerPane(
+                    to: associatedPane.id,
+                    parentFallbackCWD: associatedPane.metadata.launchDirectory,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            )
 
             let source = PullRequestDemandRecordingFilesystemSource()
             let windowLifecycle = WindowLifecycleAtom()
@@ -77,6 +91,15 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 state: WebviewState(url: URL(string: "https://example.com/updated")!)
             )
             #expect(contentObservation.invalidationCount == 0)
+
+            let unrelatedDrawerObservation = observeRepositoryFactDemand(coordinator)
+            _ = try #require(
+                store.paneAtom.detachDrawerPane(
+                    unrelatedDrawerPane.id,
+                    from: unassociatedPane.id
+                )
+            )
+            #expect(unrelatedDrawerObservation.invalidationCount == 0)
 
             let unassociatedResidencyObservation = observeRepositoryFactDemand(coordinator)
             store.paneAtom.graphAtom.setResidency(.backgrounded, for: unassociatedPane.id)

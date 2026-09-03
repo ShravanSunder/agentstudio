@@ -269,7 +269,7 @@ package final class WorkspacePaneGraphAtom {
     @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
     @ObservationIgnored private var latestIssuedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
     @ObservationIgnored private var lastAppliedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
-    private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
+    @ObservationIgnored private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
 
     package init() {}
 

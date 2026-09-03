@@ -43,6 +43,12 @@ struct RepositoryFactDemandArchitectureTests {
             ),
             encoding: .utf8
         )
+        let paneGraphSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(coordinatorSource.contains("repositoryAssociationPaneIds"))
         #expect(coordinatorSource.contains("repositoryAssociation(for:"))
@@ -67,6 +73,11 @@ struct RepositoryFactDemandArchitectureTests {
         #expect(!coordinatorSource.contains("ViewRegistry"))
         #expect(!coordinatorSource.contains("arrangementView."))
         #expect(!coordinatorSource.contains("paneStructuralFacts"))
+        #expect(
+            paneGraphSource.contains(
+                "@ObservationIgnored private var parentPaneIDByDrawerID"
+            )
+        )
     }
 
     @Test("one complete pipeline method owns production source fanout")
