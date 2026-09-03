@@ -111,6 +111,66 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         #expect(deliveryRecorder.worktreeIds == [worktreeId])
     }
 
+    @Test("coverage loss under a private staged-ref path still reaches every registration")
+    func coverageLossUnderPrivateStagedRefPathReachesEveryRegistration() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-shared-staged-loss-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let firstRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
+        let secondRoot = fixtureRoot.appending(path: "second", directoryHint: .isDirectory)
+        let privateStagingRoot = firstRoot.appending(
+            path: ".git/refs/agentstudio/staged",
+            directoryHint: .isDirectory
+        )
+        let streamFactory = CountingLocalFSEventStreamFactory()
+        let deliveryRecorder = LogicalFSEventDeliveryRecorder()
+        let registry = DarwinSharedLocalFSEventObserverRegistry(
+            streamFactory: streamFactory.makeStream,
+            recordPhysicalRawCallback: { _ in }
+        )
+        defer { registry.shutdown() }
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let firstLease = registry.bind(
+            request: DarwinLocalFSEventStreamRequest(
+                worktreeId: firstWorktreeId,
+                lifecycleGeneration: 1,
+                watchedPaths: [firstRoot.path],
+                privateStagingExclusionPaths: [privateStagingRoot.path],
+                eventHandler: { _ in deliveryRecorder.record(firstWorktreeId) }
+            )
+        )
+        let secondLease = registry.bind(
+            request: DarwinLocalFSEventStreamRequest(
+                worktreeId: secondWorktreeId,
+                lifecycleGeneration: 1,
+                watchedPaths: [secondRoot.path],
+                privateStagingExclusionPaths: [],
+                eventHandler: { _ in deliveryRecorder.record(secondWorktreeId) }
+            )
+        )
+        _ = try #require(firstLease)
+        _ = try #require(secondLease)
+
+        // Act
+        #expect(
+            streamFactory.sendToCurrentStream([
+                DarwinLocalFSEventRawEvent(
+                    path: privateStagingRoot.appending(path: "attempt/main").path,
+                    eventId: 78,
+                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+                )
+            ])
+        )
+
+        // Assert
+        #expect(deliveryRecorder.worktreeIds == [firstWorktreeId, secondWorktreeId])
+    }
+
     @Test("root-change retirement completes during a synchronous predecessor flush")
     func rootChangeRetirementCompletesDuringSynchronousPredecessorFlush() throws {
         // Arrange

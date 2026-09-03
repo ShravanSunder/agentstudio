@@ -387,6 +387,9 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
         guard let (registrations, privateStagingExclusionPaths) = routingState else { return }
         let admittedRawEvents = rawEvents.filter { event in
+            if Self.isBroadcastUncertainty(event) {
+                return true
+            }
             let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
             return !privateStagingExclusionPaths.contains { exclusionPath in
                 Self.containsPath(eventPath, root: exclusionPath)
@@ -411,7 +414,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         _ event: DarwinLocalFSEventRawEvent,
         watchedPaths: [String]
     ) -> Bool {
-        if event.flags & broadcastUncertaintyFlags != 0 {
+        if isBroadcastUncertainty(event) {
             return true
         }
         let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
@@ -423,6 +426,12 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         return watchedPaths.contains { watchedPath in
             pathsIntersect(eventPath, watchedPath)
         }
+    }
+
+    private static func isBroadcastUncertainty(
+        _ event: DarwinLocalFSEventRawEvent
+    ) -> Bool {
+        event.flags & broadcastUncertaintyFlags != 0
     }
 
     private static func pathsIntersect(_ lhs: String, _ rhs: String) -> Bool {
