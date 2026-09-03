@@ -67,7 +67,6 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pane-suppression');
 		await flushBridgeWorkerRuntimeContinuations();
@@ -176,7 +175,6 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'rapid-pane-resume');
 		await flushBridgeWorkerRuntimeContinuations();

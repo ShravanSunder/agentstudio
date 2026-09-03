@@ -11,7 +11,6 @@ import {
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
 import {
-	expectedReviewMetadataUnavailablePatch,
 	makeCompletedReviewContentStream,
 	makeFetchedReviewContentResource,
 	makeReviewPublicationIdentity,
@@ -249,14 +248,7 @@ describe('Bridge comm worker entry', () => {
 		expect(started()).toBe(true);
 		expect(postedMessages).toEqual([
 			{
-				message: {
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'request-1',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				message: readyHealth('request-1'),
 				transferList: undefined,
 			},
 		]);
@@ -319,6 +311,8 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(fileActiveViewerModeUpdate('entry-bootstrap', 1));
 		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
@@ -335,21 +329,14 @@ describe('Bridge comm worker entry', () => {
 			expect(harness.globalStarted()).toBe(true);
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
-				expectedReviewMetadataUnavailablePatch(),
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'bootstrap-request-1',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				readyHealth('bootstrap-request-1'),
+				readyHealth('request-file-mode-entry-bootstrap'),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 2,
-					sequence: 2,
+					sequence: 1,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -369,14 +356,7 @@ describe('Bridge comm worker entry', () => {
 						},
 					],
 				},
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'request-after-bootstrap',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				readyHealth('request-after-bootstrap'),
 			]);
 		} finally {
 			harness.close();
@@ -517,15 +497,17 @@ describe('Bridge comm worker entry', () => {
 												},
 											},
 										}
-									: {
-											paneSessionId: request.paneSessionId,
-											workerInstanceId: request.workerInstanceId,
-											wireVersion: request.wireVersion,
-											requestId: request.requestId,
-											requestSequence: request.requestSequence,
-											kind: 'call.completed',
-											call: { method: 'review.markFileViewed', result: null },
-										},
+									: request.kind === 'product.call'
+										? {
+												paneSessionId: request.paneSessionId,
+												workerInstanceId: request.workerInstanceId,
+												wireVersion: request.wireVersion,
+												requestId: request.requestId,
+												requestSequence: request.requestSequence,
+												kind: 'call.completed',
+												call: { method: request.call.method, result: null },
+											}
+										: null,
 						),
 					);
 				},
@@ -539,6 +521,8 @@ describe('Bridge comm worker entry', () => {
 		globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
 		// Act
 		productChannel.port2.postMessage(makeBootstrapRequest('product-chain-bootstrap'));
+		await productPort.waitForCount(1);
+		productChannel.port2.postMessage(fileActiveViewerModeUpdate('product-chain', 1));
 		await productPort.waitForCount(2);
 		productChannel.port2.postMessage(
 			encodeBridgeWorkerMarkFileViewedCommand({
@@ -559,7 +543,7 @@ describe('Bridge comm worker entry', () => {
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
 		});
-		expect(fetchSpy).toHaveBeenCalledTimes(4);
+		expect(fetchSpy).toHaveBeenCalledTimes(6);
 		expect(observedMetadataStreamRequests).toEqual([
 			expect.objectContaining({
 				kind: 'metadataStream.open',
@@ -570,14 +554,24 @@ describe('Bridge comm worker entry', () => {
 		expect(observedBodies).toEqual([
 			expect.objectContaining({ kind: 'workerSession.open', requestSequence: 1 }),
 			expect.objectContaining({
-				call: { method: 'file.source.current', request: {} },
+				call: expect.objectContaining({ method: 'file.activeViewerMode.update' }),
 				kind: 'product.call',
 				requestSequence: 2,
 			}),
 			expect.objectContaining({
-				call: { method: 'review.markFileViewed', request: { itemId: 'item-1' } },
+				call: { method: 'file.source.current', request: {} },
 				kind: 'product.call',
 				requestSequence: 3,
+			}),
+			expect.objectContaining({
+				call: expect.objectContaining({ method: 'review.intake.ready' }),
+				kind: 'product.call',
+				requestSequence: 4,
+			}),
+			expect.objectContaining({
+				call: { method: 'review.markFileViewed', request: { itemId: 'item-1' } },
+				kind: 'product.call',
+				requestSequence: 5,
 			}),
 		]);
 
@@ -588,6 +582,8 @@ describe('Bridge comm worker entry', () => {
 	test('replays commands that arrived before runtime bootstrap', async () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
+		harness.productPort.postMessage(fileActiveViewerModeUpdate('before-bootstrap', 1));
+		await harness.productPort.waitForCount(1);
 		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-before-bootstrap',
@@ -597,13 +593,22 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
-		await harness.productPort.waitForCount(1);
+		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		const postedMessages = await harness.productPort.waitForCount(5);
+		const postedMessages = await harness.productPort.waitForCount(6);
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'request-file-mode-before-bootstrap',
+					status: 'degraded',
+					message: 'Bridge comm worker command received before bootstrap.',
+					transferDescriptors: [],
+				},
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
@@ -613,21 +618,13 @@ describe('Bridge comm worker entry', () => {
 					message: 'Bridge comm worker command received before bootstrap.',
 					transferDescriptors: [],
 				},
-				expectedReviewMetadataUnavailablePatch(),
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'bootstrap-request-1',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				readyHealth('bootstrap-request-1'),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 3,
-					sequence: 2,
+					sequence: 1,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -647,14 +644,8 @@ describe('Bridge comm worker entry', () => {
 						},
 					],
 				},
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'request-before-bootstrap',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				readyHealth('request-before-bootstrap'),
+				readyHealth('request-file-mode-before-bootstrap'),
 			]);
 		} finally {
 			harness.close();
@@ -665,6 +656,8 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(fileActiveViewerModeUpdate('duplicate-bootstrap', 1));
 		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-2'));
 		const postedMessages = await harness.productPort.waitForCount(3);
@@ -672,15 +665,8 @@ describe('Bridge comm worker entry', () => {
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
-				expectedReviewMetadataUnavailablePatch(),
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					kind: 'health',
-					requestId: 'bootstrap-request-1',
-					status: 'ready',
-					transferDescriptors: [],
-				},
+				readyHealth('bootstrap-request-1'),
+				readyHealth('request-file-mode-duplicate-bootstrap'),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
@@ -696,6 +682,17 @@ describe('Bridge comm worker entry', () => {
 		}
 	});
 });
+
+function readyHealth(requestId: string): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'health',
+		requestId,
+		status: 'ready',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
 
 function createInstalledBridgeCommWorkerEntryHarness(
 	productTransport: BridgeProductTransportSession = makeUnavailableFileProductTransport(),
@@ -742,6 +739,13 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 		},
 		call: async (...arguments_): Promise<never> => {
 			const [method] = arguments_;
+			if (
+				method === 'file.activeViewerMode.update' ||
+				method === 'review.activeViewerMode.update' ||
+				method === 'review.intake.ready'
+			) {
+				return null as never;
+			}
 			if (method !== 'file.source.current') {
 				throw new Error(`Unexpected product call in entry harness: ${method}.`);
 			}
@@ -908,6 +912,20 @@ function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapReque
 			},
 		},
 	};
+}
+
+function fileActiveViewerModeUpdate(requestLabel: string, epoch: number): unknown {
+	return encodeBridgeWorkerActiveViewerModeUpdateCommand({
+		epoch,
+		requestId: `request-file-mode-${requestLabel}`,
+		update: {
+			activeSource: null,
+			mode: 'file',
+			nativeSelectionRequestId: null,
+			sequence: epoch,
+			sessionId: `file-mode-${requestLabel}-session`,
+		},
+	});
 }
 
 function makeReviewContentRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {

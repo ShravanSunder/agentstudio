@@ -8,6 +8,7 @@ import {
 	type ReviewMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -26,14 +27,17 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			update: async (): Promise<void> => {},
 		};
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const calledMethods: string[] = [];
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: makeReviewProductTransport({
+				calledMethods,
 				reviewSubscription,
 				subscribedKinds: [],
 			}),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'terminal-failure');
 		await flushBridgeWorkerRuntimeContinuations();
 
 		events.fail(new Error('private transport failure detail'), true);
@@ -56,5 +60,6 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			surface: 'review',
 		});
 		expect(JSON.stringify(reviewDisplayEvents)).not.toContain('private transport failure detail');
+		expect(calledMethods).toContain('file.source.current');
 	});
 });

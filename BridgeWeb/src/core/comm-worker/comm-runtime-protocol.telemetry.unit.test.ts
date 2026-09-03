@@ -11,6 +11,7 @@ import {
 	type ReviewMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
+	activateBridgeCommWorkerFileViewerModeAndFlush,
 	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createIdleWorktreeAnnotationSubscription,
@@ -68,7 +69,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'unavailable-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -115,7 +116,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'available-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -151,7 +152,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'failed-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -303,7 +304,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 function makeTelemetryReviewProductTransport(props: {
 	readonly deferredStreamsByDescriptorId: Map<string, DeferredReviewContentStream>;
-	readonly fileSourceDiscovery?: BridgeProductTransportSession['call'];
+	readonly fileSourceDiscovery?: () => Promise<unknown>;
 	readonly reviewMetadataEvents: BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>;
 }): BridgeProductTransportSession {
 	let fileWorkerDerivationEpoch = 0;
@@ -329,11 +330,19 @@ function makeTelemetryReviewProductTransport(props: {
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;
 			return surface === 'review' ? reviewWorkerDerivationEpoch : fileWorkerDerivationEpoch;
 		},
-		call:
-			props.fileSourceDiscovery ??
-			(async (): Promise<never> => {
-				throw new Error('Unexpected product call in Review telemetry test.');
-			}),
+		call: async (...arguments_): Promise<never> => {
+			const [method] = arguments_;
+			if (
+				method === 'file.activeViewerMode.update' ||
+				method === 'review.activeViewerMode.update'
+			) {
+				return null as never;
+			}
+			if (method === 'file.source.current' && props.fileSourceDiscovery !== undefined) {
+				return (await props.fileSourceDiscovery()) as never;
+			}
+			throw new Error(`Unexpected product call in Review telemetry test: ${method}.`);
+		},
 		openContent: (descriptor) => {
 			if (descriptor.contentKind !== 'review.content') {
 				throw new Error(`Unexpected product content kind ${descriptor.contentKind}.`);

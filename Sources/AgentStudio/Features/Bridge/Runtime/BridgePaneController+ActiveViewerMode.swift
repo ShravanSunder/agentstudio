@@ -104,6 +104,9 @@ extension BridgePaneController {
                 activeSource: activeSource
             )
         }
+        if rejectionReasons.isEmpty, didAcceptSequence, mode == .review {
+            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+        }
     }
 
     package func setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(

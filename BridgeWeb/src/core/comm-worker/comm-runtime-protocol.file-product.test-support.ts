@@ -41,6 +41,7 @@ export function makeFileProductTestTransport(props: {
 		sink: (frame: BridgeProductPanePresentationFrame) => void,
 	) => void;
 	readonly onSubscribe?: () => void;
+	readonly onReviewWarmup?: () => void;
 	readonly reviewEvents?: BridgeProductBoundedAsyncQueue<
 		ReturnType<typeof makeReviewMetadataDataFrame>
 	>;
@@ -66,6 +67,11 @@ export function makeFileProductTestTransport(props: {
 		},
 		call: async (...arguments_): Promise<never> => {
 			const [method] = arguments_;
+			if (method === 'file.activeViewerMode.update') return null as never;
+			if (method === 'review.intake.ready') {
+				props.onReviewWarmup?.();
+				return null as never;
+			}
 			if (method !== 'file.source.current') throw new Error('Unexpected product call.');
 			if (props.discoveryError !== undefined) throw props.discoveryError;
 			props.onDiscoverSource();

@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'vitest';
 
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
+import { reviewSnapshotWithContentEvent } from './bridge-comm-worker-runtime-protocol.review-product-fixtures.test-support.js';
 import {
+	makeReviewMetadataDataFrame,
+	makeReviewProductTransport,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -15,7 +22,7 @@ import type { BridgeProductSubscription } from './bridge-product-transport-contr
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
 describe('Bridge comm worker Review product bootstrap', () => {
-	test('opens canonical Review metadata with empty interests before selection', async () => {
+	test('opens Review metadata only after Review becomes the active viewer', async () => {
 		// Arrange
 		const subscriptions: Array<{
 			readonly kind: 'review.metadata';
@@ -32,7 +39,6 @@ describe('Bridge comm worker Review product bootstrap', () => {
 		};
 		const { dispatch } = createRecordingBridgeCommWorkerPort();
 
-		// Act
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
@@ -42,6 +48,11 @@ describe('Bridge comm worker Review product bootstrap', () => {
 			}),
 		});
 		await flushBridgeWorkerRuntimeContinuations();
+		expect(subscriptions).toEqual([]);
+
+		// Act
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'initial-review');
+		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
 		expect(subscriptions).toEqual([
@@ -50,6 +61,40 @@ describe('Bridge comm worker Review product bootstrap', () => {
 				options: { interests: [] },
 			},
 		]);
+	});
+
+	test('starts File metadata only after the active Review publication commits', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			ReturnType<typeof makeReviewMetadataDataFrame>
+		>(64);
+		const calledMethods: string[] = [];
+		const reviewSubscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-active-first-subscription',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeReviewProductTransport({
+				calledMethods,
+				reviewSubscription,
+				subscribedKinds: [],
+			}),
+		});
+
+		// Act / Assert
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'active-first');
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(calledMethods).not.toContain('file.source.current');
+
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(calledMethods.filter((method) => method === 'file.source.current')).toHaveLength(1);
 	});
 });
 

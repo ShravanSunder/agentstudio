@@ -185,6 +185,9 @@ describe('Bridge comm worker File metadata recovery', () => {
 				throw new Error('File source recovery unavailable');
 			},
 			onFileMetadataEvent: (): void => {},
+			onActiveViewerModeAdmitted: (mode): void => {
+				callOrder.push(`admitted-${mode}`);
+			},
 			productTransport,
 		});
 
@@ -193,7 +196,7 @@ describe('Bridge comm worker File metadata recovery', () => {
 
 		// Assert
 		expect(result).toBeNull();
-		expect(callOrder).toEqual(['native-active-mode', 'file-source-discovery']);
+		expect(callOrder).toEqual(['native-active-mode', 'admitted-file', 'file-source-discovery']);
 	});
 });
 

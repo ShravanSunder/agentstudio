@@ -59,15 +59,7 @@ describe('Bridge comm worker completed Review preparation lifecycle', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
-		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
-		await flushBridgeWorkerRuntimeContinuations();
-		await drainBridgeCommWorkerPreparationUntilIdle(
-			scheduledDrains,
-			flushBridgeWorkerRuntimeContinuations,
-		);
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
 				epoch: 1,
@@ -80,6 +72,13 @@ describe('Bridge comm worker completed Review preparation lifecycle', () => {
 					sessionId: 'review-completed-foreground-return-session',
 				},
 			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(
+			scheduledDrains,
+			flushBridgeWorkerRuntimeContinuations,
 		);
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({

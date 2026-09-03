@@ -40,6 +40,94 @@ extension WebKitSerializedTests {
             #expect(acceptedSignal.sequenceFloor == 1)
         }
 
+        @Test("background Review warm-up preserves File authority when no package exists")
+        func backgroundReviewWarmupPreservesFileAuthorityWithoutPackage() async throws {
+            // Arrange
+            let controller = makeController()
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let activeSource = BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: "product-file-stream",
+                generation: 41
+            )
+            controller.activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
+                sessionId: "product-session",
+                lastSequence: 1,
+                acceptedSignal: BridgeActiveViewerModeAcceptedSignal(
+                    mode: .file,
+                    activeSource: activeSource,
+                    sequenceFloor: 1
+                )
+            )
+
+            // Act
+            await controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(
+                    reason: "background-warmup",
+                    streamId: nil
+                ),
+                productAdmission: productAdmission
+            )
+
+            // Assert
+            #expect(controller.activeViewerModeSignalState.sessionId == "product-session")
+            #expect(controller.activeViewerModeSignalState.lastSequence == 1)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal?.mode == .file)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal?.activeSource == activeSource)
+        }
+
+        @Test("background Review warm-up preserves File authority when a package exists")
+        func backgroundReviewWarmupPreservesFileAuthorityWithPackage() async throws {
+            // Arrange
+            let controller = makeController()
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
+            let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
+                    productAdmission: productAdmission,
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                ) == .committed(delivery: .deferred)
+            )
+            let activeSource = BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: "product-file-stream",
+                generation: 41
+            )
+            controller.activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
+                sessionId: "product-session",
+                lastSequence: 1,
+                acceptedSignal: BridgeActiveViewerModeAcceptedSignal(
+                    mode: .file,
+                    activeSource: activeSource,
+                    sequenceFloor: 1
+                )
+            )
+
+            // Act
+            await controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(
+                    reason: "background-warmup",
+                    streamId: nil
+                ),
+                productAdmission: productAdmission
+            )
+
+            // Assert
+            #expect(controller.activeViewerModeSignalState.sessionId == "product-session")
+            #expect(controller.activeViewerModeSignalState.lastSequence == 1)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal?.mode == .file)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal?.activeSource == activeSource)
+        }
+
         @Test("closed pane admission suppresses a committed active-viewer mutation")
         func closedPaneAdmissionSuppressesCommittedActiveViewerMutation() async throws {
             // Arrange

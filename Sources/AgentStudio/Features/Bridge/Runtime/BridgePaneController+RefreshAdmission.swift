@@ -47,7 +47,7 @@ extension BridgePaneController {
         let productActivityTransition =
             previousActivity == activity ? nil : scheduleProductActivityTransition(activity)
         if activity == .foreground {
-            scheduleInitialReviewPackageLoadIfPossible()
+            scheduleRetainedReviewPackageBuildIfPossible()
             scheduleWorktreeProductCatchUpIfPossible()
         } else {
             if activeReviewRefreshTask != nil {

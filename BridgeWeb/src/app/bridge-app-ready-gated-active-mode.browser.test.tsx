@@ -67,6 +67,48 @@ describe('BridgeApp ready-gated active mode', () => {
 		});
 		controlledHandshake.dispose();
 	});
+
+	test('forwards the initial File activation after page readiness is acknowledged', async () => {
+		// Arrange
+		const paneCommands: BridgeWorkerMainToServerMessage[] = [];
+		const controlledHandshake = installControlledBridgeReadyHandshake();
+		const paneRuntime = createRecordingBridgePaneRuntime(paneCommands);
+		activePaneRuntime = paneRuntime;
+		await actWait(async (): Promise<void> => {
+			await render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					paneRuntime={paneRuntime}
+					protocol="worktree-file"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		expect(await pollWithinActUntilTruthy(controlledHandshake.readyRequestId)).not.toBeNull();
+		expect(activeViewerModeUpdates(paneCommands)).toHaveLength(0);
+
+		// Act
+		await actWait(async (): Promise<void> => {
+			controlledHandshake.acknowledgeReady();
+			await Promise.resolve();
+		});
+
+		// Assert
+		expect(
+			await pollWithinActUntilEqual(() => activeViewerModeUpdates(paneCommands).length, 1),
+		).toBe(1);
+		expect(activeViewerModeUpdates(paneCommands)[0]).toMatchObject({
+			command: 'activeViewerModeUpdate',
+			update: {
+				activeSource: null,
+				mode: 'file',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+			},
+		});
+		controlledHandshake.dispose();
+	});
 });
 
 function createRecordingBridgePaneRuntime(

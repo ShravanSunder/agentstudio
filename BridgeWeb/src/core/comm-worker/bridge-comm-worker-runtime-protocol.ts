@@ -213,6 +213,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		props.telemetryClient,
 	);
 	let activeViewerMode: 'file' | 'review' | null = null;
+	let admittedViewerMode: 'file' | 'review' | null = null;
 	const reviewRenderPublicationAuthority = createBridgeCommWorkerReviewRenderPublicationAuthority({
 		activeFileWorkerDerivationEpoch: () => activeFileWorkerDerivationEpoch,
 		activeReviewWorkerDerivationEpoch: () => activeReviewWorkerDerivationEpoch,
@@ -265,8 +266,53 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
 		null;
-	let currentFileMetadataSelectedPathResolved: boolean | undefined;
+	let currentFileMetadataSelectedPath: string | null | undefined;
 	let productController: BridgeCommWorkerProductController | null = null;
+	let currentFileSourceWarmupKey: string | null = null;
+	let releasedReviewWarmupKey: string | null = null;
+	let reviewWarmupInFlightKey: string | null = null;
+	const startFileMetadataInBackground = (): void => {
+		void productController?.ensureFileSource().catch((): void => {
+			port.postMessage(
+				buildBridgeWorkerFileMetadataFailureHealthEvent(
+					productTransport === undefined
+						? undefined
+						: bridgeProductMetadataStreamHealthDiagnostic(productTransport),
+				),
+			);
+		});
+	};
+	const requestReviewBackgroundWarmup = (warmupKey: string): void => {
+		const controller = productController;
+		if (
+			controller === null ||
+			admittedViewerMode !== 'file' ||
+			releasedReviewWarmupKey === warmupKey ||
+			reviewWarmupInFlightKey === warmupKey
+		) {
+			return;
+		}
+		reviewWarmupInFlightKey = warmupKey;
+		void controller
+			.sendProductControl({
+				method: 'bridge.intakeReady',
+				params: {
+					protocolId: 'review',
+					reason: 'background-warmup',
+					streamId: null,
+				},
+			})
+			.then((): void => {
+				if (reviewWarmupInFlightKey !== warmupKey) return;
+				reviewWarmupInFlightKey = null;
+				releasedReviewWarmupKey = warmupKey;
+			})
+			.catch((): void => {
+				if (reviewWarmupInFlightKey === warmupKey) {
+					reviewWarmupInFlightKey = null;
+				}
+			});
+	};
 	const installedReviewSource = createBridgeCommWorkerInstalledReviewSource(
 		() => productController,
 	);
@@ -467,7 +513,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			fileViewRuntimeSource = source;
 		},
 		updateFileMetadataDemand: (demand): void => {
-			currentFileMetadataSelectedPathResolved = demand.selectedPath !== null;
+			currentFileMetadataSelectedPath = demand.selectedPath;
 			updateFileMetadataDemand?.(demand);
 		},
 		...(props.productTransport === undefined
@@ -622,6 +668,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						? {}
 						: { telemetryClient: props.telemetryClient }),
 				}),
+			onActiveViewerModeAdmitted: (mode): void => {
+				admittedViewerMode = mode;
+			},
 			onAnnotationCatalog: (publication): void => {
 				for (const message of bridgeCommWorkerAnnotationCatalogStagingEvents(publication)) {
 					port.postMessage(message);
@@ -657,11 +706,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
+			onFileSourceUnavailable: (): void => {
+				requestReviewBackgroundWarmup('file-source-unavailable');
+			},
 			onFileMetadataEvent: (event, workerDerivationEpoch): void => {
 				activeFileWorkerDerivationEpoch = workerDerivationEpoch;
 				publishUpdatingChrome();
 				const projection = fileMetadataProjection.apply(event);
 				if (event.eventKind === 'file.sourceAccepted') {
+					currentFileSourceWarmupKey = `${event.source.sourceId}:${event.source.subscriptionGeneration.toString()}`;
 					const replacesAcceptedSource = hasAcceptedFileSource;
 					hasAcceptedFileSource = true;
 					abortAllFileContentPreparations();
@@ -697,6 +750,17 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					});
 					for (const message of messages) port.postMessage(message);
 				}
+				if (
+					currentFileSourceWarmupKey !== null &&
+					((event.eventKind === 'file.descriptorReady' &&
+						projection.runtimeMutation !== null &&
+						event.path === currentFileMetadataSelectedPath) ||
+						(event.eventKind === 'file.treeWindow' &&
+							event.finalWindow &&
+							event.totalRowCount === 0))
+				) {
+					requestReviewBackgroundWarmup(currentFileSourceWarmupKey);
+				}
 				if (pump.getPendingWorkIds().length > 0) requestPreparationDrain();
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
@@ -726,6 +790,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					},
 				});
 				for (const message of messages) port.postMessage(message);
+				requestReviewBackgroundWarmup(
+					currentFileSourceWarmupKey ?? `file-metadata-failure:${workerDerivationEpoch.toString()}`,
+				);
 				port.postMessage(
 					buildBridgeWorkerFileMetadataFailureHealthEvent(
 						bridgeProductMetadataStreamHealthDiagnostic(productTransport),
@@ -740,6 +807,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					activeReviewMetadataApplicator.admittedPublicationIdentity(),
 				);
 				publishUpdatingChrome();
+				if (receipt !== null && receipt !== undefined) {
+					startFileMetadataInBackground();
+				}
 				return receipt;
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
@@ -761,6 +831,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						workerDerivationEpoch,
 					});
 				}
+				startFileMetadataInBackground();
 			},
 			productTransport,
 		});
@@ -770,16 +841,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		} catch {
 			port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent());
 		}
-		try {
-			installedProductController.ensureReviewMetadata();
-		} catch {}
-		void installedProductController.ensureFileSource().catch((): void => {
-			port.postMessage(
-				buildBridgeWorkerFileMetadataFailureHealthEvent(
-					bridgeProductMetadataStreamHealthDiagnostic(productTransport),
-				),
-			);
-		});
 		updateFileMetadataDemand = (demand): void => {
 			void installedProductController.updateFileMetadataDemand(demand).catch((): void => {});
 		};
@@ -796,7 +857,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 
 		shouldRequestDrainAfterMessage = false;
-		currentFileMetadataSelectedPathResolved = undefined;
+		currentFileMetadataSelectedPath = undefined;
 		const handlerStartedAtMilliseconds = readBridgeCommWorkerRuntimeNowMilliseconds(props.now);
 		const queueWaitMilliseconds =
 			handlerStartedAtMilliseconds -
@@ -834,6 +895,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			})
 		) {
 			const activeSource = parsedMessage.data.update.activeSource;
+			admittedViewerMode = parsedMessage.data.update.mode;
 			productController?.setAnnotationProjectionSurfaceActive(
 				'file',
 				parsedMessage.data.update.mode === 'file' && activeSource?.protocol === 'worktree-file',
@@ -869,7 +931,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			durationMilliseconds: handlerDurationMilliseconds,
 			...(parsedMessage.data.command === 'select' && parsedMessage.data.surface === 'fileView'
 				? {
-						fileMetadataSelectedPathResolved: currentFileMetadataSelectedPathResolved === true,
+						fileMetadataSelectedPathResolved: typeof currentFileMetadataSelectedPath === 'string',
 					}
 				: {}),
 			lane: bridgeCommWorkerTelemetryLaneForMessage(parsedMessage.data),

@@ -526,12 +526,16 @@ describe('Bridge comm worker product controller', () => {
 		let discoveryCallCount = 0;
 		let derivationEpochBumpCount = 0;
 		let subscriptionCount = 0;
+		let unavailableCount = 0;
 		const controller = new BridgeCommWorkerProductController({
 			callCurrentFileSource: async () => {
 				discoveryCallCount += 1;
 				return { reason: 'no-file-source-authority', status: 'unavailable' };
 			},
 			onFileMetadataEvent: (): void => {},
+			onFileSourceUnavailable: (): void => {
+				unavailableCount += 1;
+			},
 			productTransport: productTransportWithFileEpochBump((): void => {
 				derivationEpochBumpCount += 1;
 			}),
@@ -553,6 +557,7 @@ describe('Bridge comm worker product controller', () => {
 		expect(discoveryCallCount).toBe(1);
 		expect(derivationEpochBumpCount).toBe(0);
 		expect(subscriptionCount).toBe(0);
+		expect(unavailableCount).toBe(1);
 	});
 
 	test('opens File metadata and replaces worker-owned selected demand without another native RPC path', async () => {

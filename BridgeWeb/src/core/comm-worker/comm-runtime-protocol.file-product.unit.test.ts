@@ -522,6 +522,100 @@ describe('Bridge comm worker File product runtime', () => {
 		).toBe(true);
 	});
 
+	test('releases background Review warm-up once after the selected File descriptor', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+		let reviewWarmupCount = 0;
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (): void => {},
+				onReviewWarmup: (): void => {
+					reviewWarmupCount += 1;
+				},
+				subscription: {
+					cancel: async (): Promise<void> => {},
+					events,
+					subscriptionId: 'file-subscription-review-warmup',
+					subscriptionKind: 'file.metadata',
+					update: async (): Promise<void> => {},
+				},
+			}),
+		});
+		activateBridgeCommWorkerFileViewerMode(dispatch, 'review-warmup');
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'request-select-review-warmup-file',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act / Assert
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(reviewWarmupCount).toBe(0);
+
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(reviewWarmupCount).toBe(1);
+
+		events.push(makeFileMetadataDataFrame(makeDescriptorReadyEvent()));
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(reviewWarmupCount).toBe(1);
+	});
+
+	test('releases background Review warm-up for an empty File tree', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+		let reviewWarmupCount = 0;
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (): void => {},
+				onReviewWarmup: (): void => {
+					reviewWarmupCount += 1;
+				},
+				subscription: {
+					cancel: async (): Promise<void> => {},
+					events,
+					subscriptionId: 'file-subscription-empty-review-warmup',
+					subscriptionKind: 'file.metadata',
+					update: async (): Promise<void> => {},
+				},
+			}),
+		});
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'empty-review-warmup');
+
+		// Act
+		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
+		const treeWindow = makeTreeWindowEvent();
+		if (treeWindow.eventKind !== 'file.treeWindow') {
+			throw new Error('Expected the File tree-window fixture.');
+		}
+		events.push(
+			makeFileMetadataDataFrame({
+				...treeWindow,
+				rows: [],
+				totalRowCount: 0,
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(reviewWarmupCount).toBe(1);
+	});
+
 	test('does not replay completed File preparation when native foreground returns to Review', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
@@ -554,7 +648,6 @@ describe('Bridge comm worker File product runtime', () => {
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
@@ -822,6 +915,7 @@ describe('Bridge comm worker File product runtime', () => {
 
 	test('publishes a source-clearing display reset when File metadata fails', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+		let reviewWarmupCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -829,6 +923,9 @@ describe('Bridge comm worker File product runtime', () => {
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (): void => {},
+				onReviewWarmup: (): void => {
+					reviewWarmupCount += 1;
+				},
 				subscription: {
 					cancel: async (): Promise<void> => {},
 					events,
@@ -876,5 +973,6 @@ describe('Bridge comm worker File product runtime', () => {
 				status: 'degraded',
 			}),
 		);
+		expect(reviewWarmupCount).toBe(1);
 	});
 });

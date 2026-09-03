@@ -248,8 +248,8 @@ describe('Bridge comm worker updating panel chrome', () => {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: presentation.productTransport,
-			sendProductControl: async (): Promise<void> => {},
 		});
+		dispatch.message(activeViewerModeUpdateCommand('file', 1));
 		await flushBridgeWorkerRuntimeContinuations();
 		firstFileEvents.fail(new Error('construction invalidated'), true);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -282,20 +282,18 @@ describe('Bridge comm worker updating panel chrome', () => {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: presentation.productTransport,
-			sendProductControl: async (): Promise<void> => {},
 			telemetryClient: {
 				record: (sample): void => {
 					telemetrySamples.push(sample);
 				},
 			},
 		});
+		dispatch.message(activeViewerModeUpdateCommand('review', 1));
 		await flushBridgeWorkerRuntimeContinuations();
 		fileEvents.push(
 			makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source: fileSource }),
 		);
 		reviewEvents.push(makeReviewMetadataDataFrame(reviewSourceAcceptedEvent));
-		await flushBridgeWorkerRuntimeContinuations();
-		dispatch.message(activeViewerModeUpdateCommand('review', 1));
 		await flushBridgeWorkerRuntimeContinuations();
 		postedMessages.length = 0;
 
@@ -490,6 +488,12 @@ function createPanePresentationTestTransport(props: {
 		},
 		call: async (...arguments_): Promise<never> => {
 			const [method] = arguments_;
+			if (
+				method === 'file.activeViewerMode.update' ||
+				method === 'review.activeViewerMode.update'
+			) {
+				return null as never;
+			}
 			if (method === 'file.source.current') {
 				return { source: currentFileSourceConfiguration, status: 'available' } as never;
 			}

@@ -623,6 +623,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				openedSubscriptionCount += 1;
 			}),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'application-failure');
 		await flushBridgeWorkerRuntimeContinuations();
 		firstEvents.push(
 			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
@@ -711,6 +712,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				},
 			),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'display-failure');
 		await flushBridgeWorkerRuntimeContinuations();
 		firstEvents.push(
 			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
@@ -848,6 +850,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: reviewMetadataTransport(reviewSubscription),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pending-subscription-failure');
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
 		await flushBridgeWorkerRuntimeContinuations();

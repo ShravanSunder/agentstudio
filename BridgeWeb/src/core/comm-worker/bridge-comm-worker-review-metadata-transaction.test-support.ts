@@ -366,6 +366,9 @@ export function reviewMetadataTransport(
 		},
 		call: async (...arguments_): Promise<never> => {
 			const [method] = arguments_;
+			if (method === 'review.activeViewerMode.update') {
+				return null as never;
+			}
 			if (method === 'review.publication.applied') {
 				onPublicationApplied();
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This transaction fake accepts only the closed null-result receipt call.

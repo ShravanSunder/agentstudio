@@ -55,10 +55,7 @@ describe('Bridge comm worker Review product active viewer mode lifecycle', () =>
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
-		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -73,6 +70,9 @@ describe('Bridge comm worker Review product active viewer mode lifecycle', () =>
 				},
 			}),
 		);
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
+		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				epoch: 2,
@@ -147,15 +147,7 @@ describe('Bridge comm worker Review product active viewer mode lifecycle', () =>
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
-			sendProductControl: async (): Promise<void> => {},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
-		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
-		await flushBridgeWorkerRuntimeContinuations();
-		await startBridgeCommWorkerPreparationDrains(
-			scheduledDrains,
-			flushBridgeWorkerRuntimeContinuations,
-		);
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
 				epoch: 1,
@@ -168,6 +160,13 @@ describe('Bridge comm worker Review product active viewer mode lifecycle', () =>
 					sessionId: 'active-surface-lifecycle-session',
 				},
 			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(makeReviewMetadataDataFrame(reviewSnapshotWithContentEvent));
+		await flushBridgeWorkerRuntimeContinuations();
+		await startBridgeCommWorkerPreparationDrains(
+			scheduledDrains,
+			flushBridgeWorkerRuntimeContinuations,
 		);
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({

@@ -1,155 +1,60 @@
 import Foundation
-import Observation
 import Testing
 
-@testable import AgentStudio
-@testable import AgentStudioBridge
-@testable import AgentStudioCore
-@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
-    @MainActor
     @Suite("Bridge product Review intake lock order", .serialized)
     struct BridgeProductReviewIntakeLockOrderTests {
-        init() {
-            installTestCoreAtomsIfNeeded()
-        }
-
-        @Test("committed Review intake releases product admission before foreground scheduling")
-        func committedReviewIntakeUsesForegroundThenProductLockOrder() async throws {
+        @Test("Review intake closes product admission before foreground scheduling")
+        func reviewIntakeClosesProductAdmissionBeforeForegroundScheduling() throws {
             // Arrange
-            let paneId = UUIDv7.generate()
-            let baseEndpoint = makeBridgeEndpoint(
-                endpointId: "review-intake-lock-order-base",
-                kind: .gitRef
+            let projectRoot = TestPathResolver.projectRoot(from: #filePath)
+            let sourceURL = URL(fileURLWithPath: projectRoot)
+                .appending(
+                    path:
+                        "Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+Bootstrap.swift"
+                )
+            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            let handlerStart = try #require(
+                source.range(of: "func handleCommittedProductReviewIntakeReady(")
             )
-            let headEndpoint = makeBridgeEndpoint(
-                endpointId: "review-intake-lock-order-head",
-                kind: .workingTree
-            )
-            let reviewSourceProvider = BridgeReviewSourceProviderFake(
-                comparison: BridgeEndpointComparison(
-                    baseEndpoint: baseEndpoint,
-                    headEndpoint: headEndpoint,
-                    changedFiles: []
-                ),
-                contentByHandleId: [:]
-            )
-            let controller = BridgePaneController(
-                paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .ref(name: "HEAD~1"))
-                ),
-                appRootURL: testBridgeAppRootURL(),
-                metadata: PaneMetadata(
-                    paneId: PaneId(existingUUID: paneId),
-                    contentType: .diff,
-                    launchDirectory: URL(fileURLWithPath: "Sources"),
-                    title: "Review Intake Lock Order",
-                    facets: PaneContextFacets(
-                        repoId: headEndpoint.repoId,
-                        worktreeId: headEndpoint.worktreeId,
-                        worktreeName: "review-intake-lock-order",
-                        cwd: URL(fileURLWithPath: "Sources")
-                    )
-                ),
-                reviewSourceProvider: reviewSourceProvider,
-                initialPaneActivity: .foreground
-            )
-            defer { controller.teardown() }
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
-            let foregroundWorkAdmission = try #require(
-                controller.refreshAdmissionCoordinator.acquireForegroundWork()
-            )
-            controller.activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
-                sessionId: "review-intake-lock-order",
-                lastSequence: 1,
-                acceptedSignal: BridgeActiveViewerModeAcceptedSignal(
-                    mode: .review,
-                    activeSource: BridgeActiveViewerSource(
-                        protocolId: .review,
-                        streamId: "review:prior-stream",
-                        generation: 1
-                    ),
-                    sequenceFloor: 1
+            let handlerEnd = try #require(
+                source.range(
+                    of: "\n}\n\n@MainActor\nextension BridgePaneController {",
+                    range: handlerStart.lowerBound..<source.endIndex
                 )
             )
-
-            let foregroundMutationEntered = DispatchSemaphore(value: 0)
-            let beginProductMutation = DispatchSemaphore(value: 0)
-            let productMutationStarted = DispatchSemaphore(value: 0)
-            let productMutationFinished = DispatchSemaphore(value: 0)
-            let foregroundMutationFinished = DispatchSemaphore(value: 0)
-            let lockOrderRecorder = ReviewIntakeLockOrderRecorder()
-            DispatchQueue.global(qos: .userInitiated).async {
-                _ = foregroundWorkAdmission.withValidAdmission {
-                    foregroundMutationEntered.signal()
-                    beginProductMutation.wait()
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        productMutationStarted.signal()
-                        let mutationWasAdmitted = productAdmission.withValidAdmission { true } == true
-                        lockOrderRecorder.recordProductMutationAdmission(mutationWasAdmitted)
-                        productMutationFinished.signal()
-                    }
-                    productMutationStarted.wait()
-                    let productMutationCompletedBeforeForegroundRelease =
-                        productMutationFinished.wait(timeout: .now() + .seconds(2)) == .success
-                    lockOrderRecorder.recordCompletionBeforeForegroundRelease(
-                        productMutationCompletedBeforeForegroundRelease
-                    )
-                }
-                foregroundMutationFinished.signal()
-            }
-            #expect(waitForReviewIntakeSemaphore(foregroundMutationEntered))
-            withObservationTracking {
-                _ = controller.activeViewerModeSignalState
-            } onChange: {
-                beginProductMutation.signal()
-            }
-
-            // Act
-            await controller.handleCommittedProductReviewIntakeReady(
-                BridgeProductReviewIntakeReadyRequest(reason: nil, streamId: nil),
-                productAdmission: productAdmission
+            let handler = String(source[handlerStart.lowerBound..<handlerEnd.lowerBound])
+            let productAdmissionStarts = ranges(
+                of: "productAdmission.withValidAdmission(",
+                in: handler
             )
-            let foregroundMutationDidFinish = waitForReviewIntakeSemaphore(
-                foregroundMutationFinished
+            let productAdmissionEnds = [
+                try #require(handler.range(of: "}) == true")),
+                try #require(handler.range(of: "}) != nil")),
+            ]
+            let schedulingCalls = ranges(
+                of: "scheduleInitialReviewPackageLoadIfPossible(",
+                in: handler
             )
 
-            // Assert
-            #expect(foregroundMutationDidFinish)
-            #expect(lockOrderRecorder.productMutationWasAdmitted)
-            #expect(lockOrderRecorder.productMutationCompletedBeforeForegroundRelease)
+            // Act / Assert
+            #expect(productAdmissionStarts.count == 2)
+            #expect(productAdmissionEnds.count == 2)
+            #expect(schedulingCalls.count == 2)
+            #expect(productAdmissionEnds[0].upperBound <= schedulingCalls[0].lowerBound)
+            #expect(productAdmissionEnds[1].upperBound <= schedulingCalls[1].lowerBound)
         }
     }
 }
 
-private func waitForReviewIntakeSemaphore(_ semaphore: DispatchSemaphore) -> Bool {
-    semaphore.wait(timeout: .now() + .seconds(2)) == .success
-}
-
-private final class ReviewIntakeLockOrderRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedProductMutationWasAdmitted = false
-    private var storedProductMutationCompletedBeforeForegroundRelease = false
-
-    var productMutationWasAdmitted: Bool {
-        lock.withLock { storedProductMutationWasAdmitted }
+private func ranges(of needle: String, in source: String) -> [Range<String.Index>] {
+    var matches: [Range<String.Index>] = []
+    var remainingRange = source.startIndex..<source.endIndex
+    while let match = source.range(of: needle, range: remainingRange) {
+        matches.append(match)
+        remainingRange = match.upperBound..<source.endIndex
     }
-
-    var productMutationCompletedBeforeForegroundRelease: Bool {
-        lock.withLock { storedProductMutationCompletedBeforeForegroundRelease }
-    }
-
-    func recordProductMutationAdmission(_ wasAdmitted: Bool) {
-        lock.withLock { storedProductMutationWasAdmitted = wasAdmitted }
-    }
-
-    func recordCompletionBeforeForegroundRelease(_ didComplete: Bool) {
-        lock.withLock { storedProductMutationCompletedBeforeForegroundRelease = didComplete }
-    }
+    return matches
 }

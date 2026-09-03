@@ -77,8 +77,10 @@ export class BridgeCommWorkerProductController {
 	readonly #onFileMetadataEvent: FileMetadataEventHandler;
 	readonly #onFileMetadataFailure: FileMetadataFailureHandler;
 	readonly #onFileMetadataDemandFailure: FileMetadataDemandFailureHandler;
+	readonly #onActiveViewerModeAdmitted: (mode: 'file' | 'review') => void;
 	readonly #onReviewMetadataEvent: ReviewMetadataEventHandler;
 	readonly #onReviewMetadataFailure: ReviewMetadataFailureHandler;
+	readonly #onFileSourceUnavailable: () => void;
 	readonly #productTransport: BridgeProductTransportSession;
 	readonly #annotationSessionIdsBySurface: Record<'file' | 'review', Set<string>> = {
 		file: new Set(),
@@ -126,6 +128,7 @@ export class BridgeCommWorkerProductController {
 	#reviewRecoveryPublicationId: string | null = null;
 	#reviewFrameObservationRecoveryAttempted = false;
 	#reviewWorkerDerivationEpoch = 0;
+	#latestActiveViewerModeRequestOrdinal = 0;
 
 	constructor(props: {
 		readonly callCurrentFileSource?: () => Promise<FileSourceDiscoveryResult>;
@@ -136,8 +139,10 @@ export class BridgeCommWorkerProductController {
 			publication: BridgeCommWorkerAnnotationProjectionPublication,
 		) => void;
 		readonly onFileMetadataEvent: FileMetadataEventHandler;
+		readonly onActiveViewerModeAdmitted?: (mode: 'file' | 'review') => void;
 		readonly onFileMetadataFailure?: FileMetadataFailureHandler;
 		readonly onFileMetadataDemandFailure?: FileMetadataDemandFailureHandler;
+		readonly onFileSourceUnavailable?: () => void;
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
 		readonly productTransport: BridgeProductTransportSession;
@@ -150,9 +155,11 @@ export class BridgeCommWorkerProductController {
 		) => ReviewMetadataSubscription;
 	}) {
 		this.#onFileMetadataEvent = props.onFileMetadataEvent;
+		this.#onActiveViewerModeAdmitted = props.onActiveViewerModeAdmitted ?? ignoreActiveViewerMode;
 		this.#onFileMetadataFailure = props.onFileMetadataFailure ?? ignoreFileMetadataFailure;
 		this.#onFileMetadataDemandFailure =
 			props.onFileMetadataDemandFailure ?? ignoreFileMetadataFailure;
+		this.#onFileSourceUnavailable = props.onFileSourceUnavailable ?? ignoreFileSourceUnavailable;
 		this.#onReviewMetadataEvent = props.onReviewMetadataEvent ?? ignoreReviewMetadataEvent;
 		this.#onReviewMetadataFailure = props.onReviewMetadataFailure ?? ignoreReviewMetadataFailure;
 		this.#productTransport = props.productTransport;
@@ -613,6 +620,7 @@ export class BridgeCommWorkerProductController {
 	async #discoverAndOpenFileSource(): Promise<void> {
 		const discovery = await this.#callCurrentFileSource();
 		if (discovery.status === 'unavailable') {
+			this.#onFileSourceUnavailable();
 			return;
 		}
 		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('file');
@@ -791,6 +799,8 @@ export class BridgeCommWorkerProductController {
 		) {
 			throw new Error('Bridge active viewer source does not match its selected surface.');
 		}
+		const requestOrdinal = this.#latestActiveViewerModeRequestOrdinal + 1;
+		this.#latestActiveViewerModeRequestOrdinal = requestOrdinal;
 		const request = {
 			activeSource:
 				command.params.activeSource === null
@@ -804,13 +814,24 @@ export class BridgeCommWorkerProductController {
 			sessionId: command.params.sessionId,
 		};
 		if (command.params.mode === 'review') {
-			return await this.#productTransport.call('review.activeViewerMode.update', request);
+			const result = await this.#productTransport.call('review.activeViewerMode.update', request);
+			if (requestOrdinal !== this.#latestActiveViewerModeRequestOrdinal) return result;
+			this.#onActiveViewerModeAdmitted('review');
+			try {
+				this.ensureReviewMetadata();
+			} catch {
+				// Exact active-mode success remains independent of metadata-stream recovery.
+			}
+			return result;
 		}
 		const result = await this.#productTransport.call('file.activeViewerMode.update', request);
+		if (requestOrdinal !== this.#latestActiveViewerModeRequestOrdinal) return result;
+		this.#onActiveViewerModeAdmitted('file');
 		try {
 			await this.ensureFileSource();
-		} catch {
+		} catch (error) {
 			// Exact active-mode success remains independent of metadata-stream recovery.
+			this.#onFileMetadataFailure(error, this.#fileWorkerDerivationEpoch);
 		}
 		return result;
 	}
@@ -918,6 +939,10 @@ function assertNeverBridgeProductControlCommand(command: never): never {
 }
 
 function ignoreFileMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}
+
+function ignoreFileSourceUnavailable(): void {}
+
+function ignoreActiveViewerMode(_mode: 'file' | 'review'): void {}
 
 function ignoreReviewMetadataEvent(
 	_event: ReviewMetadataEvent,

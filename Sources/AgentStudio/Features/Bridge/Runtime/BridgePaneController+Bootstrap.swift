@@ -160,25 +160,30 @@ extension BridgePaneController {
             return
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
+        if request.reason == "background-warmup" {
+            guard
+                productAdmission.withValidAdmission({ paneState.diff.packageMetadata == nil }) == true
+            else { return }
+            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+            return
+        }
+        var schedulingDecision: CommittedReviewIntakeSchedulingDecision?
         guard
-            let schedulingDecision = productAdmission.withValidAdmission({
+            productAdmission.withValidAdmission({
                 let package = paneState.diff.packageMetadata
-                if let package {
-                    setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
-                        streamId: currentStreamId,
-                        generation: package.reviewGeneration.rawValue
-                    )
-                } else {
-                    clearActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck()
-                }
                 if package == nil {
-                    return CommittedReviewIntakeSchedulingDecision.initialPackageLoad
+                    if request.reason == "sequence_gap" {
+                        schedulingDecision = .initialPackageLoad
+                    }
+                    return
                 }
                 if request.reason == "sequence_gap" {
-                    return CommittedReviewIntakeSchedulingDecision.productResync
+                    schedulingDecision = .productResync
+                    return
                 }
-                return CommittedReviewIntakeSchedulingDecision.replayCommittedPublication
-            })
+                schedulingDecision = .replayCommittedPublication
+            }) != nil,
+            let schedulingDecision
         else {
             return
         }
