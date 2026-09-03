@@ -550,15 +550,19 @@ final class WorkspaceCacheCoordinator {
         else { return }
 
         workspaceStore.mutationCoordinator.markRepoUnavailable(repo.id)
-        let unavailablePathByWorktreeId = Dictionary(
-            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
+        let clearedPaneIds = Set(
+            repo.worktrees.flatMap { worktree in
+                workspaceStore.mutationCoordinator.clearPaneAssociations(
+                    forRemovedWorktreeID: worktree.id
+                )
+            }
         )
-        let orphanedPaneIds = workspaceStore.paneAtom.orphanPanes(
-            forUnavailableWorktreePathsById: unavailablePathByWorktreeId
-        )
-        if !orphanedPaneIds.isEmpty {
+        for _ in clearedPaneIds {
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
+        }
+        if !clearedPaneIds.isEmpty {
             Self.logger.info(
-                "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
+                "Repo removed at path=\(repoPath.path, privacy: .public); cleared \(clearedPaneIds.count, privacy: .public) pane association(s)"
             )
         }
         repoCache.removeRepo(repo.id)

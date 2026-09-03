@@ -12,8 +12,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         WorkspaceStore()
     }
 
-    @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")
-    func repoRemovedOrphansPanesAndPreservesRepoIdentity() {
+    @Test("repoRemoved preserves live pane continuity and prunes cache")
+    func repoRemovedPreservesLivePaneContinuityAndPrunesCache() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -39,6 +39,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             launchDirectory: repoPath,
             facets: PaneContextFacets(repoId: repo.id, worktreeId: persistedMainWorktreeId, cwd: repoPath)
         )
+        let tab = Tab(paneId: pane.id)
+        workspaceStore.appendTab(tab)
 
         repoCache.setRepoEnrichment(
             .resolvedRemote(
@@ -77,13 +79,15 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[persistedMainWorktreeId] == nil)
         #expect(repoCache.pullRequestFactsByBranch.isEmpty)
-        #expect(
-            workspaceStore.pane(pane.id)?.residency
-                == .orphaned(reason: .worktreeNotFound(path: repoPath.path))
-        )
+        let durableFacets = workspaceStore.paneAtom.graphAtom
+            .paneState(pane.id)?.durableContextFacets
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
+        #expect(workspaceStore.tabContaining(paneId: pane.id)?.id == tab.id)
+        #expect(durableFacets?.repoId == nil)
+        #expect(durableFacets?.worktreeId == nil)
     }
 
-    @Test("re-association preserves UUID links but keeps panes outside relocated topology orphaned")
+    @Test("re-association preserves UUID links and live panes outside relocated topology")
     func relocateRepoPreservesIdentity() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -117,7 +121,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
                 event: .topology(.repoRemoved(repoPath: oldRepoPath))
             )
         )
-        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
 
         let relocatedPath = URL(fileURLWithPath: "/tmp/repo-move-new")
         let discoveredAtNewPath = Worktree(
@@ -142,13 +146,14 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.repos[0].worktrees.count == 1)
         #expect(workspaceStore.repos[0].worktrees[0].id == previousWorktreeId)
         #expect(workspaceStore.repos[0].worktrees[0].path == relocatedPath)
-        #expect(
-            workspaceStore.pane(pane.id)?.residency
-                == .orphaned(reason: .worktreeNotFound(path: oldRepoPath.path))
-        )
+        let durableFacets = workspaceStore.paneAtom.graphAtom
+            .paneState(pane.id)?.durableContextFacets
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
+        #expect(durableFacets?.repoId == nil)
+        #expect(durableFacets?.worktreeId == nil)
     }
 
-    @Test("repo rediscovery at same path clears unavailable state and restores orphaned panes")
+    @Test("repo rediscovery at same path clears unavailable state without disrupting panes")
     func rediscoveryAtSamePathRestoresRepoAvailability() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -183,7 +188,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             )
         )
         #expect(workspaceStore.isRepoUnavailable(repo.id))
-        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
 
         coordinator.handleTopology(
             SystemEnvelope.test(
