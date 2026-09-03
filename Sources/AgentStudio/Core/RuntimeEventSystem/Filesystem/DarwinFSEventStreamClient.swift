@@ -178,19 +178,26 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
 
-        lifecycleLock.lock()
-        if hasShutdown {
-            lifecycleLock.unlock()
+        var displacedRegistration: StreamRegistration?
+        let didInstall = lifecycleLock.withLock { () -> Bool in
+            guard !hasShutdown else { return false }
+            if let currentRegistration = streamByWorktreeId[worktreeId],
+                currentRegistration.lifecycleGeneration >= registration.lifecycleGeneration
+            {
+                return false
+            }
+            displacedRegistration = streamByWorktreeId.updateValue(
+                registration,
+                forKey: worktreeId
+            )
+            return true
+        }
+        guard didInstall else {
             Self.teardown(registration)
             return
         }
-        let concurrentlyInstalledRegistration = streamByWorktreeId.updateValue(
-            registration,
-            forKey: worktreeId
-        )
-        lifecycleLock.unlock()
-        if let concurrentlyInstalledRegistration {
-            Self.teardown(concurrentlyInstalledRegistration)
+        if let displacedRegistration {
+            Self.teardown(displacedRegistration)
         }
         registration.eventActivationGate.activate()
     }

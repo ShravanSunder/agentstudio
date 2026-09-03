@@ -278,6 +278,47 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         _ = secondLease
     }
 
+    @Test("older generation cannot replace the current logical handler")
+    func olderGenerationCannotReplaceCurrentLogicalHandler() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-shared-stale-generation-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let streamFactory = RecordingLocalFSEventStreamFactory()
+        let deliveryRecorder = OrderedFSEventDeliveryRecorder()
+        let registry = DarwinSharedLocalFSEventObserverRegistry(
+            streamFactory: streamFactory.makeStream,
+            recordPhysicalRawCallback: { _ in }
+        )
+        defer { registry.shutdown() }
+        let worktreeId = UUIDv7.generate()
+        let currentLease = try #require(
+            registry.bind(
+                request: Self.request(root: fixtureRoot, worktreeId: worktreeId, generation: 2) {
+                    deliveryRecorder.record(generation: 2, events: $0)
+                }
+            )
+        )
+
+        let staleLease = registry.bind(
+            request: Self.request(root: fixtureRoot, worktreeId: worktreeId, generation: 1) {
+                deliveryRecorder.record(generation: 1, events: $0)
+            }
+        )
+        #expect(
+            streamFactory.sendToCurrentStream([
+                DarwinLocalFSEventRawEvent(path: fixtureRoot.path, eventId: 91, flags: 0)
+            ])
+        )
+
+        #expect(staleLease == nil)
+        #expect(deliveryRecorder.generations == [2])
+        #expect(registry.snapshot().logicalRegistrationCount == 1)
+        _ = currentLease
+    }
+
     @Test("replacement replay preserves callback order and records physical input once")
     func replacementReplayPreservesOrderAndPhysicalTelemetry() throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(

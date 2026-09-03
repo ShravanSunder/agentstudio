@@ -100,13 +100,23 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
 
         let bindingState = stateLock.withLock { () -> DarwinSharedLocalFSEventBindingState in
             let existingObserver = observerByVolume[volumeSystemNumber]
+            let newestExistingGeneration = registrationByKey.keys
+                .filter { $0.worktreeID == registrationKey.worktreeID }
+                .map(\.lifecycleGeneration)
+                .max()
+            let candidateIsNewest =
+                newestExistingGeneration.map {
+                    $0 < registrationKey.lifecycleGeneration
+                } ?? true
             let retainedRegistrationKeys = Set(
                 existingObserver?.registrationKeys.filter {
                     $0.worktreeID != registrationKey.worktreeID
                 } ?? []
             )
             return DarwinSharedLocalFSEventBindingState(
-                mayBind: !hasShutdown && registrationByKey[registrationKey] == nil,
+                mayBind: !hasShutdown
+                    && registrationByKey[registrationKey] == nil
+                    && candidateIsNewest,
                 existingObserver: existingObserver,
                 retainedRegistrationKeys: retainedRegistrationKeys,
                 retainedRegistrations: retainedRegistrationKeys.compactMap { registrationByKey[$0] }
