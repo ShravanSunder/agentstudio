@@ -51,8 +51,10 @@ final class WorkspacePreparedContentMountCoordinator {
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
         nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort
     ) {
-        // Deferred panes stay outside the startup ledger so later demand falls
-        // through to the existing steady-state content mount owner.
+        // Hidden nonterminal panes stay outside the startup ledger so later
+        // demand falls through to the existing steady-state content mount
+        // owner. Terminals remain in the startup cohort and restore after the
+        // foreground phases.
         let startupCohort = WorkspacePreparedContentMountCohort(
             generation: cohort.generation,
             terminalActivationInput: cohort.terminalActivationInput,
@@ -69,13 +71,25 @@ final class WorkspacePreparedContentMountCoordinator {
             ),
             nonterminalContentMountInput: startupCohort.nonterminalContentMountInput
         )
-        let mainCohort = Self.partition(foregroundCohort, selectingDrawerEntries: false)
-        let drawerCohort = Self.partition(foregroundCohort, selectingDrawerEntries: true)
-        self.cohort = foregroundCohort
+        let hiddenTerminalCohort = WorkspacePreparedContentMountCohort(
+            generation: startupCohort.generation,
+            terminalActivationInput: TerminalActivationInput(
+                entries: startupCohort.terminalActivationInput.entries.filter {
+                    $0.visibilityPriority == .hidden
+                }
+            ),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        self.cohort = startupCohort
         self.viewRegistry = viewRegistry
         let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
         self.terminalActivationReleaseGate = terminalActivationReleaseGate
-        let phaseCohorts = [mainCohort, drawerCohort]
+        let phaseCohorts = [
+            Self.partition(foregroundCohort, selectingDrawerEntries: false),
+            Self.partition(foregroundCohort, selectingDrawerEntries: true),
+            Self.partition(hiddenTerminalCohort, selectingDrawerEntries: false),
+            Self.partition(hiddenTerminalCohort, selectingDrawerEntries: true),
+        ]
         let phases = phaseCohorts.map { phaseCohort in
             MountPhase(
                 terminalScheduler: TerminalActivationScheduler(
@@ -101,7 +115,7 @@ final class WorkspacePreparedContentMountCoordinator {
                 }
             }
         )
-        viewRegistry.installPreparedContentMountCohort(foregroundCohort)
+        viewRegistry.installPreparedContentMountCohort(startupCohort)
     }
 
     func holdTerminalActivationUntilReleased() async {

@@ -258,7 +258,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func preparedContentOwnerDefersHiddenZmxUntilSelectionThenRestoresOnceWithTrustedGeometry() async throws {
+    func preparedContentOwnerRestoresHiddenZmxAfterForegroundWithoutSelection() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -291,23 +291,18 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             trustedBounds: trustedBounds
         )
         let visiblePlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: visiblePane.id))
+        let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
         #expect(visiblePlaceholder.mode == .failedToStart)
+        #expect(hiddenPlaceholder.mode == .failedToStart)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(hiddenPane.id))
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id) == nil)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2)
         #expect(harness.viewRegistry.isInitialRestorePending == false)
-        let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds.count
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds
 
         harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
 
-        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeSelection + 1)
-        #expect(harness.surfaceManager.createdPaneIds.last == hiddenPane.id)
-        let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
-        #expect(hiddenPlaceholder.mode == .failedToStart)
-        let hiddenConfig = try #require(harness.surfaceManager.createdConfigsByPaneId[hiddenPane.id])
-        #expect(hiddenConfig.initialFrame != nil)
+        #expect(harness.surfaceManager.createdPaneIds == creationAttemptsBeforeSelection)
     }
 
     @Test
@@ -361,18 +356,10 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
 
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(hiddenParentPane.id))
-        #expect(!harness.surfaceManager.createdPaneIds.contains(hiddenDrawerPane.id))
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
         #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenParentPane.id) == nil)
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) == nil)
-        #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        harness.windowLifecycleStore.recordLaunchLayoutSettled()
-
-        harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
-
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 1)
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 1)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) != nil)
         #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenParentPane.id]?.initialFrame != nil)
         #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenDrawerPane.id]?.initialFrame != nil)
         #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
@@ -429,18 +416,10 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
 
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
-        #expect(!harness.surfaceManager.createdPaneIds.contains(hiddenParentPane.id))
-        #expect(!harness.surfaceManager.createdPaneIds.contains(hiddenDrawerPane.id))
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenParentPane.id) == nil)
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) == nil)
-        #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        harness.windowLifecycleStore.recordLaunchLayoutSettled()
-
-        harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
-
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 1)
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 1)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenParentPane.id) != nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) != nil)
         #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenParentPane.id]?.initialFrame != nil)
         #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenDrawerPane.id]?.initialFrame != nil)
         #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
