@@ -84,7 +84,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
             lifecycleGeneration: request.lifecycleGeneration
         )
         let registration = DarwinSharedLocalFSEventRegistration(
-            watchedPaths: Self.contractWatchedPaths(request.watchedPaths),
+            watchedPaths: Self.distinctWatchedPaths(request.watchedPaths),
             eventHandler: request.eventHandler
         )
 
@@ -97,7 +97,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         guard bindingState.mayBind else { return nil }
         let existingObserver = bindingState.existingObserver
 
-        let desiredWatchedPaths = Self.contractWatchedPaths(
+        let desiredWatchedPaths = Self.distinctWatchedPaths(
             (existingObserver?.watchedPaths ?? []) + registration.watchedPaths
         )
         let desiredExclusionPaths = Array(
@@ -437,19 +437,10 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         candidate == root || (root == "/" ? candidate.hasPrefix("/") : candidate.hasPrefix(root + "/"))
     }
 
-    private static func contractWatchedPaths(_ paths: [String]) -> [String] {
-        let normalizedPaths = Array(
+    private static func distinctWatchedPaths(_ paths: [String]) -> [String] {
+        Array(
             Set(paths.map(DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath))
-        ).sorted { lhs, rhs in
-            if lhs.count != rhs.count { return lhs.count < rhs.count }
-            return lhs < rhs
-        }
-        var retainedPaths: [String] = []
-        for path in normalizedPaths
-        where !retainedPaths.contains(where: { containsPath(path, root: $0) }) {
-            retainedPaths.append(path)
-        }
-        return retainedPaths.sorted()
+        ).sorted()
     }
 
     private static let broadcastUncertaintyFlags = FSEventStreamEventFlags(

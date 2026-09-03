@@ -69,8 +69,79 @@ struct DarwinSharedLocalFSEventObserverTests {
         #expect(client.sharedLocalObservationSnapshot().logicalRegistrationCount == 0)
     }
 
-    @Test("same-volume descendant registrations share one physical stream")
-    func sameVolumeDescendantRegistrationsShareOnePhysicalStream() throws {
+    @Test("real stream preserves descendant logical root replacement semantics")
+    func realStreamPreservesDescendantLogicalRootReplacementSemantics() async throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevent-real-descendant-root-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let descendantRoot = fixtureRoot.appending(path: "descendant", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: descendantRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let client = DarwinFSEventStreamClient()
+        defer { client.shutdown() }
+        let repositoryId = UUIDv7.generate()
+        let parentWorktreeId = UUIDv7.generate()
+        let descendantWorktreeId = UUIDv7.generate()
+        client.register(worktreeId: parentWorktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        client.register(worktreeId: descendantWorktreeId, repoId: repositoryId, rootPath: descendantRoot)
+        let readinessSentinel = descendantRoot.appending(path: "native-stream-ready.sentinel")
+        let canonicalReadinessSentinel = DarwinFSEventPathCanonicalizer.canonicalURL(readinessSentinel).path
+        let readinessTask = Task<FSEventBatch?, Never> {
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
+                if batch.worktreeId == descendantWorktreeId,
+                    batch.paths.contains(canonicalReadinessSentinel)
+                {
+                    return batch
+                }
+            }
+            return nil
+        }
+        try Data("ready".utf8).write(to: readinessSentinel)
+        _ = try #require(await firstCompletedValue(from: readinessTask, timeout: .seconds(5)))
+        let rootChangedTask = Task<FSEventBatch?, Never> {
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem,
+                    batch.worktreeId == descendantWorktreeId,
+                    batch.observations.contains(where: { observation in
+                        FSEventStreamEventFlags(observation.flags)
+                            & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
+                    })
+                else {
+                    continue
+                }
+                return batch
+            }
+            return nil
+        }
+
+        // Act
+        try FileManager.default.moveItem(
+            at: descendantRoot,
+            to: fixtureRoot.appending(path: "relocated-descendant", directoryHint: .isDirectory)
+        )
+
+        // Assert
+        let rootChangedBatch = try #require(
+            await firstCompletedValue(from: rootChangedTask, timeout: .seconds(5))
+        )
+        #expect(rootChangedBatch.requiresFullGitRefresh)
+        let fenceConsumer = Task {
+            for await ingressItem in client.events() {
+                guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
+                client.acknowledgeActivityProcessingFence(fenceID)
+                return
+            }
+        }
+        let barrier = try #require(await client.captureActivityBarrier())
+        await fenceConsumer.value
+        #expect(barrier.bindings.map(\.worktreeId) == [parentWorktreeId])
+    }
+
+    @Test("same-volume descendant registrations preserve roots in one physical stream")
+    func sameVolumeDescendantRegistrationsPreserveRootsInOnePhysicalStream() throws {
         // Arrange
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-fsevents-shared-local-\(UUIDv7.generate().uuidString)",
@@ -97,9 +168,9 @@ struct DarwinSharedLocalFSEventObserverTests {
         }
 
         // Assert
-        #expect(streamFactory.snapshot == .init(successfulStartCount: 1, activeCount: 1, peakActiveCount: 1))
+        #expect(streamFactory.snapshot == .init(successfulStartCount: 101, activeCount: 1, peakActiveCount: 2))
         client.shutdown()
-        #expect(streamFactory.snapshot == .init(successfulStartCount: 1, activeCount: 0, peakActiveCount: 1))
+        #expect(streamFactory.snapshot == .init(successfulStartCount: 101, activeCount: 0, peakActiveCount: 2))
     }
 
     @Test("same-volume sibling registrations keep physical replacement overlap bounded")
@@ -188,6 +259,7 @@ struct DarwinSharedLocalFSEventObserverTests {
                 rootPath: fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)
             )
         }
+        streamFactory.resetFlushCount()
         let fenceConsumer = Task {
             for await ingressItem in client.events() {
                 guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
@@ -368,6 +440,12 @@ final class CountingLocalFSEventStreamFactory: @unchecked Sendable {
 
     var flushCountSnapshot: Int {
         lock.withLock { flushCount }
+    }
+
+    func resetFlushCount() {
+        lock.withLock {
+            flushCount = 0
+        }
     }
 
     func makeStream(

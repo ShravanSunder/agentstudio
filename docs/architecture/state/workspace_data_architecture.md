@@ -337,12 +337,14 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 physical observation. Each logical root retains its worktree ID, lifecycle
 generation, observation scopes, continuity participant, and callback routing,
 while `DarwinSharedLocalFSEventObserverRegistry` contracts same-volume watched
-paths into one physical stream. Adding a path already covered by an ancestor
-creates no native stream. A required physical replacement starts the successor,
-buffers successor callbacks, flushes the still-current predecessor, atomically
-installs the successor, replays the buffer, and retires the predecessor. Thus
-steady native-client cardinality is bounded by mounted-volume count rather than
-repository/worktree count, with at most one replacement overlap at a time.
+paths into one physical stream. Every distinct logical root remains in the
+physical stream's watched-path set because macOS `WatchRoot` replacement events
+are defined only for paths supplied when the stream is created. A required
+physical replacement starts the successor, buffers successor callbacks,
+flushes the still-current predecessor, atomically installs the successor,
+replays the buffer, and retires the predecessor. Thus steady native-client
+cardinality is bounded by mounted-volume count rather than repository/worktree
+count, with at most one replacement overlap at a time.
 
 Ordinary callbacks route only to intersecting logical registrations. Coverage
 loss from stream-global flags is broadcast to every logical participant on that
