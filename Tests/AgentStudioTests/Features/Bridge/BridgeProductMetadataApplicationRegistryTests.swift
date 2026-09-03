@@ -98,6 +98,90 @@ struct BridgeProductMetadataApplicationRegistryTests {
             _ = try registration.validateEvent(validEvent, frameSourceGeneration: 8)
         }
     }
+
+    @Test("producer seal rejects a shape-compatible event of the wrong concrete type")
+    func producerSealRejectsShapeCompatibleWrongConcreteType() throws {
+        // Arrange
+        let registration = AnyBridgeProductMetadataApplicationProtocol(
+            FixtureMetadataApplicationProtocol.self
+        )
+        let foreignEvent = ShapeCompatibleFixtureEvent(generation: 7, value: "accepted")
+
+        // Act / Assert
+        #expect(throws: BridgeProductMetadataApplicationRegistryError.typeErasureMismatch) {
+            _ = try registration.sealEvent(foreignEvent)
+        }
+    }
+
+    @Test("producer seal derives generation without decoding its typed event")
+    func producerSealDerivesGenerationWithoutDecoding() throws {
+        // Arrange
+        let registration = AnyBridgeProductMetadataApplicationProtocol(
+            NonDecodableFixtureMetadataApplicationProtocol.self
+        )
+        let event = NonDecodableFixtureMetadataApplicationProtocol.Event(
+            generation: 9,
+            value: "typed"
+        )
+
+        // Act
+        let sealedEvent = try registration.sealEvent(event)
+
+        // Assert
+        #expect(sealedEvent.event == event)
+        #expect(sealedEvent.applicationKind == .fixtureMetadata)
+        #expect(sealedEvent.sourceGeneration == 9)
+        #expect(sealedEvent.encodedApplicationByteCount > 0)
+        let encodedPayload = try JSONEncoder.bridgeProductSorted.encode(
+            sealedEvent.applicationPayload
+        )
+        #expect(throws: FixtureMetadataEventDecodeError.self) {
+            _ = try registration.validateEvent(encodedPayload, frameSourceGeneration: 9)
+        }
+    }
+}
+
+private struct ShapeCompatibleFixtureEvent: Codable, Equatable, Sendable {
+    let generation: Int
+    let value: String
+}
+
+private struct FixtureMetadataEventDecodeError: Error {}
+
+private enum NonDecodableFixtureMetadataApplicationProtocol:
+    BridgeProductMetadataApplicationProtocol
+{
+    struct SubscriptionOptions: Codable, Equatable, Sendable {}
+    struct InterestState: Codable, Equatable, Sendable {}
+    struct InterestDelta: Codable, Equatable, Sendable {}
+
+    struct Event: Codable, Equatable, Sendable {
+        let generation: Int
+        let value: String
+
+        init(generation: Int, value: String) {
+            self.generation = generation
+            self.value = value
+        }
+
+        init(from _: Decoder) throws {
+            throw FixtureMetadataEventDecodeError()
+        }
+    }
+
+    static let kind = BridgeProductSubscriptionKind.fixtureMetadata
+    static let surface = BridgeProductSurface.file
+    static let canonicalInterestTag: UInt8 = 10
+    static let telemetryDescriptor = BridgeMetadataApplicationTelemetryDescriptor(
+        applicationName: "non-decodable-fixture"
+    )
+
+    static func initialInterestState(from _: SubscriptionOptions) -> InterestState { .init() }
+    static func applying(_: [InterestDelta], to state: InterestState) throws -> InterestState { state }
+    static func deltaItemCount(_: InterestDelta) -> Int { 0 }
+    static func deltaMemberIdentities(_: InterestDelta) -> Set<Data> { [] }
+    static func canonicalInterestBody(_: InterestState) throws -> Data { Data() }
+    static func sourceGeneration(of event: Event) -> Int { event.generation }
 }
 
 private enum FixtureMetadataApplicationProtocol: BridgeProductMetadataApplicationProtocol {

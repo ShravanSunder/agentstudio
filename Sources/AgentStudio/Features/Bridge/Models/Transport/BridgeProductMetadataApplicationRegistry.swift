@@ -55,6 +55,22 @@ struct BridgeProductMetadataApplicationValue: Equatable, Sendable {
     let encodedValue: Data
 }
 
+struct BridgeProductSealedMetadataApplicationEvent<Event>: Equatable, Sendable
+where Event: Codable & Equatable & Sendable {
+    let event: Event
+    let applicationKind: BridgeProductSubscriptionKind
+    let applicationPayload: BridgeProductJSONValue
+    let sourceGeneration: Int
+    let encodedApplicationByteCount: Int
+}
+
+private struct BridgeProductErasedSealedMetadataApplicationEvent: Sendable {
+    let applicationKind: BridgeProductSubscriptionKind
+    let applicationPayload: BridgeProductJSONValue
+    let sourceGeneration: Int
+    let encodedApplicationByteCount: Int
+}
+
 struct AnyBridgeProductMetadataApplicationProtocol: Sendable {
     let kind: BridgeProductSubscriptionKind
     let surface: BridgeProductSurface
@@ -74,6 +90,9 @@ struct AnyBridgeProductMetadataApplicationProtocol: Sendable {
     private let deltaMemberIdentitiesClosure: @Sendable (BridgeProductMetadataApplicationValue) throws -> Set<Data>
     private let initialInterestStateClosure:
         @Sendable (BridgeProductMetadataApplicationValue) throws -> BridgeProductMetadataApplicationValue
+    private let sealEventClosure:
+        @Sendable (any Encodable & Sendable) throws ->
+            BridgeProductErasedSealedMetadataApplicationEvent
     private let sourceGenerationClosure: @Sendable (Data) throws -> Int
     private let validateEventClosure: @Sendable (Data, Int) throws -> Data
 
@@ -158,6 +177,21 @@ struct AnyBridgeProductMetadataApplicationProtocol: Sendable {
             let event = try Self.decoder.decode(TApplication.Event.self, from: encodedEvent)
             return TApplication.sourceGeneration(of: event)
         }
+        self.sealEventClosure = { candidate in
+            guard let event = candidate as? TApplication.Event else {
+                throw BridgeProductMetadataApplicationRegistryError.typeErasureMismatch
+            }
+            let encodedEvent = try Self.encoder.encode(event)
+            return BridgeProductErasedSealedMetadataApplicationEvent(
+                applicationKind: applicationKind,
+                applicationPayload: try Self.decoder.decode(
+                    BridgeProductJSONValue.self,
+                    from: encodedEvent
+                ),
+                sourceGeneration: TApplication.sourceGeneration(of: event),
+                encodedApplicationByteCount: encodedEvent.count
+            )
+        }
     }
 
     func decodeSubscriptionOptions(from encodedOptions: Data) throws -> BridgeProductMetadataApplicationValue {
@@ -217,10 +251,16 @@ struct AnyBridgeProductMetadataApplicationProtocol: Sendable {
         try sourceGenerationClosure(encodedEvent)
     }
 
-    func encodeEvent<TEvent: Encodable>(_ event: TEvent) throws -> BridgeProductJSONValue {
-        let encodedEvent = try Self.encoder.encode(event)
-        _ = try sourceGenerationClosure(encodedEvent)
-        return try Self.decoder.decode(BridgeProductJSONValue.self, from: encodedEvent)
+    func sealEvent<Event>(_ event: Event) throws -> BridgeProductSealedMetadataApplicationEvent<Event>
+    where Event: Codable & Equatable & Sendable {
+        let sealedEvent = try sealEventClosure(event)
+        return BridgeProductSealedMetadataApplicationEvent(
+            event: event,
+            applicationKind: sealedEvent.applicationKind,
+            applicationPayload: sealedEvent.applicationPayload,
+            sourceGeneration: sealedEvent.sourceGeneration,
+            encodedApplicationByteCount: sealedEvent.encodedApplicationByteCount
+        )
     }
 
     func decodeEvent<TEvent: Decodable>(

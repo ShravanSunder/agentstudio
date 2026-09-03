@@ -385,20 +385,23 @@ struct BridgeProductSubscriptionData: Codable, Equatable, Sendable {
         return try? decodeEvent(BridgeProductReviewMetadataEvent.self)
     }
 
-    static func registered<TEvent: Encodable>(
+    static func registered<TEvent>(
         _ event: TEvent,
         subscriptionKind: BridgeProductSubscriptionKind
-    ) throws -> Self {
+    ) throws -> Self where TEvent: Codable & Equatable & Sendable {
         let registration = try BridgeProductMetadataApplicationRegistry.product.registration(
             for: subscriptionKind
         )
-        let payload = try registration.encodeEvent(event)
-        return try Self(
-            subscriptionKind: subscriptionKind,
-            event: payload,
-            sourceGeneration: registration.sourceGeneration(
-                of: JSONEncoder.bridgeProductSorted.encode(payload)
-            )
+        return try registered(registration.sealEvent(event))
+    }
+
+    static func registered<TEvent>(
+        _ sealedEvent: BridgeProductSealedMetadataApplicationEvent<TEvent>
+    ) throws -> Self where TEvent: Codable & Equatable & Sendable {
+        try Self(
+            subscriptionKind: sealedEvent.applicationKind,
+            event: sealedEvent.applicationPayload,
+            sourceGeneration: sealedEvent.sourceGeneration
         )
     }
 
