@@ -102,9 +102,15 @@ require a broader transport/replay redesign.
 For annotations, the selected direction retains the full exact-publication
 query and makes only application selective. A partial native query was rejected
 because changed lines, renames, unavailable material, and target/base movement
-can alter placement without changing durable message identity. A full query
-with affected-item plus equality-checked apply preserves truth without adding a
-new annotation protocol.
+can alter placement without changing durable message identity. Timing-based
+sampling of Main's Review catalog cursor was also rejected: an annotation query
+may start because of Review installation, annotation demand, catalog movement,
+or retry, and its result may arrive after a newer same-generation Review is
+promoted. The existing application-specific annotation convergence event
+therefore returns the exact Review publication identity that the query already
+uses. Main derives a safe screen-relative affected superset from its existing
+bounded Review catalog change ledger and performs equality-checked application. Generic product
+transport remains unchanged.
 
 ## Components and ownership
 
@@ -148,8 +154,11 @@ Existing Review metadata/demand owners
        unchanged body/render material, and exact candidate promotion
 
 Existing Review annotation application
-  owns: exact-publication query and equality-checked affected-item application
-  preserves: full query/fallback for unknown, replacement, or unsafe placement
+  worker owns: exact-publication query-attempt identity
+  Main owns: last completed annotation application checkpoint, screen-relative
+             affected-set derivation, and equality-checked Pierre application
+  preserves: full query/fallback for unknown, replacement, ledger gap, or unsafe
+             placement; stale publication results are discarded
 ```
 
 The new structural element is a value contract, not a cache service:
@@ -162,6 +171,20 @@ GitReviewRefreshSeed
   contains the complete prior Git file projection and exact calculation key
   never Codable and never crosses Bridge transport
 ```
+
+The only added browser-side state is one ephemeral checkpoint inside the
+existing Review annotation surface owner:
+
+```text
+ReviewAnnotationApplicationCheckpoint
+  exactReviewPublicationIdentity: package + source + generation + revision + publication
+  reviewCatalogCursor: cursor after that publication's complete annotation content applied
+```
+
+It is not a second ledger or store. Main's existing bounded Review catalog
+change ledger remains the sole history of installed Review changes. The checkpoint is
+cleared on worker replacement, Review replacement, source retirement, or
+surface disposal.
 
 ## Internal contracts
 
@@ -378,12 +401,21 @@ message, queue, or application knowledge. Unknown or replacement affectedness
 means all items, never none.
 
 Before Review annotation source refresh opens any content, its existing source
-capture derives affected current/previous Review item identities from the
-installed publication's same-`G` delta and exact retained predecessor. It asks
-the existing `BridgeReviewContentLoaderCache` whether every unaffected demanded
-handle can be served under the same exact content identity without a provider
-load. This is an admission check on the current bounded cache, not a new cache
-or retention promise.
+capture derives the native source-load affected set from the exact installed
+publication's same-`G` delta. The union of `addItems`, `updateItems`, and
+`removeItems` is complete for this purpose because `BridgeReviewDeltaBuilder`
+creates `invalidateContent` only from updated or removed items. That builder
+invariant is enforced where the native delta is created and by direct contract
+tests; source capture does not reconstruct removed handles without a
+predecessor. It does not depend on the acknowledged displayed predecessor,
+which may already have been retired before the asynchronous annotation query
+begins. A missing, non-successor, or replacement delta selects the full safe
+path.
+
+Source capture asks the existing `BridgeReviewContentLoaderCache` whether every
+unaffected demanded current handle can be served under the same exact content
+identity without a provider load. This is one atomic admission check on the
+current bounded cache, not a new cache or retention promise.
 
 When every unaffected handle is reusable, Review annotation capture continues
 to query the complete currently demanded-session projection against the exact
@@ -394,9 +426,57 @@ path runs without claiming proportional source work. Telemetry records this
 fallback reason. The full path remains correct under ordinary LRU eviction,
 including demanded material larger than the cache.
 
+This native affected set controls source-load admission only. It does not
+authorize Main application because the worker may have processed publications
+that Main never installed.
+
+The worker snapshots the exact five-field Review identity with every Review
+annotation query attempt and returns it on the existing application-specific
+`annotationProjectionConvergence.ready` event. The generic product query and
+transport frame remain unchanged. Main accepts the ready projection only when
+that identity exactly equals Main's active Review identity. A mismatch is a
+stale result and is discarded; it is never full-applied to a newer Review.
+
+```text
+annotationProjectionConvergence.ready
+  File surface:   existing ready payload, no Review identity
+  Review surface: existing ready payload + exact reviewPublicationIdentity
+```
+
+The worker event schema requires that identity for Review and forbids it for
+File, preventing cross-surface or unbound ready results.
+
+For an exact complete-content result, Main binds the target to the current
+Review catalog cursor only after the exact active-identity comparison succeeds.
+It reads its existing bounded catalog change ledger from the last completed
+annotation checkpoint through that target:
+
+```text
+retained contiguous entries with no reset -> known(union of item IDs)
+retained contiguous entries with no items -> known([])
+reset entry, evicted range, or no compatible checkpoint -> full
+```
+
+The target cursor may include same-identity display patches after promotion, so
+the range is an identity-bounded over-approximation rather than an exact
+promotion boundary. Extra item IDs are safe because every candidate is
+presentation-equality checked before Pierre mutation. Several installed Review
+changes whose earlier annotation queries were aborted are therefore unioned
+rather than lost. A candidate superseded before Main promotion creates no
+ledger entry; the eventual promoted candidate must already represent the
+complete transition from Main's active snapshot. The existing successor
+re-exposure path must make an incompatible or skipped-predecessor transition a
+reset/full promotion rather than a partial keyed promotion.
+
+A control-only query result that retains prior demanded threads may update
+control/read status, but it does not consume the ledger range or advance the
+annotation application checkpoint. Only a ready result satisfying the current
+demanded-session membership may do so.
+
 This preserves placement truth for changed lines, unavailable material,
-renames, held candidates, and active editors. After query installation, the
-Review-specific annotation application forms candidate item identities from:
+renames, held candidates, and active editors. After exact identity and complete
+content admission, the Review-specific annotation application forms candidate
+item identities from:
 
 - promoted affected current and previous Review item identities;
 - previous/current owners of changed annotation placements;
@@ -405,9 +485,11 @@ Review-specific annotation application forms candidate item identities from:
 It derives annotations only for those candidates, compares the derived
 annotation presentation with the currently installed Pierre item, and advances
 the item version/calls `applyItemUpdate` only when presentation changed.
-Replacement, unknown affectedness, target/base movement, or unsafe placement
-uses full application with the same equality check. Candidate annotations never
-touch the active surface before the installed-publication receipt.
+Replacement, unknown affectedness, target/base movement, ledger eviction/reset,
+or unsafe placement uses full application with the same equality check. The
+checkpoint advances only after this application completes. Candidate
+annotations never touch the active surface before the installed-publication
+receipt.
 
 ## State and lifecycle
 
@@ -447,6 +529,20 @@ authority still prevent it from authorizing stale installation. Closing the
 pane or provider releases active and in-flight values. Shared template copies
 use Swift copy-on-write storage and do not create independent file-array
 buffers unless mutated inside `agentstudio-git` candidate construction.
+
+Main's Review annotation application has a separate bounded state machine:
+
+| State | Stored material | Transition |
+| --- | --- | --- |
+| Unbound | no checkpoint | initial/replacement ready result exact-matches active Review and uses full application |
+| Bound | exact applied Review identity plus catalog cursor | exact ready successor reads the retained catalog-change range and applies `known(ids)` or `full` |
+| Refreshing | prior checkpoint remains bound | control-only result retains prior content and cannot consume the range |
+| Retired | no checkpoint | worker replacement, source retirement, or disposal returns to Unbound/closed |
+
+A stale ready identity is an illegal transition and is discarded without
+changing the annotation snapshot, Pierre state, or checkpoint. A complete
+ready result may advance the checkpoint only after its exact identity, demanded
+session completeness, projection authority, and Pierre application all pass.
 
 ## Current and proposed call path
 
@@ -505,8 +601,13 @@ Legend: `[=]` intentionally unchanged, `[~]` changed, `[+]` added,
       -> result/failure to existing owners
 
 [~] Review annotation application
-      exact installed-publication query                [=]
-      -> affected/full candidate set by known authority
+      native source-load set from installed delta       [~]
+      -> exact installed-publication query              [=]
+      -> ready event returns exact Review identity      [+]
+      -> Main exact-match or stale discard              [+]
+      -> catalog-change range yields known/full         [+]
+      -> complete-content application advances one
+         identity/cursor checkpoint                    [+]
       -> equality-checked Pierre updates only           [+]
 
 [~] BridgeDevelopmentProductHost
@@ -514,8 +615,11 @@ Legend: `[=]` intentionally unchanged, `[~]` changed, `[+]` added,
       -> same generation/delta behavior as packaged controller
 ```
 
-No new process, watcher, queue, worker, scheduler, transport message, or browser
-state is added.
+No new process, watcher, queue, worker, scheduler, transport message kind,
+store, or persistence is added. One existing application-specific event gains
+the Review identity already bound to its query, and the existing annotation
+surface owner retains one ephemeral identity/cursor checkpoint. Generic product
+transport remains unchanged.
 
 ## Normal sequences
 
@@ -536,9 +640,36 @@ Filesystem   Refresh authority   Bridge/Git          Worker/Main       Annotatio
     |                |               |                    | affected content   |
     |                |               |                    | atomic promotion   |
     |                |               |                    |-- installed P ---->|
-    |                |               |                    |                    | exact query
+    |                |               |<-------------------|                    | exact query(P)
+    |                |               |-- complete pages ->|                    |
+    |                |               |                    |-- ready(P) ------->|
+    |                |               |                    | exact active match |
+    |                |               |                    | ledger range union |
     |                |               |                    |                    | changed items only
+    |                |               |                    |                    | checkpoint = P/cursor
 ```
+
+The worker-to-native query remains on the existing generic product call. The
+worker-to-Main ready event is application-specific and returns the exact Review
+identity that was already an input to that query. Main never infers identity
+from event order.
+
+### Several Reviews install before annotation content completes
+
+```text
+Main active/annotated P0     Worker query          Main catalog change ledger
+          |                      |                              |
+          |-- install P1 ------->| query(P1)                    | cursor 21: P0 -> P1
+          |-- install P2 ------->| abort P1; query(P2)          | cursor 22: P1 -> P2
+          |                      |-- ready(P1), late ---------->| discard: active is P2
+          |                      |-- ready(P2) ---------------->| union cursors (20, 22]
+          |                      |                              | apply P0 -> P2 items
+          |                      |                              | checkpoint P2/22
+```
+
+If the retained range is incomplete or contains a reset, Main applies all
+items with equality suppression. A control-only ready result retains the P0
+checkpoint until P2's demanded content result completes.
 
 ### Structural or uncertain change
 
@@ -581,6 +712,22 @@ publication, or retired `P` is rejected. Source/query-lineage replacement
 advances `G`; resolved-origin movement within the same symbolic lineage keeps
 `G` but forces reset and publishes the changed origin at higher `R`.
 
+Annotation query currentness is exact-publication currentness, not generation
+or FIFO timing. Each attempt snapshots its five-field Review identity. Main
+compares the returned identity with its active Review before reading a target
+cursor or mutating annotation state. A late result for `P_k` after promotion of
+`P_k+1` is discarded even when both share `G`. Worker replacement or missing
+attempt binding cannot manufacture `known([])`; the next exact current result
+uses `full`.
+
+The last completed annotation checkpoint is intentionally allowed to trail the
+active Review while a query is running. Review catalog change entries
+accumulate in that interval. The complete ready result consumes the entire
+retained range in one application. Advancement is atomic with successful
+application from the surface owner's perspective: rejected, stale,
+control-only, incomplete-demand, or failed applications leave the prior
+checkpoint unchanged.
+
 ## Failure and recovery
 
 ```text
@@ -619,9 +766,33 @@ same-source delta is absent, incompatible, or over capacity
   -> reset + sourceAccepted + complete windows
   -> affected annotation identity becomes all
 
+annotation ready identity differs from Main active Review
+  -> discard the stale result
+  -> do not change annotation snapshot, Pierre, or application checkpoint
+
+annotation control-only result arrives while content sessions are demanded
+  -> retain previous rich threads and application checkpoint
+  -> remain refreshing until the complete demanded-content result
+
+several Main promotions precede one complete annotation result
+  -> union every retained ledger entry after the last application checkpoint
+  -> apply the complete screen-relative affected set once
+
+catalog change range is evicted, discontinuous, or contains reset
+  -> affectedness becomes full, never empty
+  -> equality-check all mounted Review items
+
+worker replacement or annotation attempt lacks exact Review identity
+  -> retire the application checkpoint
+  -> next exact current complete result uses full application
+
 affected item identity is unknown or placement cannot be preserved
   -> never interpret empty as no change
   -> full annotation application with per-item equality suppression
+
+native delta invalidation cannot be attributed to add/update/remove owners
+  -> reject proportional source-load admission
+  -> full safe source loading and application
 
 unaffected demanded annotation handle is not resident under exact identity
   -> do not claim proportional native source work
@@ -667,6 +838,13 @@ Residency only admits the no-unaffected-provider-load performance claim. An
 evicted unaffected handle selects the full safe path, which remains correct and
 observable as a proportional-admission rejection.
 
+Main reuses the existing bounded Review catalog change ledger and retains only
+one annotation application checkpoint. It adds no publication-to-cursor map and
+no second history. If the checkpoint's range has fallen out of the ledger,
+application degrades to `full`; capacity never truncates an affected set or
+changes correctness. The exact Review identity on the ready event is fixed-size
+application authority and contains no annotation bodies or source content.
+
 Performance probes distinguish:
 
 - changed-path admission and count;
@@ -676,9 +854,12 @@ Performance probes distinguish:
 - complete Git comparison;
 - package construction, publication event kind/count, and usable paint;
 - unchanged/changed worker content opens and preparations;
-- affected identities carried through promotion;
+- affected identities recorded for Main's installed Review changes and unioned
+  as an identity-bounded over-approximation from the last completed annotation
+  checkpoint;
 - annotation query scope, cache-hit/provider-load counts for affected and
-  unaffected handles, and changed/unchanged Pierre item update counts.
+  unaffected handles, stale-identity discard, known/full selection, skipped
+  promotion count, and changed/unchanged Pierre item update counts.
 
 Admission metrics use the existing observability path and the two bounded
 reason enums above. Bridge reports exact-path admission versus
@@ -726,7 +907,7 @@ structural owners remain unchanged.
 | R-IRR-008 bounds | calculation holder and opaque value lifecycle | active/candidate count and retained-byte stress inspection |
 | R-IRR-009 compatibility | hard-cut local client/provider integration | current PR0 semantic fixtures plus Vite and packaged comment journeys |
 | R-IRR-010 real proof | packaged and development complete-journey harnesses | rich fixture, one-file edits, failed-attempt retention, and usable-paint distributions |
-| R-IRR-011 proportional downstream application | existing Review delta, runtime affected identities, content/body retention, pre-source-load cache admission, and annotation equality application | 4,096-item one-change delta, zero unchanged provider opens when admitted, over-128-MiB eviction fallback, keyed promotion notifications, placement/rename/unavailable/editor/held tests, and unchanged Pierre update count zero |
+| R-IRR-011 proportional downstream application | existing Review delta, runtime affected identities, content/body retention, native delta/cache admission, exact-P convergence, Main catalog-change range, and annotation equality application | 4,096-item one-change delta; zero unchanged provider opens when admitted; delta invalidation-owner invariant; over-128-MiB cache fallback; exact-P schema; late-P discard; same-identity over-approximation; superseded-candidate complete-transition proof; reset/ledger-eviction full fallback; control/content two-phase application; placement/rename/unavailable/editor/held cases; unchanged Pierre update count zero |
 
 Cheap proof layers own pure scope classification, seed-key equality,
 same-path replacement/insertion behavior, A/G/R/P state transitions, delta admission,
@@ -751,7 +932,20 @@ placement, and comment continuity.
 - The calculation holder commits or retires the seed with native source truth;
   publication may not use it as displayed-publication identity.
 - Generic transport remains unaware of proportional calculation and affected
-  annotation semantics; existing Review application owners carry those facts.
+  annotation semantics; the existing application-specific annotation
+  convergence event carries only the exact Review identity already used by its
+  query.
+- Worker Review affected IDs remain worker demand/preparation authority. Main
+  derives annotation application affectedness from its installed Review catalog
+  change range; neither substitutes for the other.
+- Main's annotation checkpoint may read only its existing bounded Review
+  catalog change ledger. It may not infer a query/publication relationship from
+  `refreshing`, FIFO order, source generation alone, or a sampled cursor.
+- A ready Review annotation result whose exact identity does not equal Main's
+  active Review is discarded, not full-applied. `full` is valid only for an
+  exact current identity whose affected range is unknown, reset, or unavailable.
+- Control-only convergence may update read/control state but may not advance the
+  annotation application checkpoint while demanded content remains incomplete.
 - Annotation application may suppress equal item updates but may not weaken the
   exact installed-publication query or replacement/unknown full fallback.
 - Annotation cache residency may admit a proportional performance path but may
