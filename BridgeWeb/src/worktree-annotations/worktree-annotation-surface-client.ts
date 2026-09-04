@@ -1,8 +1,5 @@
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
-import type {
-	BridgeProductReviewAnnotationPublicationIdentity,
-	BridgeProductWorktreeAnnotationOperation,
-} from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -13,6 +10,14 @@ import {
 	type WorktreeAnnotationCommandOutcome,
 	type WorktreeAnnotationProjectionSnapshot,
 } from './worktree-annotation-projection-store.js';
+import {
+	annotationContentSessionIdsMeetCurrentDemand,
+	reviewAffectedItemIdsForInstalledChanges,
+	reviewAnnotationPublicationIdentityForMainIdentity,
+	reviewAnnotationPublicationIdentitiesMatch,
+	type PendingReviewAnnotationApplicationCheckpoint,
+	type ReviewAnnotationApplicationCheckpoint,
+} from './worktree-annotation-review-application.js';
 
 const noopUnsubscribe = (): void => {};
 const maximumRetainedOrphanCorrelationCount = 128;
@@ -39,6 +44,7 @@ export interface WorktreeAnnotationOutputInspection {
 
 export interface WorktreeAnnotationSurfaceClient {
 	readonly acquireSession: (sessionId: string) => () => void;
+	readonly acknowledgeReviewAnnotationApplication: (applicationId: number) => boolean;
 	readonly dispose: () => void;
 	readonly execute: (
 		operation: BridgeProductWorktreeAnnotationOperation,
@@ -83,6 +89,11 @@ export function createWorktreeAnnotationSurfaceClient(
 	let isDisposed = false;
 	let observedSurfaceEpoch = currentSurfaceEpoch(surfaceClient);
 	let nextSourceRefreshEpoch = 0;
+	let nextReviewAnnotationApplicationId = 0;
+	let completedReviewAnnotationApplicationCheckpoint: ReviewAnnotationApplicationCheckpoint | null =
+		null;
+	let pendingReviewAnnotationApplicationCheckpoint: PendingReviewAnnotationApplicationCheckpoint | null =
+		null;
 	const projectionStore = new WorktreeAnnotationProjectionStore();
 
 	const settleProductOutcome = (outcome: WorktreeAnnotationCommandOutcome): void => {
@@ -174,12 +185,60 @@ export function createWorktreeAnnotationSurfaceClient(
 				if (message.surface !== surfaceClient.surface) return;
 				if (message.state.kind === 'ready') {
 					if (message.operationCorrelationId !== null) {
-						projectionStore.apply(
-							message.state.snapshot,
-							message.operationCorrelationId,
-							message.state.contentSessionIds,
-							[...demandCountBySessionId.keys()],
-						);
+						const expectedContentSessionIds = [...demandCountBySessionId.keys()];
+						let reviewAnnotationApplication: {
+							readonly affectedItemIds: readonly string[] | null;
+							readonly applicationId: number;
+						} | null = null;
+						let nextPendingCheckpoint: PendingReviewAnnotationApplicationCheckpoint | null = null;
+						if (surfaceClient.surface === 'review') {
+							const readyIdentity = message.state.reviewPublicationIdentity;
+							const activeIdentity =
+								surfaceClient.renderStore.getReviewRefreshPresentation().activeIdentity;
+							if (
+								readyIdentity === undefined ||
+								activeIdentity === null ||
+								!reviewAnnotationPublicationIdentitiesMatch(readyIdentity, activeIdentity)
+							) {
+								return;
+							}
+							if (
+								annotationContentSessionIdsMeetCurrentDemand(
+									message.state.contentSessionIds,
+									expectedContentSessionIds,
+								)
+							) {
+								const targetCatalogCursor =
+									surfaceClient.renderStore.getReviewCatalogSnapshot().changeCursor;
+								nextReviewAnnotationApplicationId += 1;
+								reviewAnnotationApplication = {
+									affectedItemIds: reviewAffectedItemIdsForInstalledChanges({
+										checkpoint: completedReviewAnnotationApplicationCheckpoint,
+										currentIdentity: readyIdentity,
+										renderStore: surfaceClient.renderStore,
+										targetCatalogCursor,
+									}),
+									applicationId: nextReviewAnnotationApplicationId,
+								};
+								nextPendingCheckpoint = {
+									applicationId: nextReviewAnnotationApplicationId,
+									catalogCursor: targetCatalogCursor,
+									identity: readyIdentity,
+								};
+							}
+						} else if (message.state.reviewPublicationIdentity !== undefined) {
+							return;
+						}
+						const projectionApplied = projectionStore.apply({
+							contentSessionIds: message.state.contentSessionIds,
+							expectedContentSessionIds,
+							operationCorrelationId: message.operationCorrelationId,
+							reviewAnnotationApplication,
+							snapshot: message.state.snapshot,
+						});
+						if (projectionApplied && nextPendingCheckpoint !== null) {
+							pendingReviewAnnotationApplicationCheckpoint = nextPendingCheckpoint;
+						}
 						for (const sessionId of message.state.contentSessionIds) {
 							if (!demandCountBySessionId.has(sessionId)) continue;
 							void execute({ kind: 'output.history', sessionId }).catch((): void => {});
@@ -207,6 +266,8 @@ export function createWorktreeAnnotationSurfaceClient(
 					projectionStore.markRefreshing();
 				} else {
 					if (message.state.catalogAuthorityRetired) {
+						completedReviewAnnotationApplicationCheckpoint = null;
+						pendingReviewAnnotationApplicationCheckpoint = null;
 						projectionStore.prepareForWorkerReplacement();
 					}
 					projectionStore.markUnavailable(message.state.retryable);
@@ -314,6 +375,25 @@ export function createWorktreeAnnotationSurfaceClient(
 			sourceEpoch: nextSourceRefreshEpoch,
 		}).catch((): void => {});
 	};
+	const discardPendingApplicationForRetiredReviewIdentity = (): void => {
+		const pendingCheckpoint = pendingReviewAnnotationApplicationCheckpoint;
+		if (
+			pendingCheckpoint !== null &&
+			!reviewAnnotationPublicationIdentitiesMatch(
+				pendingCheckpoint.identity,
+				surfaceClient.renderStore.getReviewRefreshPresentation().activeIdentity,
+			)
+		) {
+			pendingReviewAnnotationApplicationCheckpoint = null;
+			projectionStore.discardPendingReviewAnnotationApplication();
+		}
+	};
+	const unsubscribeReviewPresentation =
+		surfaceClient.surface === 'review'
+			? surfaceClient.renderStore.subscribeReviewRefreshPresentation(
+					discardPendingApplicationForRetiredReviewIdentity,
+				)
+			: noopUnsubscribe;
 	const unsubscribeSourceEpoch = surfaceClient.renderStore.subscribe((): void => {
 		const currentEpoch = currentSurfaceEpoch(surfaceClient);
 		if (currentEpoch === observedSurfaceEpoch) return;
@@ -322,6 +402,8 @@ export function createWorktreeAnnotationSurfaceClient(
 	});
 	const unsubscribeWorkerReplacement =
 		surfaceClient.subscribeWorkerReplacement?.((): void => {
+			completedReviewAnnotationApplicationCheckpoint = null;
+			pendingReviewAnnotationApplicationCheckpoint = null;
 			projectionStore.prepareForWorkerReplacement();
 		}) ?? noopUnsubscribe;
 
@@ -347,10 +429,26 @@ export function createWorktreeAnnotationSurfaceClient(
 				void execute({ kind: 'demand.release', sessionId }).catch((): void => {});
 			};
 		},
+		acknowledgeReviewAnnotationApplication: (applicationId): boolean => {
+			const pendingCheckpoint = pendingReviewAnnotationApplicationCheckpoint;
+			if (
+				pendingCheckpoint?.applicationId !== applicationId ||
+				!projectionStore.acknowledgeReviewAnnotationApplication(applicationId)
+			) {
+				return false;
+			}
+			completedReviewAnnotationApplicationCheckpoint = {
+				catalogCursor: pendingCheckpoint.catalogCursor,
+				identity: pendingCheckpoint.identity,
+			};
+			pendingReviewAnnotationApplicationCheckpoint = null;
+			return true;
+		},
 		dispose: (): void => {
 			if (isDisposed) return;
 			isDisposed = true;
 			unsubscribeMessages();
+			unsubscribeReviewPresentation();
 			unsubscribeSourceEpoch();
 			unsubscribeWorkerReplacement();
 			const disposalError = new Error('Annotation surface client is disposed.');
@@ -464,13 +562,8 @@ function sendReviewAnnotationCommand(
 	if (activeIdentity === null) {
 		throw new Error('Review annotation command has no installed publication identity.');
 	}
-	const reviewPublicationIdentity = {
-		packageId: activeIdentity.packageId,
-		publicationId: activeIdentity.publicationId,
-		reviewGeneration: activeIdentity.generation,
-		revision: activeIdentity.revision,
-		sourceIdentity: activeIdentity.sourceIdentity,
-	} satisfies BridgeProductReviewAnnotationPublicationIdentity;
+	const reviewPublicationIdentity =
+		reviewAnnotationPublicationIdentityForMainIdentity(activeIdentity);
 	return surfaceClient.send({
 		command: 'annotationCommand',
 		epoch: currentSurfaceEpoch(surfaceClient),

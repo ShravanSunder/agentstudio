@@ -158,6 +158,39 @@ describe('worktree annotation Pierre Review integration', () => {
 					document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 2,
 				'Expected both Review threads to publish atomically into Pierre annotation slots.',
 			);
+			await settleBrowserFrame();
+			const updatesBeforeEqualRefresh = updatedItems.length;
+			await act(async (): Promise<void> => {
+				surface.publishRefreshing();
+				surface.publishProjection(1, 2);
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'additions',
+						endLine: 2,
+						sourceRole: 'review_head',
+						threadId: annotationHeadThreadId,
+					}),
+					message: annotationMessage({
+						messageId: headMessageId,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'deletions',
+						endLine: 2,
+						sourceRole: 'review_base',
+						threadId: annotationBaseThreadId,
+					}),
+					message: annotationMessage({
+						messageId: baseMessageId,
+						threadId: annotationBaseThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserFrame();
+			expect(updatedItems.slice(updatesBeforeEqualRefresh)).toEqual([]);
 			await act(async (): Promise<void> => {
 				surface.publishProjection(2, 2);
 				surface.publishThread({
@@ -213,6 +246,7 @@ describe('worktree annotation Pierre Review integration', () => {
 					lineNumber: 2,
 					metadata: {
 						kind: 'thread',
+						presentationIdentity: expect.any(String),
 						range: { end: 2, endSide: 'additions', side: 'additions', start: 2 },
 						threadId: annotationHeadThreadId,
 					},
@@ -222,6 +256,7 @@ describe('worktree annotation Pierre Review integration', () => {
 					lineNumber: 2,
 					metadata: {
 						kind: 'thread',
+						presentationIdentity: expect.any(String),
 						range: { end: 2, endSide: 'deletions', side: 'deletions', start: 2 },
 						threadId: annotationBaseThreadId,
 					},
@@ -631,6 +666,15 @@ async function settleBrowserCondition(
 	if (predicate()) return;
 	if (remainingFrames <= 0) throw new Error(failureMessage);
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
+}
+
+async function settleBrowserFrame(): Promise<void> {
+	await act(async (): Promise<void> => {
+		await new Promise<void>((resolve): void => {
+			requestAnimationFrame((): void => resolve());
+		});
+		await Promise.resolve();
+	});
 }
 
 void makeFileItem;

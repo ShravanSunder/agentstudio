@@ -10,6 +10,7 @@ import type {
 	BridgeProductWorktreeAnnotationOperation,
 } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import { reviewAnnotationPublicationIdentityForMainIdentity } from './worktree-annotation-review-application.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationMessageEntry,
@@ -715,6 +716,13 @@ export class RecordingAnnotationBrowserSurface {
 			state: {
 				contentSessionIds: this.#sessions.map((session) => session.sessionId),
 				kind: 'ready',
+				...(this.client.surface === 'review'
+					? {
+							reviewPublicationIdentity: reviewAnnotationPublicationIdentityForMainIdentity(
+								this.#reviewActiveIdentity,
+							),
+						}
+					: {}),
 				snapshot: {
 					expectedMessageCount: completeThreads.reduce(
 						(sum, thread) => sum + thread.messages.length,

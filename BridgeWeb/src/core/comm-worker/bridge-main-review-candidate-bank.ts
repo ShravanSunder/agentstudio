@@ -20,7 +20,10 @@ import type {
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
-import type { BridgeWorkerReviewPreDeliveryPresentationClass } from './bridge-worker-review-publication-contracts.js';
+import {
+	BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT,
+	type BridgeWorkerReviewPreDeliveryPresentationClass,
+} from './bridge-worker-review-publication-contracts.js';
 
 export type BridgeMainReviewPublicationIdentity = ReviewMetadataLineage;
 export type BridgeMainReviewCandidateRole = 'installing' | 'provisional' | 'updateReady';
@@ -186,7 +189,15 @@ export class BridgeMainReviewCandidateBankOwner {
 				return false;
 			}
 		}
-		this.#candidate = cloneCandidate(props.activeSnapshot, props.identity, props.disposition);
+		if (
+			candidate !== null &&
+			props.disposition.kind === 'sameSource' &&
+			candidateCanContinueIntoSuccessor(candidate, props)
+		) {
+			this.#candidate = cloneSuccessorCandidate(candidate, props.identity, props.disposition);
+		} else {
+			this.#candidate = cloneCandidate(props.activeSnapshot, props.identity, props.disposition);
+		}
 		this.#failure = null;
 		this.#refresh();
 		return true;
@@ -389,6 +400,109 @@ function cloneCandidate(
 			rowPaintById: { ...snapshot.rowPaintById },
 		},
 	};
+}
+
+function candidateCanContinueIntoSuccessor(
+	candidate: MutableBridgeMainReviewCandidateBank,
+	props: {
+		readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
+		readonly identity: BridgeMainReviewPublicationIdentity;
+	},
+): boolean {
+	return (
+		candidate.role === 'updateReady' &&
+		candidate.startDisposition.kind === 'sameSource' &&
+		props.disposition.kind === 'sameSource' &&
+		candidate.identity.packageId === props.identity.packageId &&
+		candidate.identity.sourceIdentity === props.identity.sourceIdentity &&
+		candidate.identity.generation === props.identity.generation &&
+		props.identity.revision === candidate.identity.revision + 1
+	);
+}
+
+function cloneSuccessorCandidate(
+	predecessor: MutableBridgeMainReviewCandidateBank,
+	identity: BridgeMainReviewPublicationIdentity,
+	disposition: Extract<
+		BridgeWorkerReviewCandidateStartDisposition,
+		{ readonly kind: 'sameSource' }
+	>,
+): MutableBridgeMainReviewCandidateBank {
+	if (predecessor.startDisposition.kind !== 'sameSource') {
+		return cloneCandidate(predecessor.snapshot, identity, disposition);
+	}
+	const startDisposition = combineSameSourceCandidateDispositions(
+		predecessor.startDisposition,
+		disposition,
+	);
+	const successor = cloneCandidate(predecessor.snapshot, identity, startDisposition);
+	copyCandidatePromotionImpact(successor.promotionImpact, predecessor.promotionImpact);
+	successor.effectivePresentationClass = combineCandidatePresentationClasses(
+		predecessor.effectivePresentationClass,
+		successor.effectivePresentationClass,
+	);
+	return successor;
+}
+
+function combineSameSourceCandidateDispositions(
+	predecessor: Extract<
+		BridgeWorkerReviewCandidateStartDisposition,
+		{ readonly kind: 'sameSource' }
+	>,
+	successor: Extract<BridgeWorkerReviewCandidateStartDisposition, { readonly kind: 'sameSource' }>,
+): Extract<BridgeWorkerReviewCandidateStartDisposition, { readonly kind: 'sameSource' }> {
+	const presentationClass = combineWorkerPresentationClasses(
+		predecessor.presentationClass,
+		successor.presentationClass,
+	);
+	const affectedStableFileIdentities = [
+		...new Set([
+			...predecessor.affectedStableFileIdentities,
+			...successor.affectedStableFileIdentities,
+		]),
+	];
+	if (
+		(presentationClass.kind === 'promoted' && presentationClass.reason === 'unknown') ||
+		affectedStableFileIdentities.length > BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT
+	) {
+		return {
+			affectedStableFileIdentities: [],
+			kind: 'sameSource',
+			presentationClass: { kind: 'promoted', reason: 'unknown' },
+		};
+	}
+	return { affectedStableFileIdentities, kind: 'sameSource', presentationClass };
+}
+
+function combineWorkerPresentationClasses(
+	predecessor: BridgeWorkerReviewPreDeliveryPresentationClass,
+	successor: BridgeWorkerReviewPreDeliveryPresentationClass,
+): BridgeWorkerReviewPreDeliveryPresentationClass {
+	if (predecessor.kind === 'ordinary') return successor;
+	if (successor.kind === 'ordinary' || predecessor.reason === successor.reason) return predecessor;
+	return { kind: 'promoted', reason: 'unknown' };
+}
+
+function combineCandidatePresentationClasses(
+	predecessor: BridgeMainReviewEffectivePresentationClass,
+	successor: BridgeMainReviewEffectivePresentationClass,
+): BridgeMainReviewEffectivePresentationClass {
+	if (predecessor.kind === 'ordinary') return successor;
+	if (successor.kind === 'ordinary' || predecessor.reason === successor.reason) return predecessor;
+	return { kind: 'promoted', reason: 'unknown' };
+}
+
+function copyCandidatePromotionImpact(
+	target: MutableBridgeMainReviewCandidatePromotionImpact,
+	source: MutableBridgeMainReviewCandidatePromotionImpact,
+): void {
+	target.comparisonChanged = source.comparisonChanged;
+	for (const itemId of source.itemIds) target.itemIds.add(itemId);
+	target.itemOrderMutations.push(...source.itemOrderMutations);
+	target.reset = source.reset;
+	target.sourceChanged = source.sourceChanged;
+	for (const rowId of source.treeRowIds) target.treeRowIds.add(rowId);
+	target.treeRowOrderMutations.push(...source.treeRowOrderMutations);
 }
 
 function emptyCandidatePromotionImpact(): MutableBridgeMainReviewCandidatePromotionImpact {

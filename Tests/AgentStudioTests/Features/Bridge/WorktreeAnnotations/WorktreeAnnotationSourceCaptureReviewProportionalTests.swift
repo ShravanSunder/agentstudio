@@ -1,0 +1,535 @@
+import AgentStudioInfrastructure
+import Foundation
+import Testing
+
+@testable import AgentStudioBridge
+
+@MainActor
+@Suite("Worktree annotation Review proportional source capture")
+struct ReviewAnnotationProportionalSourceCaptureTests {
+    @Test("acknowledged successor opens only affected handles when unaffected demand is resident")
+    func acknowledgedSuccessorOpensOnlyAffectedHandles() async throws {
+        let fixture = try await makeDeltaFixture()
+        _ = try await fixture.cache.load(
+            handle: fixture.unaffectedHandle,
+            productAdmission: fixture.productAdmission
+        )
+        try acknowledge(
+            fixture.successor,
+            expectedPredecessorID: fixture.predecessor.publicationId,
+            coordinator: fixture.coordinator,
+            productAdmission: fixture.productAdmission
+        )
+        #expect(
+            fixture.coordinator.retainedPublication(
+                matching: try annotationIdentity(fixture.predecessor),
+                productAdmission: fixture.productAdmission
+            ) == nil
+        )
+
+        let capture = try await capture(
+            publication: fixture.successor,
+            package: fixture.successor.package,
+            coordinator: fixture.coordinator,
+            cache: fixture.cache,
+            productAdmission: fixture.productAdmission
+        )
+
+        #expect(try availableFileCount(capture) == 2)
+        #expect(
+            await fixture.provider.recordedContentRequestsCount(
+                handleId: fixture.affectedHandle.handleId
+            ) == 1
+        )
+        #expect(
+            await fixture.provider.recordedContentRequestsCount(
+                handleId: fixture.unaffectedHandle.handleId
+            ) == 1
+        )
+    }
+
+    @Test("known-empty structural delta uses cache-only loads for every demanded handle")
+    func knownEmptyStructuralDeltaUsesCacheOnlyLoads() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let predecessorPackage = reviewPackage(itemCount: 2)
+        let successorPackage = reorderedReviewPackage(predecessorPackage)
+        let delta = try #require(
+            try BridgeReviewDeltaBuilder.build(
+                BridgeReviewDeltaBuildRequest(
+                    currentPackage: predecessorPackage,
+                    nextPackage: successorPackage,
+                    currentRevision: predecessorPackage.revision
+                )
+            )
+        )
+        let handles = try demandedHeadHandles(successorPackage)
+        let provider = reviewProvider(package: successorPackage, handles: handles)
+        let cache = BridgeReviewContentLoaderCache(provider: provider)
+        for handle in handles {
+            _ = try await cache.load(handle: handle, productAdmission: productAdmission.context)
+        }
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let predecessor = try await commit(
+            package: predecessorPackage,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        try acknowledge(
+            predecessor,
+            expectedPredecessorID: nil,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        let successor = try await commit(
+            package: successorPackage,
+            delta: delta,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        try acknowledge(
+            successor,
+            expectedPredecessorID: predecessor.publicationId,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+
+        let capture = try await capture(
+            publication: successor,
+            package: successorPackage,
+            coordinator: coordinator,
+            cache: cache,
+            productAdmission: productAdmission.context
+        )
+
+        #expect(try availableFileCount(capture) == 2)
+        #expect(await provider.recordedContentRequestsCount() == handles.count)
+        #expect(
+            WorktreeAnnotationSourceCapture.reviewSourceLoadAffectedItemIDs(
+                publication: successor
+            ) == Set<String>()
+        )
+    }
+
+    @Test("evicted unaffected demand selects full-safe provider loading")
+    func evictedUnaffectedDemandSelectsFullSafeProviderLoading() async throws {
+        let fixture = try await makeDeltaFixture(contentCacheMaxBytes: "content".utf8.count)
+        _ = try await fixture.cache.load(
+            handle: fixture.unaffectedHandle,
+            productAdmission: fixture.productAdmission
+        )
+        _ = try await fixture.cache.load(
+            handle: fixture.evictionHandle,
+            productAdmission: fixture.productAdmission
+        )
+        try acknowledge(
+            fixture.successor,
+            expectedPredecessorID: fixture.predecessor.publicationId,
+            coordinator: fixture.coordinator,
+            productAdmission: fixture.productAdmission
+        )
+
+        let capture = try await capture(
+            publication: fixture.successor,
+            package: fixture.successor.package,
+            coordinator: fixture.coordinator,
+            cache: fixture.cache,
+            productAdmission: fixture.productAdmission
+        )
+
+        #expect(try availableFileCount(capture) == 2)
+        #expect(
+            await fixture.provider.recordedContentRequestsCount(
+                handleId: fixture.affectedHandle.handleId
+            ) == 1
+        )
+        #expect(
+            await fixture.provider.recordedContentRequestsCount(
+                handleId: fixture.unaffectedHandle.handleId
+            ) == 2
+        )
+    }
+
+    @Test("missing and replacement deltas use full-safe provider loading")
+    func missingAndReplacementDeltasUseFullSafeProviderLoading() async throws {
+        for package in [
+            reviewPackage(itemCount: 2),
+            replacementReviewPackage(itemCount: 2),
+        ] {
+            let productAdmission = try BridgeProductAdmissionTestContext.make()
+            let handles = try demandedHeadHandles(package)
+            let provider = reviewProvider(package: package, handles: handles)
+            let cache = BridgeReviewContentLoaderCache(provider: provider)
+            let coordinator = BridgeReviewPublicationCoordinator()
+            let publication = try await commit(
+                package: package,
+                coordinator: coordinator,
+                productAdmission: productAdmission.context
+            )
+            try acknowledge(
+                publication,
+                expectedPredecessorID: nil,
+                coordinator: coordinator,
+                productAdmission: productAdmission.context
+            )
+
+            let captured = try await capture(
+                publication: publication,
+                package: package,
+                coordinator: coordinator,
+                cache: cache,
+                productAdmission: productAdmission.context
+            )
+
+            #expect(try availableFileCount(captured) == 2)
+            #expect(await provider.recordedContentRequestsCount() == handles.count)
+            #expect(
+                WorktreeAnnotationSourceCapture.reviewSourceLoadAffectedItemIDs(
+                    publication: publication
+                ) == nil
+            )
+        }
+    }
+
+    @Test("operation-to-package mismatch uses full-safe provider loading")
+    func operationToPackageMismatchUsesFullSafeProviderLoading() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let predecessorPackage = reviewPackage(itemCount: 2)
+        let successorPackage = replacingReviewPackage(
+            predecessorPackage,
+            revision: predecessorPackage.revision + 1,
+            itemsById: predecessorPackage.itemsById
+        )
+        let mismatchedItem = makeBridgeReviewItemDescriptor(
+            itemId: "not-in-installed-package",
+            path: "Sources/Mismatch.swift",
+            fileClass: .source
+        )
+        let mismatchedDelta = BridgeReviewDelta(
+            packageId: successorPackage.packageId,
+            reviewGeneration: successorPackage.reviewGeneration,
+            revision: successorPackage.revision,
+            operations: .init(updateItems: [mismatchedItem])
+        )
+        let handles = try demandedHeadHandles(successorPackage)
+        let provider = reviewProvider(package: successorPackage, handles: handles)
+        let cache = BridgeReviewContentLoaderCache(provider: provider)
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let publication = try await commit(
+            package: successorPackage,
+            delta: mismatchedDelta,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        try acknowledge(
+            publication,
+            expectedPredecessorID: nil,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+
+        let captured = try await capture(
+            publication: publication,
+            package: successorPackage,
+            coordinator: coordinator,
+            cache: cache,
+            productAdmission: productAdmission.context
+        )
+
+        #expect(try availableFileCount(captured) == 2)
+        #expect(await provider.recordedContentRequestsCount() == handles.count)
+        #expect(
+            WorktreeAnnotationSourceCapture.reviewSourceLoadAffectedItemIDs(
+                publication: publication
+            ) == nil
+        )
+    }
+
+    private func makeDeltaFixture(
+        contentCacheMaxBytes: Int = AppPolicies.Bridge.contentCacheMaxBytes
+    ) async throws -> ProportionalSourceCaptureFixture {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let predecessorPackage = reviewPackage(itemCount: 2)
+        let affectedItemID = predecessorPackage.orderedItemIds[0]
+        let unaffectedItemID = predecessorPackage.orderedItemIds[1]
+        let successorPackage = replacingReviewItem(
+            in: predecessorPackage,
+            itemId: affectedItemID,
+            fileClass: .config,
+            revision: predecessorPackage.revision + 1
+        )
+        let delta = try #require(
+            try BridgeReviewDeltaBuilder.build(
+                BridgeReviewDeltaBuildRequest(
+                    currentPackage: predecessorPackage,
+                    nextPackage: successorPackage,
+                    currentRevision: predecessorPackage.revision
+                )
+            )
+        )
+        let affectedHandle = try #require(
+            successorPackage.itemsById[affectedItemID]?.contentRoles.head
+        )
+        let unaffectedHandle = try #require(
+            successorPackage.itemsById[unaffectedItemID]?.contentRoles.head
+        )
+        let evictionHandle = makeBridgeContentHandle(
+            itemId: "eviction-pressure",
+            role: .head,
+            reviewGeneration: successorPackage.reviewGeneration,
+            contentHash: bridgeSHA256ContentHash("content")
+        )
+        let provider = reviewProvider(
+            package: successorPackage,
+            handles: [affectedHandle, unaffectedHandle, evictionHandle]
+        )
+        let cache = BridgeReviewContentLoaderCache(
+            provider: provider,
+            contentCacheMaxBytes: contentCacheMaxBytes
+        )
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let predecessor = try await commit(
+            package: predecessorPackage,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        try acknowledge(
+            predecessor,
+            expectedPredecessorID: nil,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        let successor = try await commit(
+            package: successorPackage,
+            delta: delta,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        return ProportionalSourceCaptureFixture(
+            affectedHandle: affectedHandle,
+            cache: cache,
+            coordinator: coordinator,
+            evictionHandle: evictionHandle,
+            predecessor: predecessor,
+            productAdmission: productAdmission.context,
+            provider: provider,
+            successor: successor,
+            unaffectedHandle: unaffectedHandle
+        )
+    }
+
+    private func capture(
+        publication: BridgeReviewCommittedPublication,
+        package: BridgeReviewPackage,
+        coordinator: BridgeReviewPublicationCoordinator,
+        cache: BridgeReviewContentLoaderCache,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceRefreshCapture {
+        try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: try annotationIdentity(publication),
+            publicationCoordinator: coordinator,
+            contentLoaderCache: cache,
+            requirements: try package.orderedItemIds.enumerated().map { index, itemID in
+                try annotationRequirement(
+                    item: #require(package.itemsById[itemID]),
+                    threadIndex: index
+                )
+            },
+            productAdmission: productAdmission
+        )
+    }
+
+    private func annotationRequirement(
+        item: BridgeReviewItemDescriptor,
+        threadIndex: Int
+    ) throws -> WorktreeAnnotationSourceRefreshRequirement {
+        let handle = try #require(item.contentRoles.head)
+        let path = try #require(item.headPath)
+        return WorktreeAnnotationSourceRefreshRequirement(
+            threadID: WorktreeAnnotationThreadID(
+                rawValue: UUID(uuidString: String(format: "00000000-0000-7000-8000-%012d", threadIndex + 1))!
+            ),
+            origin: .located(
+                WorktreeAnnotationLocatedOrigin(
+                    repositoryRelativePath: path,
+                    startLine: 1,
+                    endLine: 1,
+                    sourceRole: .reviewHead,
+                    diffSide: .additions,
+                    sourceIdentity: handle.handleId,
+                    selectedExcerpt: "content",
+                    contextBefore: nil,
+                    contextAfter: nil
+                )
+            )
+        )
+    }
+
+    private func commit(
+        package: BridgeReviewPackage,
+        delta: BridgeReviewDelta? = nil,
+        coordinator: BridgeReviewPublicationCoordinator,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewCommittedPublication {
+        let prepared = try #require(
+            await BridgeReviewPreparedPublication.prepare(
+                BridgeReviewPublicationCandidate(
+                    package: package,
+                    delta: delta,
+                    contentHandles: package.itemsById.values.flatMap(\.contentRoles.allHandles)
+                )
+            )
+        )
+        let token = try #require(coordinator.stage(prepared, productAdmission: productAdmission))
+        guard
+            case .committed(let publication) = coordinator.commit(
+                token,
+                productAdmission: productAdmission,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
+                presentCommitted: { _ in }
+            )
+        else { throw WorktreeAnnotationSourceResolutionError.unavailable }
+        return publication
+    }
+
+    private func acknowledge(
+        _ publication: BridgeReviewCommittedPublication,
+        expectedPredecessorID: UUID?,
+        coordinator: BridgeReviewPublicationCoordinator,
+        productAdmission: BridgeProductAdmissionContext
+    ) throws {
+        let workerID = "review-proportional-source-capture-worker"
+        guard
+            coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: expectedPredecessorID,
+                candidatePublicationId: publication.publicationId,
+                workerInstanceId: workerID,
+                productAdmission: productAdmission
+            ) == .admitted,
+            coordinator.recordDisplayedApplication(
+                publicationId: publication.publicationId,
+                workerInstanceId: workerID,
+                productAdmission: productAdmission
+            ) == .advanced
+        else { throw WorktreeAnnotationSourceResolutionError.unavailable }
+    }
+
+    private func annotationIdentity(
+        _ publication: BridgeReviewCommittedPublication
+    ) throws -> BridgeProductReviewAnnotationPublicationIdentity {
+        try BridgeProductReviewAnnotationPublicationIdentity(
+            packageId: publication.package.packageId,
+            publicationId: publication.publicationId,
+            reviewGeneration: publication.package.reviewGeneration.rawValue,
+            revision: publication.package.revision,
+            sourceIdentity: publication.package.query.queryId
+        )
+    }
+
+    private func demandedHeadHandles(_ package: BridgeReviewPackage) throws -> [BridgeContentHandle] {
+        try package.orderedItemIds.map { itemID in
+            try #require(package.itemsById[itemID]?.contentRoles.head)
+        }
+    }
+
+    private func availableFileCount(_ capture: WorktreeAnnotationSourceRefreshCapture) throws -> Int {
+        guard case .available(let files) = capture.material else {
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        }
+        return files.count
+    }
+
+    private func reviewPackage(itemCount: Int) -> BridgeReviewPackage {
+        makeReviewPackage(
+            itemCount: itemCount,
+            comparisonOrigin: .contribution(
+                BridgeReviewContributionOrigin(
+                    symbolicTarget: .branch(name: "main"),
+                    resolvedTargetOID: "resolved-target-oid",
+                    reviewedHeadOID: "committed-head-oid",
+                    baseRole: .commonCommit,
+                    baseOID: "base-oid"
+                )
+            )
+        )
+    }
+
+    private func replacementReviewPackage(itemCount: Int) -> BridgeReviewPackage {
+        let replacement = replacingReviewSource(
+            reviewPackage(itemCount: itemCount),
+            packageId: "replacement-package",
+            queryId: "replacement-query",
+            generation: 8
+        )
+        let itemsById = replacement.itemsById.mapValues { item in
+            makeBridgeReviewItemDescriptor(
+                itemId: item.itemId,
+                path: item.headPath ?? item.basePath ?? item.itemId,
+                fileClass: item.fileClass,
+                contentRoles: .init(
+                    head: makeBridgeContentHandle(
+                        itemId: item.itemId,
+                        role: .head,
+                        endpointId: replacement.headEndpoint.endpointId,
+                        reviewGeneration: replacement.reviewGeneration
+                    )
+                )
+            )
+        }
+        return replacingReviewPackage(
+            replacement,
+            revision: replacement.revision,
+            itemsById: itemsById
+        )
+    }
+
+    private func reorderedReviewPackage(_ package: BridgeReviewPackage) -> BridgeReviewPackage {
+        BridgeReviewPackage(
+            packageId: package.packageId,
+            schemaVersion: package.schemaVersion,
+            reviewGeneration: package.reviewGeneration,
+            revision: package.revision + 1,
+            query: package.query,
+            baseEndpoint: package.baseEndpoint,
+            headEndpoint: package.headEndpoint,
+            orderedItemIds: Array(package.orderedItemIds.reversed()),
+            itemsById: package.itemsById,
+            groups: package.groups,
+            summary: package.summary,
+            filterState: package.filterState,
+            generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
+            changesetCluster: package.changesetCluster,
+            comparisonOrigin: package.comparisonOrigin,
+            reviewedSubjectLabel: package.reviewedSubjectLabel
+        )
+    }
+
+    private func reviewProvider(
+        package: BridgeReviewPackage,
+        handles: [BridgeContentHandle]
+    ) -> BridgeReviewSourceProviderFake {
+        BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: package.baseEndpoint,
+                headEndpoint: package.headEndpoint,
+                changedFiles: []
+            ),
+            contentByHandleId: Dictionary(
+                uniqueKeysWithValues: handles.map { handle in
+                    (handle.handleId, makeContentResult(handle: handle, data: "content"))
+                }
+            )
+        )
+    }
+}
+
+private struct ProportionalSourceCaptureFixture {
+    let affectedHandle: BridgeContentHandle
+    let cache: BridgeReviewContentLoaderCache
+    let coordinator: BridgeReviewPublicationCoordinator
+    let evictionHandle: BridgeContentHandle
+    let predecessor: BridgeReviewCommittedPublication
+    let productAdmission: BridgeProductAdmissionContext
+    let provider: BridgeReviewSourceProviderFake
+    let successor: BridgeReviewCommittedPublication
+    let unaffectedHandle: BridgeContentHandle
+}

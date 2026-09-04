@@ -143,6 +143,71 @@ describe('Bridge main render snapshot store Review candidate bank', () => {
 		expect(store.getReviewRefreshPresentation().candidate?.identity).toEqual(SUCCESSOR_IDENTITY);
 	});
 
+	test('carries a held same-lineage candidate into its direct successor', () => {
+		// Arrange
+		const activeIdentity = sameLineageIdentity(1, '31');
+		const heldIdentity = sameLineageIdentity(2, '32');
+		const successorIdentity = sameLineageIdentity(3, '33');
+		const store = createBridgeMainRenderSnapshotStore();
+		installReview(
+			store,
+			activeIdentity,
+			sameLineageDisplayEvent(activeIdentity, 'item-a', 0, true),
+		);
+		const catalogCursorBeforeSuccessors = store.getReviewCatalogSnapshot().changeCursor;
+		startCandidate(store, heldIdentity, ['item-b']);
+		expect(
+			store.stageReviewCandidateDisplayEvent({
+				event: sameLineageDisplayEvent(heldIdentity, 'item-b', 1, false),
+				identity: heldIdentity,
+			}),
+		).toBe(true);
+		expect(store.markReviewCandidateReady({ identity: heldIdentity, role: 'updateReady' })).toBe(
+			true,
+		);
+
+		// Act
+		startCandidate(store, successorIdentity, ['item-c']);
+		expect(
+			store.stageReviewCandidateDisplayEvent({
+				event: sameLineageDisplayEvent(successorIdentity, 'item-c', 2, false),
+				identity: successorIdentity,
+			}),
+		).toBe(true);
+		expect(
+			store.markReviewCandidateReady({ identity: successorIdentity, role: 'provisional' }),
+		).toBe(true);
+
+		// Assert
+		expect(store.getReviewRefreshPresentation().candidate).toMatchObject({
+			affectedStableFileIdentities: ['item-b', 'item-c'],
+			identity: successorIdentity,
+		});
+		expect(store.promoteReviewCandidate(successorIdentity)).toBe(true);
+		expect(store.getReviewItemSnapshot('item-a')).toBeDefined();
+		expect(store.getReviewItemSnapshot('item-b')).toBeDefined();
+		expect(store.getReviewItemSnapshot('item-c')).toBeDefined();
+		expect(store.readReviewCatalogChangesAfter(catalogCursorBeforeSuccessors)).toEqual({
+			changes: [
+				{
+					cursor: catalogCursorBeforeSuccessors + 1,
+					itemIds: ['item-b', 'item-c'],
+					itemOrderMutations: [
+						{ kind: 'setRange', length: 1, startIndex: 1 },
+						{ kind: 'setRange', length: 1, startIndex: 2 },
+					],
+					reset: false,
+					treeRowIds: ['row-item-b', 'row-item-c'],
+					treeRowOrderMutations: [
+						{ kind: 'setRange', length: 1, startIndex: 1 },
+						{ kind: 'setRange', length: 1, startIndex: 2 },
+					],
+				},
+			],
+			resetRequired: false,
+		});
+	});
+
 	test('pins an installing B against successor replacement until promotion', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();
@@ -487,6 +552,19 @@ function reviewIdentity(
 	};
 }
 
+function sameLineageIdentity(
+	revision: number,
+	publicationSuffix: string,
+): BridgeMainReviewPublicationIdentity {
+	return {
+		generation: 7,
+		packageId: 'package-same-lineage',
+		publicationId: publicationId(publicationSuffix),
+		revision,
+		sourceIdentity: 'source-same-lineage',
+	};
+}
+
 function publicationId(suffix: string): string {
 	return `00000000-0000-7000-8000-${suffix.padStart(12, '0')}`;
 }
@@ -561,6 +639,80 @@ function reviewDisplayEvent(
 		],
 		projectionRevision,
 		sequence: projectionRevision,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	};
+}
+
+function sameLineageDisplayEvent(
+	identity: BridgeMainReviewPublicationIdentity,
+	itemId: string,
+	startIndex: number,
+	reset: boolean,
+): BridgeWorkerReviewDisplayPatchEvent {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: identity.generation,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					...bridgeWorkerReviewSourceContext(identity.packageId),
+					metadataSourceId: identity.sourceIdentity,
+					metadataWindowIdentity: `window-${identity.publicationId}`,
+					packageId: identity.packageId,
+					reviewGeneration: identity.generation,
+					revision: identity.revision,
+					status: 'ready',
+					summary: {
+						additions: startIndex + 1,
+						deletions: 0,
+						filesChanged: startIndex + 1,
+						hiddenFileCount: 0,
+						visibleFileCount: startIndex + 1,
+					},
+					totalItemCount: startIndex + 1,
+					totalTreeRowCount: startIndex + 1,
+				},
+				slice: 'reviewSource',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					items: [reviewDisplayItem(itemId)],
+					operations: [],
+					reset,
+					startIndex,
+				},
+				slice: 'reviewItem',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					reset,
+					windows: [
+						{
+							rows: [
+								{
+									depth: 0,
+									isDirectory: false,
+									itemId,
+									path: `${itemId}.ts`,
+									rowId: `row-${itemId}`,
+								},
+							],
+							startIndex,
+						},
+					],
+				},
+				slice: 'reviewTree',
+			},
+		],
+		projectionRevision: identity.revision,
+		reviewPublicationIdentity: null,
+		sequence: identity.revision,
 		surface: 'review',
 		transferDescriptors: [],
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,

@@ -28,7 +28,7 @@ describe('worktree annotation finite projection store', () => {
 		const listener = vi.fn();
 		store.subscribe(listener);
 
-		store.apply(projectionSnapshot(4, 8), 'a'.repeat(64));
+		applyProjection(store, projectionSnapshot(4, 8));
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(store.getSnapshot()).toMatchObject({
@@ -45,9 +45,9 @@ describe('worktree annotation finite projection store', () => {
 		stageCatalog(store, 5);
 		const listener = vi.fn();
 		store.subscribe(listener);
-		store.apply(projectionSnapshot(5, 9), 'a'.repeat(64));
+		applyProjection(store, projectionSnapshot(5, 9));
 
-		store.apply(projectionSnapshot(4, 10), 'a'.repeat(64));
+		applyProjection(store, projectionSnapshot(4, 10));
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(store.getSnapshot().revision).toBe(5);
@@ -76,7 +76,7 @@ describe('worktree annotation finite projection store', () => {
 			},
 		]);
 
-		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64));
+		applyProjection(store, projectionSnapshot(6, 11));
 
 		expect(store.getSnapshot().commandOutcomes).toHaveLength(1);
 		expect(store.getSnapshot().outputHistory).toHaveLength(1);
@@ -85,16 +85,16 @@ describe('worktree annotation finite projection store', () => {
 	test('preserves demanded rich content across an empty-demand control refresh', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 		stageCatalog(store, 6);
-		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64), [sessionId]);
+		applyProjection(store, projectionSnapshot(6, 11), [sessionId]);
 
-		store.apply(
+		applyProjection(
+			store,
 			{
 				...projectionSnapshot(7, 11),
 				expectedMessageCount: 0,
 				expectedThreadCount: 0,
 				threads: [],
 			},
-			'a'.repeat(64),
 			[],
 		);
 
@@ -105,7 +105,7 @@ describe('worktree annotation finite projection store', () => {
 	test('retires removed-session rich content and output history at catalog commit', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 		stageCatalog(store, 6);
-		store.apply(projectionSnapshot(6, 11), 'a'.repeat(64), [sessionId]);
+		applyProjection(store, projectionSnapshot(6, 11), [sessionId]);
 		store.replaceOutputHistory([outputHistorySummary(sessionId, '21')]);
 
 		for (const message of catalogStagingMessages(7, 'fileView', false)) {
@@ -800,4 +800,18 @@ function projectionSnapshot(
 		],
 		worktreeId: 'worktree-1',
 	};
+}
+
+function applyProjection(
+	store: WorktreeAnnotationProjectionStore,
+	snapshot: BridgeWorkerAnnotationProjectionSnapshot,
+	contentSessionIds?: readonly string[],
+): void {
+	store.apply({
+		contentSessionIds,
+		expectedContentSessionIds: contentSessionIds ?? [],
+		operationCorrelationId: 'a'.repeat(64),
+		reviewAnnotationApplication: null,
+		snapshot,
+	});
 }

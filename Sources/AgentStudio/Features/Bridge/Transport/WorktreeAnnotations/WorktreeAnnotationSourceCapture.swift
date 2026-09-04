@@ -161,6 +161,7 @@ enum WorktreeAnnotationSourceCapture {
             fingerprint: fingerprint,
             material: await reviewMaterial(
                 candidates: candidates,
+                publication: publication,
                 contentLoaderCache: contentLoaderCache,
                 productAdmission: productAdmission
             )
@@ -168,9 +169,15 @@ enum WorktreeAnnotationSourceCapture {
     }
 
     private struct ReviewRefreshCandidate {
+        let itemID: String
         let path: String
         let sourceRole: WorktreeAnnotationSourceRole
         let handle: BridgeContentHandle
+    }
+
+    private struct ReviewSourceLoadAdmission {
+        let affectedItemIDs: Set<String>
+        let cachedUnaffectedResultByHandleID: [String: BridgeContentLoadResult]
     }
 
     private struct ReviewRefreshRequirement {
@@ -306,6 +313,7 @@ enum WorktreeAnnotationSourceCapture {
             guard currentPath == fallbackPath else { return nil }
         }
         return ReviewRefreshCandidate(
+            itemID: item.itemId,
             path: currentPath,
             sourceRole: requirement.sourceRole,
             handle: handle
@@ -314,6 +322,7 @@ enum WorktreeAnnotationSourceCapture {
 
     private static func reviewMaterial(
         candidates: [ReviewRefreshCandidate],
+        publication: BridgeReviewCommittedPublication,
         contentLoaderCache: BridgeReviewContentLoaderCache,
         productAdmission: BridgeProductAdmissionContext
     ) async -> WorktreeAnnotationSourceMaterial {
@@ -322,6 +331,12 @@ enum WorktreeAnnotationSourceCapture {
         else {
             return .unavailable
         }
+        let proportionalAdmission = await reviewSourceLoadAdmission(
+            candidates: candidates,
+            publication: publication,
+            contentLoaderCache: contentLoaderCache,
+            productAdmission: productAdmission
+        )
         var files: [WorktreeAnnotationCurrentSourceFile] = []
         files.reserveCapacity(candidates.count)
         for candidate in candidates {
@@ -333,13 +348,24 @@ enum WorktreeAnnotationSourceCapture {
                 return .unavailable
             }
             let result: BridgeContentLoadResult
-            do {
-                result = try await contentLoaderCache.load(
-                    handle: candidate.handle,
-                    productAdmission: productAdmission
-                )
-            } catch {
-                return .unavailable
+            if let proportionalAdmission,
+                !proportionalAdmission.affectedItemIDs.contains(candidate.itemID)
+            {
+                guard
+                    let cachedResult = proportionalAdmission.cachedUnaffectedResultByHandleID[
+                        candidate.handle.handleId
+                    ]
+                else { return .unavailable }
+                result = cachedResult
+            } else {
+                do {
+                    result = try await contentLoaderCache.load(
+                        handle: candidate.handle,
+                        productAdmission: productAdmission
+                    )
+                } catch {
+                    return .unavailable
+                }
             }
             guard
                 result.data.count
@@ -358,6 +384,51 @@ enum WorktreeAnnotationSourceCapture {
             )
         }
         return .available(files)
+    }
+
+    private static func reviewSourceLoadAdmission(
+        candidates: [ReviewRefreshCandidate],
+        publication: BridgeReviewCommittedPublication,
+        contentLoaderCache: BridgeReviewContentLoaderCache,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> ReviewSourceLoadAdmission? {
+        guard let affectedItemIDs = reviewSourceLoadAffectedItemIDs(publication: publication) else {
+            return nil
+        }
+        let unaffectedHandles = candidates.compactMap { candidate in
+            affectedItemIDs.contains(candidate.itemID) ? nil : candidate.handle
+        }
+        guard
+            let cachedResults = await contentLoaderCache.cachedResultsIfAllResident(
+                handles: unaffectedHandles,
+                productAdmission: productAdmission
+            )
+        else { return nil }
+        return ReviewSourceLoadAdmission(
+            affectedItemIDs: affectedItemIDs,
+            cachedUnaffectedResultByHandleID: cachedResults
+        )
+    }
+
+    static func reviewSourceLoadAffectedItemIDs(
+        publication: BridgeReviewCommittedPublication
+    ) -> Set<String>? {
+        guard let delta = publication.delta,
+            publication.package.revision > 0,
+            delta.packageId == publication.package.packageId,
+            delta.reviewGeneration == publication.package.reviewGeneration,
+            delta.revision == publication.package.revision
+        else { return nil }
+        let addedItemIDs = delta.operations.addItems.map(\.itemId)
+        let updatedItemIDs = delta.operations.updateItems.map(\.itemId)
+        let removedItemIDs = delta.operations.removeItems
+        let affectedItemIDs = Set(addedItemIDs + updatedItemIDs + removedItemIDs)
+        guard affectedItemIDs.count == addedItemIDs.count + updatedItemIDs.count + removedItemIDs.count,
+            addedItemIDs.allSatisfy({ publication.package.itemsById[$0] != nil }),
+            updatedItemIDs.allSatisfy({ publication.package.itemsById[$0] != nil }),
+            removedItemIDs.allSatisfy({ publication.package.itemsById[$0] == nil })
+        else { return nil }
+        return affectedItemIDs
     }
 
     private static func captureReviewSource(

@@ -55,6 +55,9 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 		| {
 				readonly contentSessionIds: readonly string[];
 				readonly kind: 'ready';
+				readonly reviewPublicationIdentity?:
+					| BridgeProductReviewAnnotationPublicationIdentity
+					| undefined;
 				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
 		  }
 		| { readonly kind: 'refreshing' };
@@ -498,6 +501,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				state: {
 					contentSessionIds: invalidation.sessionIds,
 					kind: 'ready',
+					...(reviewPublicationIdentity === null ? {} : { reviewPublicationIdentity }),
 					snapshot: fetchResult.snapshot,
 				},
 				surface: this.#surface,

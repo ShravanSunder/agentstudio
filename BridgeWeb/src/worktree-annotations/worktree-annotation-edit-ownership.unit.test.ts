@@ -72,8 +72,9 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		outputHistory: [],
 		operationCorrelationId: null,
 		presentationRevision: message.messageRevision,
-		sourceGeneration: 0,
+		readStatus: { kind: 'ready' },
 		recoveryStatus: 'available',
+		reviewAnnotationApplication: null,
 		revision: message.sessionRevision,
 		sessions: [],
 		threads: [
@@ -93,11 +94,12 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 				messages: [message],
 			},
 		],
-		readStatus: { kind: 'ready' },
+		sourceGeneration: 0,
 		worktreeId: 'worktree-1',
 	});
 	const client: WorktreeAnnotationSurfaceClient = {
 		acquireSession: () => (): void => {},
+		acknowledgeReviewAnnotationApplication: (): boolean => false,
 		dispose: (): void => {},
 		execute: async (operation) => {
 			operations.push(operation);

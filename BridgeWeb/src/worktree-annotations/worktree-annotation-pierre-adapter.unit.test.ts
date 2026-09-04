@@ -11,7 +11,9 @@ import {
 	reviewPierreAnnotationsForItem,
 	threadForPierreAnnotation,
 	worktreeAnnotationMetadataForPierreAnnotation,
+	worktreeAnnotationPierrePresentationsMatch,
 	worktreeAnnotationPierreRangesMatch,
+	worktreeAnnotationThreadPresentationIdentity,
 } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-surface-client.js';
 
@@ -158,6 +160,7 @@ describe('worktree annotation Pierre adapter', () => {
 				lineNumber: 9,
 				metadata: {
 					kind: 'thread',
+					presentationIdentity: expect.any(String),
 					range: { end: 9, endSide: 'additions', side: 'additions', start: 7 },
 					threadId: firstThreadId,
 				},
@@ -167,6 +170,7 @@ describe('worktree annotation Pierre adapter', () => {
 				lineNumber: 9,
 				metadata: {
 					kind: 'thread',
+					presentationIdentity: expect.any(String),
 					range: { end: 9, endSide: 'additions', side: 'additions', start: 8 },
 					threadId: secondThreadId,
 				},
@@ -210,6 +214,56 @@ describe('worktree annotation Pierre adapter', () => {
 		).toBeNull();
 	});
 
+	test('uses compact revision identity for body and status presentation changes', () => {
+		const initialThread = threadProjectionWithMessage();
+		const equalThread = structuredClone(initialThread);
+		const changedMessage = initialThread.messages[0];
+		if (changedMessage === undefined) throw new Error('Expected one annotation message.');
+		const changedThread = {
+			...initialThread,
+			messages: [
+				{
+					...changedMessage,
+					messageRevision: changedMessage.messageRevision + 1,
+					savedBody: 'replacement private body',
+					savedRevision: (changedMessage.savedRevision ?? 0) + 1,
+					status: 'locked' as const,
+				},
+			],
+		};
+
+		const initialIdentity = worktreeAnnotationThreadPresentationIdentity(initialThread);
+		expect(worktreeAnnotationThreadPresentationIdentity(equalThread)).toBe(initialIdentity);
+		expect(worktreeAnnotationThreadPresentationIdentity(changedThread)).not.toBe(initialIdentity);
+		expect(initialIdentity).not.toContain('private initial body');
+		expect(worktreeAnnotationThreadPresentationIdentity(changedThread)).not.toContain(
+			'replacement private body',
+		);
+
+		const item = makeBridgeReviewItem({ itemId: 'item-1', path: 'Sources/App.swift' });
+		const initialAnnotations = reviewPierreAnnotationsForItem({
+			item,
+			itemType: 'diff',
+			threads: [initialThread],
+		});
+		const equalAnnotations = reviewPierreAnnotationsForItem({
+			item,
+			itemType: 'diff',
+			threads: [equalThread],
+		});
+		const changedAnnotations = reviewPierreAnnotationsForItem({
+			item,
+			itemType: 'diff',
+			threads: [changedThread],
+		});
+		expect(worktreeAnnotationPierrePresentationsMatch(initialAnnotations, equalAnnotations)).toBe(
+			true,
+		);
+		expect(worktreeAnnotationPierrePresentationsMatch(initialAnnotations, changedAnnotations)).toBe(
+			false,
+		);
+	});
+
 	test('matches only the exact active Pierre range while normalizing an omitted end side', () => {
 		const selectedRange = {
 			end: 9,
@@ -242,6 +296,7 @@ describe('worktree annotation Pierre adapter', () => {
 		});
 		const threadMetadata = {
 			kind: 'thread',
+			presentationIdentity: JSON.stringify(thread),
 			range: { end: 9, start: 7 },
 			threadId: thread.context.threadId,
 		};
@@ -308,5 +363,31 @@ function threadProjection(
 	return {
 		context,
 		messages: [],
+	};
+}
+
+function threadProjectionWithMessage(): WorktreeAnnotationThreadProjection {
+	const thread = threadProjection({ sourceRole: 'review_head' });
+	return {
+		...thread,
+		messages: [
+			{
+				attentionState: 'not_applicable',
+				authorKind: 'human',
+				createdAt: 1,
+				draft: null,
+				handled: false,
+				messageId: '00000000-0000-7000-8000-000000000021',
+				messageRevision: 1,
+				ordinal: 0,
+				savedBody: 'private initial body',
+				savedRevision: 1,
+				sessionId: '00000000-0000-7000-8000-000000000022',
+				sessionRevision: 1,
+				status: 'editable',
+				threadId: thread.context.threadId,
+				threadRevision: 1,
+			},
+		],
 	};
 }

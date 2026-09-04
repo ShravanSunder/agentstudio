@@ -4,9 +4,17 @@ import type { BridgeCommWorkerAnnotationCatalog } from '../core/comm-worker/brid
 import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-worker/bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeCommWorkerAnnotationCatalogStagingEvents } from '../core/comm-worker/bridge-comm-worker-annotation-runtime-events.js';
 import type { BridgeWorkerAnnotationCatalogStagingEvent } from '../core/comm-worker/bridge-worker-annotation-contracts.js';
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
+import { reviewAnnotationApplicationItemIds } from '../review-viewer/code-view/use-bridge-code-view-worktree-annotations.js';
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
 
 describe('WorktreeAnnotationProjectionStore read convergence', () => {
+	test('starts without a pending Review annotation application', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+
+		expect(store.getSnapshot().reviewAnnotationApplication).toBeNull();
+	});
+
 	test('starts unknown until the first complete projection installs', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 
@@ -25,7 +33,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 			store.applyCatalogStaging(catalogStaging(phase, 1));
 		}
 		const complete = snapshot(4, 7);
-		store.apply(complete, 'a'.repeat(64));
+		applyProjection(store, complete);
 
 		store.markRefreshing();
 		expect(store.getSnapshot()).toMatchObject({
@@ -42,9 +50,124 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 			threads: complete.threads,
 		});
 
-		store.apply(snapshot(5, 8), 'a'.repeat(64));
+		applyProjection(store, snapshot(5, 8));
 		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
 		expect(store.getSnapshot().revision).toBe(5);
+	});
+
+	test('publishes bounded Review item scope and both owners of a semantic thread change', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		for (const phase of ['catalog.begin', 'catalog.window', 'catalog.commit'] as const) {
+			store.applyCatalogStaging(catalogStaging(phase, 1));
+		}
+		const previous = snapshot(4, 7);
+		const previousThread = {
+			context: {
+				diffSide: 'additions' as const,
+				endLine: 8,
+				path: 'Sources/Old.swift',
+				placement: 'exact' as const,
+				resolution: 'open' as const,
+				scope: 'located' as const,
+				sourceIdentity: 'head-old',
+				sourceRole: 'review_head' as const,
+				startLine: 7,
+				threadId: '00000000-0000-7000-8000-000000000012',
+			},
+			messages: [],
+		};
+		store.apply({
+			contentSessionIds: undefined,
+			expectedContentSessionIds: [],
+			operationCorrelationId: 'a'.repeat(64),
+			reviewAnnotationApplication: null,
+			snapshot: { ...previous, expectedThreadCount: 1, threads: [previousThread] },
+		});
+		const currentThread = {
+			...previousThread,
+			context: {
+				...previousThread.context,
+				path: 'Sources/New.swift',
+				sourceIdentity: 'head-new',
+			},
+		};
+
+		store.apply({
+			contentSessionIds: undefined,
+			expectedContentSessionIds: [],
+			operationCorrelationId: 'b'.repeat(64),
+			reviewAnnotationApplication: { affectedItemIds: ['item-new'], applicationId: 1 },
+			snapshot: {
+				...snapshot(5, 8),
+				expectedThreadCount: 1,
+				threads: [currentThread],
+			},
+		});
+
+		expect(store.getSnapshot().reviewAnnotationApplication).toEqual({
+			affectedItemIds: ['item-new'],
+			applicationId: 1,
+			changedThreadOwnerContexts: [previousThread.context, currentThread.context],
+		});
+	});
+
+	test('does not report thread owners when the complete semantic projection is equal', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		for (const phase of ['catalog.begin', 'catalog.window', 'catalog.commit'] as const) {
+			store.applyCatalogStaging(catalogStaging(phase, 1));
+		}
+		const complete = snapshot(4, 7);
+		store.apply({
+			contentSessionIds: undefined,
+			expectedContentSessionIds: [],
+			operationCorrelationId: 'a'.repeat(64),
+			reviewAnnotationApplication: null,
+			snapshot: complete,
+		});
+
+		store.apply({
+			contentSessionIds: undefined,
+			expectedContentSessionIds: [],
+			operationCorrelationId: 'b'.repeat(64),
+			reviewAnnotationApplication: { affectedItemIds: [], applicationId: 1 },
+			snapshot: { ...complete, projectionRevision: 5 },
+		});
+
+		expect(store.getSnapshot().reviewAnnotationApplication).toEqual({
+			affectedItemIds: [],
+			applicationId: 1,
+			changedThreadOwnerContexts: [],
+		});
+	});
+
+	test('stops exposing an acknowledged Review annotation application', () => {
+		const store = new WorktreeAnnotationProjectionStore();
+		for (const phase of ['catalog.begin', 'catalog.window', 'catalog.commit'] as const) {
+			store.applyCatalogStaging(catalogStaging(phase, 1));
+		}
+		store.apply({
+			contentSessionIds: undefined,
+			expectedContentSessionIds: [],
+			operationCorrelationId: 'a'.repeat(64),
+			reviewAnnotationApplication: { affectedItemIds: ['item-source'], applicationId: 1 },
+			snapshot: snapshot(4, 7),
+		});
+		const presentationRevisionBeforeAcknowledgement = store.getSnapshot().presentationRevision;
+
+		expect(store.acknowledgeReviewAnnotationApplication(1)).toBe(true);
+
+		expect(store.getSnapshot().reviewAnnotationApplication).toBeNull();
+		expect(
+			reviewAnnotationApplicationItemIds({
+				activeEditorItemIds: [],
+				application: store.getSnapshot().reviewAnnotationApplication,
+				reviewPackage: makeBridgeReviewPackage(),
+			}),
+		).toEqual([]);
+		expect(store.getSnapshot().presentationRevision).toBe(
+			presentationRevisionBeforeAcknowledgement + 1,
+		);
+		expect(store.acknowledgeReviewAnnotationApplication(1)).toBe(false);
 	});
 
 	test('keeps catalog windows hidden and publishes exactly once at commit', () => {
@@ -219,4 +342,17 @@ function snapshot(
 		threads: [],
 		worktreeId: 'worktree-1',
 	};
+}
+
+function applyProjection(
+	store: WorktreeAnnotationProjectionStore,
+	projectionSnapshot: BridgeWorkerAnnotationProjectionSnapshot,
+): void {
+	store.apply({
+		contentSessionIds: undefined,
+		expectedContentSessionIds: [],
+		operationCorrelationId: 'a'.repeat(64),
+		reviewAnnotationApplication: null,
+		snapshot: projectionSnapshot,
+	});
 }

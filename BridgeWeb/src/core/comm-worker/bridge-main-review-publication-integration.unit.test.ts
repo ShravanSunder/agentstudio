@@ -361,6 +361,7 @@ describe('Bridge main Review publication integration', () => {
 		// Arrange
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
+		const catalogCursorBeforeHeldSuccessors = harness.store.getReviewCatalogSnapshot().changeCursor;
 		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
 
 		// Act
@@ -387,6 +388,21 @@ describe('Bridge main Review publication integration', () => {
 		expect(harness.courierJobs.map((job) => job.itemId)).toEqual(['item-c']);
 		expect(harness.store.getReviewCodeViewItemSnapshot('item-c')).toBeDefined();
 		expect(harness.store.getReviewAvailabilitySnapshot('item-c')).toEqual({ state: 'ready' });
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(SUCCESSOR),
+		);
+		expect(harness.store.getReviewItemSnapshot('item-a')).toBeUndefined();
+		expect(harness.store.getReviewItemSnapshot('item-b')).toBeUndefined();
+		expect(harness.store.getReviewItemSnapshot('item-c')).toBeDefined();
+		expect(harness.store.readReviewCatalogChangesAfter(catalogCursorBeforeHeldSuccessors)).toEqual({
+			changes: [
+				expect.objectContaining({
+					itemIds: expect.arrayContaining(['item-a', 'item-c']),
+					reset: true,
+				}),
+			],
+			resetRequired: false,
+		});
 
 		// Act
 		harness.ack(installed);

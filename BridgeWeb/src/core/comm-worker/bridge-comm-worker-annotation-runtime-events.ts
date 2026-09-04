@@ -5,6 +5,7 @@ import { bridgeProductWorktreeAnnotationDecodedCommandResultSchema } from './bri
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import { bridgeProductWorktreeAnnotationCatalogEntrySchema } from './bridge-product-worktree-annotation-contracts.js';
+import type { BridgeProductReviewAnnotationPublicationIdentity } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 import type {
 	BridgeWorkerAnnotationCatalogStagingEvent,
 	BridgeWorkerAnnotationCommandAcceptedEvent,
@@ -73,6 +74,9 @@ export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 		| {
 				readonly contentSessionIds: readonly string[];
 				readonly kind: 'ready';
+				readonly reviewPublicationIdentity?:
+					| BridgeProductReviewAnnotationPublicationIdentity
+					| undefined;
 				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
 		  }
 		| {

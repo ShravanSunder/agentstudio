@@ -2,7 +2,10 @@ import type { DiffLineAnnotation, LineAnnotation, SelectedLineRange } from '@pie
 
 import type { BridgeProductWorktreeAnnotationOperation } from '../../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeReviewItemDescriptor } from '../../foundation/review-package/bridge-review-package.js';
-import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
+import {
+	worktreeAnnotationThreadSemanticIdentity,
+	type WorktreeAnnotationThreadProjection,
+} from '../../worktree-annotations/worktree-annotation-projection-store.js';
 
 type WorktreeAnnotationRootCreateOperation = Extract<
 	BridgeProductWorktreeAnnotationOperation,
@@ -16,6 +19,7 @@ export type WorktreeAnnotationLocatedOrigin = Extract<
 
 export interface WorktreeAnnotationPierreThreadMetadata {
 	readonly kind: 'thread';
+	readonly presentationIdentity: string;
 	readonly range: SelectedLineRange;
 	readonly threadId: string;
 }
@@ -29,6 +33,12 @@ export interface WorktreeAnnotationPierreComposerMetadata {
 export type WorktreeAnnotationPierreMetadata =
 	| WorktreeAnnotationPierreComposerMetadata
 	| WorktreeAnnotationPierreThreadMetadata;
+
+interface WorktreeAnnotationPierreComparable {
+	readonly lineNumber: number;
+	readonly metadata?: unknown;
+	readonly side?: 'additions' | 'deletions';
+}
 
 export function filePierreAnnotationForComposer(props: {
 	readonly editToken: string;
@@ -96,6 +106,7 @@ export function filePierreAnnotationsForThreads(props: {
 					lineNumber: context.endLine,
 					metadata: {
 						kind: 'thread',
+						presentationIdentity: worktreeAnnotationThreadPresentationIdentity(thread),
 						range: { end: context.endLine, start: context.startLine },
 						threadId: context.threadId,
 					},
@@ -149,6 +160,7 @@ export function reviewPierreAnnotationsForItem(props: {
 						lineNumber: context.endLine,
 						metadata: {
 							kind: 'thread',
+							presentationIdentity: worktreeAnnotationThreadPresentationIdentity(thread),
 							range: { end: context.endLine, start: context.startLine },
 							threadId: context.threadId,
 						},
@@ -162,6 +174,7 @@ export function reviewPierreAnnotationsForItem(props: {
 					lineNumber: context.endLine,
 					metadata: {
 						kind: 'thread',
+						presentationIdentity: worktreeAnnotationThreadPresentationIdentity(thread),
 						range: {
 							end: context.endLine,
 							endSide: side,
@@ -264,7 +277,7 @@ export function threadForPierreAnnotation(props: {
 }
 
 export function worktreeAnnotationMetadataForPierreAnnotation(
-	annotation: DiffLineAnnotation | LineAnnotation,
+	annotation: WorktreeAnnotationPierreComparable,
 ): WorktreeAnnotationPierreMetadata | null {
 	const metadata = Object.getOwnPropertyDescriptor(annotation, 'metadata')?.value as unknown;
 	if (
@@ -310,11 +323,64 @@ export function worktreeAnnotationMetadataForPierreAnnotation(
 		start: range.start,
 	} satisfies SelectedLineRange;
 	if (metadata.kind === 'thread') {
-		if (!('threadId' in metadata) || typeof metadata.threadId !== 'string') return null;
-		return { kind: 'thread', range: selectedRange, threadId: metadata.threadId };
+		if (
+			!('threadId' in metadata) ||
+			typeof metadata.threadId !== 'string' ||
+			!('presentationIdentity' in metadata) ||
+			typeof metadata.presentationIdentity !== 'string'
+		) {
+			return null;
+		}
+		return {
+			kind: 'thread',
+			presentationIdentity: metadata.presentationIdentity,
+			range: selectedRange,
+			threadId: metadata.threadId,
+		};
 	}
 	if (!('editToken' in metadata) || typeof metadata.editToken !== 'string') return null;
 	return { editToken: metadata.editToken, kind: 'composer', range: selectedRange };
+}
+
+export function worktreeAnnotationThreadPresentationIdentity(
+	thread: WorktreeAnnotationThreadProjection,
+): string {
+	return worktreeAnnotationThreadSemanticIdentity(thread);
+}
+
+export function worktreeAnnotationPierrePresentationsMatch(
+	left: readonly WorktreeAnnotationPierreComparable[] | undefined,
+	right: readonly WorktreeAnnotationPierreComparable[] | undefined,
+): boolean {
+	const leftAnnotations = left ?? [];
+	const rightAnnotations = right ?? [];
+	if (leftAnnotations.length !== rightAnnotations.length) return false;
+	return leftAnnotations.every((leftAnnotation, index): boolean => {
+		const rightAnnotation = rightAnnotations[index];
+		if (rightAnnotation === undefined) return false;
+		if (
+			leftAnnotation.lineNumber !== rightAnnotation.lineNumber ||
+			annotationSide(leftAnnotation) !== annotationSide(rightAnnotation)
+		) {
+			return false;
+		}
+		const leftMetadata = worktreeAnnotationMetadataForPierreAnnotation(leftAnnotation);
+		const rightMetadata = worktreeAnnotationMetadataForPierreAnnotation(rightAnnotation);
+		if (leftMetadata === null || rightMetadata === null) return leftMetadata === rightMetadata;
+		if (leftMetadata.kind !== rightMetadata.kind) return false;
+		if (!worktreeAnnotationPierreRangesMatch(leftMetadata.range, rightMetadata.range)) return false;
+		return leftMetadata.kind === 'composer'
+			? rightMetadata.kind === 'composer' && leftMetadata.editToken === rightMetadata.editToken
+			: rightMetadata.kind === 'thread' &&
+					leftMetadata.threadId === rightMetadata.threadId &&
+					leftMetadata.presentationIdentity === rightMetadata.presentationIdentity;
+	});
+}
+
+function annotationSide(
+	annotation: WorktreeAnnotationPierreComparable,
+): 'additions' | 'deletions' | undefined {
+	return annotation.side;
 }
 
 export function worktreeAnnotationPierreRangesMatch(

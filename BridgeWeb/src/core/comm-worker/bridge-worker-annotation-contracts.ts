@@ -99,6 +99,7 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 							})
 							.readonly(),
 						kind: z.literal('ready'),
+						reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema.optional(),
 						snapshot: bridgeWorkerAnnotationProjectionSnapshotSchema,
 					})
 					.strict(),
@@ -112,6 +113,28 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 					code: 'custom',
 					message: 'Ready annotation projection requires lifecycle correlation.',
 					path: ['operationCorrelationId'],
+				});
+			}
+			if (
+				event.state.kind === 'ready' &&
+				event.surface === 'review' &&
+				event.state.reviewPublicationIdentity === undefined
+			) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Review annotation convergence requires exact publication identity.',
+					path: ['state', 'reviewPublicationIdentity'],
+				});
+			}
+			if (
+				event.state.kind === 'ready' &&
+				event.surface === 'fileView' &&
+				event.state.reviewPublicationIdentity !== undefined
+			) {
+				context.addIssue({
+					code: 'custom',
+					message: 'File annotation convergence cannot carry Review publication identity.',
+					path: ['state', 'reviewPublicationIdentity'],
 				});
 			}
 		});

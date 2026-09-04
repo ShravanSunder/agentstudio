@@ -27,8 +27,39 @@ import type {
 const worktreeId = 'worktree-annotations-1';
 const sessionId = uuidv7(1);
 const threadId = uuidv7(2);
+const reviewPublicationIdentity = {
+	packageId: 'package-annotations-1',
+	publicationId: uuidv7(41),
+	reviewGeneration: 7,
+	revision: 3,
+	sourceIdentity: 'source-annotations-1',
+} as const;
 
 describe('Bridge comm worker annotation projection query controller', () => {
+	test('returns the exact Review identity captured by the query attempt', async () => {
+		const harness = await createHarness({
+			pages: await makeProjectionPages(1, 7, undefined, 'review'),
+			surface: 'review',
+		});
+		harness.controller.setDemand({
+			active: true,
+			reviewPublicationIdentity,
+			sessionIds: [sessionId],
+			sourceGeneration: 7,
+		});
+		harness.controller.ensureSubscription();
+		pushSessionCatalog(harness.notifications, 7);
+
+		await harness.controller.waitForIdle();
+
+		expect(harness.publications).toHaveLength(2);
+		expect(harness.publications).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ reviewPublicationIdentity, surface: 'review' }),
+			]),
+		);
+	});
+
 	test('records inactive invalidations and fetches only after activation', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 7) });
 		harness.controller.ensureSubscription();
@@ -491,6 +522,12 @@ interface AnnotationProjectionTestHarness {
 	readonly notifications: TestNotificationQueue;
 	readonly publications: Array<{
 		readonly contentSessionIds: readonly string[];
+		readonly reviewPublicationIdentity?:
+			| Extract<
+					BridgeCommWorkerAnnotationProjectionPublication['state'],
+					{ readonly kind: 'ready' }
+			  >['reviewPublicationIdentity']
+			| undefined;
 		readonly snapshot: Extract<
 			BridgeCommWorkerAnnotationProjectionPublication['state'],
 			{ readonly kind: 'ready' }
@@ -517,8 +554,10 @@ async function createHarness(props: {
 		signal: AbortSignal,
 	) => Promise<unknown>;
 	readonly terminalKind?: 'complete' | 'error';
+	readonly surface?: 'file' | 'review';
 }): Promise<AnnotationProjectionTestHarness> {
-	const notifications = createNotificationQueue('file');
+	const surface = props.surface ?? 'file';
+	const notifications = createNotificationQueue(surface);
 	const notificationQueues = props.notificationQueues ?? [notifications];
 	let observedSubscriptionCount = 0;
 	const publications: AnnotationProjectionTestHarness['publications'] = [];
@@ -559,13 +598,16 @@ async function createHarness(props: {
 	};
 	const controller = new BridgeCommWorkerAnnotationProjectionQueryController({
 		onCatalog: (): void => {},
-		onConvergence: ({ state, surface }): void => {
+		onConvergence: ({ state, surface: publicationSurface }): void => {
 			statuses.push(state.kind);
 			if (state.kind === 'ready') {
 				publications.push({
 					contentSessionIds: state.contentSessionIds,
+					...('reviewPublicationIdentity' in state
+						? { reviewPublicationIdentity: state.reviewPublicationIdentity }
+						: {}),
 					snapshot: state.snapshot,
-					surface,
+					surface: publicationSurface,
 				});
 			} else if (state.kind === 'unavailable') {
 				failures.push(state.error);
@@ -575,7 +617,7 @@ async function createHarness(props: {
 		onSourceAuthorityStale: (publication): void => {
 			sourceAuthorityStalePublications.push(publication);
 		},
-		surface: 'file',
+		surface,
 		telemetryClient: {
 			record: (sample): void => {
 				telemetrySamples.push(sample);
@@ -648,6 +690,7 @@ async function makeProjectionPages(
 	messageCount: number,
 	sourceGeneration: number,
 	maximumPageBytes = 2 * 1024 * 1024,
+	surface: 'file' | 'review' = 'file',
 ): Promise<MutableProjectionPage[]> {
 	const records: Uint8Array<ArrayBuffer>[] = [];
 	const header = {
@@ -746,7 +789,7 @@ async function makeProjectionPages(
 				snapshotId: uuidv7(sourceGeneration + 10_000),
 				sourceGeneration,
 			},
-			surface: 'file',
+			surface,
 		},
 	}));
 }

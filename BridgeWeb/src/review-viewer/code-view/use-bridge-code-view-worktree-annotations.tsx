@@ -21,7 +21,10 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { useWorktreeAnnotationSelectionDismissal } from '../../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { createWorktreeAnnotationEditToken } from '../../worktree-annotations/worktree-annotation-edit-token.js';
 import { deriveWorktreeAnnotationShareProjection } from '../../worktree-annotations/worktree-annotation-share-projection.js';
-import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
+import type {
+	WorktreeAnnotationProjectionSnapshot,
+	WorktreeAnnotationThreadProjection,
+} from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationActiveEditTokens,
 	useWorktreeAnnotationActiveNewMessageEditTokens,
@@ -29,6 +32,7 @@ import {
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSessionDemand,
+	useWorktreeAnnotationSurfaceClient,
 } from '../../worktree-annotations/worktree-annotation-surface-provider.js';
 import {
 	WorktreeAnnotationNewMessageComposer,
@@ -48,6 +52,9 @@ import {
 export interface BridgeCodeViewWorktreeAnnotations {
 	readonly activeThreads: readonly WorktreeAnnotationThreadProjection[];
 	readonly activeEditorAttentionItemIds: readonly string[];
+	readonly acknowledgeReviewAnnotationApplication: (applicationId: number) => boolean;
+	readonly annotationApplicationItemIds: readonly string[] | null;
+	readonly annotationApplicationId: number | null;
 	readonly attentionItemIds: readonly string[];
 	readonly annotateItem: (item: BridgeCodeViewItem) => BridgeCodeViewItem;
 	readonly codeViewOptions: Readonly<CodeViewOptions<undefined>>;
@@ -69,6 +76,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	readonly selectedItemId: string | null;
 }): BridgeCodeViewWorktreeAnnotations {
 	const projection = useWorktreeAnnotationProjection();
+	const annotationSurfaceClient = useWorktreeAnnotationSurfaceClient();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
 	const interaction = useWorktreeAnnotationInteraction();
 	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
@@ -200,6 +208,13 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		if (rangePresentation.kind !== 'none') itemIds.add(rangePresentation.itemId);
 		return props.reviewPackage.orderedItemIds.filter((itemId): boolean => itemIds.has(itemId));
 	}, [activeEditorAttentionItemIds, props.reviewPackage, rangePresentation]);
+	const annotationApplicationItemIds = useMemo((): readonly string[] | null => {
+		return reviewAnnotationApplicationItemIds({
+			activeEditorItemIds: activeEditorAttentionItemIds,
+			application: projection.reviewAnnotationApplication,
+			reviewPackage: props.reviewPackage,
+		});
+	}, [activeEditorAttentionItemIds, projection.reviewAnnotationApplication, props.reviewPackage]);
 
 	const annotateItem = useCallback(
 		(item: BridgeCodeViewItem): BridgeCodeViewItem => {
@@ -445,6 +460,10 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	return {
 		activeThreads,
 		activeEditorAttentionItemIds,
+		acknowledgeReviewAnnotationApplication:
+			annotationSurfaceClient.acknowledgeReviewAnnotationApplication,
+		annotationApplicationItemIds,
+		annotationApplicationId: projection.reviewAnnotationApplication?.applicationId ?? null,
 		attentionItemIds,
 		annotateItem,
 		codeViewOptions,
@@ -472,6 +491,30 @@ export function reviewItemIdForAnnotationThread(props: {
 		if (expectedPath === props.context.path) return itemId;
 	}
 	return null;
+}
+
+export function reviewAnnotationApplicationItemIds(props: {
+	readonly activeEditorItemIds: readonly string[];
+	readonly application: WorktreeAnnotationProjectionSnapshot['reviewAnnotationApplication'];
+	readonly reviewPackage: BridgeReviewPackage;
+}): readonly string[] | null {
+	if (props.application === null) {
+		const activeEditorItemIds = new Set(props.activeEditorItemIds);
+		return props.reviewPackage.orderedItemIds.filter((itemId): boolean =>
+			activeEditorItemIds.has(itemId),
+		);
+	}
+	if (props.application.affectedItemIds === null) return null;
+	const itemIds = new Set(props.application.affectedItemIds);
+	for (const context of props.application.changedThreadOwnerContexts) {
+		const itemId = reviewItemIdForAnnotationThread({
+			context,
+			reviewPackage: props.reviewPackage,
+		});
+		if (itemId !== null) itemIds.add(itemId);
+	}
+	for (const itemId of props.activeEditorItemIds) itemIds.add(itemId);
+	return props.reviewPackage.orderedItemIds.filter((itemId): boolean => itemIds.has(itemId));
 }
 
 function isAnnotationCodeViewItem(item: CodeViewItem | undefined): item is BridgeCodeViewItem {
