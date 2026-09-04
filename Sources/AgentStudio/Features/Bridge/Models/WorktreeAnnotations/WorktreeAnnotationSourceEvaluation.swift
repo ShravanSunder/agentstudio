@@ -9,6 +9,10 @@ struct WorktreeAnnotationCurrentSourceFile: Equatable, Sendable {
 
 enum WorktreeAnnotationSourceMaterial: Equatable, Sendable {
     case available([WorktreeAnnotationCurrentSourceFile])
+    case availableWithThreadFailures(
+        files: [WorktreeAnnotationCurrentSourceFile],
+        unavailableThreadIDs: Set<WorktreeAnnotationThreadID>
+    )
     case unavailable
 }
 
@@ -65,7 +69,7 @@ enum WorktreeAnnotationSourceEvaluator {
                     (
                         thread.id,
                         placement(
-                            for: thread.origin,
+                            for: thread,
                             surface: input.surface,
                             material: input.material
                         )
@@ -117,15 +121,15 @@ enum WorktreeAnnotationSourceEvaluator {
     }
 
     private static func placement(
-        for origin: WorktreeAnnotationThreadOrigin,
+        for thread: WorktreeAnnotationThread,
         surface: BridgeProductSurface,
         material: WorktreeAnnotationSourceMaterial
     ) -> WorktreeAnnotationThreadPlacementProjection {
-        switch origin {
+        switch thread.origin {
         case .session:
             return projection(placement: .exact)
         case .wholeFile(let originalPath, let sourceRole):
-            guard case .available(let files) = material else {
+            guard let files = availableFiles(for: thread.id, material: material) else {
                 return projection(placement: .unavailable)
             }
             guard
@@ -141,18 +145,32 @@ enum WorktreeAnnotationSourceEvaluator {
                 currentSourceIdentity: currentFile.sourceIdentity
             )
         case .located(let locatedOrigin):
-            return locatedPlacement(for: locatedOrigin, surface: surface, material: material)
+            guard let files = availableFiles(for: thread.id, material: material) else {
+                return projection(placement: .unavailable)
+            }
+            return locatedPlacement(for: locatedOrigin, surface: surface, files: files)
+        }
+    }
+
+    private static func availableFiles(
+        for threadID: WorktreeAnnotationThreadID,
+        material: WorktreeAnnotationSourceMaterial
+    ) -> [WorktreeAnnotationCurrentSourceFile]? {
+        switch material {
+        case .available(let files):
+            return files
+        case .availableWithThreadFailures(let files, let unavailableThreadIDs):
+            return unavailableThreadIDs.contains(threadID) ? nil : files
+        case .unavailable:
+            return nil
         }
     }
 
     private static func locatedPlacement(
         for origin: WorktreeAnnotationLocatedOrigin,
         surface: BridgeProductSurface,
-        material: WorktreeAnnotationSourceMaterial
+        files: [WorktreeAnnotationCurrentSourceFile]
     ) -> WorktreeAnnotationThreadPlacementProjection {
-        guard case .available(let files) = material else {
-            return projection(placement: .unavailable)
-        }
         let roleFiles = files.filter {
             currentSourceRoleIsCompatible($0.sourceRole, with: origin.sourceRole, on: surface)
         }

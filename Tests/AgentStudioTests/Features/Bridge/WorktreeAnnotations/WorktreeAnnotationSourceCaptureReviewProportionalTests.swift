@@ -244,6 +244,190 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
         )
     }
 
+    @Test("one failed shared handle isolates all dependents through finite projection")
+    func failedSharedHandleIsolatesEveryDependentThread() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let package = reviewPackage(itemCount: 2)
+        let availableItem = try #require(package.itemsById[package.orderedItemIds[0]])
+        let unavailableItem = try #require(package.itemsById[package.orderedItemIds[1]])
+        let availableHandle = try #require(availableItem.contentRoles.head)
+        let unavailableHandle = try #require(unavailableItem.contentRoles.head)
+        let unavailablePath = try #require(unavailableItem.headPath)
+        let provider = reviewProvider(package: package, handles: [availableHandle])
+        let cache = BridgeReviewContentLoaderCache(provider: provider)
+        let coordinator = BridgeReviewPublicationCoordinator()
+        let publication = try await commit(
+            package: package,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        try acknowledge(
+            publication,
+            expectedPredecessorID: nil,
+            coordinator: coordinator,
+            productAdmission: productAdmission.context
+        )
+        let availableRequirement = try annotationRequirement(item: availableItem, threadIndex: 0)
+        let unavailableLocatedRequirement = try annotationRequirement(
+            item: unavailableItem,
+            threadIndex: 1
+        )
+        let secondUnavailableLocatedRequirement = WorktreeAnnotationSourceRefreshRequirement(
+            threadID: annotationThreadID(index: 2),
+            origin: unavailableLocatedRequirement.origin
+        )
+        let unavailableWholeFileRequirement = WorktreeAnnotationSourceRefreshRequirement(
+            threadID: annotationThreadID(index: 3),
+            origin: .wholeFile(
+                repositoryRelativePath: unavailablePath,
+                sourceRole: .reviewHead
+            )
+        )
+        let requirements = [
+            availableRequirement,
+            unavailableLocatedRequirement,
+            secondUnavailableLocatedRequirement,
+            unavailableWholeFileRequirement,
+        ]
+
+        let capture = try await WorktreeAnnotationSourceCapture.reviewRefresh(
+            identity: try annotationIdentity(publication),
+            publicationCoordinator: coordinator,
+            contentLoaderCache: cache,
+            requirements: requirements,
+            productAdmission: productAdmission.context
+        )
+        let evaluated = try evaluatePartialFailure(
+            capture: capture,
+            requirements: requirements,
+            reviewGeneration: package.reviewGeneration
+        )
+
+        #expect(evaluated.placements[availableRequirement.threadID]?.placement == .exact)
+        #expect(
+            evaluated.placements[unavailableLocatedRequirement.threadID]?.placement == .unavailable
+        )
+        #expect(
+            evaluated.placements[secondUnavailableLocatedRequirement.threadID]?.placement
+                == .unavailable
+        )
+        #expect(
+            evaluated.placements[unavailableWholeFileRequirement.threadID]?.placement == .unavailable
+        )
+        #expect(await provider.recordedContentRequestsCount(handleId: availableHandle.handleId) == 1)
+        #expect(await provider.recordedContentRequestsCount(handleId: unavailableHandle.handleId) == 1)
+
+        let projectedContexts = try finiteProjectionMessageContexts(
+            projectionCapture(
+                evaluated,
+                sourceGeneration: package.reviewGeneration.rawValue
+            )
+        )
+
+        #expect(projectedContexts[availableRequirement.threadID.rawValue]?.placement == .exact)
+        #expect(
+            projectedContexts[unavailableLocatedRequirement.threadID.rawValue]?.placement
+                == .unavailable
+        )
+        #expect(
+            projectedContexts[secondUnavailableLocatedRequirement.threadID.rawValue]?.placement
+                == .unavailable
+        )
+    }
+
+    private func evaluatePartialFailure(
+        capture: WorktreeAnnotationSourceRefreshCapture,
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
+        reviewGeneration: BridgeReviewGeneration
+    ) throws -> PartialFailureEvaluationFixture {
+        let sessionID = WorktreeAnnotationSessionID.generate()
+        let session = WorktreeAnnotationSession(
+            id: sessionID,
+            repositoryID: capture.fingerprint.repositoryID,
+            worktreeID: capture.fingerprint.worktreeID,
+            lifecycle: .living,
+            sourceRelationship: .applicable,
+            acceptedSourceFingerprint: capture.fingerprint,
+            semanticRevision: 1,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1),
+            completedAt: nil
+        )
+        let threads = requirements.enumerated().map { index, requirement in
+            WorktreeAnnotationThread(
+                id: requirement.threadID,
+                sessionID: sessionID,
+                origin: requirement.origin,
+                resolution: .open,
+                createdOrdinal: index,
+                semanticRevision: 0,
+                createdAt: Date(timeIntervalSince1970: 1),
+                updatedAt: Date(timeIntervalSince1970: 1),
+                resolvedAt: nil
+            )
+        }
+        let evaluation = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: threads,
+                surface: .review,
+                sourceEpoch: String(reviewGeneration.rawValue),
+                currentFingerprint: capture.fingerprint,
+                material: capture.material
+            )
+        )
+        return PartialFailureEvaluationFixture(
+            placements: evaluation.placements,
+            session: session,
+            threads: threads
+        )
+    }
+
+    private func projectionCapture(
+        _ evaluated: PartialFailureEvaluationFixture,
+        sourceGeneration: Int
+    ) -> BridgeProductAnnotationProjectionCapture {
+        let locatedThreadDetails = evaluated.threads.dropLast().enumerated().map { index, thread in
+            WorktreeAnnotationThreadDetail(
+                thread: thread,
+                messages: [projectionMessage(thread: thread, index: index)]
+            )
+        }
+        return BridgeProductAnnotationProjectionCapture(
+            worktreeID: evaluated.session.worktreeID,
+            recoveryStatus: .available,
+            sessions: [evaluated.session],
+            details: [
+                WorktreeAnnotationSessionDetail(
+                    session: evaluated.session,
+                    threads: locatedThreadDetails
+                )
+            ],
+            placementsByThreadID: evaluated.placements,
+            projectionRevision: 1,
+            sourceGeneration: sourceGeneration
+        )
+    }
+
+    private func projectionMessage(
+        thread: WorktreeAnnotationThread,
+        index: Int
+    ) -> WorktreeAnnotationMessage {
+        WorktreeAnnotationMessage(
+            id: .generate(),
+            threadID: thread.id,
+            ordinal: 0,
+            semanticRevision: 1,
+            createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1)),
+            updatedAt: Date(timeIntervalSince1970: TimeInterval(index + 1)),
+            savedBody: "message-\(index)",
+            savedRevision: 1,
+            draft: nil,
+            handled: false,
+            status: .editable
+        )
+    }
+
     private func makeDeltaFixture(
         contentCacheMaxBytes: Int = AppPolicies.Bridge.contentCacheMaxBytes
     ) async throws -> ProportionalSourceCaptureFixture {
@@ -345,9 +529,7 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
         let handle = try #require(item.contentRoles.head)
         let path = try #require(item.headPath)
         return WorktreeAnnotationSourceRefreshRequirement(
-            threadID: WorktreeAnnotationThreadID(
-                rawValue: UUID(uuidString: String(format: "00000000-0000-7000-8000-%012d", threadIndex + 1))!
-            ),
+            threadID: annotationThreadID(index: threadIndex),
             origin: .located(
                 WorktreeAnnotationLocatedOrigin(
                     repositoryRelativePath: path,
@@ -362,6 +544,33 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
                 )
             )
         )
+    }
+
+    private func annotationThreadID(index: Int) -> WorktreeAnnotationThreadID {
+        WorktreeAnnotationThreadID(
+            rawValue: UUID(uuidString: String(format: "00000000-0000-7000-8000-%012d", index + 1))!
+        )
+    }
+
+    private func finiteProjectionMessageContexts(
+        _ capture: BridgeProductAnnotationProjectionCapture
+    ) throws -> [UUID: BridgeProductWorktreeAnnotationThreadContext] {
+        let analysis = try BridgeProductAnnotationProjectionRecordAnalysis(capture: capture)
+        var contexts: [UUID: BridgeProductWorktreeAnnotationThreadContext] = [:]
+        for pageOrdinal in 0..<analysis.pageCount {
+            var cursor = try analysis.makePageCursor(pageOrdinal: pageOrdinal)
+            while let batch = try cursor.nextEncodedBatch() {
+                for line in batch.split(separator: 0x0A) {
+                    let record = try JSONDecoder().decode(
+                        BridgeProductAnnotationProjectionRecord.self,
+                        from: Data(line)
+                    )
+                    guard case .message(let message) = record else { continue }
+                    contexts[message.context.threadId] = message.context
+                }
+            }
+        }
+        return contexts
     }
 
     private func commit(
@@ -532,4 +741,10 @@ private struct ProportionalSourceCaptureFixture {
     let provider: BridgeReviewSourceProviderFake
     let successor: BridgeReviewCommittedPublication
     let unaffectedHandle: BridgeContentHandle
+}
+
+private struct PartialFailureEvaluationFixture {
+    let placements: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
+    let session: WorktreeAnnotationSession
+    let threads: [WorktreeAnnotationThread]
 }

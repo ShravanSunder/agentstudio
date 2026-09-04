@@ -173,6 +173,7 @@ enum WorktreeAnnotationSourceCapture {
         let path: String
         let sourceRole: WorktreeAnnotationSourceRole
         let handle: BridgeContentHandle
+        let dependentThreadIDs: Set<WorktreeAnnotationThreadID>
     }
 
     private struct ReviewSourceLoadAdmission {
@@ -181,6 +182,7 @@ enum WorktreeAnnotationSourceCapture {
     }
 
     private struct ReviewRefreshRequirement {
+        let threadID: WorktreeAnnotationThreadID
         let fallbackPath: String?
         let sourceRole: WorktreeAnnotationSourceRole
         let sourceIdentity: String?
@@ -221,7 +223,7 @@ enum WorktreeAnnotationSourceCapture {
             }
         )
         let normalizedRequirements = try requirements.compactMap { requirement in
-            try reviewRefreshRequirement(for: requirement.origin)
+            try reviewRefreshRequirement(requirement)
         }.map { requirement in
             let exactHandleID = requirement.sourceIdentity.flatMap { sourceIdentity in
                 availableHandleKeys.contains(
@@ -240,38 +242,54 @@ enum WorktreeAnnotationSourceCapture {
                 return fallbackPath
             }
             return ReviewRefreshRequirement(
+                threadID: requirement.threadID,
                 fallbackPath: fallbackPath,
                 sourceRole: requirement.sourceRole,
                 sourceIdentity: requirement.sourceIdentity,
                 exactHandleID: exactHandleID
             )
         }
-        var admittedHandleIDs = Set<String>()
+        var candidateIndexByHandleKey: [ReviewRefreshHandleKey: Int] = [:]
         var candidates: [ReviewRefreshCandidate] = []
         for item in orderedItems {
             for requirement in normalizedRequirements {
-                guard
-                    let candidate = reviewRefreshCandidate(
-                        for: requirement,
-                        item: item
-                    ),
-                    admittedHandleIDs.insert(candidate.handle.handleId).inserted
-                else { continue }
-                candidates.append(candidate)
+                guard let candidate = reviewRefreshCandidate(for: requirement, item: item) else {
+                    continue
+                }
+                let handleKey = ReviewRefreshHandleKey(
+                    sourceRole: candidate.sourceRole.rawValue,
+                    handleID: candidate.handle.handleId
+                )
+                if let index = candidateIndexByHandleKey[handleKey] {
+                    let existing = candidates[index]
+                    candidates[index] = ReviewRefreshCandidate(
+                        itemID: existing.itemID,
+                        path: existing.path,
+                        sourceRole: existing.sourceRole,
+                        handle: existing.handle,
+                        dependentThreadIDs: existing.dependentThreadIDs.union(
+                            candidate.dependentThreadIDs
+                        )
+                    )
+                } else {
+                    candidateIndexByHandleKey[handleKey] = candidates.count
+                    candidates.append(candidate)
+                }
             }
         }
         return candidates
     }
 
     private static func reviewRefreshRequirement(
-        for origin: WorktreeAnnotationThreadOrigin
+        _ requirement: WorktreeAnnotationSourceRefreshRequirement
     ) throws -> ReviewRefreshRequirement? {
-        switch origin {
+        switch requirement.origin {
         case .session:
             return nil
         case .wholeFile(let path, let sourceRole):
             guard sourceRole == .reviewBase || sourceRole == .reviewHead else { return nil }
             return ReviewRefreshRequirement(
+                threadID: requirement.threadID,
                 fallbackPath: path,
                 sourceRole: sourceRole,
                 sourceIdentity: nil,
@@ -282,6 +300,7 @@ enum WorktreeAnnotationSourceCapture {
                 return nil
             }
             return ReviewRefreshRequirement(
+                threadID: requirement.threadID,
                 fallbackPath: origin.repositoryRelativePath,
                 sourceRole: origin.sourceRole,
                 sourceIdentity: origin.sourceIdentity,
@@ -316,7 +335,8 @@ enum WorktreeAnnotationSourceCapture {
             itemID: item.itemId,
             path: currentPath,
             sourceRole: requirement.sourceRole,
-            handle: handle
+            handle: handle,
+            dependentThreadIDs: [requirement.threadID]
         )
     }
 
@@ -338,6 +358,7 @@ enum WorktreeAnnotationSourceCapture {
             productAdmission: productAdmission
         )
         var files: [WorktreeAnnotationCurrentSourceFile] = []
+        var unavailableThreadIDs = Set<WorktreeAnnotationThreadID>()
         files.reserveCapacity(candidates.count)
         for candidate in candidates {
             guard !candidate.path.isEmpty,
@@ -345,7 +366,8 @@ enum WorktreeAnnotationSourceCapture {
                 candidate.handle.sizeBytes
                     <= AppPolicies.Bridge.worktreeAnnotationMaximumSourceFileByteCount
             else {
-                return .unavailable
+                unavailableThreadIDs.formUnion(candidate.dependentThreadIDs)
+                continue
             }
             let result: BridgeContentLoadResult
             if let proportionalAdmission,
@@ -355,7 +377,10 @@ enum WorktreeAnnotationSourceCapture {
                     let cachedResult = proportionalAdmission.cachedUnaffectedResultByHandleID[
                         candidate.handle.handleId
                     ]
-                else { return .unavailable }
+                else {
+                    unavailableThreadIDs.formUnion(candidate.dependentThreadIDs)
+                    continue
+                }
                 result = cachedResult
             } else {
                 do {
@@ -364,7 +389,8 @@ enum WorktreeAnnotationSourceCapture {
                         productAdmission: productAdmission
                     )
                 } catch {
-                    return .unavailable
+                    unavailableThreadIDs.formUnion(candidate.dependentThreadIDs)
+                    continue
                 }
             }
             guard
@@ -372,7 +398,8 @@ enum WorktreeAnnotationSourceCapture {
                     <= AppPolicies.Bridge.worktreeAnnotationMaximumSourceFileByteCount,
                 let body = String(data: result.data, encoding: .utf8)
             else {
-                return .unavailable
+                unavailableThreadIDs.formUnion(candidate.dependentThreadIDs)
+                continue
             }
             files.append(
                 WorktreeAnnotationCurrentSourceFile(
@@ -383,7 +410,11 @@ enum WorktreeAnnotationSourceCapture {
                 )
             )
         }
-        return .available(files)
+        guard !unavailableThreadIDs.isEmpty else { return .available(files) }
+        return .availableWithThreadFailures(
+            files: files,
+            unavailableThreadIDs: unavailableThreadIDs
+        )
     }
 
     private static func reviewSourceLoadAdmission(
