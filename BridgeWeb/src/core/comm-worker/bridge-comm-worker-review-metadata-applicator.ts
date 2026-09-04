@@ -473,12 +473,6 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		}
 		const candidateProjection = activeProjection.cloneComplete();
 		const projectionResult = this.#applyProjectionEvent(candidateProjection, event);
-		const disposition = candidateStartDisposition(event);
-		this.#publishCandidateStarted?.({
-			disposition,
-			identity: reviewMetadataLineage(event),
-			workerDerivationEpoch,
-		});
 		candidateProjection.assertCompleteFinalBarrier();
 		const snapshot = candidateProjection.snapshot();
 		const candidateItemIds = [...new Set(projectionResult.affectedItemIds)];
@@ -493,6 +487,20 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		const affectedItemIds = candidateItemIds.filter(
 			(itemId) => this.#itemSignatureById.get(itemId) !== nextSignaturesByItemId.get(itemId),
 		);
+		const initialDisposition = candidateStartDisposition(event);
+		const disposition =
+			initialDisposition.kind === 'sameSource'
+				? {
+						affectedStableFileIdentities: affectedItemIds,
+						kind: 'sameSource' as const,
+						presentationClass: initialDisposition.presentationClass,
+					}
+				: initialDisposition;
+		this.#publishCandidateStarted?.({
+			disposition,
+			identity: reviewMetadataLineage(event),
+			workerDerivationEpoch,
+		});
 		const rollbackSnapshot = this.#captureRollbackSnapshot();
 		try {
 			const rowMutation = this.#applyTreeRowMutation(event);

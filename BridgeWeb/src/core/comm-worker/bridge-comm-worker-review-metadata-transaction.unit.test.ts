@@ -193,6 +193,41 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		]);
 	});
 
+	test('refines stale native delta impact from worker runtime signatures before candidate start', () => {
+		// Arrange
+		const harness = makeApplicatorHarness();
+		const initialIdentity = reviewIdentity('runtime-impact', 8, 21);
+		const initialSnapshot = reviewSnapshot(initialIdentity, 'item-runtime-impact', 0, 1, true);
+		const initialItem = initialSnapshot.itemMetadata[0];
+		if (initialItem === undefined) throw new Error('Review delta fixture item is missing.');
+		harness.applicator.apply(initialSnapshot, workerDerivationEpoch);
+
+		// Act
+		harness.applicator.apply(
+			{
+				...reviewDelta(initialIdentity, 22),
+				operations: [
+					{
+						item: { ...initialItem, headPath: 'Sources/item-runtime-impact-updated.swift' },
+						operationKind: 'upsertItem',
+					},
+				],
+			},
+			workerDerivationEpoch,
+		);
+
+		// Assert
+		expect(harness.candidateStartedPublications.at(-1)?.disposition).toEqual({
+			affectedStableFileIdentities: ['item-runtime-impact'],
+			kind: 'sameSource',
+			presentationClass: { kind: 'ordinary' },
+		});
+		expect(harness.candidateReadyPublications.at(-1)?.disposition).toEqual(
+			harness.candidateStartedPublications.at(-1)?.disposition,
+		);
+		expect(harness.applications.at(-1)?.affectedItemIds).toEqual(['item-runtime-impact']);
+	});
+
 	test('lets a newer successor delta supersede an older pending candidate', () => {
 		// Arrange
 		const harness = makeApplicatorHarness();

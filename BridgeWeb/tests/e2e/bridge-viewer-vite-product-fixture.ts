@@ -83,6 +83,10 @@ export interface BridgeViewerReviewedHeadAdvance {
 	readonly previousHeadOID: string;
 }
 
+export interface BridgeViewerReviewWorktreeMutation {
+	readonly path: string;
+}
+
 export interface BridgeViewerOwnedViteProcessExit {
 	readonly code: number | null;
 	readonly signal: NodeJS.Signals | null;
@@ -109,6 +113,7 @@ export async function createBridgeViewerViteProductFixture(
 	) => Promise<BridgeViewerReviewedHeadAdvance>;
 	readonly dispose: () => Promise<void>;
 	readonly mutateLargeFile: () => Promise<BridgeViewerViteProductContentOracle>;
+	readonly mutateReviewFile: () => Promise<BridgeViewerReviewWorktreeMutation>;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 }> {
 	const worktreeRoot = await mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-e2e-'));
@@ -116,6 +121,7 @@ export async function createBridgeViewerViteProductFixture(
 	const comparisonTargetName = 'bridge-vite-comparison-target';
 	const paneId = randomUUID();
 	let reviewedHeadAdvanceSequence = 0;
+	let reviewWorktreeMutationSequence = 0;
 	const largeFilePath = 'zz-large-complete-file.txt';
 	const reviewChangedFileCount = options.reviewChangedFileCount ?? 16;
 	if (!Number.isSafeInteger(reviewChangedFileCount) || reviewChangedFileCount <= 0) {
@@ -363,6 +369,19 @@ export async function createBridgeViewerViteProductFixture(
 					finalMarker: mutatedFinalMarker,
 					middleMarker: mutatedMiddleMarker,
 				});
+			},
+			mutateReviewFile: async (): Promise<BridgeViewerReviewWorktreeMutation> => {
+				const changedPath = nestedPaths[0];
+				if (changedPath === undefined) {
+					throw new Error('Proportional Review fixture path is missing.');
+				}
+				const currentBody = await readFile(join(worktreeRoot, changedPath), 'utf8');
+				reviewWorktreeMutationSequence += 1;
+				await writeFile(
+					join(worktreeRoot, changedPath),
+					`${currentBody}export const proportionalWorktreeMutation${reviewWorktreeMutationSequence} = ${reviewWorktreeMutationSequence};\n`,
+				);
+				return { path: changedPath };
 			},
 			oracle: {
 				baseRef,
