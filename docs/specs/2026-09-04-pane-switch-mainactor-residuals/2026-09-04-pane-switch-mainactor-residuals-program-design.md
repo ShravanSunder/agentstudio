@@ -18,7 +18,9 @@ no geometry rebind only their changed rows and leave the scroll offset alone.
 The presentation coordinator republishes the visible snapshot only when the
 snapshot or its consumer changed. One test lane mounts the real composition on
 a store bound to the test core atoms, performs switches, and counts refreshes
-and applies.
+and applies. The batch no longer tracks which panes belong to which worktree:
+capability resolution never reads that, so the whole-workspace lookup is
+deleted rather than narrowed.
 
 ```text
 user switch
@@ -32,11 +34,12 @@ PaneTabViewController.handlePaneFocusTrigger           [focus owner]
   -> WorkspaceTabLayoutAtom.setActivePane                UNCHANGED (equal writes
                                                           already suppressed)
   |
-  | AtomFamilySlot willSet on presented keys only
+  | AtomFamilySlot willSet on tracked keys only
   v
 RepoExplorerCommandPresentationBatch                    [command presentation owner]
   -> one pending wake per MainActor turn                 ADDED coalescing
-  -> refresh: tracked reads = presented locations + visible repos
+  -> refresh: tracked reads = active tab, its active pane and zoom,
+              management layer, visible repos/worktrees, progress, prefs
                                                         CHANGED (was all tabs × panes)
   -> resolve only affected requests; publish delta if changed   UNCHANGED
   |
@@ -81,9 +84,11 @@ attribute from #323 remain.
    restoration.
 5. `RepoExplorerPresentationHostView.Coordinator.update` republishes
    `currentVisibleSnapshot` on every SwiftUI update
-   (`Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPresentationHostView.swift:136-150`),
-   which runs `updateSidebarVisibleWorktrees` and the batch accept guard each
-   time.
+   (`Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPresentationHostView.swift:136-150`).
+   The batch's accept guard already rejects an equal snapshot, so the cost is
+   upstream: `RepoExplorerView.updateSidebarVisibleWorktrees` runs on every
+   update, writing `sidebarVisibleWorktreesRuntime` and invoking the sidebar
+   callbacks (`RepoExplorerView+VisibleRows.swift:89-96`).
 6. No test mounts `SidebarSurfaceHost` with a store bound to the core atoms;
    the parked probe built a standalone `WorkspaceStore()` while
    `RepoExplorerProjectionInputCapture` reads `CoreAtomScope.store`, so the
@@ -97,22 +102,30 @@ plan builder's `content` versus `membership` classification, and #323.
 
 ## The structural crux and selected tradeoff
 
-The crux is where the batch's knowledge of "which panes belong to presented
-rows" comes from. Today it recomputes it from the whole workspace on every
-wake. It could instead come from the presented rows themselves, which the
-projection worker already computes off-main and the materializer already
-holds.
+The crux is whether the batch needs per-worktree pane-location facts at all.
+Today it recomputes them from the whole workspace on every wake to decide which
+worktree requests to re-resolve. Capability resolution for every request the
+sidebar makes (`AppCommandDispatcher.repoExplorerCommandPresentationSnapshot`
+→ `appCommandRouter.canExecute` / `PaneTabViewController.repoExplorerCommandCapabilities`
+→ `WorkspaceCommandValidator.validate` over `actionStateSnapshot()`) reads
+only global facts: the active tab, its active pane, that tab's zoom
+presentation, the management layer, and repository/worktree membership
+(`PaneTabViewController.swift:4051-4115,4356-4380`, `ActionValidator.swift:231-237`).
+Pane-to-worktree association never changes a capability result; rows that
+show pane locations are produced by the projection worker, not by the batch.
 
 | Alternative | Structure | Gain | Cost and failure mode | Decision |
 | --- | --- | --- | --- | --- |
 | Keep whole-workspace lookup, add capture equality | Recompute, compare, skip resolve | Fewer resolutions | Recompute is the cost (~1 ms); wakes and cost unchanged; R3 unmet | Rejected |
-| Presented-location tracking | Materializer publishes pane locations of presented rows with the visible snapshot; batch reads per-key slots for those locations only, coalesces wakes per turn | Tracked set bounded by presented rows; unpresented writes never wake; refresh cost proportional to presented rows | Visible snapshot grows one field; batch depends on projection-provided locations being current (they are, per generation) | Selected |
+| Presented-location tracking | Materializer forwards presented rows' pane destinations; batch reads per-key slots for those locations | Bounded tracked set | Adds a snapshot field and a read path for facts no capability reads; more mechanism than the obligation needs | Rejected (deletion preserves every requirement) |
+| Delete location facts; track global capability inputs only | Fingerprint = active tab, its active pane, its zoom presentation, management layer; visible repo/worktree slots, progress, favorites, prefs as today; coalesce wakes per turn | No whole-workspace scan; unpresented pane/tab writes never wake; refresh cost O(visible rows) for request assembly only | Association moves no longer force re-resolution of worktree requests (they never changed results); one existing test encodes the old heuristic and is rewritten to assert quiet | Selected |
 | Move command presentation off MainActor | New actor computing capabilities | Removes cost from MainActor entirely | New owner, new actor boundary for MainActor-only dispatcher state; outside acceptable complexity | Rejected |
 | Debounce refreshes on a timer | Timer-coalesced refresh | Fewer refreshes under bursts | Adds latency to real capability changes; timer is a mechanism the spec forbids as sole fix; ordering not preserved | Rejected |
 
-The selected design spends complexity only on one added field in the visible
-snapshot and a per-key read path in the batch. Revisit only if capability
-resolution needs facts that are not per-key addressable.
+The selected design removes mechanism: `LocationCapabilityFacts`,
+`paneLocationsByWorktreeId` in the batch, and whole-`Tab` assembly are deleted.
+Revisit only if a sidebar request ever gains a capability that depends on a
+specific pane's location; the proof seam below fails first.
 
 ## Component ownership and dependency direction
 
@@ -120,27 +133,26 @@ resolution needs facts that are not per-key addressable.
 | --- | --- | --- | --- |
 | `PaneDrawerFocusDecider` | Selection, responder, runtime decision for drawer triggers, including the already-active keep rule | `PaneFocusOrchestrator` | Drawer focus policy changes |
 | `PaneFocusExecutor` | Applying decisions to store, responder, runtime | `PaneTabViewController` | Focus effect ownership changes |
-| `RepoExplorerTableMaterializer` | Table transaction, content-only classification, geometry and anchor policy, viewport publication including presented pane locations | `RepoExplorerMaterializationHost` | Table cost or viewport policy changes |
-| `RepoExplorerVisibleWorktreeSnapshot` | Visible worktrees, repositories, settled receipts, presented pane locations, target | Materializer, coordinator, batch | Presented-set contract changes |
+| `RepoExplorerTableMaterializer` | Table transaction, content-only classification, geometry and anchor policy, viewport publication | `RepoExplorerMaterializationHost` | Table cost or viewport policy changes |
+| `RepoExplorerVisibleWorktreeSnapshot` | Visible worktrees, repositories, settled receipts, target (unchanged) | Materializer, coordinator, batch | Presented-set contract changes |
 | `RepoExplorerPresentationHostView.Coordinator` | Bridging SwiftUI updates to the host; last-published snapshot and consumer token | `RepoExplorerView` | SwiftUI bridging changes |
-| `RepoExplorerCommandPresentationBatch` | Tracked read set bounded to presented keys, per-turn wake coalescing, tracking generation, resolution, publication, telemetry | `SidebarSurfaceHost` | Capability presentation policy changes |
+| `RepoExplorerCommandPresentationBatch` | Tracked read set = global capability inputs plus visible repo/worktree keys, per-turn wake coalescing, tracking generation, resolution, publication, telemetry | `SidebarSurfaceHost` | Capability presentation policy changes |
 | `SidebarSurfaceHostSwitchGuardTests` (lane) | Mounted composition, bound store, switch workload, refresh and apply counts | `mise run test` | Guard bounds change |
 
 Allowed dependency direction:
 
 ```text
 Core pane focus deciders -> App executor -> Core atoms
-Features/RepoExplorer materializer -> visible snapshot -> App batch -> Core atoms per key
+Features/RepoExplorer materializer -> visible snapshot (unchanged) -> App batch -> Core atoms per key
 App sidebar host -> Features RepoExplorer view -> coordinator -> host/materializer
 Tests -> App composition + Core test atoms
 ```
 
 Forbidden edges:
 
-- The batch must not iterate all tabs or all panes; it reads only slots keyed
-  by presented locations, visible worktrees, and visible repositories.
-- The materializer must not read atoms to compute locations; it forwards the
-  projection-provided destinations of represented rows.
+- The batch must not iterate all tabs or all panes and must not assemble a
+  `Tab`; it reads the active tab id, that tab's active pane and zoom slots, the
+  management layer, and slots keyed by visible worktrees and repositories.
 - The coordinator must not call the batch directly; it publishes through the
   existing closures only when snapshot or consumer token changed.
 - Deciders must not read atoms; already-active facts come from
@@ -159,34 +171,38 @@ outcome (`.focusPaneHost(paneId: drawerPaneId)`, `.preserveRuntimeFocus`), so
 focus reconciliation is unchanged and only the selection write disappears.
 `PaneFocusExecutor.apply` is unchanged; `.keep` already writes nothing.
 
-### Presented pane locations in the visible snapshot
-
-`RepoExplorerVisibleWorktreeSnapshot` gains
-`presentedPaneLocations: Set<RepoExplorerPresentedPaneLocation>` where a
-location is `(worktreeID, tabID, paneID)`, derived by the materializer in
-`publishVisibleRows` from the `paneDestinations` of represented rows
-(`RepoExplorerMaterializationSnapshot.swift:21,39`). It changes only when the
-represented set changes, so it takes part in the existing
-`advanceVisibleTarget` comparison and never produces a new target on its own.
-Equality includes it. Existing consumers that ignore it are unaffected.
-
 ### Bounded tracked reads in the batch
 
-`observeApprovedCapabilityFacts(visibleWorktreeIDs:)` becomes
-`observeApprovedCapabilityFacts(locations:)`. For each presented location it
-reads, per key: the tab shell (`tabShellAtom.tabShell(tabID)`), the tab's
-active arrangement and active pane through the cursor atom, zoom presentation
-for that tab, structural facts for that pane, and drawer expansion for that
-pane when it owns a drawer. It no longer calls `paneLocationsByWorktreeId` or
-`WorkspaceTabLayoutDerived.tab(_:)`. The fingerprint keeps today's meaning
-(active tab, management layer, per-location capability facts) with the
-`tab: Tab?` field replaced by the per-key facts the dispatcher's repo-explorer
-capability resolution reads; the planner proves the field set against
-`AppCommandDispatcher.repoExplorerCommandPresentationSnapshot` and
-`PaneTabViewController.targetedPaneExternalCommandCapability` with a test that
-mutates each fact and asserts re-resolution. Visible-repo progress, topology
-worktree/repo slots, favorite state, prefs sort order, and management layer
-remain tracked as today.
+`observeApprovedCapabilityFacts` and `LocationCapabilityFacts` are deleted.
+`CapabilityFactsFingerprint` becomes:
+
+```text
+activeTabID:            store.tabLayoutAtom.activeTabId
+activePaneID:           cursor atom active pane of the active tab's active
+                        arrangement (per-key slot; nil when no active tab)
+activeTabZoom:          store.panePresentationAtom.zoomPresentation(forTab: activeTabID)
+isManagementLayerActive: atom(\.managementLayer).isActive
+```
+
+`globalCapabilitiesMatch` compares all four; when any differs every request is
+re-resolved (today's behavior for active tab and management layer, extended to
+the two facts `actionStateSnapshot()` also feeds). `changedWorktreeIDs` no
+longer exists; the surviving-visible request set is re-resolved only on
+global change, on visible-set delta, on repository progress change, or on
+favorite change, exactly as today for those triggers. Visible-repo progress,
+topology worktree/repo slots, favorite state, and prefs sort order remain
+tracked per key. The batch never calls `paneLocationsByWorktreeId` or
+assembles a `Tab`.
+
+Why this is complete: every sidebar request is worktree-, repo-, or
+toolbar-targeted (`RepoExplorerCommandPresentation.swift:172-334`); their
+capability results derive from `WorkspaceCommandValidator.validate` over
+`actionStateSnapshot()` plus `targetedAction`, which read only the active
+tab, its active pane, its zoom presentation, management layer, and
+repo/worktree membership. Proof seam: a test that mutates each of those five
+facts asserts re-resolution, and a test that moves a pane association
+between two visible worktrees asserts no re-resolution and unchanged results
+(replacing "association move resolves only affected visible worktree rows").
 
 ### Per-turn wake coalescing
 
@@ -248,7 +264,6 @@ Runtime-only state changes:
 | `pendingObservationRefresh` | batch | false → true on wake; true → false when the refresh task starts | generation check precedes |
 | `armedTrackingGeneration` | batch | unchanged from #323 | |
 | `lastPublishedVisibleSnapshot`, `lastPublishedConsumerToken` | coordinator | set on publish | publish only on difference |
-| `presentedPaneLocations` | visible snapshot (value) | recomputed per viewport publication | participates in target advance |
 | drawer selection | arrangement atoms | unchanged; `.keep` performs no write | already-active predicate |
 
 No persisted state changes. Illegal transitions: a refresh scheduled by a
@@ -291,11 +306,12 @@ PROPOSED
 AtomFamilySlot.acceptValue (presented key only wakes)
   -> willSet -> batch onChange -> generation check                UNCHANGED (#323)
   -> pendingObservationRefresh gate -> one Task per turn          ADDED
-  -> refresh -> per-key reads for presentedPaneLocations          CHANGED
+  -> refresh -> four global per-key reads + visible repo/worktree slots   CHANGED
   -> resolve/publish                                              UNCHANGED
 Evidence: RepoExplorerCommandPresentationBatch.swift:120-165,373-416;
 WorkspaceLookupDerived.swift:7-19; live sample /tmp/agentstudio-storm-loop-4.sample.txt.
-Result: unpresented writes wake nothing; presented writes cost one bounded refresh.
+Result: pane/tab/arrangement writes outside the active tab's active pane, zoom, or
+tab id wake nothing; a switch wakes at most one coalesced refresh.
 ```
 
 ```text
@@ -345,8 +361,7 @@ Result: fails on refreshes per switch > 2, applies per switch > 1, or no engagem
 
 | Condition | Detection | Containment | Recovery | Observable |
 | --- | --- | --- | --- | --- |
-| Presented locations stale after a projection race | Generation on the visible snapshot | Batch resolves against current atoms; stale locations only widen the tracked set until the next publication | Next viewport publication replaces them | At most one extra refresh |
-| A capability fact not in the per-key set changes | Proof seam test mutating each fact | Fingerprint miss → stale presentation until next affected wake | Planner adds the missing key; test fails until then | Test failure, not runtime corruption |
+| A future sidebar command depends on a pane-location fact | Proof seam test mutating each tracked fact plus the association-move quiet test | Fingerprint miss → stale presentation until next global change | The design is revisited; the seam fails before release | Test failure, not runtime corruption |
 | Content-only misclassification (height actually changed) | Conservative rule on width-measured rows; height cache | Row re-measured on next geometry plan | Existing `noteHeightOfRows` path | Visible only as a one-frame height lag, bounded |
 | Coordinator token missing (batch nil) | `nil` token | Publish once when the batch appears (token changes nil → id) | Existing lifecycle | Batch receives snapshot exactly once |
 | Wake during refresh | `pendingObservationRefresh` | One follow-up refresh | Same path | No lost update |
@@ -368,7 +383,7 @@ change. Rollback is code-only. #323 stays.
 
 | Obligation | Owner and mechanism | Degradation | Proof seam |
 | --- | --- | --- | --- |
-| Performance R1/R2/R3/R5 | Bounded tracked set, per-turn coalescing, content-only policy, republish suppression | One extra refresh on stale locations | Refresh and apply counts per switch; materializer counters; tab-bar queue wait |
+| Performance R1/R2/R3/R5 | Global-only fingerprint, per-turn coalescing, content-only policy, republish suppression | None beyond one coalesced refresh per turn | Refresh and apply counts per switch; materializer counters; tab-bar queue wait |
 | Responsiveness | Same | Same | Debug-app switch workload, production comparison |
 | Observability R8 | `wake_trigger` (#323) plus existing stage snapshots | Fail-open exporter | OTLP projection test; VictoriaLogs by service.version |
 | Reliability R9 | No persisted change | — | Install/downgrade round trip |
@@ -380,8 +395,8 @@ change. Rollback is code-only. #323 stays.
 | Requirement | Realization | Proof seam | Enforcement |
 | --- | --- | --- | --- |
 | R1 switch budget | Deltas 1–4 together | Tab-bar queue wait in debug workload and production | Runtime measurement |
-| R2 refreshes per switch bounded, age-invariant | #323 generation + per-turn coalescing + presented-key tracking | Lane counts after 200 prior publications | Lane test |
-| R3 unpresented facts no refresh | Presented-key tracking | Test: write to unpresented pane/tab → 0 observation refreshes; presented → 1 | Batch unit test |
+| R2 refreshes per switch bounded, age-invariant | #323 generation + per-turn coalescing + global-only fingerprint; one switch = at most one snapshot refresh (one viewport publication) plus one coalesced observation refresh | Lane counts after 200 prior publications | Lane test |
+| R3 unpresented facts no refresh | Global-only fingerprint plus per-key visible repo/worktree slots | Test: write to a pane/tab outside the active selection → 0 observation refreshes; active-pane change or visible-repo progress → 1 | Batch unit test |
 | R4 re-selection no-op | Drawer decider keep rule | Decider test + executor test: no write, no refresh | Unit tests |
 | R5 content-only cost | Materializer classification | Counters flat, offset unchanged, only changed rows rebound | Materializer tests |
 | R6 republish suppression | Coordinator token + last-published | Host view test: N identical updates → 0 publications; new token → 1 | Host view test |
