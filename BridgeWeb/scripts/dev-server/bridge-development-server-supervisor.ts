@@ -31,6 +31,7 @@ export function createBridgeDevelopmentServerSupervisor(props: {
 	readonly buildTimeoutMilliseconds?: number;
 	readonly clock?: BridgeDevelopmentServerSupervisorClock;
 	readonly launchServer: () => Promise<SupervisedBridgeDevelopmentServer>;
+	readonly notifyReplacementReady?: () => void;
 	readonly quietWindowMilliseconds?: number;
 	readonly report: (message: string) => void;
 }): BridgeDevelopmentServerSupervisor {
@@ -39,6 +40,7 @@ export function createBridgeDevelopmentServerSupervisor(props: {
 		buildTimeoutMilliseconds: props.buildTimeoutMilliseconds ?? defaultBuildTimeoutMilliseconds,
 		clock: props.clock ?? systemSupervisorClock,
 		launchServer: props.launchServer,
+		notifyReplacementReady: props.notifyReplacementReady ?? ((): void => {}),
 		quietWindowMilliseconds: props.quietWindowMilliseconds ?? defaultQuietWindowMilliseconds,
 		report: props.report,
 	});
@@ -53,6 +55,7 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 	private quietWindowOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
 	private launchRetryOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
 	private readonly expectedExitServers = new Set<SupervisedBridgeDevelopmentServer>();
+	private hasPublishedReadyServer = false;
 	private resolveLaunchRetryDelay: ((shouldRetry: boolean) => void) | null = null;
 	private started = false;
 	private stopped = false;
@@ -65,6 +68,7 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 			readonly buildTimeoutMilliseconds: number;
 			readonly clock: BridgeDevelopmentServerSupervisorClock;
 			readonly launchServer: () => Promise<SupervisedBridgeDevelopmentServer>;
+			readonly notifyReplacementReady: () => void;
 			readonly quietWindowMilliseconds: number;
 			readonly report: (message: string) => void;
 		},
@@ -197,9 +201,41 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 			}
 			try {
 				const launchedServer = await this.props.launchServer();
+				if (this.stopped || candidateGeneration !== this.changeGeneration) {
+					this.activeServer = launchedServer;
+					this.expectedExitServers.add(launchedServer);
+					this.observeUnexpectedExit(launchedServer);
+					try {
+						await launchedServer.stop();
+					} catch (error: unknown) {
+						this.props.report(
+							`Bridge development server stale launch stop failed; retaining cleanup authority: ${errorMessage(error)}`,
+						);
+						return;
+					} finally {
+						this.expectedExitServers.delete(launchedServer);
+					}
+					if (this.activeServer === launchedServer) this.activeServer = null;
+					if (!this.stopped) {
+						this.props.report(
+							'Bridge development server launch became stale after readiness; waiting for current source.',
+						);
+					}
+					return;
+				}
 				this.activeServer = launchedServer;
 				this.observeUnexpectedExit(launchedServer);
 				this.props.report('Bridge development server is ready.');
+				if (this.hasPublishedReadyServer) {
+					try {
+						this.props.notifyReplacementReady();
+					} catch (error: unknown) {
+						this.props.report(
+							`Bridge development server replacement notification failed: ${errorMessage(error)}`,
+						);
+					}
+				}
+				this.hasPublishedReadyServer = true;
 				return;
 			} catch (error: unknown) {
 				this.props.report(

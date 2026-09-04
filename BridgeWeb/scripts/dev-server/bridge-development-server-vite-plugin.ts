@@ -93,6 +93,9 @@ export function createBridgeDevelopmentServerVitePlugin(props: {
 			configuredServer = server;
 			session = await createBridgeDevelopmentServerViteSession({
 				backendOrigin: props.backendOrigin,
+				notifyReplacementReady: (): void => {
+					server.ws.send({ path: '*', type: 'full-reload' });
+				},
 				repoRootPath: props.repoRootPath,
 				report: (message): void => server.config.logger.info(`[bridge-backend] ${message}`),
 			});
@@ -194,6 +197,7 @@ export function bridgeDevelopmentServerSourceChangeIsRelevant(props: {
 
 async function createBridgeDevelopmentServerViteSession(props: {
 	readonly backendOrigin: string;
+	readonly notifyReplacementReady: () => void;
 	readonly repoRootPath: string;
 	readonly report: (message: string) => void;
 }): Promise<BridgeDevelopmentServerViteSession> {
@@ -230,6 +234,7 @@ async function createBridgeDevelopmentServerViteSession(props: {
 				whenExited: ownedServer.whenExited,
 			};
 		},
+		notifyReplacementReady: props.notifyReplacementReady,
 		report: props.report,
 	});
 	let stopPromise: Promise<void> | null = null;
