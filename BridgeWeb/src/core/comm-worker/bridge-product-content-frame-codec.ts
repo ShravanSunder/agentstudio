@@ -1,4 +1,10 @@
 import {
+	bridgeProductContentAcceptedIdentityMatchesRequest,
+	bridgeProductContentAcceptedMaximumMatchesIdentity,
+	bridgeProductContentExactFactsForRequest,
+	validateBridgeProductContentEndOfSource,
+} from './bridge-product-content-application-registry.js';
+import {
 	bridgeProductContentAcceptedBodySchema,
 	bridgeProductContentAcceptedHeaderSchema,
 	bridgeProductContentDataHeaderSchema,
@@ -6,7 +12,6 @@ import {
 	bridgeProductContentEndHeaderSchema,
 	bridgeProductContentErrorBodySchema,
 	bridgeProductContentHeaderSchema,
-	bridgeProductContentIdentityFromDescriptor,
 	bridgeProductContentRequestSchema,
 	bridgeProductContentResetBodySchema,
 	type BridgeProductContentFrame,
@@ -15,11 +20,6 @@ import {
 	type BridgeProductContentRequest,
 	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
-	type BridgeProductAnnotationOutputContentIdentity,
-	type BridgeProductAnnotationProjectionContentIdentity,
-	type BridgeProductFileContentIdentity,
-	type BridgeProductReviewComparisonTargetsContentIdentity,
-	type BridgeProductReviewContentIdentity,
 } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
@@ -352,9 +352,10 @@ export class BridgeProductContentStreamValidator<
 		if (acceptedHeader === null) {
 			throw new Error('Bridge product content end arrived before acceptance.');
 		}
-		if (acceptedHeader.identity.contentKind === 'file.content' && !header.endOfSource) {
-			throw new Error('Bridge product File content terminal must reach the end of source.');
-		}
+		validateBridgeProductContentEndOfSource({
+			endOfSource: header.endOfSource,
+			identity: acceptedHeader.identity,
+		});
 		if (header.observedByteLength !== this.#observedByteLength) {
 			throw new Error('Bridge product content end length does not match received bytes.');
 		}
@@ -413,8 +414,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	header: ReturnType<typeof bridgeProductContentAcceptedHeaderSchema.parse>,
 	expectedRequest: BridgeProductContentRequest,
 ): void {
-	const expectedIdentity = bridgeProductContentIdentityFromDescriptor(expectedRequest.descriptor);
-	const expectedExactFacts = bridgeProductDeclaredExactFactsForRequest(expectedRequest);
+	const expectedExactFacts = bridgeProductContentExactFactsForRequest(expectedRequest);
 	if (
 		header.contentRequestId !== expectedRequest.contentRequestId ||
 		header.leaseId !== expectedRequest.leaseId ||
@@ -425,17 +425,19 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 		header.maximumBytes !== expectedRequest.descriptor.maximumBytes ||
 		header.declaredByteLength !== expectedExactFacts.declaredByteLength ||
 		header.expectedSha256 !== expectedExactFacts.expectedSha256 ||
-		!bridgeProductContentIdentitiesEqual(header.identity, expectedIdentity)
+		!bridgeProductContentAcceptedIdentityMatchesRequest({
+			identity: header.identity,
+			request: expectedRequest,
+		})
 	) {
 		throw new Error('Bridge product content acceptance does not match its issued request.');
 	}
-	const identityMaximumBytes =
-		header.identity.contentKind === 'annotation.output' ||
-		header.identity.contentKind === 'annotation.projection' ||
-		header.identity.contentKind === 'review.comparisonTargets'
-			? header.identity.maximumBytes
-			: header.identity.window.maximumBytes;
-	if (header.maximumBytes !== identityMaximumBytes) {
+	if (
+		!bridgeProductContentAcceptedMaximumMatchesIdentity({
+			identity: header.identity,
+			maximumBytes: header.maximumBytes,
+		})
+	) {
 		throw new Error('Bridge product content accepted maximum does not match its identity.');
 	}
 	if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
@@ -465,29 +467,10 @@ function encodeBridgeProductContentCorrelation(operationCorrelationId: string | 
 	return encoded;
 }
 
-function bridgeProductDeclaredExactFactsForRequest(expectedRequest: BridgeProductContentRequest): {
-	readonly declaredByteLength: number | null;
-	readonly expectedSha256: string | null;
-} {
-	switch (expectedRequest.contentKind) {
-		case 'annotation.output':
-		case 'file.content':
-		case 'review.content':
-			return {
-				declaredByteLength: expectedRequest.descriptor.declaredByteLength,
-				expectedSha256: expectedRequest.descriptor.expectedSha256,
-			};
-		case 'annotation.projection':
-		case 'review.comparisonTargets':
-			return { declaredByteLength: null, expectedSha256: null };
-	}
-	return assertNeverBridgeProductContentRequest(expectedRequest);
-}
-
 function bridgeProductDeclaredByteLengthForRequest(
 	expectedRequest: BridgeProductContentRequest,
 ): number | null {
-	return bridgeProductDeclaredExactFactsForRequest(expectedRequest).declaredByteLength;
+	return bridgeProductContentExactFactsForRequest(expectedRequest).declaredByteLength;
 }
 
 function concatenateBridgeProductContentBytes(
@@ -501,95 +484,6 @@ function concatenateBridgeProductContentBytes(
 		offset += part.byteLength;
 	}
 	return bytes;
-}
-
-function bridgeProductContentIdentitiesEqual(
-	left:
-		| BridgeProductAnnotationOutputContentIdentity
-		| BridgeProductAnnotationProjectionContentIdentity
-		| BridgeProductFileContentIdentity
-		| BridgeProductReviewContentIdentity
-		| BridgeProductReviewComparisonTargetsContentIdentity,
-	right:
-		| BridgeProductAnnotationOutputContentIdentity
-		| BridgeProductAnnotationProjectionContentIdentity
-		| BridgeProductFileContentIdentity
-		| BridgeProductReviewContentIdentity
-		| BridgeProductReviewComparisonTargetsContentIdentity,
-): boolean {
-	if (left.contentKind !== right.contentKind) return false;
-	switch (left.contentKind) {
-		case 'annotation.output':
-			if (right.contentKind !== 'annotation.output') return false;
-			return (
-				left.attemptId === right.attemptId &&
-				left.descriptorId === right.descriptorId &&
-				left.formatVersion === right.formatVersion &&
-				left.maximumBytes === right.maximumBytes &&
-				left.outputKind === right.outputKind &&
-				left.surface === right.surface
-			);
-		case 'annotation.projection':
-			if (right.contentKind !== 'annotation.projection') return false;
-			return (
-				left.descriptorId === right.descriptorId &&
-				left.maximumBytes === right.maximumBytes &&
-				left.page.aggregateSha256 === right.page.aggregateSha256 &&
-				left.page.expectedMessageCount === right.page.expectedMessageCount &&
-				left.page.expectedSessionCount === right.page.expectedSessionCount &&
-				left.page.expectedThreadCount === right.page.expectedThreadCount &&
-				left.page.isLastPage === right.page.isLastPage &&
-				left.page.nextCursor === right.page.nextCursor &&
-				left.page.pageOrdinal === right.page.pageOrdinal &&
-				left.page.projectionRevision === right.page.projectionRevision &&
-				left.page.snapshotId === right.page.snapshotId &&
-				left.page.sourceGeneration === right.page.sourceGeneration &&
-				left.surface === right.surface
-			);
-		case 'file.content':
-			if (right.contentKind !== 'file.content') return false;
-			return (
-				left.descriptorId === right.descriptorId &&
-				left.fileId === right.fileId &&
-				left.source.repoId === right.source.repoId &&
-				left.source.rootRevisionToken === right.source.rootRevisionToken &&
-				left.source.sourceCursor === right.source.sourceCursor &&
-				left.source.sourceId === right.source.sourceId &&
-				left.source.subscriptionGeneration === right.source.subscriptionGeneration &&
-				left.source.worktreeId === right.source.worktreeId &&
-				left.window.kind === right.window.kind &&
-				left.window.maximumBytes === right.window.maximumBytes &&
-				left.window.maximumLines === right.window.maximumLines &&
-				left.window.startByte === right.window.startByte
-			);
-		case 'review.content':
-			if (right.contentKind !== 'review.content') return false;
-			return (
-				left.contentDigest.authority === right.contentDigest.authority &&
-				left.contentDigest.algorithm === right.contentDigest.algorithm &&
-				left.contentDigest.value === right.contentDigest.value &&
-				left.descriptorId === right.descriptorId &&
-				left.endpointId === right.endpointId &&
-				left.handleId === right.handleId &&
-				left.itemId === right.itemId &&
-				left.packageId === right.packageId &&
-				left.reviewGeneration === right.reviewGeneration &&
-				left.role === right.role &&
-				left.sourceIdentity === right.sourceIdentity &&
-				left.wholeByteLength === right.wholeByteLength &&
-				left.window.kind === right.window.kind &&
-				left.window.maximumBytes === right.window.maximumBytes &&
-				left.window.startByte === right.window.startByte
-			);
-		case 'review.comparisonTargets':
-			if (right.contentKind !== 'review.comparisonTargets') return false;
-			return left.descriptorId === right.descriptorId && left.maximumBytes === right.maximumBytes;
-	}
-	throw new Error('Unsupported Bridge product content identity.');
-}
-
-function assertNeverBridgeProductContentRequest(request: never): never {
-	throw new Error(`Unsupported Bridge product content request: ${String(request)}`);
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {

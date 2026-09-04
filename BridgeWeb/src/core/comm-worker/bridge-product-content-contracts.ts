@@ -844,7 +844,7 @@ export function bridgeProductContentIdentityFromDescriptor(
 	throw new Error('Unsupported Bridge product content descriptor.');
 }
 
-function bridgeProductMaximumBytesForIdentity(
+export function bridgeProductMaximumBytesForIdentity(
 	identity: BridgeProductContentIdentity<BridgeProductContentKind>,
 ): number {
 	return identity.contentKind === 'annotation.output' ||

@@ -433,6 +433,65 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         }
     }
 
+    var requiresTerminalEndOfSource: Bool {
+        switch self {
+        case .fileContent: true
+        case .annotationOutput, .annotationProjection, .reviewContent, .reviewComparisonTargets:
+            false
+        }
+    }
+
+    func validateAcceptedExactFacts(
+        declaredByteLength: Int?,
+        expectedSha256: String?,
+        maximumBytes: Int,
+        codingPath: [any CodingKey]
+    ) throws {
+        guard self.maximumBytes == maximumBytes else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Bridge product content accepted maximum does not match its application identity",
+                codingPath: codingPath
+            )
+        }
+        switch self {
+        case .annotationOutput:
+            guard declaredByteLength == maximumBytes else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted annotation output maximum must equal its declared length",
+                    codingPath: codingPath
+                )
+            }
+        case .annotationProjection:
+            guard declaredByteLength == nil, expectedSha256 == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted annotation projection exact facts must remain unknown",
+                    codingPath: codingPath
+                )
+            }
+        case .fileContent:
+            guard declaredByteLength == maximumBytes else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted File maximum must equal its declared length",
+                    codingPath: codingPath
+                )
+            }
+        case .reviewContent:
+            guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted Review declaration exceeds its range maximum",
+                    codingPath: codingPath
+                )
+            }
+        case .reviewComparisonTargets:
+            guard declaredByteLength == nil, expectedSha256 == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted comparison-target exact facts must remain unknown",
+                    codingPath: codingPath
+                )
+            }
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(BridgeProductContentKind.self, forKey: .contentKind) {

@@ -34,10 +34,7 @@ actor BridgeProductSession {
     var pendingControl: BridgeProductSessionPendingControl?
     var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
     var subscriptionState = BridgeProductSubscriptionState()
-    var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [
-        .review: 0,
-        .file: 0,
-    ]
+    var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [:]
 
     init(
         paneSessionId: String,

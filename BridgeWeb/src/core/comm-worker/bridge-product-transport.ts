@@ -25,7 +25,11 @@ import {
 	type BridgeProductContentResponseAdmissionLease,
 } from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
-import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	bridgeProductSurfaceSchema,
+	type BridgeProductSurface,
+} from './bridge-product-contract-primitives.js';
 import {
 	bridgeProductFrameAcknowledgementRejectedStatusSchema,
 	bridgeProductFrameAcknowledgementRequestSchema,
@@ -61,7 +65,6 @@ import type {
 	BridgeProductTransport,
 } from './bridge-product-transport-contract.js';
 
-export type BridgeProductSurface = 'file' | 'review';
 export type BridgeProductIdentifierPurpose =
 	| 'content-request'
 	| 'lease'
@@ -85,7 +88,7 @@ export interface CreateBridgeProductTransportProps {
 	>;
 	readonly createIdentifier?: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
-	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
+	readonly initialWorkerDerivationEpochs?: Readonly<Partial<Record<BridgeProductSurface, number>>>;
 	readonly maximumConcurrentContentResponses?: number;
 	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	/** Maximum time an exact frame observation acknowledgement may remain pending. */
@@ -166,7 +169,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #contentResponseAdmission: BridgeProductContentResponseAdmission;
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
-	readonly #epochs: Record<BridgeProductSurface, number>;
+	readonly #epochs = new Map<BridgeProductSurface, number>();
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	readonly #frameAcknowledgementTimeoutMilliseconds: number;
@@ -221,18 +224,17 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
-		this.#epochs = {
-			file: props.initialWorkerDerivationEpochs?.file ?? 0,
-			review: props.initialWorkerDerivationEpochs?.review ?? 0,
-		};
-		assertBridgeProductEpoch(this.#epochs.file);
-		assertBridgeProductEpoch(this.#epochs.review);
+		for (const [rawSurface, epoch] of Object.entries(props.initialWorkerDerivationEpochs ?? {})) {
+			const surface = bridgeProductSurfaceSchema.parse(rawSurface);
+			assertBridgeProductEpoch(epoch);
+			this.#epochs.set(surface, epoch);
+		}
 	}
 
 	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number {
-		const nextEpoch = this.#epochs[surface] + 1;
+		const nextEpoch = this.workerDerivationEpoch(surface) + 1;
 		assertBridgeProductEpoch(nextEpoch);
-		this.#epochs[surface] = nextEpoch;
+		this.#epochs.set(surface, nextEpoch);
 		return nextEpoch;
 	}
 
@@ -254,7 +256,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
-		return this.#epochs[surface];
+		return this.#epochs.get(surface) ?? 0;
 	}
 
 	async call<TCallArguments extends BridgeProductCallArguments>(

@@ -402,9 +402,9 @@ final class BridgeProductContentStreamValidator {
         header: BridgeProductContentEndHeader,
         acceptedHeader: BridgeProductContentAcceptedHeader
     ) throws -> BridgeProductContentTerminalResult {
-        if acceptedHeader.identity.contentKind == .fileContent, !header.endOfSource {
+        if acceptedHeader.identity.requiresTerminalEndOfSource, !header.endOfSource {
             throw BridgeProductFrameCodecError.invalidFrame(
-                "Bridge product File content terminal must reach the end of source."
+                "Bridge product content terminal violates its application end-of-source policy."
             )
         }
         guard header.observedByteLength == observedByteLength else {

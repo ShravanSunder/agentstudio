@@ -191,49 +191,12 @@ struct BridgeProductContentAcceptedHeader: Codable, Equatable, Sendable {
             name: "maximumBytes",
             codingPath: codingPath
         )
-        guard identity.maximumBytes == maximumBytes else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Bridge product accepted content bounds are inconsistent",
-                codingPath: codingPath
-            )
-        }
-        switch identity {
-        case .annotationOutput:
-            guard declaredByteLength == maximumBytes else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted annotation output maximum must equal its declared length",
-                    codingPath: codingPath
-                )
-            }
-        case .annotationProjection:
-            guard declaredByteLength == nil, expectedSha256 == nil else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted annotation projection exact facts must remain unknown",
-                    codingPath: codingPath
-                )
-            }
-        case .fileContent:
-            guard declaredByteLength == maximumBytes else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted File maximum must equal its declared length",
-                    codingPath: codingPath
-                )
-            }
-        case .reviewContent:
-            guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted Review declaration exceeds its range maximum",
-                    codingPath: codingPath
-                )
-            }
-        case .reviewComparisonTargets:
-            guard declaredByteLength == nil, expectedSha256 == nil else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted comparison-target exact facts must remain unknown",
-                    codingPath: codingPath
-                )
-            }
-        }
+        try identity.validateAcceptedExactFacts(
+            declaredByteLength: declaredByteLength,
+            expectedSha256: expectedSha256,
+            maximumBytes: maximumBytes,
+            codingPath: codingPath
+        )
     }
 }
 

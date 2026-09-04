@@ -673,3 +673,81 @@ export type BridgeProductCallRequestRegistryParity = BridgeProductAssert<
 export type BridgeProductCallResultRegistryParity = BridgeProductAssert<
 	BridgeProductTypeSetsEqual<BridgeProductCallResultWire['method'], BridgeProductCallKind>
 >;
+
+export function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKind>(
+	method: TCallKind,
+	call: BridgeProductCallResultWire,
+): BridgeProductCallResult<TCallKind> {
+	switch (method) {
+		case 'file.annotations.command':
+			if (call.method !== 'file.annotations.command') {
+				throw new Error('Bridge product File annotation command returned a cross-wired result.');
+			}
+			return call.result;
+		case 'file.annotations.output.inspect':
+			if (call.method !== 'file.annotations.output.inspect') {
+				throw new Error('Bridge product File annotation inspection returned a cross-wired result.');
+			}
+			return call.result;
+		case 'file.annotations.projection.query':
+			if (call.method !== 'file.annotations.projection.query') {
+				throw new Error(
+					'Bridge product File annotation projection query returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'file.source.current':
+			if (call.method !== 'file.source.current') {
+				throw new Error('Bridge product File source call returned a cross-wired result.');
+			}
+			return call.result;
+		case 'file.refresh.retry':
+		case 'file.activeViewerMode.update':
+		case 'review.activeViewerMode.update':
+		case 'review.comparison.update':
+		case 'review.intake.ready':
+		case 'review.markFileViewed':
+		case 'review.publication.applied':
+			if (call.result !== null) {
+				throw new Error('Bridge product null-result call returned a non-null result.');
+			}
+			return null;
+		case 'review.comparisonTargets.query':
+			if (call.method !== 'review.comparisonTargets.query') {
+				throw new Error('Bridge product comparison-target query returned a cross-wired result.');
+			}
+			return call.result;
+		case 'review.publication.install.admit':
+			if (call.method !== 'review.publication.install.admit') {
+				throw new Error(
+					'Bridge product Review publication install admission returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.command':
+			if (call.method !== 'review.annotations.command') {
+				throw new Error('Bridge product Review annotation command returned a cross-wired result.');
+			}
+			return call.result;
+		case 'review.annotations.output.inspect':
+			if (call.method !== 'review.annotations.output.inspect') {
+				throw new Error(
+					'Bridge product Review annotation inspection returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		case 'review.annotations.projection.query':
+			if (call.method !== 'review.annotations.projection.query') {
+				throw new Error(
+					'Bridge product Review annotation projection query returned a cross-wired result.',
+				);
+			}
+			return call.result;
+		default:
+			return assertNeverBridgeProductCallKind(method);
+	}
+}
+
+function assertNeverBridgeProductCallKind(callKind: never): never {
+	throw new Error(`Unhandled Bridge product call kind: ${String(callKind)}`);
+}
