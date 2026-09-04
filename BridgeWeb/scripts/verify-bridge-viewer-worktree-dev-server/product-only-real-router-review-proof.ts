@@ -406,11 +406,11 @@ export async function proveReviewTreeSelection(props: {
 	};
 }
 
-async function waitForFreshReviewManifestState(props: {
+export async function waitForFreshReviewManifestState(props: {
 	readonly expectedItemCount: number;
 	readonly page: Page;
-}): Promise<boolean> {
-	return await waitForProductCompositionState(async (): Promise<void> => {
+}): Promise<void> {
+	try {
 		await props.page.waitForFunction(
 			({ expectedItemCount, selectors }): boolean => {
 				const shell = document.querySelector(selectors.reviewShell);
@@ -427,7 +427,14 @@ async function waitForFreshReviewManifestState(props: {
 			{ expectedItemCount: props.expectedItemCount, selectors: bridgeViewerProductOnlySelectors },
 			{ timeout: productCompositionSettleTimeoutMilliseconds },
 		);
-	});
+	} catch (error: unknown) {
+		if (error instanceof errors.TimeoutError) {
+			throw new Error(`REVIEW_FRESH_ROUTE_MANIFEST_MISMATCH: expected=${props.expectedItemCount}`, {
+				cause: error,
+			});
+		}
+		throw error;
+	}
 }
 
 export async function readFreshReviewFailureSnapshot(
@@ -436,6 +443,7 @@ export async function readFreshReviewFailureSnapshot(
 	const state = await readFreshReviewViewportState(page);
 	const demand = await page.evaluate((selectors) => {
 		const shell = document.querySelector(selectors.reviewShell);
+		const rootDataset = document.documentElement.dataset;
 		const numberAttribute = (attributeName: string): number | null => {
 			const value = shell?.getAttribute(attributeName) ?? null;
 			if (value === null) return null;
@@ -444,7 +452,24 @@ export async function readFreshReviewFailureSnapshot(
 		};
 		const stringAttribute = (attributeName: string): string | null =>
 			shell?.getAttribute(attributeName) ?? null;
+		const datasetNumber = (key: string): number | null => {
+			const value = rootDataset[key];
+			if (value === undefined) return null;
+			const parsedValue = Number(value);
+			return Number.isFinite(parsedValue) ? parsedValue : null;
+		};
 		return {
+			pierreWorkerPool: {
+				activeTaskCount: datasetNumber('bridgePierreWorkerPoolActiveTasks'),
+				busyWorkerCount: datasetNumber('bridgePierreWorkerPoolBusyWorkers'),
+				managerState: rootDataset['bridgePierreWorkerPoolManagerState'] ?? null,
+				queuedTaskCount: datasetNumber('bridgePierreWorkerPoolQueuedTasks'),
+				totalWorkerCount: datasetNumber('bridgePierreWorkerPoolTotalWorkers'),
+				workersFailed:
+					rootDataset['bridgePierreWorkerPoolWorkersFailed'] === undefined
+						? null
+						: rootDataset['bridgePierreWorkerPoolWorkersFailed'] === 'true',
+			},
 			selected: {
 				deferredCount: numberAttribute('data-review-selected-demand-deferred-count'),
 				droppedIntentCount: numberAttribute('data-review-selected-demand-dropped-intent-count'),
@@ -497,6 +522,7 @@ export async function readFreshReviewFailureSnapshot(
 		codeViewManifestItemCount: state.codeViewManifestItemCount,
 		metadataItemCount: state.metadataItemCount,
 		mountedItemCount: state.mountedItemIds.length,
+		pierreWorkerPool: demand.pierreWorkerPool,
 		selectedDemand: demand.selected satisfies BridgeViewerReviewFailureDemandSnapshot,
 		selectedItemVisible: state.visibleItems.some(
 			(item): boolean => item.itemId === state.selectedItemId,

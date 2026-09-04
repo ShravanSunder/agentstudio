@@ -93,6 +93,14 @@ export interface BridgeViewerReviewFailureSnapshot {
 	readonly codeViewManifestItemCount: number;
 	readonly metadataItemCount: number;
 	readonly mountedItemCount: number;
+	readonly pierreWorkerPool: {
+		readonly activeTaskCount: number | null;
+		readonly busyWorkerCount: number | null;
+		readonly managerState: string | null;
+		readonly queuedTaskCount: number | null;
+		readonly totalWorkerCount: number | null;
+		readonly workersFailed: boolean | null;
+	};
 	readonly selectedDemand: BridgeViewerReviewFailureDemandSnapshot;
 	readonly selectedItemVisible: boolean;
 	readonly visibleContentStateCounts: Readonly<Record<string, number>>;
@@ -625,7 +633,6 @@ function requireFreshReviewRoute(props: {
 	}
 	const failedHydrationMilestones = props.proof.hydrationMilestones.filter(
 		(milestone): boolean =>
-			milestone.visibleNonSelectedItemIds.length === 0 ||
 			!stringArraysEqual(milestone.hydratedNonSelectedItemIds, milestone.visibleNonSelectedItemIds),
 	);
 	const requiredMilestoneLabels: readonly BridgeViewerReviewHydrationMilestone['label'][] = [

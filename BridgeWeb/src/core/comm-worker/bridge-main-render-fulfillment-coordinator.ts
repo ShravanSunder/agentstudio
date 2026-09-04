@@ -63,6 +63,7 @@ export interface BridgeMainRenderFulfillmentCoordinator {
 	}) => void;
 	readonly dispose: () => void;
 	readonly isBoundFinalItem: (item: BridgeMainRenderPublicationItem) => boolean;
+	readonly readBoundFinalItem: (itemId: string) => BridgeMainRenderPublicationItem | undefined;
 	readonly markPublicationQueued: (publication: BridgeMainRenderPublication) => void;
 	readonly retireWorkerInstance: () => void;
 	readonly observePostRender: (
@@ -364,6 +365,11 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				(entry?.finalItemBound === true && entry.item === item) ||
 				retainedPaintedEvidenceByFinalItem.has(item)
 			);
+		},
+		readBoundFinalItem: (itemId): BridgeMainRenderPublicationItem | undefined => {
+			if (isDisposed) return undefined;
+			const entry = findPendingPublicationByLogicalItemId(pendingByPierreItemId, itemId);
+			return entry?.finalItemBound === true ? entry.item : undefined;
 		},
 		markPublicationQueued: (publication): void => {
 			if (isDisposed) return;

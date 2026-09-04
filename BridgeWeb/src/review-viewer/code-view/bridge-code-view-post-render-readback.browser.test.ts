@@ -158,6 +158,83 @@ describe('Bridge CodeView post-render readback', () => {
 		}
 	});
 
+	test('resolves a newly mounted Pierre clone before the visible-item snapshot catches up', () => {
+		// Arrange
+		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
+		const pendingAnimationFrames: FrameRequestCallback[] = [];
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (): void => {},
+			nowMilliseconds: (): number => 1_500,
+			requestAnimationFrame: (callback): number => {
+				pendingAnimationFrames.push(callback);
+				return 1;
+			},
+			sendDisposition: (receipt): void => {
+				dispositions.push(receipt);
+			},
+		});
+		const publication = makeReviewPublication({
+			itemId: 'newly-mounted-presentation-clone',
+			publicationSequence: 2,
+		});
+		const publicationItem = publication.job.payload.item;
+		const exactItem = bridgeCodeViewItemFromWorkerPreparedItem(publicationItem);
+		if (exactItem?.type !== 'diff') throw new Error('Expected a main-readable Review diff item.');
+		Object.assign(exactItem.bridgeMetadata, { lineCount: 0 });
+		Object.assign(exactItem.fileDiff, { additionLines: [], deletionLines: [] });
+		const presentationClone = { ...exactItem, annotations: [] };
+		const renderedElement = document.createElement('div');
+		document.body.append(renderedElement);
+		const codeViewHandle = {
+			getInstance: () => ({
+				getRenderedItems: () => [
+					{
+						element: renderedElement,
+						id: presentationClone.id,
+						item: presentationClone,
+						type: presentationClone.type,
+						version: presentationClone.version ?? 0,
+					},
+				],
+			}),
+			getItem: () => presentationClone,
+		} as unknown as CodeViewHandle<undefined>;
+		renderFulfillmentCoordinator.acceptPublication(publication);
+		renderFulfillmentCoordinator.bindPublicationItem({
+			finalItem: exactItem,
+			publicationItem,
+			residency: 'replaced',
+		});
+		renderFulfillmentCoordinator.markPublicationQueued(publication);
+
+		try {
+			// Act: Pierre reports B before the async visible-item projection includes B.
+			observeBridgeCodeViewRenderFulfillment({
+				contextItem: presentationClone,
+				getCodeViewHandle: () => codeViewHandle,
+				itemId: exactItem.id,
+				phase: 'mount',
+				renderedElement,
+				renderFulfillmentCoordinator,
+				selectedCodeViewItem: null,
+				visibleCodeViewItems: [],
+			});
+
+			// Assert
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual(['queued', 'applied']);
+			expect(pendingAnimationFrames).toHaveLength(1);
+			pendingAnimationFrames[0]?.(1_501);
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual([
+				'queued',
+				'applied',
+				'painted',
+			]);
+		} finally {
+			renderedElement.remove();
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
+
 	test('reanchors lineage when a new publication reuses a painted presentation item', () => {
 		// Arrange
 		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];

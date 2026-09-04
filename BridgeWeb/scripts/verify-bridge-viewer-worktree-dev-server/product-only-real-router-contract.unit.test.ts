@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
+import { errors, type Page } from 'playwright';
 import { describe, expect, test } from 'vitest';
 
 import {
@@ -9,12 +10,91 @@ import {
 	type BridgeViewerProductRouteTranscriptEntry,
 } from './product-only-real-router-contract.ts';
 import {
+	bridgeReviewOracleTrackedDiffArguments,
+	bridgeReviewOraclePathOrder,
 	bridgeViewerCleanupProofAfterOwnedStops,
 	bridgeViewerProductOnlyRegressionPhase,
 } from './product-only-real-router-regression.ts';
-import { isFreshReviewTraversalMilestoneReady } from './product-only-real-router-review-proof.ts';
+import {
+	isFreshReviewTraversalMilestoneReady,
+	waitForFreshReviewManifestState,
+} from './product-only-real-router-review-proof.ts';
 
 describe('Bridge Viewer product-only real-router regression contract', () => {
+	test('requires paint only after a Review shell has rendered lines or prior paint evidence', async () => {
+		// Arrange
+		const hydrationWindowSource = await readFile(
+			new URL('./product-only-real-router-review-hydration-window.ts', import.meta.url),
+			'utf8',
+		);
+
+		// Act
+		const paintEligibilityIndex = hydrationWindowSource.indexOf(
+			'item.renderedLineCount > 0 || item.publicationId !== null',
+		);
+		const paintValidationIndex = hydrationWindowSource.indexOf('paintEligibleItems.some');
+
+		// Assert
+		expect(paintEligibilityIndex).toBeGreaterThan(0);
+		expect(paintValidationIndex).toBeGreaterThan(paintEligibilityIndex);
+		expect(hydrationWindowSource).toContain('const renderedLineCount = queryAllInOpenShadowRoots(');
+		expect(hydrationWindowSource).toContain("'[data-line][data-line-index]'");
+	});
+
+	test('keeps rename source and destination as separate Review oracle items', () => {
+		// Arrange
+		const reviewBase = 'fixture-base';
+
+		// Act
+		const trackedDiffArguments = bridgeReviewOracleTrackedDiffArguments(reviewBase);
+
+		// Assert
+		expect(trackedDiffArguments).toEqual([
+			'diff',
+			'--name-status',
+			'-z',
+			'--no-renames',
+			reviewBase,
+			'--',
+		]);
+	});
+
+	test('orders mixed-case Review paths with the product Git comparator', () => {
+		// Arrange
+		const paths = [
+			'docs/specification.md',
+			'Package.swift',
+			'BridgeWeb/src/app.ts',
+			'Package.resolved',
+		];
+
+		// Act
+		const orderedPaths = paths.toSorted(bridgeReviewOraclePathOrder);
+
+		// Assert
+		expect(orderedPaths).toEqual([
+			'BridgeWeb/src/app.ts',
+			'Package.resolved',
+			'Package.swift',
+			'docs/specification.md',
+		]);
+	});
+
+	test('fails immediately when the Review manifest never matches the oracle', async () => {
+		// Arrange
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The unit fake exercises only the manifest wait boundary.
+		const page = {
+			waitForFunction: async (): Promise<never> => {
+				throw new errors.TimeoutError('manifest mismatch');
+			},
+		} as unknown as Page;
+
+		// Act / Assert
+		await expect(waitForFreshReviewManifestState({ expectedItemCount: 925, page })).rejects.toThrow(
+			'REVIEW_FRESH_ROUTE_MANIFEST_MISMATCH: expected=925',
+		);
+	});
+
 	test('defers the final hydration milestone until traversal reaches its terminal window', () => {
 		// Arrange
 		const observedItemCount = 16;
@@ -546,6 +626,30 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		// Assert
 		expect(violationCodes).toContain('REVIEW_FRESH_ROUTE_VISIBLE_HYDRATION_MISSING');
 		expect(violationCodes).not.toContain('REVIEW_FRESH_ROUTE_MANIFEST_MISSING');
+	});
+
+	test('accepts a milestone with no non-selected visible body', () => {
+		// Arrange
+		const passingProof = makePassingProductOnlyProof();
+		const proof: BridgeViewerProductOnlyJourneyProof = {
+			...passingProof,
+			reviewFreshRoute: {
+				...passingProof.reviewFreshRoute,
+				hydrationMilestones: passingProof.reviewFreshRoute.hydrationMilestones.map((milestone) =>
+					milestone.label === 'initial'
+						? { ...milestone, hydratedNonSelectedItemIds: [], visibleNonSelectedItemIds: [] }
+						: milestone,
+				),
+			},
+		};
+
+		// Act
+		const violationCodes = collectBridgeViewerProductOnlyContractViolations(proof).map(
+			(violation) => violation.code,
+		);
+
+		// Assert
+		expect(violationCodes).not.toContain('REVIEW_FRESH_ROUTE_VISIBLE_HYDRATION_MISSING');
 	});
 
 	test('rejects incomplete full-traversal visible-body hydration coverage between milestones', () => {

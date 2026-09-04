@@ -14,7 +14,7 @@ export type BridgeCodeViewRenderObservationCoordinator = Pick<
 	BridgeMainRenderFulfillmentCoordinator,
 	'observePostRender' | 'reconcilePublication'
 > &
-	Partial<Pick<BridgeMainRenderFulfillmentCoordinator, 'isBoundFinalItem'>>;
+	Partial<Pick<BridgeMainRenderFulfillmentCoordinator, 'isBoundFinalItem' | 'readBoundFinalItem'>>;
 
 export type BridgeCodeViewRenderFulfillmentCoordinator =
 	BridgeCodeViewRenderObservationCoordinator &
@@ -124,11 +124,15 @@ export function reconcileBridgeCodeViewRenderFulfillment(props: {
 function exactWorkerItemForPostRender(
 	props: ObserveBridgeCodeViewRenderFulfillmentProps,
 ): BridgeMainCodeViewItem | undefined {
-	if (
-		isBridgeCodeViewItem(props.contextItem) &&
-		props.renderFulfillmentCoordinator.isBoundFinalItem?.(props.contextItem) === true
-	) {
-		return exactSourceItemForPresentationItem(props.contextItem);
+	const boundFinalItem = props.renderFulfillmentCoordinator.readBoundFinalItem?.(props.itemId);
+	if (boundFinalItem !== undefined && postRenderContextResolvesSourceItem(props, boundFinalItem)) {
+		return boundFinalItem;
+	}
+	if (isBridgeCodeViewItem(props.contextItem)) {
+		const contextSourceItem = exactSourceItemForPresentationItem(props.contextItem);
+		if (props.renderFulfillmentCoordinator.isBoundFinalItem?.(contextSourceItem) === true) {
+			return contextSourceItem;
+		}
 	}
 	if (props.selectedCodeViewItem !== null && props.selectedCodeViewItem !== undefined) {
 		const selectedSourceItem = exactSourceItemForPresentationItem(props.selectedCodeViewItem);

@@ -65,17 +65,24 @@ export async function waitForFreshReviewHydrationWindowSnapshot(props: {
 					const sourceCorrelations = reviewItemHost.getAttribute(
 						'data-bridge-painted-source-correlations',
 					);
-					return [{ contentState, itemId, publicationId, sourceCorrelations }];
+					const renderedLineCount = queryAllInOpenShadowRoots(
+						reviewItemHost,
+						'[data-line][data-line-index]',
+					).length;
+					return [{ contentState, itemId, publicationId, renderedLineCount, sourceCorrelations }];
 				});
-				const visibleCandidates = visibleItems.filter(
+				const paintEligibleItems = visibleItems.filter(
+					(item) => item.renderedLineCount > 0 || item.publicationId !== null,
+				);
+				const visibleCandidates = paintEligibleItems.filter(
 					(item) => item.itemId !== selectedItemId && !excludedItemIdSet.has(item.itemId),
 				);
 				if (
-					visibleCandidates.length === 0 ||
-					visibleCandidates.some(
+					visibleItems.length === 0 ||
+					visibleItems.some(
 						(item) => item.contentState !== 'hydrated' && item.contentState !== 'windowed',
 					) ||
-					visibleItems.some((item) => {
+					paintEligibleItems.some((item) => {
 						if (item.publicationId === null || item.sourceCorrelations === null) return true;
 						try {
 							const sourceCorrelations: unknown = JSON.parse(item.sourceCorrelations);
