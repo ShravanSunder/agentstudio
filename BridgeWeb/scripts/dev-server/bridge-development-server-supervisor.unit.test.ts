@@ -141,6 +141,7 @@ describe('Bridge development server supervisor', () => {
 							throw new Error('previous server refused to stop');
 						}
 					},
+					whenExited: new Promise<void>(() => {}),
 				};
 			},
 			report: (message): void => {
@@ -360,15 +361,76 @@ describe('Bridge development server supervisor', () => {
 		await startPromise;
 		await supervisor.stop();
 	});
+
+	test('rebuilds and relaunches when the ready backend exits unexpectedly', async () => {
+		// A ready backend can exit hours after Vite starts. Leaving the frontend
+		// alive without observing that exit permanently turns every proxy route
+		// into 502 until the developer restarts Vite.
+		const firstServerExit = deferred<void>();
+		let buildCount = 0;
+		let launchCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {
+				buildCount += 1;
+			},
+			launchServer: async () => {
+				launchCount += 1;
+				return {
+					stop: async (): Promise<void> => {},
+					whenExited: launchCount === 1 ? firstServerExit.promise : new Promise<void>(() => {}),
+				};
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+
+		// Act
+		firstServerExit.resolve();
+		await flushMicrotasks();
+
+		// Assert
+		expect(buildCount).toBe(2);
+		expect(launchCount).toBe(2);
+		await supervisor.stop();
+	});
+
+	test('does not relaunch when supervisor shutdown causes the backend exit', async () => {
+		const serverExit = deferred<void>();
+		let launchCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			launchServer: async () => {
+				launchCount += 1;
+				return {
+					stop: async (): Promise<void> => {
+						serverExit.resolve();
+						await serverExit.promise;
+					},
+					whenExited: serverExit.promise,
+				};
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+
+		// Act
+		await supervisor.stop();
+		await flushMicrotasks();
+
+		// Assert
+		expect(launchCount).toBe(1);
+	});
 });
 
 function ownedServer(onStop: () => void = (): void => {}): {
 	readonly stop: () => Promise<void>;
+	readonly whenExited: Promise<void>;
 } {
 	return {
 		stop: async (): Promise<void> => {
 			onStop();
 		},
+		whenExited: new Promise<void>(() => {}),
 	};
 }
 

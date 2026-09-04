@@ -2,6 +2,7 @@ const defaultQuietWindowMilliseconds = 10_000;
 const defaultBuildTimeoutMilliseconds = 300_000;
 const launchRetryDelayMilliseconds = 1_000;
 const maximumLaunchAttempts = 3;
+const maximumUnexpectedExitRecoveries = 3;
 
 export interface BridgeDevelopmentServerSupervisorClockOperation {
 	readonly cancel: () => void;
@@ -16,6 +17,7 @@ export interface BridgeDevelopmentServerSupervisorClock {
 
 export interface SupervisedBridgeDevelopmentServer {
 	readonly stop: () => Promise<unknown>;
+	readonly whenExited: Promise<void>;
 }
 
 export interface BridgeDevelopmentServerSupervisor {
@@ -50,10 +52,12 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 	private pendingBuild = false;
 	private quietWindowOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
 	private launchRetryOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
+	private readonly expectedExitServers = new Set<SupervisedBridgeDevelopmentServer>();
 	private resolveLaunchRetryDelay: ((shouldRetry: boolean) => void) | null = null;
 	private started = false;
 	private stopped = false;
 	private stopPromise: Promise<void> | null = null;
+	private unexpectedExitRecoveryCount = 0;
 
 	constructor(
 		private readonly props: {
@@ -76,6 +80,7 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 	recordRelevantChange(): void {
 		if (this.stopped) return;
 		this.changeGeneration += 1;
+		this.unexpectedExitRecoveryCount = 0;
 		this.cancelLaunchRetryDelay();
 		this.quietWindowOperation?.cancel();
 		this.quietWindowOperation = this.props.clock.schedule(
@@ -103,7 +108,12 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 		await this.buildDrainPromise;
 		const server = this.activeServer;
 		if (server === null) return;
-		await server.stop();
+		this.expectedExitServers.add(server);
+		try {
+			await server.stop();
+		} finally {
+			this.expectedExitServers.delete(server);
+		}
 		if (this.activeServer === server) this.activeServer = null;
 	}
 
@@ -162,14 +172,17 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 		}
 		const previousServer = this.activeServer;
 		if (previousServer !== null) {
+			this.expectedExitServers.add(previousServer);
 			try {
 				await previousServer.stop();
 			} catch (error: unknown) {
+				this.expectedExitServers.delete(previousServer);
 				this.props.report(
 					`Bridge development server replacement stop failed; retaining cleanup authority: ${errorMessage(error)}`,
 				);
 				return;
 			}
+			this.expectedExitServers.delete(previousServer);
 			if (this.activeServer === previousServer) this.activeServer = null;
 		}
 		if (this.stopped) return;
@@ -183,7 +196,9 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 				return;
 			}
 			try {
-				this.activeServer = await this.props.launchServer();
+				const launchedServer = await this.props.launchServer();
+				this.activeServer = launchedServer;
+				this.observeUnexpectedExit(launchedServer);
 				this.props.report('Bridge development server is ready.');
 				return;
 			} catch (error: unknown) {
@@ -196,6 +211,27 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 			}
 		}
 		// oxlint-enable no-await-in-loop
+	}
+
+	private observeUnexpectedExit(server: SupervisedBridgeDevelopmentServer): void {
+		void server.whenExited.then((): void => {
+			if (this.stopped || this.expectedExitServers.has(server) || this.activeServer !== server) {
+				return;
+			}
+			this.activeServer = null;
+			this.unexpectedExitRecoveryCount += 1;
+			if (this.unexpectedExitRecoveryCount > maximumUnexpectedExitRecoveries) {
+				this.props.report(
+					`Bridge development server exited unexpectedly; recovery limit ${maximumUnexpectedExitRecoveries} reached.`,
+				);
+				return;
+			}
+			this.props.report(
+				`Bridge development server exited unexpectedly; rebuilding (${this.unexpectedExitRecoveryCount}/${maximumUnexpectedExitRecoveries}).`,
+			);
+			this.pendingBuild = true;
+			void this.ensureBuildDrain();
+		});
 	}
 
 	private async waitForLaunchRetryDelay(): Promise<boolean> {

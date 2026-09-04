@@ -227,6 +227,7 @@ async function createBridgeDevelopmentServerViteSession(props: {
 				stop: async (): Promise<void> => {
 					requireOwnedBridgeDevelopmentServerExit(await ownedServer.stop());
 				},
+				whenExited: ownedServer.whenExited,
 			};
 		},
 		report: props.report,

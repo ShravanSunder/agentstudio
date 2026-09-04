@@ -18,6 +18,7 @@ export interface OwnedBridgeDevelopmentServer {
 	readonly stderrTail: () => string;
 	readonly stop: () => Promise<OwnedBridgeDevelopmentServerCleanup>;
 	readonly stdoutTail: () => string;
+	readonly whenExited: Promise<void>;
 }
 
 export interface OwnedBridgeDevelopmentServerCleanup {
@@ -132,6 +133,7 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 		stop: async (): Promise<OwnedBridgeDevelopmentServerCleanup> =>
 			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
 		stdoutTail: (): string => stdoutTail,
+		whenExited: lifecycleOutcome.then((): void => {}),
 	};
 }
 
