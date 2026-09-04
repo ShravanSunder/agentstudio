@@ -301,6 +301,80 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.count == 2)
     }
 
+    @Test("opening a restored collapsed drawer retries both survivors after deleting a third child")
+    func toggleDrawer_afterPersistedThirdChildDeletion_retriesBothSurvivingPlaceholders() async throws {
+        let harness = try await makeRestoredDrawerHarness(modelsDeletedThirdChildSequence: true)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let restoredTab = try #require(harness.store.tab(harness.tabID))
+        let restoredParentPane = try #require(harness.store.pane(harness.parentPaneID))
+        let restoredFirstDrawerPane = try #require(harness.store.pane(harness.firstDrawerPaneID))
+        let restoredSecondDrawerPane = try #require(harness.store.pane(harness.secondDrawerPaneID))
+        let restoredDrawerID = try #require(restoredParentPane.drawer?.drawerId)
+
+        #expect(
+            restoredTab.allPaneIds == [
+                harness.parentPaneID,
+                harness.firstDrawerPaneID,
+                harness.secondDrawerPaneID,
+            ])
+        #expect(
+            restoredParentPane.drawer?.paneIds == [
+                harness.firstDrawerPaneID,
+                harness.secondDrawerPaneID,
+            ])
+        #expect(restoredParentPane.drawer?.isExpanded == false)
+
+        try await mountPreparedDrawerCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (restoredParentPane, .activeVisible, .tab(tabID: harness.tabID)),
+                (
+                    restoredFirstDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: harness.tabID,
+                        parentPaneID: PaneId(existingUUID: harness.parentPaneID),
+                        drawerID: restoredDrawerID
+                    )
+                ),
+                (
+                    restoredSecondDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: harness.tabID,
+                        parentPaneID: PaneId(existingUUID: harness.parentPaneID),
+                        drawerID: restoredDrawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds,
+            publishPlaceholders: true
+        )
+
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: harness.firstDrawerPaneID)?.mode == .preparing)
+        #expect(
+            harness.viewRegistry.terminalStatusPlaceholderView(for: harness.secondDrawerPaneID)?.mode == .preparing
+        )
+        #expect(!harness.surfaceManager.createdPaneIds.contains(harness.firstDrawerPaneID))
+        #expect(!harness.surfaceManager.createdPaneIds.contains(harness.secondDrawerPaneID))
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+        harness.coordinator.execute(.toggleDrawer(paneId: harness.parentPaneID))
+
+        #expect(harness.store.pane(harness.parentPaneID)?.drawer?.isExpanded == true)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.firstDrawerPaneID }.count == 1)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.secondDrawerPaneID }.count == 1)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[harness.firstDrawerPaneID]?.initialFrame != nil)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[harness.secondDrawerPaneID]?.initialFrame != nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: harness.firstDrawerPaneID)?.mode != .preparing)
+        #expect(
+            harness.viewRegistry.terminalStatusPlaceholderView(for: harness.secondDrawerPaneID)?.mode != .preparing
+        )
+    }
+
     @Test("tab selection during initial restore does not duplicate prepared terminal mounts")
     func selectTabDuringInitialRestore_doesNotDuplicatePreparedTerminalMounts() throws {
         // Arrange
@@ -583,7 +657,9 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.last == harness.secondDrawerPaneID)
     }
 
-    private func makeRestoredDrawerHarness() async throws -> RestoredDrawerHarness {
+    private func makeRestoredDrawerHarness(
+        modelsDeletedThirdChildSequence: Bool = false
+    ) async throws -> RestoredDrawerHarness {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let tempDir = FileManager.default.temporaryDirectory
@@ -638,15 +714,13 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         let tab = Tab(paneId: parentPane.id, name: "Composed Drawer")
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
-        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
-        store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
-        coordinator.execute(
-            .minimizeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: secondDrawerPane.id)
+        let survivingDrawerPanes = try configurePersistedDrawerScenario(
+            store: store,
+            coordinator: coordinator,
+            parentPaneID: parentPane.id,
+            tabID: tab.id,
+            modelsDeletedThirdChildSequence: modelsDeletedThirdChildSequence
         )
-
-        coordinator.execute(.closeTab(tabId: tab.id))
-        coordinator.undoCloseTab()
         let flushOutcome = await store.flushAsync()
 
         #expect(flushOutcome.succeeded)
@@ -681,10 +755,43 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             surfaceManager: restoredSurfaceManager,
             tempDir: tempDir,
             parentPaneID: parentPane.id,
-            firstDrawerPaneID: firstDrawerPane.id,
-            secondDrawerPaneID: secondDrawerPane.id,
+            firstDrawerPaneID: survivingDrawerPanes.first.id,
+            secondDrawerPaneID: survivingDrawerPanes.second.id,
             tabID: tab.id
         )
+    }
+
+    private func configurePersistedDrawerScenario(
+        store: WorkspaceStore,
+        coordinator: WorkspaceSurfaceCoordinator,
+        parentPaneID: UUID,
+        tabID: UUID,
+        modelsDeletedThirdChildSequence: Bool
+    ) throws -> (first: Pane, second: Pane) {
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPaneID))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPaneID))
+        store.setActiveDrawerPane(firstDrawerPane.id, in: parentPaneID)
+
+        if modelsDeletedThirdChildSequence {
+            let deletedThirdDrawerPane = try #require(store.addDrawerPane(to: parentPaneID))
+            coordinator.execute(
+                .removeDrawerPane(
+                    parentPaneId: parentPaneID,
+                    drawerPaneId: deletedThirdDrawerPane.id
+                )
+            )
+            if store.pane(parentPaneID)?.drawer?.isExpanded == true {
+                store.toggleDrawer(for: parentPaneID)
+            }
+        } else {
+            coordinator.execute(
+                .minimizeDrawerPane(parentPaneId: parentPaneID, drawerPaneId: secondDrawerPane.id)
+            )
+            coordinator.execute(.closeTab(tabId: tabID))
+            coordinator.undoCloseTab()
+        }
+
+        return (firstDrawerPane, secondDrawerPane)
     }
 }
 
@@ -693,7 +800,8 @@ private func mountPreparedDrawerCohort(
     coordinator: WorkspaceSurfaceCoordinator,
     viewRegistry: ViewRegistry,
     entries: [(Pane, TerminalActivationVisibilityPriority, TerminalHostPlacementIdentity)],
-    trustedBounds: CGRect
+    trustedBounds: CGRect,
+    publishPlaceholders: Bool = false
 ) async throws {
     let generation = try preparedDrawerCohortGeneration()
     let descriptors = try entries.map { pane, priority, placement in
@@ -725,6 +833,11 @@ private func mountPreparedDrawerCohort(
             coordinator: coordinator
         )
     )
+    if publishPlaceholders {
+        _ = owner.publishTerminalPlaceholders { descriptor in
+            coordinator.registerPreparedTerminalPlaceholders(for: descriptor)
+        }
+    }
     _ = await owner.mount()
 }
 
