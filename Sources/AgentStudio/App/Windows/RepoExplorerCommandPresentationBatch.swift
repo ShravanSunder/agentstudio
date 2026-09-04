@@ -54,6 +54,11 @@ final class RepoExplorerCommandPresentationBatch {
         case observation = "observation"
     }
 
+    /// Stable identity this batch presents to `RepoExplorerPresentationHostView.Coordinator` so it
+    /// republishes the visible snapshot at least once for a newly attached batch, then suppresses
+    /// republication for updates that carry an unchanged snapshot from the same batch.
+    let consumerToken: UUID = UUIDv7.generate()
+
     private(set) var snapshot = RepoExplorerCommandPresentationSnapshot.empty
     private(set) var latestDelta: RepoExplorerCommandPresentationDelta?
 
