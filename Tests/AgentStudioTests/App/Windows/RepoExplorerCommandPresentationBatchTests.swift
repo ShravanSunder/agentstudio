@@ -20,7 +20,22 @@ struct RepoExplorerCommandPresentationBatchTests {
                 AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                await withAsyncTestCoreAtoms { coreAtoms in
+                try await withAsyncTestCoreAtoms { coreAtoms in
+                    let traceDirectory = FileManager.default.temporaryDirectory.appending(
+                        path: "repo-command-progress-trace-\(UUIDv7.generate().uuidString)"
+                    )
+                    defer { try? FileManager.default.removeItem(at: traceDirectory) }
+                    let runtime = AgentStudioTraceRuntime(
+                        configuration: AgentStudioTraceConfiguration.from(environment: [
+                            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                            "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                            "AGENTSTUDIO_TRACE_NAME": "repo-command-progress-trace",
+                            "AGENTSTUDIO_TRACE_TAGS": "performance",
+                        ]),
+                        processIdentifier: 933,
+                        timeUnixNano: { 933 }
+                    )
+                    let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
                     let store = WorkspaceStore()
                     let repository = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
@@ -33,7 +48,8 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                        dispatcher: .shared
+                        dispatcher: .shared,
+                        performanceTraceRecorder: recorder
                     )
                     batch.start()
                     defer { batch.stop() }
@@ -59,6 +75,115 @@ struct RepoExplorerCommandPresentationBatchTests {
                     #expect(batch.snapshot.results[request] == false)
                     #expect(batch.latestDelta?.affectedRepositoryIDs == [repository.id])
                     #expect(batch.latestDelta?.affectedWorktreeIDs.isEmpty == true)
+
+                    try await recorder.drain()
+                    let outputFileURL = try #require(runtime.outputFileURL)
+                    let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+                    let visibleSnapshotTriggerCount = contents.split(separator: "\n").count { line in
+                        line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
+                            && line.contains(
+                                "\"agentstudio.performance.repo_explorer.wake_trigger\":\"visible_snapshot\""
+                            )
+                    }
+                    let observationTriggerCount = contents.split(separator: "\n").count { line in
+                        line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
+                            && line.contains(
+                                "\"agentstudio.performance.repo_explorer.wake_trigger\":\"observation\""
+                            )
+                    }
+                    #expect(visibleSnapshotTriggerCount >= 1)
+                    #expect(observationTriggerCount >= 1)
+                }
+            }
+        )
+    }
+
+    @Test("stale observation trackings do not multiply refreshes")
+    func staleObservationTrackingsDoNotMultiplyRefreshes() async throws {
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                try await withAsyncTestCoreAtoms { coreAtoms in
+                    let traceDirectory = FileManager.default.temporaryDirectory.appending(
+                        path: "repo-command-stale-tracking-trace-\(UUIDv7.generate().uuidString)"
+                    )
+                    defer { try? FileManager.default.removeItem(at: traceDirectory) }
+                    let runtime = AgentStudioTraceRuntime(
+                        configuration: AgentStudioTraceConfiguration.from(environment: [
+                            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                            "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                            "AGENTSTUDIO_TRACE_NAME": "repo-command-stale-tracking-trace",
+                            "AGENTSTUDIO_TRACE_TAGS": "performance",
+                        ]),
+                        processIdentifier: 933,
+                        timeUnixNano: { 933 }
+                    )
+                    let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+                    let store = WorkspaceStore()
+                    let repository = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-stale-tracking-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let request = RepoExplorerRepositoryCommandPresentation.request(
+                        repoID: repository.id
+                    )
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        dispatcher: .shared,
+                        performanceTraceRecorder: recorder
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    for revision in 1...25 {
+                        batch.acceptVisibleWorktreeSnapshot(
+                            makeVisibleWorktreeSnapshot(
+                                worktreeIDs: [],
+                                repositoryIDs: [repository.id],
+                                visibleRevision: UInt64(revision)
+                            )
+                        )
+                    }
+
+                    _ = await handler.batchArrivals.wait { $0.contains(request) }
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    try await recorder.flush()
+                    let outputFileURL = try #require(runtime.outputFileURL)
+                    let observationBefore = try String(contentsOf: outputFileURL, encoding: .utf8)
+                        .split(separator: "\n")
+                        .count { line in
+                            line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
+                                && line.contains(
+                                    "\"agentstudio.performance.repo_explorer.wake_trigger\":\"observation\""
+                                )
+                        }
+
+                    coreAtoms.repoCache.setRepositoryFactUpdateProgress(
+                        .captured(repoId: repository.id, attemptId: UUIDv7.generate())
+                    )
+
+                    _ = await handler.batchArrivals.wait { $0.contains(request) }
+                    for _ in 0..<2000 { await Task.yield() }
+
+                    try await recorder.drain()
+                    let observationAfter = try String(contentsOf: outputFileURL, encoding: .utf8)
+                        .split(separator: "\n")
+                        .count { line in
+                            line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
+                                && line.contains(
+                                    "\"agentstudio.performance.repo_explorer.wake_trigger\":\"observation\""
+                                )
+                        }
+
+                    #expect(observationAfter - observationBefore == 1)
                 }
             }
         )

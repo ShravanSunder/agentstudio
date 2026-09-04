@@ -434,6 +434,24 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func repoExplorerCommandPresentationProjectionKeepsWakeTriggerAndReusedCount() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 178, severityText: .info,
+            body: "performance.repo_explorer.command_presentation",
+            traceID: nil, spanID: nil, parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.wake_trigger": .string("observation"),
+                "agentstudio.performance.repo_explorer.command_reused.count": .int(57),
+            ]
+        )
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        #expect(projection.attributes["agentstudio.performance.repo_explorer.wake_trigger"] == .string("observation"))
+        #expect(projection.attributes["agentstudio.performance.repo_explorer.command_reused.count"] == .int(57))
+    }
+
+    @Test
     func tccDiagnosticProjectionKeepsClassificationsAndDropsRawPaths() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 179,

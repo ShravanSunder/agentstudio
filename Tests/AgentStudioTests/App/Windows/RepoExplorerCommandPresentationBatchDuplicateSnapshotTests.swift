@@ -96,6 +96,14 @@ extension RepoExplorerCommandPresentationBatchTests {
                 line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
             }
             #expect(captureCount == 3)
+
+            let visibleSnapshotTriggerCount = contents.split(separator: "\n").count { line in
+                line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
+                    && line.contains(
+                        "\"agentstudio.performance.repo_explorer.wake_trigger\":\"visible_snapshot\""
+                    )
+            }
+            #expect(visibleSnapshotTriggerCount == 3)
         }
     }
 
