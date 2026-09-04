@@ -181,6 +181,10 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await page
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
+			const firstHeldCandidate = await waitForHeldCommitPromotionTelemetry({
+				expectedReviewGeneration: initialPackage.reviewGeneration,
+				page,
+			});
 			const heldPackage = await requireReviewPackageIdentity(page);
 			if (
 				heldPackage.packageId !== initialPackage.packageId ||
@@ -220,10 +224,6 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				undefined,
 				{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
 			);
-			const firstHeldCandidate = await waitForHeldCommitPromotionTelemetry({
-				minimumGenerationExclusive: initialPackage.reviewGeneration,
-				page,
-			});
 			const appliedReceiptResponse = page.waitForResponse(isReviewPublicationAppliedResponse, {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 			});
@@ -237,15 +237,13 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
 			const appliedComparison = await waitForInstalledReviewPackage({
 				expectedTargetLabel: 'HEAD',
-				initialPackageId: initialPackage.packageId,
-				minimumGeneration: firstHeldCandidate.reviewGeneration,
 				page,
+				predecessor: initialPackage,
 				timeoutMilliseconds: annotationRestartJourneyTimeoutMilliseconds,
 			});
-			expect(appliedComparison.packageId).not.toBe(initialPackage.packageId);
-			expect(appliedComparison.reviewGeneration).toBeGreaterThanOrEqual(
-				firstHeldCandidate.reviewGeneration,
-			);
+			expect(appliedComparison.packageId).toBe(initialPackage.packageId);
+			expect(appliedComparison.reviewGeneration).toBe(firstHeldCandidate.reviewGeneration);
+			expect(appliedComparison.revision).toBeGreaterThan(initialPackage.revision);
 			await waitForSelectedReviewPathReady({ page, path: affectedFile.path });
 			const retainedComposer = page.getByRole('textbox', {
 				name: 'Write an annotation in Markdown',
@@ -314,7 +312,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				.getByText('Update ready', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });
 			const secondHeldCandidate = await waitForHeldCommitPromotionTelemetry({
-				minimumGenerationExclusive: verifiedAppliedComparison.reviewGeneration,
+				expectedReviewGeneration: verifiedAppliedComparison.reviewGeneration,
 				page,
 			});
 			await selectReviewFile({ page, path: unaffectedFile.path });
@@ -364,11 +362,18 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 
 async function waitForInstalledReviewPackage(props: {
 	readonly expectedTargetLabel: string;
-	readonly initialPackageId: string;
-	readonly minimumGeneration: number;
 	readonly page: Page;
+	readonly predecessor: {
+		readonly packageId: string;
+		readonly reviewGeneration: number;
+		readonly revision: number;
+	};
 	readonly timeoutMilliseconds: number;
-}): Promise<{ readonly packageId: string; readonly reviewGeneration: number }> {
+}): Promise<{
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+}> {
 	let installedPackage = await requireReviewPackageIdentity(props.page);
 	await expect
 		.poll(
@@ -378,8 +383,9 @@ async function waitForInstalledReviewPackage(props: {
 					.getByTestId('bridge-review-comparison-trigger')
 					.textContent();
 				return (
-					installedPackage.packageId !== props.initialPackageId &&
-					installedPackage.reviewGeneration >= props.minimumGeneration &&
+					installedPackage.packageId === props.predecessor.packageId &&
+					installedPackage.reviewGeneration === props.predecessor.reviewGeneration &&
+					installedPackage.revision > props.predecessor.revision &&
 					targetLabel === props.expectedTargetLabel
 				);
 			},
@@ -556,21 +562,27 @@ async function waitForSelectedReviewPathReady(props: {
 async function requireReviewPackageIdentity(page: Page): Promise<{
 	readonly packageId: string;
 	readonly reviewGeneration: number;
+	readonly revision: number;
 }> {
 	const reviewShell = page.getByTestId('review-viewer-shell');
 	const packageId = await reviewShell.getAttribute('data-review-metadata-id');
 	const rawReviewGeneration = await reviewShell.getAttribute('data-review-metadata-generation');
+	const rawRevision = await reviewShell.getAttribute('data-review-metadata-revision');
 	const reviewGeneration = Number(rawReviewGeneration);
+	const revision = Number(rawRevision);
 	if (
 		packageId === null ||
 		packageId.length === 0 ||
 		rawReviewGeneration === null ||
+		rawRevision === null ||
 		!Number.isSafeInteger(reviewGeneration) ||
-		reviewGeneration < 0
+		reviewGeneration < 0 ||
+		!Number.isSafeInteger(revision) ||
+		revision < 0
 	) {
 		throw new Error('Review shell did not expose its installed package identity.');
 	}
-	return { packageId, reviewGeneration };
+	return { packageId, reviewGeneration, revision };
 }
 
 async function reviewRefreshLifecycleDiagnostic(
@@ -622,58 +634,69 @@ async function reviewRefreshLifecycleDiagnostic(
 }
 
 async function waitForHeldCommitPromotionTelemetry(props: {
-	readonly minimumGenerationExclusive: number;
+	readonly expectedReviewGeneration: number;
 	readonly page: Page;
 }): Promise<{ readonly reviewGeneration: number }> {
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', props.page.url()).toString();
 	let observation: { readonly reviewGeneration: number } | null = null;
-	await expect
-		.poll(
-			async (): Promise<boolean> => {
-				const response = await fetch(statusUrl, { cache: 'no-store' });
-				if (!response.ok) return false;
-				const body: unknown = await response.json();
-				if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
-				const recentSamples = body.recentSamples;
-				if (!Array.isArray(recentSamples)) return false;
-				for (const sample of recentSamples.toReversed()) {
-					if (typeof sample !== 'object' || sample === null) continue;
-					const stringAttributes = Reflect.get(sample, 'stringAttributes');
-					const numericAttributes = Reflect.get(sample, 'numericAttributes');
-					if (
-						typeof stringAttributes !== 'object' ||
-						stringAttributes === null ||
-						typeof numericAttributes !== 'object' ||
-						numericAttributes === null ||
-						Reflect.get(stringAttributes, 'agentstudio.bridge.phase') !==
-							'review_refresh_candidate_held' ||
-						Reflect.get(
-							stringAttributes,
-							'agentstudio.bridge.review.refresh.presentation_class',
-						) !== 'promoted' ||
-						Reflect.get(stringAttributes, 'agentstudio.bridge.review.refresh.promotion_reason') !==
-							'commits'
-					) {
-						continue;
+	try {
+		await expect
+			.poll(
+				async (): Promise<boolean> => {
+					const response = await fetch(statusUrl, { cache: 'no-store' });
+					if (!response.ok) return false;
+					const body: unknown = await response.json();
+					if (typeof body !== 'object' || body === null || !('recentSamples' in body)) return false;
+					const recentSamples = body.recentSamples;
+					if (!Array.isArray(recentSamples)) return false;
+					for (const sample of recentSamples.toReversed()) {
+						if (typeof sample !== 'object' || sample === null) continue;
+						const stringAttributes = Reflect.get(sample, 'stringAttributes');
+						const numericAttributes = Reflect.get(sample, 'numericAttributes');
+						if (
+							typeof stringAttributes !== 'object' ||
+							stringAttributes === null ||
+							typeof numericAttributes !== 'object' ||
+							numericAttributes === null ||
+							Reflect.get(stringAttributes, 'agentstudio.bridge.phase') !==
+								'review_refresh_candidate_held' ||
+							Reflect.get(
+								stringAttributes,
+								'agentstudio.bridge.review.refresh.presentation_class',
+							) !== 'promoted' ||
+							Reflect.get(
+								stringAttributes,
+								'agentstudio.bridge.review.refresh.promotion_reason',
+							) !== 'commits'
+						) {
+							continue;
+						}
+						const reviewGeneration = Reflect.get(
+							numericAttributes,
+							'agentstudio.bridge.review.generation',
+						);
+						if (
+							typeof reviewGeneration === 'number' &&
+							Number.isSafeInteger(reviewGeneration) &&
+							reviewGeneration === props.expectedReviewGeneration
+						) {
+							observation = { reviewGeneration };
+							return true;
+						}
 					}
-					const reviewGeneration = Reflect.get(
-						numericAttributes,
-						'agentstudio.bridge.review.generation',
-					);
-					if (
-						typeof reviewGeneration === 'number' &&
-						Number.isSafeInteger(reviewGeneration) &&
-						reviewGeneration > props.minimumGenerationExclusive
-					) {
-						observation = { reviewGeneration };
-						return true;
-					}
-				}
-				return false;
-			},
-			{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
-		)
-		.toBe(true);
+					return false;
+				},
+				{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
+			)
+			.toBe(true);
+	} catch (error: unknown) {
+		throw new Error(
+			`Review candidate did not emit held commit-promotion telemetry: ${JSON.stringify(
+				await reviewRefreshLifecycleDiagnostic(props.page),
+			)}`,
+			{ cause: error },
+		);
+	}
 	if (observation === null) {
 		throw new Error('Review candidate did not emit held commit-promotion telemetry.');
 	}
