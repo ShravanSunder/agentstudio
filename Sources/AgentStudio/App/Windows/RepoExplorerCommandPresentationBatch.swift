@@ -62,6 +62,13 @@ final class RepoExplorerCommandPresentationBatch {
         let shouldPublish: Bool
     }
 
+    /// Which entry produced one refresh. `visibleSnapshot` means the materializer handed the
+    /// batch a changed visible-worktree snapshot; `observation` means a tracked atom changed.
+    package enum WakeTrigger: String, Sendable {
+        case visibleSnapshot = "visible_snapshot"
+        case observation = "observation"
+    }
+
     private(set) var snapshot = RepoExplorerCommandPresentationSnapshot.empty
     private(set) var latestDelta: RepoExplorerCommandPresentationDelta?
 
@@ -77,6 +84,8 @@ final class RepoExplorerCommandPresentationBatch {
     @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
     @ObservationIgnored private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
     @ObservationIgnored private var lastResolvedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+    /// Only the most recently armed Observation tracking may schedule a refresh; older one-shot trackings stay installed until they fire and must be ignored.
+    @ObservationIgnored private var armedTrackingGeneration: UInt64 = 0
 
     init(
         store: WorkspaceStore,
@@ -101,23 +110,27 @@ final class RepoExplorerCommandPresentationBatch {
         currentVisibleSnapshot = nil
         lastResolvedVisibleSnapshot = nil
         latestDelta = nil
+        armedTrackingGeneration &+= 1
     }
 
     func stop() {
         observationID = nil
+        armedTrackingGeneration &+= 1
     }
 
     func acceptVisibleWorktreeSnapshot(_ visibleSnapshot: RepoExplorerVisibleWorktreeSnapshot) {
         guard let observationID else { return }
         guard currentVisibleSnapshot != visibleSnapshot else { return }
         currentVisibleSnapshot = visibleSnapshot
-        refresh(observationID: observationID)
+        refresh(observationID: observationID, trigger: .visibleSnapshot)
     }
 
-    private func refresh(observationID: UUID) {
+    private func refresh(observationID: UUID, trigger: WakeTrigger) {
         guard self.observationID == observationID,
             let capturedVisibleSnapshot = currentVisibleSnapshot
         else { return }
+        armedTrackingGeneration &+= 1
+        let armedGeneration = armedTrackingGeneration
         let capture = withObservationTracking {
             let visibleWorktreeIDs = capturedVisibleSnapshot.worktreeIDs
             let progressByRepositoryID = Dictionary(
@@ -144,14 +157,15 @@ final class RepoExplorerCommandPresentationBatch {
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                self?.refresh(observationID: observationID)
+                guard let self, self.armedTrackingGeneration == armedGeneration else { return }
+                self.refresh(observationID: observationID, trigger: .observation)
             }
         }
         let resolvedBatch = resolve(
             capture: capture,
             capturedVisibleSnapshot: capturedVisibleSnapshot
         )
-        publish(resolvedBatch)
+        publish(resolvedBatch, trigger: trigger)
     }
 
     private func resolve(
@@ -275,7 +289,7 @@ final class RepoExplorerCommandPresentationBatch {
         return (affectedWorktreeIDs, affectedRepositoryIDs)
     }
 
-    private func publish(_ resolvedBatch: ResolvedBatch) {
+    private func publish(_ resolvedBatch: ResolvedBatch, trigger: WakeTrigger) {
         lastVisibleWorktreeIDs = resolvedBatch.visibleSnapshot.worktreeIDs
         lastVisibleRepositoryIDs = resolvedBatch.visibleSnapshot.repositoryIDs
         lastProgressByRepositoryID = Dictionary(
@@ -329,6 +343,7 @@ final class RepoExplorerCommandPresentationBatch {
                     resolvedBatch.requestsToResolve.count
                 ),
                 "agentstudio.performance.repo_explorer.command_reused.count": .int(reusedCount),
+                "agentstudio.performance.repo_explorer.wake_trigger": .string(trigger.rawValue),
             ]
         )
     }
