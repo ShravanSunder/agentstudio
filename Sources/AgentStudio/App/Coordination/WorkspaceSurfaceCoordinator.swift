@@ -22,6 +22,28 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     func undoClose() -> ManagedSurface?
     func requeueUndo(_ surfaceId: UUID)
     func destroy(_ surfaceId: UUID)
+
+    /// Registers (or clears, passing `nil`) a handler fired whenever attached-surface
+    /// membership changes (attach/detach/move/swap/destroy). Defaulted to a no-op so
+    /// existing mocks compile without adopting renderer-visibility reconciliation.
+    func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?)
+
+    /// Reconciles renderer visibility for every attached surface against `visibilityForPaneID`.
+    /// Defaulted to a no-op result so existing mocks compile without adopting renderer-visibility
+    /// reconciliation.
+    func reconcileAttachedVisibility(
+        _ visibilityForPaneID: (UUID) -> Bool
+    ) -> SurfaceVisibilityReconciliationResult
+}
+
+extension WorkspaceSurfaceManaging {
+    func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?) {}
+
+    func reconcileAttachedVisibility(
+        _ visibilityForPaneID: (UUID) -> Bool
+    ) -> SurfaceVisibilityReconciliationResult {
+        .init(applied: 0, equal: 0, missing: 0)
+    }
 }
 
 extension SurfaceManager: WorkspaceSurfaceManaging {}
@@ -107,6 +129,8 @@ final class WorkspaceSurfaceCoordinator {
     var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
     var repositoryFactDemandOwningWindowId: UUID?
     var repositoryFactDemandObservationGeneration: UInt64 = 0
+    var rendererVisibilityOwningWindowId: UUID?
+    var rendererVisibilityObservationGeneration: UInt64 = 0
     lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator(
         performanceRecorder: performanceTraceRecorder
     ) { [weak self] snapshot in
@@ -255,6 +279,8 @@ final class WorkspaceSurfaceCoordinator {
         bridgePaneActivityObservationGeneration &+= 1
         repositoryFactDemandObservationGeneration &+= 1
         pullRequestDemandObservationGeneration &+= 1
+        rendererVisibilityObservationGeneration &+= 1
+        surfaceManager.setAttachedBindingsChangeHandler(nil)
         pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
@@ -271,6 +297,7 @@ final class WorkspaceSurfaceCoordinator {
         bridgePaneActivityObservationGeneration &+= 1
         stopRepositoryFactDemandObservation()
         pullRequestDemandObservationGeneration &+= 1
+        stopRendererVisibilityObservation()
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
         }
