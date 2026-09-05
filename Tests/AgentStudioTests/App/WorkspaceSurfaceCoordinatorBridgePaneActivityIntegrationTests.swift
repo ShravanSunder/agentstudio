@@ -113,7 +113,8 @@ extension WebKitSerializedTests {
                     generation: generation,
                     initialFramesByPaneID: [:],
                     viewRegistry: harness.viewRegistry,
-                    mountHandler: harness.coordinator
+                    mountHandler: harness.coordinator,
+                    descriptorsByPaneID: [:]
                 ),
                 nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                     generation: generation,

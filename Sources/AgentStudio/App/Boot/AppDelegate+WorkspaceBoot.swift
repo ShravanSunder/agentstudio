@@ -458,10 +458,14 @@ extension AppDelegate {
 
     private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {
         let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
+        coordinator.acceptedPreparedContentMountGeneration = contentMountCohort.generation
         let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
             generation: contentMountCohort.generation,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(
+                uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
+            )
         )
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
             cohort: contentMountCohort,
@@ -470,7 +474,10 @@ extension AppDelegate {
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: contentMountCohort.generation,
                 coordinator: coordinator
-            )
+            ),
+            placeholderTransitionHandler: { [weak coordinator] pane, mode in
+                coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
+            }
         )
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(
@@ -479,8 +486,14 @@ extension AppDelegate {
                 coordinator: contentMountCoordinator
             )
         )
-        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
-            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
+        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] visibleQueuedSet in
+            contentMountCoordinator?.handleVisibilitySignals(for: visibleQueuedSet) ?? []
+        }
+        coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
+            guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
+            guard !acceptedPaneIDs.isEmpty else { return }
+            await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)
         }
     }
 

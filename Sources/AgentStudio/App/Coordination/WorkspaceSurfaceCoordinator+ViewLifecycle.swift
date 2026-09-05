@@ -57,6 +57,14 @@ extension WorkspaceSurfaceCoordinator {
 
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created mounted content view, or nil on failure.
+    ///
+    /// The retired launch-window presentation flag is never consulted here:
+    /// it is a read-only fact now (only `FlatPaneStripContent` still reads it,
+    /// for placeholder selection), not a creation gate. A terminal pane's
+    /// sole creation gate is its per-pane `TerminalSurfaceCreationAuthority`;
+    /// a nonterminal pane's is whether the prepared nonterminal lane already
+    /// handled it — that lane's custody semantics are unchanged by this
+    /// cutover.
     func createViewForContent(
         pane: Pane,
         initialFrame: NSRect? = nil,
@@ -69,23 +77,43 @@ extension WorkspaceSurfaceCoordinator {
             return viewRegistry.view(for: pane.id)?.mountedContent(as: BridgePaneMountView.self)
         }
         let runtimePaneID = PaneId(existingUUID: pane.id)
-        if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler([runtimePaneID]).contains(runtimePaneID)
-        {
-            RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
-            return nil
-        }
+        let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(
+            currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
+        )
         switch pane.content {
         case .terminal:
+            guard let authority = terminalSurfaceCreationAuthority(for: pane) else {
+                RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
+                return nil
+            }
             return mountCurrentTerminalContent(
                 pane: pane,
                 initialFrame: initialFrame,
-                treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                authority: authority
             )
 
         case .webview, .codeViewer, .bridgePanel, .unsupported:
+            guard !preparedHandledPaneIDs.contains(runtimePaneID) else {
+                RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
+                return nil
+            }
             return mountCurrentNonterminalContent(pane: pane)
         }
+    }
+
+    /// The one answer to whether this coordinator may create `pane`'s
+    /// terminal surface right now, resolved through the accepted generation's
+    /// custody ledger. `nil` accepted generation (pre-boot, or a test harness
+    /// that never installed a cohort) means no cohort could possibly claim
+    /// the pane, so creation is authorized — matching `ViewRegistry`'s own
+    /// "no entry, or a stale generation" release rule.
+    func terminalSurfaceCreationAuthority(for pane: Pane) -> TerminalSurfaceCreationAuthority? {
+        let paneID = PaneId(existingUUID: pane.id)
+        guard let generation = acceptedPreparedContentMountGeneration else {
+            return .released(paneID)
+        }
+        return viewRegistry.terminalSurfaceCreationAuthority(for: paneID, generation: generation)
     }
 
     @discardableResult
@@ -199,10 +227,15 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
+    /// `authority` is a compile-time witness only: the caller must already
+    /// hold one (minted by `ViewRegistry` or the prepared admission port), so
+    /// a creation path that skips the custody question does not build. This
+    /// function does not branch on its case.
     func createTopologyIndependentTerminalView(
         for pane: Pane,
         initialFrame: NSRect? = nil,
-        treatAsRestoredSessionStart: Bool = false
+        treatAsRestoredSessionStart: Bool = false,
+        authority: TerminalSurfaceCreationAuthority
     ) -> TopologyIndependentTerminalMountResult {
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
@@ -618,6 +651,57 @@ extension WorkspaceSurfaceCoordinator {
         return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
     }
 
+    /// SPEC R5 retry, and the R1 clause that hidden, minimized, and collapsed
+    /// panes hydrate once geometry becomes safe. Reevaluates canonical
+    /// geometry for exactly the terminal panes the prepared lane still holds
+    /// under `deferredGeometry` custody in the accepted generation, and
+    /// requeues only those whose placement is no longer ambiguous.
+    /// Deliberately never filtered by presentation: a hidden, minimized,
+    /// collapsed, or residency-backgrounded pane is included whenever its
+    /// canonical frame is now safe. Called as a tail from every
+    /// canonical-layout-changing action (`+ActionExecution.swift`) and from
+    /// the trusted container-layout callback (`PaneTabViewController`, via
+    /// `WorkspaceActionExecutor`); adds no timer, poll, observer, or bus case
+    /// of its own.
+    func reevaluatePreparedTerminalGeometry() async {
+        guard let generation = acceptedPreparedContentMountGeneration else { return }
+        let deferredPaneIDs = viewRegistry.deferredPreparedContentMountPaneIDs(
+            owner: .terminal,
+            generation: generation
+        )
+        guard !deferredPaneIDs.isEmpty else { return }
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else { return }
+
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        var resolvedFramesByPaneID: [PaneId: NSRect] = [:]
+        for paneID in deferredPaneIDs {
+            guard let pane = store.paneAtom.pane(paneID.uuid) else { continue }
+            guard
+                let frame = initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId)
+            else { continue }
+            resolvedFramesByPaneID[paneID] = frame
+        }
+        guard !resolvedFramesByPaneID.isEmpty else { return }
+
+        // Recorded BEFORE the requeue, not after: `acceptLaterGeometry`
+        // enables a drain before this `await` even returns, so an
+        // earlier-ordinal hidden competitor could otherwise claim on the
+        // still-old revision while this call is suspended, and nothing
+        // would repair it afterward — the port and scheduler would simply
+        // agree on that stale revision. `handleVisibilitySignals` already
+        // treats `.deferredGeometry(owner: .terminal)` custody like
+        // `pending` (the deferred pane enters the queued set the same way),
+        // so this pre-requeue record already names every pane this call is
+        // about to make eligible, at its correct promoted tier (SPEC R3).
+        // Any claim the drain proposes carrying the older revision is
+        // answered `.visibilityChanged`, and the scheduler applies this
+        // snapshot (R3's `admitWaitingMembers` plus `applyVisibilitySnapshot`)
+        // before granting anything.
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
+    }
+
     func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {
         guard let terminalContainerBounds else {
             Self.logger.warning("resolveInitialFramesByTabId: terminal container bounds unavailable")
@@ -650,23 +734,26 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
         }
 
+        // Bootstrap geometry is residency- and expansion-independent (SPEC R1,
+        // R7): a drawer child needs a frame the instant its terminal admits,
+        // whether its drawer is collapsed or its parent is backgrounded. This
+        // iterates the canonical `tab.activePaneIds` (already
+        // `activeArrangement.layout.paneIds` — never residency-filtered) and
+        // reads `drawerViews[ownedDrawerID]` straight from the canonical
+        // arrangement via the pane's structural facts. It deliberately does
+        // not route through `arrangementView.drawerView(forParent:)`, whose
+        // `isActivePane` requirement is exactly the residency filter this
+        // slice removes.
         for paneId in tab.activePaneIds {
             guard
                 let parentFrame = resolvedFrames[paneId],
-                let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded,
-                let drawerView = arrangementView.drawerView(forParent: paneId),
+                let ownedDrawerID = store.paneAtom.graphAtom.paneStructuralFacts(paneId)?.ownedDrawerID,
+                let drawerView = tab.activeArrangement.drawerViews[ownedDrawerID],
                 let drawerContentRect = resolvedDrawerContentRect(
                     parentPaneFrame: parentFrame,
                     tabSize: terminalContainerBounds.size
                 )
             else {
-                if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
-                    Self.logger.warning(
-                        "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
-                    )
-                    RestoreTrace.log("resolveInitialFramesByTabId missingDrawerGeometry parent=\(paneId)")
-                }
                 continue
             }
             let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
@@ -677,11 +764,26 @@ extension WorkspaceSurfaceCoordinator {
                 collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
             )
 
-            for (drawerPaneId, drawerPaneFrame) in drawerFrames {
+            for (drawerPaneId, drawerPaneFrame) in drawerFrames
+            where Self.isFiniteNonEmptyFrame(drawerPaneFrame) {
                 resolvedFrames[drawerPaneId] = drawerPaneFrame
             }
         }
         return resolvedFrames
+    }
+
+    /// Finite, positive-area frame check shared by the bootstrap geometry
+    /// path (SPEC R1's "omit any frame that is empty, negative, or
+    /// non-finite" rule) — a pane with no safe frame here is left absent from
+    /// `resolvedFrames` so the terminal activation lane defers it rather than
+    /// admitting a garbage rect.
+    private static func isFiniteNonEmptyFrame(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite
+            && rect.origin.y.isFinite
+            && rect.size.width.isFinite
+            && rect.size.height.isFinite
+            && rect.size.width > 0
+            && rect.size.height > 0
     }
 
     private func resolvedDrawerContentRect(

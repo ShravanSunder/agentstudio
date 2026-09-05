@@ -305,8 +305,10 @@ struct WorkspaceCompositionPreparerTests {
         }
     }
 
-    @Test("backgrounded canonical pane families remain durable but are excluded from prepared mounts")
-    func backgroundedCanonicalPaneFamiliesRemainDurableButAreExcludedFromPreparedMounts() throws {
+    @Test(
+        "backgrounded canonical pane families remain durable and receive hidden terminal descriptors, excluded only from nonterminal mounts"
+    )
+    func backgroundedCanonicalPaneFamiliesRemainDurableAndReceiveHiddenTerminalDescriptors() throws {
         let activePane = makeCompositionPane(title: "Active terminal")
         var backgroundedParent = makeCompositionPane(
             title: "Backgrounded parent",
@@ -369,8 +371,211 @@ struct WorkspaceCompositionPreparerTests {
                 backgroundedParent.id: tab.id,
                 backgroundedChild.id: tab.id,
             ])
-        #expect(prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [activePane.id])
+        // SPEC R1: a residency-backgrounded terminal still receives a
+        // descriptor — classified `.hidden`, sorted after the active one —
+        // rather than being excluded outright.
+        #expect(
+            prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [
+                activePane.id, backgroundedParent.id, backgroundedChild.id,
+            ]
+        )
+        #expect(
+            prepared.terminalActivationInput.entries.map(\.visibilityPriority) == [
+                .activeVisible, .hidden, .hidden,
+            ]
+        )
         #expect(prepared.nonterminalContentMountInput.entries.isEmpty)
+    }
+
+    @Test("residency-backgrounded terminals receive hidden descriptors rather than exclusion")
+    func residencyBackgroundedTerminalsReceiveHiddenDescriptorsRatherThanExclusion() throws {
+        // Arrange
+        let backgroundedTerminal = makeCompositionPane(
+            title: "Backgrounded terminal",
+            residency: .backgrounded
+        )
+        let tab = makeCompositionTab(paneID: backgroundedTerminal.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Residency-backgrounded terminal",
+            panes: [backgroundedTerminal],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        // Assert: strictly valid tab and resolved host placement are the only
+        // requirements for terminal inclusion — residency only affects the
+        // computed priority.
+        #expect(prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [backgroundedTerminal.id])
+        #expect(prepared.terminalActivationInput.entries.first?.visibilityPriority == .hidden)
+    }
+
+    @Test("a drawer child of a backgrounded parent still receives a terminal descriptor")
+    func aDrawerChildOfABackgroundedParentStillReceivesATerminalDescriptor() throws {
+        // Arrange: the parent's own residency is backgrounded; the child's is
+        // active. The removed guard used to exclude the child purely because
+        // its parent was backgrounded — this isolates that specific claim
+        // from the child's own residency (covered by the prior test).
+        let activePane = makeCompositionPane(title: "Active terminal")
+        var backgroundedParent = makeCompositionPane(
+            title: "Backgrounded parent",
+            residency: .backgrounded
+        )
+        var activeChild = makeCompositionPane(title: "Active drawer child")
+        activeChild.kind = .drawerChild(parentPaneId: backgroundedParent.id)
+        backgroundedParent.withDrawer { drawer in
+            drawer.paneIds = [activeChild.id]
+            drawer.isExpanded = true
+        }
+        let drawerID = try #require(backgroundedParent.drawer?.drawerId)
+        let mainLayout = Layout(paneId: activePane.id)
+            .inserting(
+                paneId: backgroundedParent.id,
+                at: activePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            id: UUIDv7.generate(),
+            name: "Default",
+            isDefault: true,
+            layout: mainLayout,
+            activePaneId: activePane.id,
+            drawerViews: [
+                drawerID: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: activeChild.id)),
+                    activeChildId: activeChild.id
+                )
+            ]
+        )
+        let tab = Tab(
+            id: UUIDv7.generate(),
+            name: "Foreground tab",
+            allPaneIds: [activePane.id, backgroundedParent.id, activeChild.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Backgrounded drawer parent, active child",
+            panes: [activePane, backgroundedParent, activeChild],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        // Assert: the active child still receives a descriptor even though
+        // its parent's residency is backgrounded — the parent-residency
+        // guard no longer gates terminal inclusion.
+        #expect(
+            Set(prepared.terminalActivationInput.entries.map(\.paneID.uuid))
+                == [activePane.id, backgroundedParent.id, activeChild.id]
+        )
+        let childEntry = try #require(
+            prepared.terminalActivationInput.entries.first { $0.paneID.uuid == activeChild.id }
+        )
+        #expect(childEntry.visibilityPriority == .activeVisible)
+    }
+
+    @Test("nonterminal descriptors keep their active residency filter")
+    func nonterminalDescriptorsKeepTheirActiveResidencyFilter() throws {
+        // Arrange
+        let backgroundedWebview = makeCompositionPane(
+            title: "Backgrounded webview",
+            content: .webview(
+                WebviewState(
+                    url: try #require(URL(string: "https://example.com/backgrounded-nonterminal")),
+                    title: "Backgrounded webview",
+                    showNavigation: false
+                )
+            ),
+            residency: .backgrounded
+        )
+        let tab = makeCompositionTab(paneID: backgroundedWebview.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Residency-backgrounded nonterminal",
+            panes: [backgroundedWebview],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        // Assert: unlike terminals, a backgrounded nonterminal pane is still
+        // excluded outright — S7 narrows the residency guard to nonterminal
+        // descriptors only, it does not remove it there.
+        #expect(prepared.nonterminalContentMountInput.entries.isEmpty)
+        #expect(prepared.terminalActivationInput.entries.isEmpty)
+    }
+
+    @Test("an unowned recoverable pane still receives no descriptor")
+    func anUnownedRecoverablePaneStillReceivesNoDescriptor() throws {
+        // Arrange: `backgroundedUnownedTerminal` is a terminal pane with no
+        // tab membership at all — the new terminal-inclusion rule requires a
+        // strictly valid tab, so removing the residency guard must not widen
+        // inclusion to unowned panes.
+        let ownedPane = makeCompositionPane(title: "Owned terminal")
+        let backgroundedUnownedTerminal = makeCompositionPane(
+            title: "Backgrounded unowned terminal",
+            residency: .backgrounded
+        )
+        let tab = makeCompositionTab(paneID: ownedPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Unowned recoverable terminal",
+            panes: [ownedPane, backgroundedUnownedTerminal],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        // Assert
+        #expect(Set(prepared.paneGraph.replacement.paneStates.keys) == Set(snapshot.panes.map(\.id)))
+        #expect(prepared.tabGraph.tabIDByPaneID == [ownedPane.id: tab.id])
+        #expect(prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [ownedPane.id])
+    }
+
+    @Test("a strictly invalid composition is still rejected before any descriptor exists")
+    func aStrictlyInvalidCompositionIsStillRejectedBeforeAnyDescriptorExists() throws {
+        // Arrange: an active-residency terminal pane with no tab membership
+        // is not "recoverable" (recoverable requires backgrounded/orphaned
+        // residency) — this must still reject during validation, before
+        // `makePreparedContentInputs` ever runs, regardless of the
+        // descriptor-inclusion rule change.
+        let ownedPane = makeCompositionPane(title: "Owned terminal")
+        let activeUnownedTerminal = makeCompositionPane(title: "Active unowned terminal")
+        let tab = makeCompositionTab(paneID: ownedPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Invalid active unowned terminal",
+            panes: [ownedPane, activeUnownedTerminal],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(result == .rejected(.paneNotOwnedByTab(activeUnownedTerminal.id)))
     }
 
     @Test("unowned drawer child rejects when its parent remains owned")

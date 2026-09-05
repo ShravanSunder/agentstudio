@@ -605,13 +605,13 @@ enum WorkspaceCompositionPreparer {
         var nonterminalEntries: [(sourceIndex: Int, descriptor: NonterminalContentMountDescriptor)] = []
 
         for (sourceIndex, pane) in panes.enumerated() {
-            guard pane.residency.isActive else { continue }
+            // Terminal descriptor inclusion below requires only a strictly
+            // valid tab and a resolved host placement (SPEC R1 in full):
+            // residency is not a gate here for terminals. The nonterminal
+            // lane keeps its residency guards inside its own switch case —
+            // an unowned recoverable pane still gets no host placement at
+            // all via the `tabIDByPaneID`/`tabsByID` guard below, unchanged.
             guard let tabID = tabIDByPaneID[pane.id], let tab = tabsByID[tabID] else {
-                continue
-            }
-            if case .drawerChild(let parentPaneID) = pane.kind,
-                panesByID[parentPaneID]?.residency.isActive != true
-            {
                 continue
             }
             guard
@@ -638,6 +638,12 @@ enum WorkspaceCompositionPreparer {
             case .terminal(let descriptor):
                 terminalEntries.append((sourceIndex, descriptor))
             case .nonterminal(let descriptor):
+                guard pane.residency.isActive else { continue }
+                if case .drawerChild(let parentPaneID) = pane.kind,
+                    panesByID[parentPaneID]?.residency.isActive != true
+                {
+                    continue
+                }
                 nonterminalEntries.append((sourceIndex, descriptor))
             }
         }
@@ -754,6 +760,13 @@ enum WorkspaceCompositionPreparer {
         activeTabID: UUID?,
         panesByID: [UUID: Pane]
     ) -> TerminalActivationVisibilityPriority {
+        // Residency is an input here, not only at the (now terminal-only)
+        // call-site guard removed above: a residency-backgrounded terminal
+        // still receives a descriptor, but never an active/visible priority.
+        // Nonterminal panes never reach this while non-active — their own
+        // residency guard already excludes them before this call — so this
+        // is a no-op for them and newly load-bearing for terminals only.
+        guard pane.residency.isActive else { return .hidden }
         guard tab.id == activeTabID else { return .hidden }
         let arrangement = tab.activeArrangement
         switch pane.kind {

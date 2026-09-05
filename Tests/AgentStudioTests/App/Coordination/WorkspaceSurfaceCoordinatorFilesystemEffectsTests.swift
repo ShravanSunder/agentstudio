@@ -226,7 +226,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
 
         let mountedView = coordinator.mountCurrentTerminalContent(
             pane: pane,
-            initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600)
+            initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600),
+            authority: .released(PaneId(existingUUID: pane.id))
         )
         coordinator.executeInsertPane(
             source: .newTerminal,
