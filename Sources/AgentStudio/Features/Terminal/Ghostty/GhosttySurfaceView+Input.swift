@@ -443,9 +443,11 @@ extension Ghostty.SurfaceView {
         withObservationTracking {
             _ = expectedRuntime.mouseShape
             _ = expectedRuntime.isMouseVisible
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let runtime = self.terminalRuntime, runtime === expectedRuntime else { return }
+        } onChange: { [weak self, weak expectedRuntime] in
+            Task { @MainActor [weak self, weak expectedRuntime] in
+                guard let self, let expectedRuntime, let runtime = self.terminalRuntime,
+                    runtime === expectedRuntime
+                else { return }
                 self.applyMouseShape(runtime.mouseShape)
                 self.applyMouseVisibility(isVisible: runtime.isMouseVisible)
                 self.observeMouseState(runtime: runtime)
