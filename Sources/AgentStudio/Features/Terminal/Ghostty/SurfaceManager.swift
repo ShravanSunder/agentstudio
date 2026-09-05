@@ -371,8 +371,8 @@ package final class SurfaceManager {
         RestoreTrace.log("SurfaceManager.detach begin surface=\(surfaceId) reason=\(String(describing: reason))")
 
         // Deliver before mutating membership, then re-read so `lastDeliveredVisibility` is current.
+        // `deliverVisibility(false)` also delivers focus=false through the seam.
         _ = deliverVisibility(surfaceId, visible: false)
-        setFocus(surfaceId, focused: false)
         managed = (activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]) ?? managed
         if wasActive {
             activeSurfaces.removeValue(forKey: surfaceId)

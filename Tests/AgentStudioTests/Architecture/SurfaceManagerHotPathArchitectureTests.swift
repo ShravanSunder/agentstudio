@@ -119,6 +119,28 @@ struct SurfaceManagerHotPathArchitectureTests {
         }
         #expect(offendingFiles.isEmpty, "occlusion delivered outside the seam by \(offendingFiles)")
     }
+
+    @Test("native focus delivery lives only in the renderer state delivery seam")
+    func nativeFocusDeliveryLivesOnlyInRendererStateDeliverySeam() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let terminalRoot = projectRoot.appending(path: "Sources/AgentStudio/Features/Terminal")
+        let deliveryPath = terminalRoot.appending(path: "Ghostty/SurfaceRendererStateDelivery.swift")
+        let deliverySource = try String(contentsOf: deliveryPath, encoding: .utf8)
+        #expect(deliverySource.contains("ghostty_surface_set_focus"))
+
+        let enumerator = try #require(
+            FileManager.default.enumerator(at: terminalRoot, includingPropertiesForKeys: nil)
+        )
+        var offendingFiles: [String] = []
+        for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+            guard fileURL.standardizedFileURL != deliveryPath.standardizedFileURL else { continue }
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            if source.contains("ghostty_surface_set_focus") {
+                offendingFiles.append(fileURL.lastPathComponent)
+            }
+        }
+        #expect(offendingFiles.isEmpty, "focus delivered outside the seam by \(offendingFiles)")
+    }
 }
 
 extension String {

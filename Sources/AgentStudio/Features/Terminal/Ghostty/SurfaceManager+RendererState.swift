@@ -1,6 +1,5 @@
 import AgentStudioInfrastructure
 import Foundation
-import GhosttyKit
 
 /// Renderer-state delivery and reconciliation for attached surfaces.
 ///
@@ -39,6 +38,8 @@ extension SurfaceManager {
 
         if !visible {
             _ = rendererStateDelivery.deliverFocus(false, to: managed.surface)
+        } else if managed.surface.window?.firstResponder === managed.surface {
+            _ = rendererStateDelivery.deliverFocus(true, to: managed.surface)
         }
 
         managed.lastDeliveredVisibility = visible
@@ -82,30 +83,40 @@ extension SurfaceManager {
         return SurfaceVisibilityReconciliationResult(applied: applied, equal: equal, missing: missing)
     }
 
-    /// Set focus state for a surface
+    /// Set focus state for a surface, gated so a surface may only receive focus=true while it is
+    /// active and its last delivered renderer visibility is `true`. Focus=false is always
+    /// permitted so a surface being backgrounded or torn down can still relinquish focus.
     func setFocus(_ surfaceId: UUID, focused: Bool) {
-        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-            let surface = managed.surface.surface
-        else {
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else {
             RestoreTrace.log(
-                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) known=\((activeSurfaces[surfaceId] != nil) || (hiddenSurfaces[surfaceId] != nil))"
+                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) known=false"
             )
             return
         }
-        ghostty_surface_set_focus(surface, focused)
+
+        if focused {
+            guard activeSurfaces[surfaceId] != nil, managed.lastDeliveredVisibility == true else {
+                RestoreTrace.log(
+                    "SurfaceManager.setFocus refused surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil) lastDeliveredVisibility=\(String(describing: managed.lastDeliveredVisibility))"
+                )
+                return
+            }
+        }
+
+        _ = rendererStateDelivery.deliverFocus(focused, to: managed.surface)
         RestoreTrace.log("SurfaceManager.setFocus surface=\(surfaceId) focused=\(focused)")
     }
 
     /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.
-    /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern.
+    /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern. `setFocus` gates
+    /// the focus=true delivery against delivered visibility, so a surface reconciled off never
+    /// receives focus even when it is the requested active surface.
     package func syncFocus(activeSurfaceId: UUID?) {
         RestoreTrace.log(
             "SurfaceManager.syncFocus activeSurface=\(activeSurfaceId?.uuidString ?? "nil") activeCount=\(activeSurfaces.count)"
         )
-        for (id, managed) in activeSurfaces {
-            guard let surface = managed.surface.surface else { continue }
-            ghostty_surface_set_focus(surface, id == activeSurfaceId)
-            RestoreTrace.log("SurfaceManager.syncFocus set surface=\(id) focused=\(id == activeSurfaceId)")
+        for id in activeSurfaces.keys {
+            setFocus(id, focused: id == activeSurfaceId)
         }
     }
 }

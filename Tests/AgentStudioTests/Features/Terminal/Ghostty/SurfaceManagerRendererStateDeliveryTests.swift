@@ -249,6 +249,85 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(delivery.visibilityCalls == [.init(surfaceID: managed.id, visible: false)])
         #expect(manager.canUndo == true)
     }
+
+    @Test("focus-on is refused while delivered visibility is false")
+    func focusOnIsRefusedWhileDeliveredVisibilityIsFalse() throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let surface = makeBareSurface()
+        let managed = try acceptedSurface(surface, in: manager)
+        let paneID = UUIDv7.generate()
+        manager.attach(managed.id, to: paneID)
+        _ = manager.reconcileAttachedVisibility { _ in false }
+        delivery.reset()
+
+        // Act
+        manager.setFocus(managed.id, focused: true)
+
+        // Assert
+        #expect(delivery.focusCalls.isEmpty)
+
+        // Act
+        manager.setFocus(managed.id, focused: false)
+
+        // Assert
+        #expect(delivery.focusCalls == [.init(surfaceID: managed.id, focused: false)])
+    }
+
+    @Test("syncFocus delivers focus-on only to the visible target")
+    func syncFocusDeliversFocusOnOnlyToVisibleTarget() throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let surfaceA = makeBareSurface()
+        let surfaceB = makeBareSurface()
+        let managedA = try acceptedSurface(surfaceA, in: manager)
+        let managedB = try acceptedSurface(surfaceB, in: manager)
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        manager.attach(managedA.id, to: paneA)
+        manager.attach(managedB.id, to: paneB)
+        _ = manager.reconcileAttachedVisibility { paneID in paneID != paneB }
+        delivery.reset()
+
+        // Act
+        manager.syncFocus(activeSurfaceId: managedA.id)
+
+        // Assert
+        #expect(delivery.focusCalls.count == 2)
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: true)))
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: false)))
+
+        // Act
+        manager.syncFocus(activeSurfaceId: managedB.id)
+
+        // Assert
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: false)))
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: false)))
+        #expect(!delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: true)))
+    }
+
+    @Test("turning on does not deliver focus when the surface is not first responder")
+    func turningOnDoesNotDeliverFocusWhenSurfaceIsNotFirstResponder() throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let surface = makeBareSurface()
+        let managed = try acceptedSurface(surface, in: manager)
+        let paneID = UUIDv7.generate()
+        manager.attach(managed.id, to: paneID)
+        _ = manager.reconcileAttachedVisibility { _ in false }
+        delivery.reset()
+
+        // Act
+        let result = manager.reconcileAttachedVisibility { _ in true }
+
+        // Assert
+        #expect(result == .init(applied: 1, equal: 0, missing: 0))
+        #expect(delivery.visibilityCalls == [.init(surfaceID: managed.id, visible: true)])
+        #expect(delivery.focusCalls.isEmpty)
+    }
 }
 
 // MARK: - Test Doubles

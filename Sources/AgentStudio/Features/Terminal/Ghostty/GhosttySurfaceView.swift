@@ -547,8 +547,8 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if result {
                 focused = true
-                if let surface {
-                    ghostty_surface_set_focus(surface, true)
+                if surface != nil {
+                    SurfaceManager.shared.setFocus(managedSurfaceID, focused: true)
                 }
                 applyMouseVisibility(isVisible: terminalRuntime?.isMouseVisible ?? true)
                 logSurfaceSnapshot(reason: "becomeFirstResponder")
@@ -560,9 +560,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 applyMouseVisibility(isVisible: true)
                 logSurfaceSnapshot(reason: "resignFirstResponder")
             }
@@ -591,9 +589,7 @@ extension Ghostty {
                     isFocused: focused,
                     isAttachedToWindow: false
                 )
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 wasDetachedFromWindow = true
             }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")
