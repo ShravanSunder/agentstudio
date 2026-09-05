@@ -1,6 +1,7 @@
 # Production website quality review
 
-Status: focused fixes verified; draft PR pending. Whole campaign not accepted or deployed.
+Status: focused fixes verified in [draft PR #326](https://github.com/ShravanSunder/agentstudio/pull/326).
+Whole campaign not accepted or deployed.
 
 ## Scope
 
@@ -52,7 +53,8 @@ phone, then independent review and appropriate automated checks.
 - [ ] Full implementation/release readiness: aggregate check is blocked;
   full release matrix and formal implementation-review coverage remain open.
 - [x] Run required checks; record unrelated blocker below.
-- [ ] Commit, push, and create PR with evidence.
+- [x] Commit, push, and create draft PR #326 with evidence. Implementation
+  checkpoint: `5d29af186`.
 
 ## Fixes and proof
 
