@@ -76,9 +76,8 @@ final class RepoExplorerCommandPresentationBatch {
     @ObservationIgnored private var lastResolvedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
     /// Only the most recently armed Observation tracking may schedule a refresh; older one-shot trackings stay installed until they fire and must be ignored.
     @ObservationIgnored private var armedTrackingGeneration: UInt64 = 0
-    /// Coalesces Observation wakes to at most one refresh per MainActor turn: set true when a wake
-    /// schedules the coalescing task, cleared when that task starts its refresh.
-    @ObservationIgnored private var isObservationRefreshPending = false
+    /// Generation of the newest observation wake awaiting the coalescing yield; nil when no wake is pending.
+    @ObservationIgnored private var pendingObservationWakeGeneration: UInt64?
 
     init(
         store: WorkspaceStore,
@@ -103,7 +102,6 @@ final class RepoExplorerCommandPresentationBatch {
         currentVisibleSnapshot = nil
         lastResolvedVisibleSnapshot = nil
         latestDelta = nil
-        isObservationRefreshPending = false
         armedTrackingGeneration &+= 1
     }
 
@@ -148,12 +146,20 @@ final class RepoExplorerCommandPresentationBatch {
                 )
             )
         } onChange: { [weak self] in
+            // A wake arriving while one is pending records its (current) generation instead of
+            // scheduling a second task. After the yield, refresh only if no other refresh
+            // (visible snapshot, start, stop) has superseded the newest wake seen.
             Task { @MainActor [weak self] in
                 guard let self, self.armedTrackingGeneration == armedGeneration else { return }
-                guard !self.isObservationRefreshPending else { return }
-                self.isObservationRefreshPending = true
+                if self.pendingObservationWakeGeneration != nil {
+                    self.pendingObservationWakeGeneration = armedGeneration
+                    return
+                }
+                self.pendingObservationWakeGeneration = armedGeneration
                 await Task.yield()
-                self.isObservationRefreshPending = false
+                let newestWakeGeneration = self.pendingObservationWakeGeneration
+                self.pendingObservationWakeGeneration = nil
+                guard newestWakeGeneration == self.armedTrackingGeneration else { return }
                 self.refresh(observationID: observationID, trigger: .observation)
             }
         }

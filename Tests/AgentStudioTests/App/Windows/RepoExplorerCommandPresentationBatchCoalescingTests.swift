@@ -45,7 +45,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                     _ = await handler.batchArrivals.wait { _ in true }
                     try await trace.recorder.flush()
                     let outputFileURL = try #require(trace.runtime.outputFileURL)
-                    let observationBefore = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationBefore = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     // A pane write in the inactive tab, and a drawer toggle on the active tab's
                     // non-active pane, are both outside the bounded global fingerprint.
@@ -54,7 +54,7 @@ extension RepoExplorerCommandPresentationBatchTests {
 
                     for _ in 0..<500 { await Task.yield() }
                     try await trace.recorder.drain()
-                    let observationAfter = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     #expect(observationAfter - observationBefore == 0)
                 }
@@ -96,16 +96,143 @@ extension RepoExplorerCommandPresentationBatchTests {
                     _ = await handler.batchArrivals.wait { _ in true }
                     try await trace.recorder.flush()
                     let outputFileURL = try #require(trace.runtime.outputFileURL)
-                    let observationBefore = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationBefore = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
 
                     _ = await handler.batchArrivals.wait { _ in true }
                     for _ in 0..<500 { await Task.yield() }
                     try await trace.recorder.drain()
-                    let observationAfter = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     #expect(observationAfter - observationBefore == 1)
+                }
+            }
+        )
+    }
+
+    @Test("a visible snapshot refresh during the coalescing yield supersedes the pending observation refresh")
+    func visibleSnapshotRefreshDuringCoalescingYieldSupersedesPendingObservationRefresh() async throws {
+        let handler = RepoExplorerCoalescingRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                try await withAsyncTestCoreAtoms { _ in
+                    let fixture = try makeCoalescingFixture()
+                    let trace = makeCoalescingTraceRecorder(
+                        name: "repo-command-coalescing-superseded-wake",
+                        processIdentifier: 943
+                    )
+                    defer { try? FileManager.default.removeItem(at: trace.directory) }
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: fixture.store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        dispatcher: .shared,
+                        performanceTraceRecorder: trace.recorder
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeCoalescingVisibleWorktreeSnapshot(
+                            worktreeIDs: [fixture.worktree.id],
+                            repositoryIDs: [fixture.repo.id]
+                        )
+                    )
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    try await trace.recorder.flush()
+                    let outputFileURL = try #require(trace.runtime.outputFileURL)
+                    let observationBefore = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
+                    let visibleSnapshotBefore = try coalescingRefreshCount(
+                        at: outputFileURL, trigger: "visible_snapshot")
+
+                    // Arms the onChange task, lets it run up to its own coalescing yield, then a
+                    // synchronous visible-snapshot refresh runs during that yield (no other awaits
+                    // in between).
+                    fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
+                    await Task.yield()
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeCoalescingVisibleWorktreeSnapshot(
+                            worktreeIDs: [fixture.worktree.id],
+                            repositoryIDs: [fixture.repo.id],
+                            visibleRevision: 2
+                        )
+                    )
+                    for _ in 0..<500 { await Task.yield() }
+                    try await trace.recorder.drain()
+                    let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
+                    let visibleSnapshotAfter = try coalescingRefreshCount(
+                        at: outputFileURL, trigger: "visible_snapshot")
+
+                    #expect(visibleSnapshotAfter - visibleSnapshotBefore == 1)
+                    #expect(observationAfter - observationBefore == 0)
+                }
+            }
+        )
+    }
+
+    @Test("a tracked write after a visible snapshot refresh during the yield still produces one observation refresh")
+    func trackedWriteAfterVisibleSnapshotRefreshDuringYieldStillProducesOneObservationRefresh() async throws {
+        let handler = RepoExplorerCoalescingRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                try await withAsyncTestCoreAtoms { _ in
+                    let fixture = try makeCoalescingFixture()
+                    let trace = makeCoalescingTraceRecorder(
+                        name: "repo-command-coalescing-superseded-wake-then-write",
+                        processIdentifier: 944
+                    )
+                    defer { try? FileManager.default.removeItem(at: trace.directory) }
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: fixture.store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        dispatcher: .shared,
+                        performanceTraceRecorder: trace.recorder
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeCoalescingVisibleWorktreeSnapshot(
+                            worktreeIDs: [fixture.worktree.id],
+                            repositoryIDs: [fixture.repo.id]
+                        )
+                    )
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    try await trace.recorder.flush()
+                    let outputFileURL = try #require(trace.runtime.outputFileURL)
+                    let observationBefore = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
+                    let visibleSnapshotBefore = try coalescingRefreshCount(
+                        at: outputFileURL, trigger: "visible_snapshot")
+
+                    // Same race as the superseded-wake test, but a second tracked write lands
+                    // after the superseding visible-snapshot refresh: the coalescing task must
+                    // still see this newer wake and refresh once (no lost update).
+                    fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
+                    await Task.yield()
+                    batch.acceptVisibleWorktreeSnapshot(
+                        makeCoalescingVisibleWorktreeSnapshot(
+                            worktreeIDs: [fixture.worktree.id],
+                            repositoryIDs: [fixture.repo.id],
+                            visibleRevision: 2
+                        )
+                    )
+                    fixture.store.setActivePane(fixture.paneA1.id, inTab: fixture.tabA.id)
+                    for _ in 0..<500 { await Task.yield() }
+                    try await trace.recorder.drain()
+                    let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
+                    let visibleSnapshotAfter = try coalescingRefreshCount(
+                        at: outputFileURL, trigger: "visible_snapshot")
+
+                    #expect(observationAfter - observationBefore == 1)
+                    #expect(visibleSnapshotAfter - visibleSnapshotBefore == 1)
                 }
             }
         )
@@ -145,7 +272,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                     _ = await handler.batchArrivals.wait { _ in true }
                     try await trace.recorder.flush()
                     let outputFileURL = try #require(trace.runtime.outputFileURL)
-                    let observationBefore = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationBefore = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     // No await between these writes: they must land in the same MainActor turn.
                     for iteration in 0..<10 {
@@ -161,7 +288,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                     _ = await handler.batchArrivals.wait { _ in true }
                     for _ in 0..<1000 { await Task.yield() }
                     try await trace.recorder.drain()
-                    let observationAfter = try coalescingObservationRefreshCount(at: outputFileURL)
+                    let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
 
                     #expect(observationAfter - observationBefore == 1)
                 }
@@ -329,13 +456,13 @@ private func makeCoalescingTraceRecorder(
     return (AgentStudioPerformanceTraceRecorder(traceRuntime: runtime), runtime, traceDirectory)
 }
 
-private func coalescingObservationRefreshCount(at outputFileURL: URL) throws -> Int {
+private func coalescingRefreshCount(at outputFileURL: URL, trigger: String) throws -> Int {
     try String(contentsOf: outputFileURL, encoding: .utf8)
         .split(separator: "\n")
         .count { line in
             line.contains("\"body\":\"performance.repo_explorer.command_presentation\"")
                 && line.contains(
-                    "\"agentstudio.performance.repo_explorer.wake_trigger\":\"observation\""
+                    "\"agentstudio.performance.repo_explorer.wake_trigger\":\"\(trigger)\""
                 )
         }
 }
