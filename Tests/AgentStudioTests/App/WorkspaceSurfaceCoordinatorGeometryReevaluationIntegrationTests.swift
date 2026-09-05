@@ -423,12 +423,14 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
     func aNewlyQueuedVisibleMemberReceivesItsPromotedTier() async throws {
         // Arrange: `backgroundDeferredPane` (created first, earlier
         // original ordinal) sits in a never-selected tab. `visibleSiblingPane`
-        // (created second, later ordinal) is a split sibling of `activePane`
-        // in the ACTIVE tab. Both start deferred. If reevaluation only
-        // requeued them at their prior background rank, the earlier ordinal
-        // would win the cohort's single admission slot; SPEC R3's
-        // promoted-tier requirement says the now-visible sibling must win
-        // instead.
+        // (created second, later ordinal) is mounted with the SAME `.hidden`
+        // cohort-time priority as `backgroundDeferredPane` — only becoming a
+        // split sibling of `activePane` in the ACTIVE tab after the cohort
+        // has already mounted and settled. Both start deferred at an
+        // identical static priority, so only a live geometry-reevaluation
+        // promotion (SPEC R3), not the static descriptor fallback, can make
+        // the now-visible sibling win the cohort's single admission slot
+        // ahead of its earlier original ordinal.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let repo = harness.store.addRepo(at: harness.tempDir)
@@ -453,14 +455,6 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         harness.store.appendTab(activeTab)
         harness.store.appendTab(backgroundTab)
         harness.store.setActiveTab(activeTab.id)
-        _ = harness.store.insertPane(
-            visibleSiblingPane.id,
-            inTab: activeTab.id,
-            at: activePane.id,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .halveTarget
-        )
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
         let mounted = try await mountGeometryReevaluationCohort(
@@ -469,12 +463,25 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
             entries: [
                 (activePane, .activeVisible, .tab(tabID: activeTab.id)),
                 (backgroundDeferredPane, .hidden, .tab(tabID: backgroundTab.id)),
-                (visibleSiblingPane, .activeVisible, .tab(tabID: activeTab.id)),
+                (visibleSiblingPane, .hidden, .tab(tabID: activeTab.id)),
             ],
             eligiblePaneIDs: [PaneId(existingUUID: activePane.id)],
             trustedBounds: trustedBounds
         )
         _ = mounted
+
+        // `visibleSiblingPane` becomes an actual active-tab sibling only
+        // after the cohort has already mounted and settled, mirroring
+        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives`'s precaution
+        // against a real AppKit layout pass landing mid-mount.
+        _ = harness.store.insertPane(
+            visibleSiblingPane.id,
+            inTab: activeTab.id,
+            at: activePane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
 
         // Act
         harness.coordinator.execute(.equalizePanes(tabId: activeTab.id))

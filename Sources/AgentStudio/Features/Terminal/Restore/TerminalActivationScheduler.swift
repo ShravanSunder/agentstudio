@@ -119,6 +119,14 @@ package actor TerminalActivationScheduler {
     /// Starts at the same zero-ordinal baseline the port starts from, so the
     /// first proposal always matches until a real observation is recorded.
     private var appliedVisibilityRevision: TerminalVisibilityRevision
+    /// The complete current visible queued set from the latest applied
+    /// snapshot, `nil` until the first one is applied (SPEC R3, R3
+    /// remediation). `applyVisibilitySnapshot` re-ranks every currently
+    /// `.queued` member against it; `admitWaitingMembers` consults it too, so
+    /// a member admitted from `waitingForGeometry` after this snapshot was
+    /// applied is ranked by the same observation instead of falling back to
+    /// its static descriptor priority.
+    private var lastAppliedVisibleQueuedTerminals: TerminalVisibleQueuedTerminals?
     /// True while a worker fleet spawned by `acceptLaterGeometry` after the
     /// original `activate()` drain went quiescent is still running. Guards
     /// against a second supplemental fleet: while this is true, or while the
@@ -245,6 +253,16 @@ package actor TerminalActivationScheduler {
             guard var member = membersByPaneID[paneID] else { continue }
             guard case .waitingForGeometry = member.execution else { continue }
             member.execution = .queued(priority: member.descriptor.visibilityPriority, attempt: 1)
+            // A visibility snapshot already applied before this member left
+            // `waitingForGeometry` still governs its rank (R3 remediation):
+            // without this, the member would keep its static descriptor
+            // priority even though the current visible queued set already
+            // named it, and the snapshot that would have corrected it is
+            // equality-suppressed at the port when the visible set is
+            // otherwise unchanged.
+            if let terminals = lastAppliedVisibleQueuedTerminals {
+                member.promotedRank = promotedRank(for: member, in: terminals)
+            }
             membersByPaneID[paneID] = member
             acceptedPaneIDs.insert(paneID)
         }
@@ -412,22 +430,34 @@ package actor TerminalActivationScheduler {
     /// once a real observation has been applied. Promotion never alters
     /// identity, placement, frame, generation, or attempt count.
     private func applyVisibilitySnapshot(_ terminals: TerminalVisibleQueuedTerminals) {
+        lastAppliedVisibleQueuedTerminals = terminals
         for (paneID, var member) in membersByPaneID {
             guard case .queued = member.execution else { continue }
-            let rank: QueueRank
-            if terminals.activeMainPaneIDs.contains(paneID) {
-                rank = .promotedActiveMain
-            } else if terminals.visibleMainSiblingPaneIDs.contains(paneID) {
-                rank = .promotedMainSibling
-            } else if terminals.activeDrawerPaneIDs.contains(paneID) {
-                rank = .promotedActiveDrawer
-            } else if terminals.visibleDrawerSiblingPaneIDs.contains(paneID) {
-                rank = .promotedDrawerSibling
-            } else {
-                rank = QueueRank.backgroundRank(for: member.descriptor.hostPlacement)
-            }
-            member.promotedRank = rank
+            member.promotedRank = promotedRank(for: member, in: terminals)
             membersByPaneID[paneID] = member
+        }
+    }
+
+    /// The tier `terminals` assigns `member`: one of the four promoted tiers
+    /// if `member`'s pane appears in one, else its background rank. Shared by
+    /// `applyVisibilitySnapshot` (every currently `.queued` member) and
+    /// `admitWaitingMembers` (a member admitted after this snapshot was
+    /// already applied) so both rank against the identical classification.
+    private func promotedRank(
+        for member: Member,
+        in terminals: TerminalVisibleQueuedTerminals
+    ) -> QueueRank {
+        let paneID = member.descriptor.paneID
+        if terminals.activeMainPaneIDs.contains(paneID) {
+            return .promotedActiveMain
+        } else if terminals.visibleMainSiblingPaneIDs.contains(paneID) {
+            return .promotedMainSibling
+        } else if terminals.activeDrawerPaneIDs.contains(paneID) {
+            return .promotedActiveDrawer
+        } else if terminals.visibleDrawerSiblingPaneIDs.contains(paneID) {
+            return .promotedDrawerSibling
+        } else {
+            return QueueRank.backgroundRank(for: member.descriptor.hostPlacement)
         }
     }
 
