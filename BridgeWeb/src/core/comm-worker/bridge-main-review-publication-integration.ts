@@ -21,6 +21,7 @@ import type { BridgeWorkerRpcCommandInput } from './bridge-worker-rpc-client.js'
 import type { BridgeWorkerRpcLifecycleSnapshot } from './bridge-worker-rpc-lifecycle-store.js';
 
 export interface BridgeMainReviewPublicationClient {
+	readonly requestWorkerReplacement: () => void;
 	readonly lifecycle: {
 		readonly getSnapshot: () => BridgeWorkerRpcLifecycleSnapshot;
 		readonly subscribe: (listener: () => void) => () => void;
@@ -207,6 +208,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 
 	const installationGate = createBridgeMainReviewPresentationInstallationGate({
 		installationPort: {
+			requestWorkerReplacement: props.client.requestWorkerReplacement,
 			requestInstallAdmission: (request): Promise<BridgeMainReviewInstallAdmissionResult> => {
 				if (!publicationEpochById.has(request.candidatePublicationId)) {
 					return Promise.resolve({

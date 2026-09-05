@@ -226,6 +226,7 @@ function createReviewApplicationHarness(): ReviewApplicationHarness {
 		sendDisposition: (): void => {},
 	});
 	const surfaceClient = {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
 		renderFulfillmentCoordinator: fulfillmentCoordinator,
 		renderStore,

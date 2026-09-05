@@ -25,6 +25,7 @@ export interface BridgeMainReviewInstallAdmissionResult {
 }
 
 export interface BridgeMainReviewPresentationInstallationPort {
+	readonly requestWorkerReplacement: () => void;
 	readonly requestInstallAdmission: (
 		request: BridgeMainReviewInstallAdmissionRequest,
 	) => Promise<BridgeMainReviewInstallAdmissionResult>;
@@ -43,7 +44,6 @@ export interface BridgeMainReviewPresentationInstallationGate {
 		attention: BridgeMainReviewSemanticAttention,
 	) => void;
 	readonly prepareForWorkerReplacement: () => void;
-	readonly retryInstalledReceipt: () => Promise<boolean>;
 	readonly semanticAttentionChanged: (
 		attention: BridgeMainReviewSemanticAttention,
 	) => Promise<void>;
@@ -154,6 +154,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		if (
 			isClosed ||
 			installationInFlightPublicationId !== null ||
+			pendingInstalledReceiptCandidate !== null ||
 			!candidateMatchesStore(candidate)
 		) {
 			return;
@@ -317,7 +318,25 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			trigger,
 		});
 		pendingInstalledReceiptCandidate = candidate;
-		await sendPendingInstalledReceipt();
+		const receiptConfirmed = await sendPendingInstalledReceipt();
+		if (
+			!receiptConfirmed &&
+			requestLifecycleRevision === lifecycleRevision &&
+			pendingInstalledReceiptCandidate === candidate
+		) {
+			const retryConfirmed = await sendPendingInstalledReceipt();
+			if (
+				!retryConfirmed &&
+				requestLifecycleRevision === lifecycleRevision &&
+				pendingInstalledReceiptCandidate === candidate
+			) {
+				props.installationPort.requestWorkerReplacement();
+				return;
+			}
+		}
+		if (!isClosed && requestLifecycleRevision === lifecycleRevision) {
+			await evaluateReadyCandidate();
+		}
 	};
 
 	const evaluateReadyCandidate = async (): Promise<void> => {
@@ -453,12 +472,12 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			if (isClosed) return;
 			lifecycleRevision += 1;
 			installationInFlightPublicationId = null;
+			pendingInstalledReceiptCandidate = null;
 			readyCandidate = null;
 			props.store.discardReviewCandidate();
 			props.store.clearReviewCandidateFailure();
 			recordCleanupLifecycle(props, 'workerReplacement');
 		},
-		retryInstalledReceipt: sendPendingInstalledReceipt,
 		semanticAttentionChanged: async (attention): Promise<void> => {
 			if (isClosed) return;
 			const nextAttentionFileIdentities = new Set(attention.stableFileIdentities);

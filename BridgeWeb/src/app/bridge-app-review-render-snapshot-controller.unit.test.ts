@@ -773,6 +773,7 @@ function makeReviewSurfaceClient(
 ): BridgePaneSurfaceClient {
 	let lifecycleSnapshot: BridgeWorkerRpcLifecycleSnapshot = { requestsById: {} };
 	return {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: {
 			getSnapshot: () => lifecycleSnapshot,
 			getServerSnapshot: () => lifecycleSnapshot,

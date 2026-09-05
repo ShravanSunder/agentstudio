@@ -129,6 +129,7 @@ export function makeFileSurfaceHarness(): FileSurfaceHarness {
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	return {
 		fileViewClient: {
+			requestWorkerReplacement: vi.fn(),
 			lifecycle: lifecycleStore,
 			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 			renderStore: displayStore,
@@ -190,6 +191,7 @@ export function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 			messageListener(message);
 		},
 		reviewClient: {
+			requestWorkerReplacement: vi.fn(),
 			lifecycle: lifecycleStore,
 			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 			renderStore: displayStore,

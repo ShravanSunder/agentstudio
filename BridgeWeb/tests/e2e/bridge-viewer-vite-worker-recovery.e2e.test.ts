@@ -14,6 +14,117 @@ import {
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
 import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
+import {
+	observeBrowserRuntimeDiagnostics,
+	waitForSettledReviewComparison,
+} from './bridge-viewer-vite-review-comparison-observation.ts';
+
+test('replaces the worker after exhausted installed receipts and installs the next Review revision', async () => {
+	// Arrange — intercept only installed receipts; all source, metadata and content remain real.
+	const fixture = await createBridgeViewerViteProductFixture();
+	let server: BridgeViewerOwnedViteProductServer | null = null;
+	let browser: Browser | null = null;
+	let diagnostics: ReturnType<typeof observeBrowserRuntimeDiagnostics> | null = null;
+	let rejectedReceiptCount = 0;
+	try {
+		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		diagnostics = observeBrowserRuntimeDiagnostics(page);
+		await page.route('**/__bridge-product/command', async (route): Promise<void> => {
+			const body: unknown = route.request().postDataJSON();
+			if (
+				typeof body === 'object' &&
+				body !== null &&
+				'kind' in body &&
+				body.kind === 'product.call' &&
+				'call' in body &&
+				typeof body.call === 'object' &&
+				body.call !== null &&
+				'method' in body.call &&
+				body.call.method === 'review.publication.applied' &&
+				rejectedReceiptCount < 4
+			) {
+				rejectedReceiptCount += 1;
+				await route.fulfill({ body: '', contentType: 'text/plain', status: 502 });
+				return;
+			}
+			await route.continue();
+		});
+		const initialBootstrap = page.waitForResponse(
+			(response): boolean => isBootstrapResponse(response, 'initial'),
+			{ timeout: 30_000 },
+		);
+		const replacementBootstrap = page.waitForResponse(
+			(response): boolean => isBootstrapResponse(response, 'workerReplacement'),
+			{ timeout: 30_000 },
+		);
+		let mainFrameNavigationCount = 0;
+		page.on('framenavigated', (frame): void => {
+			if (frame === page.mainFrame()) mainFrameNavigationCount += 1;
+		});
+
+		// Act — both exact-byte attempts of each of two semantic receipt attempts fail.
+		const [initialResponse, replacementResponse] = await Promise.all([
+			initialBootstrap,
+			replacementBootstrap,
+			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
+				timeout: 120_000,
+				waitUntil: 'domcontentloaded',
+			}),
+		]);
+		expect(rejectedReceiptCount).toBe(4);
+		expect(await bootstrapWorkerInstanceId(replacementResponse)).not.toBe(
+			await bootstrapWorkerInstanceId(initialResponse),
+		);
+		const recoveredComparison = await waitForSettledReviewComparison({
+			expectedTargetLabel: 'HEAD',
+			expectedTargetOID: fixture.oracle.baseRef,
+			page,
+			timeoutMilliseconds: 30_000,
+		});
+		const unchangedFile = fixture.oracle.reviewFiles[1];
+		if (unchangedFile === undefined) throw new Error('Receipt recovery requires two Review files.');
+		await selectReviewFile({ page, path: unchangedFile.path });
+		await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
+
+		// Assert — a subsequent real mutation must advance displayed authority, not merely repaint.
+		await fixture.mutateReviewFile();
+		await expect
+			.poll(
+				async (): Promise<number> =>
+					Number(
+						await page
+							.getByTestId('review-viewer-shell')
+							.getAttribute('data-review-metadata-revision'),
+					),
+				{ timeout: 30_000 },
+			)
+			.toBeGreaterThan(recoveredComparison.revision);
+		await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
+		expect(mainFrameNavigationCount).toBe(1);
+		expect(rejectedReceiptCount).toBe(4);
+	} catch (error: unknown) {
+		throw new Error(
+			`Installed-receipt recovery failed. Rejected: ${rejectedReceiptCount}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
+			{ cause: error },
+		);
+	} finally {
+		try {
+			await browser?.close();
+		} finally {
+			try {
+				if (server !== null) {
+					const cleanup = await server.stop();
+					expect(cleanup.ownedProcessAliveAfterStop).toBe(false);
+					expect(cleanup.forcedTerminationRequired).toBe(false);
+				}
+			} finally {
+				await fixture.dispose();
+			}
+		}
+	}
+});
 
 test('reclaims a durable Review draft after worker failure and one unavailable replacement bootstrap', async () => {
 	// Arrange — real Vite, Swift, comm worker, metadata and content establish a usable Review.

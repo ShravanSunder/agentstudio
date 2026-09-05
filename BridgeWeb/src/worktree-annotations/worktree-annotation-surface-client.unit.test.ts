@@ -573,6 +573,7 @@ function createSurfaceClientHarness(
 		});
 	}
 	const surfaceClient = {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: createBridgeWorkerRpcLifecycleStore(),
 		renderFulfillmentCoordinator: createBridgeMainRenderFulfillmentCoordinator({
 			cancelAnimationFrame: (): void => {},

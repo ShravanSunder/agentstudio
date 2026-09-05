@@ -206,6 +206,7 @@ export async function renderBridgeReviewRecoveryWitness(
 		sendDisposition: (_receipt): void => {},
 	});
 	const reviewClient: BridgePaneSurfaceClient = {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: lifecycleStore,
 		renderFulfillmentCoordinator,
 		renderStore,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type {
 	BridgeMainReviewCandidateRole,
@@ -477,7 +477,7 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(store.discards).toEqual([CANDIDATE.publicationId]);
 	});
 
-	test('retains an installed active bank and retries only its failed receipt', async () => {
+	test('retains an installed active bank and automatically retries only its failed receipt', async () => {
 		// Arrange
 		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
 		const port = new ImmediateInstallationPort(['admitted'], 1);
@@ -488,12 +488,30 @@ describe('Bridge main Review presentation installation gate', () => {
 
 		// Act
 		await gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
-		const retrySucceeded = await gate.retryInstalledReceipt();
 
 		// Assert
 		expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
-		expect(retrySucceeded).toBe(true);
 		expect(port.receiptAttempts).toEqual([CANDIDATE.publicationId, CANDIDATE.publicationId]);
+		expect(port.receipts).toEqual([CANDIDATE.publicationId]);
+		expect(port.replacementRequestCount).toBe(0);
+	});
+
+	test('requests worker recovery after one exact receipt retry fails', async () => {
+		// Arrange
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const port = new ImmediateInstallationPort(['admitted'], 10);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+
+		// Act
+		await gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
+
+		// Assert — bounded attempts retain the displayed bank and delegate recovery to the pane service.
+		expect(port.receiptAttempts).toEqual([CANDIDATE.publicationId, CANDIDATE.publicationId]);
+		expect(port.replacementRequestCount).toBe(1);
+		expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
 	});
 
 	test('retains only affected promoted failure and ignores stale B failure after C starts', async () => {
@@ -670,6 +688,10 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 }
 
 class ImmediateInstallationPort implements BridgeMainReviewPresentationInstallationPort {
+	replacementRequestCount = 0;
+	requestWorkerReplacement = (): void => {
+		this.replacementRequestCount += 1;
+	};
 	readonly receiptAttempts: string[] = [];
 	readonly receipts: string[] = [];
 	readonly requests: BridgeMainReviewInstallAdmissionRequest[] = [];
@@ -705,6 +727,7 @@ class ImmediateInstallationPort implements BridgeMainReviewPresentationInstallat
 }
 
 class DeferredInstallationPort implements BridgeMainReviewPresentationInstallationPort {
+	requestWorkerReplacement = vi.fn<() => void>();
 	readonly receipts: string[] = [];
 	private readonly pendingRequests: DeferredAdmission[] = [];
 	private readonly requestWaiters: Array<(request: DeferredAdmission) => void> = [];

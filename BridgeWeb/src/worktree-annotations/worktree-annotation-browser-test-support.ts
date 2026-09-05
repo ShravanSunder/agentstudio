@@ -130,6 +130,7 @@ export class RecordingAnnotationBrowserSurface {
 			});
 		}
 		this.client = {
+			requestWorkerReplacement: (): void => {},
 			lifecycle: {
 				getServerSnapshot: () => ({ requestsById: {} }),
 				getSnapshot: () => ({ requestsById: {} }),

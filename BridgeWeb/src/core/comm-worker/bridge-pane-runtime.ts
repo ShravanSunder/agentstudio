@@ -63,6 +63,7 @@ export interface BridgePaneSurfaceLifecycleView {
 }
 
 export interface BridgePaneSurfaceClient {
+	readonly requestWorkerReplacement: () => void;
 	readonly lifecycle: BridgePaneSurfaceLifecycleView;
 	readonly renderFulfillmentCoordinator: BridgeMainRenderFulfillmentCoordinator;
 	readonly renderStore: BridgeMainRenderSnapshotStore;
@@ -218,6 +219,15 @@ export function createBridgePaneRuntime(
 		},
 	});
 
+	const requestWorkerReplacement = (): void => {
+		if (isDisposed) return;
+		if (session.requestWorkerReplacement === undefined) {
+			throw new Error('Bridge pane runtime session cannot replace an overloaded worker.');
+		}
+		prepareRuntimeForWorkerReplacement();
+		session.requestWorkerReplacement();
+	};
+
 	for (const surface of ['fileView', 'review'] as const) {
 		const renderStore = renderStoreFactory(
 			surface === 'fileView'
@@ -263,14 +273,7 @@ export function createBridgePaneRuntime(
 					}),
 				),
 			lifecycleStore,
-			requestWorkerReplacement: (): void => {
-				if (isDisposed) return;
-				if (session.requestWorkerReplacement === undefined) {
-					throw new Error('Bridge pane runtime session cannot replace an overloaded worker.');
-				}
-				prepareRuntimeForWorkerReplacement();
-				session.requestWorkerReplacement();
-			},
+			requestWorkerReplacement,
 			surface,
 			telemetryClient: admissionTelemetryRecorder,
 		});
@@ -284,6 +287,7 @@ export function createBridgePaneRuntime(
 			return rpcClient.send(command);
 		};
 		surfaceClients.set(surface, {
+			requestWorkerReplacement,
 			lifecycle: createBridgePaneSurfaceLifecycleView({ lifecycleStore, rpcClient }),
 			renderFulfillmentCoordinator,
 			renderStore,

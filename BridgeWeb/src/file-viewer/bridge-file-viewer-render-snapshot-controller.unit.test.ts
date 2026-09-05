@@ -651,6 +651,7 @@ function makeFileViewSurfaceClient(
 	renderStore: BridgeMainRenderSnapshotStore = createBridgeMainRenderSnapshotStore(),
 ): BridgePaneSurfaceClient {
 	return {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: {
 			getSnapshot: () => ({ requestsById: {} }),
 			getServerSnapshot: () => ({ requestsById: {} }),
