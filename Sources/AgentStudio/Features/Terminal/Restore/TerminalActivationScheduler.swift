@@ -25,9 +25,53 @@ package actor TerminalActivationScheduler {
         var execution: MemberExecution
     }
 
+    /// Placement-aware initial admission order (SPEC R2), low value admitted
+    /// first. Ranks 0-3 are reserved for a later slice's promoted tiers; this
+    /// scheduler only ever assigns 4-9. Stays private: the public
+    /// `TerminalActivationMemberState.queued` case continues to expose only
+    /// `TerminalActivationVisibilityPriority`, per the program design's
+    /// selected queue-authority tradeoff.
+    private enum QueueRank: Int, Comparable {
+        case initialVisibleMainActive = 4
+        case initialVisibleMainSibling = 5
+        case initialVisibleDrawerActive = 6
+        case initialVisibleDrawerSibling = 7
+        case backgroundMain = 8
+        case backgroundDrawer = 9
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+
+        init(placement: TerminalHostPlacementIdentity, priority: TerminalActivationVisibilityPriority) {
+            let isDrawer: Bool
+            switch placement {
+            case .drawer:
+                isDrawer = true
+            case .tab:
+                isDrawer = false
+            }
+            switch (isDrawer, priority) {
+            case (false, .activeVisible):
+                self = .initialVisibleMainActive
+            case (false, .visible):
+                self = .initialVisibleMainSibling
+            case (false, .hidden):
+                self = .backgroundMain
+            case (true, .activeVisible):
+                self = .initialVisibleDrawerActive
+            case (true, .visible):
+                self = .initialVisibleDrawerSibling
+            case (true, .hidden):
+                self = .backgroundDrawer
+            }
+        }
+    }
+
     private struct QueuedCandidate {
         let paneID: PaneId
         let priority: TerminalActivationVisibilityPriority
+        let rank: QueueRank
         let attempt: Int
         let originalOrdinal: Int
     }
@@ -214,14 +258,15 @@ package actor TerminalActivationScheduler {
             return QueuedCandidate(
                 paneID: member.descriptor.paneID,
                 priority: priority,
+                rank: QueueRank(placement: member.descriptor.hostPlacement, priority: priority),
                 attempt: attempt,
                 originalOrdinal: member.originalOrdinal
             )
         }.min { lhs, rhs in
-            if lhs.priority == rhs.priority {
+            if lhs.rank == rhs.rank {
                 return lhs.originalOrdinal < rhs.originalOrdinal
             }
-            return lhs.priority < rhs.priority
+            return lhs.rank < rhs.rank
         }
     }
 

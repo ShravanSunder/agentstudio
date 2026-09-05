@@ -19,15 +19,10 @@ struct TerminalPlaceholderPublication: Equatable, Sendable {
     let disposition: Disposition
 }
 
-/// Joins the independently scheduled terminal and nonterminal startup lanes for
-/// one accepted composition generation.
+/// Joins the single-scheduler terminal lane and the phase-ordered nonterminal
+/// startup lane for one accepted composition generation.
 @MainActor
 final class WorkspacePreparedContentMountCoordinator {
-    private struct MountPhase {
-        let terminalScheduler: TerminalActivationScheduler
-        let nonterminalOwner: NonterminalContentMountOwner
-    }
-
     private enum Lifecycle {
         case idle
         case mounting
@@ -37,8 +32,16 @@ final class WorkspacePreparedContentMountCoordinator {
     private let cohort: WorkspacePreparedContentMountCohort
     private let viewRegistry: ViewRegistry
     private let terminalActivationReleaseGate: TerminalActivationReleaseGate
-    private let phases: [MountPhase]
-    private let terminalSchedulersByPaneID: [PaneId: TerminalActivationScheduler]
+    /// One scheduler owns the complete terminal cohort — foreground and
+    /// hidden, main and drawer alike. Its private `QueueRank` reproduces the
+    /// former four-phase admission order without four scheduler instances, so
+    /// the whole-cohort concurrency bound (R4) can no longer be exceeded by
+    /// summing several schedulers' individual bounds.
+    private let terminalScheduler: TerminalActivationScheduler
+    /// Nonterminal startup keeps its existing two-phase order (main before
+    /// drawer) and ledger semantics, unchanged by this slice. Hidden
+    /// nonterminal panes are excluded before this array is built.
+    private let nonterminalPhaseOwners: [NonterminalContentMountOwner]
     private var lifecycle = Lifecycle.idle
     private var didPublishTerminalPlaceholders = false
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
@@ -53,8 +56,8 @@ final class WorkspacePreparedContentMountCoordinator {
     ) {
         // Hidden nonterminal panes stay outside the startup ledger so later
         // demand falls through to the existing steady-state content mount
-        // owner. Terminals remain in the startup cohort and restore after the
-        // foreground phases.
+        // owner. Terminals remain in the startup cohort — foreground and
+        // hidden alike — and the scheduler's own rank orders them.
         let startupCohort = WorkspacePreparedContentMountCohort(
             generation: cohort.generation,
             terminalActivationInput: cohort.terminalActivationInput,
@@ -62,59 +65,29 @@ final class WorkspacePreparedContentMountCoordinator {
                 entries: cohort.nonterminalContentMountInput.entries.filter { $0.visibilityPriority != .hidden }
             )
         )
-        let foregroundCohort = WorkspacePreparedContentMountCohort(
-            generation: startupCohort.generation,
-            terminalActivationInput: TerminalActivationInput(
-                entries: startupCohort.terminalActivationInput.entries.filter {
-                    $0.visibilityPriority != .hidden
-                }
-            ),
-            nonterminalContentMountInput: startupCohort.nonterminalContentMountInput
-        )
-        let hiddenTerminalCohort = WorkspacePreparedContentMountCohort(
-            generation: startupCohort.generation,
-            terminalActivationInput: TerminalActivationInput(
-                entries: startupCohort.terminalActivationInput.entries.filter {
-                    $0.visibilityPriority == .hidden
-                }
-            ),
-            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
-        )
         self.cohort = startupCohort
         self.viewRegistry = viewRegistry
         let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
         self.terminalActivationReleaseGate = terminalActivationReleaseGate
-        let phaseCohorts = [
-            Self.partition(foregroundCohort, selectingDrawerEntries: false),
-            Self.partition(foregroundCohort, selectingDrawerEntries: true),
-            Self.partition(hiddenTerminalCohort, selectingDrawerEntries: false),
-            Self.partition(hiddenTerminalCohort, selectingDrawerEntries: true),
-        ]
-        let phases = phaseCohorts.map { phaseCohort in
-            MountPhase(
-                terminalScheduler: TerminalActivationScheduler(
-                    cohort: TerminalActivationCohort(
-                        generation: phaseCohort.generation,
-                        input: phaseCohort.terminalActivationInput
-                    ),
-                    admissionPort: terminalAdmissionPort,
-                    releaseSignal: terminalActivationReleaseGate
+        terminalScheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: startupCohort.generation,
+                input: startupCohort.terminalActivationInput
+            ),
+            admissionPort: terminalAdmissionPort,
+            releaseSignal: terminalActivationReleaseGate
+        )
+        nonterminalPhaseOwners = [false, true].map { selectingDrawerEntries in
+            NonterminalContentMountOwner(
+                generation: startupCohort.generation,
+                input: NonterminalContentMountInput(
+                    entries: startupCohort.nonterminalContentMountInput.entries.filter {
+                        Self.isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
+                    }
                 ),
-                nonterminalOwner: NonterminalContentMountOwner(
-                    generation: phaseCohort.generation,
-                    input: phaseCohort.nonterminalContentMountInput,
-                    admissionPort: nonterminalAdmissionPort
-                )
+                admissionPort: nonterminalAdmissionPort
             )
         }
-        self.phases = phases
-        terminalSchedulersByPaneID = Dictionary(
-            uniqueKeysWithValues: zip(phaseCohorts, phases).flatMap { phaseCohort, phase in
-                phaseCohort.terminalActivationInput.entries.map {
-                    ($0.paneID, phase.terminalScheduler)
-                }
-            }
-        )
         viewRegistry.installPreparedContentMountCohort(startupCohort)
     }
 
@@ -127,8 +100,7 @@ final class WorkspacePreparedContentMountCoordinator {
     }
 
     func terminalActivationDeferralOutcome() async -> StartupDeferralOutcome? {
-        guard let firstPhase = phases.first else { return nil }
-        return await firstPhase.terminalScheduler.recordedActivationDeferralOutcome()
+        await terminalScheduler.recordedActivationDeferralOutcome()
     }
 
     func mount() async -> WorkspacePreparedContentMountSettlement {
@@ -143,26 +115,19 @@ final class WorkspacePreparedContentMountCoordinator {
             lifecycle = .mounting
         }
 
-        var terminalOutcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome] = [:]
+        async let terminalSettlement = terminalScheduler.activate()
+
         var nonterminalOutcomesByPaneID: [PaneId: NonterminalContentMountOutcome] = [:]
-        for phase in phases {
-            async let terminal = phase.terminalScheduler.activate()
-            async let nonterminal = phase.nonterminalOwner.mount()
-            let phaseTerminal = await terminal
-            let phaseNonterminal = await nonterminal
-            terminalOutcomesByPaneID.merge(phaseTerminal.outcomesByPaneID) { _, _ in
-                preconditionFailure("terminal pane admitted by multiple restore phases")
-            }
+        for nonterminalOwner in nonterminalPhaseOwners {
+            let phaseNonterminal = await nonterminalOwner.mount()
             nonterminalOutcomesByPaneID.merge(phaseNonterminal.outcomesByPaneID) { _, _ in
                 preconditionFailure("nonterminal pane admitted by multiple restore phases")
             }
         }
+
         let settlement = WorkspacePreparedContentMountSettlement(
             generation: cohort.generation,
-            terminal: TerminalActivationSettlement(
-                generation: cohort.generation,
-                outcomesByPaneID: terminalOutcomesByPaneID
-            ),
+            terminal: await terminalSettlement,
             nonterminal: NonterminalContentMountSettlement(
                 generation: cohort.generation,
                 outcomesByPaneID: nonterminalOutcomesByPaneID
@@ -213,10 +178,7 @@ final class WorkspacePreparedContentMountCoordinator {
         paneID: PaneId,
         to priority: TerminalActivationVisibilityPriority
     ) async -> TerminalActivationPromotionResult {
-        guard let terminalScheduler = terminalSchedulersByPaneID[paneID] else {
-            return .paneNotFound
-        }
-        return await terminalScheduler.promote(paneID: paneID, to: priority)
+        await terminalScheduler.promote(paneID: paneID, to: priority)
     }
 
     func handleVisibilitySignals(for paneIDs: [PaneId]) -> Set<PaneId> {
@@ -252,10 +214,10 @@ final class WorkspacePreparedContentMountCoordinator {
             }
         }
         if !terminalPaneIDsToPromote.isEmpty {
-            let terminalSchedulersByPaneID = terminalSchedulersByPaneID
+            let terminalScheduler = terminalScheduler
             Task {
                 for paneID in terminalPaneIDsToPromote {
-                    _ = await terminalSchedulersByPaneID[paneID]?.promote(
+                    _ = await terminalScheduler.promote(
                         paneID: paneID,
                         to: .activeVisible
                     )
@@ -316,25 +278,6 @@ final class WorkspacePreparedContentMountCoordinator {
         precondition(
             Set(settlement.nonterminal.outcomesByPaneID.keys)
                 == Set(cohort.nonterminalContentMountInput.entries.map(\.paneID))
-        )
-    }
-
-    private static func partition(
-        _ cohort: WorkspacePreparedContentMountCohort,
-        selectingDrawerEntries: Bool
-    ) -> WorkspacePreparedContentMountCohort {
-        WorkspacePreparedContentMountCohort(
-            generation: cohort.generation,
-            terminalActivationInput: TerminalActivationInput(
-                entries: cohort.terminalActivationInput.entries.filter {
-                    isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
-                }
-            ),
-            nonterminalContentMountInput: NonterminalContentMountInput(
-                entries: cohort.nonterminalContentMountInput.entries.filter {
-                    isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
-                }
-            )
         )
     }
 

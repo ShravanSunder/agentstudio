@@ -355,6 +355,66 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         )
         #expect(registry.preparedContentMountState(for: hiddenNonterminal.paneID, generation: generation) == nil)
     }
+
+    @Test("one terminal scheduler owns the complete cohort")
+    func oneTerminalSchedulerOwnsTheCompleteCohort() async throws {
+        // Arrange
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let activeMain = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Active main",
+            visibilityPriority: .activeVisible,
+            hostPlacement: .tab(tabID: UUIDv7.generate())
+        )
+        let hiddenMain = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Hidden main",
+            visibilityPriority: .hidden,
+            hostPlacement: .tab(tabID: UUIDv7.generate())
+        )
+        let activeDrawer = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Active drawer",
+            visibilityPriority: .activeVisible,
+            hostPlacement: .drawer(
+                tabID: UUIDv7.generate(),
+                parentPaneID: PaneId(existingUUID: UUIDv7.generate()),
+                drawerID: UUIDv7.generate()
+            )
+        )
+        let hiddenDrawer = makePreparedContentCoordinatorTerminalDescriptor(
+            title: "Hidden drawer",
+            visibilityPriority: .hidden,
+            hostPlacement: .drawer(
+                tabID: UUIDv7.generate(),
+                parentPaneID: PaneId(existingUUID: UUIDv7.generate()),
+                drawerID: UUIDv7.generate()
+            )
+        )
+        let allDescriptors = [activeMain, hiddenMain, activeDrawer, hiddenDrawer]
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: allDescriptors),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: allDescriptors)
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+
+        // Act
+        let settlement = await coordinator.mount()
+
+        // Assert
+        #expect(Set(settlement.terminal.outcomesByPaneID.keys) == Set(allDescriptors.map(\.paneID)))
+        #expect(terminalPort.admissions.count == allDescriptors.count)
+        #expect(
+            terminalPort.admissions.map(\.descriptor.paneID).count
+                == Set(terminalPort.admissions.map(\.descriptor.paneID)).count
+        )
+    }
 }
 
 /// The propose/claim/activate handshake needs a descriptor for any pane it

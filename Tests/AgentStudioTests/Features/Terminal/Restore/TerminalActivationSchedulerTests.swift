@@ -454,6 +454,110 @@ struct TerminalActivationSchedulerTests {
         _ = await activation.value
     }
 
+    @Test(
+        "one mixed cohort admits visible main then visible drawer then background main then background drawer"
+    )
+    func oneMixedCohortAdmitsVisibleMainThenVisibleDrawerThenBackgroundMainThenBackgroundDrawer() async throws {
+        // Arrange: deliberately adversarial source order — the reverse of the required admission order.
+        let backgroundDrawer = makeDrawerDescriptor(priority: .hidden)
+        let backgroundMain = makeDescriptor(priority: .hidden)
+        let visibleDrawerSibling = makeDrawerDescriptor(priority: .visible)
+        let visibleDrawerActive = makeDrawerDescriptor(priority: .activeVisible)
+        let visibleMainSibling = makeDescriptor(priority: .visible)
+        let visibleMainActive = makeDescriptor(priority: .activeVisible)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(
+            entries: [
+                backgroundDrawer, backgroundMain, visibleDrawerSibling,
+                visibleDrawerActive, visibleMainSibling, visibleMainActive,
+            ],
+            port: port
+        )
+
+        // Act
+        _ = await scheduler.activate()
+
+        // Assert
+        #expect(
+            port.admissions.map(\.descriptor.paneID) == [
+                visibleMainActive.paneID,
+                visibleMainSibling.paneID,
+                visibleDrawerActive.paneID,
+                visibleDrawerSibling.paneID,
+                backgroundMain.paneID,
+                backgroundDrawer.paneID,
+            ]
+        )
+    }
+
+    @Test("the active member leads its visible siblings within a class")
+    func theActiveMemberLeadsItsVisibleSiblingsWithinAClass() async throws {
+        // Arrange
+        let mainSibling = makeDescriptor(priority: .visible)
+        let mainActive = makeDescriptor(priority: .activeVisible)
+        let drawerSibling = makeDrawerDescriptor(priority: .visible)
+        let drawerActive = makeDrawerDescriptor(priority: .activeVisible)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(
+            entries: [mainSibling, mainActive, drawerSibling, drawerActive],
+            port: port
+        )
+
+        // Act
+        _ = await scheduler.activate()
+
+        // Assert
+        let admittedPaneIDs = port.admissions.map(\.descriptor.paneID)
+        let mainActiveIndex = try #require(admittedPaneIDs.firstIndex(of: mainActive.paneID))
+        let mainSiblingIndex = try #require(admittedPaneIDs.firstIndex(of: mainSibling.paneID))
+        let drawerActiveIndex = try #require(admittedPaneIDs.firstIndex(of: drawerActive.paneID))
+        let drawerSiblingIndex = try #require(admittedPaneIDs.firstIndex(of: drawerSibling.paneID))
+        #expect(mainActiveIndex < mainSiblingIndex)
+        #expect(drawerActiveIndex < drawerSiblingIndex)
+    }
+
+    @Test("stable source ordinal breaks ties within one tier")
+    func stableSourceOrdinalBreaksTiesWithinOneTier() async throws {
+        // Arrange
+        let tiedDescriptors = makeDescriptors(count: 6, priority: .hidden)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(entries: tiedDescriptors, port: port)
+
+        // Act
+        _ = await scheduler.activate()
+
+        // Assert
+        #expect(port.admissions.map(\.descriptor.paneID) == tiedDescriptors.map(\.paneID))
+    }
+
+    @Test("maximum simultaneous admissions is one across the complete cohort")
+    func maximumSimultaneousAdmissionsIsOneAcrossTheCompleteCohort() async throws {
+        // Arrange: a single mixed-class cohort, not a homogeneous set, and a
+        // port fake that suspends until released so the bound is observed
+        // rather than inferred from a synchronous fake.
+        let mainActive = makeDescriptor(priority: .activeVisible)
+        let mainSibling = makeDescriptor(priority: .visible)
+        let drawerActive = makeDrawerDescriptor(priority: .activeVisible)
+        let backgroundMain = makeDescriptor(priority: .hidden)
+        let backgroundDrawer = makeDrawerDescriptor(priority: .hidden)
+        let port = ControlledTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(
+            entries: [mainActive, mainSibling, drawerActive, backgroundMain, backgroundDrawer],
+            port: port
+        )
+        let activation = Task { await scheduler.activate() }
+
+        // Act / Assert
+        for expectedStartedCount in 1...5 {
+            await port.waitUntilStartedCount(expectedStartedCount)
+            #expect(await scheduler.diagnostics().currentSimultaneousAdmissions == 1)
+            port.releaseFirstPendingAsReady()
+        }
+        _ = await activation.value
+
+        #expect(await scheduler.diagnostics().maximumSimultaneousAdmissions == 1)
+    }
+
     private func makeScheduler(
         entries: [TerminalActivationDescriptor],
         port: some FakeTerminalActivationAdmissionPort
@@ -490,7 +594,8 @@ struct TerminalActivationSchedulerTests {
 
     private func makeDescriptor(
         zmxSessionID: ZmxSessionID = .generateUUIDv7(),
-        priority: TerminalActivationVisibilityPriority = .activeVisible
+        priority: TerminalActivationVisibilityPriority = .activeVisible,
+        hostPlacement: TerminalHostPlacementIdentity = .tab(tabID: UUIDv7.generate())
     ) -> TerminalActivationDescriptor {
         let pane = Pane(
             id: UUIDv7.generate(),
@@ -509,7 +614,20 @@ struct TerminalActivationSchedulerTests {
         return TerminalActivationDescriptor(
             pane: pane,
             visibilityPriority: priority,
-            hostPlacement: .tab(tabID: UUIDv7.generate())
+            hostPlacement: hostPlacement
+        )
+    }
+
+    private func makeDrawerDescriptor(
+        priority: TerminalActivationVisibilityPriority = .activeVisible
+    ) -> TerminalActivationDescriptor {
+        makeDescriptor(
+            priority: priority,
+            hostPlacement: .drawer(
+                tabID: UUIDv7.generate(),
+                parentPaneID: PaneId(existingUUID: UUIDv7.generate()),
+                drawerID: UUIDv7.generate()
+            )
         )
     }
 }
