@@ -139,21 +139,21 @@ package struct EventBusHarness<Envelope: Sendable> {
     }
 }
 
-/// Waits for `condition`, bounded by wall-clock time rather than a MainActor yield count. The
-/// fast lane runs many suites concurrently in one process, so unrelated suites' MainActor jobs
-/// can consume this suite's yield turns; a fixed turn count is therefore not a reliable timeout.
-/// `maxTurns` stays only as an additional upper bound for the few call sites that already pass
-/// one explicitly.
+/// Waits for `condition`, bounded primarily by wall-clock time rather than a MainActor yield
+/// count. The fast lane runs many suites concurrently in one process, so unrelated suites'
+/// MainActor jobs can consume this suite's yield turns; a fixed turn count is therefore not a
+/// reliable timeout. `maxTurns` defaults to no cap at all; it only bounds the handful of call
+/// sites that already pass an explicit value, as an additional limit layered on top of `timeout`.
 package func assertEventuallyAsync(
     _ description: String,
-    maxTurns: Int = 200,
+    maxTurns: Int? = nil,
     timeout: Duration = .seconds(5),
     condition: @escaping @Sendable () async -> Bool
 ) async {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     var turn = 0
-    while turn < maxTurns, clock.now < deadline {
+    while clock.now < deadline, maxTurns.map({ turn < $0 }) ?? true {
         if await condition() {
             return
         }
@@ -168,14 +168,14 @@ package func assertEventuallyAsync(
 @MainActor
 package func assertEventuallyMain(
     _ description: String,
-    maxTurns: Int = 200,
+    maxTurns: Int? = nil,
     timeout: Duration = .seconds(5),
     condition: @escaping @MainActor () -> Bool
 ) async {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     var turn = 0
-    while turn < maxTurns, clock.now < deadline {
+    while clock.now < deadline, maxTurns.map({ turn < $0 }) ?? true {
         if condition() {
             return
         }
