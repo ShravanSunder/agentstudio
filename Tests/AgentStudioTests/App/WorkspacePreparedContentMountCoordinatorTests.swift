@@ -512,6 +512,13 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
             placeholderTransitionHandler: { pane, mode in placeholderHandler.handle(pane: pane, mode: mode) }
         )
+        // Matches production: `PreparedTerminalMountAdmissionPort
+        // .installTrustedInitialFrames` defers a frameless pane's
+        // `ViewRegistry` custody to `deferredGeometry` before `activate()`
+        // runs. This fake port bypasses that real port, so the test drives
+        // the same custody edge directly — `notifyWaitingForGeometryPlaceholders`
+        // now reads it live before publishing (R4).
+        #expect(registry.deferPreparedContentMount(paneID: waiting.paneID, owner: .terminal, generation: generation))
         // Matches `publishTerminalPlaceholders`'s production sequencing: a
         // `.preparing` host already exists before the settlement transition.
         placeholderHandler.handle(pane: waiting.pane, mode: .preparing)
@@ -548,11 +555,21 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
             placeholderTransitionHandler: { pane, mode in placeholderHandler.handle(pane: pane, mode: mode) }
         )
+        // See the matching note in
+        // `aSettledDeferredMemberMovesFromPreparingToWaitingForGeometry`.
+        #expect(registry.deferPreparedContentMount(paneID: waiting.paneID, owner: .terminal, generation: generation))
         placeholderHandler.handle(pane: waiting.pane, mode: .preparing)
         _ = await coordinator.mount()
         let hostAfterSettlement = try #require(placeholderHandler.placeholderViewsByPaneID[waiting.pane.id])
 
         // Act: later geometry arrives and requeues the still-waiting member.
+        // Production restores custody to `pending` before this call
+        // (`PreparedTerminalMountAdmissionPort.acceptLaterTrustedFrames`);
+        // this fake port bypasses that, so the test drives the same edge.
+        #expect(
+            registry.restorePreparedContentMountToPending(
+                paneID: waiting.paneID, owner: .terminal, generation: generation)
+        )
         await coordinator.acceptTerminalGeometry([waiting.paneID])
 
         // Assert: same host instance across both transitions.

@@ -147,7 +147,18 @@ final class WorkspacePreparedContentMountCoordinator {
         let requeuedPaneIDs = await terminalScheduler.acceptLaterGeometry(for: paneIDs)
         for paneID in requeuedPaneIDs {
             guard let pane = terminalDescriptorsByPaneID[paneID]?.pane else { continue }
-            placeholderTransitionHandler(pane, .preparing)
+            // A pane this requeue accepted can already have been mounted or
+            // failed by the time this `await` resumes — a concurrent drain
+            // on the same scheduler can finish it first. Re-read live
+            // custody immediately before writing so a `.preparing`
+            // placeholder is never overlaid on an already-settled pane's
+            // live terminal view, which nothing ever clears.
+            switch viewRegistry.preparedContentMountState(for: paneID, generation: cohort.generation) {
+            case .pending(owner: .terminal), .mounting(owner: .terminal):
+                placeholderTransitionHandler(pane, .preparing)
+            case .deferredGeometry, .completed, .pending(owner: .nonterminal), .mounting(owner: .nonterminal), nil:
+                continue
+            }
         }
     }
 
@@ -361,6 +372,18 @@ final class WorkspacePreparedContentMountCoordinator {
     private func notifyWaitingForGeometryPlaceholders(in settlement: WorkspacePreparedContentMountSettlement) {
         for (paneID, outcome) in settlement.terminal.outcomesByPaneID {
             guard case .waitingForGeometry = outcome, let pane = terminalDescriptorsByPaneID[paneID]?.pane else {
+                continue
+            }
+            // The frozen settlement snapshot can already be stale by the
+            // time this loop runs: a concurrent `acceptTerminalGeometry` on
+            // the same scheduler can have already admitted and mounted (or
+            // failed) this exact pane. Re-read live custody immediately
+            // before writing so `.waitingForGeometry` is never published
+            // over an already-settled pane's live terminal view.
+            guard
+                viewRegistry.preparedContentMountState(for: paneID, generation: cohort.generation)
+                    == .deferredGeometry(owner: .terminal)
+            else {
                 continue
             }
             placeholderTransitionHandler(pane, .waitingForGeometry)
