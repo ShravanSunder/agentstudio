@@ -122,16 +122,12 @@ extension WorkspaceSurfaceCoordinator {
         focusVisiblePaneHost(drawerPane.id)
     }
 
+    /// The retired launch-window presentation flag is never consulted here:
+    /// the actual creation gate is the per-pane `TerminalSurfaceCreationAuthority`
+    /// resolved downstream inside `createViewForContent` (reached via
+    /// `createViewForContentUsingCurrentGeometry` below), which refuses to
+    /// create while the prepared lane still owns this pane.
     func ensureTerminalPaneView(_ pane: Pane) {
-        let runtimePaneID = PaneId(existingUUID: pane.id)
-        if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler(
-                currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
-            ).contains(runtimePaneID)
-        {
-            RestoreTrace.log("ensureTerminalPaneView signalledPreparedOwner pane=\(pane.id)")
-            return
-        }
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
             RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
@@ -164,14 +160,10 @@ extension WorkspaceSurfaceCoordinator {
         guard forceWhenBoundsExist || visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else {
             return
         }
-        if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler(
-                currentVisibleQueuedSet(includingAtLeast: runtimePaneId)
-            ).contains(runtimePaneId)
-        {
-            RestoreTrace.log("restoreVisiblePaneIfNeeded signalledPreparedOwner pane=\(paneId)")
-            return
-        }
+        // The retired launch-window presentation flag is never consulted
+        // here: `createViewForContent` below resolves the actual per-pane
+        // creation gate (terminal authority, or the prepared nonterminal
+        // lane's own custody).
         guard let pane = store.paneAtom.pane(paneId) else { return }
         guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
             return

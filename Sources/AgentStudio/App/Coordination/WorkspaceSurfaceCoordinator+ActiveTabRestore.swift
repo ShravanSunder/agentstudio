@@ -30,24 +30,28 @@ extension WorkspaceSurfaceCoordinator {
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
-        let paneIDsToRestore: [UUID]
-        if viewRegistry.isInitialRestorePending {
-            let visiblePaneIDList = visiblePaneIDs.map(PaneId.init(existingUUID:))
-            let visibleQueuedSet = PreparedContentVisibleQueuedSet(
-                visiblePaneIDs: visiblePaneIDList,
-                activePaneIDs: Set(visiblePaneIDList.filter { visibilityTierResolver.isActive($0) })
-            )
-            let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(visibleQueuedSet)
-            RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
-            )
-            paneIDsToRestore = visiblePaneIDs.filter {
-                !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
-            }
-            guard !paneIDsToRestore.isEmpty else { return }
-        } else {
-            paneIDsToRestore = visiblePaneIDs
+        // Always record the complete current visible queued set — this is
+        // no longer gated on the retired launch-window presentation flag,
+        // which stops being a creation selector after this cutover. A pane
+        // can remain prepared-owned (pending or geometry-deferred) long after
+        // launch settles, and this signal is also what feeds the scheduler's
+        // promotion snapshot (SPEC R3). Nonterminal panes the prepared lane
+        // still owns are excluded here; a terminal pane's actual creation
+        // gate is its own per-pane `TerminalSurfaceCreationAuthority`,
+        // resolved later inside `createViewForContent`.
+        let visiblePaneIDList = visiblePaneIDs.map(PaneId.init(existingUUID:))
+        let visibleQueuedSet = PreparedContentVisibleQueuedSet(
+            visiblePaneIDs: visiblePaneIDList,
+            activePaneIDs: Set(visiblePaneIDList.filter { visibilityTierResolver.isActive($0) })
+        )
+        let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(visibleQueuedSet)
+        RestoreTrace.log(
+            "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
+        )
+        let paneIDsToRestore = visiblePaneIDs.filter {
+            !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
         }
+        guard !paneIDsToRestore.isEmpty else { return }
 
         let resolvedPaneFramesByTabId = [
             activeTab.id: resolveInitialFrames(for: activeTab, in: terminalContainerBounds)

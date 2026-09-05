@@ -57,6 +57,14 @@ extension WorkspaceSurfaceCoordinator {
 
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created mounted content view, or nil on failure.
+    ///
+    /// The retired launch-window presentation flag is never consulted here:
+    /// it is a read-only fact now (only `FlatPaneStripContent` still reads it,
+    /// for placeholder selection), not a creation gate. A terminal pane's
+    /// sole creation gate is its per-pane `TerminalSurfaceCreationAuthority`;
+    /// a nonterminal pane's is whether the prepared nonterminal lane already
+    /// handled it — that lane's custody semantics are unchanged by this
+    /// cutover.
     func createViewForContent(
         pane: Pane,
         initialFrame: NSRect? = nil,
@@ -69,25 +77,43 @@ extension WorkspaceSurfaceCoordinator {
             return viewRegistry.view(for: pane.id)?.mountedContent(as: BridgePaneMountView.self)
         }
         let runtimePaneID = PaneId(existingUUID: pane.id)
-        if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler(
-                currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
-            ).contains(runtimePaneID)
-        {
-            RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
-            return nil
-        }
+        let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(
+            currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
+        )
         switch pane.content {
         case .terminal:
+            guard let authority = terminalSurfaceCreationAuthority(for: pane) else {
+                RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
+                return nil
+            }
             return mountCurrentTerminalContent(
                 pane: pane,
                 initialFrame: initialFrame,
-                treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                authority: authority
             )
 
         case .webview, .codeViewer, .bridgePanel, .unsupported:
+            guard !preparedHandledPaneIDs.contains(runtimePaneID) else {
+                RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
+                return nil
+            }
             return mountCurrentNonterminalContent(pane: pane)
         }
+    }
+
+    /// The one answer to whether this coordinator may create `pane`'s
+    /// terminal surface right now, resolved through the accepted generation's
+    /// custody ledger. `nil` accepted generation (pre-boot, or a test harness
+    /// that never installed a cohort) means no cohort could possibly claim
+    /// the pane, so creation is authorized — matching `ViewRegistry`'s own
+    /// "no entry, or a stale generation" release rule.
+    func terminalSurfaceCreationAuthority(for pane: Pane) -> TerminalSurfaceCreationAuthority? {
+        let paneID = PaneId(existingUUID: pane.id)
+        guard let generation = acceptedPreparedContentMountGeneration else {
+            return .released(paneID)
+        }
+        return viewRegistry.terminalSurfaceCreationAuthority(for: paneID, generation: generation)
     }
 
     @discardableResult
@@ -201,10 +227,15 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
+    /// `authority` is a compile-time witness only: the caller must already
+    /// hold one (minted by `ViewRegistry` or the prepared admission port), so
+    /// a creation path that skips the custody question does not build. This
+    /// function does not branch on its case.
     func createTopologyIndependentTerminalView(
         for pane: Pane,
         initialFrame: NSRect? = nil,
-        treatAsRestoredSessionStart: Bool = false
+        treatAsRestoredSessionStart: Bool = false,
+        authority: TerminalSurfaceCreationAuthority
     ) -> TopologyIndependentTerminalMountResult {
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(

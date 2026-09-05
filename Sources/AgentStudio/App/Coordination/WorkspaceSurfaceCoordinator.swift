@@ -71,6 +71,11 @@ final class WorkspaceSurfaceCoordinator {
     var preparedContentVisibilitySignalHandler: @MainActor (PreparedContentVisibleQueuedSet) -> Set<PaneId> = { _ in
         []
     }
+    /// The generation of the currently accepted composition, threaded from
+    /// the installed prepared-content mount owners once boot installs them
+    /// (`AppDelegate+WorkspaceBoot.swift`). `nil` only in the brief pre-boot
+    /// window and in test harnesses that never install a cohort.
+    var acceptedPreparedContentMountGeneration: WorkspaceContentMountGeneration?
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var paneEventIngressTask: Task<Void, Never>?

@@ -628,6 +628,7 @@ private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMount
     private var results: [TerminalActivationAttemptResult]
     private(set) var admissions: [TerminalActivationAdmission] = []
     private(set) var initialFrames: [NSRect?] = []
+    private(set) var authorities: [TerminalSurfaceCreationAuthority] = []
 
     init(results: [TerminalActivationAttemptResult]) {
         self.results = results
@@ -635,10 +636,12 @@ private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMount
 
     func mountPreparedTerminalContent(
         admission: TerminalActivationAdmission,
-        initialFrame: NSRect?
+        initialFrame: NSRect?,
+        authority: TerminalSurfaceCreationAuthority
     ) -> TerminalActivationAttemptResult {
         admissions.append(admission)
         initialFrames.append(initialFrame)
+        authorities.append(authority)
         return results.removeFirst()
     }
 }

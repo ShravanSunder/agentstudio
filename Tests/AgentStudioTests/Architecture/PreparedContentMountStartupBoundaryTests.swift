@@ -52,6 +52,61 @@ struct PreparedContentMountStartupBoundaryTests {
         #expect(!preparedHandlerSource.contains("store."))
     }
 
+    @Test("no terminal creation path reads the launch presentation flag")
+    func noTerminalCreationPathReadsTheLaunchPresentationFlag() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let sourceFiles = try swiftSourceFiles(under: sourcesRoot)
+
+        // Act
+        let filesReadingLaunchPresentationFlag = try sourceFiles.filter { sourceFile in
+            try String(contentsOf: sourceFile, encoding: .utf8).contains("isInitialRestorePending")
+        }
+
+        // Assert: `isInitialRestorePending` is reduced to a read-only launch
+        // presentation fact. `ViewRegistry` owns it; `FlatPaneStripContent`
+        // is its one remaining presentation consumer. No terminal (or any
+        // other) creation path may read it.
+        #expect(
+            Set(filesReadingLaunchPresentationFlag.map(\.lastPathComponent))
+                == ["ViewRegistry.swift", "FlatPaneStripContent.swift"]
+        )
+    }
+
+    @Test("every terminal surface creation call site passes an authority")
+    func everyTerminalSurfaceCreationCallSitePassesAnAuthority() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let sourceFiles = try swiftSourceFiles(under: sourcesRoot)
+        let creationCallSignatures = ["createTopologyIndependentTerminalView(", "mountCurrentTerminalContent("]
+
+        // Act: this is a text scan and can pass for the wrong reason on its
+        // own — the compiler carries the real weight, since neither creation
+        // primitive has a default `authority` argument, so a call site that
+        // skips the custody question does not build.
+        var callSitesMissingAuthority: [String] = []
+        for sourceFile in sourceFiles {
+            let lines = try String(contentsOf: sourceFile, encoding: .utf8).components(separatedBy: "\n")
+            for (lineIndex, line) in lines.enumerated() {
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                let isCreationCall =
+                    creationCallSignatures.contains { trimmedLine.contains($0) }
+                    && !trimmedLine.hasPrefix("func ")
+                    && !trimmedLine.hasPrefix("///")
+                guard isCreationCall else { continue }
+                let followingWindow = lines[lineIndex..<min(lineIndex + 10, lines.count)].joined(separator: "\n")
+                if !followingWindow.contains("authority:") {
+                    callSitesMissingAuthority.append("\(sourceFile.lastPathComponent):\(lineIndex + 1)")
+                }
+            }
+        }
+
+        // Assert
+        #expect(callSitesMissingAuthority.isEmpty)
+    }
+
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
         let enumerator = try #require(
             FileManager.default.enumerator(

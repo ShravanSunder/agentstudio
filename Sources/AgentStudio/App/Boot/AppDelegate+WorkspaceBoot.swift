@@ -458,6 +458,7 @@ extension AppDelegate {
 
     private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {
         let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
+        coordinator.acceptedPreparedContentMountGeneration = contentMountCohort.generation
         let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
             generation: contentMountCohort.generation,
             viewRegistry: viewRegistry,

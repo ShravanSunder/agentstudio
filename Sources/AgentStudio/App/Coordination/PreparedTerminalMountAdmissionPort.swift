@@ -8,7 +8,8 @@ import Foundation
 protocol PreparedTerminalMountHandling: AnyObject {
     func mountPreparedTerminalContent(
         admission: TerminalActivationAdmission,
-        initialFrame: NSRect?
+        initialFrame: NSRect?,
+        authority: TerminalSurfaceCreationAuthority
     ) -> TerminalActivationAttemptResult
 }
 
@@ -166,7 +167,11 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
             return .rejected(.claimAlreadyConsumed)
         }
 
-        let result = mountHandler.mountPreparedTerminalContent(admission: admission, initialFrame: frame)
+        let result = mountHandler.mountPreparedTerminalContent(
+            admission: admission,
+            initialFrame: frame,
+            authority: .prepared(claim)
+        )
         settle(result: result, admission: admission, frame: frame, paneID: paneID)
         return .attempted(result)
     }
