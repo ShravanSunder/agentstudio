@@ -103,18 +103,42 @@ package struct ManagedSurface {
     package internal(set) var metadata: SurfaceMetadata
     var state: SurfaceState
     var health: SurfaceHealth
+    /// The last renderer visibility delivered to libghostty for this exact surface, or `nil`
+    /// before any delivery. Pinned Ghostty queues renderer work on every occlusion call, so
+    /// `SurfaceManager` suppresses equal deliveries against this record.
+    package internal(set) var lastDeliveredVisibility: Bool?
 
     init(
         id: UUID = UUIDv7.generate(),
         surface: Ghostty.SurfaceView,
         metadata: SurfaceMetadata,
-        state: SurfaceState = .hidden
+        state: SurfaceState = .hidden,
+        lastDeliveredVisibility: Bool? = nil
     ) {
         self.id = id
         self.surface = surface
         self.metadata = metadata
         self.state = state
         self.health = .healthy
+        self.lastDeliveredVisibility = lastDeliveredVisibility
+    }
+}
+
+// MARK: - Renderer Visibility Reconciliation
+
+/// Outcome counts of one `SurfaceManager.reconcileAttachedVisibility` pass.
+package struct SurfaceVisibilityReconciliationResult: Equatable, Sendable {
+    /// Surfaces whose desired visibility differed from the last delivered value and were delivered.
+    package let applied: Int
+    /// Surfaces whose desired visibility equalled the last delivered value; nothing was delivered.
+    package let equal: Int
+    /// Surfaces with no live native handle; nothing could be delivered.
+    package let missing: Int
+
+    package init(applied: Int, equal: Int, missing: Int) {
+        self.applied = applied
+        self.equal = equal
+        self.missing = missing
     }
 }
 

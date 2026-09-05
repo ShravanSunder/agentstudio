@@ -111,16 +111,47 @@ defect would leave it off until the next membership change or atom write re-arms
 the debug-bundle proof (tab switch away and back, window occlude and reveal) is what guards that
 case, not the attach transient.
 
-### Choice 4 — host retirement point
+### Choice 4 — host retirement point, and what actually retains the surface
 
-Retire the exact prior host inside the coordinator's `unregisterHostedView(for:)` and inside
-`registerHostedView` when a different host already occupies the slot. Not in SwiftUI
-`dismantleNSView` (fires for temporary disappearance; the prior attempt regressed drawer panes
-that way) and not on a delayed pane-id lookup (undo can install a replacement under the same
-pane id within the delay). Host retirement releases the host's references only; surface
-ownership ends separately when the manager releases (expiry, destroy). Repair therefore retires
-the old host immediately while its surface waits out the existing 300 s close-undo window, then
-frees.
+Runtime evidence (debug bundle, 10 split-and-close cycles at 2553×2330 px, measured after the
+300 s undo TTL): footprint 216 → 1085 MB, IOSurface 137 → 820 MB, renderer threads 1 → 11, one
+`login`/`zmx attach` child per closed pane; `heap` shows 11 each of `Ghostty.SurfaceView`,
+`TerminalPaneMountView`, `PaneHostView`, `ManagementLayerContainerView` for one live pane
+(hunter artifact `agent-studio.memory-hunt/tmp/debug-workflows/2026-09-05-…/debug-investigation.md`, E-A).
+`leaks` finds no pane class in a root cycle: the closed hosts are still *reachable* — through
+`@Observable` atom observation registrars (`RepositoryTopologyAtom`, `WorkspaceTabGraphAtom`,
+`ScrollEnvironmentStorage`) holding AppKit's one-shot `__reusableDependencyContextForKey` blocks
+that captured the view during a layout/hit-test pass, and through SwiftUI's
+`DisplayList.ViewUpdater.ViewCache`. The host↔container cycle exists but is not the load-bearing
+retainer today; those registrations release only when the tracked property changes, which
+cannot be relied on. Consequence: **host lifetime is not the obligation; the mounted content is.**
+The ~90 MB per closed pane hangs off `PaneHostView → contentContainerView → TerminalPaneMountView
+→ ghosttySurface`.
+
+Selected: on permanent teardown, release the mounted content on the exact host *before* the
+registry forgets it — `TerminalPaneMountView.removeSurface()` (exists, `TerminalPaneMountView.swift:446`,
+today called only by repair) via `paneHostWillRetire()`, then `PaneHostView.unmountContentView()`,
+then `removeFromSuperview()` — inside the coordinator's `unregisterHostedView(for:)` and inside
+`registerHostedView` when a different host already occupies the slot. A 640-byte `PaneHostView`
+may linger in AppKit/SwiftUI caches; the surface, its four threads, its PTY child, and its
+IOSurfaces will not. Not in SwiftUI `dismantleNSView` (fires for temporary disappearance; the
+prior attempt regressed drawer panes that way) and not on a delayed pane-id lookup (undo can
+install a replacement under the same pane id within the delay). Surface ownership ends
+separately when the manager releases (expiry, destroy); repair retires the old host immediately
+while its surface waits out the existing 300 s close-undo window, then frees.
+
+Proof shape follows the evidence: renderer-thread count, `heap` class counts for
+`Ghostty.SurfaceView`/`TerminalPaneMountView`, and PTY children return to the live-pane count
+after the TTL; `PaneHostView` count is reported but not gated.
+
+Side retention found by the same `leaks` pass: 6–7 `ROOT CYCLE <TerminalRuntime>` (~67 KB each,
+including a 64 KB `EventReplayBuffer` ring). Cause: the one-shot `withObservationTracking`
+`onChange` closures in `TerminalPaneMountView+SearchAndOverlays.swift:183–195`
+(`observeRuntimeState`) and `GhosttySurfaceView+Input.swift:442–453` (`observeMouseState`) capture
+the `TerminalRuntime` parameter strongly while `self` is weak; the runtime observes itself into a
+cycle until the tracked property changes. Selected fix: capture the runtime weakly in the
+`onChange` closure and resolve it through the view's existing weak binding (`boundRuntime`,
+`terminalRuntime`), which the closures already re-check for identity.
 
 ### Choice 5 — focus follows responder truth, gated by visibility
 
@@ -416,8 +447,8 @@ irrelevant (the renderer threads are independent). Telemetry order for one surfa
 | R4, R5, R8 | manager | recording delivery + bare `Ghostty.SurfaceView` (no native handle) via `acceptCreatedSurface` | manager real | delivery observed while surface still attached; close from hidden membership enters undo |
 | R7 | manager | same | — | focus-on refused while record is off; delivered on turn-on only when first responder |
 | R9 | coordinator | existing coordinator harness with a mock manager returning a retained `ManagedSurface` from `undoClose()` | — | tab-close undo and floating undo attach the retained surface, no fresh `createSurface` call |
-| R10, R11 | coordinator + hosts | existing coordinator harness (`WorkspaceStore`, `ViewRegistry`, real `PaneHostView`, sentinel `PaneMountedContent`) with `weak` references and an autorelease drain | AppKit views real | weak host/content nil after close+unregister; still non-nil after temporary transitions; replacement untouched |
-| R10 runtime | whole app | debug bundle + external `sample`/`vmmap`/`footprint` | everything real | renderer-thread count and IOSurface regions return to baseline 300 s after closing N panes, N including minimized ones |
+| R10, R11 | coordinator + hosts | existing coordinator harness (`WorkspaceStore`, `ViewRegistry`, real `PaneHostView`, sentinel `PaneMountedContent`) with `weak` references and an autorelease drain | AppKit views real | weak mounted content nil after close+unregister (load-bearing); weak host nil in the harness (no AppKit observation pass there; informational at runtime); still non-nil after temporary transitions; replacement untouched |
+| R10 runtime | whole app | debug bundle + external `sample`/`vmmap`/`footprint`/`heap` | everything real | renderer-thread count, `heap` counts of `Ghostty.SurfaceView` and `TerminalPaneMountView`, PTY children, and IOSurface regions return to the live-pane count 300 s after closing N panes (N including minimized ones); `leaks` reports no `TerminalRuntime` root cycle |
 | R1 runtime | whole app | debug bundle + `sample` after quiescence | everything real | hidden-tab renderer threads show no `updateFrame`→`drawFrame` past the gate and no `IOSurfaceLayer.setSurface` dispatch |
 | R6 runtime | whole app | debug bundle + VictoriaLogs | everything real | `elapsed_ms` p95 under 1 ms with 30 attached surfaces across tab switches |
 | R12–R14 | recorder | unit tests; VictoriaLogs | in-process | counter arithmetic, `released`-before-`freed` ordering, negative-orphan flag, attribute allowlist |

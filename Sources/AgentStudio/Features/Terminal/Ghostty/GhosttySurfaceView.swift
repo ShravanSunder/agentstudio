@@ -465,6 +465,19 @@ extension Ghostty {
             }
         }
 
+        /// Builds a surface view with no native handle. `surface` stays `nil`, so every libghostty
+        /// call guarded on it is a no-op. This is the package-boundary construction seam that lets
+        /// `SurfaceManager` lifecycle tests run without a live Ghostty app.
+        package init(
+            managedSurfaceID: UUID,
+            appCommandDispatcher: any AppCommandDispatching
+        ) {
+            self.managedSurfaceID = managedSurfaceID
+            self.hostConfigSnapshot = GhosttyHostConfigSnapshot(configHandle: nil)
+            self.appCommandDispatcher = appCommandDispatcher
+            super.init(frame: .zero)
+        }
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }

@@ -120,8 +120,10 @@ Context (system opaque)
   (repair/recreate, fresh-surface replacement) MUST immediately release the retired host's
   references to the old surface; the old surface's manager retention is unchanged by this track
   (repair still routes through the existing 300 s close-undo window) and MUST end in
-  `ghostty_surface_free` at that expiry. A logical "destroyed" log line does not satisfy this.
-  (U3 → O3)
+  `ghostty_surface_free` at that expiry. The obligation is on the surface, its renderer/io
+  threads, its PTY child, and its `TerminalRuntime`; the small `PaneHostView` object MAY outlive
+  them while AppKit or SwiftUI caches reference it. A logical "destroyed" log line does not
+  satisfy this. (U3 → O3)
 - **R11** Permanent release MUST be instance-exact: retiring an old host or surface for a pane
   MUST NOT unmount, free, or occlude a replacement already installed for the same pane
   identity. (U2, U3 → O3)

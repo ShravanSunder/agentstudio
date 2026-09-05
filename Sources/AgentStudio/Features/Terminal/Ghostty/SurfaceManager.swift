@@ -74,22 +74,29 @@ package final class SurfaceManager {
     /// Delay scheduler for time-dependent operations (e.g. undo expiration).
     private let delayScheduler: AsyncDelay
 
+    /// The only boundary through which renderer visibility/focus reaches libghostty.
+    let rendererStateDelivery: any SurfaceRendererStateDelivery
+
     // MARK: - Private State
+    //
+    // Membership collections are excluded from Observation: the coordinator reads
+    // `activeSurfaces` inside `withObservationTracking`, and health/CWD/delivered-state
+    // rewrites here must not re-arm that observer. Public counts stay observable.
 
     /// Surfaces attached to visible containers
-    private var activeSurfaces: [UUID: ManagedSurface] = [:]
+    @ObservationIgnored private var activeSurfaces: [UUID: ManagedSurface] = [:]
 
     /// Surfaces detached but kept alive (hidden terminals)
-    private var hiddenSurfaces: [UUID: ManagedSurface] = [:]
+    @ObservationIgnored private var hiddenSurfaces: [UUID: ManagedSurface] = [:]
 
     /// Recently closed surfaces for undo
-    private var undoStack: [SurfaceUndoEntry] = []
+    @ObservationIgnored private var undoStack: [SurfaceUndoEntry] = []
 
     /// Health state cache
-    private var surfaceHealth: [UUID: SurfaceHealth] = [:]
+    @ObservationIgnored private var surfaceHealth: [UUID: SurfaceHealth] = [:]
 
     /// Map from SurfaceView to UUID for notification handling
-    private var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
+    @ObservationIgnored private var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
 
     /// Async stream of live CWD updates from managed surfaces.
     private let cwdChangeContinuation: AsyncStream<SurfaceCWDChangeEvent>.Continuation
@@ -106,16 +113,20 @@ package final class SurfaceManager {
 
     // MARK: - Initialization
 
-    private init(
+    package init(
         undoTTL: TimeInterval = 300,
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
-        clock: (any Clock<Duration> & Sendable)? = nil
+        delayScheduler: AsyncDelay = .taskSleep,
+        rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.undoTTL = undoTTL
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
-        delayScheduler = clock.map(AsyncDelay.clock) ?? .taskSleep
+        self.delayScheduler = delayScheduler
+        self.rendererStateDelivery = rendererStateDelivery
+        self.performanceTraceRecorder = performanceTraceRecorder
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
         let appSupport = AppDataPaths.rootDirectory()
@@ -202,39 +213,62 @@ package final class SurfaceManager {
                 continue
             }
 
-            // Success - create managed surface
-            let managed = ManagedSurface(
-                id: managedSurfaceID,
-                surface: surfaceView,
-                metadata: metadata,
-                state: .hidden
-            )
-
-            // Register in collections
-            hiddenSurfaces[managed.id] = managed
-            surfaceHealth[managed.id] = .healthy
-            surfaceViewToId[ObjectIdentifier(surfaceView)] = managed.id
-            RestoreTrace.log(
-                "SurfaceManager.createSurface success surface=\(managed.id) pane=\(metadata.paneId?.uuidString ?? "nil") frame=\(NSStringFromRect(surfaceView.frame))"
-            )
-
-            // Subscribe to this surface's notifications
-            subscribeToSurfaceNotifications(surfaceView)
-
-            // Update counts
-            updateCounts()
-
-            // Notify delegate
-            lifecycleDelegate?.surfaceDidCreate(managed)
-
-            logger.info("Surface created: \(managed.id)")
-            return .success(managed)
+            // Success - accept the live surface into manager ownership
+            switch acceptCreatedSurface(surfaceView, metadata: metadata) {
+            case .success(let managed):
+                RestoreTrace.log(
+                    "SurfaceManager.createSurface success surface=\(managed.id) pane=\(metadata.paneId?.uuidString ?? "nil") frame=\(NSStringFromRect(surfaceView.frame))"
+                )
+                logger.info("Surface created: \(managed.id)")
+                return .success(managed)
+            case .failure(let error):
+                logger.error("Surface creation could not accept the surface into manager ownership")
+                if attempt == maxCreationRetries {
+                    return .failure(error)
+                }
+            }
         }
 
         RestoreTrace.log(
             "SurfaceManager.createSurface failed pane=\(metadata.paneId?.uuidString ?? "nil") retries=\(maxCreationRetries)"
         )
         return .failure(.creationFailed(retries: maxCreationRetries))
+    }
+
+    /// Accept an already-constructed surface view into manager ownership as a hidden surface.
+    ///
+    /// Split from `createSurface` so lifecycle behavior can be exercised with a surface view that
+    /// has no native handle. Production always reaches this through `createSurface`.
+    package func acceptCreatedSurface(
+        _ surfaceView: Ghostty.SurfaceView,
+        metadata: SurfaceMetadata
+    ) -> Result<ManagedSurface, SurfaceError> {
+        let surfaceID = surfaceView.managedSurfaceID
+        guard activeSurfaces[surfaceID] == nil, hiddenSurfaces[surfaceID] == nil else {
+            return .failure(.operationFailed("surface identity is already manager-owned"))
+        }
+
+        let managed = ManagedSurface(
+            id: surfaceID,
+            surface: surfaceView,
+            metadata: metadata,
+            state: .hidden
+        )
+
+        // Register in collections
+        hiddenSurfaces[managed.id] = managed
+        surfaceHealth[managed.id] = .healthy
+        surfaceViewToId[ObjectIdentifier(surfaceView)] = managed.id
+
+        // Subscribe to this surface's notifications
+        subscribeToSurfaceNotifications(surfaceView)
+
+        // Update counts
+        updateCounts()
+
+        // Notify delegate
+        lifecycleDelegate?.surfaceDidCreate(managed)
+        return .success(managed)
     }
 
     // MARK: - Surface Attachment
@@ -777,12 +811,10 @@ extension SurfaceManager {
     // MARK: - Occlusion Control
 
     private func setOcclusion(_ surfaceId: UUID, visible: Bool) {
-        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-            let surface = managed.surface.surface
-        else {
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else {
             return
         }
-        ghostty_surface_set_occlusion(surface, visible)
+        _ = rendererStateDelivery.deliverVisibility(visible, to: managed.surface)
     }
 
     /// Set focus state for a surface
