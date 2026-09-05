@@ -107,6 +107,53 @@ struct PreparedContentMountStartupBoundaryTests {
         #expect(callSitesMissingAuthority.isEmpty)
     }
 
+    @Test("TerminalSurfaceCreationAuthority has exactly three producers")
+    func terminalSurfaceCreationAuthorityHasExactlyThreeProducers() throws {
+        // Arrange: a file only counts as a producer if it both references
+        // the type by name and constructs a value on some non-comment,
+        // non-pattern-match line — `.prepared(` and `.released(` alone are
+        // too common (other, unrelated types share those case names
+        // elsewhere in the codebase), and `case .prepared(...)`/
+        // `case .released(...)` are pattern matches over an existing value,
+        // not a new one being minted.
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let sourceFiles = try swiftSourceFiles(under: sourcesRoot)
+        let constructionSignatures = [".released(", ".prepared(claim"]
+
+        // Act
+        let producerFiles = try sourceFiles.filter { sourceFile in
+            let source = try String(contentsOf: sourceFile, encoding: .utf8)
+            guard source.contains("TerminalSurfaceCreationAuthority") else { return false }
+            let lines = source.components(separatedBy: "\n")
+            return lines.contains { line in
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmedLine.hasPrefix("///"), !trimmedLine.hasPrefix("//") else { return false }
+                guard
+                    !trimmedLine.contains("case .released("),
+                    !trimmedLine.contains("case .prepared(")
+                else {
+                    return false
+                }
+                return constructionSignatures.contains { trimmedLine.contains($0) }
+            }
+        }
+
+        // Assert: the port's successful claim, the registry's own release
+        // rule, and the coordinator's pre-boot fallback (no cohort exists
+        // yet to claim the pane, so nothing can be waiting on this
+        // question — matching the registry's own "no entry, or a stale
+        // generation" release rule) are the only three legal producers.
+        #expect(
+            Set(producerFiles.map(\.lastPathComponent))
+                == [
+                    "PreparedTerminalMountAdmissionPort.swift",
+                    "ViewRegistry.swift",
+                    "WorkspaceSurfaceCoordinator+ViewLifecycle.swift",
+                ]
+        )
+    }
+
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
         let enumerator = try #require(
             FileManager.default.enumerator(
