@@ -46,12 +46,16 @@ extension WorkspaceSurfaceCoordinator {
         mountedView: NSView & PaneMountedContent,
         for paneId: UUID
     ) -> PaneHostView {
+        let priorHost = viewRegistry.view(for: paneId)
         let host = PaneHostView(paneId: paneId)
         host.onAttachedToWindow = { [weak self] attachedPaneId in
             self?.handlePaneHostAttachedToWindow(attachedPaneId)
         }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
+        if let priorHost, priorHost !== host {
+            priorHost.retire()
+        }
         return host
     }
 
@@ -459,7 +463,9 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func unregisterHostedView(for paneId: UUID) {
+        let retiringHost = viewRegistry.view(for: paneId)
         viewRegistry.unregister(paneId)
+        retiringHost?.retire()
         recoverZoomCompanionAfterResourceLoss(for: paneId)
     }
 

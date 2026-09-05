@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
@@ -83,6 +84,106 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         #expect(harness.viewRegistry.view(for: closingPane.id) != nil)
     }
 
+    @Test("registering a replacement releases the exact prior host cycle")
+    func registeringReplacementReleasesExactPriorHostCycle() {
+        let harness = makeHarness()
+        let paneID = UUIDv7.generate()
+        let weakPriorHost = WeakPaneHostReference()
+
+        let replacementHost = autoreleasepool {
+            var priorHost: PaneHostView? = harness.coordinator.registerHostedView(
+                mountedView: SlotLifecycleMountedContentView(),
+                for: paneID
+            )
+            _ = priorHost?.swiftUIContainer
+            weakPriorHost.value = priorHost
+            let replacementHost = harness.coordinator.registerHostedView(
+                mountedView: SlotLifecycleMountedContentView(),
+                for: paneID
+            )
+            #expect(priorHost?.superview == nil)
+            priorHost = nil
+            return replacementHost
+        }
+
+        #expect(weakPriorHost.value == nil)
+        #expect(harness.viewRegistry.view(for: paneID) === replacementHost)
+    }
+
+    @Test("unregistering releases the exact current host cycle but preserves the slot")
+    func unregisteringReleasesExactCurrentHostCycleButPreservesSlot() {
+        let harness = makeHarness()
+        let paneID = UUIDv7.generate()
+        let slot = harness.viewRegistry.ensureSlot(for: paneID)
+        let weakHost = WeakPaneHostReference()
+
+        autoreleasepool {
+            var host: PaneHostView? = harness.coordinator.registerHostedView(
+                mountedView: SlotLifecycleMountedContentView(),
+                for: paneID
+            )
+            _ = host?.swiftUIContainer
+            weakHost.value = host
+            harness.coordinator.unregisterHostedView(for: paneID)
+            #expect(host?.superview == nil)
+            host = nil
+        }
+
+        #expect(weakHost.value == nil)
+        #expect(harness.viewRegistry.peekSlotForTesting(paneID) === slot)
+        #expect(harness.viewRegistry.view(for: paneID) == nil)
+    }
+
+    @Test("unregistering permanently unmounts content even while SwiftUI retains the old host")
+    func unregisteringUnmountsContentFromRetainedHost() {
+        let harness = makeHarness()
+        let paneID = UUIDv7.generate()
+        weak var weakContent: SlotLifecycleMountedContentView?
+        let retainedHost = autoreleasepool {
+            let content = SlotLifecycleMountedContentView()
+            weakContent = content
+            let host = harness.coordinator.registerHostedView(mountedView: content, for: paneID)
+            harness.coordinator.unregisterHostedView(for: paneID)
+            return host
+        }
+
+        #expect(retainedHost.mountedContentViewForTesting == nil)
+        #expect(weakContent == nil)
+        #expect(harness.viewRegistry.view(for: paneID) == nil)
+    }
+
+    @Test("unregistering asks mounted content to retire before unmount")
+    func unregisteringAsksMountedContentToRetireBeforeUnmount() {
+        let harness = makeHarness()
+        let paneID = UUIDv7.generate()
+        let content = SlotLifecycleRetirementRecordingContentView()
+
+        _ = harness.coordinator.registerHostedView(mountedView: content, for: paneID)
+        harness.coordinator.unregisterHostedView(for: paneID)
+
+        #expect(content.retireCallCount == 1)
+        #expect(content.wasMountedWhenRetired)
+    }
+
+    @Test("temporary transitions keep the host and mounted content intact")
+    func temporaryTransitionsKeepHostAndMountedContent() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = makeWebviewPane(harness.store, title: "Minimizable")
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        let content = SlotLifecycleMountedContentView()
+        let host = harness.coordinator.registerHostedView(mountedView: content, for: pane.id)
+
+        harness.coordinator.execute(.minimizePane(tabId: tab.id, paneId: pane.id))
+
+        #expect(harness.viewRegistry.view(for: pane.id) === host)
+        #expect(host.mountedContentViewForTesting != nil)
+    }
+
     @Test("closing two drawer panes in sequence keeps fallback focus and both tombstones stable")
     func closingTwoDrawerPanesInSequence_preservesFallbackFocusAndRetiredSlots() throws {
         let harness = makeHarness()
@@ -159,6 +260,29 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         #expect(harness.viewRegistry.peekSlotForTesting(newChildId) != nil)
         #expect(harness.viewRegistry.peekSlotForTesting(closedChild.id) !== oldSlot)
     }
+}
+
+@MainActor
+private final class SlotLifecycleMountedContentView: NSView, PaneMountedContent {
+    func setContentInteractionEnabled(_: Bool) {}
+}
+
+@MainActor
+private final class SlotLifecycleRetirementRecordingContentView: NSView, PaneMountedContent {
+    private(set) var retireCallCount = 0
+    private(set) var wasMountedWhenRetired = false
+
+    func setContentInteractionEnabled(_: Bool) {}
+
+    func paneHostWillRetire() {
+        retireCallCount += 1
+        wasMountedWhenRetired = superview != nil
+    }
+}
+
+@MainActor
+private final class WeakPaneHostReference {
+    weak var value: PaneHostView?
 }
 
 @MainActor
