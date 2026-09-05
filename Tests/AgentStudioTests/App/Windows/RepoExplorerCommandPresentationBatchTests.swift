@@ -679,8 +679,8 @@ struct RepoExplorerCommandPresentationBatchTests {
         )
     }
 
-    @Test("association move resolves only affected visible worktree rows")
-    func associationMoveResolvesOnlyAffectedVisibleWorktreeRows() async throws {
+    @Test("association move between visible worktrees does not re-resolve")
+    func associationMoveBetweenVisibleWorktreesDoesNotReresolve() async throws {
         let handler = RepoExplorerCommandPresentationRecordingHandler()
 
         try await withIsolatedCommandDispatcher(
@@ -725,19 +725,20 @@ struct RepoExplorerCommandPresentationBatchTests {
 
                     _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
+                    let resultsBeforeMove = batch.snapshot.results
 
+                    // Pane-to-worktree association never changes a capability result: neither
+                    // worktree's presentation should re-resolve.
                     _ = store.paneAtom.updatePaneCWDAndResolvedContext(
                         pane.id,
                         cwd: worktrees[1].path,
                         resolvedContext: (repos[1], worktrees[1])
                     )
 
-                    let affectedRequests = await handler.batchArrivals.wait { requests in
-                        requests.contains { $0.target == worktrees[1].id }
-                    }
-                    #expect(affectedRequests.contains { $0.target == worktrees[0].id })
-                    #expect(affectedRequests.contains { $0.target == worktrees[1].id })
-                    #expect(!affectedRequests.contains { $0.target == worktrees[2].id })
+                    for _ in 0..<1000 { await Task.yield() }
+
+                    #expect(handler.repoExplorerCapabilityRequestBatches.isEmpty)
+                    #expect(batch.snapshot.results == resultsBeforeMove)
                 }
             }
         )

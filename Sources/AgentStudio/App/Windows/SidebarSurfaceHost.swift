@@ -71,6 +71,7 @@ struct SidebarSurfaceHost: View {
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
                 commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
+                visibleSnapshotConsumerToken: repoCommandPresentationBatch?.consumerToken,
                 onSetSortOrder: { order in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(

@@ -15,6 +15,15 @@ private final class AtomFamilyObservationCounter: @unchecked Sendable {
 }
 
 @MainActor
+private final class AtomTraceInstantBox {
+    var instant: ContinuousClock.Instant
+
+    init(instant: ContinuousClock.Instant) {
+        self.instant = instant
+    }
+}
+
+@MainActor
 private func observeRepoA(
     in family: AtomFamily<String, Int>,
     counter: AtomFamilyObservationCounter
@@ -510,5 +519,152 @@ struct AtomFamilyObservationTests {
         #expect(!contents.contains("private-pane-value"))
         #expect(!contents.contains("private-structural-key"))
         #expect(!contents.contains("private-structural-value"))
+    }
+
+    @Test
+    func atomReadTelemetryShedsBeyondTheAdmissionLimitWithinOneWindow() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-read-admission-\(UUID().uuidString)", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-read-admission",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 919,
+            timeUnixNano: { 779 }
+        )
+        let clockBox = AtomTraceInstantBox(instant: ContinuousClock().now)
+        AtomPerformanceTelemetry.shared.configure(
+            traceRuntime: runtime,
+            now: { clockBox.instant }
+        )
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+        let limit = AppPolicies.Diagnostics.atomReadTraceAdmissionLimit
+        let family = AtomFamily<String, Int>(telemetryLabel: "read_admission", isContentEqual: ==)
+
+        for index in 0..<(limit + 40) {
+            _ = family.value(for: "repo-\(index)")
+        }
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let admittedReadCount =
+            contents.components(
+                separatedBy: "\"body\":\"performance.atom.read\""
+            ).count - 1
+
+        #expect(admittedReadCount == limit)
+    }
+
+    @Test
+    func atomReadTelemetryAdmitsAgainAfterTheWindowElapses() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-read-window-\(UUID().uuidString)", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-read-window",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 920,
+            timeUnixNano: { 780 }
+        )
+        let clockBox = AtomTraceInstantBox(instant: ContinuousClock().now)
+        AtomPerformanceTelemetry.shared.configure(
+            traceRuntime: runtime,
+            now: { clockBox.instant }
+        )
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+        let limit = AppPolicies.Diagnostics.atomReadTraceAdmissionLimit
+        let family = AtomFamily<String, Int>(telemetryLabel: "read_window", isContentEqual: ==)
+
+        for index in 0..<(limit + 10) {
+            _ = family.value(for: "first-\(index)")
+        }
+        clockBox.instant = clockBox.instant.advanced(
+            by: AppPolicies.Diagnostics.atomReadTraceAdmissionWindow
+        )
+        for index in 0..<(limit + 10) {
+            _ = family.value(for: "second-\(index)")
+        }
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let admittedReadCount =
+            contents.components(
+                separatedBy: "\"body\":\"performance.atom.read\""
+            ).count - 1
+
+        #expect(admittedReadCount == limit * 2)
+        // The first read admitted in the second window must carry the exact
+        // count shed at the tail of the first, or a sampled stream would be
+        // indistinguishable from a quiet one.
+        #expect(contents.contains("\"agentstudio.performance.atom.shed_read.count\":10"))
+    }
+
+    @Test
+    func atomMutationTelemetryIsNotSubjectToReadAdmission() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-mutation-unshed-\(UUID().uuidString)", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-mutation-unshed",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 921,
+            timeUnixNano: { 781 }
+        )
+        let clockBox = AtomTraceInstantBox(instant: ContinuousClock().now)
+        AtomPerformanceTelemetry.shared.configure(
+            traceRuntime: runtime,
+            now: { clockBox.instant }
+        )
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+        let limit = AppPolicies.Diagnostics.atomReadTraceAdmissionLimit
+        let aggregateRevision = AtomRevision()
+        let family = AtomFamily<String, Int>(telemetryLabel: "mutation_unshed", isContentEqual: ==)
+
+        let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        for index in 0..<(limit + 10) {
+            family.setValue(index, for: "repo-\(index)", mutation: mutation)
+        }
+        mutation.commit()
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let mutationCount =
+            contents.components(
+                separatedBy: "\"body\":\"performance.atom.mutation\""
+            ).count - 1
+
+        #expect(mutationCount == limit + 10)
+    }
+
+    @Test
+    func atomTelemetryQueueExistsOnlyWhenRecordingIsEnabled() {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-queue-gate-\(UUID().uuidString)", isDirectory: true)
+        let performanceOnlyRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-queue-gate",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 922,
+            timeUnixNano: { 782 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: performanceOnlyRuntime)
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+
+        #expect(AtomPerformanceTelemetry.shared.isEventQueueActive == false)
     }
 }

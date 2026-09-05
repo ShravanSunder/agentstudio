@@ -18,6 +18,14 @@ package enum AppPolicies {
     package enum EntityRecency {
         package static let maximumApplicationPresentationCountPerKind: Int = 15
         package static let maximumWorkspaceRetainedEntityCount: Int = 15
+        /// Application recency retention is bounded per kind rather than in
+        /// total. Presentation resolves each kind separately and drops entities
+        /// whose repository or worktree no longer exists, so a shared total cap
+        /// would let one busy kind starve the other out of its own list. The
+        /// bound sits well above `maximumApplicationPresentationCountPerKind`
+        /// to absorb those unresolvable drops while keeping retention a
+        /// constant instead of a function of churn across the activity horizon.
+        package static let maximumApplicationRetainedEntityCountPerKind: Int = 64
         package static let applicationActivityHorizon: TimeInterval = 60 * 24 * 60 * 60
         package static let strongBlueDuration: TimeInterval = 10 * 60
         package static let mediumBlueDuration: TimeInterval = 60 * 60
@@ -117,6 +125,12 @@ package enum AppPolicies {
         /// Pane association maintenance is an often lane because terminal CWD
         /// facts can arrive repeatedly. Shed before the trace queue while
         /// retaining enough outcome samples to diagnose association churn.
+        /// Atom reads are the highest-frequency call in the atom layer: every
+        /// family lookup is one. Emission must therefore be bounded by a
+        /// window rather than by call rate, or enabling the `atoms` tag would
+        /// consume the trace queue headroom that keeps the exporter alive.
+        package static let atomReadTraceAdmissionWindow: Duration = .seconds(1)
+        package static let atomReadTraceAdmissionLimit: Int = 32
         package static let paneAssociationTraceAdmissionWindow: Duration = .seconds(1)
         package static let paneAssociationTraceAdmissionLimit: Int = 64
         /// Downstream swift-otel log batch queue. swift-otel drops newly
