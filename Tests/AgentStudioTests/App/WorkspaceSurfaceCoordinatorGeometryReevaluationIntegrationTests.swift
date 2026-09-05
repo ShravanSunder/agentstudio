@@ -472,7 +472,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
 
         // `visibleSiblingPane` becomes an actual active-tab sibling only
         // after the cohort has already mounted and settled, mirroring
-        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives`'s precaution
+        // `aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives`'s precaution
         // against a real AppKit layout pass landing mid-mount.
         _ = harness.store.insertPane(
             visibleSiblingPane.id,

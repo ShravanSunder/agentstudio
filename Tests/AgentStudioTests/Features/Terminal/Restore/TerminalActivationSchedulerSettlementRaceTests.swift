@@ -69,7 +69,7 @@ struct TerminalActivationSchedulerSettlementRaceTests {
         // across repeated runs it lands on both sides, independent of S10b's
         // fix); what it can and does prove on every run is that neither
         // landing ever crashes or silently drops the late member. The S10
-        // suite's `revealAndPreparedRequeueOverlapProduceOneClaimAndOneSurfaceID`
+        // suite's `revealAndPreparedRequeueOverlapCompleteOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWithOneSurfaceIdentity`
         // (run 12x after this fix) is the harder, more realistic proof this
         // fix targets — it reproduced the literal crash organically before
         // the fix, via real AppKit scheduling this synthetic port cannot

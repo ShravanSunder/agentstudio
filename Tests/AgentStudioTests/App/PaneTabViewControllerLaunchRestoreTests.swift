@@ -8,6 +8,13 @@ import Testing
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
+/// Proof of successful surface creation, attachment, and reuse — a real
+/// Ghostty surface actually mounting and being reused across restore and
+/// tab-switch — lives in the debug-app runtime proof recorded on PR #330,
+/// not in this file. Every fake surface manager here always fails
+/// `createSurface`, so a "two createSurface calls" assertion in this suite
+/// proves one admission cycle ran (attempt 1 retry, attempt 2 doNotRetry),
+/// never that a surface was actually created.
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerLaunchRestoreTests {
@@ -388,16 +395,19 @@ struct PaneTabViewControllerLaunchRestoreTests {
     /// under test. Never a wall-clock sleep: each iteration only yields the
     /// MainActor so the drain's already-queued work can run, and the loop
     /// returns the instant `condition` is true. The iteration cap is a
-    /// safety net against a genuine hang, not a timer.
-    private func waitUntil(iterations: Int = 20_000, _ condition: () -> Bool) async {
+    /// safety net against a genuine hang, not a timer. Returns whether
+    /// `condition` was ever observed true — every call site must `#expect`
+    /// this rather than let budget exhaustion pass silently.
+    private func waitUntil(iterations: Int = 20_000, _ condition: () -> Bool) async -> Bool {
         for _ in 0..<iterations {
-            if condition() { return }
+            if condition() { return true }
             await Task.yield()
         }
+        return false
     }
 
     @Test
-    func switchingToATabOfAlreadyMountedTerminalsCreatesNoSurface() async throws {
+    func switchingToATabOfAlreadyMountedTerminalsInvokesCreateSurfaceZeroTimes() async throws {
         // Arrange: `targetPane` is settled to `.completed(.mounted)` custody
         // directly. A genuinely successful `createSurface` needs a real
         // Ghostty surface, which no fake surface manager in this repo can
@@ -467,7 +477,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives() async throws {
+    func aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives() async throws {
         // Arrange: `deferredPane` is withheld from the initial frame set so
         // it settles `deferredGeometry` custody. Its tab is deliberately not
         // appended to the store until after the cohort mount below returns:
@@ -515,7 +525,10 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // whatever real layout has or has not already done.
         harness.store.setActiveTab(deferredTab.id)
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
-        await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == deferredPane.id }.count == 2 }
+        #expect(
+            await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == deferredPane.id }.count == 2 },
+            "deferredPane never reached two createSurface calls"
+        )
 
         // Assert: exactly one admission cycle — the two low-level
         // `createSurface` calls this harness's always-failing surface
@@ -531,7 +544,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func revealAndPreparedRequeueOverlapProduceOneClaimAndOneSurfaceID() async throws {
+    func revealAndPreparedRequeueOverlapCompleteOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWithOneSurfaceIdentity()
+        async throws
+    {
         // Arrange: `overlapPane` is withheld from the initial frame set so it
         // settles `deferredGeometry` custody. Its tab is appended to the
         // store *before* the cohort mount below — the original, natural
@@ -557,7 +572,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         harness.store.appendTab(overlapTab)
 
         // Held alive for the rest of the test — see the note in
-        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives`.
+        // `aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives`.
         let mounted = try await mountPreparedContent(
             coordinator: harness.coordinator,
             viewRegistry: harness.viewRegistry,
@@ -573,7 +588,10 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // triggered during mount, and this explicit reveal, race each other.
         harness.store.setActiveTab(overlapTab.id)
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
-        await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == overlapPane.id }.count == 2 }
+        #expect(
+            await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == overlapPane.id }.count == 2 },
+            "overlapPane never reached two createSurface calls"
+        )
 
         // Assert: exactly one admission cycle, one surface identity.
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == overlapPane.id }.count == 2)
@@ -633,7 +651,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // for the S9 reevaluation tail, since nothing is deferred yet),
         // instead of leaving it pending to fire during `mountPreparedContent`'s
         // `await`. See the note in
-        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives` for the
+        // `aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives` for the
         // pre-existing scheduler race a layout pass landing during that
         // window can trigger; this test's four-way tier-order assertion
         // additionally needs the one visibility change below to be the only
@@ -669,32 +687,39 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // (This harness's real, mounted controller may also independently
         // trigger the S9 geometry-reevaluation tail via its own AppKit
         // layout — see the note in
-        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives` — but all
+        // `aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives` — but all
         // four panes' tab/drawer placement is already fully structured
         // above, before that can happen, so whichever trigger fires first
         // still resolves and promotes all four together.)
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
-        await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == siblingDrawerPane.id }.count == 2 }
+        #expect(
+            await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == siblingDrawerPane.id }.count == 2 },
+            "siblingDrawerPane never reached two createSurface calls"
+        )
 
         // Assert: admitted active-main, then main sibling, then active
         // drawer, then drawer sibling — the tier order, not the deliberately
         // reversed source-ordinal order the descriptors above were listed in.
+        // Each expected pane's actual first-admission index is required to
+        // exist (a pane never admitted at all fails loudly here instead of
+        // silently comparing as tied with everything else), then the actual
+        // admission sequence — `expectedOrder` reordered by those indices —
+        // is compared against `expectedOrder` itself.
         let expectedOrder = [activeMainPane.id, mainSiblingPane.id, activeDrawerPane.id, siblingDrawerPane.id]
-        let observedOrder = expectedOrder.sorted { lhs, rhs in
-            guard
-                let lhsIndex = harness.surfaceManager.createdPaneIds.firstIndex(of: lhs),
-                let rhsIndex = harness.surfaceManager.createdPaneIds.firstIndex(of: rhs)
-            else { return false }
-            return lhsIndex < rhsIndex
+        let firstAdmissionIndices = try expectedOrder.map { paneID in
+            try #require(harness.surfaceManager.createdPaneIds.firstIndex(of: paneID), "\(paneID) was never admitted")
         }
-        #expect(observedOrder == expectedOrder)
+        let actualAdmissionOrder = zip(expectedOrder, firstAdmissionIndices)
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
+        #expect(actualAdmissionOrder == expectedOrder)
         withExtendedLifetime(mounted) {}
     }
 
     @Test
-    func theExactStoredZmxSessionIdentityIsUsedWithNoSecondAttach() async throws {
+    func theExactStoredZmxSessionIdentityIsUsedAcrossOneAdmissionCycleOfTwoFailedCreateSurfaceCalls() async throws {
         // The tab is not appended until after the cohort mount returns — see
-        // the note in `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives`
+        // the note in `aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives`
         // for the pre-existing scheduler race that ordering avoids.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -720,7 +745,10 @@ struct PaneTabViewControllerLaunchRestoreTests {
 
         // Act: reveal the pane's tab.
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
-        await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == pane.id }.count == 2 }
+        #expect(
+            await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == pane.id }.count == 2 },
+            "pane never reached two createSurface calls"
+        )
 
         // Assert: exactly one admission cycle (two low-level calls, matching
         // this harness's always-failing attempt-1-retry/attempt-2-fail
