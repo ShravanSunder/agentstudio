@@ -6,6 +6,12 @@ import SwiftUI
 private enum SurfaceStartupOverlayState {
     case preparing
     case restoring
+    /// SPEC R5's settled deferral state: the scheduler has parked this
+    /// member until later geometry arrives. Indefinite, not imminent, so
+    /// this renders with no progress indicator and no focusable control —
+    /// there is nothing in flight to show progress on, and no retry action
+    /// this overlay could offer (only later geometry resolves it).
+    case waitingForGeometry
 }
 
 private struct SurfaceStartupOverlay: View {
@@ -17,8 +23,10 @@ private struct SurfaceStartupOverlay: View {
                 .opacity(0.98)
 
             VStack(spacing: AppStyles.WorkspaceFocus.Terminal.startupOverlaySpacing) {
-                ProgressView()
-                    .controlSize(.regular)
+                if showsProgressIndicator {
+                    ProgressView()
+                        .controlSize(.regular)
+                }
 
                 switch state {
                 case .preparing:
@@ -26,6 +34,9 @@ private struct SurfaceStartupOverlay: View {
                         .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 case .restoring:
                     Text("Restoring terminal…")
+                        .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
+                case .waitingForGeometry:
+                    Text("Terminal deferred")
                         .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 }
 
@@ -37,12 +48,23 @@ private struct SurfaceStartupOverlay: View {
         }
     }
 
+    private var showsProgressIndicator: Bool {
+        switch state {
+        case .preparing, .restoring:
+            return true
+        case .waitingForGeometry:
+            return false
+        }
+    }
+
     private var detailText: String {
         switch state {
         case .preparing:
             return "Waiting for trusted pane geometry before creating the terminal."
         case .restoring:
             return "Waiting for the terminal session to attach cleanly."
+        case .waitingForGeometry:
+            return "This terminal will finish preparing once its layout position becomes available."
         }
     }
 }
@@ -70,6 +92,10 @@ final class SurfaceStartupOverlayView: NSView {
 
     func showPreparing() {
         show(state: .preparing)
+    }
+
+    func showWaitingForGeometry() {
+        show(state: .waitingForGeometry)
     }
 
     func hide() {
