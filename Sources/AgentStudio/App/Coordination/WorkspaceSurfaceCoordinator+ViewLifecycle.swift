@@ -683,23 +683,26 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
         }
 
+        // Bootstrap geometry is residency- and expansion-independent (SPEC R1,
+        // R7): a drawer child needs a frame the instant its terminal admits,
+        // whether its drawer is collapsed or its parent is backgrounded. This
+        // iterates the canonical `tab.activePaneIds` (already
+        // `activeArrangement.layout.paneIds` — never residency-filtered) and
+        // reads `drawerViews[ownedDrawerID]` straight from the canonical
+        // arrangement via the pane's structural facts. It deliberately does
+        // not route through `arrangementView.drawerView(forParent:)`, whose
+        // `isActivePane` requirement is exactly the residency filter this
+        // slice removes.
         for paneId in tab.activePaneIds {
             guard
                 let parentFrame = resolvedFrames[paneId],
-                let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded,
-                let drawerView = arrangementView.drawerView(forParent: paneId),
+                let ownedDrawerID = store.paneAtom.graphAtom.paneStructuralFacts(paneId)?.ownedDrawerID,
+                let drawerView = tab.activeArrangement.drawerViews[ownedDrawerID],
                 let drawerContentRect = resolvedDrawerContentRect(
                     parentPaneFrame: parentFrame,
                     tabSize: terminalContainerBounds.size
                 )
             else {
-                if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
-                    Self.logger.warning(
-                        "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
-                    )
-                    RestoreTrace.log("resolveInitialFramesByTabId missingDrawerGeometry parent=\(paneId)")
-                }
                 continue
             }
             let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
@@ -710,11 +713,26 @@ extension WorkspaceSurfaceCoordinator {
                 collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
             )
 
-            for (drawerPaneId, drawerPaneFrame) in drawerFrames {
+            for (drawerPaneId, drawerPaneFrame) in drawerFrames
+            where Self.isFiniteNonEmptyFrame(drawerPaneFrame) {
                 resolvedFrames[drawerPaneId] = drawerPaneFrame
             }
         }
         return resolvedFrames
+    }
+
+    /// Finite, positive-area frame check shared by the bootstrap geometry
+    /// path (SPEC R1's "omit any frame that is empty, negative, or
+    /// non-finite" rule) — a pane with no safe frame here is left absent from
+    /// `resolvedFrames` so the terminal activation lane defers it rather than
+    /// admitting a garbage rect.
+    private static func isFiniteNonEmptyFrame(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite
+            && rect.origin.y.isFinite
+            && rect.size.width.isFinite
+            && rect.size.height.isFinite
+            && rect.size.width > 0
+            && rect.size.height > 0
     }
 
     private func resolvedDrawerContentRect(
