@@ -538,6 +538,63 @@ describe('Bridge product session authority', () => {
 		expect(cancelBody.requestSequence).toBe(3);
 	});
 
+	test.each([
+		{ code: 'resync_required', nextExpectedRequestSequence: null },
+		{ code: 'sequence_conflict', nextExpectedRequestSequence: 2 },
+	] as const)(
+		'preserves an unconsumed sequence after $code admission rejection',
+		async ({ code, nextExpectedRequestSequence }) => {
+			// Arrange — native rejects stale epochs before completion, so sequence 2 remains available.
+			const fetchSpy = vi
+				.spyOn(globalThis, 'fetch')
+				.mockResolvedValueOnce(responseWithJSON(workerSessionAcceptedResponse()))
+				.mockResolvedValueOnce(
+					responseWithJSON({
+						...productResponseIdentity('stale-epoch-call', 2),
+						code,
+						kind: 'request.error',
+						nextExpectedRequestSequence,
+						retryAfterMilliseconds: null,
+						retryable: true,
+						safeMessage: null,
+					}),
+				)
+				.mockResolvedValueOnce(
+					responseWithJSON({
+						...productResponseIdentity('current-epoch-call', 2),
+						call: { method: 'review.markFileViewed', result: null },
+						kind: 'call.completed',
+					}),
+				);
+			const requestIds = ['stale-epoch-call', 'current-epoch-call'];
+			const mux = new BridgeProductControlMux({
+				authority: installAuthority(),
+				createRequestId: (): string => requireShiftedValue(requestIds),
+				executeProductRequest: executeAgentStudioBridgeProductRequest,
+			});
+
+			// Act / Assert — the failed old intent must not consume the next current intent's sequence.
+			await expect(
+				mux.call({
+					method: 'review.markFileViewed',
+					request: { itemId: 'review-item-stale' },
+					workerDerivationEpoch: 6,
+				}),
+			).rejects.toMatchObject({ code, retryable: true });
+			await expect(
+				mux.call({
+					method: 'review.markFileViewed',
+					request: { itemId: 'review-item-current' },
+					workerDerivationEpoch: 7,
+				}),
+			).resolves.toBeNull();
+			const currentRequest = bridgeProductControlRequestSchema.parse(
+				JSON.parse(new TextDecoder().decode(requireUint8Array(fetchSpy.mock.calls[2]?.[1]?.body))),
+			);
+			expect(currentRequest.requestSequence).toBe(2);
+		},
+	);
+
 	test('drops an aborted queued admission without consuming its request sequence', async () => {
 		let resolveCallResponse: ((response: Response) => void) | undefined;
 		const callResponse = new Promise<Response>((resolve) => {

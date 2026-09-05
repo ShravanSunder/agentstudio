@@ -321,6 +321,60 @@ describe('Bridge app dev product session host', () => {
 		host.dispose();
 	});
 
+	test('recovers a failed replacement bootstrap after the backend becomes healthy', async () => {
+		// Arrange — a live pane has already received its first native-owned capability.
+		const target = new EventTarget();
+		const envelope = encodeBridgeProductDevBootstrapDelivery(productBootstrapDelivery(1));
+		const fetchBootstrap = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				new Response(Uint8Array.from(envelope).buffer, {
+					headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE },
+					status: 200,
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response(null, { headers: { 'Content-Type': 'text/plain' }, status: 502 }),
+			);
+		const initialBootstrap = new Promise<void>((resolve): void => {
+			target.addEventListener('__bridge_product_session_bootstrap', (): void => resolve(), {
+				once: true,
+			});
+		});
+		const fetchHealth = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		const reloadPage = vi.fn();
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: async (): Promise<void> => {},
+		});
+
+		try {
+			// Act — replacement retires the worker, then its bootstrap encounters a proxy outage.
+			target.dispatchEvent(
+				new CustomEvent('__bridge_product_session_bootstrap_request', {
+					detail: { reason: 'initial', requestId: 'initial-before-replacement' },
+				}),
+			);
+			await initialBootstrap;
+			target.dispatchEvent(
+				new CustomEvent('__bridge_product_session_bootstrap_request', {
+					detail: { reason: 'workerReplacement', requestId: 'replacement-outage' },
+				}),
+			);
+
+			// Assert — restored backend availability rebinds the page once without another UI action.
+			await vi.waitFor((): void => expect(reloadPage).toHaveBeenCalledOnce());
+			expect(fetchBootstrap).toHaveBeenCalledTimes(2);
+			expect(fetchHealth).toHaveBeenCalledOnce();
+		} finally {
+			host.dispose();
+		}
+	});
+
 	test('reloads after the backend truncates an accepted bootstrap response', async () => {
 		// Arrange
 		const target = new EventTarget();

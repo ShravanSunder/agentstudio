@@ -294,8 +294,10 @@ export class BridgeProductControlMux {
 				request,
 			});
 			assertBridgeProductResponseCorrelation({ request, response });
-			this.#nextRequestSequence += 1;
 			if (response.kind === 'request.error') {
+				// Admission rejection may leave the sequence unconsumed; only native knows its floor.
+				this.#nextRequestSequence =
+					response.nextExpectedRequestSequence ?? this.#nextRequestSequence;
 				throw new BridgeProductControlRequestError({
 					code: response.code,
 					message:
@@ -306,6 +308,7 @@ export class BridgeProductControlMux {
 					retryable: response.retryable,
 				});
 			}
+			this.#nextRequestSequence += 1;
 			return props.acceptResponse(response);
 		});
 	}

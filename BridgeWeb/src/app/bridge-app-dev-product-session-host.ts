@@ -149,16 +149,13 @@ export function installBridgeAppDevProductSessionHost(
 					}
 				},
 				(error: unknown): void => {
-					if (
-						isInstalled &&
-						issuedRequestSequence === requestSequence &&
-						request.reason === 'initial'
-					) {
+					if (!isInstalled || issuedRequestSequence !== requestSequence) return;
+					if (request.reason === 'initial') {
 						initialBootstrapOutcome = 'failed';
 						acknowledgePendingReadyRequestsIfResolved();
-						if (error instanceof BridgeDevelopmentBootstrapTransportUnavailableError) {
-							startHealthProbing();
-						}
+					}
+					if (error instanceof BridgeDevelopmentBootstrapTransportUnavailableError) {
+						startHealthProbing();
 					}
 				},
 			)
