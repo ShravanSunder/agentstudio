@@ -259,11 +259,13 @@ final class WorkspacePreparedContentMountCoordinator {
                 handledPaneIDs.insert(paneID)
             }
         }
-        if !queuedTerminalPaneIDs.isEmpty {
-            terminalAdmissionPort.recordCurrentVisibleQueuedTerminals(
-                classifyVisibleQueuedTerminals(visibleQueuedSet, queuedTerminalPaneIDs: queuedTerminalPaneIDs)
-            )
-        }
+        // Recorded unconditionally, including an empty queued-terminal subset:
+        // the port's own equality suppression already collapses repeats, and
+        // discarding an empty observation here would strand a previously
+        // promoted member at its stale rank instead of letting it demote.
+        terminalAdmissionPort.recordCurrentVisibleQueuedTerminals(
+            classifyVisibleQueuedTerminals(visibleQueuedSet, queuedTerminalPaneIDs: queuedTerminalPaneIDs)
+        )
         return handledPaneIDs
     }
 
