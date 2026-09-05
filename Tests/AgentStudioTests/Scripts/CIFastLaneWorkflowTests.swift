@@ -241,7 +241,11 @@ struct CIFastLaneWorkflowTests {
         )
         let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
 
-        #expect(benchmarkTask.contains("--filter \"GlobalPreferencesBootstrapBenchmarkTests\""))
+        #expect(
+            benchmarkTask.contains(
+                "--filter \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests\""
+            )
+        )
         #expect(benchmarkTask.contains("set -euo pipefail"))
         #expect(benchmarkTask.contains("export _XCB_BYPASS=1"))
         #expect(!benchmarkTask.contains("PushBenchmarkSupportTests"))
@@ -576,7 +580,7 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
         #expect(
             fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
+                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
             )
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
