@@ -328,7 +328,14 @@ package actor BridgeDevelopmentProductHost {
                 surface: surface
             )
         case .activateFileTarget:
-            return
+            // Activate the source owner before waiting for its accepted identity. The later
+            // target keeps the caller's command ID so an activation receipt cannot clear it.
+            navigationCommand = .activateContext(
+                commandId: UUIDv7.generate().uuidString.lowercased(),
+                bindingRevision: bindingRevision,
+                surface: .file
+            )
+            navigationBindingRevision = max(navigationBindingRevision, bindingRevision + 1)
         case .activateReviewTarget:
             guard let reviewPublication,
                 let reviewCommand = Self.bindReviewNavigationCommand(

@@ -386,16 +386,17 @@ func shutdownHTTPHostAndDrainMetadataStream(
 }
 
 func openHTTPProductConnection(
-    client: some TestClientProtocol
+    client: some TestClientProtocol,
+    bootstrapRequestBody: ByteBuffer = ByteBuffer(
+        string:
+            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+    )
 ) async throws -> HTTPProductConnection {
     let bootstrapResponse = try await client.execute(
         uri: "/__bridge-product/bootstrap",
         method: .post,
         headers: [.contentType: "application/json"],
-        body: ByteBuffer(
-            string:
-                #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
-        )
+        body: bootstrapRequestBody
     )
     let envelope = try decodeHTTPBootstrapEnvelope(
         Data(bootstrapResponse.body.readableBytesView)

@@ -213,6 +213,81 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
+    @Test("a cold File target publishes activation before File source discovery")
+    func coldFileTargetPublishesActivationBeforeSourceDiscovery() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-file-target-startup")
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
+                let connection = try await openHTTPProductConnection(
+                    client: client,
+                    bootstrapRequestBody: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"open-cold-file-target","commandKind":"activateTarget","surface":"file","target":{"targetKind":"file","path":"startup.txt","version":"current"}},"reason":"initial"}"#
+                    )
+                )
+                let metadata = try await startHTTPMetadataStream(
+                    host: host,
+                    connection: connection,
+                    streamID: "cold-file-target-metadata"
+                )
+                do {
+                    // Act — open only the carrier, with no File discovery or Review publication.
+                    _ = try await waitForAcknowledgedMetadataFrame(
+                        client: client,
+                        connection: connection,
+                        recorder: metadata.recorder
+                    ) { frame -> Bool? in
+                        if case .metadataStreamAccepted = frame { return true }
+                        return nil
+                    }
+                    let coordinator = await host.productProvider.metadataCoordinator
+                    await coordinator.replayPaneSurfaceSelectionRequest()
+                    let observationBoundary = BridgePaneSurfaceSelectionRequest(
+                        navigationCommand: .activateContext(
+                            commandId: "startup-observation-boundary",
+                            bindingRevision: 100,
+                            surface: .review
+                        ),
+                        paneSessionId: connection.bootstrap.paneSessionId,
+                        workerInstanceId: connection.bootstrap.workerInstanceId
+                    )
+                    #expect(
+                        await coordinator.publishPaneSurfaceSelectionRequest(
+                            observationBoundary,
+                            productAdmission: host.productAdmission,
+                            streamAbsenceDisposition: .reject
+                        )
+                    )
+                    let firstSelection = try await waitForAcknowledgedMetadataFrame(
+                        client: client,
+                        connection: connection,
+                        recorder: metadata.recorder
+                    ) { frame -> BridgeProductNavigationCommand? in
+                        guard case .paneSurfaceSelectionRequested(let selection) = frame else { return nil }
+                        return selection.navigationCommand
+                    }
+
+                    // Assert — the initial File context precedes the boundary without a source-bound target.
+                    guard case .activateContext(let commandID, let bindingRevision, let surface) = firstSelection else {
+                        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+                    }
+                    #expect(surface == .file)
+                    #expect(bindingRevision == 1)
+                    #expect(commandID != "open-cold-file-target")
+                    #expect(await host.diagnosticCommittedReviewPublication() == nil)
+                } catch {
+                    try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+                    throw error
+                }
+                try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+            }
+        }
+    }
+
     @Test("command route forwards worker admission through the existing product adapter")
     func commandRouteForwardsWorkerAdmission() async throws {
         // Arrange
