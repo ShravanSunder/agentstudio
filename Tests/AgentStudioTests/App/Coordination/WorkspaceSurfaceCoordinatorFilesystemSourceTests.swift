@@ -454,7 +454,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         await index.resumePausedProjection()
         _ = await olderTask.value
 
-        await assertEventuallyAsync("both valid projections should publish", maxTurns: 200_000) {
+        await assertEventuallyAsync("both valid projections should publish", minimumTurns: 200_000) {
             let paneEvents = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot())
             return paneEvents.count == 2
         }

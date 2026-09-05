@@ -66,6 +66,9 @@ final class RepoExplorerCommandPresentationBatch {
     private let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     private let dispatcher: AppCommandDispatcher
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    /// The onChange coalescing window, isolated behind a seam so tests can hold it open
+    /// deterministically instead of racing `Task.yield()` scheduling.
+    @ObservationIgnored private let coalescingYield: @MainActor @Sendable () async -> Void
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
     @ObservationIgnored private var lastVisibleRepositoryIDs: Set<UUID> = []
@@ -83,12 +86,14 @@ final class RepoExplorerCommandPresentationBatch {
         store: WorkspaceStore,
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         dispatcher: AppCommandDispatcher,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        coalescingYield: @escaping @MainActor @Sendable () async -> Void = { await Task.yield() }
     ) {
         self.store = store
         self.repoExplorerPrefs = repoExplorerPrefs
         self.dispatcher = dispatcher
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.coalescingYield = coalescingYield
     }
 
     func start() {
@@ -156,7 +161,7 @@ final class RepoExplorerCommandPresentationBatch {
                     return
                 }
                 self.pendingObservationWakeGeneration = armedGeneration
-                await Task.yield()
+                await self.coalescingYield()
                 let newestWakeGeneration = self.pendingObservationWakeGeneration
                 self.pendingObservationWakeGeneration = nil
                 guard newestWakeGeneration == self.armedTrackingGeneration else { return }
