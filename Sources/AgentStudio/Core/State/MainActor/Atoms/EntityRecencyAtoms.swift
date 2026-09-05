@@ -72,7 +72,12 @@ package final class ApplicationEntityRecencyAtom {
     }
 
     package func remove(_ entity: ApplicationRecentEntity) {
-        recentEntities.removeAll { $0.entity == entity }
+        // Assign instead of mutating in place. The `@Observable` macro puts its
+        // equal-write guard (`shouldNotifyObservers`) only on the setter; the
+        // `_modify` accessor that an in-place `removeAll` uses calls `willSet`
+        // unconditionally. Removing an absent identity through `_modify` would
+        // publish a change and wake a debounced SQLite save for a no-op.
+        recentEntities = recentEntities.filter { $0.entity != entity }
     }
 
     package func clear() {
@@ -98,9 +103,29 @@ package final class ApplicationEntityRecencyAtom {
         let cutoff = referenceDate.addingTimeInterval(
             -AppPolicies.EntityRecency.applicationActivityHorizon
         )
-        return newestByIdentity.values
-            .filter { $0.lastInteractedAt >= cutoff }
-            .sorted(by: recencyPrecedes)
+        return retainedPerKind(
+            newestByIdentity.values
+                .filter { $0.lastInteractedAt >= cutoff }
+                .sorted(by: recencyPrecedes)
+        )
+    }
+
+    /// Bounds retention per entity kind rather than in total. Presentation
+    /// resolves repositories and worktrees as separate lists, so a shared total
+    /// cap would let a burst of worktree activity evict every repository and
+    /// empty that list. Input must already be ordered newest first.
+    private static func retainedPerKind(
+        _ orderedRecentEntities: [ApplicationEntityRecency]
+    ) -> [ApplicationEntityRecency] {
+        let maximumCountPerKind = AppPolicies.EntityRecency
+            .maximumApplicationRetainedEntityCountPerKind
+        var retainedCountByKind: [String: Int] = [:]
+        return orderedRecentEntities.filter { recency in
+            let retainedCount = retainedCountByKind[recency.entity.storageKind, default: 0]
+            guard retainedCount < maximumCountPerKind else { return false }
+            retainedCountByKind[recency.entity.storageKind] = retainedCount + 1
+            return true
+        }
     }
 
     private static func recencyPrecedes(
