@@ -100,6 +100,31 @@ describe('BridgeWeb style-system embedded CSS policy', () => {
 
 		expect(rulePaths(report, 'control-style-override')).toHaveLength(7);
 	});
+
+	test('rejects helper-returned appearance and palette class literals without matching prose', async () => {
+		const report = await checkFixture({
+			'src/app/helper-classes.ts': `
+				export function appearanceClassName(): string { return 'dark:bg-background'; }
+				export function paletteClassName(): string { return 'hover:text-red-500'; }
+				export const ordinaryDescription = 'Keep the dark appearance stable.';
+			`,
+		});
+
+		expect(rulePaths(report, 'appearance-conditional')).toEqual(['src/app/helper-classes.ts']);
+		expect(rulePaths(report, 'raw-color')).toEqual(['src/app/helper-classes.ts']);
+	});
+
+	test('checks literal-valued template interpolations while suppressing only template-owned fragments', async () => {
+		const report = await checkFixture({
+			'src/app/interpolated-classes.ts': `
+				export const appearance = \`prefix \${'dark:bg-background'} suffix\`;
+			`,
+		});
+
+		expect(rulePaths(report, 'appearance-conditional')).toEqual([
+			'src/app/interpolated-classes.ts',
+		]);
+	});
 });
 
 async function checkFixture(files: Readonly<Record<string, string>>): Promise<StyleSystemReport> {

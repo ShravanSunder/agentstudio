@@ -9,7 +9,6 @@ import {
 import { findingAtNode, type StyleSystemFinding } from './check-bridgeweb-style-system-model.ts';
 import { classifyJsxRole } from './check-bridgeweb-style-system-typescript-jsx-resolution.ts';
 import {
-	resolveStaticClasses,
 	resolveStaticTextFragments,
 	splitClassTokens,
 	unwrapExpression,
@@ -42,7 +41,6 @@ export function checkJsxPolicy(props: {
 	readonly findings: StyleSystemFinding[];
 }): void {
 	checkDynamicRole(props.record, props.element, props.findings);
-	checkAppearanceClasses(props.records, props.record, props.element, props.findings);
 	checkInlineStyleLiteralColors(props.record, props.element, props.findings);
 }
 
@@ -81,10 +79,37 @@ function checkLiteralPolicies(
 	findings: StyleSystemFinding[],
 ): void {
 	if (!ts.isStringLiteralLike(node) && !ts.isTemplateExpression(node)) return;
+	if (
+		ts.isStringLiteralLike(node) &&
+		((ts.isTemplateExpression(node.parent) && node.parent.head === node) ||
+			(ts.isTemplateSpan(node.parent) && node.parent.literal === node))
+	) {
+		return;
+	}
 	const fragments = ts.isTemplateExpression(node)
 		? [node.head.text, ...node.templateSpans.map((span) => span.literal.text)]
 		: [node.text];
 	for (const fragment of fragments) {
+		for (const classToken of splitClassTokens(fragment).filter(hasDarkVariant)) {
+			findings.push(
+				findingAtNode({
+					ruleId: 'appearance-conditional',
+					relativePath: record.relativePath,
+					node,
+					message: `BridgeWeb is dark-only; appearance class "${classToken}" is forbidden.`,
+				}),
+			);
+		}
+		for (const classToken of splitClassTokens(fragment).filter(isRawPaletteUtility)) {
+			findings.push(
+				findingAtNode({
+					ruleId: 'raw-color',
+					relativePath: record.relativePath,
+					node,
+					message: `Raw palette utility "${classToken}" must use a canonical semantic role.`,
+				}),
+			);
+		}
 		if (!isPaletteMirrorPath(record.relativePath)) {
 			for (
 				let occurrence = 0;
@@ -162,42 +187,6 @@ function checkUnsafeCssPolicy(
 				relativePath: record.relativePath,
 				node,
 				message: `Cannot parse consumed unsafeCSS: ${error instanceof Error ? error.message : String(error)}`,
-			}),
-		);
-	}
-}
-
-function checkAppearanceClasses(
-	records: ReadonlyMap<string, TypeScriptSourceRecord>,
-	record: TypeScriptSourceRecord,
-	element: ts.JsxOpeningLikeElement,
-	findings: StyleSystemFinding[],
-): void {
-	const classAttribute = element.attributes.properties.find(
-		(attribute): attribute is ts.JsxAttribute =>
-			ts.isJsxAttribute(attribute) && attribute.name.getText() === 'className',
-	);
-	if (classAttribute?.initializer === undefined) return;
-	const expression = jsxAttributeExpression(classAttribute.initializer);
-	if (expression === null) return;
-	const result = resolveStaticClasses(records, record, expression, new Set());
-	for (const classToken of result.classTokens.filter(hasDarkVariant)) {
-		findings.push(
-			findingAtNode({
-				ruleId: 'appearance-conditional',
-				relativePath: record.relativePath,
-				node: classAttribute,
-				message: `BridgeWeb is dark-only; appearance class "${classToken}" is forbidden.`,
-			}),
-		);
-	}
-	for (const classToken of result.classTokens.filter(isRawPaletteUtility)) {
-		findings.push(
-			findingAtNode({
-				ruleId: 'raw-color',
-				relativePath: record.relativePath,
-				node: classAttribute,
-				message: `Raw palette utility "${classToken}" must use a canonical semantic role.`,
 			}),
 		);
 	}
@@ -296,7 +285,10 @@ function jsxAttributeExpression(initializer: ts.JsxAttributeValue): ts.Expressio
 }
 
 function hasDarkVariant(value: string): boolean {
-	return splitClassTokens(value).some((token) => token.split(':').includes('dark'));
+	return splitClassTokens(value).some((token) => {
+		const segments = token.split(':');
+		return segments.length > 1 && segments.slice(0, -1).includes('dark');
+	});
 }
 
 function propertyNameText(name: ts.PropertyName): string | null {
