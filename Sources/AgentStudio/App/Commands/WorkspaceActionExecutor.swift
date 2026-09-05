@@ -140,6 +140,16 @@ final class WorkspaceActionExecutor {
         coordinator.clearPendingPaneRefocusRequestsAfterUserFocusChange()
     }
 
+    /// Forwards to the same reevaluation tail the canonical layout-changing
+    /// actions call (SPEC R5 retry, R1 hidden hydration): the trusted
+    /// container-layout callback in `PaneTabViewController` has no other path
+    /// to the coordinator's `reevaluatePreparedTerminalGeometry()`.
+    func reevaluatePreparedTerminalGeometry() {
+        Task { [weak coordinator] in
+            await coordinator?.reevaluatePreparedTerminalGeometry()
+        }
+    }
+
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in

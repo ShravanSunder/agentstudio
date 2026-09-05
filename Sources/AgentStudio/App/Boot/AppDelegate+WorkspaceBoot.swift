@@ -489,6 +489,12 @@ extension AppDelegate {
         coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] visibleQueuedSet in
             contentMountCoordinator?.handleVisibilitySignals(for: visibleQueuedSet) ?? []
         }
+        coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
+            guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
+            guard !acceptedPaneIDs.isEmpty else { return }
+            await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)
+        }
     }
 
     private func bootChainPipelineStep(

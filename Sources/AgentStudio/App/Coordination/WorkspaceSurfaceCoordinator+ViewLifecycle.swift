@@ -651,6 +651,47 @@ extension WorkspaceSurfaceCoordinator {
         return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
     }
 
+    /// SPEC R5 retry, and the R1 clause that hidden, minimized, and collapsed
+    /// panes hydrate once geometry becomes safe. Reevaluates canonical
+    /// geometry for exactly the terminal panes the prepared lane still holds
+    /// under `deferredGeometry` custody in the accepted generation, and
+    /// requeues only those whose placement is no longer ambiguous.
+    /// Deliberately never filtered by presentation: a hidden, minimized,
+    /// collapsed, or residency-backgrounded pane is included whenever its
+    /// canonical frame is now safe. Called as a tail from every
+    /// canonical-layout-changing action (`+ActionExecution.swift`) and from
+    /// the trusted container-layout callback (`PaneTabViewController`, via
+    /// `WorkspaceActionExecutor`); adds no timer, poll, observer, or bus case
+    /// of its own.
+    func reevaluatePreparedTerminalGeometry() async {
+        guard let generation = acceptedPreparedContentMountGeneration else { return }
+        let deferredPaneIDs = viewRegistry.deferredPreparedContentMountPaneIDs(
+            owner: .terminal,
+            generation: generation
+        )
+        guard !deferredPaneIDs.isEmpty else { return }
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else { return }
+
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        var resolvedFramesByPaneID: [PaneId: NSRect] = [:]
+        for paneID in deferredPaneIDs {
+            guard let pane = store.paneAtom.pane(paneID.uuid) else { continue }
+            guard
+                let frame = initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId)
+            else { continue }
+            resolvedFramesByPaneID[paneID] = frame
+        }
+        guard !resolvedFramesByPaneID.isEmpty else { return }
+
+        await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
+        // After the scheduler acknowledges the requeue, record the complete
+        // current visible queued set so a newly queued visible member
+        // receives its promoted tier (SPEC R3), not only the background rank
+        // a requeue would otherwise leave it at.
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+    }
+
     func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {
         guard let terminalContainerBounds else {
             Self.logger.warning("resolveInitialFramesByTabId: terminal container bounds unavailable")

@@ -76,6 +76,16 @@ final class WorkspaceSurfaceCoordinator {
     /// (`AppDelegate+WorkspaceBoot.swift`). `nil` only in the brief pre-boot
     /// window and in test harnesses that never install a cohort.
     var acceptedPreparedContentMountGeneration: WorkspaceContentMountGeneration?
+    /// `reevaluatePreparedTerminalGeometry()`'s sole path to
+    /// `PreparedTerminalMountAdmissionPort.acceptLaterTrustedFrames` and
+    /// `WorkspacePreparedContentMountCoordinator.acceptTerminalGeometry` —
+    /// both installed-owner-scoped objects this coordinator has no other
+    /// reference to. Wired post-construction exactly like
+    /// `preparedContentVisibilitySignalHandler`, in the same
+    /// `AppDelegate+WorkspaceBoot.swift` boot step. Defaults to a no-op so
+    /// harnesses that construct this coordinator without installing prepared
+    /// content mount owners keep compiling unchanged.
+    var preparedTerminalGeometryReevaluationHandler: @MainActor ([PaneId: NSRect]) async -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var paneEventIngressTask: Task<Void, Never>?

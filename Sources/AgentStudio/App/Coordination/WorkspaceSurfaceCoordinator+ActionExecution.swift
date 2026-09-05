@@ -271,6 +271,7 @@ extension WorkspaceSurfaceCoordinator {
 
         case .resizePane(let tabId, let splitId, let ratio):
             store.tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .resizeVisiblePanePair(let tabId, let leftPaneId, let rightPaneId, let ratio):
             let canonicalPaneIds = store.tabLayoutAtom.tab(tabId)?.activeArrangement.layout.paneIds ?? []
@@ -284,9 +285,11 @@ extension WorkspaceSurfaceCoordinator {
                 ratio: ratio,
                 residencyExcludedPaneIds: residencyExcludedPaneIds
             )
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .equalizePanes(let tabId):
             store.tabLayoutAtom.equalizePanes(tabId: tabId)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .moveTab(let tabId, let delta):
             store.tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta)
@@ -299,6 +302,7 @@ extension WorkspaceSurfaceCoordinator {
             if store.tabLayoutAtom.minimizePane(paneId, inTab: tabId) {
                 detachForViewSwitch(paneId: paneId)
             }
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .expandPane(let tabId, let paneId):
             store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
@@ -306,6 +310,7 @@ extension WorkspaceSurfaceCoordinator {
             if viewRegistry.terminalView(for: paneId) != nil {
                 reattachForViewSwitch(paneId: paneId)
             }
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
             store.tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
@@ -373,6 +378,7 @@ extension WorkspaceSurfaceCoordinator {
             for paneId in transitions.paneIdsToReattach {
                 reattachForViewSwitch(paneId: paneId)
             }
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
@@ -535,6 +541,9 @@ extension WorkspaceSurfaceCoordinator {
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
+            // Runs for both directions: a collapse can also change which
+            // canonical geometry is safe for a still-deferred member.
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
             guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
                 focusVisiblePaneHost(paneId)
                 break
