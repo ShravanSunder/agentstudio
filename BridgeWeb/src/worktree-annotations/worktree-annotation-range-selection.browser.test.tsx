@@ -251,6 +251,7 @@ describe('worktree annotation Pierre range selection', () => {
 					pointerId: 28,
 					pointerType: 'mouse',
 				});
+				await nextAnimationFrame();
 				dispatchPointer(document, 'pointerup', {
 					clientX: endpointBounds.left + endpointBounds.width / 2,
 					clientY: endpointBounds.top + endpointBounds.height / 2,

@@ -45,6 +45,8 @@ function bridgeReviewChangeIndicatorsFromCodeViewOptions(
 }
 
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
+	// A scroll-triggered pointer blackout drops gutter drags and first plus clicks.
+	pointerEventsOnScroll: true,
 	theme: {
 		dark: bridgePierreDarkThemeName,
 		light: bridgePierreDarkThemeName,
