@@ -178,7 +178,7 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
     }
 
     func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
-        guard proposal.generation == generation else {
+        guard proposal.generation == generation, proposal.appliedVisibilityRevision.generation == generation else {
             return .rejected(.staleGeneration)
         }
         guard let descriptor = descriptorsByPaneID[proposal.paneID] else {

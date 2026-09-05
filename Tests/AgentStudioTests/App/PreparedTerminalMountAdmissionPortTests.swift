@@ -818,6 +818,49 @@ struct PreparedTerminalMountAdmissionPortTests {
             return
         }
     }
+
+    @Test("a proposal carrying a foreign revision generation is rejected as stale, not visibility-changed")
+    func aProposalCarryingAForeignRevisionGenerationIsRejectedAsStaleNotVisibilityChanged() throws {
+        // Arrange: `proposal.generation` matches this port's generation (G1's
+        // first, already-checked clause), but `appliedVisibilityRevision`
+        // carries a foreign generation — as if the caller mixed a revision
+        // acknowledged under a different cohort into an otherwise
+        // correctly-generationed proposal.
+        let generation = try makePreparedTerminalTestGeneration()
+        let foreignGeneration = try makePreparedTerminalTestGeneration()
+        let descriptor = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let paneID = descriptor.paneID
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let handler = RecordingPreparedTerminalMountHandler(results: [])
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: [paneID: NSRect(x: 0, y: 0, width: 800, height: 600)],
+            viewRegistry: registry,
+            mountHandler: handler,
+            descriptorsByPaneID: [paneID: descriptor]
+        )
+
+        // Act
+        let outcome = port.claimPreparedTerminal(
+            TerminalAdmissionProposal(
+                generation: generation,
+                paneID: paneID,
+                attempt: 1,
+                appliedVisibilityRevision: TerminalVisibilityRevision(generation: foreignGeneration, ordinal: 0)
+            )
+        )
+
+        // Assert
+        #expect(outcome == .rejected(.staleGeneration))
+        #expect(handler.admissions.isEmpty)
+    }
 }
 
 @MainActor
