@@ -68,8 +68,9 @@ Design implication:
 ### Renderer visibility and focus delivery
 
 Visibility and focus reach libghostty through exactly one seam,
-`SurfaceRendererStateDelivery` (`LiveSurfaceRendererStateDelivery` in production), and only
-`SurfaceManager` calls it. Nothing else in the app calls `ghostty_surface_set_occlusion` or
+`SurfaceRendererStateDelivery` (`LiveSurfaceRendererStateDelivery` in production).
+`SurfaceManager` owns every visibility and focus-on delivery; views deliver focus-off only,
+through the same seam. Nothing else in the app calls `ghostty_surface_set_occlusion` or
 `ghostty_surface_set_focus`; an architecture test pins this.
 
 - **Effective visibility** for an attached surface is
@@ -87,10 +88,15 @@ Visibility and focus reach libghostty through exactly one seam,
   turns focus off, delivers `visible == false`, and only then moves the surface between
   collections. Bare removal used to leave the renderer believing it was visible.
 - **Focus follows delivered visibility.** `SurfaceManager.setFocus(_, focused: true)` is refused
-  unless the surface is active and its last delivered visibility is `true`; focus-off is always
-  delivered. Turning visibility on re-delivers focus when the view is its window's first
-  responder. Ghostty starts the display link on focus regardless of occlusion, so an ungated
-  focus-on would wake a hidden renderer.
+  unless the surface is active, its last delivered visibility is `true`, **and** it is its
+  window's first responder (R7); focus-off is always delivered. The responder-chain callback
+  (`SurfaceManager.surfaceDidBecomeFirstResponder(_:)`, called from
+  `Ghostty.SurfaceView.becomeFirstResponder`) supplies responder truth itself and gates only on
+  active membership and delivered visibility, since AppKit may not have updated
+  `window.firstResponder` while `becomeFirstResponder` is still running. Turning visibility on
+  re-delivers focus when the view is already its window's first responder. Ghostty starts the
+  display link on focus regardless of occlusion, so an ungated focus-on would wake a hidden
+  renderer.
 - **What hidden buys at Ghostty v1.3.1.** `set_occlusion(false)` stops the display link and
   `drawFrame` early-returns; the renderer thread still services `updateFrame` on wakeups. Hidden
   is a CPU/compositor saving, not a memory release; memory is released only by destroying the

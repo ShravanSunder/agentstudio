@@ -37,7 +37,7 @@ extension WorkspaceSurfaceCoordinator {
             surfaceManager.reconcileAttachedVisibility { paneID in
                 self.effectiveRendererVisibility(forAttachedPaneID: paneID)
             }
-        } onChange: {
+        } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.rendererVisibilityObservationGeneration == generation else { return }
                 self.observeRendererVisibility(generation: generation)

@@ -839,13 +839,16 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let runtimePaneId = PaneId(existingUUID: pane.id)
 
         var runtimeWasRegisteredDuringUndoLookup = false
+        var undoLookupRan = false
         harness.surfaceManager.onUndoClose = {
+            undoLookupRan = true
             runtimeWasRegisteredDuringUndoLookup = harness.coordinator.runtimeForPane(runtimePaneId) != nil
         }
 
         let restored = harness.coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
 
         #expect(restored == nil)
+        #expect(undoLookupRan)
         #expect(!runtimeWasRegisteredDuringUndoLookup)
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
@@ -974,7 +977,11 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
+        onUndoClose?()
+        guard undoCloseResult?.metadata.paneId == paneId else { return nil }
+        return undoCloseResult
+    }
 
     func destroy(_ surfaceId: UUID) {}
 }

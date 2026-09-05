@@ -333,6 +333,18 @@ struct WorkspaceSurfaceCoordinatorRendererVisibilityTests {
             await coordinator.shutdown()
         }
     }
+
+    // F1 retention test intentionally omitted: `WorkspaceSurfaceCoordinator` cannot deallocate in
+    // this harness for a reason unrelated to this file's `[weak self]` fix. A verified-independent
+    // pre-existing bug in `WorkspaceSurfaceCoordinator+BridgePaneActivity.swift`'s
+    // `observeBridgePaneActivityInputs` (its outer `withObservationTracking` `onChange` closure
+    // also lacks `[weak self]`, and `startBridgePaneActivityObservation()` runs unconditionally at
+    // init) holds its own live Observation registration on the coordinator for the lifetime of any
+    // instance built in this test harness, since nothing here mutates the tracked pane
+    // graph/app-lifecycle inputs after construction. Diagnostically adding `[weak self]` there
+    // made a `bindRendererVisibility` → `stopRendererVisibilityObservation` → drop-refs test pass;
+    // that file is outside this brief's scope, so the diagnostic edit was reverted and this test is
+    // dropped rather than pinning an unrelated retainer. The production fix above stands.
 }
 
 /// Mirrors `SurfaceManager`'s renderer-visibility contract without any native Ghostty

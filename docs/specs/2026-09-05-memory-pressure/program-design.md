@@ -223,9 +223,13 @@ is still looked up** (no-ops at the delivery record if already off); then moves 
 from active. `requeueUndo` likewise. `.hide`/`.move` on an already-hidden surface are no-ops.
 
 **`SurfaceManager.setFocus(_:focused:)`** (contract tightened): focus-on is delivered only when the
-surface is in `activeSurfaces` and `lastDeliveredVisibility == true`; otherwise it is dropped and
-counted. Focus-off is always delivered when the surface is known. `syncFocus(activeSurfaceId:)`
-applies the same rule per surface.
+surface is in `activeSurfaces`, `lastDeliveredVisibility == true`, **and** it is its window's first
+responder (R7); otherwise it is dropped and counted. Focus-off is always delivered when the
+surface is known. `syncFocus(activeSurfaceId:)` applies the same rule per surface.
+`SurfaceManager.surfaceDidBecomeFirstResponder(_:)` is the responder-callback entry point: AppKit
+may not have updated `window.firstResponder` while `becomeFirstResponder` itself is running, so it
+trusts the caller's own responder-chain truth and gates only on active membership and delivered
+visibility, not on re-deriving `window.firstResponder`.
 
 **`SurfaceManager.acceptCreatedSurface(_ surfaceView:metadata:) -> Result<ManagedSurface, SurfaceError>`**
 The accept step split out of `createSurface`: delivers visible=false, records

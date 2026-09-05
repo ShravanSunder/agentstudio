@@ -87,8 +87,10 @@ extension SurfaceManager {
     }
 
     /// Set focus state for a surface, gated so a surface may only receive focus=true while it is
-    /// active and its last delivered renderer visibility is `true`. Focus=false is always
-    /// permitted so a surface being backgrounded or torn down can still relinquish focus.
+    /// active, its last delivered renderer visibility is `true`, and it is its window's first
+    /// responder (spec R7: another control owning keyboard focus must not admit renderer focus).
+    /// Focus=false is always permitted so a surface being backgrounded or torn down can still
+    /// relinquish focus.
     func setFocus(_ surfaceId: UUID, focused: Bool) {
         guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else {
             RestoreTrace.log(
@@ -98,9 +100,13 @@ extension SurfaceManager {
         }
 
         if focused {
-            guard activeSurfaces[surfaceId] != nil, managed.lastDeliveredVisibility == true else {
+            let isFirstResponder = managed.surface.window?.firstResponder === managed.surface
+            guard
+                activeSurfaces[surfaceId] != nil, managed.lastDeliveredVisibility == true,
+                isFirstResponder
+            else {
                 RestoreTrace.log(
-                    "SurfaceManager.setFocus refused surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil) lastDeliveredVisibility=\(String(describing: managed.lastDeliveredVisibility))"
+                    "SurfaceManager.setFocus refused surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil) lastDeliveredVisibility=\(String(describing: managed.lastDeliveredVisibility)) isFirstResponder=\(isFirstResponder)"
                 )
                 return
             }
@@ -108,6 +114,31 @@ extension SurfaceManager {
 
         _ = rendererStateDelivery.deliverFocus(focused, to: managed.surface)
         RestoreTrace.log("SurfaceManager.setFocus surface=\(surfaceId) focused=\(focused)")
+    }
+
+    /// Entry point for the responder-chain callback (`Ghostty.SurfaceView.becomeFirstResponder`):
+    /// AppKit may not have updated `window.firstResponder` to the surface while
+    /// `becomeFirstResponder` itself is still running, so this seam trusts the responder-chain
+    /// callback's own truth instead of re-deriving it from `window.firstResponder`. Gates only on
+    /// active membership and delivered visibility — the caller *is* the surface becoming first
+    /// responder.
+    package func surfaceDidBecomeFirstResponder(_ surfaceId: UUID) {
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else {
+            RestoreTrace.log(
+                "SurfaceManager.surfaceDidBecomeFirstResponder skipped surface=\(surfaceId) known=false"
+            )
+            return
+        }
+
+        guard activeSurfaces[surfaceId] != nil, managed.lastDeliveredVisibility == true else {
+            RestoreTrace.log(
+                "SurfaceManager.surfaceDidBecomeFirstResponder refused surface=\(surfaceId) active=\(activeSurfaces[surfaceId] != nil) lastDeliveredVisibility=\(String(describing: managed.lastDeliveredVisibility))"
+            )
+            return
+        }
+
+        _ = rendererStateDelivery.deliverFocus(true, to: managed.surface)
+        RestoreTrace.log("SurfaceManager.surfaceDidBecomeFirstResponder surface=\(surfaceId) focused=true")
     }
 
     /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.

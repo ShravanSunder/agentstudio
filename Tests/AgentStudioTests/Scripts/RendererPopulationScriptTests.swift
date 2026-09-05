@@ -98,6 +98,52 @@ struct RendererPopulationScriptTests {
         #expect(numberValue(vmmapJSON, "iosurface_regions_large") == 2)
     }
 
+    @Test("parsers report failed captures as null, not zero population")
+    func parsersReportFailedCapturesAsNull() async throws {
+        // Arrange: a one-line failure capture, as `vmmap`/`footprint` emit when they cannot
+        // attach to the target process.
+        let failureFixture =
+            "vmmap: cannot examine process 123 (Operation not permitted -- perhaps you need to run as root?)"
+        let vmmapFailureFile = try writeFixture(failureFixture, named: "vmmap-failure-fixture.txt")
+        defer { try? FileManager.default.removeItem(at: vmmapFailureFile) }
+        let footprintFailureFile = try writeFixture(failureFixture, named: "footprint-failure-fixture.txt")
+        defer { try? FileManager.default.removeItem(at: footprintFailureFile) }
+
+        // Act
+        let vmmapResult = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/bin/bash",
+            args: [Self.scriptPath, "--parse-vmmap", vmmapFailureFile.path],
+            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: nil
+        )
+        let footprintResult = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/bin/bash",
+            args: [Self.scriptPath, "--parse-footprint", footprintFailureFile.path],
+            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: nil
+        )
+
+        // Assert: both parsers exit cleanly, every dependent field is null (not zero), and the
+        // failed capture's first line rides along as `capture_error`.
+        #expect(vmmapResult.exitCode == 0, "stdout: \(vmmapResult.stdout)\nstderr: \(vmmapResult.stderr)")
+        #expect(
+            footprintResult.exitCode == 0,
+            "stdout: \(footprintResult.stdout)\nstderr: \(footprintResult.stderr)")
+
+        let vmmapJSON = try decodeJSONObject(vmmapResult.stdout)
+        let footprintJSON = try decodeJSONObject(footprintResult.stdout)
+
+        #expect(vmmapJSON["iosurface_regions_total"] is NSNull)
+        #expect(vmmapJSON["iosurface_regions_large"] is NSNull)
+        #expect(vmmapJSON["capture_error"] as? String == failureFixture)
+
+        #expect(footprintJSON["phys_footprint_mb"] is NSNull)
+        #expect(footprintJSON["iosurface_dirty_mb"] is NSNull)
+        #expect(footprintJSON["ioaccelerator_dirty_mb"] is NSNull)
+        #expect(footprintJSON["owned_graphics_dirty_mb"] is NSNull)
+        #expect(footprintJSON["capture_error"] as? String == failureFixture)
+    }
+
     private func writeFixture(_ contents: String, named name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
         try contents.write(to: url, atomically: true, encoding: .utf8)

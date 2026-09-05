@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AppKit
 import Foundation
 import GhosttyKit
 import Testing
@@ -286,9 +287,9 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(delivery.focusCalls == [.init(surfaceID: managed.id, focused: false)])
     }
 
-    @Test("syncFocus delivers focus-on only to the visible target")
-    func syncFocusDeliversFocusOnOnlyToVisibleTarget() throws {
-        // Arrange
+    @Test("syncFocus refuses focus-on for a visible target that is not its window's first responder")
+    func syncFocusRefusesFocusOnForAVisibleTargetThatIsNotFirstResponder() throws {
+        // Arrange — both surfaces are bare (no window), so neither can be a first responder.
         let delivery = RecordingSurfaceRendererStateDelivery()
         let manager = makeManager(delivery: delivery)
         let surfaceA = makeBareSurface()
@@ -302,13 +303,12 @@ struct SurfaceManagerRendererStateDeliveryTests {
         _ = manager.reconcileAttachedVisibility { paneID in paneID != paneB }
         delivery.reset()
 
-        // Act
+        // Act — A is the visible target but has no window, so R7's first-responder condition
+        // refuses focus-on for it.
         manager.syncFocus(activeSurfaceId: managedA.id)
 
-        // Assert
-        #expect(delivery.focusCalls.count == 2)
-        #expect(delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: true)))
-        #expect(delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: false)))
+        // Assert — only B's focus-off is delivered; A's focus-on is refused.
+        #expect(delivery.focusCalls == [.init(surfaceID: managedB.id, focused: false)])
 
         // Act
         manager.syncFocus(activeSurfaceId: managedB.id)
@@ -317,6 +317,79 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: false)))
         #expect(delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: false)))
         #expect(!delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: true)))
+        #expect(!delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: true)))
+    }
+
+    @Test("setFocus delivers focus-on only to the window's first responder")
+    func setFocusDeliversFocusOnOnlyToTheWindowsFirstResponder() throws {
+        // Arrange — two visible attached surfaces inside a real, never-ordered-front window.
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let surfaceA = makeBareSurface()
+        let surfaceB = makeBareSurface()
+        let managedA = try acceptedSurface(surfaceA, in: manager)
+        let managedB = try acceptedSurface(surfaceB, in: manager)
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        manager.attach(managedA.id, to: paneA)
+        manager.attach(managedB.id, to: paneB)
+        _ = manager.reconcileAttachedVisibility { _ in true }
+
+        let window = NSWindow(
+            contentRect: .init(x: 0, y: 0, width: 200, height: 200),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView?.addSubview(surfaceA)
+        window.contentView?.addSubview(surfaceB)
+        window.makeFirstResponder(surfaceA)
+        delivery.reset()
+
+        // Act — `syncFocus` calls `setFocus` for every active surface, so B always receives its
+        // (unconditionally allowed) focus-off alongside A's admission decision.
+        manager.syncFocus(activeSurfaceId: managedA.id)
+
+        // Assert — A is the window's first responder, so focus-on is delivered to A; B is not the
+        // target and receives focus-off.
+        #expect(delivery.focusCalls.count == 2)
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedA.id, focused: true)))
+        #expect(delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: false)))
+        delivery.reset()
+
+        // Act — B is visible but is not the window's first responder. B is the requested target,
+        // so its only `setFocus` call this round asks for `focused: true` and is refused
+        // (producing no delivery at all for B, not a `focused: false` delivery).
+        manager.syncFocus(activeSurfaceId: managedB.id)
+
+        // Assert — A relinquishes focus; B's focus-on is refused since it is not first responder.
+        #expect(delivery.focusCalls == [.init(surfaceID: managedA.id, focused: false)])
+        #expect(!delivery.focusCalls.contains(.init(surfaceID: managedB.id, focused: true)))
+    }
+
+    @Test("surfaceDidBecomeFirstResponder delivers focus-on only while visible")
+    func surfaceDidBecomeFirstResponderDeliversOnlyWhileVisible() throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let surface = makeBareSurface()
+        let managed = try acceptedSurface(surface, in: manager)
+        delivery.reset()
+
+        // Act — hidden: never attached, so lastDeliveredVisibility is false.
+        manager.surfaceDidBecomeFirstResponder(managed.id)
+
+        // Assert
+        #expect(delivery.focusCalls.isEmpty)
+
+        // Act — attach delivers visible=true; the surface becomes first responder while attached.
+        let paneID = UUIDv7.generate()
+        manager.attach(managed.id, to: paneID)
+        delivery.reset()
+        manager.surfaceDidBecomeFirstResponder(managed.id)
+
+        // Assert
+        #expect(delivery.focusCalls == [.init(surfaceID: managed.id, focused: true)])
     }
 
     @Test("turning on does not deliver focus when the surface is not first responder")
@@ -340,33 +413,41 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(delivery.focusCalls.isEmpty)
     }
 
-    @Test("destroy emits released before the reference drops with post-removal counts")
-    func destroyEmitsReleasedBeforeTheReferenceDropsWithPostRemovalCounts() async throws {
+    @Test("destroy releases the surface and drops the manager's last reference")
+    func destroyReleasesTheSurfaceAndDropsTheManagersLastReference() async throws {
         // Arrange
         let delivery = RecordingSurfaceRendererStateDelivery()
         let (recorder, sink) = makeRendererLifecycleRecorder()
         let manager = makeManager(delivery: delivery, performanceTraceRecorder: recorder)
-        let surface = makeBareSurface()
-        let managed = try acceptedSurface(surface, in: manager)
-        let paneID = UUIDv7.generate()
-        manager.attach(managed.id, to: paneID)
+        weak var weakSurface: Ghostty.SurfaceView?
 
-        // Act
-        manager.destroy(managed.id)
+        // Act — `Ghostty.SurfaceView` is `final`, so there is no deallocation-observing subclass
+        // available; the manager is this surface's sole owner, so dropping every strong local
+        // inside an autoreleasepool before asserting proves the manager released its last
+        // reference. Ordering relative to deallocation is therefore inferred from the recorded
+        // counts below, not observed directly.
+        try autoreleasepool {
+            let surface = makeBareSurface()
+            weakSurface = surface
+            let managed = try acceptedSurface(surface, in: manager)
+            let paneID = UUIDv7.generate()
+            manager.attach(managed.id, to: paneID)
+
+            manager.destroy(managed.id)
+        }
         try await recorder.drain()
 
         // Assert
+        #expect(weakSurface == nil)
+        #expect(recorder.rendererLifecycleSnapshot().releasedTotal == 1)
+
         let records = await sink.recordedRecords()
         let rendererRecords = records.filter { $0.body == "performance.renderer.lifecycle" }
-        let releasedIndex = try #require(
-            rendererRecords.firstIndex {
+        let releasedRecord = try #require(
+            rendererRecords.first {
                 $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("released")
             }
         )
-        let releasedRecord = rendererRecords[releasedIndex]
-        let freedRecordsBeforeReleased = rendererRecords[..<releasedIndex].filter {
-            $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("freed")
-        }
 
         #expect(releasedRecord.attributes["agentstudio.performance.renderer.active.current"] == .int(0))
         #expect(
@@ -377,7 +458,6 @@ struct SurfaceManagerRendererStateDeliveryTests {
             releasedRecord.attributes["agentstudio.performance.renderer.orphan_candidate.current"]
                 == .int(1)
         )
-        #expect(freedRecordsBeforeReleased.isEmpty)
     }
 
     @Test("undoClose(forPaneId:) returns the matching retained surface regardless of stack order")
@@ -407,33 +487,47 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(manager.undoClose(forPaneId: paneA) == nil)
     }
 
-    @Test("undo expiry emits released")
-    func undoExpiryEmitsReleased() async throws {
+    @Test("undo expiry releases the surface and drops the manager's last reference")
+    func undoExpiryReleasesTheSurfaceAndDropsTheManagersLastReference() async throws {
         // Arrange
         let delivery = RecordingSurfaceRendererStateDelivery()
         let (recorder, sink) = makeRendererLifecycleRecorder()
         let manager = makeManager(delivery: delivery, performanceTraceRecorder: recorder)
-        let surface = makeBareSurface()
-        let managed = try acceptedSurface(surface, in: manager)
-        let paneID = UUIDv7.generate()
-        manager.attach(managed.id, to: paneID)
+        weak var weakSurface: Ghostty.SurfaceView?
 
-        // Act
-        manager.detach(managed.id, reason: .close)
-        var remainingYields = 50
-        while manager.canUndo, remainingYields > 0 {
+        // Act — close moves the surface into the undo stack; the injected no-op `AsyncDelay`
+        // resolves the scheduled expiration immediately once the task is given a turn. `final`
+        // `Ghostty.SurfaceView` means there is no deallocation-observing subclass available, so
+        // strong locals are dropped inside an autoreleasepool before asserting (see the destroy
+        // test above for the same caveat: ordering relative to deallocation is inferred from the
+        // recorded counts, not observed directly).
+        try autoreleasepool {
+            let surface = makeBareSurface()
+            weakSurface = surface
+            let managed = try acceptedSurface(surface, in: manager)
+            let paneID = UUIDv7.generate()
+            manager.attach(managed.id, to: paneID)
+
+            manager.detach(managed.id, reason: .close)
+        }
+
+        // Await the exact expiry event with a bounded timeout instead of an arbitrary yield count.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while manager.canUndo, ContinuousClock.now < deadline {
             await Task.yield()
-            remainingYields -= 1
         }
         try await recorder.drain()
 
         // Assert
+        #expect(!manager.canUndo)
+        #expect(weakSurface == nil)
+        #expect(recorder.rendererLifecycleSnapshot().releasedTotal == 1)
+
         let records = await sink.recordedRecords()
         let releasedRecords = records.filter {
             $0.body == "performance.renderer.lifecycle"
                 && $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("released")
         }
-        #expect(manager.canUndo == false)
         #expect(releasedRecords.count == 1)
         #expect(
             releasedRecords.first?.attributes["agentstudio.performance.renderer.close_undo.current"]

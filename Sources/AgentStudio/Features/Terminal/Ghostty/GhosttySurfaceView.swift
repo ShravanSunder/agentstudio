@@ -549,7 +549,7 @@ extension Ghostty {
             if result {
                 focused = true
                 if surface != nil {
-                    SurfaceManager.shared.setFocus(managedSurfaceID, focused: true)
+                    SurfaceManager.shared.surfaceDidBecomeFirstResponder(managedSurfaceID)
                 }
                 applyMouseVisibility(isVisible: terminalRuntime?.isMouseVisible ?? true)
                 logSurfaceSnapshot(reason: "becomeFirstResponder")

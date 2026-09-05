@@ -1,11 +1,11 @@
 import AgentStudioCore
-import AgentStudioInfrastructure
 import Foundation
 import GhosttyKit
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioBridge
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -49,6 +49,45 @@ struct SurfaceRendererVisibilityIntegrationTests {
             surface,
             metadata: SurfaceMetadata(paneId: UUIDv7.generate())
         ).get()
+    }
+
+    /// A recorder wired to a recording sink so `reconciled` renderer lifecycle emissions can be
+    /// inspected directly. Copied from `SurfaceManagerRendererStateDeliveryTests`'s
+    /// `makeRendererLifecycleRecorder`/sink pattern: that file lives in the
+    /// `AgentStudioTerminalTests` target, which this target cannot import.
+    private func makeRendererLifecycleRecorder() -> (
+        recorder: AgentStudioPerformanceTraceRecorder,
+        sink: RendererVisibilityIntegrationRecordingTraceSink
+    ) {
+        let sink = RendererVisibilityIntegrationRecordingTraceSink()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_NAME": "workspace-surface-coordinator-renderer-visibility",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 928,
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in sink },
+                makeOTLPSink: { _ in sink }
+            ),
+            timeUnixNano: { 121 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: runtime,
+            processMemorySampleWait: { false }
+        )
+        return (recorder, sink)
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agentstudio-workspace-surface-coordinator-renderer-visibility-tests",
+                isDirectory: true
+            )
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
     // MARK: - Tests
@@ -129,18 +168,29 @@ struct SurfaceRendererVisibilityIntegrationTests {
         }
     }
 
-    @Test("a manager-local re-attach that changes no visibility delivers nothing further")
+    @Test("manager-local health and CWD rewrites do not force a reconciliation")
     func managerLocalRewritesDoNotReArmReconciliation() async throws {
         try await withAsyncTestCoreAtoms { _ in
-            // Arrange
+            // Arrange — two tabs, each with its own attached surface, so the eventual tab switch
+            // delivers exactly the two changed surfaces.
             let store = WorkspaceStore()
-            let pane = store.createPane()
-            store.appendTab(Tab(paneId: pane.id))
+            let paneOne = store.createPane()
+            let tabOne = Tab(paneId: paneOne.id)
+            store.appendTab(tabOne)
+            let paneTwo = store.createPane()
+            let tabTwo = Tab(paneId: paneTwo.id)
+            store.appendTab(tabTwo)
+            store.setActiveTab(tabOne.id)
 
             let delivery = RecordingSurfaceRendererStateDelivery()
             let surfaceManager = makeManager(delivery: delivery)
-            let surface = try acceptedSurface(makeBareSurface(), in: surfaceManager)
-            surfaceManager.attach(surface.id, to: pane.id)
+            let bareSurfaceOne = makeBareSurface()
+            let surfaceOne = try acceptedSurface(bareSurfaceOne, in: surfaceManager)
+            let surfaceTwo = try acceptedSurface(makeBareSurface(), in: surfaceManager)
+            surfaceManager.attach(surfaceOne.id, to: paneOne.id)
+            surfaceManager.attach(surfaceTwo.id, to: paneTwo.id)
+
+            let (recorder, sink) = makeRendererLifecycleRecorder()
 
             let windowLifecycleStore = WindowLifecycleAtom()
             let windowID = UUIDv7.generate()
@@ -157,32 +207,60 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
-                bridgePaneAttendance: BridgePaneAttendanceAtom()
+                bridgePaneAttendance: BridgePaneAttendanceAtom(),
+                performanceTraceRecorder: recorder
             )
             coordinator.bindRendererVisibility(toOwningWindowId: windowID)
             delivery.reset()
+            // `drain()` permanently closes the recorder's event queue, so mid-test
+            // synchronization uses `flush()` (drains the queue without closing it) and `drain()`
+            // is reserved for the final read below.
+            try await recorder.flush()
+            await sink.reset()
 
-            // Act — a manager-local rewrite that fires the bindings-changed handler (re-attaching
-            // to the same pane, `SurfaceManager`'s "already active" path) without changing any
-            // pane's desired visibility. `SurfaceManager` has no exposed reconciliation counter
-            // before S7's recorder lands, so the only production-observable proof available here
-            // is that the re-triggered reconciliation delivers nothing further, not a literal
-            // reconciliation count.
-            surfaceManager.attach(surface.id, to: pane.id)
+            // Act — real manager-local health and CWD rewrites on the currently-visible surface.
+            // Neither goes through `onAttachedBindingsChanged` (attach/detach/move/undoClose), and
+            // `SurfaceManager`'s `surfaceHealth`/`activeSurfaces` collections are
+            // `@ObservationIgnored`, so neither write should be observed by the coordinator's
+            // generation-guarded `withObservationTracking` reconciliation pass.
+            bareSurfaceOne.onRendererHealthChanged?(ObjectIdentifier(bareSurfaceOne), false)
+            bareSurfaceOne.onWorkingDirectoryChanged?(
+                ObjectIdentifier(bareSurfaceOne), "/tmp/agentstudio-f4-cwd")
             await Task.yield()
 
-            // Assert
+            // Assert — no reconciliation-driven delivery from the manager-local writes.
             #expect(delivery.visibilityCalls.isEmpty)
             #expect(delivery.focusCalls.isEmpty)
 
-            // Act — an idle loop with no atom write at all.
-            for _ in 0..<50 {
-                await Task.yield()
+            // Act — switch the active tab: a real visibility change that must force exactly one
+            // emitted `reconciled` record.
+            store.setActiveTab(tabTwo.id)
+            await eventually("tab switch forces exactly one reconciled emission") {
+                delivery.visibilityCalls.count == 2
             }
+            try await recorder.drain()
 
-            // Assert — no atom write means zero further deliveries.
-            #expect(delivery.visibilityCalls.isEmpty)
-            #expect(delivery.focusCalls.isEmpty)
+            // Assert — exactly one `reconciled` record since the health/CWD writes (the sink was
+            // reset immediately before them), with zero all-equal passes accumulated in between
+            // (`equal_since_last_emit == 0`: the manager-local writes did not evaluate
+            // reconciliation at all, let alone an all-equal pass), and deliveries covering exactly
+            // the two tab surfaces.
+            let records = await sink.recordedRecords()
+            let reconciledRecords = records.filter {
+                $0.body == "performance.renderer.lifecycle"
+                    && $0.attributes["agentstudio.performance.renderer.event.kind"]
+                        == .string("reconciled")
+            }
+            #expect(reconciledRecords.count == 1)
+            #expect(
+                reconciledRecords.first?.attributes[
+                    "agentstudio.performance.renderer.reconcile.equal_since_last_emit"
+                ] == .int(0)
+            )
+            let deliveredBySurfaceID = Dictionary(
+                uniqueKeysWithValues: delivery.visibilityCalls.map { ($0.surfaceID, $0.visible) }
+            )
+            #expect(deliveredBySurfaceID == [surfaceOne.id: false, surfaceTwo.id: true])
 
             await coordinator.shutdown()
         }
@@ -220,6 +298,30 @@ private final class RecordingSurfaceRendererStateDelivery: SurfaceRendererStateD
     func reset() {
         visibilityCalls.removeAll()
         focusCalls.removeAll()
+    }
+}
+
+private actor RendererVisibilityIntegrationRecordingTraceSink: AgentStudioTraceSink {
+    private var records: [AgentStudioTraceRecord] = []
+
+    func record(_ record: AgentStudioTraceRecord) {
+        records.append(record)
+    }
+
+    func flush() {}
+
+    func shutdown() {}
+
+    func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+        .empty
+    }
+
+    func recordedRecords() -> [AgentStudioTraceRecord] {
+        records
+    }
+
+    func reset() {
+        records.removeAll()
     }
 }
 

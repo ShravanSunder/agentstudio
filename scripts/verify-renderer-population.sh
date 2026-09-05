@@ -48,6 +48,11 @@ refuse_if_production_app() {
 
 parse_footprint_file() {
   local path="${1:?missing footprint capture path}"
+  if capture_is_invalid "$path"; then
+    print_null_capture_json "$path" \
+      phys_footprint_mb iosurface_dirty_mb ioaccelerator_dirty_mb owned_graphics_dirty_mb
+    return 0
+  fi
   /usr/bin/python3 - "$path" <<'PY'
 import json
 import re
@@ -87,6 +92,10 @@ PY
 
 parse_vmmap_file() {
   local path="${1:?missing vmmap capture path}"
+  if capture_is_invalid "$path"; then
+    print_null_capture_json "$path" iosurface_regions_total iosurface_regions_large
+    return 0
+  fi
   /usr/bin/python3 - "$path" <<'PY'
 import json
 import re
@@ -117,6 +126,54 @@ PY
 count_thread_suffix() {
   local sample_path="$1" suffix="$2"
   grep -cE "Thread_[0-9]+: ${suffix}\$" "$sample_path" || true
+}
+
+# First line of a capture file, or empty string if the file is missing/empty.
+capture_first_line() {
+  local path="$1"
+  if [ -s "$path" ]; then
+    head -n 1 "$path"
+  else
+    printf ''
+  fi
+}
+
+# A capture is invalid when the file is missing/empty, or its first line is one of the known
+# failure shapes: heap/vmmap/footprint/sample's own `<tool>: ...` error prefix, a permission
+# refusal, or a vanished process. An invalid capture must be reported as unavailable, not parsed
+# as zero population.
+capture_is_invalid() {
+  local path="$1"
+  if [ ! -s "$path" ]; then
+    return 0
+  fi
+  local first_line
+  first_line="$(head -n 1 "$path")"
+  if printf '%s' "$first_line" | grep -qiE '^(heap|vmmap|footprint|sample):|cannot|not permitted|No such process'; then
+    return 0
+  fi
+  return 1
+}
+
+# Prints `{"<field>": null, ..., "capture_error": "<first line>"}` for an invalid capture, so a
+# failed/malformed capture reads as explicitly unavailable instead of masquerading as zero
+# population. Used by both the standalone `--parse-footprint`/`--parse-vmmap` modes and the
+# internal capture pipeline in `sample_pid`.
+print_null_capture_json() {
+  local path="$1"
+  shift
+  local first_line
+  first_line="$(capture_first_line "$path")"
+  /usr/bin/python3 - "$first_line" "$@" <<'PY'
+import json
+import sys
+
+first_line = sys.argv[1]
+fields = sys.argv[2:]
+payload = {field: None for field in fields}
+payload["capture_error"] = first_line
+print(json.dumps(payload))
+PY
 }
 
 # `heap` prints one row per class: COUNT BYTES AVG CLASS_NAME ...; sum the count column of every
@@ -192,15 +249,41 @@ sample_pid() {
   /usr/bin/vm_stat >"$vm_stat_file" 2>&1 || true
   /usr/sbin/sysctl vm.swapusage >"$swap_file" 2>&1 || true
 
-  local renderer_threads io_threads pty_children
-  renderer_threads="$(count_thread_suffix "$sample_file" "renderer")"
-  io_threads="$(count_thread_suffix "$sample_file" "io")"
-  pty_children="$(pgrep -P "$pid" | wc -l | tr -d ' ')"
+  local capture_error_names=()
+
+  local renderer_threads io_threads
+  if capture_is_invalid "$sample_file"; then
+    capture_error_names+=("$(basename "$sample_file")")
+    renderer_threads="null"
+    io_threads="null"
+  else
+    renderer_threads="$(count_thread_suffix "$sample_file" "renderer")"
+    io_threads="$(count_thread_suffix "$sample_file" "io")"
+  fi
+
+  # `pgrep -P` exits 1 (not an error) when the pid has no children; under `pipefail` an
+  # unguarded exit 1 would abort the whole script on the valid zero-child case.
+  local pty_children
+  pty_children="$( { pgrep -P "$pid" || true; } | wc -l | tr -d ' ')"
 
   local heap_surface_view heap_terminal_mount_view heap_pane_host_view
-  heap_surface_view="$(count_heap_class "$heap_file" "Ghostty.SurfaceView")"
-  heap_terminal_mount_view="$(count_heap_class "$heap_file" "TerminalPaneMountView")"
-  heap_pane_host_view="$(count_heap_class "$heap_file" "PaneHostView")"
+  if capture_is_invalid "$heap_file"; then
+    capture_error_names+=("$(basename "$heap_file")")
+    heap_surface_view="null"
+    heap_terminal_mount_view="null"
+    heap_pane_host_view="null"
+  else
+    heap_surface_view="$(count_heap_class "$heap_file" "Ghostty.SurfaceView")"
+    heap_terminal_mount_view="$(count_heap_class "$heap_file" "TerminalPaneMountView")"
+    heap_pane_host_view="$(count_heap_class "$heap_file" "PaneHostView")"
+  fi
+
+  if capture_is_invalid "$footprint_file"; then
+    capture_error_names+=("$(basename "$footprint_file")")
+  fi
+  if capture_is_invalid "$vmmap_file"; then
+    capture_error_names+=("$(basename "$vmmap_file")")
+  fi
 
   local footprint_json vmmap_json windowserver_mem_mb system_memory_json
   footprint_json="$(parse_footprint_file "$footprint_file")"
@@ -208,25 +291,47 @@ sample_pid() {
   windowserver_mem_mb="$(parse_windowserver_mem_mb "$windowserver_top_file")"
   system_memory_json="$(parse_system_memory_values "$vm_stat_file" "$swap_file")"
 
+  local capture_errors_json="[]"
+  if [ ${#capture_error_names[@]} -gt 0 ]; then
+    capture_errors_json="["
+    local first=1
+    for name in "${capture_error_names[@]}"; do
+      if [ "$first" -eq 1 ]; then
+        first=0
+      else
+        capture_errors_json+=","
+      fi
+      capture_errors_json+="\"${name}\""
+    done
+    capture_errors_json+="]"
+  fi
+
   /usr/bin/python3 - "$pid" "$label" "$renderer_threads" "$io_threads" "$pty_children" \
     "$footprint_json" "$vmmap_json" "$windowserver_pid" "$windowserver_mem_mb" "$system_memory_json" \
-    "$heap_surface_view" "$heap_terminal_mount_view" "$heap_pane_host_view" <<'PY'
+    "$heap_surface_view" "$heap_terminal_mount_view" "$heap_pane_host_view" "$capture_errors_json" <<'PY'
 import datetime
 import json
 import sys
 
 (_, pid, label, renderer_threads, io_threads, pty_children, footprint_json, vmmap_json,
  windowserver_pid, windowserver_mem_mb, system_memory_json, heap_surface_view,
- heap_terminal_mount_view, heap_pane_host_view) = sys.argv
+ heap_terminal_mount_view, heap_pane_host_view, capture_errors_json) = sys.argv
 footprint = json.loads(footprint_json)
 vmmap = json.loads(vmmap_json)
 system_memory = json.loads(system_memory_json)
+capture_errors = json.loads(capture_errors_json)
+
+
+def optional_int(value):
+    return None if value == "null" else int(value)
+
+
 print(json.dumps({
     "pid": int(pid),
     "label": label,
     "observed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-    "renderer_threads": int(renderer_threads),
-    "io_threads": int(io_threads),
+    "renderer_threads": optional_int(renderer_threads),
+    "io_threads": optional_int(io_threads),
     "pty_children": int(pty_children),
     "iosurface_regions_total": vmmap["iosurface_regions_total"],
     "iosurface_regions_large": vmmap["iosurface_regions_large"],
@@ -234,14 +339,15 @@ print(json.dumps({
     "ioaccelerator_dirty_mb": footprint["ioaccelerator_dirty_mb"],
     "owned_graphics_dirty_mb": footprint["owned_graphics_dirty_mb"],
     "phys_footprint_mb": footprint["phys_footprint_mb"],
-    "heap_surface_view": int(heap_surface_view),
-    "heap_terminal_mount_view": int(heap_terminal_mount_view),
-    "heap_pane_host_view": int(heap_pane_host_view),
+    "heap_surface_view": optional_int(heap_surface_view),
+    "heap_terminal_mount_view": optional_int(heap_terminal_mount_view),
+    "heap_pane_host_view": optional_int(heap_pane_host_view),
     "windowserver_pid": int(windowserver_pid) if windowserver_pid else 0,
     "windowserver_mem_mb": float(windowserver_mem_mb),
     "compressor_mb": system_memory["compressor_mb"],
     "free_mb": system_memory["free_mb"],
     "swap_used_mb": system_memory["swap_used_mb"],
+    "capture_errors": capture_errors,
 }))
 PY
 }
