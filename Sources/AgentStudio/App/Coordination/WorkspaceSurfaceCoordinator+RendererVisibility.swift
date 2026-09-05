@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -30,8 +31,10 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func observeRendererVisibility(generation: UInt64) {
-        withObservationTracking {
-            _ = surfaceManager.reconcileAttachedVisibility { paneID in
+        let clock = ContinuousClock()
+        let start = clock.now
+        let reconciliationResult = withObservationTracking {
+            surfaceManager.reconcileAttachedVisibility { paneID in
                 self.effectiveRendererVisibility(forAttachedPaneID: paneID)
             }
         } onChange: {
@@ -40,6 +43,13 @@ extension WorkspaceSurfaceCoordinator {
                 self.observeRendererVisibility(generation: generation)
             }
         }
+        performanceTraceRecorder?.recordRendererVisibilityReconciliation(
+            applied: reconciliationResult.applied,
+            equal: reconciliationResult.equal,
+            missing: reconciliationResult.missing,
+            elapsed: start.duration(to: clock.now),
+            windowFacts: rendererLifecycleWindowFacts()
+        )
     }
 
     func effectiveRendererVisibility(forAttachedPaneID paneID: UUID) -> Bool {
@@ -48,5 +58,19 @@ extension WorkspaceSurfaceCoordinator {
             .flatMap(windowLifecycleStore.presentationFacts(for:)) ?? .hidden
         return windowFacts.isVisible && !windowFacts.isMiniaturized && !windowFacts.isOccluded
             && visibilityTierResolver.tier(for: PaneId(existingUUID: paneID)) == .p0Visible
+    }
+
+    /// The owning window's presentation facts at the moment of a reconciliation pass, for the
+    /// `reconciled` renderer lifecycle record (so the runtime proof can answer whether
+    /// `orderOut` produced an occlusion fact). `nil` when no owning window is bound yet.
+    private func rendererLifecycleWindowFacts() -> RendererLifecycleWindowFacts? {
+        guard let rendererVisibilityOwningWindowId,
+            let facts = windowLifecycleStore.presentationFacts(for: rendererVisibilityOwningWindowId)
+        else { return nil }
+        return RendererLifecycleWindowFacts(
+            visible: facts.isVisible,
+            miniaturized: facts.isMiniaturized,
+            occluded: facts.isOccluded
+        )
     }
 }

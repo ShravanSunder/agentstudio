@@ -495,6 +495,7 @@ extension Ghostty {
             }
             if let surface {
                 ghostty_surface_free(surface)
+                performanceTraceRecorder?.recordRendererFreed()
             }
         }
 

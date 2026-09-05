@@ -1,5 +1,8 @@
 import AgentStudioInfrastructure
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceManager")
 
 /// Renderer-state delivery and reconciliation for attached surfaces.
 ///
@@ -118,5 +121,124 @@ extension SurfaceManager {
         for id in activeSurfaces.keys {
             setFocus(id, focused: id == activeSurfaceId)
         }
+    }
+
+    // MARK: - Renderer Lifecycle Emission
+    //
+    // One wrapper per action so call sites in `SurfaceManager.swift` stay a single line; every
+    // wrapper reports the manager's exact current population (not deltas). Not `private` for the
+    // reason at the top of this file: `SurfaceManager.swift`'s attach/detach/undo call sites are a
+    // separate file from this extension's declarations.
+
+    func emitRendererLifecycleCreated() {
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .created,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count,
+            windowFacts: nil
+        )
+    }
+
+    func emitRendererLifecycleAttached() {
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .attached,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count,
+            windowFacts: nil
+        )
+    }
+
+    func emitRendererLifecycleHidden() {
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .hidden,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count,
+            windowFacts: nil
+        )
+    }
+
+    func emitRendererLifecycleClosedForUndo() {
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .closedForUndo,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count,
+            windowFacts: nil
+        )
+    }
+
+    func emitRendererLifecycleUndoRestored() {
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .undoRestored,
+            active: activeSurfaces.count,
+            hidden: hiddenSurfaces.count,
+            closeUndo: undoStack.count,
+            windowFacts: nil
+        )
+    }
+
+    /// Emits the `released` renderer lifecycle record with counts computed as-if `surfaceId` were
+    /// already gone from whichever collection currently owns it, then leaves the actual removal
+    /// to the caller. Must run strictly before the caller mutates `activeSurfaces`,
+    /// `hiddenSurfaces`, or `undoStack` for this surface — the event contract requires `released`
+    /// to precede the manager dropping its last reference, with population counts that already
+    /// exclude the released surface. A no-op when the surface isn't manager-owned anywhere.
+    func emitRendererLifecycleReleasedBeforeRemoval(_ surfaceId: UUID) {
+        let isInActive = activeSurfaces[surfaceId] != nil
+        let isInHidden = hiddenSurfaces[surfaceId] != nil
+        let isInUndoStack = undoStack.contains { $0.surface.id == surfaceId }
+        guard isInActive || isInHidden || isInUndoStack else { return }
+
+        performanceTraceRecorder?.recordRendererLifecycle(
+            .released,
+            active: activeSurfaces.count - (isInActive ? 1 : 0),
+            hidden: hiddenSurfaces.count - (isInHidden ? 1 : 0),
+            closeUndo: undoStack.count - (isInUndoStack ? 1 : 0),
+            windowFacts: nil
+        )
+    }
+}
+
+// MARK: - Undo Expiration
+//
+// Relocated from `SurfaceManager.swift` (unchanged) to keep that file under the project's file
+// length gate once the renderer lifecycle emission call sites landed; `expireUndoEntry` is the
+// exact `released` emission path for undo-TTL expiry, so it belongs alongside the rest of this
+// file's renderer lifecycle machinery. `surfaceHealth` and `surfaceViewToId` are widened the
+// same way as `activeSurfaces`/`hiddenSurfaces` for the same cross-file reason.
+extension SurfaceManager {
+    /// Not `private`: called from `SurfaceManager.swift`'s `detach(.close)` and `requeueUndo`.
+    func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
+        let delayScheduler = self.delayScheduler
+        return Task { @MainActor [weak self, delayScheduler] in
+            let delay = date.timeIntervalSinceNow
+            if delay > 0 {
+                try? await delayScheduler.wait(.seconds(delay))
+            }
+
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            expireUndoEntry(surfaceId)
+        }
+    }
+
+    private func expireUndoEntry(_ surfaceId: UUID) {
+        guard let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) else {
+            return
+        }
+
+        emitRendererLifecycleReleasedBeforeRemoval(surfaceId)
+        let entry = undoStack.remove(at: idx)
+        logger.info("Undo entry expired, destroying surface: \(surfaceId)")
+        detachTerminalLocalActions(surfaceID: surfaceId, paneID: nil)
+
+        // Destroy the surface
+        lifecycleDelegate?.surfaceWillDestroy(entry.surface)
+        surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
+        surfaceHealth.removeValue(forKey: surfaceId)
+        // ARC will clean up the surface
     }
 }

@@ -1,9 +1,9 @@
 import AgentStudioCore
-import AgentStudioInfrastructure
 import Foundation
 import GhosttyKit
 import Testing
 
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTerminal
 
 @MainActor
@@ -12,14 +12,51 @@ struct SurfaceManagerRendererStateDeliveryTests {
 
     // MARK: - Helpers
 
-    private func makeManager(delivery: RecordingSurfaceRendererStateDelivery) -> SurfaceManager {
+    private func makeManager(
+        delivery: RecordingSurfaceRendererStateDelivery,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) -> SurfaceManager {
         SurfaceManager(
             undoTTL: 300,
             maxCreationRetries: 0,
             healthCheckInterval: 3600,
             delayScheduler: AsyncDelay { _ in },
-            rendererStateDelivery: delivery
+            rendererStateDelivery: delivery,
+            performanceTraceRecorder: performanceTraceRecorder
         )
+    }
+
+    /// A recorder wired to a recording sink so renderer lifecycle emissions can be inspected
+    /// directly, mirroring `AgentStudioPerformanceTraceRecorderTests`'s pattern.
+    private func makeRendererLifecycleRecorder() -> (
+        recorder: AgentStudioPerformanceTraceRecorder, sink: SurfaceManagerRendererLifecycleRecordingTraceSink
+    ) {
+        let sink = SurfaceManagerRendererLifecycleRecordingTraceSink()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_NAME": "surface-manager-renderer-lifecycle",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 927,
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in sink },
+                makeOTLPSink: { _ in sink }
+            ),
+            timeUnixNano: { 121 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: runtime,
+            processMemorySampleWait: { false }
+        )
+        return (recorder, sink)
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-surface-manager-renderer-lifecycle-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
     private func makeBareSurface() -> Ghostty.SurfaceView {
@@ -328,6 +365,80 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(delivery.visibilityCalls == [.init(surfaceID: managed.id, visible: true)])
         #expect(delivery.focusCalls.isEmpty)
     }
+
+    @Test("destroy emits released before the reference drops with post-removal counts")
+    func destroyEmitsReleasedBeforeTheReferenceDropsWithPostRemovalCounts() async throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let (recorder, sink) = makeRendererLifecycleRecorder()
+        let manager = makeManager(delivery: delivery, performanceTraceRecorder: recorder)
+        let surface = makeBareSurface()
+        let managed = try acceptedSurface(surface, in: manager)
+        let paneID = UUIDv7.generate()
+        manager.attach(managed.id, to: paneID)
+
+        // Act
+        manager.destroy(managed.id)
+        try await recorder.drain()
+
+        // Assert
+        let records = await sink.recordedRecords()
+        let rendererRecords = records.filter { $0.body == "performance.renderer.lifecycle" }
+        let releasedIndex = try #require(
+            rendererRecords.firstIndex {
+                $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("released")
+            }
+        )
+        let releasedRecord = rendererRecords[releasedIndex]
+        let freedRecordsBeforeReleased = rendererRecords[..<releasedIndex].filter {
+            $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("freed")
+        }
+
+        #expect(releasedRecord.attributes["agentstudio.performance.renderer.active.current"] == .int(0))
+        #expect(
+            releasedRecord.attributes["agentstudio.performance.renderer.manager_owned.current"] == .int(0)
+        )
+        #expect(releasedRecord.attributes["agentstudio.performance.renderer.live.current"] == .int(1))
+        #expect(
+            releasedRecord.attributes["agentstudio.performance.renderer.orphan_candidate.current"]
+                == .int(1)
+        )
+        #expect(freedRecordsBeforeReleased.isEmpty)
+    }
+
+    @Test("undo expiry emits released")
+    func undoExpiryEmitsReleased() async throws {
+        // Arrange
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let (recorder, sink) = makeRendererLifecycleRecorder()
+        let manager = makeManager(delivery: delivery, performanceTraceRecorder: recorder)
+        let surface = makeBareSurface()
+        let managed = try acceptedSurface(surface, in: manager)
+        let paneID = UUIDv7.generate()
+        manager.attach(managed.id, to: paneID)
+
+        // Act
+        manager.detach(managed.id, reason: .close)
+        var remainingYields = 50
+        while manager.canUndo, remainingYields > 0 {
+            await Task.yield()
+            remainingYields -= 1
+        }
+        try await recorder.drain()
+
+        // Assert
+        let records = await sink.recordedRecords()
+        let releasedRecords = records.filter {
+            $0.body == "performance.renderer.lifecycle"
+                && $0.attributes["agentstudio.performance.renderer.event.kind"] == .string("released")
+        }
+        #expect(manager.canUndo == false)
+        #expect(releasedRecords.count == 1)
+        #expect(
+            releasedRecords.first?.attributes["agentstudio.performance.renderer.close_undo.current"]
+                == .int(0)
+        )
+    }
 }
 
 // MARK: - Test Doubles
@@ -360,6 +471,26 @@ private final class RecordingSurfaceRendererStateDelivery: SurfaceRendererStateD
     func reset() {
         visibilityCalls.removeAll()
         focusCalls.removeAll()
+    }
+}
+
+private actor SurfaceManagerRendererLifecycleRecordingTraceSink: AgentStudioTraceSink {
+    private var records: [AgentStudioTraceRecord] = []
+
+    func record(_ record: AgentStudioTraceRecord) {
+        records.append(record)
+    }
+
+    func flush() {}
+
+    func shutdown() {}
+
+    func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+        .empty
+    }
+
+    func recordedRecords() -> [AgentStudioTraceRecord] {
+        records
     }
 }
 

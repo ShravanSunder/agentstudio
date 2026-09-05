@@ -71,8 +71,9 @@ package final class SurfaceManager {
     /// Health check interval in seconds
     private let healthCheckInterval: TimeInterval
 
-    /// Delay scheduler for time-dependent operations (e.g. undo expiration).
-    private let delayScheduler: AsyncDelay
+    /// Delay scheduler for time-dependent operations (e.g. undo expiration). Not `private`:
+    /// read from `SurfaceManager+RendererState.swift`.
+    let delayScheduler: AsyncDelay
 
     /// The only boundary through which renderer visibility/focus reaches libghostty.
     let rendererStateDelivery: any SurfaceRendererStateDelivery
@@ -94,14 +95,14 @@ package final class SurfaceManager {
     /// Surfaces detached but kept alive (hidden terminals)
     @ObservationIgnored var hiddenSurfaces: [UUID: ManagedSurface] = [:]
 
-    /// Recently closed surfaces for undo
-    @ObservationIgnored private var undoStack: [SurfaceUndoEntry] = []
+    /// Recently closed surfaces for undo. Not `private`: read from `SurfaceManager+RendererState.swift`.
+    @ObservationIgnored var undoStack: [SurfaceUndoEntry] = []
 
-    /// Health state cache
-    @ObservationIgnored private var surfaceHealth: [UUID: SurfaceHealth] = [:]
+    /// Health state cache. Not `private`: read from `SurfaceManager+RendererState.swift`.
+    @ObservationIgnored var surfaceHealth: [UUID: SurfaceHealth] = [:]
 
-    /// Map from SurfaceView to UUID for notification handling
-    @ObservationIgnored private var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
+    /// Map from SurfaceView to UUID. Not `private`: read from `SurfaceManager+RendererState.swift`.
+    @ObservationIgnored var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
 
     /// Async stream of live CWD updates from managed surfaces.
     private let cwdChangeContinuation: AsyncStream<SurfaceCWDChangeEvent>.Continuation
@@ -113,7 +114,8 @@ package final class SurfaceManager {
     /// Checkpoint file URL
     private let checkpointURL: URL
 
-    private weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    /// Not `private`: read from `SurfaceManager+RendererState.swift`.
+    weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var appCommandDispatcher: (any AppCommandDispatching)?
 
     // MARK: - Initialization
@@ -279,6 +281,7 @@ package final class SurfaceManager {
 
         // Update counts
         updateCounts()
+        emitRendererLifecycleCreated()
 
         // Notify delegate
         lifecycleDelegate?.surfaceDidCreate(managed)
@@ -305,6 +308,7 @@ package final class SurfaceManager {
             _ = deliverVisibility(surfaceId, visible: true)
 
             updateCounts()
+            emitRendererLifecycleAttached()
             onAttachedBindingsChanged?()
             logger.info("Surface attached: \(surfaceId) to pane \(paneId)")
             RestoreTrace.log("SurfaceManager.attach fromHidden surface=\(surfaceId) pane=\(paneId)")
@@ -324,6 +328,7 @@ package final class SurfaceManager {
             _ = deliverVisibility(surfaceId, visible: true)
 
             updateCounts()
+            emitRendererLifecycleAttached()
             onAttachedBindingsChanged?()
             logger.info("Surface restored from undo: \(surfaceId)")
             RestoreTrace.log("SurfaceManager.attach fromUndo surface=\(surfaceId) pane=\(paneId)")
@@ -336,6 +341,7 @@ package final class SurfaceManager {
             updated.state = .active(paneId: paneId)
             updated.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = updated
+            emitRendererLifecycleAttached()
             onAttachedBindingsChanged?()
             RestoreTrace.log("SurfaceManager.attach alreadyActive surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
@@ -391,6 +397,7 @@ package final class SurfaceManager {
         case .hide:
             managed.state = .hidden
             hiddenSurfaces[surfaceId] = managed
+            emitRendererLifecycleHidden()
             logger.info("Surface hidden: \(surfaceId)")
 
         case .close:
@@ -409,12 +416,14 @@ package final class SurfaceManager {
             )
             entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
             undoStack.append(entry)
+            emitRendererLifecycleClosedForUndo()
             logger.info("Surface closed (undo-able): \(surfaceId), expires at \(expiresAt)")
 
         case .move:
             // Temporarily detached for reattachment elsewhere
             managed.state = .hidden
             hiddenSurfaces[surfaceId] = managed
+            emitRendererLifecycleHidden()
             logger.info("Surface detached for move: \(surfaceId)")
         }
 
@@ -488,6 +497,7 @@ package final class SurfaceManager {
         hiddenSurfaces[managed.id] = managed
 
         updateCounts()
+        emitRendererLifecycleUndoRestored()
         logger.info("Surface undo: \(managed.id)")
         return managed
     }
@@ -537,6 +547,7 @@ package final class SurfaceManager {
         undoStack.insert(entry, at: 0)
 
         updateCounts()
+        emitRendererLifecycleClosedForUndo()
         logger.info("Surface requeued for undo: \(surfaceId)")
     }
 
@@ -549,6 +560,7 @@ package final class SurfaceManager {
 
     /// Permanently destroy a surface
     package func destroy(_ surfaceId: UUID) {
+        emitRendererLifecycleReleasedBeforeRemoval(surfaceId)
         detachTerminalLocalActions(surfaceID: surfaceId, paneID: paneId(for: surfaceId))
         // Remove from all collections
         var removedFromActive = false
@@ -863,41 +875,6 @@ extension SurfaceManager {
     // MARK: - Occlusion Control
     // `deliverVisibility`, `VisibilityDeliveryResult`, `setFocus`, and `syncFocus` all live in
     // `SurfaceManager+RendererState.swift`.
-}
-
-// MARK: - Undo Expiration
-
-extension SurfaceManager {
-
-    private func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
-        let delayScheduler = self.delayScheduler
-        return Task { @MainActor [weak self, delayScheduler] in
-            let delay = date.timeIntervalSinceNow
-            if delay > 0 {
-                try? await delayScheduler.wait(.seconds(delay))
-            }
-
-            guard !Task.isCancelled else { return }
-            guard let self else { return }
-            expireUndoEntry(surfaceId)
-        }
-    }
-
-    private func expireUndoEntry(_ surfaceId: UUID) {
-        guard let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) else {
-            return
-        }
-
-        let entry = undoStack.remove(at: idx)
-        logger.info("Undo entry expired, destroying surface: \(surfaceId)")
-        detachTerminalLocalActions(surfaceID: surfaceId, paneID: nil)
-
-        // Destroy the surface
-        lifecycleDelegate?.surfaceWillDestroy(entry.surface)
-        surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
-        surfaceHealth.removeValue(forKey: surfaceId)
-        // ARC will clean up the surface
-    }
 }
 
 // MARK: - Private Helpers
