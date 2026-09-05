@@ -166,9 +166,7 @@ private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceMana
     func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? { nil }
 
     func detach(_: UUID, reason _: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
 
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-    func requeueUndo(_: UUID) {}
     func destroy(_: UUID) {}
 }

@@ -974,14 +974,7 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? {
-        onUndoClose?()
-        return undoCloseResult
-    }
-
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

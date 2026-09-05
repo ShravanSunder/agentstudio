@@ -288,7 +288,7 @@ sequenceDiagram
    - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
    - For each pane in **reversed** order (matching SurfaceManager LIFO):
      - `coordinator.restoreView(pane, worktree, repo)`
-     - `SurfaceManager.undoClose()` → pop surface from undo stack
+     - `SurfaceManager.undoClose(forPaneId:)` → take the pane's retained surface from the undo stack
      - Verify `metadata.paneId` matches (multi-pane safety)
      - Reattach surface (no recreation)
 

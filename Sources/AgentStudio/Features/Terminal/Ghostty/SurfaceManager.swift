@@ -481,27 +481,6 @@ package final class SurfaceManager {
 
     // MARK: - Undo
 
-    /// Restore the most recently closed surface
-    /// - Returns: The restored surface if available
-    package func undoClose() -> ManagedSurface? {
-        guard let entry = undoStack.popLast() else {
-            logger.info("Nothing to undo")
-            return nil
-        }
-
-        entry.expirationTask?.cancel()
-
-        var managed = entry.surface
-        managed.state = .hidden
-        managed.health = surfaceHealth[managed.id] ?? .healthy
-        hiddenSurfaces[managed.id] = managed
-
-        updateCounts()
-        emitRendererLifecycleUndoRestored()
-        logger.info("Surface undo: \(managed.id)")
-        return managed
-    }
-
     /// Restores the retained (close-undo) surface for `paneId` regardless of its position in the
     /// undo stack.
     /// - Returns: The restored surface, or `nil` when no retained surface belongs to that pane.
@@ -521,55 +500,6 @@ package final class SurfaceManager {
         emitRendererLifecycleUndoRestored()
         logger.info("Surface undo for pane \(paneId): \(managed.id)")
         return managed
-    }
-
-    /// Re-queue a surface onto the undo stack after it was popped by `undoClose()`.
-    /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
-    /// Re-queued entries are inserted at the oldest position so they don't immediately
-    /// re-poison the next undo pop with the same mismatch.
-    package func requeueUndo(_ surfaceId: UUID) {
-        guard var managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else {
-            logger.warning("Cannot requeue surface \(surfaceId) for undo — surface not found")
-            return
-        }
-
-        let previousPaneAttachmentId: UUID?
-        if case .active(let paneId) = managed.state {
-            previousPaneAttachmentId = paneId
-        } else {
-            previousPaneAttachmentId = nil
-        }
-
-        // Deliver unconditionally (equal suppression handles it), then re-read before removing.
-        let wasActive = activeSurfaces[surfaceId] != nil
-        _ = deliverVisibility(surfaceId, visible: false)
-        managed = (activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]) ?? managed
-        if wasActive {
-            activeSurfaces.removeValue(forKey: surfaceId)
-        } else {
-            hiddenSurfaces.removeValue(forKey: surfaceId)
-        }
-
-        let expiresAt = Date().addingTimeInterval(undoTTL)
-        managed.state = .pendingUndo(expiresAt: expiresAt)
-
-        if let existingEntryIndex = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
-            let existingEntry = undoStack.remove(at: existingEntryIndex)
-            existingEntry.expirationTask?.cancel()
-        }
-
-        var entry = SurfaceUndoEntry(
-            surface: managed,
-            previousPaneAttachmentId: previousPaneAttachmentId,
-            closedAt: Date(),
-            expiresAt: expiresAt
-        )
-        entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
-        undoStack.insert(entry, at: 0)
-
-        updateCounts()
-        emitRendererLifecycleClosedForUndo()
-        logger.info("Surface requeued for undo: \(surfaceId)")
     }
 
     /// Check if there are surfaces that can be restored

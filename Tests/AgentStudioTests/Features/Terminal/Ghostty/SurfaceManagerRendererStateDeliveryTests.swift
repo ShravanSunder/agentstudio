@@ -261,33 +261,6 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(manager.activeSurfaceCount == 0)
     }
 
-    @Test("requeueing for undo delivers hidden while the surface is still attached")
-    func requeueUndoDeliversHiddenWhileAttached() throws {
-        // Arrange
-        let delivery = RecordingSurfaceRendererStateDelivery()
-        let manager = makeManager(delivery: delivery)
-        let surface = makeBareSurface()
-        let managed = try acceptedSurface(surface, in: manager)
-        let paneID = UUIDv7.generate()
-        manager.attach(managed.id, to: paneID)
-        delivery.reset()
-
-        var wasAttached = false
-        delivery.onVisibilityDelivery = { _, visible in
-            if !visible {
-                wasAttached = manager.activeSurfaceIds.contains(managed.id)
-            }
-        }
-
-        // Act
-        manager.requeueUndo(managed.id)
-
-        // Assert
-        #expect(wasAttached == true)
-        #expect(delivery.visibilityCalls == [.init(surfaceID: managed.id, visible: false)])
-        #expect(manager.canUndo == true)
-    }
-
     @Test("focus-on is refused while delivered visibility is false")
     func focusOnIsRefusedWhileDeliveredVisibilityIsFalse() throws {
         // Arrange

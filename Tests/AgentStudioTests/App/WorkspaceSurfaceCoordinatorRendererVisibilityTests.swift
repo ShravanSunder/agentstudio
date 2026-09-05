@@ -382,9 +382,7 @@ private final class RendererVisibilityCapturingSurfaceManager: WorkspaceSurfaceM
     @discardableResult
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? { nil }
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
 
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-    func requeueUndo(_ surfaceId: UUID) {}
     func destroy(_ surfaceId: UUID) {}
 }

@@ -115,7 +115,7 @@ stateDiagram-v2
     ACTIVE --> HIDDEN: detach(.hide) / detach(.move)
     ACTIVE --> PENDING_UNDO: detach(.close)
     HIDDEN --> PENDING_UNDO: detach(.close)
-    PENDING_UNDO --> HIDDEN: undoClose()
+    PENDING_UNDO --> HIDDEN: undoClose(forPaneId:)
     PENDING_UNDO --> DESTROYED: TTL expires / destroy()
     HIDDEN --> DESTROYED: destroy()
     DESTROYED --> [*]
@@ -176,11 +176,11 @@ User presses Cmd+Shift+T
 │         coordinator.restoreUndoPane(pane, worktree?, repo?)   │
 │           └─► remountRetainedSurfaceIfAvailable(...)         │
 │                 (every undo path, with or without worktree/repo)│
-│                 ├─► SurfaceManager.undoClose()               │
-│                 │     ├─► Pop from undoStack                 │
+│                 ├─► SurfaceManager.undoClose(forPaneId:)     │
+│                 │     ├─► Remove the entry whose            │
+│                 │     │   metadata.paneId == pane.id (nil →  │
+│                 │     │   create fresh)                      │
 │                 │     ├─► Cancel expiration Task             │
-│                 │     ├─► Verify metadata.paneId matches    │
-│                 │     │   (mismatch → requeueUndo, fresh)    │
 │                 │     └─► Move to hiddenSurfaces             │
 │                 │                                            │
 │                 ├─► SurfaceManager.attach(surfaceId, paneId) │
@@ -392,7 +392,7 @@ All three initializers require `paneId:`. The view never creates its own surface
 | `SurfaceManager.createSurface()` | Create with retry and error handling |
 | `SurfaceManager.attach(to:)` | Attach to container, resume rendering |
 | `SurfaceManager.detach(reason:)` | Hide, close (undo-able), or move |
-| `SurfaceManager.undoClose()` | Restore last closed surface (LIFO) |
+| `SurfaceManager.undoClose(forPaneId:)` | Restore the retained surface for a pane, wherever it sits in the undo stack |
 | `SurfaceManager.reconcileAttachedVisibility(_:)` | Deliver effective visibility to the exact attached set; equal values suppressed |
 | `SurfaceManager.setFocus(_:focused:)` | Only focus path; focus-on gated on delivered visibility |
 | `SurfaceManager.setAttachedBindingsChangeHandler(_:)` | Re-arms the coordinator's visibility reconciliation |

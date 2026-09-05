@@ -661,7 +661,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
 @MainActor
 private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
-    /// Retained surfaces popped (LIFO) by `undoClose()`, mirroring `SurfaceManager`'s undo stack.
+    /// Retained surfaces looked up by pane id via `undoClose(forPaneId:)`, mirroring `SurfaceManager`'s undo stack.
     var undoCloseResults: [ManagedSurface]
     private(set) var attachCalls: [(surfaceID: UUID, paneID: UUID)] = []
     private(set) var createSurfaceCallCount = 0
@@ -692,19 +692,12 @@ private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? {
-        guard !undoCloseResults.isEmpty else { return nil }
-        return undoCloseResults.removeLast()
-    }
-
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
         guard let index = undoCloseResults.lastIndex(where: { $0.metadata.paneId == paneId }) else {
             return nil
         }
         return undoCloseResults.remove(at: index)
     }
-
-    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

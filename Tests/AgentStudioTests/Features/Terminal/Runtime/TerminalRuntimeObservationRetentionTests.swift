@@ -29,7 +29,7 @@ struct TerminalRuntimeObservationRetentionTests {
             runtime = nil
         }
         // Assert
-        #expect(weakRuntime == nil)  // red today: onChange closures keep the runtime alive
+        #expect(weakRuntime == nil)  // guards the withObservationTracking onChange retain cycle fixed in S5b
     }
 }
 

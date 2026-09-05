@@ -1,7 +1,9 @@
 import Foundation
 import GhosttyKit
 
-/// The one boundary through which `SurfaceManager` reaches libghostty's renderer state calls.
+/// The one boundary through which the app reaches libghostty's renderer state calls
+/// (`ghostty_surface_set_occlusion` / `ghostty_surface_set_focus`); `SurfaceManager` owns every
+/// visibility and focus-on delivery, views deliver focus-off only.
 ///
 /// Pinned Ghostty (v1.3.1) queues renderer work on every `ghostty_surface_set_occlusion` call
 /// even when the value is unchanged, so the manager suppresses equal deliveries before it

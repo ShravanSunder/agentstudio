@@ -200,13 +200,7 @@ private final class TabNamingSurfaceManager: WorkspaceSurfaceManaging {
         _ = surfaceId
     }
 
-    func undoClose() -> ManagedSurface? { nil }
-
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
 
     func destroy(_ surfaceId: UUID) {
         _ = surfaceId

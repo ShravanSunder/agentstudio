@@ -279,11 +279,7 @@ private final class CrossTabMoveSurfaceManager: WorkspaceSurfaceManaging {
         detachedPaneIds.append(paneId)
     }
 
-    func undoClose() -> ManagedSurface? { nil }
-
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

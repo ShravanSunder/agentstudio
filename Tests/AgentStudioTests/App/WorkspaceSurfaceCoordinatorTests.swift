@@ -947,13 +947,7 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
         _ = reason
     }
 
-    func undoClose() -> ManagedSurface? { nil }
-
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
 
     func destroy(_ surfaceId: UUID) {
         _ = surfaceId

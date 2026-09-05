@@ -13,7 +13,7 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceMana
 extension SurfaceManager {
     /// Outcome of one `deliverVisibility` call.
     ///
-    /// Not `private`: it crosses from `SurfaceManager.swift`'s attach/detach/move/requeueUndo
+    /// Not `private`: it crosses from `SurfaceManager.swift`'s attach/detach/move/undoClose(forPaneId:)
     /// call sites into this file's `reconcileAttachedVisibility`, and Swift's `private`
     /// visibility is file-scoped even across extensions of the same type.
     enum VisibilityDeliveryResult {
@@ -210,7 +210,7 @@ extension SurfaceManager {
 // file's renderer lifecycle machinery. `surfaceHealth` and `surfaceViewToId` are widened the
 // same way as `activeSurfaces`/`hiddenSurfaces` for the same cross-file reason.
 extension SurfaceManager {
-    /// Not `private`: called from `SurfaceManager.swift`'s `detach(.close)` and `requeueUndo`.
+    /// Not `private`: called from `SurfaceManager.swift`'s `detach(.close)`.
     func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
         let delayScheduler = self.delayScheduler
         return Task { @MainActor [weak self, delayScheduler] in
