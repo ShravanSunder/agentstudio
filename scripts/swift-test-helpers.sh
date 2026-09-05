@@ -151,7 +151,7 @@ aggregate_serial_non_webkit_suite_filters() {
   # attribute or type declaration while searching for the serialized trait.
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
+  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
 
   {
     serialized_main_actor_suite_matches main-actor-first
@@ -336,7 +336,7 @@ run_fast_non_webkit_swift_tests() {
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-    --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
+    --skip "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests
@@ -503,7 +503,9 @@ run_swift_with_timeout() {
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
-      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)"
+      # A heartbeat write can fail with EINTR when the child exits mid-write; that is not a
+      # test failure and must not abort the watchdog under `set -e`.
+      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)" || true
       last_heartbeat="$now_epoch"
     fi
   done
