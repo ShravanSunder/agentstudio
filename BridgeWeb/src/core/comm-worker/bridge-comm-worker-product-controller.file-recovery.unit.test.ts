@@ -8,6 +8,7 @@ import type {
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductFileMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
+import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
@@ -35,6 +36,56 @@ const currentFileSourceConfiguration = {
 } as const;
 
 describe('Bridge comm worker File metadata recovery', () => {
+	test.each(['stale_source', 'snapshot_required'] as const)(
+		'an active %s reset rediscovers File metadata without another UI action',
+		async (reason) => {
+			// Arrange — the error is the transport's existing valid subscription.reset outcome.
+			const firstEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+			const replacementEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+			const observedFailure = makeDeferred<void>();
+			let discoveryCount = 0;
+			let subscriptionCount = 0;
+			let failureCount = 0;
+			const controller = new BridgeCommWorkerProductController({
+				callCurrentFileSource: async () => {
+					discoveryCount += 1;
+					return { source: currentFileSourceConfiguration, status: 'available' };
+				},
+				onFileMetadataEvent: (): void => {},
+				onFileMetadataFailure: (): void => {
+					failureCount += 1;
+					observedFailure.resolve();
+				},
+				productTransport: fileEpochTransport(),
+				subscribeFile: () => {
+					subscriptionCount += 1;
+					if (subscriptionCount > 2) throw new Error('Unbounded File metadata reset recovery.');
+					return fileSubscription(
+						`file-reset-${subscriptionCount}`,
+						subscriptionCount === 1 ? firstEvents : replacementEvents,
+					);
+				},
+			});
+			await controller.ensureFileSource();
+			try {
+				// Act — no explicit ensure, view reactivation, or interest change follows the reset.
+				firstEvents.fail(new BridgeProductSubscriptionResetError(reason), true);
+				await observedFailure.promise;
+
+				// Assert — the existing source owner must reconnect from the latest source authority.
+				await expect.poll(() => subscriptionCount, { timeout: 250 }).toBe(2);
+				expect(discoveryCount).toBe(2);
+				// A replacement that resets again before producing data must not loop.
+				replacementEvents.fail(new BridgeProductSubscriptionResetError(reason), true);
+				await expect.poll(() => failureCount, { timeout: 250 }).toBe(2);
+				expect(subscriptionCount).toBe(2);
+			} finally {
+				firstEvents.close(true);
+				replacementEvents.close(true);
+			}
+		},
+	);
+
 	test('retries File source discovery after a transient rejection', async () => {
 		// Arrange
 		let discoveryCount = 0;

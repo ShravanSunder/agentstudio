@@ -24,6 +24,7 @@ import {
 	bridgeProductReviewMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-registry.js';
 import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
+import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
@@ -556,7 +557,8 @@ export class BridgeCommWorkerProductController {
 				this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 				if (
 					!this.#reviewFrameObservationRecoveryAttempted &&
-					bridgeProductFrameObservationTimedOut(error)
+					(bridgeProductFrameObservationTimedOut(error) ||
+						error instanceof BridgeProductSubscriptionResetError)
 				) {
 					this.#reviewFrameObservationRecoveryAttempted = true;
 					try {
@@ -760,7 +762,8 @@ export class BridgeCommWorkerProductController {
 				this.#onFileMetadataFailure(error, workerDerivationEpoch);
 				if (
 					!this.#fileFrameObservationRecoveryAttempted &&
-					bridgeProductFrameObservationTimedOut(error)
+					(bridgeProductFrameObservationTimedOut(error) ||
+						error instanceof BridgeProductSubscriptionResetError)
 				) {
 					this.#fileFrameObservationRecoveryAttempted = true;
 					void this.ensureFileSource().catch((): void => {});

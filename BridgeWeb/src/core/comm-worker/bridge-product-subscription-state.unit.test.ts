@@ -9,6 +9,7 @@ import {
 } from './bridge-product-session-contracts.js';
 import {
 	BridgeProductSubscriptionState,
+	BridgeProductSubscriptionResetError,
 	type BridgeProductSubscriptionFrame,
 	type BridgeProductSubscriptionStateControlMux,
 } from './bridge-product-subscription-state.js';
@@ -20,6 +21,71 @@ type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 const annotationInterestSha256 = 'a'.repeat(64);
 
 describe('Bridge product subscription state', () => {
+	test.each([
+		'interest_mismatch',
+		'producer_overflow',
+		'sequence_gap',
+		'stale_source',
+		'snapshot_required',
+	] as const)('preserves the generic %s reset reason as a terminal typed error', async (reason) => {
+		// Arrange
+		const controlHarness = createAnnotationControlHarness();
+		let terminalCount = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: controlHarness.controlMux,
+			createIdentifier: (): string => 'unused-reset-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {
+				terminalCount += 1;
+			},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 1,
+			subscriptionId: 'reset-reason-subscription',
+		});
+		state.start();
+		const open = await controlHarness.capturedOpen;
+		const correlation = {
+			cursor: null,
+			interestRevision: 0,
+			interestSha256: annotationInterestSha256,
+			sourceGeneration: 0,
+			subscriptionId: open.subscriptionId,
+			subscriptionKind: 'review.annotations',
+			workerDerivationEpoch: open.workerDerivationEpoch,
+		};
+		state.acceptFrame(
+			requireSubscriptionFrame(
+				bridgeProductMetadataFrameSchema.parse({
+					...metadataFrameIdentity(1),
+					...correlation,
+					kind: 'subscription.accepted',
+					subscriptionSequence: 0,
+				}),
+			),
+		);
+		const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+
+		// Act
+		state.acceptFrame(
+			requireSubscriptionFrame(
+				bridgeProductMetadataFrameSchema.parse({
+					...metadataFrameIdentity(2),
+					...correlation,
+					kind: 'subscription.reset',
+					reason,
+					subscriptionSequence: 1,
+				}),
+			),
+		);
+
+		// Assert
+		await expect(nextEvent).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
+		await expect(nextEvent).rejects.toMatchObject({ reason });
+		state.fail(new Error('Already-terminal reset cleanup.'));
+		expect(terminalCount).toBe(1);
+	});
+
 	test('captures its deferred-open epoch at admission and retains it for later frames', async () => {
 		// Arrange
 		const metadataReady = createBridgeProductDeferred<void>();

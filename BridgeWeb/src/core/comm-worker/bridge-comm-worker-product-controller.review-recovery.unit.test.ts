@@ -9,6 +9,7 @@ import type {
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
+import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 
 type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
@@ -26,6 +27,48 @@ const reviewRecoveryControls: readonly BridgeProductControlCommand[] = [
 ];
 
 describe('Bridge comm worker Review metadata recovery', () => {
+	test('a current Review subscription reset reopens once without another UI action', async () => {
+		// Arrange
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(8);
+		const replacementEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(8);
+		const subscriptions = [
+			reviewSubscription('review-before-reset', firstEvents),
+			reviewSubscription('review-after-reset', replacementEvents),
+		] as const;
+		let subscriptionCount = 0;
+		let failureCount = 0;
+		const controller = new BridgeCommWorkerProductController({
+			onFileMetadataEvent: (): void => {},
+			onReviewMetadataFailure: (): void => {
+				failureCount += 1;
+			},
+			productTransport: makeReviewProductTransport({
+				calledMethods: [],
+				onCall: (): null => null,
+				reviewSubscription: subscriptions[0],
+				subscribedKinds: [],
+			}),
+			subscribeReview: () => {
+				const subscription = subscriptions[subscriptionCount];
+				if (subscription === undefined) throw new Error('Unbounded Review reset recovery.');
+				subscriptionCount += 1;
+				return subscription;
+			},
+		});
+		controller.ensureReviewMetadata();
+		try {
+			// Act / Assert — retry a terminal reset, but stop if the new subscription makes no progress.
+			firstEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await expect.poll(() => subscriptionCount, { timeout: 250 }).toBe(2);
+			replacementEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await expect.poll(() => failureCount, { timeout: 250 }).toBe(2);
+			expect(subscriptionCount).toBe(2);
+		} finally {
+			firstEvents.close(true);
+			replacementEvents.close(true);
+		}
+	});
+
 	test.each(reviewRecoveryControls)(
 		'reopens failed Review metadata before $method control',
 		async (command) => {

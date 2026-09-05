@@ -3,11 +3,22 @@ import {
 	createBridgeProductDeferred,
 	type BridgeProductDeferred,
 } from './bridge-product-async-queue.js';
+import type { BridgeProductResetReason } from './bridge-product-contract-primitives.js';
 import type {
 	BridgeProductMetadataApplicationProtocol,
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductMetadataFrame } from './bridge-product-session-contracts.js';
+
+export class BridgeProductSubscriptionResetError extends Error {
+	readonly reason: BridgeProductResetReason;
+
+	constructor(reason: BridgeProductResetReason) {
+		super(`Bridge product subscription reset: ${reason}.`);
+		this.name = 'BridgeProductSubscriptionResetError';
+		this.reason = reason;
+	}
+}
 
 export type BridgeProductSubscriptionIdentifierPurpose = 'subscription-update';
 
@@ -279,7 +290,7 @@ export class BridgeProductSubscriptionState<
 				this.#retire();
 				return;
 			case 'subscription.reset':
-				this.fail(new Error(`Bridge product subscription reset: ${frame.reason}.`));
+				this.fail(new BridgeProductSubscriptionResetError(frame.reason));
 				return;
 		}
 	}
