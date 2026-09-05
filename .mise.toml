@@ -707,6 +707,10 @@ run = "/bin/bash scripts/verify-sidebar-native-table-pilot.sh"
 description = "Run one marker-scoped terminal-title and pane-observation proof"
 run = "/bin/bash scripts/verify-title-pane-performance-workload.sh --proof"
 
+[tasks.verify-renderer-population]
+description = "Sample renderer population and graphics residency for one AgentStudio PID"
+run = "/bin/bash scripts/verify-renderer-population.sh"
+
 [tasks."perf:report"]
 description = "Compare completed marker-scoped AgentStudio performance windows"
 run = "/bin/bash scripts/perf-report.sh"
