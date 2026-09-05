@@ -157,6 +157,8 @@ private final class FilesystemE2ESurfaceManager:
 
     func undoClose() -> ManagedSurface? { nil }
 
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+
     func requeueUndo(_: UUID) {}
 
     func destroy(_: UUID) {}

@@ -68,11 +68,12 @@ struct SurfaceManagerRendererStateDeliveryTests {
 
     private func acceptedSurface(
         _ surface: Ghostty.SurfaceView,
-        in manager: SurfaceManager
+        in manager: SurfaceManager,
+        paneId: UUID = UUIDv7.generate()
     ) throws -> ManagedSurface {
         try manager.acceptCreatedSurface(
             surface,
-            metadata: SurfaceMetadata(paneId: UUIDv7.generate())
+            metadata: SurfaceMetadata(paneId: paneId)
         ).get()
     }
 
@@ -404,6 +405,33 @@ struct SurfaceManagerRendererStateDeliveryTests {
                 == .int(1)
         )
         #expect(freedRecordsBeforeReleased.isEmpty)
+    }
+
+    @Test("undoClose(forPaneId:) returns the matching retained surface regardless of stack order")
+    func undoCloseForPaneReturnsTheMatchingRetainedSurfaceRegardlessOfStackOrder() throws {
+        // Arrange: accept + attach surfaces A (pane pA) and B (pane pB), then close A before B so
+        // B ends up on top of the undo stack.
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let surfaceA = makeBareSurface()
+        let surfaceB = makeBareSurface()
+        let managedA = try acceptedSurface(surfaceA, in: manager, paneId: paneA)
+        let managedB = try acceptedSurface(surfaceB, in: manager, paneId: paneB)
+        manager.attach(managedA.id, to: paneA)
+        manager.attach(managedB.id, to: paneB)
+        manager.detach(managedA.id, reason: .close)
+        manager.detach(managedB.id, reason: .close)
+
+        // Act
+        let restored = manager.undoClose(forPaneId: paneA)
+
+        // Assert
+        #expect(restored?.id == managedA.id)
+        #expect(manager.canUndo == true)
+        #expect(manager.hiddenSurfaceCount == 1)
+        #expect(manager.undoClose(forPaneId: paneA) == nil)
     }
 
     @Test("undo expiry emits released")

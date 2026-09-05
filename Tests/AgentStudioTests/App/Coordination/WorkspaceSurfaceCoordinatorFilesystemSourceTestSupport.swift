@@ -444,6 +444,8 @@ final class MockFilesystemCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
 
     func undoClose() -> ManagedSurface? { nil }
 
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+
     func requeueUndo(_: UUID) {}
 
     func destroy(_: UUID) {}

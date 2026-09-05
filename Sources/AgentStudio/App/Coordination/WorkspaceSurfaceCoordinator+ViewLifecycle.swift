@@ -589,38 +589,30 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    /// Mounts an already-retained (close-undo) surface for `pane`. Returns nil when the manager has no
-    /// retained surface for this pane (after requeueing a mismatched pop, as today).
+    /// Mounts the retained (close-undo) surface belonging to `pane` by pane id. Returns nil when
+    /// the manager has no retained surface for this pane.
     func remountRetainedSurfaceIfAvailable(
         for pane: Pane,
         worktree: Worktree?,
         repo: Repo?
     ) -> TerminalPaneMountView? {
-        guard let undone = surfaceManager.undoClose() else {
+        guard let undone = surfaceManager.undoClose(forPaneId: pane.id) else {
             return nil
         }
-        if undone.metadata.paneId == pane.id {
-            let view = terminalMountViewForReusedSurface(
-                pane: pane,
-                worktree: worktree,
-                repo: repo,
-                restoredSurfaceId: undone.id
-            )
-            surfaceManager.attach(undone.id, to: pane.id)
-            view.displaySurface(undone.surface)
-            registerHostedView(mountedView: view, for: pane.id)
-            registerTerminalRuntimeIfNeeded(for: pane)
-            runtime.markRunning(pane.id)
-            registerPaneFilesystemContextIfNeeded(for: pane)
-            Self.logger.info("Restored view from undo for pane \(pane.id)")
-            return view
-        } else {
-            Self.logger.warning(
-                "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
-            )
-            surfaceManager.requeueUndo(undone.id)
-            return nil
-        }
+        let view = terminalMountViewForReusedSurface(
+            pane: pane,
+            worktree: worktree,
+            repo: repo,
+            restoredSurfaceId: undone.id
+        )
+        surfaceManager.attach(undone.id, to: pane.id)
+        view.displaySurface(undone.surface)
+        registerHostedView(mountedView: view, for: pane.id)
+        registerTerminalRuntimeIfNeeded(for: pane)
+        runtime.markRunning(pane.id)
+        registerPaneFilesystemContextIfNeeded(for: pane)
+        Self.logger.info("Restored view from undo for pane \(pane.id)")
+        return view
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.

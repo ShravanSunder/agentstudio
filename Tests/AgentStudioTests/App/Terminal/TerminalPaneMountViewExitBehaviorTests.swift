@@ -427,6 +427,8 @@ private final class MockTerminalExitSurfaceManager: WorkspaceSurfaceManaging {
         nil
     }
 
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+
     func requeueUndo(_ surfaceId: UUID) {
         _ = surfaceId
     }

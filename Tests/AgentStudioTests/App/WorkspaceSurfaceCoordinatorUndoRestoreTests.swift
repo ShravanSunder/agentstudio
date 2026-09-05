@@ -576,6 +576,65 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         #expect(harness.surfaceManager.createSurfaceCallCount == 0)
     }
 
+    @Test("tab close undo reuses retained surfaces when stack order differs from snapshot order")
+    func tabCloseUndoReusesRetainedSurfacesWhenStackOrderDiffersFromSnapshotOrder() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        // Arrange: two floating terminal panes in one tab, each with a mounted view and a
+        // retained surface. The mock's retained list is ordered so LIFO popping yields the
+        // wrong pane first for the coordinator's reversed snapshot-panes iteration.
+        let firstPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
+        let secondPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        let firstMountedView = TerminalPaneMountView(paneId: firstPane.id, title: "First")
+        harness.coordinator.registerHostedView(mountedView: firstMountedView, for: firstPane.id)
+        let secondMountedView = TerminalPaneMountView(paneId: secondPane.id, title: "Second")
+        harness.coordinator.registerHostedView(mountedView: secondMountedView, for: secondPane.id)
+
+        let retainedFirst = ManagedSurface(
+            surface: Ghostty.SurfaceView(
+                managedSurfaceID: UUIDv7.generate(),
+                appCommandDispatcher: NoOpAppCommandDispatcher()
+            ),
+            metadata: SurfaceMetadata(paneId: firstPane.id)
+        )
+        let retainedSecond = ManagedSurface(
+            surface: Ghostty.SurfaceView(
+                managedSurfaceID: UUIDv7.generate(),
+                appCommandDispatcher: NoOpAppCommandDispatcher()
+            ),
+            metadata: SurfaceMetadata(paneId: secondPane.id)
+        )
+        // The mock pops LIFO from the end of this array (mirroring SurfaceManager's undo stack).
+        // Ordered [retainedSecond, retainedFirst], the first pop yields retainedFirst, which
+        // mismatches the coordinator's reversed snapshot.panes iteration (secondPane restores
+        // first).
+        harness.surfaceManager.undoCloseResults = [retainedSecond, retainedFirst]
+
+        // Act
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        // Assert: both retained surfaces are reused by pane id; no fresh surface is created.
+        #expect(harness.surfaceManager.createSurfaceCallCount == 0)
+        #expect(
+            Set(harness.surfaceManager.attachCalls.map(\.surfaceID))
+                == Set([retainedFirst.id, retainedSecond.id])
+        )
+    }
+
     @Test("undo without a retained surface falls back to fresh creation")
     func undoWithoutRetainedSurfaceFallsBackToFreshCreation() {
         let harness = makeHarness()
@@ -636,6 +695,13 @@ private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
     func undoClose() -> ManagedSurface? {
         guard !undoCloseResults.isEmpty else { return nil }
         return undoCloseResults.removeLast()
+    }
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
+        guard let index = undoCloseResults.lastIndex(where: { $0.metadata.paneId == paneId }) else {
+            return nil
+        }
+        return undoCloseResults.remove(at: index)
     }
 
     func requeueUndo(_ surfaceId: UUID) {}

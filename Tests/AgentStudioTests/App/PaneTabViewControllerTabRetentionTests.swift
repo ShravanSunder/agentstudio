@@ -548,6 +548,8 @@ private final class MockPersistentTabSurfaceManager: WorkspaceSurfaceManaging {
 
     func undoClose() -> ManagedSurface? { nil }
 
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+
     func requeueUndo(_ surfaceId: UUID) {
         _ = surfaceId
     }

@@ -875,15 +875,15 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let reusedBranchStart = try #require(
-            source.range(of: "if undone.metadata.paneId == pane.id {")
+            source.range(of: "guard let undone = surfaceManager.undoClose(forPaneId: pane.id) else {")
         )
-        let mismatchBranchStart = try #require(
+        let reusedBranchEnd = try #require(
             source.range(
-                of: "} else {",
+                of: "\n    /// Restore a view from an undo close.",
                 range: reusedBranchStart.upperBound..<source.endIndex
             )
         )
-        let reusedBranch = String(source[reusedBranchStart.lowerBound..<mismatchBranchStart.lowerBound])
+        let reusedBranch = String(source[reusedBranchStart.lowerBound..<reusedBranchEnd.lowerBound])
 
         #expect(reusedBranch.contains("registerPaneFilesystemContextIfNeeded(for: pane)"))
         #expect(!reusedBranch.contains("syncFilesystemRootsAndActivity"))
@@ -978,6 +978,8 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
         onUndoClose?()
         return undoCloseResult
     }
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func requeueUndo(_ surfaceId: UUID) {}
 

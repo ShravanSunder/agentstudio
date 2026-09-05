@@ -502,6 +502,27 @@ package final class SurfaceManager {
         return managed
     }
 
+    /// Restores the retained (close-undo) surface for `paneId` regardless of its position in the
+    /// undo stack.
+    /// - Returns: The restored surface, or `nil` when no retained surface belongs to that pane.
+    package func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
+        guard let index = undoStack.lastIndex(where: { $0.surface.metadata.paneId == paneId }) else {
+            return nil
+        }
+        let entry = undoStack.remove(at: index)
+        entry.expirationTask?.cancel()
+
+        var managed = entry.surface
+        managed.state = .hidden
+        managed.health = surfaceHealth[managed.id] ?? .healthy
+        hiddenSurfaces[managed.id] = managed
+
+        updateCounts()
+        emitRendererLifecycleUndoRestored()
+        logger.info("Surface undo for pane \(paneId): \(managed.id)")
+        return managed
+    }
+
     /// Re-queue a surface onto the undo stack after it was popped by `undoClose()`.
     /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
     /// Re-queued entries are inserted at the oldest position so they don't immediately
