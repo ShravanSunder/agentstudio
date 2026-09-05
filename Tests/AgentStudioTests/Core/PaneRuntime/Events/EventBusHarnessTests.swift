@@ -102,34 +102,78 @@ struct EventBusHarnessTests {
         await assertBusDrained(harness.bus)
     }
 
-    // MARK: - Eventually-wait defaults
+    // MARK: - Eventually-wait dual turn/time budget
 
-    /// Proof that `assertEventuallyMain`/`assertEventuallyAsync` run to their `timeout`
-    /// wall-clock bound by default instead of stopping after a fixed MainActor yield count.
-    /// Before this was fixed, both helpers defaulted `maxTurns` to 200, so a condition that
-    /// only becomes true well past 200 polls (as happens when concurrent suites in the fast
-    /// lane steal this suite's yields) timed out even though most of the 5-second `timeout`
-    /// budget remained unused.
-    @Test("assertEventuallyMain with default maxTurns runs well past 200 polls")
+    /// Proof that `assertEventuallyMain`/`assertEventuallyAsync` keep polling as long as EITHER
+    /// budget remains, giving up only once BOTH are exhausted. A pure time bound fails under
+    /// MainActor contention (another suite can hold the actor for seconds at a time, so only a
+    /// couple of turns land inside a short wall-clock window); a pure turn bound fails under
+    /// cooperative-pool contention (a legitimately slow condition can need far more than a fixed
+    /// turn count). Here `timeout: .zero` forces the time budget to expire immediately, so the
+    /// wait must survive purely on the `minimumTurns` floor; a green result proves the floor was
+    /// honored regardless of the (exhausted) clock.
+    @Test("time budget exhausted still honors the turn floor (MainActor)")
     @MainActor
-    func assertEventuallyMainDefaultMaxTurnsRunsPastTwoHundredPolls() async {
+    func mainActorTimeBudgetExhaustedStillHonorsTurnFloor() async {
         let counter = MainActorCallCounter()
 
-        await assertEventuallyMain("condition true only on the 1000th poll") {
-            counter.incrementAndCheck(threshold: 1000)
+        await assertEventuallyMain(
+            "condition true only on the 150th poll",
+            timeout: .zero
+        ) {
+            counter.incrementAndCheck(threshold: 150)
         }
 
-        #expect(counter.callCount == 1000)
+        #expect(counter.callCount == 150)
     }
 
-    @Test("assertEventuallyAsync with default maxTurns runs well past 200 polls")
-    func assertEventuallyAsyncDefaultMaxTurnsRunsPastTwoHundredPolls() async {
+    /// See `mainActorTimeBudgetExhaustedStillHonorsTurnFloor` above: the async variant.
+    @Test("time budget exhausted still honors the turn floor (async)")
+    func asyncTimeBudgetExhaustedStillHonorsTurnFloor() async {
         let counter = CallCounter()
 
-        await assertEventuallyAsync("condition true only on the 1000th poll") {
-            await counter.incrementAndCheck(threshold: 1000)
+        await assertEventuallyAsync(
+            "condition true only on the 150th poll",
+            timeout: .zero
+        ) {
+            await counter.incrementAndCheck(threshold: 150)
         }
 
-        #expect(await counter.callCount == 1000)
+        #expect(await counter.callCount == 150)
+    }
+
+    /// The mirror case: `minimumTurns: 1` lets the turn floor exhaust on the very first poll, so
+    /// the wait must survive purely on the `timeout` wall-clock budget. The condition only
+    /// becomes true once real time has actually elapsed, which no amount of extra turns can
+    /// substitute for; a green result proves the time budget was honored regardless of the
+    /// (immediately exhausted) turn floor.
+    @Test("turn floor exhausted still honors the time budget (MainActor)")
+    @MainActor
+    func mainActorTurnFloorExhaustedStillHonorsTimeBudget() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        await assertEventuallyMain(
+            "elapsed time reaches 50ms",
+            minimumTurns: 1,
+            timeout: .seconds(5)
+        ) {
+            clock.now - start >= .milliseconds(50)
+        }
+    }
+
+    /// See `mainActorTurnFloorExhaustedStillHonorsTimeBudget` above: the async variant.
+    @Test("turn floor exhausted still honors the time budget (async)")
+    func asyncTurnFloorExhaustedStillHonorsTimeBudget() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        await assertEventuallyAsync(
+            "elapsed time reaches 50ms",
+            minimumTurns: 1,
+            timeout: .seconds(5)
+        ) {
+            clock.now - start >= .milliseconds(50)
+        }
     }
 }
