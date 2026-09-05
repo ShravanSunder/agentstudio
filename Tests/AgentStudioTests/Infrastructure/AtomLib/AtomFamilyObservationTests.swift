@@ -601,7 +601,10 @@ struct AtomFamilyObservationTests {
             ).count - 1
 
         #expect(admittedReadCount == limit * 2)
-        #expect(contents.contains("agentstudio.performance.atom.shed_read.count"))
+        // The first read admitted in the second window must carry the exact
+        // count shed at the tail of the first, or a sampled stream would be
+        // indistinguishable from a quiet one.
+        #expect(contents.contains("\"agentstudio.performance.atom.shed_read.count\":10"))
     }
 
     @Test

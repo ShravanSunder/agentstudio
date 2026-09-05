@@ -240,6 +240,37 @@ struct EntityRecencyAtomTests {
         #expect(observationRecorder.changeCount == 1)
     }
 
+    @Test("hydration is capped per kind exactly as recording is")
+    func applicationHydrationIsCappedPerKind() throws {
+        let cap = AppPolicies.EntityRecency.maximumApplicationRetainedEntityCountPerKind
+        let hydratedCountPerKind = cap + 8
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: Double(hydratedCountPerKind)) }
+        )
+        var persistedRecencies: [ApplicationEntityRecency] = []
+        for index in 0..<hydratedCountPerKind {
+            persistedRecencies.append(
+                try ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: String(format: "%016x", index)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+            persistedRecencies.append(
+                try ApplicationEntityRecency(
+                    entity: .worktree(worktreeStableKey: String(format: "%016x", index + 10_000)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+        }
+
+        atom.hydrate(persistedRecencies)
+
+        #expect(atom.recentEntities.filter { $0.entity.storageKind == "repository" }.count == cap)
+        #expect(atom.recentEntities.filter { $0.entity.storageKind == "worktree" }.count == cap)
+    }
+
     @Test("application record suppresses publication when normalization changes nothing")
     func applicationRecordSuppressesEqualWrite() throws {
         let atom = ApplicationEntityRecencyAtom(
