@@ -12,6 +12,7 @@ usage() {
 Usage: verify-renderer-population.sh <pid> [label] [sample_seconds=1]
        verify-renderer-population.sh --parse-footprint <file>
        verify-renderer-population.sh --parse-vmmap <file>
+       verify-renderer-population.sh --parse-system-memory <vm_stat file> <swap file>
        verify-renderer-population.sh --help
 
 Samples renderer/IO thread population, PTY children, IOSurface/IOAccelerator dirty footprint,
@@ -191,6 +192,10 @@ discover_windowserver_pid() {
 
 parse_windowserver_mem_mb() {
   local top_path="${1:?missing top capture path}"
+  if capture_is_invalid "$top_path"; then
+    printf 'null\n'
+    return 0
+  fi
   /usr/bin/python3 - "$top_path" <<'PY'
 import re
 import sys
@@ -203,12 +208,21 @@ for line in reversed(lines):
         print(round(float(match.group(1)) * scale, 3))
         break
 else:
-    print(0)
+    # No memory column found: report unavailable, never zero.
+    print("null")
 PY
 }
 
 parse_system_memory_values() {
   local vm_stat_path="${1:?missing vm_stat capture path}" swap_path="${2:?missing swap capture path}"
+  if capture_is_invalid "$vm_stat_path"; then
+    print_null_capture_json "$vm_stat_path" compressor_mb free_mb swap_used_mb
+    return 0
+  fi
+  if capture_is_invalid "$swap_path"; then
+    print_null_capture_json "$swap_path" compressor_mb free_mb swap_used_mb
+    return 0
+  fi
   /usr/bin/python3 - "$vm_stat_path" "$swap_path" <<'PY'
 import json
 import re
@@ -221,7 +235,10 @@ free_match = re.search(r"Pages free:\s*([0-9.]+)", vm_text)
 compressor_match = re.search(r"Pages occupied by compressor:\s*([0-9.]+)", vm_text)
 swap_match = re.search(r"used\s*=\s*([0-9.]+)([KMG])", swap_text)
 if not all((page_match, free_match, compressor_match, swap_match)):
-    raise SystemExit("required vm_stat or swap series missing")
+    # Malformed capture: report unavailable, never zero, and never abort the sample.
+    print(json.dumps({"compressor_mb": None, "free_mb": None, "swap_used_mb": None,
+                      "capture_error": "required vm_stat or swap series missing"}))
+    raise SystemExit(0)
 page_mb = int(page_match.group(1)) / (1024 * 1024)
 units = {"K": 1 / 1024, "M": 1.0, "G": 1024.0}
 print(json.dumps({
@@ -284,6 +301,11 @@ sample_pid() {
   if capture_is_invalid "$vmmap_file"; then
     capture_error_names+=("$(basename "$vmmap_file")")
   fi
+  for system_capture in "$windowserver_top_file" "$vm_stat_file" "$swap_file"; do
+    if capture_is_invalid "$system_capture"; then
+      capture_error_names+=("$(basename "$system_capture")")
+    fi
+  done
 
   local footprint_json vmmap_json windowserver_mem_mb system_memory_json
   footprint_json="$(parse_footprint_file "$footprint_file")"
@@ -343,7 +365,7 @@ print(json.dumps({
     "heap_terminal_mount_view": optional_int(heap_terminal_mount_view),
     "heap_pane_host_view": optional_int(heap_pane_host_view),
     "windowserver_pid": int(windowserver_pid) if windowserver_pid else 0,
-    "windowserver_mem_mb": float(windowserver_mem_mb),
+    "windowserver_mem_mb": None if windowserver_mem_mb == "null" else float(windowserver_mem_mb),
     "compressor_mb": system_memory["compressor_mb"],
     "free_mb": system_memory["free_mb"],
     "swap_used_mb": system_memory["swap_used_mb"],
@@ -364,6 +386,10 @@ main() {
       ;;
     --parse-vmmap)
       parse_vmmap_file "${2:?missing vmmap file argument}"
+      exit 0
+      ;;
+    --parse-system-memory)
+      parse_system_memory_values "${2:?missing vm_stat file argument}" "${3:?missing swap file argument}"
       exit 0
       ;;
   esac

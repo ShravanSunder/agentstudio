@@ -144,6 +144,53 @@ struct RendererPopulationScriptTests {
         #expect(footprintJSON["capture_error"] as? String == failureFixture)
     }
 
+    @Test("system memory parser reports failed or malformed captures as null and never aborts")
+    func systemMemoryParserReportsFailedCapturesAsNull() async throws {
+        // Arrange: a valid vm_stat/swap pair, a tool-error vm_stat capture, and a truncated vm_stat capture.
+        let validVMStat = """
+            Mach Virtual Memory Statistics: (page size of 16384 bytes)
+            Pages free:                               1024.
+            Pages occupied by compressor:             2048.
+            """
+        let validSwap = "vm.swapusage: total = 4096.00M  used = 1024.00M  free = 3072.00M  (encrypted)"
+        let erroredVMStat = "vm_stat: cannot read statistics"
+        let truncatedVMStat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 5."
+        let swapFile = try writeFixture(validSwap, named: "swap-fixture.txt")
+        defer { try? FileManager.default.removeItem(at: swapFile) }
+        let validFile = try writeFixture(validVMStat, named: "vm-valid.txt")
+        defer { try? FileManager.default.removeItem(at: validFile) }
+        let erroredFile = try writeFixture(erroredVMStat, named: "vm-errored.txt")
+        defer { try? FileManager.default.removeItem(at: erroredFile) }
+        let truncatedFile = try writeFixture(truncatedVMStat, named: "vm-truncated.txt")
+        defer { try? FileManager.default.removeItem(at: truncatedFile) }
+
+        // Act
+        var results: [String: [String: Any]] = [:]
+        for (name, file) in [("valid", validFile), ("errored", erroredFile), ("truncated", truncatedFile)] {
+            let result = try await DefaultProcessExecutor(timeout: 10).execute(
+                command: "/bin/bash",
+                args: [Self.scriptPath, "--parse-system-memory", file.path, swapFile.path],
+                cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+                environment: nil
+            )
+            #expect(result.exitCode == 0, "\(name) stdout: \(result.stdout)\nstderr: \(result.stderr)")
+            results[name] = try decodeJSONObject(result.stdout)
+        }
+
+        // Assert: valid parses to numbers (16384-byte pages: 1024 pages = 16 MB free, 2048 = 32 MB compressor,
+        // swap used 1024 MB); errored and truncated captures yield nulls plus a capture_error, never zero.
+        #expect(numberValue(results["valid"]!, "free_mb") == 16)
+        #expect(numberValue(results["valid"]!, "compressor_mb") == 32)
+        #expect(numberValue(results["valid"]!, "swap_used_mb") == 1024)
+        for name in ["errored", "truncated"] {
+            let json = results[name]!
+            #expect(json["free_mb"] is NSNull, "\(name) free_mb should be null")
+            #expect(json["compressor_mb"] is NSNull, "\(name) compressor_mb should be null")
+            #expect(json["swap_used_mb"] is NSNull, "\(name) swap_used_mb should be null")
+            #expect((json["capture_error"] as? String)?.isEmpty == false, "\(name) needs a capture_error")
+        }
+    }
+
     private func writeFixture(_ contents: String, named name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
         try contents.write(to: url, atomically: true, encoding: .utf8)

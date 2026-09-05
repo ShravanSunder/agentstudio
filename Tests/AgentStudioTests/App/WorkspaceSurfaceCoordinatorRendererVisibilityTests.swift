@@ -38,6 +38,39 @@ struct WorkspaceSurfaceCoordinatorRendererVisibilityTests {
         )
     }
 
+    @Test("binding then stopping renderer visibility observation does not retain the coordinator")
+    func bindingThenStoppingDoesNotRetainTheCoordinator() async {
+        await withAsyncTestCoreAtoms { _ in
+            // Arrange
+            let store = WorkspaceStore()
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            let surfaceManager = RendererVisibilityCapturingSurfaceManager(bindings: [:])
+            let windowLifecycleStore = WindowLifecycleAtom()
+            let windowID = UUIDv7.generate()
+            windowLifecycleStore.recordWindowRegistered(windowID)
+            weak var weakCoordinator: WorkspaceSurfaceCoordinator?
+
+            // Act — bind, stop, and drop every strong reference; the observation registrations
+            // (renderer visibility and bridge pane activity) must not keep the coordinator alive.
+            autoreleasepool {
+                let coordinator = makeCoordinator(
+                    store: store,
+                    surfaceManager: surfaceManager,
+                    windowLifecycleStore: windowLifecycleStore
+                )
+                weakCoordinator = coordinator
+                coordinator.bindRendererVisibility(toOwningWindowId: windowID)
+                coordinator.stopRendererVisibilityObservation()
+            }
+
+            // Assert
+            #expect(weakCoordinator == nil)
+        }
+    }
+
     @Test("joins attached panes with active tab and owning window facts")
     func joinsAttachedPanesWithActiveTabAndWindowFacts() async {
         await withAsyncTestCoreAtoms { _ in
