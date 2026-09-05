@@ -106,6 +106,10 @@ package enum TerminalAdmissionClaimOutcome: Equatable, Sendable {
 package enum ClaimedTerminalActivationRejection: Equatable, Sendable {
     case claimAlreadyConsumed
     case claimNotIssued
+    /// A newer generation's cohort replaced this pane's custody in
+    /// `ViewRegistry` between the claim and this activation attempt; the
+    /// issued claim is honored as revoked rather than mounted (R1).
+    case custodyReplaced
 }
 
 package enum ClaimedTerminalActivationOutcome: Equatable, Sendable {

@@ -198,6 +198,17 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
                 guard proposal.attempt == lastAttempt + 1 else {
                     return .rejected(.retryClaimMismatch)
                 }
+                guard
+                    viewRegistry.preparedContentMountState(for: proposal.paneID, generation: generation)
+                        == .mounting(owner: .terminal)
+                else {
+                    // A newer generation's cohort replaced this pane's custody
+                    // between retry attempts; this port's retained tracking no
+                    // longer corresponds to live custody. Leave the successor
+                    // generation's own custody untouched.
+                    claimTrackingByPaneID.removeValue(forKey: proposal.paneID)
+                    return .rejected(.custodyUnavailableForClaim)
+                }
                 return mintClaim(descriptor: descriptor, attempt: proposal.attempt, frame: frame, proposal: proposal)
             }
         }
@@ -236,6 +247,17 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
             liveClaimID == claim.claimID
         else {
             return .rejected(.claimAlreadyConsumed)
+        }
+        guard
+            viewRegistry.preparedContentMountState(for: paneID, generation: generation)
+                == .mounting(owner: .terminal)
+        else {
+            // A newer generation's cohort replaced this pane's custody after
+            // the claim was issued but before it was activated. Revoke the
+            // claim instead of mounting; leave the successor generation's own
+            // custody untouched.
+            claimTrackingByPaneID.removeValue(forKey: paneID)
+            return .rejected(.custodyReplaced)
         }
 
         let result = mountHandler.mountPreparedTerminalContent(

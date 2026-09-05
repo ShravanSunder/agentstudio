@@ -543,6 +543,8 @@ package actor TerminalActivationScheduler {
             return .attachmentRejected(code: "claim_already_consumed")
         case .claimNotIssued:
             return .attachmentRejected(code: "claim_not_issued")
+        case .custodyReplaced:
+            return .attachmentRejected(code: "custody_replaced")
         }
     }
 
