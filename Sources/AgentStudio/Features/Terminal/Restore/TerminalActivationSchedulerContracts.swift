@@ -56,6 +56,11 @@ package enum TerminalActivationRetry: Equatable, Sendable {
 }
 
 package enum TerminalActivationMemberState: Equatable, Sendable {
+    /// Held before this pane's geometry eligibility is installed (SPEC R5,
+    /// the R1 deferral half). Not a candidate for admission and not
+    /// promotable — distinct from `queued`, which has already entered the
+    /// rank-ordered candidate pool.
+    case waitingForGeometry
     case queued(priority: TerminalActivationVisibilityPriority)
     case attaching
     case ready(surfaceID: UUID)
@@ -67,7 +72,7 @@ package enum TerminalActivationMemberState: Equatable, Sendable {
 
     var isTerminal: Bool {
         switch self {
-        case .queued, .attaching:
+        case .waitingForGeometry, .queued, .attaching:
             return false
         case .ready, .failedTerminal, .cancelledReplaced:
             return true
@@ -76,6 +81,10 @@ package enum TerminalActivationMemberState: Equatable, Sendable {
 }
 
 package enum TerminalActivationTerminalOutcome: Equatable, Sendable {
+    /// A terminal outcome for the settlement that produced it, but not a
+    /// terminal state for the pane's later eligibility: `acceptLaterGeometry`
+    /// can still requeue this pane in the same generation and scheduler.
+    case waitingForGeometry
     case ready(surfaceID: UUID)
     case failedTerminal(
         failure: TerminalActivationFailure,

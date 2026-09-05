@@ -14,6 +14,12 @@ package actor TerminalActivationScheduler {
     }
 
     private enum MemberExecution {
+        /// Held until `installGeometryEligibility` (pre-`activate()`) or
+        /// `acceptLaterGeometry` (post-quiescence) names this pane. Not a
+        /// `nextQueuedCandidate()` candidate and not promotable — priority is
+        /// read from `Member.descriptor.visibilityPriority` when this member
+        /// is finally admitted to `.queued`.
+        case waitingForGeometry
         case queued(priority: TerminalActivationVisibilityPriority, attempt: Int)
         case attaching(priority: TerminalActivationVisibilityPriority, attempt: Int)
         case terminal(TerminalActivationTerminalOutcome)
@@ -113,6 +119,12 @@ package actor TerminalActivationScheduler {
     /// Starts at the same zero-ordinal baseline the port starts from, so the
     /// first proposal always matches until a real observation is recorded.
     private var appliedVisibilityRevision: TerminalVisibilityRevision
+    /// True while a worker fleet spawned by `acceptLaterGeometry` after the
+    /// original `activate()` drain went quiescent is still running. Guards
+    /// against a second supplemental fleet: while this is true, or while the
+    /// original `activate()` drain is still running, a newly queued member is
+    /// only ever observed by the one fleet already looping.
+    private var isSupplementalDrainActive = false
 
     package init(
         cohort: TerminalActivationCohort,
@@ -135,10 +147,7 @@ package actor TerminalActivationScheduler {
                     Member(
                         descriptor: descriptor,
                         originalOrdinal: ordinal,
-                        execution: .queued(
-                            priority: descriptor.visibilityPriority,
-                            attempt: 1
-                        ),
+                        execution: .waitingForGeometry,
                         promotedRank: nil
                     )
                 )
@@ -188,6 +197,76 @@ package actor TerminalActivationScheduler {
         activationDeferralOutcome
     }
 
+    /// Single-shot: called once, before `activate()`, with the cohort-wide
+    /// set of panes whose geometry is already safe. Moves exactly those
+    /// still-`waitingForGeometry` members to `queued` at their descriptor's
+    /// static priority and attempt 1; a pane not currently waiting (already
+    /// queued, attaching, or terminal) is left untouched. Performs no
+    /// scheduling itself — `activate()`'s own drain observes the move.
+    /// Returns the accepted subset of `paneIDs`.
+    @discardableResult
+    package func installGeometryEligibility(_ paneIDs: Set<PaneId>) -> Set<PaneId> {
+        admitWaitingMembers(paneIDs)
+    }
+
+    /// SPEC R5 retry: called any time after `installGeometryEligibility`,
+    /// including after the original `activate()` drain has gone quiescent,
+    /// with panes whose geometry has since become safe. Moves exactly those
+    /// still-`waitingForGeometry` members to `queued`, then ensures exactly
+    /// one drain is running to observe them — starting a new one-worker
+    /// drain if the scheduler is quiescent, or relying on the drain already
+    /// looping (the original `activate()` fleet, or a prior supplemental
+    /// drain still in flight) to pick them up at its next claim boundary.
+    /// Returns the accepted subset of `paneIDs`.
+    @discardableResult
+    package func acceptLaterGeometry(for paneIDs: Set<PaneId>) -> Set<PaneId> {
+        let acceptedPaneIDs = admitWaitingMembers(paneIDs)
+        guard !acceptedPaneIDs.isEmpty else { return acceptedPaneIDs }
+        ensureADrainObservesNewlyQueuedMembers()
+        return acceptedPaneIDs
+    }
+
+    /// Moves every still-`waitingForGeometry` member named in `paneIDs` to
+    /// `queued` at its descriptor's static priority and attempt 1. Pure
+    /// state mutation shared by `installGeometryEligibility` (pre-`activate()`)
+    /// and `acceptLaterGeometry` (post-quiescence); neither starts a drain
+    /// here — `acceptLaterGeometry` does so separately, only when it must.
+    private func admitWaitingMembers(_ paneIDs: Set<PaneId>) -> Set<PaneId> {
+        var acceptedPaneIDs: Set<PaneId> = []
+        for paneID in paneIDs {
+            guard var member = membersByPaneID[paneID] else { continue }
+            guard case .waitingForGeometry = member.execution else { continue }
+            member.execution = .queued(priority: member.descriptor.visibilityPriority, attempt: 1)
+            membersByPaneID[paneID] = member
+            acceptedPaneIDs.insert(paneID)
+        }
+        return acceptedPaneIDs
+    }
+
+    /// Starts exactly one supplemental one-worker drain when the scheduler
+    /// has already gone quiescent (the original `activate()` fleet exited
+    /// its task group). While `activate()`'s own drain is still in flight
+    /// (`.idle`, not yet started, or `.activating`, already looping), that
+    /// fleet will observe the newly queued members itself at its next
+    /// `nextQueuedCandidate()` call — no second worker is ever spawned.
+    private func ensureADrainObservesNewlyQueuedMembers() {
+        switch lifecycle {
+        case .idle, .activating:
+            return
+        case .settled:
+            guard !isSupplementalDrainActive else { return }
+            isSupplementalDrainActive = true
+            Task { [weak self] in
+                await self?.runWorker()
+                await self?.markSupplementalDrainFinished()
+            }
+        }
+    }
+
+    private func markSupplementalDrainFinished() {
+        isSupplementalDrainActive = false
+    }
+
     func memberState(for paneID: PaneId) -> TerminalActivationMemberState? {
         guard let execution = membersByPaneID[paneID]?.execution else { return nil }
         return publicState(for: execution)
@@ -209,7 +288,7 @@ package actor TerminalActivationScheduler {
 
         for (paneID, var member) in membersByPaneID {
             switch member.execution {
-            case .queued, .attaching:
+            case .waitingForGeometry, .queued, .attaching:
                 member.execution = .terminal(.cancelledReplaced(replacement: replacement))
                 membersByPaneID[paneID] = member
             case .terminal:
@@ -233,7 +312,7 @@ package actor TerminalActivationScheduler {
             member.execution = .queued(priority: priority, attempt: attempt)
             membersByPaneID[paneID] = member
             return .promoted(from: currentPriority, to: priority)
-        case .attaching, .terminal:
+        case .waitingForGeometry, .attaching, .terminal:
             return .memberNotQueued(state: publicState(for: member.execution))
         }
     }
@@ -436,6 +515,8 @@ package actor TerminalActivationScheduler {
 
     private func publicState(for execution: MemberExecution) -> TerminalActivationMemberState {
         switch execution {
+        case .waitingForGeometry:
+            return .waitingForGeometry
         case .queued(let priority, _):
             return .queued(priority: priority)
         case .attaching:
@@ -448,16 +529,33 @@ package actor TerminalActivationScheduler {
                 return .failedTerminal(failure: failure, retry: retry)
             case .cancelledReplaced(let replacement):
                 return .cancelledReplaced(replacement: replacement)
+            case .waitingForGeometry:
+                // Unreachable by construction: `.terminal(...)` never wraps
+                // `.waitingForGeometry` — that outcome is produced only by
+                // `makeSettlement()`'s separate `MemberExecution.waitingForGeometry`
+                // case, never stored inside `.terminal(...)`. Exhaustiveness only.
+                return .waitingForGeometry
             }
         }
     }
 
+    /// A still-`waitingForGeometry` member is a settled outcome for this
+    /// startup settlement, not a precondition failure — it simply has no
+    /// geometry to admit on yet (SPEC R5, R1's deferral half). It remains
+    /// live: `acceptLaterGeometry` can still requeue it, and `memberState(for:)`
+    /// always reflects that live state, independent of this frozen snapshot.
+    /// A still-`queued` or `attaching` member at drain quiescence remains a
+    /// genuine invariant violation.
     private func makeSettlement() -> TerminalActivationSettlement {
         let outcomesByPaneID = membersByPaneID.mapValues { member -> TerminalActivationTerminalOutcome in
-            guard case .terminal(let outcome) = member.execution else {
+            switch member.execution {
+            case .terminal(let outcome):
+                return outcome
+            case .waitingForGeometry:
+                return .waitingForGeometry
+            case .queued, .attaching:
                 preconditionFailure("terminal activation cohort settled with unfinished members")
             }
-            return outcome
         }
         return TerminalActivationSettlement(
             generation: cohort.generation,

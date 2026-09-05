@@ -244,6 +244,203 @@ struct PreparedTerminalMountAdmissionPortTests {
         )
     }
 
+    @Test("installation defers every pane without a finite non-empty frame")
+    func installationDefersEveryPaneWithoutAFiniteNonEmptyFrame() throws {
+        // Arrange
+        let generation = try makePreparedTerminalTestGeneration()
+        let withFrame = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let withoutFrame = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [withFrame, withoutFrame]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let handler = RecordingPreparedTerminalMountHandler(results: [])
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            viewRegistry: registry,
+            mountHandler: handler,
+            descriptorsByPaneID: [withFrame.paneID: withFrame, withoutFrame.paneID: withoutFrame]
+        )
+
+        // Act: `withoutFrame` is entirely absent from the supplied dictionary
+        // — proving deferral covers a missing key, not only a
+        // present-but-invalid one.
+        let eligiblePaneIDs = port.installTrustedInitialFrames([
+            withFrame.paneID: NSRect(x: 0, y: 0, width: 800, height: 600)
+        ])
+
+        // Assert
+        #expect(eligiblePaneIDs == [withFrame.paneID])
+        #expect(
+            registry.preparedContentMountState(for: withFrame.paneID, generation: generation)
+                == .pending(owner: .terminal)
+        )
+        #expect(
+            registry.preparedContentMountState(for: withoutFrame.paneID, generation: generation)
+                == .deferredGeometry(owner: .terminal)
+        )
+        #expect(handler.admissions.isEmpty)
+    }
+
+    enum InvalidFrameCase: CaseIterable, CustomTestStringConvertible {
+        case zeroWidth
+        case zeroHeight
+        case negativeWidth
+        case nonFiniteWidth
+        case nonFiniteOriginX
+
+        var testDescription: String { String(describing: self) }
+
+        var frame: NSRect {
+            switch self {
+            case .zeroWidth:
+                return NSRect(x: 0, y: 0, width: 0, height: 600)
+            case .zeroHeight:
+                return NSRect(x: 0, y: 0, width: 800, height: 0)
+            case .negativeWidth:
+                return NSRect(x: 0, y: 0, width: -800, height: 600)
+            case .nonFiniteWidth:
+                return NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 600)
+            case .nonFiniteOriginX:
+                return NSRect(x: CGFloat.nan, y: 0, width: 800, height: 600)
+            }
+        }
+    }
+
+    @Test(
+        "empty, negative, and non-finite frames are treated as absent",
+        arguments: InvalidFrameCase.allCases
+    )
+    func emptyNegativeAndNonFiniteFramesAreTreatedAsAbsent(testCase: InvalidFrameCase) throws {
+        // Arrange
+        let generation = try makePreparedTerminalTestGeneration()
+        let descriptor = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let paneID = descriptor.paneID
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let handler = RecordingPreparedTerminalMountHandler(results: [])
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            viewRegistry: registry,
+            mountHandler: handler,
+            descriptorsByPaneID: [paneID: descriptor]
+        )
+
+        // Act
+        let eligiblePaneIDs = port.installTrustedInitialFrames([paneID: testCase.frame])
+
+        // Assert
+        #expect(eligiblePaneIDs.isEmpty)
+        #expect(
+            registry.preparedContentMountState(for: paneID, generation: generation)
+                == .deferredGeometry(owner: .terminal)
+        )
+    }
+
+    enum LaterFrameCustodyCase: CaseIterable, CustomTestStringConvertible {
+        case deferredGeometrySameGeneration
+        case pendingNeverDeferred
+        case mounting
+        case completed
+        case foreignGeneration
+
+        var testDescription: String { String(describing: self) }
+    }
+
+    @Test(
+        "later frames are accepted only for same-generation deferred custody",
+        arguments: LaterFrameCustodyCase.allCases
+    )
+    func laterFramesAreAcceptedOnlyForSameGenerationDeferredCustody(testCase: LaterFrameCustodyCase) throws {
+        // Arrange: `installTrustedInitialFrames([:])` defers the pane first —
+        // every case below then moves it (or a stand-in generation) into the
+        // custody this case names before the shared act/assert.
+        let generation = try makePreparedTerminalTestGeneration()
+        let descriptor = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let paneID = descriptor.paneID
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let handler = RecordingPreparedTerminalMountHandler(results: [])
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            viewRegistry: registry,
+            mountHandler: handler,
+            descriptorsByPaneID: [paneID: descriptor]
+        )
+        _ = port.installTrustedInitialFrames([:])
+
+        switch testCase {
+        case .deferredGeometrySameGeneration:
+            break
+        case .pendingNeverDeferred:
+            #expect(
+                registry.restorePreparedContentMountToPending(paneID: paneID, owner: .terminal, generation: generation)
+            )
+        case .mounting:
+            #expect(
+                registry.restorePreparedContentMountToPending(paneID: paneID, owner: .terminal, generation: generation)
+            )
+            #expect(
+                registry.claimPreparedContentMount(paneID: paneID, owner: .terminal, generation: generation)
+                    == .accepted
+            )
+        case .completed:
+            #expect(
+                registry.restorePreparedContentMountToPending(paneID: paneID, owner: .terminal, generation: generation)
+            )
+            #expect(
+                registry.claimPreparedContentMount(paneID: paneID, owner: .terminal, generation: generation)
+                    == .accepted
+            )
+            registry.settlePreparedContentMount(
+                paneID: paneID,
+                owner: .terminal,
+                generation: generation,
+                disposition: .mounted
+            )
+        case .foreignGeneration:
+            let otherGeneration = try makePreparedTerminalTestGeneration()
+            registry.installPreparedContentMountCohort(
+                WorkspacePreparedContentMountCohort(
+                    generation: otherGeneration,
+                    terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                    nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+                )
+            )
+        }
+
+        // Act
+        let acceptedPaneIDs = port.acceptLaterTrustedFrames([paneID: NSRect(x: 0, y: 0, width: 800, height: 600)])
+
+        // Assert
+        switch testCase {
+        case .deferredGeometrySameGeneration:
+            #expect(acceptedPaneIDs == [paneID])
+            #expect(
+                registry.preparedContentMountState(for: paneID, generation: generation)
+                    == .pending(owner: .terminal)
+            )
+        case .pendingNeverDeferred, .mounting, .completed, .foreignGeneration:
+            #expect(acceptedPaneIDs.isEmpty)
+        }
+    }
+
     @Test("replaying a consumed claim performs no mount effect")
     func replayingAConsumedClaimPerformsNoMountEffect() async throws {
         // Arrange

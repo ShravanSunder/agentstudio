@@ -74,7 +74,7 @@ struct TerminalActivationSchedulerTests {
         let port = ImmediateTerminalActivationAdmissionPort(
             resultsByPaneID: [descriptor.paneID: [.ready(surfaceID: surfaceID)]]
         )
-        let scheduler = try makeScheduler(entries: [descriptor], port: port)
+        let scheduler = try await makeScheduler(entries: [descriptor], port: port)
 
         let settlement = await scheduler.activate()
         let admittedPane = try #require(port.admissions.first?.descriptor.pane)
@@ -95,7 +95,7 @@ struct TerminalActivationSchedulerTests {
         let visible = makeDescriptors(count: 4, priority: .visible)
         let hidden = makeDescriptors(count: 4, priority: .hidden)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: hidden + visible + active, port: port)
+        let scheduler = try await makeScheduler(entries: hidden + visible + active, port: port)
 
         let settlement = await scheduler.activate()
 
@@ -126,6 +126,7 @@ struct TerminalActivationSchedulerTests {
             admissionPort: port,
             releaseSignal: releaseSignal
         )
+        _ = await scheduler.installGeometryEligibility([firstHidden.paneID, active.paneID, secondHidden.paneID])
         let activation = Task { await scheduler.activate() }
         await releaseSignal.waitUntilSchedulerIsWaiting()
 
@@ -145,7 +146,7 @@ struct TerminalActivationSchedulerTests {
     func restoreAdmissionsAreSerialAndYielded() async throws {
         let descriptors = makeDescriptors(count: 3, priority: .activeVisible)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: descriptors, port: port)
+        let scheduler = try await makeScheduler(entries: descriptors, port: port)
 
         _ = await scheduler.activate()
         let diagnostics = await scheduler.diagnostics()
@@ -204,7 +205,7 @@ struct TerminalActivationSchedulerTests {
             resultsByPaneID: [descriptor.paneID: results]
         )
         gatedPort.descriptorsByPaneID = [descriptor.paneID: descriptor]
-        let referenceScheduler = try makeScheduler(entries: [descriptor], port: referencePort)
+        let referenceScheduler = try await makeScheduler(entries: [descriptor], port: referencePort)
         let releaseSignal = ControlledTerminalActivationReleaseSignal()
         let gatedScheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
@@ -214,6 +215,7 @@ struct TerminalActivationSchedulerTests {
             admissionPort: gatedPort,
             releaseSignal: releaseSignal
         )
+        _ = await gatedScheduler.installGeometryEligibility([descriptor.paneID])
         let gatedActivation = Task { await gatedScheduler.activate() }
         await releaseSignal.waitUntilSchedulerIsWaiting()
 
@@ -237,7 +239,7 @@ struct TerminalActivationSchedulerTests {
     func slotBoundHoldsWhileQueuedWorkRemains() async throws {
         let descriptors = makeDescriptors(count: 100, priority: .activeVisible)
         let port = ControlledTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: descriptors, port: port)
+        let scheduler = try await makeScheduler(entries: descriptors, port: port)
         let activation = Task { await scheduler.activate() }
 
         await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
@@ -270,7 +272,7 @@ struct TerminalActivationSchedulerTests {
     func largeCohortsSettleWithFleetSizedWorkerBound(memberCount: Int) async throws {
         let descriptors = makeDescriptors(count: memberCount, priority: .hidden)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: descriptors, port: port)
+        let scheduler = try await makeScheduler(entries: descriptors, port: port)
 
         let settlement = await scheduler.activate()
         let diagnostics = await scheduler.diagnostics()
@@ -297,7 +299,7 @@ struct TerminalActivationSchedulerTests {
                 ]
             ]
         )
-        let scheduler = try makeScheduler(entries: [descriptor], port: port)
+        let scheduler = try await makeScheduler(entries: [descriptor], port: port)
 
         let settlement = await scheduler.activate()
 
@@ -315,7 +317,7 @@ struct TerminalActivationSchedulerTests {
                 descriptor.paneID: [.failed(failure: failure, retry: .doNotRetry)]
             ]
         )
-        let scheduler = try makeScheduler(entries: [descriptor], port: port)
+        let scheduler = try await makeScheduler(entries: [descriptor], port: port)
 
         let settlement = await scheduler.activate()
         let expectedRetry = TerminalActivationRetry.notRequested(attemptCount: 1)
@@ -334,7 +336,7 @@ struct TerminalActivationSchedulerTests {
     func schedulerMarksAMemberAttachingOnlyAfterAClaimIsGranted() async throws {
         let descriptors = makeDescriptors(count: 3, priority: .activeVisible)
         let port = RejectingTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: descriptors, port: port)
+        let scheduler = try await makeScheduler(entries: descriptors, port: port)
 
         let settlement = await scheduler.activate()
         let diagnostics = await scheduler.diagnostics()
@@ -349,7 +351,7 @@ struct TerminalActivationSchedulerTests {
     func aRejectedClaimResolvesTheMemberWithoutASecondAttempt() async throws {
         let descriptor = makeDescriptor()
         let port = RejectingTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: [descriptor], port: port)
+        let scheduler = try await makeScheduler(entries: [descriptor], port: port)
 
         let settlement = await scheduler.activate()
 
@@ -376,6 +378,7 @@ struct TerminalActivationSchedulerTests {
             ),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(descriptors.map(\.paneID)))
         let activation = Task { await scheduler.activate() }
 
         await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
@@ -399,7 +402,7 @@ struct TerminalActivationSchedulerTests {
         )
         let port = ControlledTerminalActivationAdmissionPort()
         let completionProbe = TerminalActivationCompletionProbe()
-        let scheduler = try makeScheduler(entries: descriptors, port: port)
+        let scheduler = try await makeScheduler(entries: descriptors, port: port)
         let activation = Task {
             let settlement = await scheduler.activate()
             await completionProbe.record(settlement)
@@ -432,7 +435,7 @@ struct TerminalActivationSchedulerTests {
         let firstHidden = makeDescriptor(priority: .hidden)
         let promotedHidden = makeDescriptor(priority: .hidden)
         let port = ControlledTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: active + [firstHidden, promotedHidden], port: port)
+        let scheduler = try await makeScheduler(entries: active + [firstHidden, promotedHidden], port: port)
         let activation = Task { await scheduler.activate() }
 
         await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
@@ -466,7 +469,7 @@ struct TerminalActivationSchedulerTests {
         let visibleMainSibling = makeDescriptor(priority: .visible)
         let visibleMainActive = makeDescriptor(priority: .activeVisible)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(
+        let scheduler = try await makeScheduler(
             entries: [
                 backgroundDrawer, backgroundMain, visibleDrawerSibling,
                 visibleDrawerActive, visibleMainSibling, visibleMainActive,
@@ -498,7 +501,7 @@ struct TerminalActivationSchedulerTests {
         let drawerSibling = makeDrawerDescriptor(priority: .visible)
         let drawerActive = makeDrawerDescriptor(priority: .activeVisible)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(
+        let scheduler = try await makeScheduler(
             entries: [mainSibling, mainActive, drawerSibling, drawerActive],
             port: port
         )
@@ -521,7 +524,7 @@ struct TerminalActivationSchedulerTests {
         // Arrange
         let tiedDescriptors = makeDescriptors(count: 6, priority: .hidden)
         let port = ImmediateTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(entries: tiedDescriptors, port: port)
+        let scheduler = try await makeScheduler(entries: tiedDescriptors, port: port)
 
         // Act
         _ = await scheduler.activate()
@@ -541,7 +544,7 @@ struct TerminalActivationSchedulerTests {
         let backgroundMain = makeDescriptor(priority: .hidden)
         let backgroundDrawer = makeDrawerDescriptor(priority: .hidden)
         let port = ControlledTerminalActivationAdmissionPort()
-        let scheduler = try makeScheduler(
+        let scheduler = try await makeScheduler(
             entries: [mainActive, mainSibling, drawerActive, backgroundMain, backgroundDrawer],
             port: port
         )
@@ -575,6 +578,7 @@ struct TerminalActivationSchedulerTests {
             cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
         port.recordCurrentVisibleQueuedTerminals(
             TerminalVisibleQueuedTerminals(
                 generation: generation,
@@ -612,6 +616,7 @@ struct TerminalActivationSchedulerTests {
             cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
         let activation = Task { await scheduler.activate() }
         await port.waitUntilStartedCount(1)
 
@@ -651,6 +656,7 @@ struct TerminalActivationSchedulerTests {
             cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
         let activation = Task { await scheduler.activate() }
         await port.waitUntilStartedCount(1)
 
@@ -693,6 +699,7 @@ struct TerminalActivationSchedulerTests {
             cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
         port.recordCurrentVisibleQueuedTerminals(
             TerminalVisibleQueuedTerminals(
                 generation: generation,
@@ -727,6 +734,7 @@ struct TerminalActivationSchedulerTests {
             cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
         let activation = Task { await scheduler.activate() }
         await port.waitUntilStartedCount(1)
         port.releaseFirstPendingAsReady()
@@ -758,18 +766,177 @@ struct TerminalActivationSchedulerTests {
         #expect(port.admissions.filter { $0.descriptor.paneID == alreadyReady.paneID }.count == 1)
     }
 
+    @Test("members without installed geometry never propose and settle as waiting")
+    func membersWithoutInstalledGeometryNeverProposeAndSettleAsWaiting() async throws {
+        // Arrange: no `installGeometryEligibility` call at all — every member
+        // stays `waitingForGeometry` for the whole life of this cohort.
+        let descriptors = makeDescriptors(count: 3, priority: .activeVisible)
+        let port = RejectingTerminalActivationAdmissionPort()
+        port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: try makeCompositionGeneration(),
+                input: TerminalActivationInput(entries: descriptors)
+            ),
+            admissionPort: port
+        )
+
+        // Act
+        let settlement = await scheduler.activate()
+
+        // Assert: zero proposals reached the port — a member without
+        // installed geometry is never a `nextQueuedCandidate()` candidate —
+        // and the settlement carries `.waitingForGeometry`, not a failure,
+        // for every member (SPEC R5, R1's deferral half).
+        #expect(port.claimProposals.isEmpty)
+        #expect(settlement.outcomesByPaneID.count == descriptors.count)
+        #expect(settlement.outcomesByPaneID.values.allSatisfy { $0 == .waitingForGeometry })
+        #expect(await scheduler.diagnostics().maximumSimultaneousAdmissions == 0)
+    }
+
+    @Test("later geometry requeues the same member in the same generation and scheduler")
+    func laterGeometryRequeuesTheSameMemberInTheSameGenerationAndScheduler() async throws {
+        // Arrange
+        let keepAlive = makeDescriptor(priority: .activeVisible)
+        let waiting = makeDescriptor(priority: .activeVisible)
+        let fixture = try await makeDrainingSchedulerWithOneWaitingMember(keepAlive: keepAlive, waiting: waiting)
+
+        // Act: accept `waiting`'s geometry while the drain is still looping.
+        let acceptedPaneIDs = await fixture.scheduler.acceptLaterGeometry(for: [waiting.paneID])
+        fixture.port.releaseFirstPendingAsReady()
+        await fixture.port.waitUntilStartedCount(2)
+        fixture.port.releaseAllPendingAsReady()
+        let settlement = await fixture.activation.value
+
+        // Assert: the same scheduler, same generation, admitted `waiting`
+        // immediately after `keepAlive` — no second fleet, no new scheduler.
+        #expect(acceptedPaneIDs == [waiting.paneID])
+        #expect(fixture.port.admissions.map(\.descriptor.paneID) == [keepAlive.paneID, waiting.paneID])
+        #expect(fixture.port.admissions.map(\.attempt) == [1, 1])
+        #expect(settlement.generation == fixture.generation)
+        guard case .ready = settlement.outcomesByPaneID[waiting.paneID] else {
+            Issue.record("expected the requeued member to reach ready")
+            return
+        }
+    }
+
+    @Test("later geometry does not consume the surface failure retry budget")
+    func laterGeometryDoesNotConsumeTheSurfaceFailureRetryBudget() async throws {
+        // Arrange: geometry is installed up front so `member` is `.queued`
+        // from the start — this test is about a *duplicate* later-geometry
+        // signal arriving mid-retry, not about the initial deferral.
+        let generation = try makeCompositionGeneration()
+        let member = makeDescriptor(priority: .activeVisible)
+        let port = RevisionAwareTerminalActivationAdmissionPort(
+            generation: generation,
+            descriptors: [member],
+            suspendsActivation: true
+        )
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: [member])),
+            admissionPort: port
+        )
+        _ = await scheduler.installGeometryEligibility([member.paneID])
+        let activation = Task { await scheduler.activate() }
+        await port.waitUntilStartedCount(1)
+        port.releaseFirstPending(with: .failed(failure: .surfaceCreationFailed(code: "transient"), retry: .retry))
+
+        // Act: attempt 2 is already `.attaching` by the time this observes
+        // it (`waitUntilStartedCount(2)` only resolves once `admissions`
+        // records attempt 2's start) — a duplicate later-geometry signal for
+        // an already-active member must be a pure no-op, not a reset.
+        await port.waitUntilStartedCount(2)
+        let acceptedPaneIDs = await scheduler.acceptLaterGeometry(for: [member.paneID])
+        port.releaseAllPendingAsReady()
+        let settlement = await activation.value
+
+        // Assert: exactly two admissions ever occurred — attempt 1 (failed)
+        // and attempt 2 (succeeded) — never a third.
+        #expect(acceptedPaneIDs.isEmpty)
+        #expect(port.admissions.map(\.attempt) == [1, 2])
+        guard case .ready = settlement.outcomesByPaneID[member.paneID] else {
+            Issue.record("expected attempt two to reach ready")
+            return
+        }
+    }
+
+    @Test("accepting geometry while draining joins the existing drain")
+    func acceptingGeometryWhileDrainingJoinsTheExistingDrain() async throws {
+        // Arrange: same shape as the requeue test above — this test's whole
+        // point is the diagnostic proof — no second worker fleet is ever
+        // spawned just because a later-geometry signal arrived mid-drain.
+        let keepAlive = makeDescriptor(priority: .activeVisible)
+        let waiting = makeDescriptor(priority: .activeVisible)
+        let fixture = try await makeDrainingSchedulerWithOneWaitingMember(keepAlive: keepAlive, waiting: waiting)
+
+        // Act
+        _ = await fixture.scheduler.acceptLaterGeometry(for: [waiting.paneID])
+        fixture.port.releaseFirstPendingAsReady()
+        await fixture.port.waitUntilStartedCount(2)
+        fixture.port.releaseAllPendingAsReady()
+        _ = await fixture.activation.value
+
+        // Assert: the original one-worker fleet handled both members.
+        #expect(await fixture.scheduler.diagnostics().workerCount == 1)
+    }
+
+    /// The scheduler, its in-flight `activate()` task, the controlled port
+    /// driving it, and its generation — returned together by
+    /// `makeDrainingSchedulerWithOneWaitingMember` since every field is
+    /// needed downstream.
+    private struct DrainingSchedulerFixture {
+        let scheduler: TerminalActivationScheduler
+        let activation: Task<TerminalActivationSettlement, Never>
+        let port: ControlledTerminalActivationAdmissionPort
+        let generation: WorkspaceContentMountGeneration
+    }
+
+    /// Builds a scheduler over `[keepAlive, waiting]` with `keepAlive`
+    /// already eligible and `waiting` still `waitingForGeometry`, then starts
+    /// `activate()` and waits until `keepAlive`'s admission is suspended
+    /// mid-claim on the controlled port it also builds. Shared by the two
+    /// tests needing the drain still looping before `waiting`'s geometry
+    /// arrives.
+    private func makeDrainingSchedulerWithOneWaitingMember(
+        keepAlive: TerminalActivationDescriptor,
+        waiting: TerminalActivationDescriptor
+    ) async throws -> DrainingSchedulerFixture {
+        let generation = try makeCompositionGeneration()
+        let port = ControlledTerminalActivationAdmissionPort()
+        port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: [keepAlive, waiting].map { ($0.paneID, $0) })
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: generation, input: TerminalActivationInput(entries: [keepAlive, waiting])),
+            admissionPort: port
+        )
+        _ = await scheduler.installGeometryEligibility([keepAlive.paneID])
+        let activation = Task { await scheduler.activate() }
+        await port.waitUntilStartedCount(1)
+        return DrainingSchedulerFixture(
+            scheduler: scheduler, activation: activation, port: port, generation: generation)
+    }
+
+    /// Builds a scheduler and immediately installs geometry eligibility for
+    /// every entry, matching the production sequencing
+    /// (`installTerminalGeometryAvailability` before `mount()`'s terminal
+    /// lane activates). Every test using this helper is exercising admission
+    /// order, retry, promotion, or concurrency behavior downstream of
+    /// eligibility — not the waiting/deferral behavior itself, which the S6
+    /// tests construct directly so they can withhold eligibility.
     private func makeScheduler(
         entries: [TerminalActivationDescriptor],
         port: some FakeTerminalActivationAdmissionPort
-    ) throws -> TerminalActivationScheduler {
+    ) async throws -> TerminalActivationScheduler {
         port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: entries.map { ($0.paneID, $0) })
-        return TerminalActivationScheduler(
+        let scheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
                 generation: try makeCompositionGeneration(),
                 input: TerminalActivationInput(entries: entries)
             ),
             admissionPort: port
         )
+        _ = await scheduler.installGeometryEligibility(Set(entries.map(\.paneID)))
+        return scheduler
     }
 
     private func makeCompositionGeneration() throws -> WorkspaceContentMountGeneration {

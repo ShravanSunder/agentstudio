@@ -83,10 +83,81 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
         currentVisibleQueuedSnapshot = Self.initialSnapshot(generation: generation)
     }
 
-    func installTrustedInitialFrames(_ initialFramesByPaneID: [PaneId: NSRect]) -> Bool {
-        guard case .awaitingInstallation = trustedFrameState else { return false }
-        trustedFrameState = .installed(initialFramesByPaneID)
-        return true
+    /// Installs the cohort's launch-time trusted frames exactly once, then
+    /// defers every cohort pane without a finite non-empty frame (SPEC R5,
+    /// R1's deferral half) rather than letting it fail closed later inside
+    /// `claimPreparedTerminal`. Only sanitized frames are retained; a
+    /// present-but-invalid frame is treated identically to a missing one.
+    /// Returns the eligible subset of the cohort's terminal panes — the ones
+    /// the caller should forward into
+    /// `WorkspacePreparedContentMountCoordinator.installTerminalGeometryAvailability`.
+    /// Returns an empty set if trusted frames were already installed.
+    func installTrustedInitialFrames(_ initialFramesByPaneID: [PaneId: NSRect]) -> Set<PaneId> {
+        guard case .awaitingInstallation = trustedFrameState else { return [] }
+        var eligiblePaneIDs: Set<PaneId> = []
+        var sanitizedFramesByPaneID: [PaneId: NSRect] = [:]
+        for paneID in descriptorsByPaneID.keys {
+            guard let frame = initialFramesByPaneID[paneID], Self.isFiniteNonEmptyFrame(frame) else {
+                _ = viewRegistry.deferPreparedContentMount(paneID: paneID, owner: .terminal, generation: generation)
+                continue
+            }
+            sanitizedFramesByPaneID[paneID] = frame
+            eligiblePaneIDs.insert(paneID)
+        }
+        trustedFrameState = .installed(sanitizedFramesByPaneID)
+        return eligiblePaneIDs
+    }
+
+    /// SPEC R5 retry: accepts later-arriving geometry for panes still under
+    /// `deferredGeometry` custody in this generation. Never replaces the
+    /// frame of a queued, attaching, ready, failed, or replaced member —
+    /// those hold `mounting` or `completed` custody, never `deferredGeometry`,
+    /// so this guard excludes them without inspecting scheduler state.
+    /// Returns the accepted subset of `framesByPaneID`'s keys.
+    func acceptLaterTrustedFrames(_ framesByPaneID: [PaneId: NSRect]) -> Set<PaneId> {
+        var acceptedPaneIDs: Set<PaneId> = []
+        var updatedFramesByPaneID = installedFramesSnapshot()
+        for (paneID, frame) in framesByPaneID {
+            guard Self.isFiniteNonEmptyFrame(frame) else { continue }
+            guard
+                viewRegistry.preparedContentMountState(for: paneID, generation: generation)
+                    == .deferredGeometry(owner: .terminal)
+            else {
+                continue
+            }
+            guard
+                viewRegistry.restorePreparedContentMountToPending(
+                    paneID: paneID,
+                    owner: .terminal,
+                    generation: generation
+                )
+            else {
+                continue
+            }
+            updatedFramesByPaneID[paneID] = frame
+            acceptedPaneIDs.insert(paneID)
+        }
+        guard !acceptedPaneIDs.isEmpty else { return acceptedPaneIDs }
+        trustedFrameState = .installed(updatedFramesByPaneID)
+        return acceptedPaneIDs
+    }
+
+    private func installedFramesSnapshot() -> [PaneId: NSRect] {
+        switch trustedFrameState {
+        case .awaitingInstallation:
+            return [:]
+        case .installed(let frames):
+            return frames
+        }
+    }
+
+    private static func isFiniteNonEmptyFrame(_ rect: NSRect) -> Bool {
+        rect.origin.x.isFinite
+            && rect.origin.y.isFinite
+            && rect.size.width.isFinite
+            && rect.size.height.isFinite
+            && rect.size.width > 0
+            && rect.size.height > 0
     }
 
     // MARK: - TerminalActivationAdmissionPort

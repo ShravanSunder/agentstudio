@@ -177,6 +177,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalAdmissionPort: terminalPort,
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
         )
+        await coordinator.installTerminalGeometryAvailability([descriptor.paneID])
         let firstMount = Task { @MainActor in
             await coordinator.mount()
         }
@@ -232,6 +233,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalAdmissionPort: terminalPort,
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
         )
+        await coordinator.installTerminalGeometryAvailability([failedDescriptor.paneID, blockingDescriptor.paneID])
         let mountTask = Task { @MainActor in
             await coordinator.mount()
         }
@@ -306,20 +308,17 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             visibilityPriority: .hidden,
             hostPlacement: .tab(tabID: tabID)
         )
+        let terminalDescriptors = [hiddenDrawerTerminal, drawerTerminal, hiddenMainTerminal, mainTerminal]
         let cohort = WorkspacePreparedContentMountCohort(
             generation: generation,
-            terminalActivationInput: TerminalActivationInput(
-                entries: [hiddenDrawerTerminal, drawerTerminal, hiddenMainTerminal, mainTerminal]
-            ),
+            terminalActivationInput: TerminalActivationInput(entries: terminalDescriptors),
             nonterminalContentMountInput: NonterminalContentMountInput(
                 entries: [mainNonterminal, drawerNonterminal, hiddenNonterminal]
             )
         )
         let registry = ViewRegistry()
         registry.beginInitialRestore()
-        let terminalPort = RecordingPreparedContentTerminalPort(
-            descriptors: [hiddenDrawerTerminal, drawerTerminal, hiddenMainTerminal, mainTerminal]
-        )
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: terminalDescriptors)
         let nonterminalPort = SignallingPreparedContentNonterminalPort(
             signalPaneID: mainNonterminal.paneID
         )
@@ -329,6 +328,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalAdmissionPort: terminalPort,
             nonterminalAdmissionPort: nonterminalPort
         )
+        await coordinator.installTerminalGeometryAvailability(Set(terminalDescriptors.map(\.paneID)))
         let settlement = await coordinator.mount()
 
         #expect(
@@ -405,6 +405,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalAdmissionPort: terminalPort,
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
         )
+        await coordinator.installTerminalGeometryAvailability(Set(allDescriptors.map(\.paneID)))
 
         // Act
         let settlement = await coordinator.mount()
@@ -416,6 +417,77 @@ struct WorkspacePreparedContentMountCoordinatorTests {
             terminalPort.admissions.map(\.descriptor.paneID).count
                 == Set(terminalPort.admissions.map(\.descriptor.paneID)).count
         )
+    }
+
+    @Test("settlement carries waiting members without failing them")
+    func settlementCarriesWaitingMembersWithoutFailingThem() async throws {
+        // Arrange: no `installTerminalGeometryAvailability` call at all —
+        // `descriptor` stays `waitingForGeometry` for the whole `mount()`.
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let descriptor = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [descriptor])
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+
+        // Act
+        let settlement = await coordinator.mount()
+
+        // Assert: `requireCompleteSettlement`'s key-set precondition already
+        // proves `mount()` did not trap; this asserts the *value* is the
+        // deferral outcome, not a failure, and that no proposal ever reached
+        // the port (SPEC R5, R1's deferral half).
+        #expect(settlement.terminal.outcomesByPaneID[descriptor.paneID] == .waitingForGeometry)
+        #expect(terminalPort.admissions.isEmpty)
+        #expect(registry.isInitialRestorePending == false)
+    }
+
+    @Test("a waiting member is not reported as deferred steady-state repair")
+    func aWaitingMemberIsNotReportedAsDeferredSteadyStateRepair() async throws {
+        // Arrange: `waiting`'s `ViewRegistry` custody is `deferredGeometry`
+        // (as the real port would leave it) and its visibility is signaled,
+        // so `deferredVisibilityIntentPaneIDs` genuinely contains it — the
+        // only question this test asks is whether the *failure* filter
+        // wrongly includes a still-waiting member.
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let waiting = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [waiting]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [waiting])
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+        // The coordinator's own init installs the cohort (custody becomes
+        // `.pending(owner: .terminal)`); only now can this move to deferred.
+        #expect(registry.deferPreparedContentMount(paneID: waiting.paneID, owner: .terminal, generation: generation))
+
+        // Act
+        _ = await coordinator.mount()
+        _ = coordinator.handleVisibilitySignals(
+            for: PreparedContentVisibleQueuedSet(visiblePaneIDs: [waiting.paneID], activePaneIDs: [])
+        )
+        let deferredSteadyStateRepairPaneIDs = coordinator.takeDeferredSteadyStateRepairPaneIDs()
+
+        // Assert
+        #expect(deferredSteadyStateRepairPaneIDs.isEmpty)
     }
 
     @Test("visibility is recorded synchronously at the coordinator boundary")

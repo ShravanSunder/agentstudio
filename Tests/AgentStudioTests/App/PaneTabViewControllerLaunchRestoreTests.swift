@@ -398,21 +398,28 @@ private func mountPreparedContent(
         nonterminalContentMountInput: NonterminalContentMountInput(entries: nonterminalDescriptors)
     )
     viewRegistry.beginInitialRestore()
+    // Matches `AppDelegate+LaunchRestore.swift`'s real sequencing: the port
+    // starts `.awaitingInstallation` so `installTrustedInitialFrames` can
+    // defer any cohort pane without a frame, and that call only happens
+    // after the coordinator's own init has installed the cohort into
+    // `viewRegistry` (a pane must be `.pending` before it can be deferred).
+    let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+        generation: generation,
+        viewRegistry: viewRegistry,
+        mountHandler: coordinator,
+        descriptorsByPaneID: Dictionary(uniqueKeysWithValues: terminalDescriptors.map { ($0.paneID, $0) })
+    )
     let owner = WorkspacePreparedContentMountCoordinator(
         cohort: cohort,
         viewRegistry: viewRegistry,
-        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
-            generation: generation,
-            initialFramesByPaneID: initialFramesByPaneID,
-            viewRegistry: viewRegistry,
-            mountHandler: coordinator,
-            descriptorsByPaneID: Dictionary(uniqueKeysWithValues: terminalDescriptors.map { ($0.paneID, $0) })
-        ),
+        terminalAdmissionPort: terminalAdmissionPort,
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
             generation: generation,
             coordinator: coordinator
         )
     )
+    let eligibleTerminalPaneIDs = terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID)
+    await owner.installTerminalGeometryAvailability(eligibleTerminalPaneIDs)
     _ = await owner.mount()
 }
 

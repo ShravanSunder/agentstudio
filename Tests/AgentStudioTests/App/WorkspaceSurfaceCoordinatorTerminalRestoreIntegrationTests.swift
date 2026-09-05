@@ -869,21 +869,21 @@ private func mountPreparedTerminalCohort(
         nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
     )
     viewRegistry.beginInitialRestore()
+    let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+        generation: generation,
+        viewRegistry: viewRegistry,
+        mountHandler: coordinator,
+        descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+    )
     let owner = WorkspacePreparedContentMountCoordinator(
         cohort: cohort,
         viewRegistry: viewRegistry,
-        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
-            generation: generation,
-            initialFramesByPaneID: initialFramesByPaneID,
-            viewRegistry: viewRegistry,
-            mountHandler: coordinator,
-            descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
-        ),
+        terminalAdmissionPort: terminalAdmissionPort,
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
-            generation: generation,
-            coordinator: coordinator
-        )
+            generation: generation, coordinator: coordinator)
     )
+    await owner.installTerminalGeometryAvailability(
+        terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID))
     _ = await owner.mount()
 }
 

@@ -115,6 +115,28 @@ final class WorkspacePreparedContentMountCoordinator {
         await terminalScheduler.recordedActivationDeferralOutcome()
     }
 
+    /// Forwards the port's launch-time eligible pane set to the one
+    /// scheduler, unlocking exactly those still-waiting members for
+    /// admission. The port has already performed its own `deferredGeometry`
+    /// custody bookkeeping for everything not in this set; this call only
+    /// carries the eligible set into the scheduler and awaits its
+    /// acknowledgement of the waiting-to-queued move. Must be called before
+    /// `mount()`'s terminal lane activates, so `installGeometryEligibility`'s
+    /// single-shot, pre-`activate()` contract is honored (SPEC R5, R1's
+    /// deferral half).
+    func installTerminalGeometryAvailability(_ eligiblePaneIDs: Set<PaneId>) async {
+        _ = await terminalScheduler.installGeometryEligibility(eligiblePaneIDs)
+    }
+
+    /// SPEC R5 retry: forwards a port's later-arriving eligible pane set to
+    /// the one scheduler, requeuing exactly the still-waiting members it
+    /// names. Safe to call at any point after `mount()` — including long
+    /// after its settlement — since the scheduler starts its own
+    /// supplemental drain when it has already gone quiescent.
+    func acceptTerminalGeometry(_ paneIDs: Set<PaneId>) async {
+        _ = await terminalScheduler.acceptLaterGeometry(for: paneIDs)
+    }
+
     func mount() async -> WorkspacePreparedContentMountSettlement {
         switch lifecycle {
         case .settled(let settlement):
@@ -291,7 +313,10 @@ final class WorkspacePreparedContentMountCoordinator {
             switch outcome {
             case .failedTerminal:
                 return paneID
-            case .ready, .cancelledReplaced:
+            case .ready, .cancelledReplaced, .waitingForGeometry:
+                // A waiting member has no outcome yet — it is not a failure,
+                // and `acceptLaterGeometry` can still requeue it in this same
+                // generation and scheduler (SPEC R5).
                 return nil
             }
         }
