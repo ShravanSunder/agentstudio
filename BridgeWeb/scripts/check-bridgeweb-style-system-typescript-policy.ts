@@ -79,13 +79,6 @@ function checkLiteralPolicies(
 	findings: StyleSystemFinding[],
 ): void {
 	if (!ts.isStringLiteralLike(node) && !ts.isTemplateExpression(node)) return;
-	if (
-		ts.isStringLiteralLike(node) &&
-		((ts.isTemplateExpression(node.parent) && node.parent.head === node) ||
-			(ts.isTemplateSpan(node.parent) && node.parent.literal === node))
-	) {
-		return;
-	}
 	const fragments = ts.isTemplateExpression(node)
 		? [node.head.text, ...node.templateSpans.map((span) => span.literal.text)]
 		: [node.text];
