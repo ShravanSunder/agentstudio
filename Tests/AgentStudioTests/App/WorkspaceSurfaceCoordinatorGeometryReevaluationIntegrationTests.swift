@@ -497,6 +497,128 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         }
         #expect(firstAdmitted == visibleSiblingPane.id)
     }
+
+    @Test("the visible queued set is recorded before requeuing deferred geometry")
+    func theVisibleQueuedSetIsRecordedBeforeRequeuingDeferredGeometry() async throws {
+        // Arrange: the same shape as `aNewlyQueuedVisibleMemberReceivesItsPromotedTier`
+        // — `backgroundDeferredPane` (earlier ordinal) sits in a
+        // never-selected tab, the "earlier-ordinal hidden competitor" R8
+        // guards against; `visibleSiblingPane` (later ordinal) starts
+        // deferred too, then becomes an actual split sibling of `activePane`
+        // in the ACTIVE tab only after the cohort has already mounted and
+        // settled, so its frame is "now safe" without ever having been
+        // installed as eligible.
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let activePane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let backgroundDeferredPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let visibleSiblingPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let activeTab = Tab(paneId: activePane.id, name: "Active")
+        let backgroundTab = Tab(paneId: backgroundDeferredPane.id, name: "Background")
+        harness.store.appendTab(activeTab)
+        harness.store.appendTab(backgroundTab)
+        harness.store.setActiveTab(activeTab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+        let mounted = try await mountGeometryReevaluationCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (activePane, .activeVisible, .tab(tabID: activeTab.id)),
+                (backgroundDeferredPane, .hidden, .tab(tabID: backgroundTab.id)),
+                (visibleSiblingPane, .hidden, .tab(tabID: activeTab.id)),
+            ],
+            eligiblePaneIDs: [PaneId(existingUUID: activePane.id)],
+            trustedBounds: trustedBounds
+        )
+        let visibleSiblingPaneID = PaneId(existingUUID: visibleSiblingPane.id)
+        #expect(
+            harness.viewRegistry.preparedContentMountState(for: visibleSiblingPaneID, generation: mounted.generation)
+                == .deferredGeometry(owner: .terminal)
+        )
+        _ = harness.store.insertPane(
+            visibleSiblingPane.id,
+            inTab: activeTab.id,
+            at: activePane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        // Interpose recording around the coordinator's two existing test
+        // seams without changing what they actually do — each still
+        // delegates to the real port/owner `mountGeometryReevaluationCohort`
+        // wired above.
+        let originalVisibilitySignalHandler = harness.coordinator.preparedContentVisibilitySignalHandler
+        let originalGeometryReevaluationHandler = harness.coordinator.preparedTerminalGeometryReevaluationHandler
+        let recorder = ReevaluationOrderRecorder()
+        harness.coordinator.preparedContentVisibilitySignalHandler = { visibleQueuedSet in
+            recorder.recordVisibilitySignal(visiblePaneIDs: visibleQueuedSet.visiblePaneIDs)
+            return originalVisibilitySignalHandler(visibleQueuedSet)
+        }
+        harness.coordinator.preparedTerminalGeometryReevaluationHandler = { framesByPaneID in
+            recorder.recordGeometryReevaluation(paneIDs: Set(framesByPaneID.keys))
+            await originalGeometryReevaluationHandler(framesByPaneID)
+        }
+
+        // Act: run the reevaluation tail directly — no need to route through
+        // a real AppKit layout action for an order assertion.
+        await harness.coordinator.reevaluatePreparedTerminalGeometry()
+
+        // Assert: the visibility signal (naming `visibleSiblingPane`, since
+        // it is now a genuine topological sibling in the active tab) is
+        // recorded before the requeue — the fence a competing claim from
+        // `backgroundDeferredPane`, carrying the older revision, relies on
+        // (R8). `backgroundDeferredPane` itself is never named: it is
+        // genuinely hidden, not merely deferred.
+        #expect(recorder.events.count == 2)
+        guard case .visibilitySignal(let visiblePaneIDs) = recorder.events.first else {
+            Issue.record("expected the visibility signal to be recorded first")
+            return
+        }
+        #expect(visiblePaneIDs.contains(visibleSiblingPaneID))
+        guard case .geometryReevaluation(let paneIDs) = recorder.events.last else {
+            Issue.record("expected the geometry reevaluation to be recorded second")
+            return
+        }
+        #expect(paneIDs.contains(visibleSiblingPaneID))
+        withExtendedLifetime(mounted) {}
+    }
+}
+
+/// Records the relative order of the two S9 reevaluation-tail seams without
+/// altering their behavior — each caller still chains to the original
+/// handler `mountGeometryReevaluationCohort` wired.
+@MainActor
+private final class ReevaluationOrderRecorder {
+    enum Event: Equatable {
+        case visibilitySignal(visiblePaneIDs: Set<PaneId>)
+        case geometryReevaluation(paneIDs: Set<PaneId>)
+    }
+
+    private(set) var events: [Event] = []
+
+    func recordVisibilitySignal(visiblePaneIDs: [PaneId]) {
+        events.append(.visibilitySignal(visiblePaneIDs: Set(visiblePaneIDs)))
+    }
+
+    func recordGeometryReevaluation(paneIDs: Set<PaneId>) {
+        events.append(.geometryReevaluation(paneIDs: paneIDs))
+    }
 }
 
 private struct MountedGeometryReevaluationCohort {

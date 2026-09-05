@@ -684,12 +684,22 @@ extension WorkspaceSurfaceCoordinator {
         }
         guard !resolvedFramesByPaneID.isEmpty else { return }
 
-        await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
-        // After the scheduler acknowledges the requeue, record the complete
-        // current visible queued set so a newly queued visible member
-        // receives its promoted tier (SPEC R3), not only the background rank
-        // a requeue would otherwise leave it at.
+        // Recorded BEFORE the requeue, not after: `acceptLaterGeometry`
+        // enables a drain before this `await` even returns, so an
+        // earlier-ordinal hidden competitor could otherwise claim on the
+        // still-old revision while this call is suspended, and nothing
+        // would repair it afterward — the port and scheduler would simply
+        // agree on that stale revision. `handleVisibilitySignals` already
+        // treats `.deferredGeometry(owner: .terminal)` custody like
+        // `pending` (the deferred pane enters the queued set the same way),
+        // so this pre-requeue record already names every pane this call is
+        // about to make eligible, at its correct promoted tier (SPEC R3).
+        // Any claim the drain proposes carrying the older revision is
+        // answered `.visibilityChanged`, and the scheduler applies this
+        // snapshot (R3's `admitWaitingMembers` plus `applyVisibilitySnapshot`)
+        // before granting anything.
         _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
     }
 
     func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {
