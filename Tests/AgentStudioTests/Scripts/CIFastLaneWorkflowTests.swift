@@ -257,6 +257,22 @@ struct CIFastLaneWorkflowTests {
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
     }
 
+    @Test("benchmark lane runs nightly and pins the native table pilot result line")
+    func benchmarkLaneRunsNightlyAndPinsPilotResult() throws {
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
+
+        #expect(benchmarkWorkflow.contains("  schedule:\n    - cron: \"0 9 * * *\""))
+        #expect(benchmarkWorkflow.contains("  push:\n    branches: [main]"))
+        #expect(benchmarkWorkflow.contains("concurrency:\n  group: benchmarks-${{ github.ref }}"))
+        #expect(benchmarkWorkflow.contains("cancel-in-progress: false"))
+        #expect(benchmarkStep.contains("grep -oE \"REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT"))
+        #expect(benchmarkStep.contains("grep -c \"REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT \""))
+    }
+
     @Test("fast lane uses native Swift Testing concurrency after cold prebuild")
     func fastLaneUsesNativeSwiftTestingConcurrencyAfterColdPrebuild() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
