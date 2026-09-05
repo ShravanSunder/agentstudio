@@ -125,7 +125,9 @@ extension WorkspaceSurfaceCoordinator {
     func ensureTerminalPaneView(_ pane: Pane) {
         let runtimePaneID = PaneId(existingUUID: pane.id)
         if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler([runtimePaneID]).contains(runtimePaneID)
+            preparedContentVisibilitySignalHandler(
+                currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
+            ).contains(runtimePaneID)
         {
             RestoreTrace.log("ensureTerminalPaneView signalledPreparedOwner pane=\(pane.id)")
             return
@@ -163,7 +165,9 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
         if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler([runtimePaneId]).contains(runtimePaneId)
+            preparedContentVisibilitySignalHandler(
+                currentVisibleQueuedSet(includingAtLeast: runtimePaneId)
+            ).contains(runtimePaneId)
         {
             RestoreTrace.log("restoreVisiblePaneIfNeeded signalledPreparedOwner pane=\(paneId)")
             return

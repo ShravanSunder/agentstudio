@@ -22,11 +22,9 @@ protocol PreparedTerminalMountHandling: AnyObject {
 /// check, and the `ViewRegistry` `pending -> mounting` transition either all
 /// happen or none do.
 ///
-/// `recordCurrentVisibleQueuedTerminals` here is a minimal always-incrementing
-/// implementation. Equality suppression and the App-side visibility wiring
-/// that actually calls it are a later slice's responsibility; nothing in this
-/// generation of the scheduler calls it, so every proposal it makes carries
-/// the zero-ordinal baseline this port also starts from.
+/// `recordCurrentVisibleQueuedTerminals` equality-suppresses an identical
+/// current set so repeated observations mint no new revision (G1), and
+/// otherwise monotonically increments the generation-bound ordinal.
 @MainActor
 final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort {
     private enum TrustedFrameState {
@@ -96,6 +94,9 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
     func recordCurrentVisibleQueuedTerminals(
         _ terminals: TerminalVisibleQueuedTerminals
     ) -> TerminalVisibilityRevision {
+        guard terminals != currentVisibleQueuedSnapshot.terminals else {
+            return currentVisibleQueuedSnapshot.revision
+        }
         let nextRevision = TerminalVisibilityRevision(
             generation: generation,
             ordinal: currentVisibleQueuedSnapshot.revision.ordinal + 1

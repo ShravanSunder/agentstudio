@@ -23,15 +23,26 @@ package actor TerminalActivationScheduler {
         let descriptor: TerminalActivationDescriptor
         let originalOrdinal: Int
         var execution: MemberExecution
+        /// The rank assigned by the latest applied visibility snapshot,
+        /// `nil` until the first snapshot is applied to this member. Once
+        /// non-nil, this member's rank is always this value, never the
+        /// static initial-visible/background formula: a demoted member
+        /// returns to its background rank, never back to "initial visible."
+        var promotedRank: QueueRank?
     }
 
-    /// Placement-aware initial admission order (SPEC R2), low value admitted
-    /// first. Ranks 0-3 are reserved for a later slice's promoted tiers; this
-    /// scheduler only ever assigns 4-9. Stays private: the public
+    /// Placement-aware admission order (SPEC R2 initial order, R3 promotion),
+    /// low value admitted first. Ranks 0-3 are the promoted tiers a complete
+    /// current visible queued set assigns; 4-9 are this scheduler's initial,
+    /// pre-observation order. Stays private: the public
     /// `TerminalActivationMemberState.queued` case continues to expose only
     /// `TerminalActivationVisibilityPriority`, per the program design's
     /// selected queue-authority tradeoff.
     private enum QueueRank: Int, Comparable {
+        case promotedActiveMain = 0
+        case promotedMainSibling = 1
+        case promotedActiveDrawer = 2
+        case promotedDrawerSibling = 3
         case initialVisibleMainActive = 4
         case initialVisibleMainSibling = 5
         case initialVisibleDrawerActive = 6
@@ -66,6 +77,15 @@ package actor TerminalActivationScheduler {
                 self = .backgroundDrawer
             }
         }
+
+        static func backgroundRank(for placement: TerminalHostPlacementIdentity) -> QueueRank {
+            switch placement {
+            case .tab:
+                return .backgroundMain
+            case .drawer:
+                return .backgroundDrawer
+            }
+        }
     }
 
     private struct QueuedCandidate {
@@ -90,9 +110,8 @@ package actor TerminalActivationScheduler {
     /// The latest visibility revision this scheduler has applied. Every
     /// proposal carries it so the admission port can prove (G2) that any
     /// snapshot recorded before the proposal has already been applied here.
-    /// Nothing in this generation of the scheduler advances it yet beyond its
-    /// zero baseline; the App-owned visibility observation that mints later
-    /// revisions is wired in a later slice.
+    /// Starts at the same zero-ordinal baseline the port starts from, so the
+    /// first proposal always matches until a real observation is recorded.
     private var appliedVisibilityRevision: TerminalVisibilityRevision
 
     package init(
@@ -119,7 +138,8 @@ package actor TerminalActivationScheduler {
                         execution: .queued(
                             priority: descriptor.visibilityPriority,
                             attempt: 1
-                        )
+                        ),
+                        promotedRank: nil
                     )
                 )
             }
@@ -243,6 +263,7 @@ package actor TerminalActivationScheduler {
                 await Task.yield()
             case .visibilityChanged(let snapshot):
                 appliedVisibilityRevision = snapshot.revision
+                applyVisibilitySnapshot(snapshot.terminals)
             case .rejected(let rejection):
                 resolveRejectedProposal(paneID: candidate.paneID, attempt: candidate.attempt, rejection: rejection)
             }
@@ -255,10 +276,11 @@ package actor TerminalActivationScheduler {
     private func nextQueuedCandidate() -> QueuedCandidate? {
         membersByPaneID.values.compactMap { member -> QueuedCandidate? in
             guard case .queued(let priority, let attempt) = member.execution else { return nil }
+            let rank = member.promotedRank ?? QueueRank(placement: member.descriptor.hostPlacement, priority: priority)
             return QueuedCandidate(
                 paneID: member.descriptor.paneID,
                 priority: priority,
-                rank: QueueRank(placement: member.descriptor.hostPlacement, priority: priority),
+                rank: rank,
                 attempt: attempt,
                 originalOrdinal: member.originalOrdinal
             )
@@ -267,6 +289,33 @@ package actor TerminalActivationScheduler {
                 return lhs.originalOrdinal < rhs.originalOrdinal
             }
             return lhs.rank < rhs.rank
+        }
+    }
+
+    /// Reclassifies every still-queued member's rank from a newly observed
+    /// complete current visible queued set (SPEC R3). Attaching, ready,
+    /// failed, replaced, and waiting members are untouched — promotion never
+    /// re-ranks them. A member absent from every tier is demoted straight to
+    /// its background rank; it never falls back to an "initial visible" rank
+    /// once a real observation has been applied. Promotion never alters
+    /// identity, placement, frame, generation, or attempt count.
+    private func applyVisibilitySnapshot(_ terminals: TerminalVisibleQueuedTerminals) {
+        for (paneID, var member) in membersByPaneID {
+            guard case .queued = member.execution else { continue }
+            let rank: QueueRank
+            if terminals.activeMainPaneIDs.contains(paneID) {
+                rank = .promotedActiveMain
+            } else if terminals.visibleMainSiblingPaneIDs.contains(paneID) {
+                rank = .promotedMainSibling
+            } else if terminals.activeDrawerPaneIDs.contains(paneID) {
+                rank = .promotedActiveDrawer
+            } else if terminals.visibleDrawerSiblingPaneIDs.contains(paneID) {
+                rank = .promotedDrawerSibling
+            } else {
+                rank = QueueRank.backgroundRank(for: member.descriptor.hostPlacement)
+            }
+            member.promotedRank = rank
+            membersByPaneID[paneID] = member
         }
     }
 

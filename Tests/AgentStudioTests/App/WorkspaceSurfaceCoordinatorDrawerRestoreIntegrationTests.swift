@@ -345,9 +345,9 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         }
         harness.viewRegistry.beginInitialRestore()
         var signalledPaneIDs: [PaneId] = []
-        harness.coordinator.preparedContentVisibilitySignalHandler = { paneIDs in
-            signalledPaneIDs = paneIDs
-            return Set(paneIDs)
+        harness.coordinator.preparedContentVisibilitySignalHandler = { visibleQueuedSet in
+            signalledPaneIDs = visibleQueuedSet.visiblePaneIDs
+            return Set(visibleQueuedSet.visiblePaneIDs)
         }
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)

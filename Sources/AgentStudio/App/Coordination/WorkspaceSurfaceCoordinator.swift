@@ -68,7 +68,9 @@ final class WorkspaceSurfaceCoordinator {
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
-    var preparedContentVisibilitySignalHandler: @MainActor ([PaneId]) -> Set<PaneId> = { _ in [] }
+    var preparedContentVisibilitySignalHandler: @MainActor (PreparedContentVisibleQueuedSet) -> Set<PaneId> = { _ in
+        []
+    }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var paneEventIngressTask: Task<Void, Never>?

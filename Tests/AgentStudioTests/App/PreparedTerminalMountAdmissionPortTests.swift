@@ -457,6 +457,170 @@ struct PreparedTerminalMountAdmissionPortTests {
         #expect(mismatchedOutcome == .rejected(.retryClaimMismatch))
         #expect(handler.admissions.count == 1)
     }
+
+    @Test("two visibility changes before acknowledgement coalesce into one current set")
+    func twoVisibilityChangesBeforeAcknowledgementCoalesceIntoOneCurrentSet() throws {
+        // Arrange
+        let generation = try makePreparedTerminalTestGeneration()
+        let mainDescriptor = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let drawerDescriptor = makePreparedTerminalTestDrawerDescriptor(pane: makePreparedTerminalTestPane())
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [mainDescriptor, drawerDescriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let handler = RecordingPreparedTerminalMountHandler(results: [])
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: [
+                mainDescriptor.paneID: NSRect(x: 0, y: 0, width: 800, height: 600),
+                drawerDescriptor.paneID: NSRect(x: 0, y: 0, width: 400, height: 300),
+            ],
+            viewRegistry: registry,
+            mountHandler: handler,
+            descriptorsByPaneID: [
+                mainDescriptor.paneID: mainDescriptor,
+                drawerDescriptor.paneID: drawerDescriptor,
+            ]
+        )
+        let mainOnlySnapshot = TerminalVisibleQueuedTerminals(
+            generation: generation,
+            activeMainPaneIDs: [mainDescriptor.paneID],
+            visibleMainSiblingPaneIDs: [],
+            activeDrawerPaneIDs: [],
+            visibleDrawerSiblingPaneIDs: []
+        )
+        let mainAndDrawerSnapshot = TerminalVisibleQueuedTerminals(
+            generation: generation,
+            activeMainPaneIDs: [mainDescriptor.paneID],
+            visibleMainSiblingPaneIDs: [],
+            activeDrawerPaneIDs: [drawerDescriptor.paneID],
+            visibleDrawerSiblingPaneIDs: []
+        )
+
+        // Act
+        let firstRevision = port.recordCurrentVisibleQueuedTerminals(mainOnlySnapshot)
+        let secondRevision = port.recordCurrentVisibleQueuedTerminals(mainAndDrawerSnapshot)
+        let outcome = port.claimPreparedTerminal(
+            TerminalAdmissionProposal(
+                generation: generation,
+                paneID: mainDescriptor.paneID,
+                attempt: 1,
+                appliedVisibilityRevision: firstRevision
+            )
+        )
+
+        // Assert
+        guard case .visibilityChanged(let snapshot) = outcome else {
+            Issue.record("expected a stale proposal to receive the newest snapshot")
+            return
+        }
+        #expect(snapshot.revision == secondRevision)
+        #expect(snapshot.terminals == mainAndDrawerSnapshot)
+        #expect(handler.admissions.isEmpty)
+    }
+
+    @Test("an identical current set mints no new revision")
+    func anIdenticalCurrentSetMintsNoNewRevision() throws {
+        // Arrange
+        let generation = try makePreparedTerminalTestGeneration()
+        let descriptor = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: [descriptor.paneID: NSRect(x: 0, y: 0, width: 800, height: 600)],
+            viewRegistry: registry,
+            mountHandler: RecordingPreparedTerminalMountHandler(results: []),
+            descriptorsByPaneID: [descriptor.paneID: descriptor]
+        )
+        let terminals = TerminalVisibleQueuedTerminals(
+            generation: generation,
+            activeMainPaneIDs: [descriptor.paneID],
+            visibleMainSiblingPaneIDs: [],
+            activeDrawerPaneIDs: [],
+            visibleDrawerSiblingPaneIDs: []
+        )
+
+        // Act
+        let firstRevision = port.recordCurrentVisibleQueuedTerminals(terminals)
+        let secondRevision = port.recordCurrentVisibleQueuedTerminals(terminals)
+
+        // Assert
+        #expect(firstRevision == secondRevision)
+    }
+
+    @Test("a pane that is no longer visible disappears from the current set")
+    func aPaneThatIsNoLongerVisibleDisappearsFromTheCurrentSet() throws {
+        // Arrange
+        let generation = try makePreparedTerminalTestGeneration()
+        let stillVisible = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let noLongerVisible = makePreparedTerminalTestDescriptor(pane: makePreparedTerminalTestPane())
+        let registry = ViewRegistry()
+        registry.installPreparedContentMountCohort(
+            WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [stillVisible, noLongerVisible]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            )
+        )
+        let port = PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: [
+                stillVisible.paneID: NSRect(x: 0, y: 0, width: 800, height: 600),
+                noLongerVisible.paneID: NSRect(x: 0, y: 0, width: 400, height: 300),
+            ],
+            viewRegistry: registry,
+            mountHandler: RecordingPreparedTerminalMountHandler(results: []),
+            descriptorsByPaneID: [
+                stillVisible.paneID: stillVisible,
+                noLongerVisible.paneID: noLongerVisible,
+            ]
+        )
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [stillVisible.paneID],
+                visibleMainSiblingPaneIDs: [noLongerVisible.paneID],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+
+        // Act
+        let revision = port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [stillVisible.paneID],
+                visibleMainSiblingPaneIDs: [],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+        let outcome = port.claimPreparedTerminal(
+            TerminalAdmissionProposal(
+                generation: generation,
+                paneID: stillVisible.paneID,
+                attempt: 1,
+                appliedVisibilityRevision: revision
+            )
+        )
+
+        // Assert
+        guard case .claimed = outcome else {
+            Issue.record("expected the still-visible pane's proposal, carrying the latest revision, to claim")
+            return
+        }
+    }
 }
 
 @MainActor
@@ -509,5 +673,20 @@ private func makePreparedTerminalTestDescriptor(pane: Pane) -> TerminalActivatio
         pane: pane,
         visibilityPriority: .activeVisible,
         hostPlacement: .tab(tabID: UUIDv7.generate())
+    )
+}
+
+private func makePreparedTerminalTestDrawerDescriptor(pane: Pane) -> TerminalActivationDescriptor {
+    guard case .terminal = pane.content else {
+        preconditionFailure("prepared terminal test requires terminal content")
+    }
+    return TerminalActivationDescriptor(
+        pane: pane,
+        visibilityPriority: .activeVisible,
+        hostPlacement: .drawer(
+            tabID: UUIDv7.generate(),
+            parentPaneID: PaneId(existingUUID: UUIDv7.generate()),
+            drawerID: UUIDv7.generate()
+        )
     )
 }

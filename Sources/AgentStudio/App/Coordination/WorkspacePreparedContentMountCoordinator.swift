@@ -38,6 +38,14 @@ final class WorkspacePreparedContentMountCoordinator {
     /// the whole-cohort concurrency bound (R4) can no longer be exceeded by
     /// summing several schedulers' individual bounds.
     private let terminalScheduler: TerminalActivationScheduler
+    /// Held so `handleVisibilitySignals` can record the complete current
+    /// visible queued set synchronously (R3, G2) instead of the retired
+    /// fire-and-forget per-pane promotion task.
+    private let terminalAdmissionPort: any TerminalActivationAdmissionPort
+    /// Placement lookup for classifying a signaled pane into the four
+    /// promotion tiers. Built once from the accepted cohort's descriptors,
+    /// which never change for the life of this generation.
+    private let terminalDescriptorsByPaneID: [PaneId: TerminalActivationDescriptor]
     /// Nonterminal startup keeps its existing two-phase order (main before
     /// drawer) and ledger semantics, unchanged by this slice. Hidden
     /// nonterminal panes are excluded before this array is built.
@@ -67,6 +75,10 @@ final class WorkspacePreparedContentMountCoordinator {
         )
         self.cohort = startupCohort
         self.viewRegistry = viewRegistry
+        self.terminalAdmissionPort = terminalAdmissionPort
+        terminalDescriptorsByPaneID = Dictionary(
+            uniqueKeysWithValues: startupCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
+        )
         let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
         self.terminalActivationReleaseGate = terminalActivationReleaseGate
         terminalScheduler = TerminalActivationScheduler(
@@ -174,17 +186,14 @@ final class WorkspacePreparedContentMountCoordinator {
         )
     }
 
-    func promoteTerminal(
-        paneID: PaneId,
-        to priority: TerminalActivationVisibilityPriority
-    ) async -> TerminalActivationPromotionResult {
-        await terminalScheduler.promote(paneID: paneID, to: priority)
-    }
-
-    func handleVisibilitySignals(for paneIDs: [PaneId]) -> Set<PaneId> {
+    /// Records the complete current visible queued set synchronously, then
+    /// returns which signaled panes the prepared lane still owns. Replaces
+    /// the retired fire-and-forget per-pane promotion task: acknowledgement
+    /// now happens inline, before this call returns, with no `Task` hop.
+    func handleVisibilitySignals(for visibleQueuedSet: PreparedContentVisibleQueuedSet) -> Set<PaneId> {
         var handledPaneIDs: Set<PaneId> = []
-        var terminalPaneIDsToPromote: [PaneId] = []
-        for paneID in paneIDs {
+        var queuedTerminalPaneIDs: Set<PaneId> = []
+        for paneID in visibleQueuedSet.visiblePaneIDs {
             guard
                 let state = viewRegistry.preparedContentMountState(
                     for: paneID,
@@ -197,11 +206,11 @@ final class WorkspacePreparedContentMountCoordinator {
             case .pending(owner: .terminal), .deferredGeometry(owner: .terminal):
                 // A pane waiting on geometry is treated exactly like a pending
                 // pane here: the prepared lane still owns it, and this signal
-                // only records intent and (harmlessly) promotes its priority
-                // for whenever it becomes claimable again.
+                // records intent and enters the current visible queued set
+                // this scheduler will apply its four-tier promotion from.
                 handledPaneIDs.insert(paneID)
                 recordDeferredVisibilityIntent(for: paneID)
-                terminalPaneIDsToPromote.append(paneID)
+                queuedTerminalPaneIDs.insert(paneID)
             case .mounting(owner: .terminal), .pending(owner: .nonterminal), .mounting(owner: .nonterminal),
                 .deferredGeometry(owner: .nonterminal):
                 handledPaneIDs.insert(paneID)
@@ -213,18 +222,52 @@ final class WorkspacePreparedContentMountCoordinator {
                 handledPaneIDs.insert(paneID)
             }
         }
-        if !terminalPaneIDsToPromote.isEmpty {
-            let terminalScheduler = terminalScheduler
-            Task {
-                for paneID in terminalPaneIDsToPromote {
-                    _ = await terminalScheduler.promote(
-                        paneID: paneID,
-                        to: .activeVisible
-                    )
-                }
-            }
+        if !queuedTerminalPaneIDs.isEmpty {
+            terminalAdmissionPort.recordCurrentVisibleQueuedTerminals(
+                classifyVisibleQueuedTerminals(visibleQueuedSet, queuedTerminalPaneIDs: queuedTerminalPaneIDs)
+            )
         }
         return handledPaneIDs
+    }
+
+    /// Classifies `visibleQueuedSet` into the four promotion tiers. "Active"
+    /// is membership in `visibleQueuedSet.activePaneIDs` — never list
+    /// position — so a caller may pass its visible panes in any order. Only
+    /// members still in `queuedTerminalPaneIDs` (pending or deferred-geometry
+    /// custody) enter a tier, so an already-mounted active pane cannot cause
+    /// a sibling to be misclassified as active.
+    private func classifyVisibleQueuedTerminals(
+        _ visibleQueuedSet: PreparedContentVisibleQueuedSet,
+        queuedTerminalPaneIDs: Set<PaneId>
+    ) -> TerminalVisibleQueuedTerminals {
+        var activeMainPaneIDs: [PaneId] = []
+        var visibleMainSiblingPaneIDs: [PaneId] = []
+        var activeDrawerPaneIDs: [PaneId] = []
+        var visibleDrawerSiblingPaneIDs: [PaneId] = []
+        for paneID in visibleQueuedSet.visiblePaneIDs {
+            guard queuedTerminalPaneIDs.contains(paneID), let descriptor = terminalDescriptorsByPaneID[paneID] else {
+                continue
+            }
+            let isDrawer = Self.isDrawerPlacement(descriptor.hostPlacement)
+            let isActive = visibleQueuedSet.activePaneIDs.contains(paneID)
+            switch (isDrawer, isActive) {
+            case (false, true):
+                activeMainPaneIDs.append(paneID)
+            case (false, false):
+                visibleMainSiblingPaneIDs.append(paneID)
+            case (true, true):
+                activeDrawerPaneIDs.append(paneID)
+            case (true, false):
+                visibleDrawerSiblingPaneIDs.append(paneID)
+            }
+        }
+        return TerminalVisibleQueuedTerminals(
+            generation: cohort.generation,
+            activeMainPaneIDs: activeMainPaneIDs,
+            visibleMainSiblingPaneIDs: visibleMainSiblingPaneIDs,
+            activeDrawerPaneIDs: activeDrawerPaneIDs,
+            visibleDrawerSiblingPaneIDs: visibleDrawerSiblingPaneIDs
+        )
     }
 
     func takeDeferredSteadyStateRepairPaneIDs() -> [PaneId] {

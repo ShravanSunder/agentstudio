@@ -239,7 +239,9 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         await terminalPort.waitUntilSuspendedAdmissionStarts()
 
         // Act
-        let handledPaneIDs = coordinator.handleVisibilitySignals(for: [failedDescriptor.paneID])
+        let handledPaneIDs = coordinator.handleVisibilitySignals(
+            for: PreparedContentVisibleQueuedSet(visiblePaneIDs: [failedDescriptor.paneID], activePaneIDs: [])
+        )
         terminalPort.finishSuspendedAdmission()
         _ = await mountTask.value
         let deferredAfterSettlement = coordinator.takeDeferredSteadyStateRepairPaneIDs()
@@ -415,6 +417,95 @@ struct WorkspacePreparedContentMountCoordinatorTests {
                 == Set(terminalPort.admissions.map(\.descriptor.paneID)).count
         )
     }
+
+    @Test("visibility is recorded synchronously at the coordinator boundary")
+    func visibilityIsRecordedSynchronouslyAtTheCoordinatorBoundary() throws {
+        // Arrange
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let descriptor = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [descriptor])
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+
+        // Act
+        let handledPaneIDs = coordinator.handleVisibilitySignals(
+            for: PreparedContentVisibleQueuedSet(
+                visiblePaneIDs: [descriptor.paneID],
+                activePaneIDs: [descriptor.paneID]
+            )
+        )
+
+        // Assert: the classified snapshot is observable immediately after the
+        // call returns — no `Task` hop, no `Task.sleep`.
+        #expect(handledPaneIDs == [descriptor.paneID])
+        #expect(terminalPort.recordedVisibleQueuedTerminals.count == 1)
+        #expect(
+            terminalPort.recordedVisibleQueuedTerminals.first
+                == TerminalVisibleQueuedTerminals(
+                    generation: generation,
+                    activeMainPaneIDs: [descriptor.paneID],
+                    visibleMainSiblingPaneIDs: [],
+                    activeDrawerPaneIDs: [],
+                    visibleDrawerSiblingPaneIDs: []
+                )
+        )
+    }
+
+    @Test("active membership, not list order, decides the active tier")
+    func activeMembershipNotListOrderDecidesTheActiveTier() throws {
+        // Arrange: the visible set lists the sibling BEFORE the true active
+        // pane, proving classification uses `activePaneIDs` membership, not
+        // position.
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let trueActive = makePreparedContentCoordinatorTerminalDescriptor(title: "True active")
+        let sibling = makePreparedContentCoordinatorTerminalDescriptor(title: "Sibling")
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [trueActive, sibling]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [trueActive, sibling])
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+
+        // Act: `sibling` is listed first; `activePaneIDs` still names `trueActive`.
+        _ = coordinator.handleVisibilitySignals(
+            for: PreparedContentVisibleQueuedSet(
+                visiblePaneIDs: [sibling.paneID, trueActive.paneID],
+                activePaneIDs: [trueActive.paneID]
+            )
+        )
+
+        // Assert
+        #expect(terminalPort.recordedVisibleQueuedTerminals.count == 1)
+        #expect(
+            terminalPort.recordedVisibleQueuedTerminals.first
+                == TerminalVisibleQueuedTerminals(
+                    generation: generation,
+                    activeMainPaneIDs: [trueActive.paneID],
+                    visibleMainSiblingPaneIDs: [sibling.paneID],
+                    activeDrawerPaneIDs: [],
+                    visibleDrawerSiblingPaneIDs: []
+                )
+        )
+    }
 }
 
 /// The propose/claim/activate handshake needs a descriptor for any pane it
@@ -425,6 +516,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
 private final class RecordingPreparedContentTerminalPort: TerminalActivationAdmissionPort {
     private let descriptorsByPaneID: [PaneId: TerminalActivationDescriptor]
     private(set) var admissions: [TerminalActivationAdmission] = []
+    private(set) var recordedVisibleQueuedTerminals: [TerminalVisibleQueuedTerminals] = []
 
     init(descriptors: [TerminalActivationDescriptor] = []) {
         descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
@@ -433,7 +525,11 @@ private final class RecordingPreparedContentTerminalPort: TerminalActivationAdmi
     func recordCurrentVisibleQueuedTerminals(
         _ terminals: TerminalVisibleQueuedTerminals
     ) -> TerminalVisibilityRevision {
-        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+        recordedVisibleQueuedTerminals.append(terminals)
+        return TerminalVisibilityRevision(
+            generation: terminals.generation,
+            ordinal: UInt64(recordedVisibleQueuedTerminals.count)
+        )
     }
 
     func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {

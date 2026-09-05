@@ -70,7 +70,9 @@ extension WorkspaceSurfaceCoordinator {
         }
         let runtimePaneID = PaneId(existingUUID: pane.id)
         if viewRegistry.isInitialRestorePending,
-            preparedContentVisibilitySignalHandler([runtimePaneID]).contains(runtimePaneID)
+            preparedContentVisibilitySignalHandler(
+                currentVisibleQueuedSet(includingAtLeast: runtimePaneID)
+            ).contains(runtimePaneID)
         {
             RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
             return nil

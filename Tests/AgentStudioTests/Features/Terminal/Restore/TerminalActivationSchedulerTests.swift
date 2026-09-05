@@ -558,6 +558,206 @@ struct TerminalActivationSchedulerTests {
         #expect(await scheduler.diagnostics().maximumSimultaneousAdmissions == 1)
     }
 
+    @Test(
+        "a promoted batch is admitted as active main then main siblings then active drawer then drawer siblings"
+    )
+    func aPromotedBatchIsAdmittedAsActiveMainThenMainSiblingsThenActiveDrawerThenDrawerSiblings() async throws {
+        // Arrange: drawer members get LOWER original ordinals than main
+        // members, so a rank model that leaks the ordinal above the tier fails.
+        let generation = try makeCompositionGeneration()
+        let drawerSibling = makeDrawerDescriptor(priority: .hidden)
+        let drawerActive = makeDrawerDescriptor(priority: .hidden)
+        let mainSibling = makeDescriptor(priority: .hidden)
+        let mainActive = makeDescriptor(priority: .hidden)
+        let entries = [drawerSibling, drawerActive, mainSibling, mainActive]
+        let port = RevisionAwareTerminalActivationAdmissionPort(generation: generation, descriptors: entries)
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
+            admissionPort: port
+        )
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [mainActive.paneID],
+                visibleMainSiblingPaneIDs: [mainSibling.paneID],
+                activeDrawerPaneIDs: [drawerActive.paneID],
+                visibleDrawerSiblingPaneIDs: [drawerSibling.paneID]
+            )
+        )
+
+        // Act
+        _ = await scheduler.activate()
+
+        // Assert
+        #expect(
+            port.admissions.map(\.descriptor.paneID) == [
+                mainActive.paneID, mainSibling.paneID, drawerActive.paneID, drawerSibling.paneID,
+            ]
+        )
+    }
+
+    @Test("an in-flight admission is never cancelled by a promotion")
+    func anInFlightAdmissionIsNeverCancelledByAPromotion() async throws {
+        // Arrange
+        let generation = try makeCompositionGeneration()
+        let inFlight = makeDescriptor(priority: .hidden)
+        let promoted = makeDescriptor(priority: .hidden)
+        let entries = [inFlight, promoted]
+        let port = RevisionAwareTerminalActivationAdmissionPort(
+            generation: generation,
+            descriptors: entries,
+            suspendsActivation: true
+        )
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
+            admissionPort: port
+        )
+        let activation = Task { await scheduler.activate() }
+        await port.waitUntilStartedCount(1)
+
+        // Act: promote the second member while the first is still in flight.
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [promoted.paneID],
+                visibleMainSiblingPaneIDs: [],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+        port.releaseFirstPendingAsReady()
+        await port.waitUntilStartedCount(2)
+        port.releaseAllPendingAsReady()
+        let settlement = await activation.value
+
+        // Assert: the in-flight member completed uninterrupted; the
+        // promotion only ever affected the next claim.
+        #expect(port.admissions.map(\.descriptor.paneID) == [inFlight.paneID, promoted.paneID])
+        #expect(settlement.outcomesByPaneID.count == 2)
+    }
+
+    @Test("a stale proposal receives the newer batch and claims nothing")
+    func aStaleProposalReceivesTheNewerBatchAndClaimsNothing() async throws {
+        // Arrange
+        let generation = try makeCompositionGeneration()
+        let descriptor = makeDescriptor(priority: .hidden)
+        let entries = [descriptor]
+        let port = RevisionAwareTerminalActivationAdmissionPort(
+            generation: generation,
+            descriptors: entries,
+            suspendsActivation: true
+        )
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
+            admissionPort: port
+        )
+        let activation = Task { await scheduler.activate() }
+        await port.waitUntilStartedCount(1)
+
+        // Act: bump the port's revision while attempt 1 is suspended in
+        // flight, then fail it retryably so attempt 2's stale-revision
+        // proposal must reconcile against the newer snapshot before claiming.
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [descriptor.paneID],
+                visibleMainSiblingPaneIDs: [],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+        port.releaseFirstPending(with: .failed(failure: .surfaceCreationFailed(code: "transient"), retry: .retry))
+        await port.waitUntilStartedCount(2)
+        port.releaseAllPendingAsReady()
+        _ = await activation.value
+
+        // Assert: exactly two mount effects occurred — attempt 1 (failed) and
+        // attempt 2 (succeeded). The stale proposal in between claimed
+        // nothing and produced no extra mount effect, though it did propose.
+        #expect(port.admissions.map(\.attempt) == [1, 2])
+        #expect(port.claimProposals.count == 3)
+    }
+
+    @Test("a queued member absent from the new current set returns to its background rank")
+    func aQueuedMemberAbsentFromTheNewCurrentSetReturnsToItsBackgroundRank() async throws {
+        // Arrange: `dropped`'s static priority (.activeVisible) would
+        // otherwise rank it first, but the current visible queued set omits
+        // it, so it must fall to its background rank, after the promoted
+        // member.
+        let generation = try makeCompositionGeneration()
+        let dropped = makeDescriptor(priority: .activeVisible)
+        let promoted = makeDescriptor(priority: .hidden)
+        let entries = [dropped, promoted]
+        let port = RevisionAwareTerminalActivationAdmissionPort(generation: generation, descriptors: entries)
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
+            admissionPort: port
+        )
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [promoted.paneID],
+                visibleMainSiblingPaneIDs: [],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+
+        // Act
+        _ = await scheduler.activate()
+
+        // Assert
+        #expect(port.admissions.map(\.descriptor.paneID) == [promoted.paneID, dropped.paneID])
+    }
+
+    @Test("a newly visible pane that is already attaching or ready starts no second attempt")
+    func aNewlyVisiblePaneThatIsAlreadyAttachingOrReadyStartsNoSecondAttempt() async throws {
+        // Arrange
+        let generation = try makeCompositionGeneration()
+        let alreadyReady = makeDescriptor(priority: .activeVisible)
+        let stillQueued = makeDescriptor(priority: .hidden)
+        let promotedLater = makeDescriptor(priority: .hidden)
+        let entries = [alreadyReady, stillQueued, promotedLater]
+        let port = RevisionAwareTerminalActivationAdmissionPort(
+            generation: generation,
+            descriptors: entries,
+            suspendsActivation: true
+        )
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(generation: generation, input: TerminalActivationInput(entries: entries)),
+            admissionPort: port
+        )
+        let activation = Task { await scheduler.activate() }
+        await port.waitUntilStartedCount(1)
+        port.releaseFirstPendingAsReady()
+
+        // Act: while the scheduler is between claims, record a snapshot
+        // naming both the already-ready pane and a still-queued sibling.
+        await port.waitUntilStartedCount(2)
+        port.recordCurrentVisibleQueuedTerminals(
+            TerminalVisibleQueuedTerminals(
+                generation: generation,
+                activeMainPaneIDs: [alreadyReady.paneID, promotedLater.paneID],
+                visibleMainSiblingPaneIDs: [],
+                activeDrawerPaneIDs: [],
+                visibleDrawerSiblingPaneIDs: []
+            )
+        )
+        // Releasing `stillQueued` here forces the scheduler's next proposal
+        // (for `promotedLater`) to carry a stale revision, reconcile against
+        // the snapshot above, and re-propose before it can claim — that
+        // reconciliation must not touch `alreadyReady`, which is no longer
+        // `.queued`.
+        port.releaseAllPendingAsReady()
+        await port.waitUntilStartedCount(3)
+        port.releaseAllPendingAsReady()
+        _ = await activation.value
+
+        // Assert: the already-ready pane was claimed exactly once — the
+        // snapshot naming it again did not start a second attempt.
+        #expect(port.admissions.filter { $0.descriptor.paneID == alreadyReady.paneID }.count == 1)
+    }
+
     private func makeScheduler(
         entries: [TerminalActivationDescriptor],
         port: some FakeTerminalActivationAdmissionPort
@@ -629,208 +829,5 @@ struct TerminalActivationSchedulerTests {
                 drawerID: UUIDv7.generate()
             )
         )
-    }
-}
-
-/// Shared by the scheduler-correctness fakes below. `claimPreparedTerminal`
-/// needs the descriptor for a proposed `paneID` to mint a `ClaimedTerminalAdmission`;
-/// these fakes carry no `ViewRegistry` of their own, so the test constructing
-/// the scheduler's cohort also registers that cohort's descriptors here.
-@MainActor
-private protocol FakeTerminalActivationAdmissionPort: TerminalActivationAdmissionPort {
-    var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] { get set }
-}
-
-@MainActor
-private final class ImmediateTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
-    private var resultsByPaneID: [PaneId: [TerminalActivationAttemptResult]]
-    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
-    private(set) var admissions: [TerminalActivationAdmission] = []
-
-    init(resultsByPaneID: [PaneId: [TerminalActivationAttemptResult]] = [:]) {
-        self.resultsByPaneID = resultsByPaneID
-    }
-
-    func recordCurrentVisibleQueuedTerminals(
-        _ terminals: TerminalVisibleQueuedTerminals
-    ) -> TerminalVisibilityRevision {
-        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
-    }
-
-    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
-        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
-            return .rejected(.paneNotInCohort)
-        }
-        let admission = TerminalActivationAdmission(
-            generation: proposal.generation,
-            descriptor: descriptor,
-            attempt: proposal.attempt
-        )
-        return .claimed(
-            ClaimedTerminalAdmission(
-                claimID: UUIDv7.generate(),
-                admission: admission,
-                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
-            )
-        )
-    }
-
-    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
-        let admission = claim.admission
-        admissions.append(admission)
-        if var results = resultsByPaneID[admission.descriptor.paneID], !results.isEmpty {
-            let result = results.removeFirst()
-            resultsByPaneID[admission.descriptor.paneID] = results
-            return .attempted(result)
-        }
-        return .attempted(.ready(surfaceID: UUIDv7.generate()))
-    }
-}
-
-/// Always rejects every claim proposal, for proving the scheduler never marks
-/// a member `attaching` before a claim is granted.
-@MainActor
-private final class RejectingTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
-    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
-    private(set) var claimProposals: [TerminalAdmissionProposal] = []
-
-    func recordCurrentVisibleQueuedTerminals(
-        _ terminals: TerminalVisibleQueuedTerminals
-    ) -> TerminalVisibilityRevision {
-        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
-    }
-
-    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
-        claimProposals.append(proposal)
-        return .rejected(.custodyUnavailableForClaim)
-    }
-
-    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
-        .rejected(.claimNotIssued)
-    }
-}
-
-@MainActor
-private final class ControlledTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
-    private struct PendingAdmission {
-        let admission: TerminalActivationAdmission
-        let continuation: CheckedContinuation<TerminalActivationAttemptResult, Never>
-    }
-
-    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
-    private var pending: [PendingAdmission] = []
-    private var startedCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-    private(set) var admissions: [TerminalActivationAdmission] = []
-
-    func recordCurrentVisibleQueuedTerminals(
-        _ terminals: TerminalVisibleQueuedTerminals
-    ) -> TerminalVisibilityRevision {
-        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
-    }
-
-    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
-        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
-            return .rejected(.paneNotInCohort)
-        }
-        let admission = TerminalActivationAdmission(
-            generation: proposal.generation,
-            descriptor: descriptor,
-            attempt: proposal.attempt
-        )
-        return .claimed(
-            ClaimedTerminalAdmission(
-                claimID: UUIDv7.generate(),
-                admission: admission,
-                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
-            )
-        )
-    }
-
-    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
-        let admission = claim.admission
-        admissions.append(admission)
-        resumeSatisfiedStartedCountWaiters()
-        let result = await withCheckedContinuation { continuation in
-            pending.append(PendingAdmission(admission: admission, continuation: continuation))
-        }
-        return .attempted(result)
-    }
-
-    func waitUntilStartedCount(_ count: Int) async {
-        guard admissions.count < count else { return }
-        await withCheckedContinuation { continuation in
-            startedCountWaiters.append((count, continuation))
-        }
-    }
-
-    @discardableResult
-    func releaseFirstPendingAsReady() -> TerminalActivationAdmission? {
-        guard !pending.isEmpty else {
-            Issue.record("Expected a pending terminal activation admission")
-            return nil
-        }
-        let pendingAdmission = pending.removeFirst()
-        pendingAdmission.continuation.resume(returning: .ready(surfaceID: UUIDv7.generate()))
-        return pendingAdmission.admission
-    }
-
-    func releaseAllPendingAsReady() {
-        let pendingAdmissions = pending
-        pending.removeAll()
-        for pendingAdmission in pendingAdmissions {
-            pendingAdmission.continuation.resume(returning: .ready(surfaceID: UUIDv7.generate()))
-        }
-    }
-
-    private func resumeSatisfiedStartedCountWaiters() {
-        let ready = startedCountWaiters.filter { $0.0 <= admissions.count }
-        startedCountWaiters.removeAll { $0.0 <= admissions.count }
-        for waiter in ready { waiter.1.resume() }
-    }
-}
-
-private actor TerminalActivationCompletionProbe {
-    private(set) var settlement: TerminalActivationSettlement?
-
-    var isCompleted: Bool { settlement != nil }
-
-    func record(_ settlement: TerminalActivationSettlement) {
-        self.settlement = settlement
-    }
-}
-
-private actor ControlledTerminalActivationReleaseSignal: TerminalActivationReleaseSignal {
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
-    private var waitStartedContinuations: [CheckedContinuation<Void, Never>] = []
-    private var isSchedulerWaiting = false
-    private var isReleased = false
-
-    func waitUntilReleased() async -> StartupDeferralOutcome {
-        guard !isReleased else { return .completed }
-        isSchedulerWaiting = true
-        let startedContinuations = waitStartedContinuations
-        waitStartedContinuations.removeAll()
-        for continuation in startedContinuations {
-            continuation.resume()
-        }
-        await withCheckedContinuation { continuation in
-            releaseContinuation = continuation
-        }
-        return .completed
-    }
-
-    func waitUntilSchedulerIsWaiting() async {
-        guard !isSchedulerWaiting else { return }
-        await withCheckedContinuation { continuation in
-            waitStartedContinuations.append(continuation)
-        }
-    }
-
-    func release() {
-        guard !isReleased else { return }
-        isReleased = true
-        let continuation = releaseContinuation
-        releaseContinuation = nil
-        continuation?.resume()
     }
 }

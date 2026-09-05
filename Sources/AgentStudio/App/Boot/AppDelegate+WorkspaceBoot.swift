@@ -482,8 +482,8 @@ extension AppDelegate {
                 coordinator: contentMountCoordinator
             )
         )
-        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
-            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
+        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] visibleQueuedSet in
+            contentMountCoordinator?.handleVisibilitySignals(for: visibleQueuedSet) ?? []
         }
     }
 
