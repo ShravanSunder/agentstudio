@@ -55,12 +55,21 @@ final class WorkspacePreparedContentMountCoordinator {
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
     private var deferredVisibilityIntentPaneIDs: Set<PaneId> = []
     private var deferredVisibilityIntentOrder: [PaneId] = []
+    /// The sole path this coordinator has to reach
+    /// `WorkspaceSurfaceCoordinator.registerTerminalPlaceholderIfNeeded(for:mode:)`,
+    /// which remains the only actual placeholder writer — this closure never
+    /// writes a view itself. Defaults to a no-op so existing fakes and
+    /// harnesses that construct this coordinator without a real surface
+    /// coordinator keep compiling unchanged; production wiring is assigned
+    /// at construction in `AppDelegate+WorkspaceBoot.swift`.
+    private let placeholderTransitionHandler: (Pane, TerminalStatusPlaceholderMode) -> Void
 
     init(
         cohort: WorkspacePreparedContentMountCohort,
         viewRegistry: ViewRegistry,
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
-        nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort
+        nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort,
+        placeholderTransitionHandler: @escaping (Pane, TerminalStatusPlaceholderMode) -> Void = { _, _ in }
     ) {
         // Hidden nonterminal panes stay outside the startup ledger so later
         // demand falls through to the existing steady-state content mount
@@ -76,6 +85,7 @@ final class WorkspacePreparedContentMountCoordinator {
         self.cohort = startupCohort
         self.viewRegistry = viewRegistry
         self.terminalAdmissionPort = terminalAdmissionPort
+        self.placeholderTransitionHandler = placeholderTransitionHandler
         terminalDescriptorsByPaneID = Dictionary(
             uniqueKeysWithValues: startupCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
         )
@@ -134,7 +144,11 @@ final class WorkspacePreparedContentMountCoordinator {
     /// after its settlement — since the scheduler starts its own
     /// supplemental drain when it has already gone quiescent.
     func acceptTerminalGeometry(_ paneIDs: Set<PaneId>) async {
-        _ = await terminalScheduler.acceptLaterGeometry(for: paneIDs)
+        let requeuedPaneIDs = await terminalScheduler.acceptLaterGeometry(for: paneIDs)
+        for paneID in requeuedPaneIDs {
+            guard let pane = terminalDescriptorsByPaneID[paneID]?.pane else { continue }
+            placeholderTransitionHandler(pane, .preparing)
+        }
     }
 
     func mount() async -> WorkspacePreparedContentMountSettlement {
@@ -168,6 +182,7 @@ final class WorkspacePreparedContentMountCoordinator {
             )
         )
         requireCompleteSettlement(settlement)
+        notifyWaitingForGeometryPlaceholders(in: settlement)
         viewRegistry.completeInitialRestore()
         lifecycle = .settled(settlement)
 
@@ -334,6 +349,20 @@ final class WorkspacePreparedContentMountCoordinator {
     private func recordDeferredVisibilityIntent(for paneID: PaneId) {
         guard deferredVisibilityIntentPaneIDs.insert(paneID).inserted else { return }
         deferredVisibilityIntentOrder.append(paneID)
+    }
+
+    /// Requests the `.preparing -> .waitingForGeometry` placeholder
+    /// transition for every member the first drain settled as waiting (SPEC
+    /// R5 presentation). `acceptTerminalGeometry` requests the reverse
+    /// transition on requeue; this is the only other placeholder-transition
+    /// request site, and neither ever writes a view directly.
+    private func notifyWaitingForGeometryPlaceholders(in settlement: WorkspacePreparedContentMountSettlement) {
+        for (paneID, outcome) in settlement.terminal.outcomesByPaneID {
+            guard case .waitingForGeometry = outcome, let pane = terminalDescriptorsByPaneID[paneID]?.pane else {
+                continue
+            }
+            placeholderTransitionHandler(pane, .waitingForGeometry)
+        }
     }
 
     private func requireCompleteSettlement(_ settlement: WorkspacePreparedContentMountSettlement) {

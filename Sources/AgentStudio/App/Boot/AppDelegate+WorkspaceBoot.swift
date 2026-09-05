@@ -474,7 +474,10 @@ extension AppDelegate {
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: contentMountCohort.generation,
                 coordinator: coordinator
-            )
+            ),
+            placeholderTransitionHandler: { [weak coordinator] pane, mode in
+                coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
+            }
         )
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(

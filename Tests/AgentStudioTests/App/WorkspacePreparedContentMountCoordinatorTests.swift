@@ -490,6 +490,78 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         #expect(deferredSteadyStateRepairPaneIDs.isEmpty)
     }
 
+    @Test("a settled deferred member moves from preparing to waitingForGeometry")
+    func aSettledDeferredMemberMovesFromPreparingToWaitingForGeometry() async throws {
+        // Arrange: no `installTerminalGeometryAvailability` call at all —
+        // `waiting` stays `waitingForGeometry` for the whole `mount()`.
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let waiting = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [waiting]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [waiting])
+        let placeholderHandler = RecordingPlaceholderTransitionHandler()
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
+            placeholderTransitionHandler: { pane, mode in placeholderHandler.handle(pane: pane, mode: mode) }
+        )
+        // Matches `publishTerminalPlaceholders`'s production sequencing: a
+        // `.preparing` host already exists before the settlement transition.
+        placeholderHandler.handle(pane: waiting.pane, mode: .preparing)
+        let originalHost = try #require(placeholderHandler.placeholderViewsByPaneID[waiting.pane.id])
+
+        // Act
+        _ = await coordinator.mount()
+
+        // Assert: the same host instance was reconfigured in place, not
+        // rebuilt, and its mode history shows the exact transition.
+        let hostAfterSettlement = try #require(placeholderHandler.placeholderViewsByPaneID[waiting.pane.id])
+        #expect(hostAfterSettlement === originalHost)
+        #expect(placeholderHandler.requestedModesByPaneID[waiting.pane.id] == [.preparing, .waitingForGeometry])
+    }
+
+    @Test("requeuing a deferred member returns the placeholder to preparing")
+    func requeuingADeferredMemberReturnsThePlaceholderToPreparing() async throws {
+        // Arrange
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let waiting = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [waiting]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort(descriptors: [waiting])
+        let placeholderHandler = RecordingPlaceholderTransitionHandler()
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
+            placeholderTransitionHandler: { pane, mode in placeholderHandler.handle(pane: pane, mode: mode) }
+        )
+        placeholderHandler.handle(pane: waiting.pane, mode: .preparing)
+        _ = await coordinator.mount()
+        let hostAfterSettlement = try #require(placeholderHandler.placeholderViewsByPaneID[waiting.pane.id])
+
+        // Act: later geometry arrives and requeues the still-waiting member.
+        await coordinator.acceptTerminalGeometry([waiting.paneID])
+
+        // Assert: same host instance across both transitions.
+        let hostAfterRequeue = try #require(placeholderHandler.placeholderViewsByPaneID[waiting.pane.id])
+        #expect(hostAfterRequeue === hostAfterSettlement)
+        #expect(
+            placeholderHandler.requestedModesByPaneID[waiting.pane.id] == [.preparing, .waitingForGeometry, .preparing])
+    }
+
     @Test("visibility is recorded synchronously at the coordinator boundary")
     func visibilityIsRecordedSynchronouslyAtTheCoordinatorBoundary() throws {
         // Arrange
@@ -772,6 +844,30 @@ private final class RecordingPreparedContentNonterminalPort: NonterminalContentM
     func mount(_ descriptor: NonterminalContentMountDescriptor) -> NonterminalContentMountAdmissionResult {
         descriptors.append(descriptor)
         return .mounted
+    }
+}
+
+/// Stands in for `WorkspaceSurfaceCoordinator.registerTerminalPlaceholderIfNeeded(for:mode:)`
+/// closely enough to prove host-instance identity: the first request for a
+/// pane creates a real `TerminalStatusPlaceholderView`; every later request
+/// for the same pane reconfigures that same instance in place, exactly like
+/// the production writer's existing-placeholder branch.
+@MainActor
+private final class RecordingPlaceholderTransitionHandler {
+    private(set) var placeholderViewsByPaneID: [UUID: TerminalStatusPlaceholderView] = [:]
+    private(set) var requestedModesByPaneID: [UUID: [TerminalStatusPlaceholderMode]] = [:]
+
+    func handle(pane: Pane, mode: TerminalStatusPlaceholderMode) {
+        requestedModesByPaneID[pane.id, default: []].append(mode)
+        if let existingHost = placeholderViewsByPaneID[pane.id] {
+            existingHost.configure(mode: mode)
+        } else {
+            placeholderViewsByPaneID[pane.id] = TerminalStatusPlaceholderView(
+                paneId: pane.id,
+                title: pane.metadata.title,
+                mode: mode
+            )
+        }
     }
 }
 
