@@ -52,6 +52,18 @@ final class WorkspaceCacheCoordinator {
     private var pendingConsumeStartGeneration: UInt64?
     private var nextConsumeStartGeneration: UInt64 = 0
     private var lastAppliedForgeProjectionSequenceByRepoId: [UUID: UInt64] = [:]
+    private var repositoryProjectionApplyGovernor:
+        BackgroundFactApplyGovernor<
+            UUID, PendingRepositoryProjection
+        >?
+
+    /// Read-only observability seam: exposes how many repository-projection
+    /// facts have been coalesced into the current pending batch since the
+    /// last drain. Lets tests wait for an actual coalescing invariant
+    /// instead of inferring it from tick-scheduling side effects.
+    package var pendingRepositoryProjectionSupersessionCount: Int {
+        repositoryProjectionApplyGovernor?.supersededSinceLastDrainCount ?? 0
+    }
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -102,6 +114,7 @@ final class WorkspaceCacheCoordinator {
         pendingConsumeStartGeneration = nil
         let enrichmentApplyGovernor = makeEnrichmentApplyGovernor()
         let repositoryProjectionApplyGovernor = makeRepositoryProjectionApplyGovernor()
+        self.repositoryProjectionApplyGovernor = repositoryProjectionApplyGovernor
         enrichmentApplyGovernor.start()
         repositoryProjectionApplyGovernor.start()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
@@ -133,6 +146,7 @@ final class WorkspaceCacheCoordinator {
         pendingConsumeStartGeneration = nil
         consumeTask?.cancel()
         consumeTask = nil
+        repositoryProjectionApplyGovernor = nil
     }
 
     func shutdown() async {
@@ -143,6 +157,7 @@ final class WorkspaceCacheCoordinator {
         if let activeTask {
             await activeTask.value
         }
+        repositoryProjectionApplyGovernor = nil
     }
 
     func consume(_ envelope: RuntimeEnvelope) {
