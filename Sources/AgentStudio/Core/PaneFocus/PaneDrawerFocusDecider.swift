@@ -7,8 +7,15 @@ enum PaneDrawerFocusDecider {
     ) -> PaneDrawerFocusDecision {
         switch trigger {
         case .selectPane(let parentPaneId, let drawerPaneId):
+            let drawerChildAlreadyActive =
+                context.activeDrawer?.parentPaneId == parentPaneId
+                && context.activeDrawer?.paneId == drawerPaneId
+            let focusAlreadyInDrawerPane = context.activePaneId == drawerPaneId
+            let alreadyActiveDrawerPane = drawerChildAlreadyActive && focusAlreadyInDrawerPane
             return PaneDrawerFocusDecision(
-                selection: .selectDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+                selection: alreadyActiveDrawerPane
+                    ? .keep
+                    : .selectDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
                 responder: .focusPaneHost(paneId: drawerPaneId),
                 runtime: .preserveRuntimeFocus,
                 reason: .drawerSelectionChanged
