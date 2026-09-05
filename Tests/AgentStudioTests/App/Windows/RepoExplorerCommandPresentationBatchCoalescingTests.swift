@@ -128,11 +128,13 @@ extension RepoExplorerCommandPresentationBatchTests {
                         processIdentifier: 943
                     )
                     defer { try? FileManager.default.removeItem(at: trace.directory) }
+                    let gate = CoalescingYieldGate()
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: fixture.store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
                         dispatcher: .shared,
-                        performanceTraceRecorder: trace.recorder
+                        performanceTraceRecorder: trace.recorder,
+                        coalescingYield: gate.yield
                     )
                     batch.start()
                     defer { batch.stop() }
@@ -149,11 +151,13 @@ extension RepoExplorerCommandPresentationBatchTests {
                     let visibleSnapshotBefore = try coalescingRefreshCount(
                         at: outputFileURL, trigger: "visible_snapshot")
 
-                    // Arms the onChange task, lets it run up to its own coalescing yield, then a
-                    // synchronous visible-snapshot refresh runs during that yield (no other awaits
-                    // in between).
+                    // Arms the onChange task and holds it open on the injected coalescing-yield
+                    // gate until it has genuinely reached that yield, then a synchronous
+                    // visible-snapshot refresh runs while the gate is still held (no other awaits
+                    // in between). This replaces a single `Task.yield()` that only assumed the
+                    // onChange task had reached its own yield by then.
                     fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
-                    await Task.yield()
+                    await gate.waitUntilEntered()
                     batch.acceptVisibleWorktreeSnapshot(
                         makeCoalescingVisibleWorktreeSnapshot(
                             worktreeIDs: [fixture.worktree.id],
@@ -161,6 +165,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                             visibleRevision: 2
                         )
                     )
+                    gate.release()
                     for _ in 0..<500 { await Task.yield() }
                     try await trace.recorder.drain()
                     let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
@@ -191,11 +196,13 @@ extension RepoExplorerCommandPresentationBatchTests {
                         processIdentifier: 944
                     )
                     defer { try? FileManager.default.removeItem(at: trace.directory) }
+                    let gate = CoalescingYieldGate()
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: fixture.store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
                         dispatcher: .shared,
-                        performanceTraceRecorder: trace.recorder
+                        performanceTraceRecorder: trace.recorder,
+                        coalescingYield: gate.yield
                     )
                     batch.start()
                     defer { batch.stop() }
@@ -214,9 +221,11 @@ extension RepoExplorerCommandPresentationBatchTests {
 
                     // Same race as the superseded-wake test, but a second tracked write lands
                     // after the superseding visible-snapshot refresh: the coalescing task must
-                    // still see this newer wake and refresh once (no lost update).
+                    // still see this newer wake and refresh once (no lost update). Holding the
+                    // gate open deterministically (rather than assuming one yield reaches it)
+                    // removes the scheduling dependency that made this test flaky.
                     fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
-                    await Task.yield()
+                    await gate.waitUntilEntered()
                     batch.acceptVisibleWorktreeSnapshot(
                         makeCoalescingVisibleWorktreeSnapshot(
                             worktreeIDs: [fixture.worktree.id],
@@ -225,6 +234,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                         )
                     )
                     fixture.store.setActivePane(fixture.paneA1.id, inTab: fixture.tabA.id)
+                    gate.release()
                     for _ in 0..<500 { await Task.yield() }
                     try await trace.recorder.drain()
                     let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
@@ -356,6 +366,52 @@ extension RepoExplorerCommandPresentationBatchTests {
                 }
             }
         )
+    }
+}
+
+/// Deterministic stand-in for `RepoExplorerCommandPresentationBatch`'s injected
+/// `coalescingYield` seam. The onChange task suspends inside `yield()` until the test calls
+/// `release()`, and `waitUntilEntered()` lets the test block until that task has genuinely
+/// reached the yield, replacing a bare `Task.yield()` that only assumed the timing worked out.
+@MainActor
+private final class CoalescingYieldGate {
+    private var hasEntered = false
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func yield() async {
+        hasEntered = true
+        if let enteredContinuation {
+            self.enteredContinuation = nil
+            enteredContinuation.resume()
+        }
+        if isReleased {
+            isReleased = false
+            return
+        }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        if hasEntered {
+            hasEntered = false
+            return
+        }
+        await withCheckedContinuation { continuation in
+            enteredContinuation = continuation
+        }
+    }
+
+    func release() {
+        if let releaseContinuation {
+            self.releaseContinuation = nil
+            releaseContinuation.resume()
+        } else {
+            isReleased = true
+        }
     }
 }
 
