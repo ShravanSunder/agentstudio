@@ -232,11 +232,16 @@ final class WorkspacePreparedContentMountCoordinator {
                 continue
             }
             switch state {
-            case .pending(owner: .terminal):
+            case .pending(owner: .terminal), .deferredGeometry(owner: .terminal):
+                // A pane waiting on geometry is treated exactly like a pending
+                // pane here: the prepared lane still owns it, and this signal
+                // only records intent and (harmlessly) promotes its priority
+                // for whenever it becomes claimable again.
                 handledPaneIDs.insert(paneID)
                 recordDeferredVisibilityIntent(for: paneID)
                 terminalPaneIDsToPromote.append(paneID)
-            case .mounting(owner: .terminal), .pending(owner: .nonterminal), .mounting(owner: .nonterminal):
+            case .mounting(owner: .terminal), .pending(owner: .nonterminal), .mounting(owner: .nonterminal),
+                .deferredGeometry(owner: .nonterminal):
                 handledPaneIDs.insert(paneID)
                 recordDeferredVisibilityIntent(for: paneID)
             case .completed(owner: _, disposition: .failed):
