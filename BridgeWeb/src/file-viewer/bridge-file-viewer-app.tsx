@@ -15,6 +15,7 @@ import { BridgeViewerViewSettingsMenu } from '../app/bridge-viewer-view-settings
 import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings.js';
 import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-markdown-intent.js';
 import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdown-presentation.js';
+import { useBridgeMarkdownSelectionRetirement } from '../app/markdown/use-bridge-markdown-selection-retirement.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import { Button } from '../components/ui/button.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
@@ -222,6 +223,12 @@ export function BridgeFileViewerAppImplementation(
 		isActive,
 		intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
 		workerClient: markdownWorkerClient,
+	});
+	const displayedMarkdownItemId =
+		markdownDecision.kind === 'pierre' ? null : (selection?.fileId ?? null);
+	useBridgeMarkdownSelectionRetirement({
+		coordinator: renderSnapshotController.renderFulfillmentCoordinator,
+		displayedItemId: displayedMarkdownItemId,
 	});
 	const selectFile = useCallback(
 		(nextSelection: BridgeFileViewerSelection, source: 'programmatic' | 'user'): void => {
@@ -473,6 +480,7 @@ export function BridgeFileViewerAppImplementation(
 					markdownDecision.kind === 'pierre'
 						? null
 						: {
+								intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
 								presentationState:
 									markdownDecision.kind === 'loading'
 										? { status: 'loading', sourcePath: selectedPath ?? 'Markdown' }

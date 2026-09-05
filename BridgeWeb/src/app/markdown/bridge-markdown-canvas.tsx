@@ -3,6 +3,7 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type ReactElement,
@@ -12,17 +13,39 @@ import { createPortal } from 'react-dom';
 
 import { Button } from '@/components/ui/button.js';
 
+import type {
+	BridgeMainRenderFulfillmentCoordinator,
+	BridgeMainRenderPublicationItem,
+} from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import {
+	type BridgeMarkdownRenderBinding,
+	type BridgeMarkdownRenderedArticle,
+	createBridgeMarkdownRenderReadback,
+} from './bridge-markdown-render-readback.js';
 import {
 	bridgeMermaidPolicy,
 	bridgeMermaidSourceAdmission,
 	sanitizeBridgeMermaidSvg,
 	type BridgeMermaidRenderer,
 } from './bridge-mermaid-renderer.js';
-import type { BridgeMarkdownPresentationState } from './use-bridge-markdown-presentation.js';
+import type {
+	BridgeMarkdownPresentationState,
+	BridgeMarkdownRenderIntent,
+} from './use-bridge-markdown-presentation.js';
+
+export interface BridgeMarkdownRenderFulfillment {
+	readonly coordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'observePostRender' | 'reconcilePublication'
+	>;
+	readonly intent: BridgeMarkdownRenderIntent;
+	readonly selectedItem: BridgeMainRenderPublicationItem;
+}
 
 export interface BridgeMarkdownCanvasProps {
 	readonly isActive: boolean;
 	readonly presentationState: BridgeMarkdownPresentationState;
+	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 	readonly retry: () => void;
 	readonly mermaidRenderer?: BridgeMermaidRenderer;
 }
@@ -52,6 +75,9 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 			isActive={props.isActive}
 			mermaidRenderer={props.mermaidRenderer}
 			presentation={props.presentationState}
+			{...(props.renderFulfillment === undefined
+				? {}
+				: { renderFulfillment: props.renderFulfillment })}
 		/>
 	);
 }
@@ -60,8 +86,35 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	readonly isActive: boolean;
 	readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 	readonly presentation: Extract<BridgeMarkdownPresentationState, { readonly status: 'ready' }>;
+	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 }): ReactElement {
-	const articleRef = useRef<HTMLElement>(null);
+	const articleRef = useRef<BridgeMarkdownRenderedArticle>(null);
+	const renderBindingRef = useRef<BridgeMarkdownRenderBinding | null>(null);
+	renderBindingRef.current =
+		props.renderFulfillment === undefined
+			? null
+			: {
+					isActive: props.isActive,
+					intent: props.renderFulfillment.intent,
+					presentation: props.presentation,
+					selectedItem: props.renderFulfillment.selectedItem,
+				};
+	useLayoutEffect((): void => {
+		const renderFulfillment = props.renderFulfillment;
+		if (renderFulfillment === undefined) return;
+		const expectedBinding = renderBindingRef.current;
+		if (expectedBinding === null) return;
+		renderFulfillment.coordinator.observePostRender({
+			...createBridgeMarkdownRenderReadback({
+				expectedBinding,
+				readArticle: (): BridgeMarkdownRenderedArticle | null => articleRef.current,
+				readBinding: (): BridgeMarkdownRenderBinding | null => renderBindingRef.current,
+			}),
+			contextItem: renderFulfillment.selectedItem,
+			itemId: renderFulfillment.selectedItem.id,
+			phase: 'update',
+		});
+	});
 	const [diagramRetryRevision, setDiagramRetryRevision] = useState(0);
 	const [diagramFailureTargets, setDiagramFailureTargets] = useState<
 		readonly BridgeMermaidFailureTarget[]
@@ -131,6 +184,15 @@ const BridgeMarkdownArticle = memo(function BridgeMarkdownArticle(props: {
 			aria-label={`Markdown document ${props.presentation.sourcePath}`}
 			className="bridge-markdown-document mx-auto min-h-full w-full max-w-[920px] px-10 py-8 text-sm leading-6 text-foreground"
 			data-bridge-markdown-source-path={props.presentation.sourcePath}
+			data-bridge-markdown-content-cache-key={props.presentation.identity.contentCacheKey}
+			data-bridge-markdown-content-hash={props.presentation.identity.contentHash}
+			data-bridge-markdown-file-id={props.presentation.identity.sourceIdentity.fileId}
+			data-bridge-markdown-file-version={props.presentation.identity.sourceIdentity.fileVersion}
+			data-bridge-markdown-request-id={props.presentation.identity.requestId}
+			data-bridge-markdown-source-generation={
+				props.presentation.identity.sourceIdentity.sourceGeneration
+			}
+			data-bridge-markdown-source-id={props.presentation.identity.sourceIdentity.sourceId}
 			data-testid="bridge-markdown-canvas"
 			dangerouslySetInnerHTML={{
 				__html: sanitizeBridgeMarkdownDocumentHtml(props.presentation.renderResult.htmlCandidate),

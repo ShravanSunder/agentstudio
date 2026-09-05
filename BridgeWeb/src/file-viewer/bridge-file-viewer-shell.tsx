@@ -4,7 +4,10 @@ import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.j
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeMarkdownCanvas } from '../app/markdown/bridge-markdown-canvas.js';
 import type { BridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
-import type { BridgeMarkdownPresentationState } from '../app/markdown/use-bridge-markdown-presentation.js';
+import type {
+	BridgeMarkdownPresentationState,
+	BridgeMarkdownRenderIntent,
+} from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerSearchFocusRestoration } from '../app/use-bridge-viewer-search-focus-restoration.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -52,6 +55,7 @@ export interface BridgeFileViewerShellProps {
 	readonly onToggleSearch: () => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly markdownPresentation?: {
+		readonly intent: BridgeMarkdownRenderIntent | null;
 		readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 		readonly presentationState: BridgeMarkdownPresentationState;
 		readonly retry: () => void;
@@ -60,7 +64,7 @@ export interface BridgeFileViewerShellProps {
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly renderFulfillmentCoordinator: Pick<
 		BridgeMainRenderFulfillmentCoordinator,
-		'observePostRender' | 'reconcilePublication'
+		'observePostRender' | 'reconcilePublication' | 'supersedeItem'
 	>;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchError: string | null;
@@ -160,6 +164,16 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							<BridgeMarkdownCanvas
 								isActive={props.isActive}
 								presentationState={props.markdownPresentation.presentationState}
+								{...(props.markdownPresentation.intent === null ||
+								props.selectedCodeViewItem === null
+									? {}
+									: {
+											renderFulfillment: {
+												coordinator: props.renderFulfillmentCoordinator,
+												intent: props.markdownPresentation.intent,
+												selectedItem: props.selectedCodeViewItem,
+											},
+										})}
 								retry={props.markdownPresentation.retry}
 								{...(props.markdownPresentation.mermaidRenderer === undefined
 									? {}

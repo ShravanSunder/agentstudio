@@ -74,7 +74,7 @@ export interface BridgeFileViewerRenderSnapshotController {
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly renderFulfillmentCoordinator: Pick<
 		BridgeMainRenderFulfillmentCoordinator,
-		'observePostRender' | 'reconcilePublication'
+		'observePostRender' | 'reconcilePublication' | 'supersedeItem'
 	>;
 }
 
