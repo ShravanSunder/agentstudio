@@ -9,6 +9,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -42,11 +43,17 @@ declare global {
 
 test('profiles repeated mode switches, Open in Files, Markdown and Mermaid through the real backend', async () => {
 	// Arrange — a real disposable worktree, Swift backend and production worker/renderers.
+	const iterationCount = Number(process.env['BRIDGE_INTERACTION_PROFILE_ITERATIONS'] ?? '10');
+	if (!Number.isSafeInteger(iterationCount) || iterationCount < 1 || iterationCount > 100) {
+		throw new Error('Interaction profile iterations must be an integer from 1 to 100.');
+	}
 	const fixture = await createBridgeViewerViteProductFixture();
 	const markdownPath = '000-interaction-profile.md';
 	let browser: Browser | null = null;
 	let server: BridgeViewerOwnedViteProductServer | null = null;
 	let diagnostics: ReturnType<typeof observeBrowserRuntimeDiagnostics> | null = null;
+	let failureDiagnostics: Awaited<ReturnType<typeof observeInteractionProfileFailures>> | null =
+		null;
 	const samples: InteractionProfileSample[] = [];
 	let completed = false;
 	let failure: string | null = null;
@@ -77,6 +84,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
+		failureDiagnostics = await observeInteractionProfileFailures(page);
 		const pageErrors: string[] = [];
 		page.on('pageerror', (error): void => {
 			pageErrors.push(error.message);
@@ -93,7 +101,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 
 		// Act — each sample starts on the actual DOM click, not automation dispatch.
 		// oxlint-disable eslint/no-await-in-loop -- One page's samples must settle serially before the next action.
-		for (let iteration = 0; iteration < 10; iteration += 1) {
+		for (let iteration = 0; iteration < iterationCount; iteration += 1) {
 			samples.push(
 				await measureInteraction(
 					page,
@@ -154,7 +162,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 
 		// oxlint-enable eslint/no-await-in-loop
 		// Assert — diagnostic timing samples are not a statistically accepted SLO cohort.
-		expect(samples).toHaveLength(40);
+		expect(samples).toHaveLength(iterationCount * 4);
 		expect(pageErrors).toEqual([]);
 		expect(samples.every((sample): boolean => Number.isFinite(sample.durationMilliseconds))).toBe(
 			true,
@@ -173,8 +181,10 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 				profileKind: 'diagnostic-click-to-ready-frame',
 				fixture: '16-changed-files-plus-markdown-mermaid',
 				acceptanceCohort: false,
+				iterationCount,
 				completed,
 				failure,
+				failureDiagnostics: await failureDiagnostics?.read(),
 				sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 				dirtyTrackedPaths: execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' })
 					.trim()
