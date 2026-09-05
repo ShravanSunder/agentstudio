@@ -2,11 +2,16 @@ import AgentStudioCore
 import AgentStudioTerminal
 
 /// Proof that exactly one owner may create this pane's terminal surface now.
-/// Only `PreparedTerminalMountAdmissionPort` and `ViewRegistry` can produce a
-/// value, so no creation site can assert authority it was not granted.
 ///
-/// There is no public initializer and no default value: a creation path that
-/// skips the custody question does not compile.
+/// Every terminal-surface creation primitive requires a non-optional
+/// `authority:` argument with no default value, so a call site cannot skip
+/// the custody question by omission — it must obtain some value of this
+/// type. Enum cases remain constructible anywhere in the module (Swift has
+/// no case-level access control), so this type does not itself prevent a
+/// caller from minting one; `PreparedContentMountStartupBoundaryTests`
+/// scans the source for the only two legal producers,
+/// `PreparedTerminalMountAdmissionPort` and `ViewRegistry`, and fails if a
+/// third one appears.
 @MainActor
 enum TerminalSurfaceCreationAuthority: Equatable {
     /// Minted only by `PreparedTerminalMountAdmissionPort` after a successful
