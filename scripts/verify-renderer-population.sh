@@ -126,8 +126,10 @@ count_heap_class() {
   awk -v class_name="$class_name" 'index($0, class_name) && $1 ~ /^[0-9]+$/ { total += $1 } END { print total + 0 }' "$heap_path"
 }
 
+# Read the whole ps stream (no early awk exit): under `pipefail` an early exit makes ps die of
+# SIGPIPE and the script exits 141.
 discover_windowserver_pid() {
-  /bin/ps -axo pid=,comm= | awk '$2 ~ /\/WindowServer$/ {print $1; exit}'
+  /bin/ps -axo pid=,comm= | awk '$2 ~ /\/WindowServer$/ && !found { print $1; found = 1 }'
 }
 
 parse_windowserver_mem_mb() {
