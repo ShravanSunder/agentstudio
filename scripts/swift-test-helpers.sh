@@ -503,7 +503,9 @@ run_swift_with_timeout() {
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
-      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)"
+      # A heartbeat write can fail with EINTR when the child exits mid-write; that is not a
+      # test failure and must not abort the watchdog under `set -e`.
+      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)" || true
       last_heartbeat="$now_epoch"
     fi
   done
