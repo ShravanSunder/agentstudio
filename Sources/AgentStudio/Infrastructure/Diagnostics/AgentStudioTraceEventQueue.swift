@@ -76,23 +76,42 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
             eventTimeUnixNano: eventTimeUnixNano,
             attributes: attributes
         )
-        guard let continuation = continuationForEnqueue() else { return }
+        lock.lock()
+        guard !isClosed else {
+            lock.unlock()
+            return
+        }
+        ensureWorkerStartedLocked()
         accountForEnqueueAttempt()
-        let yieldResult = continuation.yield(.record(request))
+        let yieldResult = continuation?.yield(.record(request))
+        lock.unlock()
+        guard let yieldResult else { return }
         let droppedFlushContinuation = accountForYieldResult(yieldResult)
         droppedFlushContinuation?.resume(throwing: CancellationError())
     }
 
     package func flush() async throws {
-        guard let continuation = continuationForEnqueue() else {
+        let isOpen: Bool = lock.withLock {
+            guard !isClosed else { return false }
+            ensureWorkerStartedLocked()
+            return true
+        }
+        guard isOpen else {
             try await traceRuntime.flush()
             return
         }
 
         try await withUnsafeThrowingContinuation { (flushContinuation: UnsafeContinuation<Void, Error>) in
+            lock.lock()
+            guard !isClosed, let continuation else {
+                lock.unlock()
+                flushContinuation.resume(throwing: CancellationError())
+                return
+            }
             accountForEnqueueAttempt()
             let yieldResult = continuation.yield(.flush(flushContinuation))
-            let droppedFlushContinuation = accountForYieldResult(yieldResult)
+            lock.unlock()
+            let droppedFlushContinuation = accountForYieldResult(yieldResult, isRecord: false)
             let didTerminate: Bool
             switch yieldResult {
             case .terminated:
@@ -223,16 +242,9 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         }
     }
 
-    private func continuationForEnqueue() -> AsyncStream<TraceRequest>.Continuation? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isClosed else { return nil }
-        ensureWorkerStartedLocked()
-        return continuation
-    }
-
     private func accountForYieldResult(
-        _ yieldResult: AsyncStream<TraceRequest>.Continuation.YieldResult
+        _ yieldResult: AsyncStream<TraceRequest>.Continuation.YieldResult,
+        isRecord: Bool = true
     ) -> UnsafeContinuation<Void, Error>? {
         switch yieldResult {
         case .enqueued(let remainingCapacity):
@@ -257,6 +269,9 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         case .terminated:
             completenessTracker.state.withLock { state in
                 state.pendingRequestCount = max(0, state.pendingRequestCount - 1)
+                if isRecord {
+                    state.droppedRecordCount += 1
+                }
             }
             return nil
         @unknown default:

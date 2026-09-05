@@ -162,6 +162,12 @@ package final class TerminalActivityRouter {
         }
     }
 
+    /// Test-only seam: awaits any derived-activity bus post already enqueued by a prior
+    /// `consumeTerminalActivityInput` call, without blocking ordinary production callers.
+    package func waitForPendingDerivedActivityPosts() async {
+        await derivedActivityPostTask?.value
+    }
+
     func consumeTerminalActivityInput(_ input: TerminalActivitySourceInput) async {
         switch input {
         case .aggregate(let surfaceID, let paneID, let input):
