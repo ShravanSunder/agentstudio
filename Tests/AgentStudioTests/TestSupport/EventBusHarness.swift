@@ -139,32 +139,48 @@ package struct EventBusHarness<Envelope: Sendable> {
     }
 }
 
+/// Waits for `condition`, bounded by wall-clock time rather than a MainActor yield count. The
+/// fast lane runs many suites concurrently in one process, so unrelated suites' MainActor jobs
+/// can consume this suite's yield turns; a fixed turn count is therefore not a reliable timeout.
+/// `maxTurns` stays only as an additional upper bound for the few call sites that already pass
+/// one explicitly.
 package func assertEventuallyAsync(
     _ description: String,
     maxTurns: Int = 200,
+    timeout: Duration = .seconds(5),
     condition: @escaping @Sendable () async -> Bool
 ) async {
-    for _ in 0..<maxTurns {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    var turn = 0
+    while turn < maxTurns, clock.now < deadline {
         if await condition() {
             return
         }
         await Task.yield()
+        turn += 1
     }
 
     #expect(await condition(), "\(description) timed out")
 }
 
+/// See `assertEventuallyAsync` above: the same wall-clock bound, for a `@MainActor` condition.
 @MainActor
 package func assertEventuallyMain(
     _ description: String,
     maxTurns: Int = 200,
+    timeout: Duration = .seconds(5),
     condition: @escaping @MainActor () -> Bool
 ) async {
-    for _ in 0..<maxTurns {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    var turn = 0
+    while turn < maxTurns, clock.now < deadline {
         if condition() {
             return
         }
         await Task.yield()
+        turn += 1
     }
 
     #expect(condition(), "\(description) timed out")
