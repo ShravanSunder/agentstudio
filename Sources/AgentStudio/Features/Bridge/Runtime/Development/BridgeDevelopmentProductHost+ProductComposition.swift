@@ -130,6 +130,7 @@ extension BridgeDevelopmentProductHost {
         guard let productAdmission = productAdmissionGate.acquire() else {
             throw BridgeDevelopmentProductHostError.shutdown
         }
+        let worktreeAnnotationStore = input.worktreeAnnotationStore
         let productSessionOwner = try BridgePaneProductSessionOwner(
             paneSessionId: input.source.paneID.uuidString,
             provider: productProvider,
@@ -138,6 +139,7 @@ extension BridgeDevelopmentProductHost {
                 await reviewPublicationCoordinator.retireDisplayWorker(
                     workerInstanceId: workerInstanceId
                 )
+                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(workerInstanceId)
             }
         )
         return BridgeDevelopmentProductProviderPreparation(

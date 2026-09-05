@@ -178,7 +178,7 @@ private struct DevelopmentDisplaySuccessorContext {
 }
 
 @MainActor
-private final class DevelopmentDisplayWorkerClient {
+final class DevelopmentDisplayWorkerClient {
     private let capabilityHeader: String
     private let host: BridgeDevelopmentProductHost
     private var nextRequestSequence = 1
@@ -312,7 +312,7 @@ private final class DevelopmentDisplayWorkerClient {
 }
 
 @MainActor
-private func withMainActorShutdownDevelopmentProductHost<Result>(
+func withMainActorShutdownDevelopmentProductHost<Result>(
     _ host: BridgeDevelopmentProductHost,
     operation: () async throws -> Result
 ) async throws -> Result {
@@ -359,7 +359,7 @@ private func decodeDevelopmentDisplayBootstrapEnvelope(
     )
 }
 
-private func developmentDisplayBootstrapRequest(
+func developmentDisplayBootstrapRequest(
     paneSessionId: String? = nil,
     reason: String
 ) throws -> BridgeDevelopmentProductBootstrapRequest {

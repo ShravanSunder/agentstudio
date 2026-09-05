@@ -564,7 +564,6 @@ package final class BridgePaneController {
             preconditionFailure("Bridge teardown cleanup task was not installed")
         }
         let productSessionOwner = productSessionOwner
-        let worktreeAnnotationStore = worktreeAnnotationStore
         let lifecycleRetirementTask = Task { @MainActor [weak self] in
             await reviewRefreshCleanupTelemetryTask?.value
             if let telemetrySessionOwner = self?.telemetrySessionOwner {
@@ -599,11 +598,7 @@ package final class BridgePaneController {
                 await telemetrySessionOwner.revoke()
             }
             self?.page.stopLoading()
-            let retiringWorkerInstanceID = await productSessionOwner.activeInstallation?.bootstrap.workerInstanceId
             let productSessionRetired = await productSessionOwner.retire(reason: .paneDisposal) == .retired
-            if productSessionRetired, let retiringWorkerInstanceID {
-                await worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)
-            }
             await teardownCleanupTask.value
             if !productSessionRetired {
                 self?.lifecycleRetirementTask = nil

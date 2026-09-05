@@ -3,7 +3,9 @@ import { expect, test } from 'vitest';
 
 import { decodeBridgeProductDevBootstrapDelivery } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import {
+	selectRangeForAnnotation,
 	selectReviewFile,
+	waitForCommittedAnnotationCommand,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
 import {
@@ -13,7 +15,7 @@ import {
 } from './bridge-viewer-vite-product-fixture.ts';
 import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
 
-test('rebinds a real Review after worker failure and one unavailable replacement bootstrap', async () => {
+test('reclaims a durable Review draft after worker failure and one unavailable replacement bootstrap', async () => {
 	// Arrange — real Vite, Swift, comm worker, metadata and content establish a usable Review.
 	const fixture = await createBridgeViewerViteProductFixture();
 	let server: BridgeViewerOwnedViteProductServer | null = null;
@@ -40,13 +42,26 @@ test('rebinds a real Review after worker failure and one unavailable replacement
 			(response): boolean => isBootstrapResponse(response, 'initial'),
 			{ timeout: 30_000 },
 		);
-		await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-			timeout: 120_000,
-			waitUntil: 'domcontentloaded',
-		});
-		const initialWorkerInstanceId = await bootstrapWorkerInstanceId(await initialBootstrapResponse);
+		const [initialResponse] = await Promise.all([
+			initialBootstrapResponse,
+			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
+				timeout: 120_000,
+				waitUntil: 'domcontentloaded',
+			}),
+		]);
+		const initialWorkerInstanceId = await bootstrapWorkerInstanceId(initialResponse);
 		await selectReviewFile({ page, path: reviewFile.path });
 		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
+		await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
+		const draftBody = 'Durable draft remains reclaimable after worker replacement.';
+		const draftCreated = waitForCommittedAnnotationCommand(page, 'root.create', 'review');
+		await Promise.all([
+			draftCreated,
+			page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(draftBody),
+		]);
+		await page
+			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
+			.waitFor({ state: 'visible', timeout: 30_000 });
 		const worker = page
 			.workers()
 			.find((candidate) => candidate.url().includes('bridge-comm-worker-vite-entry.ts'));
@@ -82,6 +97,21 @@ test('rebinds a real Review after worker failure and one unavailable replacement
 		expect(await bootstrapWorkerInstanceId(freshResponse)).not.toBe(initialWorkerInstanceId);
 		await selectReviewFile({ page, path: reviewFile.path });
 		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
+		const restoredDraft = page.getByText(draftBody, { exact: true });
+		await restoredDraft.waitFor({ state: 'visible', timeout: 30_000 });
+
+		// Act — reclaim the persisted draft through the replacement worker and save an edit.
+		await page.getByRole('button', { name: 'Edit annotation', exact: true }).click();
+		const savedBody = `${draftBody} Saved by the replacement worker.`;
+		await page.getByRole('textbox', { name: 'Annotation Markdown', exact: true }).fill(savedBody);
+		const saved = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
+		await Promise.all([
+			saved,
+			page.getByRole('button', { name: 'Save annotation', exact: true }).click(),
+		]);
+
+		// Assert — a new committed mutation proves the old worker no longer owns the draft.
+		await page.getByText(savedBody, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 	} catch (error) {
 		throw new Error(
 			`Worker replacement journey failed. Backend: ${server?.diagnostics() ?? 'not started'}`,

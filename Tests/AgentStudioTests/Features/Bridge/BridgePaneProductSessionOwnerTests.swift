@@ -633,7 +633,7 @@ func startBridgePaneProductMetadataReply(
     return replyTask
 }
 
-private func startContentReply(
+func startContentReply(
     installation: BridgeProductSessionInstallation,
     provider: BridgePaneProductSessionProviderGate,
     identitySuffix: String,

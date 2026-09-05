@@ -65,14 +65,12 @@ struct WorktreeAnnotationOutputCompositionTests {
             )
         )
         #expect(bridgeBootstrap.contains("outputCoordinator: input.worktreeAnnotationOutputCoordinator"))
-        #expect(
-            bridgeController.contains(
-                "worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)"
-            )
-        )
+        #expect(!bridgeController.contains("invalidateEditOwnerGeneration("))
+        #expect(bridgeBootstrap.components(separatedBy: "invalidateEditOwnerGeneration(").count - 1 == 1)
+        #expect(bridgeBootstrap.contains("worktreeAnnotationStore: input.worktreeAnnotationStore"))
         #expect(
             bridgeBootstrap.contains(
-                "worktreeAnnotationStore?.invalidateEditOwnerGeneration(retiringWorkerInstanceID)"
+                "await worktreeAnnotationStore?.invalidateEditOwnerGeneration(workerInstanceId)"
             )
         )
         let recoveryCall = try #require(
