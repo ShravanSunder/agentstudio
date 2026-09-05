@@ -195,7 +195,7 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
     /// a later fact has already been coalesced into an earlier pending fact
     /// for the same key, which is otherwise invisible outside the governor's
     /// lock. Does not affect drain timing or merge behavior.
-    package var supersededSinceLastDrainCount: Int {
+    var supersededSinceLastDrainCount: Int {
         lock.withLock { state.supersededSinceLastDrain }
     }
 

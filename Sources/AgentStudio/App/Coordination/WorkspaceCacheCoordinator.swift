@@ -61,7 +61,7 @@ final class WorkspaceCacheCoordinator {
     /// facts have been coalesced into the current pending batch since the
     /// last drain. Lets tests wait for an actual coalescing invariant
     /// instead of inferring it from tick-scheduling side effects.
-    package var pendingRepositoryProjectionSupersessionCount: Int {
+    var pendingRepositoryProjectionSupersessionCount: Int {
         repositoryProjectionApplyGovernor?.supersededSinceLastDrainCount ?? 0
     }
 
