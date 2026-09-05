@@ -533,24 +533,28 @@ struct PaneTabViewControllerLaunchRestoreTests {
     @Test
     func revealAndPreparedRequeueOverlapProduceOneClaimAndOneSurfaceID() async throws {
         // Arrange: `overlapPane` is withheld from the initial frame set so it
-        // settles `deferredGeometry` custody. Its tab is not appended until
-        // after the cohort mount below returns — see the note in
-        // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives` for the
-        // pre-existing scheduler race that ordering avoids at the mount
-        // boundary. This test's own "overlap" is deliberately staged after
-        // settlement instead: appending the tab can trigger this harness's
-        // real, mounted controller to independently run the S9 geometry-
-        // reevaluation tail via real AppKit layout, racing the explicit
-        // reveal immediately below it. That race is safe post-settlement —
-        // `ensureADrainObservesNewlyQueuedMembers`'s `isSupplementalDrainActive`
-        // guard is exactly the single-assignment protection this test means
-        // to exercise.
+        // settles `deferredGeometry` custody. Its tab is appended to the
+        // store *before* the cohort mount below — the original, natural
+        // ordering (no test-side workaround). Before S10b's scheduler fix,
+        // this exact ordering intermittently (about 1 run in 3) crashed with
+        // `TerminalActivationScheduler.swift:557: Fatal error: terminal
+        // activation cohort settled with unfinished members`: appending the
+        // tab can trigger this harness's real, mounted controller to
+        // independently run the S9 geometry-reevaluation tail via real
+        // AppKit layout *during* `mountPreparedContent`'s own `await
+        // owner.mount()`, landing `acceptLaterGeometry` in the exact window
+        // between `activate()`'s drain deciding no candidate remains and
+        // `makeSettlement()` locking in. S10b's `while hasQueuedMember()`
+        // retry in `activate()` closes that window; this test restores the
+        // ordering that originally exposed it, rather than routing around it,
+        // to prove the fix rather than the workaround is what makes this safe.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
 
         let overlapPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
         let overlapTab = Tab(paneId: overlapPane.id, name: "Overlap")
+        harness.store.appendTab(overlapTab)
 
         // Held alive for the rest of the test — see the note in
         // `aDeferredPaneIsCreatedExactlyOnceWhenGeometryArrives`.
@@ -565,10 +569,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
             initialFramesByPaneID: [:]
         )
 
-        // Act: append and reveal the pane's tab back to back — the real
-        // layout this triggers and the explicit reveal below race each
-        // other, both after settlement.
-        harness.store.appendTab(overlapTab)
+        // Act: reveal the pane's tab — any real layout the tab-append above
+        // triggered during mount, and this explicit reveal, race each other.
         harness.store.setActiveTab(overlapTab.id)
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == overlapPane.id }.count == 2 }
@@ -606,6 +608,15 @@ struct PaneTabViewControllerLaunchRestoreTests {
             position: .after,
             sizingMode: .halveTarget
         )
+        // `WorkspaceTabArrangementAtom.insertPane` (Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift:260)
+        // deliberately reassigns the arrangement's `activePaneId` to the pane
+        // just inserted — splitting a pane focuses the new pane, matching
+        // real UX. Left alone, `mainSiblingPane` — not `activeMainPane` —
+        // would be the one `StoreVisibilityTierResolver.isActive` (Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreScheduler.swift:56)
+        // ranks active, since it checks `activeTab.activePaneId`. Restoring
+        // `activeMainPane` here is test setup catching up with real product
+        // behavior, not a workaround for a product defect.
+        harness.store.setActivePane(activeMainPane.id, inTab: tab.id)
 
         let activeDrawerPane = try #require(harness.store.addDrawerPane(to: activeMainPane.id))
         let siblingDrawerPane = try #require(harness.store.addDrawerPane(to: activeMainPane.id))
@@ -665,22 +676,18 @@ struct PaneTabViewControllerLaunchRestoreTests {
         harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == siblingDrawerPane.id }.count == 2 }
 
-        // Assert: both main-tab panes admit before both drawer panes (the
-        // main tier precedes the drawer tier), and within the drawer, the
-        // active child admits before its sibling — the tier order, not the
-        // deliberately reversed source-ordinal order the descriptors above
-        // were listed in. (Whether `activeMainPane` or `mainSiblingPane`
-        // itself wins the "active main" sub-rank is `visibilityTierResolver`
-        // policy this test does not need to pin down to prove tier order.)
-        let activeMainIndex = try #require(harness.surfaceManager.createdPaneIds.firstIndex(of: activeMainPane.id))
-        let mainSiblingIndex = try #require(
-            harness.surfaceManager.createdPaneIds.firstIndex(of: mainSiblingPane.id))
-        let activeDrawerIndex = try #require(
-            harness.surfaceManager.createdPaneIds.firstIndex(of: activeDrawerPane.id))
-        let siblingDrawerIndex = try #require(
-            harness.surfaceManager.createdPaneIds.firstIndex(of: siblingDrawerPane.id))
-        #expect(max(activeMainIndex, mainSiblingIndex) < min(activeDrawerIndex, siblingDrawerIndex))
-        #expect(activeDrawerIndex < siblingDrawerIndex)
+        // Assert: admitted active-main, then main sibling, then active
+        // drawer, then drawer sibling — the tier order, not the deliberately
+        // reversed source-ordinal order the descriptors above were listed in.
+        let expectedOrder = [activeMainPane.id, mainSiblingPane.id, activeDrawerPane.id, siblingDrawerPane.id]
+        let observedOrder = expectedOrder.sorted { lhs, rhs in
+            guard
+                let lhsIndex = harness.surfaceManager.createdPaneIds.firstIndex(of: lhs),
+                let rhsIndex = harness.surfaceManager.createdPaneIds.firstIndex(of: rhs)
+            else { return false }
+            return lhsIndex < rhsIndex
+        }
+        #expect(observedOrder == expectedOrder)
         withExtendedLifetime(mounted) {}
     }
 

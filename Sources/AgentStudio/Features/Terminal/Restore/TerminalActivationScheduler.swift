@@ -175,12 +175,20 @@ package actor TerminalActivationScheduler {
         )
         workerCount = maximumWorkerCount
 
-        await withTaskGroup(of: Void.self) { taskGroup in
-            for _ in 0..<maximumWorkerCount {
-                taskGroup.addTask {
-                    await self.runWorker()
-                }
-            }
+        await drainWithWorkerFleet(count: maximumWorkerCount)
+
+        // A worker decides it is done (`nextQueuedCandidate()` is nil) and
+        // this actor turn resuming after `await withTaskGroup` above are two
+        // separate turns — nothing prevents a concurrent `acceptLaterGeometry`
+        // call (S9's geometry-reevaluation tail, or any other caller) from
+        // requeuing a member in between. `ensureADrainObservesNewlyQueuedMembers`'s
+        // `.activating` branch assumes this fleet will still observe such a
+        // requeue; that assumption is only true if draining again here
+        // actually happens. Checking for a queued member immediately before
+        // `makeSettlement()`, with no `await` between the check and the call,
+        // is what makes "no unfinished members" a fact instead of a race.
+        while hasQueuedMember() {
+            await drainWithWorkerFleet(count: 1)
         }
 
         let settlement = makeSettlement()
@@ -346,6 +354,31 @@ package actor TerminalActivationScheduler {
             case .rejected(let rejection):
                 resolveRejectedProposal(paneID: candidate.paneID, attempt: candidate.attempt, rejection: rejection)
             }
+        }
+    }
+
+    /// Runs `count` workers to quiescence — the initial fleet size for
+    /// `activate()`'s own drain, or a single worker for each retry round
+    /// that catches a member `acceptLaterGeometry` requeued after the
+    /// previous round decided none remained.
+    private func drainWithWorkerFleet(count: Int) async {
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for _ in 0..<count {
+                taskGroup.addTask {
+                    await self.runWorker()
+                }
+            }
+        }
+    }
+
+    /// Whether any member is currently `.queued` — awaiting a claim, not yet
+    /// picked up by a worker. Read synchronously immediately before
+    /// `makeSettlement()`, with no intervening `await`, so the answer cannot
+    /// go stale between the check and the settlement it gates.
+    private func hasQueuedMember() -> Bool {
+        membersByPaneID.values.contains { member in
+            if case .queued = member.execution { return true }
+            return false
         }
     }
 

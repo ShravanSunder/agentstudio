@@ -296,6 +296,99 @@ final class RevisionAwareTerminalActivationAdmissionPort: TerminalActivationAdmi
     }
 }
 
+/// Lets exactly one `activateClaimedTerminal` call reenter the scheduler via
+/// `acceptLaterGeometry` before returning its own result — simulating S9's
+/// geometry-reevaluation tail landing during the final activation of
+/// `activate()`'s own drain, the exact interleaving S10b's settlement-race
+/// fix must survive. `scheduler` is assigned after construction because the
+/// port must exist before the scheduler that owns it.
+@MainActor
+final class ReentrantAcceptGeometryAdmissionPort: FakeTerminalActivationAdmissionPort {
+    var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
+    weak var scheduler: TerminalActivationScheduler?
+    /// The pane whose claim triggers the reentrant `acceptLaterGeometry`
+    /// call, and the still-`waitingForGeometry` pane that call names.
+    var reentryTriggerPaneID: PaneId?
+    var lateArrivingPaneID: PaneId?
+    private(set) var admissions: [TerminalActivationAdmission] = []
+    private(set) var acceptedLateArrivals: Set<PaneId> = []
+    private var hasTriggeredReentry = false
+
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
+            return .rejected(.paneNotInCohort)
+        }
+        let admission = TerminalActivationAdmission(
+            generation: proposal.generation,
+            descriptor: descriptor,
+            attempt: proposal.attempt
+        )
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: admission,
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    /// Resolved once the spawned reentrant call has recorded its result, so
+    /// a caller can `await` that fact deterministically instead of polling
+    /// or sleeping. Replaced with a fresh continuation by
+    /// `armReentryCompletionWaiter()` before each `activate()` call that
+    /// needs to observe it.
+    private var reentryContinuation: CheckedContinuation<Void, Never>?
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        let admission = claim.admission
+        admissions.append(admission)
+        if !hasTriggeredReentry, admission.descriptor.paneID == reentryTriggerPaneID,
+            let lateArrivingPaneID, let scheduler
+        {
+            hasTriggeredReentry = true
+            // Spawned, not awaited: this lets `runWorker()`'s own resumption
+            // (hopping back to the scheduler actor the instant this MainActor
+            // call returns) race ahead of this call's own hop through the
+            // cooperative thread pool into `acceptLaterGeometry` — landing it
+            // after the worker's last `nextQueuedCandidate()` check, in the
+            // window `activate()`'s settlement-race fix must survive. A
+            // direct `await` here is absorbed by this same worker's very next
+            // loop iteration instead (verified empirically: it never
+            // reproduces the race), which is why S10b's fix could not be
+            // proven with the naive direct-await shape.
+            Task { [weak self] in
+                guard let self else { return }
+                let accepted = await scheduler.acceptLaterGeometry(for: [lateArrivingPaneID])
+                await self.recordAcceptedLateArrivals(accepted)
+            }
+        }
+        return .attempted(.ready(surfaceID: UUIDv7.generate()))
+    }
+
+    private func recordAcceptedLateArrivals(_ accepted: Set<PaneId>) {
+        acceptedLateArrivals = accepted
+        reentryContinuation?.resume()
+        reentryContinuation = nil
+    }
+
+    /// Bounded wait for the spawned reentrant call to actually complete, so a
+    /// test that needs to confirm the reentry landed (rather than merely
+    /// racing it against `activate()`) can do so deterministically. Returns
+    /// immediately if it has already landed.
+    func waitUntilReentryLands() async {
+        guard acceptedLateArrivals.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            reentryContinuation = continuation
+        }
+    }
+}
+
 actor TerminalActivationCompletionProbe {
     private(set) var settlement: TerminalActivationSettlement?
 
