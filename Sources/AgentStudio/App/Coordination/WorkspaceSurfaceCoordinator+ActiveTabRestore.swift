@@ -30,21 +30,28 @@ extension WorkspaceSurfaceCoordinator {
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
-        let paneIDsToRestore: [UUID]
-        if viewRegistry.isInitialRestorePending {
-            let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(
-                visiblePaneIDs.map(PaneId.init(existingUUID:))
-            )
-            RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
-            )
-            paneIDsToRestore = visiblePaneIDs.filter {
-                !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
-            }
-            guard !paneIDsToRestore.isEmpty else { return }
-        } else {
-            paneIDsToRestore = visiblePaneIDs
+        // Always record the complete current visible queued set — this is
+        // no longer gated on the retired launch-window presentation flag,
+        // which stops being a creation selector after this cutover. A pane
+        // can remain prepared-owned (pending or geometry-deferred) long after
+        // launch settles, and this signal is also what feeds the scheduler's
+        // promotion snapshot (SPEC R3). Nonterminal panes the prepared lane
+        // still owns are excluded here; a terminal pane's actual creation
+        // gate is its own per-pane `TerminalSurfaceCreationAuthority`,
+        // resolved later inside `createViewForContent`.
+        let visiblePaneIDList = visiblePaneIDs.map(PaneId.init(existingUUID:))
+        let visibleQueuedSet = PreparedContentVisibleQueuedSet(
+            visiblePaneIDs: visiblePaneIDList,
+            activePaneIDs: Set(visiblePaneIDList.filter { visibilityTierResolver.isActive($0) })
+        )
+        let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(visibleQueuedSet)
+        RestoreTrace.log(
+            "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
+        )
+        let paneIDsToRestore = visiblePaneIDs.filter {
+            !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
         }
+        guard !paneIDsToRestore.isEmpty else { return }
 
         let resolvedPaneFramesByTabId = [
             activeTab.id: resolveInitialFrames(for: activeTab, in: terminalContainerBounds)
@@ -67,7 +74,15 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    private func foregroundVisiblePaneIDs(in activeTab: Tab) -> [UUID] {
+    /// The complete current visible-and-foreground pane set for `activeTab`,
+    /// main panes before drawer panes. This ordering is a source-stability
+    /// convenience only — it is not a contract for which pane is "active."
+    /// `PreparedContentVisibleQueuedSet.activePaneIDs`, built separately from
+    /// `visibilityTierResolver.isActive(_:)`, is the only signal callers may
+    /// use for that. Shared with `+ViewHelpers.swift` and `+ViewLifecycle.swift`
+    /// so every `preparedContentVisibilitySignalHandler` caller passes the
+    /// complete current set rather than a single pane.
+    func foregroundVisiblePaneIDs(in activeTab: Tab) -> [UUID] {
         let orderedVisiblePaneIDs = TerminalRestoreScheduler.order(
             activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
@@ -81,6 +96,41 @@ extension WorkspaceSurfaceCoordinator {
             store.paneAtom.pane($0)?.parentPaneId != nil
         }
         return mainPaneIDs + drawerPaneIDs
+    }
+
+    /// The complete current visible queued set for the active tab.
+    /// `activePaneIDs` is computed directly from
+    /// `visibilityTierResolver.isActive(_:)` — the same rule that decides the
+    /// active main pane of the visible tab and, if a drawer is expanded, its
+    /// active drawer pane — so this never duplicates that rule.
+    func currentVisibleQueuedSet() -> PreparedContentVisibleQueuedSet {
+        guard let activeTab = store.tabLayoutAtom.activeTab else {
+            return PreparedContentVisibleQueuedSet(visiblePaneIDs: [], activePaneIDs: [])
+        }
+        let visiblePaneIDs = foregroundVisiblePaneIDs(in: activeTab).map(PaneId.init(existingUUID:))
+        return PreparedContentVisibleQueuedSet(
+            visiblePaneIDs: visiblePaneIDs,
+            activePaneIDs: Set(visiblePaneIDs.filter { visibilityTierResolver.isActive($0) })
+        )
+    }
+
+    /// Same as `currentVisibleQueuedSet()`, but guarantees `paneID` is present
+    /// in `visiblePaneIDs` even when the active tab is unknown or the
+    /// resolver's own tier check would otherwise exclude it — for example, a
+    /// forced restore of a pane the resolver currently considers hidden.
+    /// `paneID`'s own active membership is still decided by the resolver, not
+    /// by this forced inclusion.
+    func currentVisibleQueuedSet(includingAtLeast paneID: PaneId) -> PreparedContentVisibleQueuedSet {
+        let base = currentVisibleQueuedSet()
+        guard !base.visiblePaneIDs.contains(paneID) else { return base }
+        var activePaneIDs = base.activePaneIDs
+        if visibilityTierResolver.isActive(paneID) {
+            activePaneIDs.insert(paneID)
+        }
+        return PreparedContentVisibleQueuedSet(
+            visiblePaneIDs: base.visiblePaneIDs + [paneID],
+            activePaneIDs: activePaneIDs
+        )
     }
 
     private func restoreMissingVisibleViews(

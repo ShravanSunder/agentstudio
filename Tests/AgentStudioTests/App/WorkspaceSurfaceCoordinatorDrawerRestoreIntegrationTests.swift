@@ -112,7 +112,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
                 generation: generation,
                 initialFramesByPaneID: [:],
                 viewRegistry: harness.viewRegistry,
-                mountHandler: harness.coordinator
+                mountHandler: harness.coordinator,
+                descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
             ),
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: generation,
@@ -203,7 +204,11 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test
-    func toggleDrawer_retriesDrawerPaneAfterPreparedActivationLackedTrustedFrame() async throws {
+    func collapsedDrawerChildCreatesImmediatelyFromItsBootstrapFrame() async throws {
+        // SPEC R1/R7: a collapsed drawer's child is no longer deferred for
+        // lacking a trusted frame — the bootstrap approximation is
+        // expansion-independent, so it creates immediately alongside its
+        // parent, and expanding the drawer later needs no creation retry.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -227,7 +232,6 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         harness.store.toggleDrawer(for: parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
-        let drawerViewBeforePreparedMount = try #require(harness.store.drawerView(forParent: parentPane.id))
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
         let acceptedParentPane = try #require(harness.store.pane(parentPane.id))
@@ -250,16 +254,10 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             ],
             trustedBounds: trustedBounds
         )
-        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id, parentPane.id])
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: drawerPane.id) == nil)
-        #expect(harness.store.drawerView(forParent: parentPane.id) == drawerViewBeforePreparedMount)
-        let creationAttemptsBeforeToggle = harness.surfaceManager.createdPaneIds.count
 
-        harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
-
-        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeToggle + 1)
-        #expect(harness.surfaceManager.createdPaneIds.last == drawerPane.id)
+        // Assert: the drawer child was attempted during the initial mount,
+        // not deferred until a later toggle.
+        #expect(harness.surfaceManager.createdPaneIds.contains(drawerPane.id))
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[drawerPane.id])
         #expect(config.initialFrame != nil)
     }
@@ -344,9 +342,9 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         }
         harness.viewRegistry.beginInitialRestore()
         var signalledPaneIDs: [PaneId] = []
-        harness.coordinator.preparedContentVisibilitySignalHandler = { paneIDs in
-            signalledPaneIDs = paneIDs
-            return Set(paneIDs)
+        harness.coordinator.preparedContentVisibilitySignalHandler = { visibleQueuedSet in
+            signalledPaneIDs = visibleQueuedSet.visiblePaneIDs
+            return Set(visibleQueuedSet.visiblePaneIDs)
         }
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
@@ -686,6 +684,81 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             tabID: tab.id
         )
     }
+
+    @Test
+    func bootstrapGeometryConvergesToTheMeasuredFrameOnTheSameSurfaceID() async throws {
+        // SPEC R7: the bootstrap approximation used at admission time is
+        // allowed to differ from later measured geometry — display-time
+        // sync is unchanged and asserted here, not re-implemented. The
+        // drawer child is created exactly once against the bootstrap frame;
+        // recomputing frames against the eventual measured bounds must
+        // never imply a second creation for the same pane.
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let parentPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let tab = Tab(paneId: parentPane.id, name: "Convergence Drawer")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let installedDrawerID = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
+        harness.store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: installedDrawerID,
+            parentPaneId: parentPane.id,
+            drawerPaneId: drawerPane.id,
+            inTab: tab.id
+        )
+        let bootstrapBounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(bootstrapBounds)
+
+        let acceptedParentPane = try #require(harness.store.pane(parentPane.id))
+        let acceptedDrawerPane = try #require(harness.store.pane(drawerPane.id))
+        let drawerID = try #require(acceptedParentPane.drawer?.drawerId)
+        try await mountPreparedDrawerCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (acceptedParentPane, .activeVisible, .tab(tabID: tab.id)),
+                (
+                    acceptedDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: tab.id,
+                        parentPaneID: PaneId(existingUUID: parentPane.id),
+                        drawerID: drawerID
+                    )
+                ),
+            ],
+            trustedBounds: bootstrapBounds
+        )
+        let bootstrapFrame = try #require(harness.surfaceManager.createdConfigsByPaneId[drawerPane.id]?.initialFrame)
+        let creationAttemptsAfterBootstrap = harness.surfaceManager.createdPaneIds.filter { $0 == drawerPane.id }
+            .count
+        #expect(creationAttemptsAfterBootstrap > 0)
+
+        // Act: recompute against the eventual, measured bounds — the same
+        // display-time geometry sync this repo already performs elsewhere.
+        let canonicalTab = try #require(harness.store.tabLayoutAtom.tab(tab.id))
+        let measuredBounds = CGRect(x: 0, y: 0, width: 1400, height: 900)
+        let measuredFrames = harness.coordinator.resolveInitialFrames(for: canonicalTab, in: measuredBounds)
+        let measuredFrame = try #require(measuredFrames[drawerPane.id])
+
+        // Assert: the frames genuinely differ (bootstrap really is an
+        // approximation), and the drawer pane was never attempted a second
+        // time merely because geometry later converged — the same surface
+        // persists.
+        #expect(measuredFrame != bootstrapFrame)
+        #expect(
+            harness.surfaceManager.createdPaneIds.filter { $0 == drawerPane.id }.count
+                == creationAttemptsAfterBootstrap
+        )
+    }
 }
 
 @MainActor
@@ -711,20 +784,28 @@ private func mountPreparedDrawerCohort(
         nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
     )
     viewRegistry.beginInitialRestore()
+    // Matches `AppDelegate+LaunchRestore.swift`'s real sequencing: the port
+    // starts `.awaitingInstallation` so `installTrustedInitialFrames` can
+    // defer any cohort pane without a frame, and that call only happens
+    // after the coordinator's own init has installed the cohort into
+    // `viewRegistry` (a pane must be `.pending` before it can be deferred).
+    let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+        generation: generation,
+        viewRegistry: viewRegistry,
+        mountHandler: coordinator,
+        descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+    )
     let owner = WorkspacePreparedContentMountCoordinator(
         cohort: cohort,
         viewRegistry: viewRegistry,
-        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
-            generation: generation,
-            initialFramesByPaneID: initialFramesByPaneID,
-            viewRegistry: viewRegistry,
-            mountHandler: coordinator
-        ),
+        terminalAdmissionPort: terminalAdmissionPort,
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
             generation: generation,
             coordinator: coordinator
         )
     )
+    let eligibleTerminalPaneIDs = terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID)
+    await owner.installTerminalGeometryAvailability(eligibleTerminalPaneIDs)
     _ = await owner.mount()
 }
 
