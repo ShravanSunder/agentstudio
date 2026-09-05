@@ -96,7 +96,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
                 generation: generation,
                 initialFramesByPaneID: [:],
                 viewRegistry: registry,
-                mountHandler: harness.coordinator
+                mountHandler: harness.coordinator,
+                descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
             ),
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: generation,
@@ -800,7 +801,8 @@ private func mountPreparedTerminalCohort(
             generation: generation,
             initialFramesByPaneID: initialFramesByPaneID,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
         ),
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
             generation: generation,

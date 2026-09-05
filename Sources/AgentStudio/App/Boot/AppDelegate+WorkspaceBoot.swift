@@ -461,7 +461,10 @@ extension AppDelegate {
         let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
             generation: contentMountCohort.generation,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(
+                uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
+            )
         )
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
             cohort: contentMountCohort,

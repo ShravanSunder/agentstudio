@@ -112,7 +112,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
                 generation: generation,
                 initialFramesByPaneID: [:],
                 viewRegistry: harness.viewRegistry,
-                mountHandler: harness.coordinator
+                mountHandler: harness.coordinator,
+                descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
             ),
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: generation,
@@ -718,7 +719,8 @@ private func mountPreparedDrawerCohort(
             generation: generation,
             initialFramesByPaneID: initialFramesByPaneID,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
         ),
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
             generation: generation,

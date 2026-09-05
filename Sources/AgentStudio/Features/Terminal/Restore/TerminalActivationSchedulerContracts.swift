@@ -19,6 +19,16 @@ package struct TerminalActivationAdmission: Equatable, Sendable {
     package let generation: WorkspaceContentMountGeneration
     package let descriptor: TerminalActivationDescriptor
     package let attempt: Int
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        descriptor: TerminalActivationDescriptor,
+        attempt: Int
+    ) {
+        self.generation = generation
+        self.descriptor = descriptor
+        self.attempt = attempt
+    }
 }
 
 package enum TerminalActivationFailure: Equatable, Sendable {
@@ -175,9 +185,4 @@ package enum TerminalActivationPromotionResult: Equatable, Sendable {
     case unchanged(priority: TerminalActivationVisibilityPriority)
     case paneNotFound
     case memberNotQueued(state: TerminalActivationMemberState)
-}
-
-@MainActor
-package protocol TerminalActivationAdmissionPort: AnyObject, Sendable {
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult
 }

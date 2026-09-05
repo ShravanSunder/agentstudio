@@ -60,7 +60,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         let coordinator = WorkspacePreparedContentMountCoordinator(
             cohort: cohort,
             viewRegistry: registry,
-            terminalAdmissionPort: RecordingPreparedContentTerminalPort(),
+            terminalAdmissionPort: RecordingPreparedContentTerminalPort(descriptors: [descriptor]),
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
         )
         var publishedPaneIDs: [PaneId] = []
@@ -170,7 +170,7 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         )
         let registry = ViewRegistry()
         registry.beginInitialRestore()
-        let terminalPort = SuspendedPreparedContentTerminalPort()
+        let terminalPort = SuspendedPreparedContentTerminalPort(descriptors: [descriptor])
         let coordinator = WorkspacePreparedContentMountCoordinator(
             cohort: cohort,
             viewRegistry: registry,
@@ -223,8 +223,8 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         let registry = ViewRegistry()
         registry.beginInitialRestore()
         let terminalPort = FailedAndSuspendedPreparedContentTerminalPort(
-            failedPaneID: failedDescriptor.paneID,
-            suspendedPaneID: blockingDescriptor.paneID
+            failedDescriptor: failedDescriptor,
+            suspendedDescriptor: blockingDescriptor
         )
         let coordinator = WorkspacePreparedContentMountCoordinator(
             cohort: cohort,
@@ -315,7 +315,9 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         )
         let registry = ViewRegistry()
         registry.beginInitialRestore()
-        let terminalPort = RecordingPreparedContentTerminalPort()
+        let terminalPort = RecordingPreparedContentTerminalPort(
+            descriptors: [hiddenDrawerTerminal, drawerTerminal, hiddenMainTerminal, mainTerminal]
+        )
         let nonterminalPort = SignallingPreparedContentNonterminalPort(
             signalPaneID: mainNonterminal.paneID
         )
@@ -355,31 +357,94 @@ struct WorkspacePreparedContentMountCoordinatorTests {
     }
 }
 
+/// The propose/claim/activate handshake needs a descriptor for any pane it
+/// claims (see `TerminalAdmissionProposal`, which carries only a `paneID`).
+/// These coordinator-level fakes carry no `ViewRegistry` of their own, so each
+/// caller registers the cohort's descriptors at construction.
 @MainActor
 private final class RecordingPreparedContentTerminalPort: TerminalActivationAdmissionPort {
+    private let descriptorsByPaneID: [PaneId: TerminalActivationDescriptor]
     private(set) var admissions: [TerminalActivationAdmission] = []
 
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
-        admissions.append(admission)
-        return .failed(
-            failure: .attachmentRejected(code: "unexpected"),
-            retry: .doNotRetry
+    init(descriptors: [TerminalActivationDescriptor] = []) {
+        descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+    }
+
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
+            return .rejected(.paneNotInCohort)
+        }
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: TerminalActivationAdmission(
+                    generation: proposal.generation,
+                    descriptor: descriptor,
+                    attempt: proposal.attempt
+                ),
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        admissions.append(claim.admission)
+        return .attempted(
+            .failed(
+                failure: .attachmentRejected(code: "unexpected"),
+                retry: .doNotRetry
+            )
         )
     }
 }
 
 @MainActor
 private final class SuspendedPreparedContentTerminalPort: TerminalActivationAdmissionPort {
+    private let descriptorsByPaneID: [PaneId: TerminalActivationDescriptor]
     private let admissionStarted = AsyncStream<Void>.makeStream()
     private var resultContinuation: CheckedContinuation<TerminalActivationAttemptResult, Never>?
     private(set) var admissions: [TerminalActivationAdmission] = []
 
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
-        admissions.append(admission)
+    init(descriptors: [TerminalActivationDescriptor] = []) {
+        descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+    }
+
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
+            return .rejected(.paneNotInCohort)
+        }
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: TerminalActivationAdmission(
+                    generation: proposal.generation,
+                    descriptor: descriptor,
+                    attempt: proposal.attempt
+                ),
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        admissions.append(claim.admission)
         admissionStarted.continuation.yield()
-        return await withCheckedContinuation { continuation in
+        let result = await withCheckedContinuation { continuation in
             resultContinuation = continuation
         }
+        return .attempted(result)
     }
 
     func waitUntilAdmissionStarts() async {
@@ -396,32 +461,63 @@ private final class SuspendedPreparedContentTerminalPort: TerminalActivationAdmi
 
 @MainActor
 private final class FailedAndSuspendedPreparedContentTerminalPort: TerminalActivationAdmissionPort {
-    private let failedPaneID: PaneId
-    private let suspendedPaneID: PaneId
+    private let failedDescriptor: TerminalActivationDescriptor
+    private let suspendedDescriptor: TerminalActivationDescriptor
     private let failureReturned = AsyncStream<Void>.makeStream()
     private let suspendedAdmissionStarted = AsyncStream<Void>.makeStream()
     private var suspendedContinuation: CheckedContinuation<TerminalActivationAttemptResult, Never>?
     private(set) var admissions: [TerminalActivationAdmission] = []
 
-    init(failedPaneID: PaneId, suspendedPaneID: PaneId) {
-        self.failedPaneID = failedPaneID
-        self.suspendedPaneID = suspendedPaneID
+    init(failedDescriptor: TerminalActivationDescriptor, suspendedDescriptor: TerminalActivationDescriptor) {
+        self.failedDescriptor = failedDescriptor
+        self.suspendedDescriptor = suspendedDescriptor
     }
 
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
-        admissions.append(admission)
-        if admission.descriptor.paneID == failedPaneID {
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        let descriptor: TerminalActivationDescriptor
+        if proposal.paneID == failedDescriptor.paneID {
+            descriptor = failedDescriptor
+        } else if proposal.paneID == suspendedDescriptor.paneID {
+            descriptor = suspendedDescriptor
+        } else {
+            return .rejected(.paneNotInCohort)
+        }
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: TerminalActivationAdmission(
+                    generation: proposal.generation,
+                    descriptor: descriptor,
+                    attempt: proposal.attempt
+                ),
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        admissions.append(claim.admission)
+        if claim.admission.descriptor.paneID == failedDescriptor.paneID {
             failureReturned.continuation.yield()
-            return .failed(
-                failure: .surfaceCreationFailed(code: "prepared_failure"),
-                retry: .doNotRetry
+            return .attempted(
+                .failed(
+                    failure: .surfaceCreationFailed(code: "prepared_failure"),
+                    retry: .doNotRetry
+                )
             )
         }
-        precondition(admission.descriptor.paneID == suspendedPaneID)
+        precondition(claim.admission.descriptor.paneID == suspendedDescriptor.paneID)
         suspendedAdmissionStarted.continuation.yield()
-        return await withCheckedContinuation { continuation in
+        let result = await withCheckedContinuation { continuation in
             suspendedContinuation = continuation
         }
+        return .attempted(result)
     }
 
     func waitUntilFailureReturns() async {

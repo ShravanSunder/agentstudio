@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioTerminal
 
 /// Proof that exactly one owner may create this pane's terminal surface now.
 /// Only `PreparedTerminalMountAdmissionPort` and `ViewRegistry` can produce a
@@ -8,6 +9,10 @@ import AgentStudioCore
 /// skips the custody question does not compile.
 @MainActor
 enum TerminalSurfaceCreationAuthority: Equatable {
-    // S2 adds .prepared(ClaimedTerminalAdmission)
+    /// Minted only by `PreparedTerminalMountAdmissionPort` after a successful
+    /// `pending -> mounting` claim.
+    case prepared(ClaimedTerminalAdmission)
+    /// Returned only by `ViewRegistry` when the pane's custody is `completed`
+    /// or absent.
     case released(PaneId)
 }

@@ -43,6 +43,13 @@ package actor TerminalActivationScheduler {
     private var workerCount = 0
     private var yieldCount = 0
     private var activationDeferralOutcome: StartupDeferralOutcome?
+    /// The latest visibility revision this scheduler has applied. Every
+    /// proposal carries it so the admission port can prove (G2) that any
+    /// snapshot recorded before the proposal has already been applied here.
+    /// Nothing in this generation of the scheduler advances it yet beyond its
+    /// zero baseline; the App-owned visibility observation that mints later
+    /// revisions is wired in a later slice.
+    private var appliedVisibilityRevision: TerminalVisibilityRevision
 
     package init(
         cohort: TerminalActivationCohort,
@@ -57,6 +64,7 @@ package actor TerminalActivationScheduler {
         self.cohort = cohort
         self.admissionPort = admissionPort
         self.releaseSignal = releaseSignal
+        appliedVisibilityRevision = TerminalVisibilityRevision(generation: cohort.generation, ordinal: 0)
         membersByPaneID = Dictionary(
             uniqueKeysWithValues: cohort.input.entries.enumerated().map { ordinal, descriptor in
                 (
@@ -88,21 +96,16 @@ package actor TerminalActivationScheduler {
 
         activationDeferralOutcome = await releaseSignal.waitUntilReleased()
 
-        var initialAdmissions: [TerminalActivationAdmission] = []
         let maximumWorkerCount = min(
             membersByPaneID.count,
             AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions
         )
-        for _ in 0..<maximumWorkerCount {
-            guard let admission = claimNextAdmission() else { break }
-            initialAdmissions.append(admission)
-        }
-        workerCount = initialAdmissions.count
+        workerCount = maximumWorkerCount
 
         await withTaskGroup(of: Void.self) { taskGroup in
-            for admission in initialAdmissions {
+            for _ in 0..<maximumWorkerCount {
                 taskGroup.addTask {
-                    await self.runWorker(startingWith: admission)
+                    await self.runWorker()
                 }
             }
         }
@@ -171,19 +174,42 @@ package actor TerminalActivationScheduler {
         }
     }
 
-    private func runWorker(startingWith initialAdmission: TerminalActivationAdmission) async {
-        var nextAdmission: TerminalActivationAdmission? = initialAdmission
-        while let admission = nextAdmission {
-            let result = await admissionPort.activate(admission)
-            complete(admission: admission, with: result)
-            yieldCount += 1
-            await Task.yield()
-            nextAdmission = claimNextAdmission()
+    /// Proposes, claims, marks attaching, and activates one candidate at a
+    /// time until no queued member remains. `AppPolicies.TerminalActivation
+    /// .restoreMaximumConcurrentAdmissions == 1` means `activate()` spawns at
+    /// most one worker, so `nextQueuedCandidate()`'s pure selection can never
+    /// race a concurrent `markAttaching(_:)` mutation from another worker.
+    private func runWorker() async {
+        while let candidate = nextQueuedCandidate() {
+            let proposal = TerminalAdmissionProposal(
+                generation: cohort.generation,
+                paneID: candidate.paneID,
+                attempt: candidate.attempt,
+                appliedVisibilityRevision: appliedVisibilityRevision
+            )
+            let outcome = await admissionPort.claimPreparedTerminal(proposal)
+            switch outcome {
+            case .claimed(let claim):
+                // No `await` between claim receipt and marking attaching: the
+                // admission counter must reflect only claims the port granted.
+                markAttaching(candidate)
+                let activationOutcome = await admissionPort.activateClaimedTerminal(claim)
+                complete(paneID: candidate.paneID, attempt: candidate.attempt, with: activationOutcome)
+                yieldCount += 1
+                await Task.yield()
+            case .visibilityChanged(let snapshot):
+                appliedVisibilityRevision = snapshot.revision
+            case .rejected(let rejection):
+                resolveRejectedProposal(paneID: candidate.paneID, attempt: candidate.attempt, rejection: rejection)
+            }
         }
     }
 
-    private func claimNextAdmission() -> TerminalActivationAdmission? {
-        let candidate = membersByPaneID.values.compactMap { member -> QueuedCandidate? in
+    /// Pure selection: the highest-ranked queued member, or nil. Performs no
+    /// mutation, so a caller may inspect the candidate before deciding whether
+    /// a claim was actually granted.
+    private func nextQueuedCandidate() -> QueuedCandidate? {
+        membersByPaneID.values.compactMap { member -> QueuedCandidate? in
             guard case .queued(let priority, let attempt) = member.execution else { return nil }
             return QueuedCandidate(
                 paneID: member.descriptor.paneID,
@@ -197,64 +223,121 @@ package actor TerminalActivationScheduler {
             }
             return lhs.priority < rhs.priority
         }
+    }
 
-        guard let candidate, var member = membersByPaneID[candidate.paneID] else { return nil }
-        member.execution = .attaching(
-            priority: candidate.priority,
-            attempt: candidate.attempt
-        )
+    /// Moves a claimed candidate to `attaching` and only now counts it toward
+    /// the simultaneous-admission bound. Called exactly once per granted claim.
+    private func markAttaching(_ candidate: QueuedCandidate) {
+        guard var member = membersByPaneID[candidate.paneID] else { return }
+        member.execution = .attaching(priority: candidate.priority, attempt: candidate.attempt)
         membersByPaneID[candidate.paneID] = member
         currentSimultaneousAdmissions += 1
         maximumSimultaneousAdmissions = max(
             maximumSimultaneousAdmissions,
             currentSimultaneousAdmissions
         )
-        return TerminalActivationAdmission(
-            generation: cohort.generation,
-            descriptor: member.descriptor,
-            attempt: candidate.attempt
-        )
     }
 
     private func complete(
-        admission: TerminalActivationAdmission,
-        with result: TerminalActivationAttemptResult
+        paneID: PaneId,
+        attempt: Int,
+        with outcome: ClaimedTerminalActivationOutcome
     ) {
         precondition(currentSimultaneousAdmissions > 0, "terminal activation admission count underflow")
         currentSimultaneousAdmissions -= 1
 
-        guard var member = membersByPaneID[admission.descriptor.paneID] else { return }
+        guard var member = membersByPaneID[paneID] else { return }
         guard
-            case .attaching(let priority, let attempt) = member.execution,
-            attempt == admission.attempt,
-            admission.generation == cohort.generation
+            case .attaching(let priority, let memberAttempt) = member.execution,
+            memberAttempt == attempt
         else {
             return
         }
 
-        switch result {
-        case .ready(let surfaceID):
-            member.execution = .terminal(.ready(surfaceID: surfaceID))
-        case .failed(let failure, .doNotRetry):
-            member.execution = .terminal(
-                .failedTerminal(
-                    failure: failure,
-                    retry: .notRequested(attemptCount: attempt)
-                )
-            )
-        case .failed(let failure, .retry):
-            if attempt == 1 {
-                member.execution = .queued(priority: priority, attempt: 2)
-            } else {
+        switch outcome {
+        case .attempted(let result):
+            switch result {
+            case .ready(let surfaceID):
+                member.execution = .terminal(.ready(surfaceID: surfaceID))
+            case .failed(let failure, .doNotRetry):
                 member.execution = .terminal(
                     .failedTerminal(
                         failure: failure,
-                        retry: .exhausted(attemptCount: attempt)
+                        retry: .notRequested(attemptCount: attempt)
                     )
                 )
+            case .failed(let failure, .retry):
+                if attempt == 1 {
+                    member.execution = .queued(priority: priority, attempt: 2)
+                } else {
+                    member.execution = .terminal(
+                        .failedTerminal(
+                            failure: failure,
+                            retry: .exhausted(attemptCount: attempt)
+                        )
+                    )
+                }
             }
+        case .rejected(let rejection):
+            // Defensive: the port refused to activate a claim this scheduler
+            // just received. Resolve exactly like a non-retryable failure.
+            member.execution = .terminal(
+                .failedTerminal(
+                    failure: activationRejectionFailure(rejection),
+                    retry: .notRequested(attemptCount: attempt)
+                )
+            )
         }
-        membersByPaneID[admission.descriptor.paneID] = member
+        membersByPaneID[paneID] = member
+    }
+
+    /// A `.rejected` claim outcome resolves the member exactly as `complete`
+    /// resolves a `.doNotRetry` failure: no second attempt is made.
+    private func resolveRejectedProposal(
+        paneID: PaneId,
+        attempt: Int,
+        rejection: TerminalAdmissionClaimRejection
+    ) {
+        guard var member = membersByPaneID[paneID] else { return }
+        guard
+            case .queued(_, let memberAttempt) = member.execution,
+            memberAttempt == attempt
+        else {
+            return
+        }
+        member.execution = .terminal(
+            .failedTerminal(
+                failure: claimRejectionFailure(rejection),
+                retry: .notRequested(attemptCount: attempt)
+            )
+        )
+        membersByPaneID[paneID] = member
+    }
+
+    private func claimRejectionFailure(_ rejection: TerminalAdmissionClaimRejection) -> TerminalActivationFailure {
+        switch rejection {
+        case .staleGeneration:
+            return .attachmentRejected(code: "stale_generation")
+        case .paneNotInCohort:
+            return .attachmentRejected(code: "pane_not_in_cohort")
+        case .trustedFrameUnavailable:
+            return .attachmentRejected(code: "trusted_frame_unavailable")
+        case .custodyUnavailableForClaim:
+            return .attachmentRejected(code: "custody_unavailable_for_claim")
+        case .retryClaimMismatch:
+            return .attachmentRejected(code: "retry_claim_mismatch")
+        }
+    }
+
+    private func activationRejectionFailure(
+        _ rejection: ClaimedTerminalActivationRejection
+    ) -> TerminalActivationFailure {
+        switch rejection {
+        case .claimAlreadyConsumed:
+            return .attachmentRejected(code: "claim_already_consumed")
+        case .claimNotIssued:
+            return .attachmentRejected(code: "claim_not_issued")
+        }
     }
 
     private func publicState(for execution: MemberExecution) -> TerminalActivationMemberState {

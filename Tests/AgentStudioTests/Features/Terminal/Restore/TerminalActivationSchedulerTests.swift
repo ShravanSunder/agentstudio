@@ -114,6 +114,9 @@ struct TerminalActivationSchedulerTests {
         let firstHidden = makeDescriptor(priority: .hidden)
         let secondHidden = makeDescriptor(priority: .hidden)
         let port = ImmediateTerminalActivationAdmissionPort()
+        port.descriptorsByPaneID = Dictionary(
+            uniqueKeysWithValues: [firstHidden, active, secondHidden].map { ($0.paneID, $0) }
+        )
         let releaseSignal = ControlledTerminalActivationReleaseSignal()
         let scheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
@@ -159,6 +162,7 @@ struct TerminalActivationSchedulerTests {
         let replacementGeneration = nextCompositionGeneration()
         let descriptors = makeDescriptors(count: 3, priority: .hidden)
         let port = ImmediateTerminalActivationAdmissionPort()
+        port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
         let releaseSignal = ControlledTerminalActivationReleaseSignal()
         let scheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
@@ -199,6 +203,7 @@ struct TerminalActivationSchedulerTests {
         let gatedPort = ImmediateTerminalActivationAdmissionPort(
             resultsByPaneID: [descriptor.paneID: results]
         )
+        gatedPort.descriptorsByPaneID = [descriptor.paneID: descriptor]
         let referenceScheduler = try makeScheduler(entries: [descriptor], port: referencePort)
         let releaseSignal = ControlledTerminalActivationReleaseSignal()
         let gatedScheduler = TerminalActivationScheduler(
@@ -325,12 +330,45 @@ struct TerminalActivationSchedulerTests {
         )
     }
 
+    @Test("scheduler marks a member attaching only after a claim is granted")
+    func schedulerMarksAMemberAttachingOnlyAfterAClaimIsGranted() async throws {
+        let descriptors = makeDescriptors(count: 3, priority: .activeVisible)
+        let port = RejectingTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(entries: descriptors, port: port)
+
+        let settlement = await scheduler.activate()
+        let diagnostics = await scheduler.diagnostics()
+
+        #expect(diagnostics.maximumSimultaneousAdmissions == 0)
+        #expect(diagnostics.currentSimultaneousAdmissions == 0)
+        #expect(port.claimProposals.count == descriptors.count)
+        #expect(settlement.outcomesByPaneID.count == descriptors.count)
+    }
+
+    @Test("a rejected claim resolves the member without a second attempt")
+    func aRejectedClaimResolvesTheMemberWithoutASecondAttempt() async throws {
+        let descriptor = makeDescriptor()
+        let port = RejectingTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(entries: [descriptor], port: port)
+
+        let settlement = await scheduler.activate()
+
+        #expect(port.claimProposals.map(\.paneID) == [descriptor.paneID])
+        #expect(port.claimProposals.map(\.attempt) == [1])
+        guard case .failedTerminal(_, let retry) = settlement.outcomesByPaneID[descriptor.paneID] else {
+            Issue.record("expected a terminal failure outcome for a rejected claim")
+            return
+        }
+        #expect(retry == .notRequested(attemptCount: 1))
+    }
+
     @Test("replacement cancels queued and attaching members without accepting stale completions")
     func replacementCancelsQueuedAndAttachingMembers() async throws {
         let originalGeneration = nextCompositionGeneration()
         let replacementGeneration = nextCompositionGeneration()
         let descriptors = makeDescriptors(count: 8, priority: .hidden)
         let port = ControlledTerminalActivationAdmissionPort()
+        port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
         let scheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
                 generation: originalGeneration,
@@ -418,9 +456,10 @@ struct TerminalActivationSchedulerTests {
 
     private func makeScheduler(
         entries: [TerminalActivationDescriptor],
-        port: some TerminalActivationAdmissionPort
+        port: some FakeTerminalActivationAdmissionPort
     ) throws -> TerminalActivationScheduler {
-        TerminalActivationScheduler(
+        port.descriptorsByPaneID = Dictionary(uniqueKeysWithValues: entries.map { ($0.paneID, $0) })
+        return TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
                 generation: try makeCompositionGeneration(),
                 input: TerminalActivationInput(entries: entries)
@@ -475,43 +514,128 @@ struct TerminalActivationSchedulerTests {
     }
 }
 
+/// Shared by the scheduler-correctness fakes below. `claimPreparedTerminal`
+/// needs the descriptor for a proposed `paneID` to mint a `ClaimedTerminalAdmission`;
+/// these fakes carry no `ViewRegistry` of their own, so the test constructing
+/// the scheduler's cohort also registers that cohort's descriptors here.
 @MainActor
-private final class ImmediateTerminalActivationAdmissionPort: TerminalActivationAdmissionPort {
+private protocol FakeTerminalActivationAdmissionPort: TerminalActivationAdmissionPort {
+    var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] { get set }
+}
+
+@MainActor
+private final class ImmediateTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
     private var resultsByPaneID: [PaneId: [TerminalActivationAttemptResult]]
+    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
     private(set) var admissions: [TerminalActivationAdmission] = []
 
     init(resultsByPaneID: [PaneId: [TerminalActivationAttemptResult]] = [:]) {
         self.resultsByPaneID = resultsByPaneID
     }
 
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
+            return .rejected(.paneNotInCohort)
+        }
+        let admission = TerminalActivationAdmission(
+            generation: proposal.generation,
+            descriptor: descriptor,
+            attempt: proposal.attempt
+        )
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: admission,
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        let admission = claim.admission
         admissions.append(admission)
         if var results = resultsByPaneID[admission.descriptor.paneID], !results.isEmpty {
             let result = results.removeFirst()
             resultsByPaneID[admission.descriptor.paneID] = results
-            return result
+            return .attempted(result)
         }
-        return .ready(surfaceID: UUIDv7.generate())
+        return .attempted(.ready(surfaceID: UUIDv7.generate()))
+    }
+}
+
+/// Always rejects every claim proposal, for proving the scheduler never marks
+/// a member `attaching` before a claim is granted.
+@MainActor
+private final class RejectingTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
+    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
+    private(set) var claimProposals: [TerminalAdmissionProposal] = []
+
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        claimProposals.append(proposal)
+        return .rejected(.custodyUnavailableForClaim)
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        .rejected(.claimNotIssued)
     }
 }
 
 @MainActor
-private final class ControlledTerminalActivationAdmissionPort: TerminalActivationAdmissionPort {
+private final class ControlledTerminalActivationAdmissionPort: FakeTerminalActivationAdmissionPort {
     private struct PendingAdmission {
         let admission: TerminalActivationAdmission
         let continuation: CheckedContinuation<TerminalActivationAttemptResult, Never>
     }
 
+    fileprivate var descriptorsByPaneID: [PaneId: TerminalActivationDescriptor] = [:]
     private var pending: [PendingAdmission] = []
     private var startedCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var admissions: [TerminalActivationAdmission] = []
 
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
+    func recordCurrentVisibleQueuedTerminals(
+        _ terminals: TerminalVisibleQueuedTerminals
+    ) -> TerminalVisibilityRevision {
+        TerminalVisibilityRevision(generation: terminals.generation, ordinal: 0)
+    }
+
+    func claimPreparedTerminal(_ proposal: TerminalAdmissionProposal) -> TerminalAdmissionClaimOutcome {
+        guard let descriptor = descriptorsByPaneID[proposal.paneID] else {
+            return .rejected(.paneNotInCohort)
+        }
+        let admission = TerminalActivationAdmission(
+            generation: proposal.generation,
+            descriptor: descriptor,
+            attempt: proposal.attempt
+        )
+        return .claimed(
+            ClaimedTerminalAdmission(
+                claimID: UUIDv7.generate(),
+                admission: admission,
+                acknowledgedVisibilityRevision: proposal.appliedVisibilityRevision
+            )
+        )
+    }
+
+    func activateClaimedTerminal(_ claim: ClaimedTerminalAdmission) async -> ClaimedTerminalActivationOutcome {
+        let admission = claim.admission
         admissions.append(admission)
         resumeSatisfiedStartedCountWaiters()
-        return await withCheckedContinuation { continuation in
+        let result = await withCheckedContinuation { continuation in
             pending.append(PendingAdmission(admission: admission, continuation: continuation))
         }
+        return .attempted(result)
     }
 
     func waitUntilStartedCount(_ count: Int) async {

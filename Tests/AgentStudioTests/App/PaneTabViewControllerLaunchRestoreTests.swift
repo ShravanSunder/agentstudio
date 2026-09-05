@@ -405,7 +405,8 @@ private func mountPreparedContent(
             generation: generation,
             initialFramesByPaneID: initialFramesByPaneID,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(uniqueKeysWithValues: terminalDescriptors.map { ($0.paneID, $0) })
         ),
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
             generation: generation,
