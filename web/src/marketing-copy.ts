@@ -119,9 +119,8 @@ export const marketingCopy = {
           accent: "your tools",
           afterAccent: " a home",
         },
-        summary:
-          "Keep each task in a main pane, with related terminals and tools organized in its drawer.",
-        detail: "Its attached drawer keeps those tools with the task.",
+        summary: "Give each task a main pane.",
+        detail: "Keep its related terminals and tools together in an attached drawer.",
         imageDescription:
           "Agent Studio showing a Codex task with a related terminal in its attached drawer.",
       },
