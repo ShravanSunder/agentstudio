@@ -41,6 +41,13 @@ package final class TerminalActivityRouter {
     private var traceWorkerTask: Task<Void, Never>?
     private var lastAttendedPaneID: UUID?
     private var derivedActivitySequence: UInt64 = 0
+    private var lifecycleOperationTask: Task<Void, Never>?
+    private var lifecycleOperationSequence = 0
+    private var attentionLifecycleEpoch = 0
+    private var attentionObservationGeneration = 0
+    private var attentionSettlementTask: Task<Void, Never>?
+    private var attentionDeliveryTask: Task<Void, Never>?
+    private var pendingAttentionControls: [AttentionControlDelivery] = []
 
     package init(
         bus: EventBus<RuntimeEnvelope>,
@@ -89,11 +96,41 @@ package final class TerminalActivityRouter {
 
     deinit {
         busTask?.cancel()
+        attentionSettlementTask?.cancel()
+        attentionDeliveryTask?.cancel()
         traceContinuation?.finish()
         traceWorkerTask?.cancel()
     }
 
     package func start() async {
+        await enqueueLifecycleOperation(starting: true)
+    }
+
+    package func stop() async {
+        await enqueueLifecycleOperation(starting: false)
+    }
+
+    private func enqueueLifecycleOperation(starting: Bool) async {
+        lifecycleOperationSequence += 1
+        let sequence = lifecycleOperationSequence
+        let predecessor = lifecycleOperationTask
+        let operation = Task { @MainActor [weak self] in
+            await predecessor?.value
+            guard let self else { return }
+            if starting {
+                await self.performStart()
+            } else {
+                await self.performStop()
+            }
+        }
+        lifecycleOperationTask = operation
+        await operation.value
+        if lifecycleOperationSequence == sequence {
+            lifecycleOperationTask = nil
+        }
+    }
+
+    private func performStart() async {
         guard busTask == nil else { return }
 
         await projector.configure(
@@ -118,9 +155,6 @@ package final class TerminalActivityRouter {
                 await self?.consumeTerminalActivityInput(input)
             }
         )
-        lastAttendedPaneID = attendedPane?.attendedPaneId
-        observeAttendedPane()
-
         let stream = await bus.subscribe(
             policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
             subscriberName: "TerminalActivityRouter",
@@ -136,13 +170,17 @@ package final class TerminalActivityRouter {
                     "Runtime event stream ended while terminal activity router was active")
             }
         }
+        attentionLifecycleEpoch += 1
+        lastAttendedPaneID = attendedPane?.attendedPaneId
+        observeAttendedPane()
     }
 
-    package func stop() async {
+    private func performStop() async {
         Ghostty.ActionRouter.unbindTerminalActivityInput(id: projectorBindingID)
         let task = busTask
         task?.cancel()
         busTask = nil
+        await stopAttentionDelivery()
         await task?.value
         await projector.reset()
         let derivedActivityPostTask = self.derivedActivityPostTask
@@ -270,44 +308,6 @@ package final class TerminalActivityRouter {
             isAgentClassified: isPaneAgentClassified(paneID, .terminal),
             outputBurstThreshold: activityAtom.outputBurstThreshold
         )
-    }
-
-    private func observeAttendedPane() {
-        guard let attendedPane, busTask != nil else { return }
-        withObservationTracking {
-            _ = attendedPane.attendedPaneId
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, busTask != nil else { return }
-                await consumeAttendedPaneTransition()
-                observeAttendedPane()
-            }
-        }
-    }
-
-    private func consumeAttendedPaneTransition() async {
-        let nextAttendedPaneID = attendedPane?.attendedPaneId
-        guard nextAttendedPaneID != lastAttendedPaneID else { return }
-        let previousAttendedPaneID = lastAttendedPaneID
-        lastAttendedPaneID = nextAttendedPaneID
-
-        let changedPaneIDs = Set([previousAttendedPaneID, nextAttendedPaneID].compactMap { $0 })
-        for paneID in changedPaneIDs {
-            guard let surfaceID = surfaceIDForPaneID(paneID) else { continue }
-            let contextAfterControl = projectionContext(for: paneID)
-            let contextBeforeControl = TerminalActivityProjectionContext(
-                isAttended: paneID == previousAttendedPaneID,
-                isAgentClassified: contextAfterControl.isAgentClassified,
-                outputBurstThreshold: contextAfterControl.outputBurstThreshold
-            )
-            await Ghostty.ActionRouter.applyOrderedActivityControl(
-                surfaceID: surfaceID,
-                paneID: paneID,
-                control: .contextChanged(contextAfterControl),
-                contextBeforeControl: contextBeforeControl,
-                contextAfterControl: contextAfterControl
-            )
-        }
     }
 
     private func consume(_ envelope: RuntimeEnvelope) async {
@@ -458,5 +458,121 @@ package final class TerminalActivityRouter {
             attributes["agentstudio.envelope.causation_id"] = .string(causationId.uuidString)
         }
         return attributes
+    }
+}
+
+// MARK: - Settled attention capture and ordered delivery
+
+extension TerminalActivityRouter {
+    private struct AttentionControlDelivery {
+        let paneID: UUID
+        let surfaceID: UUID
+        let before: TerminalActivityProjectionContext
+        let after: TerminalActivityProjectionContext
+    }
+
+    private func observeAttendedPane() {
+        guard let attendedPane, busTask != nil else { return }
+        attentionObservationGeneration += 1
+        let generation = attentionObservationGeneration
+        let epoch = attentionLifecycleEpoch
+        withObservationTracking {
+            _ = attendedPane.attendedPaneId
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.busTask != nil,
+                    self.attentionLifecycleEpoch == epoch,
+                    self.attentionObservationGeneration == generation
+                else { return }
+                self.scheduleAttentionSettlement(epoch: epoch)
+            }
+        }
+    }
+
+    private func scheduleAttentionSettlement(epoch: Int) {
+        guard attentionSettlementTask == nil else { return }
+        attentionSettlementTask = Task { @MainActor [weak self] in
+            guard let self, self.attentionLifecycleEpoch == epoch else { return }
+            self.attentionSettlementTask = nil
+            guard !Task.isCancelled, self.busTask != nil else { return }
+            self.observeAttendedPane()
+            self.captureSettledAttention(epoch: epoch)
+        }
+    }
+
+    private func captureSettledAttention(epoch: Int) {
+        let next = attendedPane?.attendedPaneId
+        let previous = lastAttendedPaneID
+        guard next != previous else { return }
+        lastAttendedPaneID = next
+        // This ordered list is one settled transition, not raw willSet mutations.
+        for paneID in [previous, next].compactMap({ $0 }) {
+            guard let surfaceID = surfaceIDForPaneID(paneID) else { continue }
+            let context = projectionContext(for: paneID)
+            pendingAttentionControls.append(
+                AttentionControlDelivery(
+                    paneID: paneID,
+                    surfaceID: surfaceID,
+                    before: TerminalActivityProjectionContext(
+                        isAttended: paneID == previous,
+                        isAgentClassified: context.isAgentClassified,
+                        outputBurstThreshold: context.outputBurstThreshold
+                    ),
+                    after: TerminalActivityProjectionContext(
+                        isAttended: paneID == next,
+                        isAgentClassified: context.isAgentClassified,
+                        outputBurstThreshold: context.outputBurstThreshold
+                    )
+                )
+            )
+        }
+        guard attentionDeliveryTask == nil, !pendingAttentionControls.isEmpty else { return }
+        attentionDeliveryTask = Task { @MainActor [weak self] in
+            await self?.deliverPendingAttention(epoch: epoch)
+        }
+    }
+
+    private func deliverPendingAttention(epoch: Int) async {
+        defer {
+            if attentionLifecycleEpoch == epoch { attentionDeliveryTask = nil }
+        }
+        while !Task.isCancelled, attentionLifecycleEpoch == epoch, busTask != nil,
+            !pendingAttentionControls.isEmpty
+        {
+            let delivery = pendingAttentionControls.removeFirst()
+            guard surfaceIDForPaneID(delivery.paneID) == delivery.surfaceID else { continue }
+            await Ghostty.ActionRouter.applyOrderedActivityControl(
+                surfaceID: delivery.surfaceID,
+                paneID: delivery.paneID,
+                control: .contextChanged(delivery.after),
+                contextBeforeControl: delivery.before,
+                contextAfterControl: delivery.after
+            )
+        }
+    }
+
+    private func stopAttentionDelivery() async {
+        attentionLifecycleEpoch += 1
+        attentionObservationGeneration += 1
+        let settlement = attentionSettlementTask
+        let delivery = attentionDeliveryTask
+        attentionSettlementTask = nil
+        attentionDeliveryTask = nil
+        pendingAttentionControls.removeAll()
+        settlement?.cancel()
+        delivery?.cancel()
+        await settlement?.value
+        await delivery?.value
+    }
+
+    /// Joins the current per-turn capture without waiting for potentially blocked delivery.
+    package func waitForPendingAttentionSettlement() async {
+        await attentionSettlementTask?.value
+    }
+
+    /// Joins work already requested by the caller's mutations.
+    package func waitForPendingAttentionDelivery() async {
+        await attentionSettlementTask?.value
+        await attentionDeliveryTask?.value
     }
 }

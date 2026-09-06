@@ -20,6 +20,8 @@ package final class PaneFocusTracker {
     private let traceQueue: AgentStudioTraceEventQueue?
     private var lastAttendedPaneId: UUID?
     private var isStopped = false
+    private var observationGeneration = 0
+    private var pendingDeliveryTask: Task<Void, Never>?
 
     package init(attendedPane: AttendedPaneDerived, traceRuntime: AgentStudioTraceRuntime? = nil) {
         self.attendedPane = attendedPane
@@ -34,6 +36,9 @@ package final class PaneFocusTracker {
     package func stop() async {
         if !isStopped {
             isStopped = true
+            observationGeneration += 1
+            pendingDeliveryTask?.cancel()
+            pendingDeliveryTask = nil
             continuation.finish()
         }
         do {
@@ -45,21 +50,38 @@ package final class PaneFocusTracker {
     }
 
     deinit {
+        pendingDeliveryTask?.cancel()
         continuation.finish()
         traceQueue?.cancel()
     }
 
     private func observeAttendedPane() {
         guard !isStopped else { return }
+        observationGeneration += 1
+        let generation = observationGeneration
         withObservationTracking {
             _ = attendedPane.attendedPaneId
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isStopped else { return }
-                self.publishTransitionIfNeeded()
-                self.observeAttendedPane()
+            MainActor.assumeIsolated {
+                guard let self, !self.isStopped, self.observationGeneration == generation else { return }
+                self.scheduleSettledDelivery()
             }
         }
+    }
+
+    private func scheduleSettledDelivery() {
+        guard pendingDeliveryTask == nil else { return }
+        pendingDeliveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingDeliveryTask = nil
+            guard !Task.isCancelled, !self.isStopped else { return }
+            self.observeAttendedPane()
+            self.publishTransitionIfNeeded()
+        }
+    }
+
+    package func waitForPendingDelivery() async {
+        await pendingDeliveryTask?.value
     }
 
     private func publishTransitionIfNeeded() {

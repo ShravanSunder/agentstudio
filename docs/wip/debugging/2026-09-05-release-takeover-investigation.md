@@ -275,3 +275,25 @@ the first; actor reentrancy invalidates that claim. A single retained drain task
 coalesced wake flag and explicit previous-off/current-on calls is the bounded proposed
 correction. It needs design reconciliation and an interleaving test; paused synchronous
 every-transition code and its contradictory tests were not imported.
+
+## Attention correction proof
+
+The new two-case baseline failed behaviorally: no controls were emitted (2 failed tests,
+4 issues, exit 1). Implemented initial arming after bus installation, per-turn settlement
+capture, ordered captured controls, one async delivery drain, and serialized start/stop.
+Added generation-guarded settled delivery to PaneFocusTracker and removed yield-count
+completion helpers. AttendedPaneDerived and projector policies are unchanged.
+
+Isolated suites passed: attention 6, existing router 15, focus tracker 6, notification consumer 20,
+with projector coverage from the earlier 39-test run. The attention tests force multiple
+settled turns behind a suspended control, cancel during suspension, restart behind stop,
+verify the real projector's output after restart, and verify stopped-router deallocation.
+A combined focused invocation initially interfered through the shared global input binding;
+the repository-required one-suite-per-process isolation passed. Lint and architecture checks
+passed. Attention implementation remains pending aggregate and independent review.
+
+The retainer survived management-mode toggling and closure of the proof IPC connection.
+LLDB attachment was explicitly denied by macOS. A debug-only signer and get-task-allow
+entitlement are prepared under tmp/takeover-2026-09-05 but have not been executed; the
+isolated-debugger-candidate permission question remains pending. No private AppKit ivar
+manipulation, broad observer removal, or speculative native-free workaround was applied.

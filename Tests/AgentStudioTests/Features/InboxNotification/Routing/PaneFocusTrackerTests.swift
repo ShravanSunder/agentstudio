@@ -10,7 +10,7 @@ import Testing
 @Suite("PaneFocusTracker", .serialized)
 struct PaneFocusTrackerTests {
     private func makeWindowKey(_ atom: WindowLifecycleAtom) {
-        let id = UUID()
+        let id = UUIDv7.generate()
         atom.recordWindowRegistered(id)
         atom.recordWindowBecameKey(id)
     }
@@ -30,45 +30,12 @@ struct PaneFocusTrackerTests {
         )
     }
 
-    private func collect(
-        from tracker: PaneFocusTracker,
-        expected: Int,
-        maxIterations: Int = 50
-    ) async -> [UUID] {
+    private func collectAndStop(from tracker: PaneFocusTracker) async -> [UUID] {
+        await tracker.waitForPendingDelivery()
+        await tracker.stop()
         var collected: [UUID] = []
-        let task = Task { @MainActor in
-            for await id in tracker.focusGainedStream {
-                collected.append(id)
-                if collected.count >= expected {
-                    break
-                }
-            }
-        }
-
-        for _ in 0..<maxIterations where collected.count < expected {
-            await Task.yield()
-        }
-        task.cancel()
+        for await id in tracker.focusGainedStream { collected.append(id) }
         return collected
-    }
-
-    private func waitsForStreamCompletion(
-        from tracker: PaneFocusTracker,
-        maxIterations: Int = 50
-    ) async -> Bool {
-        var didFinish = false
-        let task = Task { @MainActor in
-            for await _ in tracker.focusGainedStream {}
-            didFinish = true
-        }
-
-        for _ in 0..<maxIterations where !didFinish {
-            await Task.yield()
-        }
-        if !didFinish {
-            task.cancel()
-        }
-        return didFinish
     }
 
     @Test("emits pane ids on attended-pane transitions")
@@ -82,17 +49,17 @@ struct PaneFocusTrackerTests {
             managementLayer: managementLayer
         )
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
-        let paneA = UUID()
-        let paneB = UUID()
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
         let tab = makeTab(activePaneId: paneA, paneIds: [paneA, paneB])
 
         tabLayout.appendTab(tab)
         makeWindowKey(windowLifecycle)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
         tabLayout.setActivePane(paneB, inTab: tab.id)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
 
-        let collected = await collect(from: tracker, expected: 2)
+        let collected = await collectAndStop(from: tracker)
         #expect(collected == [paneA, paneB])
         await tracker.stop()
     }
@@ -120,17 +87,17 @@ struct PaneFocusTrackerTests {
             timeUnixNano: { 2002 }
         )
         let tracker = PaneFocusTracker(attendedPane: attendedPane, traceRuntime: traceRuntime)
-        let paneA = UUID()
-        let paneB = UUID()
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
         let tab = makeTab(activePaneId: paneA, paneIds: [paneA, paneB])
 
         tabLayout.appendTab(tab)
         makeWindowKey(windowLifecycle)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
         tabLayout.setActivePane(paneB, inTab: tab.id)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
 
-        let collected = await collect(from: tracker, expected: 2)
+        let collected = await collectAndStop(from: tracker)
         #expect(collected == [paneA, paneB])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await tracker.stop()
@@ -156,16 +123,16 @@ struct PaneFocusTrackerTests {
             managementLayer: managementLayer
         )
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
-        let paneA = UUID()
+        let paneA = UUIDv7.generate()
         let tab = makeTab(activePaneId: paneA, paneIds: [paneA])
 
         tabLayout.appendTab(tab)
         makeWindowKey(windowLifecycle)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
         tabLayout.setActivePane(paneA, inTab: tab.id)
-        await Task.yield()
+        await tracker.waitForPendingDelivery()
 
-        let collected = await collect(from: tracker, expected: 2, maxIterations: 10)
+        let collected = await collectAndStop(from: tracker)
         #expect(collected == [paneA])
         await tracker.stop()
     }
@@ -183,12 +150,60 @@ struct PaneFocusTrackerTests {
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
 
         await tracker.stop()
-        #expect(await waitsForStreamCompletion(from: tracker))
+        #expect(await collectAndStop(from: tracker).isEmpty)
+    }
+
+    @Test("same-turn intermediate gains are not published")
+    func publishesOnlySettledGain() async {
+        // Arrange
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let paneIDs = (0..<3).map { _ in UUIDv7.generate() }
+        let tab = makeTab(activePaneId: paneIDs[0], paneIds: paneIDs)
+        tabLayout.appendTab(tab)
+        makeWindowKey(windowLifecycle)
+        let tracker = PaneFocusTracker(
+            attendedPane: AttendedPaneDerived(
+                tabLayout: tabLayout, windowLifecycle: windowLifecycle, managementLayer: managementLayer
+            ))
+
+        // Act
+        tabLayout.setActivePane(paneIDs[1], inTab: tab.id)
+        tabLayout.setActivePane(paneIDs[2], inTab: tab.id)
+        let collected = await collectAndStop(from: tracker)
+
+        // Assert
+        #expect(collected == [paneIDs[2]])
+    }
+
+    @Test("settled loss and regain publishes a new gain for the same pane")
+    func settledNilIntervalAllowsRegain() async {
+        // Arrange
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let paneID = UUIDv7.generate()
+        tabLayout.appendTab(makeTab(activePaneId: paneID, paneIds: [paneID]))
+        makeWindowKey(windowLifecycle)
+        let tracker = PaneFocusTracker(
+            attendedPane: AttendedPaneDerived(
+                tabLayout: tabLayout, windowLifecycle: windowLifecycle, managementLayer: managementLayer
+            ))
+
+        // Act
+        managementLayer.toggle()
+        await tracker.waitForPendingDelivery()
+        managementLayer.toggle()
+        let collected = await collectAndStop(from: tracker)
+
+        // Assert
+        #expect(collected == [paneID])
     }
 
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-pane-focus-tracker-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(UUIDv7.generate().uuidString, isDirectory: true)
     }
 }
