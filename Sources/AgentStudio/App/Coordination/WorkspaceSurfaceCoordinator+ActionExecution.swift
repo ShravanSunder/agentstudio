@@ -734,13 +734,7 @@ extension WorkspaceSurfaceCoordinator {
 
             let allOwnedPaneIds = currentOwnedPaneIds()
 
-            let expiredPanes: [Pane]
-            switch expired {
-            case .tab(let s): expiredPanes = s.panes
-            case .pane(let s): expiredPanes = [s.pane] + s.drawerChildPanes
-            }
-
-            for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
+            for pane in expired.panes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
                 store.mutationCoordinator.removePane(pane.id)
                 viewRegistry.retireSlot(for: pane.id)
@@ -760,7 +754,7 @@ extension WorkspaceSurfaceCoordinator {
                     return paneIds
                 }
             }
-        )
+        ).union(undoStack.flatMap { $0.panes.map(\.id) })
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {

@@ -12,6 +12,15 @@ package final class WorkspaceMutationCoordinator {
     package enum CloseEntry {
         case tab(TabCloseSnapshot)
         case pane(PaneCloseSnapshot)
+
+        package var panes: [Pane] {
+            switch self {
+            case .tab(let snapshot):
+                snapshot.panes
+            case .pane(let snapshot):
+                [snapshot.pane] + snapshot.drawerChildPanes
+            }
+        }
     }
 
     package struct TabCloseSnapshot {

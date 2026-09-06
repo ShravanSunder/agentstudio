@@ -19,6 +19,34 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
+    @Test("undo eviction preserves a pane still owned by another retained snapshot")
+    func undoEvictionPreservesPaneOwnedByAnotherSnapshot() async throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let retainedPane = makeWebviewPane(harness.store, title: "Retained snapshot pane")
+        let retainedTab = Tab(paneId: retainedPane.id)
+        harness.store.appendTab(retainedTab)
+        let earlierSnapshot = try #require(
+            harness.store.mutationCoordinator.snapshotForClose(tabId: retainedTab.id)
+        )
+        harness.coordinator.appendUndoEntry(.tab(earlierSnapshot))
+        harness.coordinator.execute(.closeTab(tabId: retainedTab.id))
+
+        // Act: evict only the earlier snapshot; the second snapshot remains undoable.
+        for index in 0..<9 {
+            let pane = makeWebviewPane(harness.store, title: "Later close \(index)")
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.coordinator.execute(.closeTab(tabId: tab.id))
+        }
+
+        // Assert
+        #expect(harness.coordinator.undoStack.count == 10)
+        #expect(harness.store.pane(retainedPane.id) != nil)
+        await harness.coordinator.shutdown()
+    }
+
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
