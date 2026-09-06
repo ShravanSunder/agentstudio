@@ -108,7 +108,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("startup clears existing observed bottom-pinned PaneInbox rows")
-    func startupClearsExistingObservedBottomPinnedPaneInboxRows() async {
+    func startupClearsExistingObservedBottomPinnedPaneInboxRows() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -181,8 +181,9 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("router startup should clear already-observed pane inbox rows") {
             inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0
         }
-        #expect(inboxAtom.notifications[0].isRead == true)
-        #expect(inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         await router.stop()
         await tracker.stop()
     }
@@ -233,7 +234,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("focused pane at bottom clears auto-clearable PaneInbox badge")
-    func focusedPaneAtBottomClearsAutoClearablePaneInboxBadge() async {
+    func focusedPaneAtBottomClearsAutoClearablePaneInboxBadge() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -249,8 +250,9 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("observed source pane should clear pane inbox unread state") {
             fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0
         }
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await stop(fixture)
     }
@@ -317,7 +319,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("active tab visible pane at bottom clears auto-clearable PaneInbox badge")
-    func activeTabVisiblePaneAtBottomClearsAutoClearablePaneInboxBadge() async {
+    func activeTabVisiblePaneAtBottomClearsAutoClearablePaneInboxBadge() async throws {
         let fixture = await makeFixture()
         let attendedPaneId = PaneId.generateUUIDv7()
         let visibleSiblingPaneId = PaneId.generateUUIDv7()
@@ -335,13 +337,14 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("visible active-tab source pane should clear pane inbox unread state") {
             fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [visibleSiblingPaneId.uuid]) == 0
         }
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         await stop(fixture)
     }
 
     @Test("active tab visible pane at bottom appends auto-clearable event as read history")
-    func activeTabVisiblePaneAtBottomAppendsAutoClearableEventAsReadHistory() async {
+    func activeTabVisiblePaneAtBottomAppendsAutoClearableEventAsReadHistory() async throws {
         let fixture = await makeFixture()
         let attendedPaneId = PaneId.generateUUIDv7()
         let visibleSiblingPaneId = PaneId.generateUUIDv7()
@@ -364,15 +367,16 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("visible active-tab event should append read history") {
             fixture.inboxAtom.notifications.count == 1
         }
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [visibleSiblingPaneId.uuid]) == 0)
         await stop(fixture)
     }
 
     @Test("bus scrollbar state clears immediately following visible-pane notification")
-    func busScrollbarStateClearsImmediatelyFollowingVisiblePaneNotification() async {
+    func busScrollbarStateClearsImmediatelyFollowingVisiblePaneNotification() async throws {
         let fixture = await makeFixture()
         let attendedPaneId = PaneId.generateUUIDv7()
         let visibleSiblingPaneId = PaneId.generateUUIDv7()
@@ -394,8 +398,9 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("same-stream pinned state should make event append as read history") {
             fixture.inboxAtom.notifications.count == 1
         }
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await stop(fixture)
     }
@@ -525,7 +530,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("observed secure input still creates unread notification")
-    func observedSecureInputStillCreatesUnreadNotification() async {
+    func observedSecureInputStillCreatesUnreadNotification() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -546,9 +551,10 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("observed secure input should still notify") {
             fixture.inboxAtom.notifications.count == 1
         }
-        #expect(fixture.inboxAtom.notifications[0].kind == .terminalSecureInputRequested)
-        #expect(fixture.inboxAtom.notifications[0].isRead == false)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.kind == .terminalSecureInputRequested)
+        #expect(firstNotification.isRead == false)
+        #expect(firstNotification.isDismissedFromPaneInbox == false)
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         await stop(fixture)
@@ -618,13 +624,14 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("opening drawer should clear bottom-pinned child unread state") {
             fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [drawerPane.id]) == 0
         }
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         await stop(fixture)
     }
 
     @Test("observed auto-clearable event appends read dismissed history row")
-    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async {
+    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -645,9 +652,10 @@ struct InboxNotificationRouterObservedPaneTests {
         await assertEventuallyMain("observed auto-clearable event should append history") {
             fixture.inboxAtom.notifications.count == 1
         }
-        #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        let firstNotification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(firstNotification.kind == .agentRpc)
+        #expect(firstNotification.isRead == true)
+        #expect(firstNotification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
         await stop(fixture)

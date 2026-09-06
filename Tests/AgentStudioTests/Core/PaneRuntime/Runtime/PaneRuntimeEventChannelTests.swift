@@ -32,7 +32,7 @@ struct PaneRuntimeEventChannelTests {
 
         await assertEventuallyAsync(
             "bus subscriber should receive all emitted events",
-            maxTurns: 5000
+            minimumTurns: 5000
         ) {
             await subscriber.snapshot().count == 10
         }
