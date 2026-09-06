@@ -520,15 +520,15 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         #expect(await visibleTierWaitUntil { await calls.count == 1 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
-        await clock.waitForPendingSleepCount(atLeast: 2)
-        clock.advance(by: policy.visibleSidebarCadence)
-        #expect(await visibleTierWaitUntil { await calls.count == 2 })
-        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
-
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.visibleSidebarCadence * 2)
-        #expect(await visibleTierWaitUntil { await calls.count == 3 })
-        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        for expectedCallCount in 2...3 {
+            let scheduledDeadline = try #require(
+                await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+            )
+            let deadlineClockNow = await actor.deadlineClock.now
+            clock.advance(by: max(.zero, scheduledDeadline - deadlineClockNow))
+            try #require(await visibleTierWaitUntil { await calls.count == expectedCallCount })
+            try #require(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        }
         #expect(await actor.unchangedStatusResultCountByWorktreeId[worktreeId] == 2)
 
         await bus.post(

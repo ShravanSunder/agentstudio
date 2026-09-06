@@ -96,9 +96,72 @@ Atom-hygiene contains three unpushed commits plus uncommitted slot-release behav
 documentation retracts the premise that pane/tab identifiers never recur. Both require source
 reconstruction and bounded review before integration.
 
-## Release gates
+## Additional old-memory handoff validation (2026-09-06)
+
+Read all 422 lines of `agent-studio.memory-issues/docs/wip/2026-09-05-memory-issues-takeover/implementation-handoff.md`
+and its one-line prompt. All 47 relative file links resolve. The named historical Jetsam
+reports are no longer present at the supplied Retired location; their numerical findings remain
+historical audit evidence, not fresh measurements.
+
+The handoff correctly separates renderer ownership, graphics/compositor growth, and terminal
+process-family growth. Current proof must preserve those distinctions. Add fixed-population
+resize/geometry checks and process-family counts to the native observations; do not claim that
+surface conservation alone resolves the historical incidents.
+
+Its startup account is superseded by main's geometry-driven hydration contract: eligible hidden
+terminals stay in the startup cohort and follow visible main/drawer work. Visibility controls
+priority and drawing, while safe geometry controls hydration eligibility. The old demand-only
+restart expectation must not be imposed on current main.
+
+The old dirty drawer helper explicitly toggles the drawer open after the workload. This is
+fixture normalization, not a demonstrated fix for persistence. Current restart proof must
+observe drawer state before shutdown and after restore without that normalization.
+
+Fresh PR #332 debug head `30e451c20` launched in attached fallback mode as PID 9190, ath5,
+marker `debug-observability-ath5-1788660716-4765`; native screenshot showed a shell prompt.
+LaunchServices failed with -10810; detached fallback exited. Attached fallback remained alive.
+This is debug behavior evidence only, not signed/notarized release launch proof.
+
+The first full aggregate of the takeover correction failed another visible-tier cadence case:
+`filesystem refresh updates cadence from complete result equality`, eight issues. It shared
+the assumption that fake-clock cadence elapsed regardless of real duty cooldown. Its first
+two periodic advances now use the recorded deadline. Focused rerun passed 20/20; aggregate
+revalidation remains pending. No production scheduling policy changed.
+
+## Outstanding release verification
 
 No release readiness claim yet. Require scoped red/green proof, current aggregate `mise run test`,
 lint, native lifecycle and memory proof, current implementation review, PR checks and threads,
 mergeability, release-script validation, and downloaded stable artifact signature/notarization
 and cask digest verification. Do not weaken a gate or broaden into excluded code to pass it.
+
+## Native tab and drawer observation (2026-09-06)
+
+At PR #332 head 30e451c20, ath5 PID 9190 displayed its original terminal prompt.
+Through the native UI, created a second terminal tab, closed it, and used Edit > Undo Close Tab.
+Marker evidence recorded closed_for_undo at 09:28:52Z and undo_restored at 09:29:09Z without
+a new creation. Added a drawer child at 09:29:35Z, collapsed/reopened it, and captured a
+rendered parent and drawer shell prompt. The next creation is attributable to that drawer.
+
+Closed the second tab and drawer at 09:30:23.768Z/09:30:23.769Z. Telemetry then reported
+created=3, active=1, close_undo=2, live=3, managed=3, orphan=0. No artificial TTL reduction.
+A separate operator owns the post-expiry sample; no further UI mutation during that capture.
+
+Current window telemetry now includes visible=true, occluded=false and real transitions
+between occluded=true/false, with changed renderer deliveries. This improves on the old
+always-occluded run, but is not yet the complete 30-pane, multi-scenario release proof.
+
+## Paused-lane admission gaps
+
+Perf-residuals' latest observation specification requires same-turn A→B→C to publish only C.
+Its uncommitted PaneFocusTracker still publishes the pre-mutation value synchronously and
+re-arms there; its test still expects a gain ending within the same turn. The implementation
+and test must be reconciled with the latest specification before adoption.
+
+Atom-hygiene's amended design explicitly says reclamation moves from atom removal to the
+undo owner, because IDs recur. It records this as an ownership change returned to the owner,
+not an implemented accepted call-site change. Its existing release API comment still claims
+pane/tab IDs never recur. No production call site should consume that API under this premise.
+
+The new main-thread stall instrument also retains explicit owner decisions about adding the
+telemetry family and exporting scrubbed function names. Those are pending in this conversation.
