@@ -196,3 +196,82 @@ merge occurred. The test-only Bridge package harness repair, stall-telemetry exp
 and atom undo-owner reclamation contract also remain open. Full memory soak, restart/drawer
 state proof, current implementation reviews, PR gates, merges, and stable release verification
 are not complete.
+
+## Combined integration and graphics accounting correction
+
+The owner explicitly approved local integration of #331 and #332. Both merged without conflicts
+into the takeover branch at 9c2370020; combined aggregate passed. This resolves the earlier
+local-merge approval blocker, not the outstanding proof or release gates.
+
+Parent verification of the raw footprint rows corrected the dirty-only interpretation:
+baseline owned-unmapped graphics was 27 MB dirty plus 184 MB reclaimable, versus 247 MB dirty
+and zero reclaimable after expiry. IOSurface dirty fell321→160MB and IOAccelerator graphics
+dirty fell14→11MB (reclaimable4576KB unchanged). Combined graphics dirty+reclaimable fell by
+about132MB. Baseline sample also contains IOGPU periodicUpdateResourcePoolPurgeability and
+setPurgeableState. This is evidence of accounting-state movement, not proof of a residual leak.
+
+Source verification confirms freed is emitted after ghostty_surface_free returns. Ghostty
+joins renderer/I/O threads and waits for in-flight frames before releasing the swap chain.
+AppKit's layer ownership and driver pools can persist beyond that boundary. The next experiment
+uses one-pane baseline, same-geometry second tab, close/expiry, and repeated captures including
+both dirty and reclaimable columns. No vendor change is needed to distinguish these cases.
+
+## Combined-head proof in progress
+
+Combined HEAD 9c2370020 passed `mise run test`, exit 0, in 534.98 s. Swift fast: 4,476 tests / 629 suites;
+all isolated large/WebKit/E2E lanes passed. BridgeWeb unit: 1,764, integration: 19, browser: 211
+with 5 skipped, E2E: 4; web package: 53 + 22 passed. SwiftLint and architecture checks passed.
+
+Fresh candidate lbim PID 5254, marker debug-observability-lbim-1788688319-74534, uses
+/private/tmp/agentstudio-takeover-memory-20260906/data. The documented attached direct fallback
+was required after LaunchServices -10810. Collector initially stopped; existing observability:up
+restored health before launch. No production/beta process was changed.
+
+Fixed-one-pane capture at 09:55:11Z: one renderer/I/O/PTY/SurfaceView/mount,3 large IOSurface
+regions,256 MB footprint. Raw graphics: IOSurface 160 MB dirty; owned graphics 16 MB dirty;
+IOAccelerator 7,248 KB dirty + 6,864 KB reclaimable.
+
+Created same-geometry second tab. With first tab confirmed current through IPC, sent
+HIDDEN_OUTPUT_CONFIRMED to the inactive second terminal, then revealed it and captured that
+output visibly. Runtime remained ready; no restart was required. Returned to original tab.
+Fixed-two-pane at 09:57:45Z: two of each native/object count,6 large IOSurfaces,693 MB footprint;
+IOSurface 321 MB dirty, owned graphics 256 MB dirty, IOAccelerator 16 MB dirty + 4,576 KB reclaimable.
+
+Closed only the second pane through normal IPC pane.close; pane.current confirmed 1 pane / 1 tab
+and the original active pane. Post-expiry and +120 s captures are pending, without further
+geometry or UI changes during this interval.
+
+## Release-blocking counterexample on combined HEAD
+
+The fixed-geometry experiment failed R10/R13. Closed second pane through IPC at
+09:58:26.904223Z. Manager release arrived 10:03:27.352130Z, but freed remained 0 and
+orphan remained 1 well beyond the 10-second drain. At 10:05:57.849Z the independent capture
+found 2 SurfaceViews, 2 renderer threads, 2 I/O threads, 2 PTY children, but only 1 terminal mount,
+1 scroll wrapper, 1 clip view, and 1 TerminalRuntime. Footprint 454 MB, IOSurface 321 MB.
+The removed surface is alive after manager release; this is not merely dirty/reclaimable
+graphics accounting. Raw evidence: combined-native-memory/fixed-release-without-free
+under tmp/takeover-2026-09-05.
+
+`leaks` reported no SurfaceView/TerminalRuntime root cycle, but warned that the process was
+not debuggable; absence of a named cycle is not exoneration. Heap--addresses=all found two
+SurfaceViews. Reverse-reference traces were captured with --noContent for both addresses.
+The retired candidate has a direct strong block capture and conservative raw-pointer paths
+(including an Array storage slot); these traces do not yet identify the owning callback or
+prove every reported pointer is a strong ARC reference. No speculative fix was applied.
+
+Assumption: exact host retirement plus manager expiry removed every load-bearing surface
+owner. Found: mount/runtime/scroll-wrapper counts returned to 1 while SurfaceView stayed at 2.
+Meaning: another surface owner remains; the lifecycle design must include its release
+boundary before implementation continues. PID 5254 and the one authenticated proof session
+remain available for diagnosis; production/beta untouched.
+
+## Attention residual design break
+
+Parent source read confirms current router arms before busTask exists, re-arms after awaited
+control delivery, and applies previous/current controls via an unordered Set. Paused latest
+spec requires settled latest-state attention and ordered previous-off/current-on delivery.
+Its Program Design clears the task slot before an await and claims a second task runs after
+the first; actor reentrancy invalidates that claim. A single retained drain task with a
+coalesced wake flag and explicit previous-off/current-on calls is the bounded proposed
+correction. It needs design reconciliation and an interleaving test; paused synchronous
+every-transition code and its contradictory tests were not imported.
