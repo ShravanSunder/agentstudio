@@ -519,7 +519,7 @@ extension TerminalActivityRouter {
                         outputBurstThreshold: context.outputBurstThreshold
                     ),
                     after: TerminalActivityProjectionContext(
-                        isAttended: paneID == next,
+                        isAttended: paneID == next && context.isAttended,
                         isAgentClassified: context.isAgentClassified,
                         outputBurstThreshold: context.outputBurstThreshold
                     )

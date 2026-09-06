@@ -201,6 +201,82 @@ struct PaneFocusTrackerTests {
         #expect(collected == [paneID])
     }
 
+    @Test("stop cancels a scheduled gain and ignores later mutations")
+    func stopBeforeSettlementPublishesNothing() async {
+        // Arrange
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let paneIDs = (0..<2).map { _ in UUIDv7.generate() }
+        let tracker = PaneFocusTracker(
+            attendedPane: AttendedPaneDerived(
+                tabLayout: tabLayout, windowLifecycle: windowLifecycle, managementLayer: managementLayer
+            ))
+        let tab = makeTab(activePaneId: paneIDs[0], paneIds: paneIDs)
+        tabLayout.appendTab(tab)
+
+        // Act: stop before the scheduled per-turn delivery can run.
+        makeWindowKey(windowLifecycle)
+        await tracker.stop()
+        tabLayout.setActivePane(paneIDs[1], inTab: tab.id)
+        let collected = await collectAndStop(from: tracker)
+
+        // Assert
+        #expect(collected.isEmpty)
+    }
+
+    @Test("settled loss of attention emits exactly one nil transition trace")
+    func nilTransitionTraceIsExact() async throws {
+        // Arrange
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let paneID = UUIDv7.generate()
+        tabLayout.appendTab(makeTab(activePaneId: paneID, paneIds: [paneID]))
+        makeWindowKey(windowLifecycle)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "nil-attention",
+                "AGENTSTUDIO_TRACE_TAGS": "app.focus",
+            ]))
+        let tracker = PaneFocusTracker(
+            attendedPane: AttendedPaneDerived(
+                tabLayout: tabLayout, windowLifecycle: windowLifecycle, managementLayer: managementLayer
+            ), traceRuntime: runtime)
+
+        // Act
+        managementLayer.toggle()
+        let collected = await collectAndStop(from: tracker)
+        try await runtime.shutdown()
+        let output = try #require(runtime.outputFileURL)
+        let records = try String(contentsOf: output, encoding: .utf8).split(separator: "\n").map {
+            try JSONDecoder().decode(FocusTraceRecord.self, from: Data($0.utf8))
+        }.filter { $0.body == "app.focus.attendedPaneChanged" }
+
+        // Assert
+        #expect(collected.isEmpty)
+        #expect(records.count == 1)
+        #expect(records.first?.attributes.attended == false)
+        #expect(records.first?.attributes.paneID == nil)
+    }
+
+    private struct FocusTraceRecord: Decodable {
+        struct Attributes: Decodable {
+            let attended: Bool?
+            let paneID: String?
+
+            enum CodingKeys: String, CodingKey {
+                case attended = "agentstudio.app.focus.attended"
+                case paneID = "agentstudio.pane.id"
+            }
+        }
+        let body: String
+        let attributes: Attributes
+    }
+
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-pane-focus-tracker-tests", isDirectory: true)

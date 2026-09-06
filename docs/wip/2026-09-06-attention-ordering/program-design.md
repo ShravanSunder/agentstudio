@@ -77,6 +77,9 @@ slot and re-arms before capturing, with no suspension in that synchronous segmen
 
 Each queued transition owns captured IDs and before/after contexts. A newer live attention
 value cannot relabel an older pair. Previous is delivered before current, never via a Set.
+The current pane's captured attendance must also satisfy the caller's attendance predicate.
+The raw active anchor can name a parent hidden by its drawer; the caller's observation resolver
+remains authoritative for that visibility policy. A previous-off control always clears attendance.
 Before delivery, a captured surface mapping must still match the pane's current surface;
 missing/replaced surfaces are skipped. The existing ordered-input sink retains its own identity
 validation. Cancellation and lifecycle epoch are checked before issuing each control.

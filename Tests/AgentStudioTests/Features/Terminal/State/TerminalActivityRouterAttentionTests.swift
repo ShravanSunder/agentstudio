@@ -154,6 +154,69 @@ struct TerminalActivityRouterAttentionTests {
         #expect(fixture.recorder.maximumConcurrentControls == 1)
     }
 
+    @Test("caller attendance resolver can suppress an active anchor")
+    func preservesCallerAttendanceAuthority() async {
+        // Arrange
+        let fixture = AttentionFixture(attentionAllowed: false)
+        await fixture.start()
+
+        // Act
+        fixture.selectPane(at: 1)
+        await fixture.router.waitForPendingAttentionDelivery()
+        await fixture.stop()
+
+        // Assert
+        #expect(fixture.recorder.events == [fixture.event(0, false), fixture.event(1, false)])
+    }
+
+    @Test("settled attention cancels the real projector unseen window")
+    func settledAttentionCancelsRealWindow() async {
+        // Arrange: preserve the production activity-input binding.
+        let fixture = AttentionFixture()
+        await fixture.router.start()
+        await fixture.seedUnseenWindow(at: 1)
+        await assertEventuallyMain("B unseen window scheduled") { fixture.clock.pendingSleepCount == 1 }
+        guard fixture.clock.pendingSleepCount == 1 else {
+            await fixture.stop()
+            return
+        }
+
+        // Act
+        fixture.selectPane(at: 1)
+        await assertEventuallyMain("B attendance cancels its unseen window") { fixture.clock.pendingSleepCount == 0 }
+
+        // Assert
+        #expect(fixture.clock.pendingSleepCount == 0)
+        await fixture.stop()
+    }
+
+    @Test("same-turn intermediate keeps its real unseen window while settled pane cancels")
+    func intermediateAttentionPreservesRealWindow() async {
+        // Arrange: both B and C have distinct pending windows.
+        let fixture = AttentionFixture()
+        await fixture.router.start()
+        await fixture.seedUnseenWindow(at: 1)
+        await assertEventuallyMain("B window scheduled") { fixture.clock.pendingSleepCount == 1 }
+        let bSleepGenerations = fixture.clock.pendingSleepGenerations
+        await fixture.seedUnseenWindow(at: 2)
+        await assertEventuallyMain("B and C windows scheduled") { fixture.clock.pendingSleepCount == 2 }
+        guard bSleepGenerations.count == 1, fixture.clock.pendingSleepCount == 2 else {
+            await fixture.stop()
+            return
+        }
+
+        // Act
+        fixture.selectPane(at: 1)
+        fixture.selectPane(at: 2)
+        await assertEventuallyMain("only C window cancelled") {
+            fixture.clock.pendingSleepGenerations == bSleepGenerations
+        }
+
+        // Assert
+        #expect(fixture.clock.pendingSleepGenerations == bSleepGenerations)
+        await fixture.stop()
+    }
+
     @Test("stopped router releases lifecycle and observation task ownership")
     func stoppedRouterCanDeallocate() async {
         // Arrange / Act
@@ -183,11 +246,12 @@ private final class AttentionFixture {
     let managementLayer = ManagementLayerAtom()
     let recorder = AttentionControlRecorder()
     let activityAtom = TerminalActivityAtom()
+    let clock = TestPushClock()
     let bindingID = UUIDv7.generate()
     let tabID: UUID
     let router: TerminalActivityRouter
 
-    init() {
+    init(attentionAllowed: Bool = true) {
         let arrangement = PaneArrangement(
             name: "Default", isDefault: true, layout: Layout.autoTiled(paneIDs), activePaneId: paneIDs[0]
         )
@@ -204,7 +268,10 @@ private final class AttentionFixture {
         )
         router = TerminalActivityRouter(
             bus: EventBus<RuntimeEnvelope>(), activityAtom: activityAtom, attendedPane: attendedPane,
-            surfaceIDForPaneID: { $0 }, isPaneAgentClassified: { _, _ in false }
+            surfaceIDForPaneID: { $0 },
+            isPaneCurrentlyAttended: { paneID in attentionAllowed && attendedPane.attendedPaneId == paneID },
+            isPaneAgentClassified: { _, _ in false },
+            unseenActivityDebounceDuration: .seconds(2), unseenActivityClock: clock
         )
     }
 
@@ -223,6 +290,24 @@ private final class AttentionFixture {
         recorder.releaseBlockedControl()
         await router.stop()
         Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID)
+    }
+
+    func seedUnseenWindow(at index: Int) async {
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: ScrollbarState(top: 0, bottom: 10, total: 100), observedAtMilliseconds: 1000
+        )
+        let latest = ScrollbarState(top: 0, bottom: 10, total: 140)
+        aggregate.merge(state: latest, observedAtMilliseconds: 1100)
+        await Ghostty.ActionRouter.submitTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneIDs[index], paneID: paneIDs[index],
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate, latestState: latest,
+                    context: TerminalActivityProjectionContext(
+                        isAttended: false, isAgentClassified: false, outputBurstThreshold: 30
+                    )
+                )
+            ))
     }
 
     func selectPane(at index: Int) {
