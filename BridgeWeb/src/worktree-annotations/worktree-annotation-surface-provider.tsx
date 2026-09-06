@@ -90,9 +90,26 @@ export interface WorktreeAnnotationSurfaceProviderProps {
 export function WorktreeAnnotationSurfaceProvider(
 	props: WorktreeAnnotationSurfaceProviderProps,
 ): ReactElement {
+	const telemetryRecorderRef = useRef(props.telemetryRecorder);
+	telemetryRecorderRef.current = props.telemetryRecorder;
+	const telemetryRecorder = useMemo(
+		(): BridgeTelemetryRecorder => ({
+			isEnabled: (scope) => telemetryRecorderRef.current?.isEnabled(scope) ?? false,
+			record: (sample) => telemetryRecorderRef.current?.record(sample),
+			measure: (measureProps) => {
+				const currentRecorder = telemetryRecorderRef.current;
+				return currentRecorder === undefined
+					? measureProps.operation()
+					: currentRecorder.measure(measureProps);
+			},
+			flush: (flushProps) => telemetryRecorderRef.current?.flush(flushProps) ?? true,
+		}),
+		[],
+	);
+	// Telemetry setup must not retire the surface's already-installed annotation truth.
 	const annotationClient = useMemo(
-		() => createWorktreeAnnotationSurfaceClient(props.surfaceClient, props.telemetryRecorder),
-		[props.surfaceClient, props.telemetryRecorder],
+		() => createWorktreeAnnotationSurfaceClient(props.surfaceClient, telemetryRecorder),
+		[props.surfaceClient, telemetryRecorder],
 	);
 	const projection = useSyncExternalStore(
 		annotationClient.subscribe,
