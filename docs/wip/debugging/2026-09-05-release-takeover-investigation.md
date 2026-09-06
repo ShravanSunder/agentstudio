@@ -165,3 +165,34 @@ pane/tab IDs never recur. No production call site should consume that API under 
 
 The new main-thread stall instrument also retains explicit owner decisions about adding the
 telemetry family and exporting scrubbed function names. Those are pending in this conversation.
+
+## Verified results and remaining blockers (2026-09-06)
+
+The second corrected aggregate `mise run test` completed in 472.01 seconds with exit 0
+(operator receipt and final log verified).
+Swift fast: 4,464 tests/628 suites passed. The source is captured at fcfaee8b0; no test source
+changed during the run. Prior full lint and focused tests passed; commit hooks also passed.
+
+Native PR #332 conservation proof: the two tab/drawer surfaces closed at 09:30:23.768Z and
+09:30:23.769Z reached released_total=2 at 09:35:24.356Z and freed_total=2 at
+09:35:24.378Z, 300.609 seconds after close. Independent sampler returned one renderer thread,
+one I/O thread, one PTY child, one SurfaceView, and one TerminalPaneMountView, with no capture
+errors. Created=3, freed=2, live=managed=1, orphan=0. Exact receipt is
+`tmp/takeover-2026-09-05/native-memory/expiry-evidence.json`.
+
+Memory recovery remains unresolved: after-expiry footprint 513 MB versus earlier two-pane
+491 MB; IOSurface fell 321→160 MB while owned graphics rose 27→247 MB. This is a
+conservation-only pass, not a leak-free or full memory-recovery claim. Longer fixed-geometry
+settlement and repeated-cycle measurements remain required.
+
+Normal Command-Q through the debug app was followed by an absent PID 9190 on process
+inspection. The UI read timed out as the app disappeared; a subsequent sample could not
+attach because the process had exited. The historical quit hang did not reproduce in this
+small ordinary-menu case; no forced termination was used.
+
+Integration is blocked pending the explicit merge directive requested after automatic approval
+review rejected `git merge --ff-only origin/fix/coalescing-yield-flake`. No workaround or
+merge occurred. The test-only Bridge package harness repair, stall-telemetry export decision,
+and atom undo-owner reclamation contract also remain open. Full memory soak, restart/drawer
+state proof, current implementation reviews, PR gates, merges, and stable release verification
+are not complete.
