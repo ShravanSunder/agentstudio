@@ -162,6 +162,9 @@ extension WorkspaceSurfaceCoordinator {
         }
         switch pane.content {
         case .terminal:
+            if remountRetainedSurfaceIfAvailable(for: pane, worktree: worktree, repo: repo) != nil {
+                return .restored
+            }
             if let worktree, let repo {
                 if restoreView(for: pane, worktree: worktree, repo: repo) != nil {
                     return .restored

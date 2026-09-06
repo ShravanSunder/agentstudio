@@ -375,9 +375,7 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {}
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {}
 }

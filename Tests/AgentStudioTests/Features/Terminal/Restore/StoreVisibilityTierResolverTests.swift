@@ -157,4 +157,116 @@ struct StoreVisibilityTierResolverTests {
 
         #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
     }
+
+    @Test
+    func tier_marksPaneHidden_whenNoTabIsActive() {
+        let store = WorkspaceStore()
+        let pane = store.createPane()
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: pane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksInactiveTabPaneHidden() {
+        let store = WorkspaceStore()
+        let firstPane = store.createPane()
+        let firstTab = Tab(paneId: firstPane.id)
+        store.appendTab(firstTab)
+        let secondPane = store.createPane()
+        let secondTab = Tab(paneId: secondPane.id)
+        store.appendTab(secondTab)
+        store.setActiveTab(firstTab.id)
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: firstPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: secondPane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksMinimizedDrawerChildHidden() throws {
+        let store = WorkspaceStore()
+        let parentPane = store.createPane()
+        store.appendTab(Tab(paneId: parentPane.id))
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.minimizeDrawerPane(drawerPane.id, in: parentPane.id))
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
+    }
+
+    @Test
+    func tier_marksDrawerChildrenHidden_whenParentPaneIsMinimized() throws {
+        let store = WorkspaceStore()
+        let parentPane = store.createPane()
+        let siblingPane = store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        store.insertPane(
+            siblingPane.id,
+            inTab: tab.id,
+            at: parentPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.minimizePane(parentPane.id, inTab: tab.id))
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: parentPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: siblingPane.id)) == .p0Visible)
+    }
+
+    @Test
+    func tier_keepsZoomSourceExpandedDrawerChildrenVisible() throws {
+        // Arrange: a parent pane with a sibling in the same tab, plus an expanded drawer
+        // child on the parent (drawers start expanded, per tier_marksExpandedDrawerChildrenVisible),
+        // then zoom is entered on the parent.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = WorkspaceStore()
+        let repo = store.addRepo(at: tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let parentPane = store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let siblingPane = store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let tab = Tab(paneId: parentPane.id, name: "Zoomed Drawer")
+        store.appendTab(tab)
+        store.insertPane(
+            siblingPane.id,
+            inTab: tab.id,
+            at: parentPane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        let drawerChild = try #require(store.addDrawerPane(to: parentPane.id))
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: parentPane.id,
+            viewerPresentation: .unavailable
+        )
+
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        // Act / Assert: zoom keeps the source pane and its expanded drawer child visible, while
+        // the sibling (outside the zoom) stays hidden.
+        #expect(resolver.tier(for: PaneId(existingUUID: parentPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerChild.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: siblingPane.id)) == .p1Hidden)
+
+        // Act / Assert: collapsing the drawer while zoom is still active hides the child again.
+        store.toggleDrawer(for: parentPane.id)
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerChild.id)) == .p1Hidden)
+    }
 }

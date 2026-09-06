@@ -112,7 +112,7 @@ private final class RestoreMutationSurfaceManager: WorkspaceSurfaceManaging {
 
     func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? { nil }
     func detach(_: UUID, reason _: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
-    func requeueUndo(_: UUID) {}
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
     func destroy(_: UUID) {}
 }

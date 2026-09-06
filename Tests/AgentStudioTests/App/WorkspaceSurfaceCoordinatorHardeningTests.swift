@@ -839,13 +839,16 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let runtimePaneId = PaneId(existingUUID: pane.id)
 
         var runtimeWasRegisteredDuringUndoLookup = false
+        var undoLookupRan = false
         harness.surfaceManager.onUndoClose = {
+            undoLookupRan = true
             runtimeWasRegisteredDuringUndoLookup = harness.coordinator.runtimeForPane(runtimePaneId) != nil
         }
 
         let restored = harness.coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
 
         #expect(restored == nil)
+        #expect(undoLookupRan)
         #expect(!runtimeWasRegisteredDuringUndoLookup)
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
@@ -875,15 +878,15 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let reusedBranchStart = try #require(
-            source.range(of: "if undone.metadata.paneId == pane.id {")
+            source.range(of: "guard let undone = surfaceManager.undoClose(forPaneId: pane.id) else {")
         )
-        let mismatchBranchStart = try #require(
+        let reusedBranchEnd = try #require(
             source.range(
-                of: "} else {",
+                of: "\n    /// Restore a view from an undo close.",
                 range: reusedBranchStart.upperBound..<source.endIndex
             )
         )
-        let reusedBranch = String(source[reusedBranchStart.lowerBound..<mismatchBranchStart.lowerBound])
+        let reusedBranch = String(source[reusedBranchStart.lowerBound..<reusedBranchEnd.lowerBound])
 
         #expect(reusedBranch.contains("registerPaneFilesystemContextIfNeeded(for: pane)"))
         #expect(!reusedBranch.contains("syncFilesystemRootsAndActivity"))
@@ -974,12 +977,11 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? {
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
         onUndoClose?()
+        guard undoCloseResult?.metadata.paneId == paneId else { return nil }
         return undoCloseResult
     }
-
-    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

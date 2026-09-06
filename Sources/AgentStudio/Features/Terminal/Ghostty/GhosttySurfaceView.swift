@@ -465,6 +465,19 @@ extension Ghostty {
             }
         }
 
+        /// Builds a surface view with no native handle. `surface` stays `nil`, so every libghostty
+        /// call guarded on it is a no-op. This is the package-boundary construction seam that lets
+        /// `SurfaceManager` lifecycle tests run without a live Ghostty app.
+        package init(
+            managedSurfaceID: UUID,
+            appCommandDispatcher: any AppCommandDispatching
+        ) {
+            self.managedSurfaceID = managedSurfaceID
+            self.hostConfigSnapshot = GhosttyHostConfigSnapshot(configHandle: nil)
+            self.appCommandDispatcher = appCommandDispatcher
+            super.init(frame: .zero)
+        }
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
@@ -482,6 +495,7 @@ extension Ghostty {
             }
             if let surface {
                 ghostty_surface_free(surface)
+                performanceTraceRecorder?.recordRendererFreed()
             }
         }
 
@@ -534,8 +548,8 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if result {
                 focused = true
-                if let surface {
-                    ghostty_surface_set_focus(surface, true)
+                if surface != nil {
+                    SurfaceManager.shared.surfaceDidBecomeFirstResponder(managedSurfaceID)
                 }
                 applyMouseVisibility(isVisible: terminalRuntime?.isMouseVisible ?? true)
                 logSurfaceSnapshot(reason: "becomeFirstResponder")
@@ -547,9 +561,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 applyMouseVisibility(isVisible: true)
                 logSurfaceSnapshot(reason: "resignFirstResponder")
             }
@@ -578,9 +590,7 @@ extension Ghostty {
                     isFocused: focused,
                     isAttachedToWindow: false
                 )
-                if let surface {
-                    ghostty_surface_set_focus(surface, false)
-                }
+                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 wasDetachedFromWindow = true
             }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")

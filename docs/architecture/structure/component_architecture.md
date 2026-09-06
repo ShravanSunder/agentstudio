@@ -554,7 +554,7 @@ The `WorkspaceSurfaceCoordinator` is the canonical App orchestration boundary fo
 - `undoCloseTab()` — Pop `CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
 - `createViewForContent(pane:)` — Dispatch to terminal, webview, code viewer, or bridge panel view factory; mount inside `PaneHostView`; register host in `ViewRegistry`
 - `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
-- `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
+- `restoreView(for:worktree:repo:)` — Take the pane's retained surface via `SurfaceManager.undoClose(forPaneId:)` → reattach
 - `restoreAllViews()` — App launch: staged restore (visible panes first, then hidden cooperatively)
 - `syncFilesystemRootsAndActivity()` — Keep `FilesystemGitPipeline` registrations in sync with workspace topology
 
@@ -674,7 +674,7 @@ Singleton managing Ghostty surface lifecycle. Detailed in [Surface Architecture]
 Key points relevant here:
 - Surfaces are keyed by their own UUID, joined to panes via `SurfaceMetadata.paneId`
 - Three collections: `activeSurfaces`, `hiddenSurfaces`, `undoStack`
-- `attach()` / `detach(reason:)` / `undoClose()` / `destroy()`
+- `attach()` / `detach(reason:)` / `undoClose(forPaneId:)` / `destroy()`
 
 > **File:** [`Features/Terminal/Ghostty/SurfaceManager.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift)
 

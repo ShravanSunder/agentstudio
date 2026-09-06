@@ -81,7 +81,7 @@ extension WorkspaceSurfaceCoordinator {
     private func observeBridgePaneActivityInputs(generation: UInt64) {
         let inputs = withObservationTracking {
             captureBridgePaneActivityInputs()
-        } onChange: {
+        } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self,
                     self.bridgePaneActivityObservationGeneration == generation

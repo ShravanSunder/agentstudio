@@ -32,11 +32,7 @@ final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
         _ = reason
     }
 
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {
         _ = surfaceId
