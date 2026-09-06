@@ -132,7 +132,9 @@ struct FilesystemActorActivityTests {
         )
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
+        let streamClient = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in ActivityTestLocalFSEventStreamLifetime() }
+        )
         let activityCommitRecorder = FilesystemActivityCommitRecorder()
         let activityProjector = RepositoryLocalActivityProjector { commit in
             await activityCommitRecorder.record(commit)
@@ -189,7 +191,9 @@ struct FilesystemActorActivityTests {
         )
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
+        let streamClient = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in ActivityTestLocalFSEventStreamLifetime() }
+        )
         let activityCommitRecorder = FilesystemActivityCommitRecorder()
         let activityProjector = RepositoryLocalActivityProjector { commit in
             await activityCommitRecorder.record(commit)
@@ -251,7 +255,9 @@ struct FilesystemActorActivityTests {
         )
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
+        let streamClient = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in ActivityTestLocalFSEventStreamLifetime() }
+        )
         let activityCommitRecorder = FilesystemActivityCommitRecorder()
         let activityProjector = RepositoryLocalActivityProjector { commit in
             await activityCommitRecorder.record(commit)
@@ -309,7 +315,9 @@ struct FilesystemActorActivityTests {
         )
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
+        let streamClient = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in ActivityTestLocalFSEventStreamLifetime() }
+        )
         let activityCommitRecorder = FilesystemActivityCommitRecorder()
         let activityProjector = RepositoryLocalActivityProjector { commit in
             await activityCommitRecorder.record(commit)
@@ -474,7 +482,9 @@ struct FilesystemActorActivityTests {
         )
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let streamClient = DarwinFSEventStreamClient()
+        let streamClient = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in ActivityTestLocalFSEventStreamLifetime() }
+        )
         let activityCommitRecorder = FilesystemActivityCommitRecorder()
         let activityProjector = RepositoryLocalActivityProjector { commit in
             await activityCommitRecorder.record(commit)
@@ -583,4 +593,14 @@ private actor FilesystemActivityAuthorityRevocationRecorder {
     func reset() {
         revocations.removeAll(keepingCapacity: true)
     }
+}
+
+// These tests inject raw events and exact synthetic cursor IDs. A live native
+// stream would mix machine-global event IDs into the same activity checkpoint.
+private final class ActivityTestLocalFSEventStreamLifetime: DarwinLocalFSEventStreamLifetime, Sendable {
+    func flush() -> Bool { true }
+
+    func retire() {}
+
+    func scheduleRetirement() {}
 }
