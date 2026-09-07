@@ -14,6 +14,59 @@ struct BridgeDevelopmentReviewPublicationConstruction {
 }
 
 extension BridgeDevelopmentProductHost {
+    func applyCommittedActiveViewerModeUpdate(
+        _ call: BridgeProductCallRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard case .reviewActiveViewerModeUpdate = call,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return }
+        let publication = await MainActor.run {
+            reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        }
+        guard publication == nil,
+            activeReviewComparisonTask == nil,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return }
+
+        guard let target = try? Self.reviewTarget(from: paneState) else {
+            productAdmissionGate.close()
+            return
+        }
+        let reviewGeneration = nextReviewGeneration
+
+        // Mode acceptance must not wait for Git construction. Reuse the existing
+        // Review task lifetime so repeated activation cannot create parallel work.
+        let taskAttempt = allocateReviewComparisonTaskAttempt()
+        activeReviewComparisonTaskAttempt = taskAttempt
+        activeReviewComparisonTask = Task { [weak self] in
+            guard let self else { return }
+            await MainActor.run {
+                guard !Task.isCancelled,
+                    productAdmission.withValidAdmission({ true }) == true
+                else { return }
+                self.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                    activeTarget: target,
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            }
+            await self.publishCurrentPanePresentation()
+            // Unlike bootstrap replay, this path must deliver to subscriptions
+            // that may already be waiting when initial construction completes.
+            _ = await self.runReviewComparisonPublication(
+                target: target,
+                reviewGeneration: reviewGeneration,
+                classifySameSourceRefresh: false,
+                productAdmission: productAdmission
+            )
+            await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
+        }
+    }
+
     static func makeReviewInitialization(
         state: BridgePaneState,
         provider: any BridgeReviewSourceProvider
@@ -219,7 +272,11 @@ extension BridgeDevelopmentProductHost {
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneRefreshCatchUpOutcome {
         guard !Task.isCancelled else {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
+            await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: refreshReservation
+            )
             return .stale
         }
         guard
@@ -227,8 +284,12 @@ extension BridgeDevelopmentProductHost {
                 refreshAdmissionCoordinator.acquireForegroundWork()
             })
         else {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "foreground_unavailable")
-            return .failed
+            let didFail = await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "foreground_unavailable",
+                refreshReservation: refreshReservation
+            )
+            return didFail ? .failed : .stale
         }
         guard
             await refreshRepositoryDefaultTarget(
@@ -300,8 +361,12 @@ extension BridgeDevelopmentProductHost {
             )
             return Task.isCancelled ? .stale : .succeeded
         } catch {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
-            return Task.isCancelled ? .stale : .failed
+            let didFail = await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: refreshReservation
+            )
+            return Task.isCancelled || !didFail ? .stale : .failed
         }
     }
 
@@ -578,18 +643,31 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
+    @discardableResult
     func failReviewComparisonAttempt(
         _ reviewGeneration: BridgeReviewGeneration,
-        failureKind: String
-    ) async {
-        await MainActor.run {
+        failureKind: String,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?
+    ) async -> Bool {
+        let didFail = await MainActor.run {
+            // Source lineage survives ordinary edits; only the current reservation
+            // may publish a failure, just as only that reservation may commit.
+            if let refreshReservation {
+                guard !Task.isCancelled,
+                    productAdmission.withValidAdmission({ true }) == true,
+                    refreshReservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                    refreshAdmissionCoordinator.isRefreshPassCurrent(refreshReservation)
+                else { return false }
+            }
             refreshAdmissionCoordinator.failReviewComparisonAttempt(
                 reviewGeneration: reviewGeneration.rawValue,
                 failureKind: failureKind,
                 retryable: true
             )
+            return true
         }
-        await publishCurrentPanePresentation()
+        if didFail { await publishCurrentPanePresentation() }
+        return didFail
     }
 
     func publishCurrentPanePresentation() async {

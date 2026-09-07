@@ -9,6 +9,42 @@ import Testing
 @MainActor
 @Suite("Bridge development product host display lifecycle")
 struct BridgeDevelopmentProductHostDisplayLifecycleTests {
+    @Test("File bootstrap Review activation constructs the initial Review publication")
+    func fileBootstrapReviewActivationConstructsInitialReviewPublication() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-file-to-review"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
+        )
+
+        try await withMainActorShutdownDevelopmentProductHost(host) {
+            let bootstrapRequest = try developmentDisplayBootstrapRequest(
+                reason: "initial",
+                surface: "file"
+            )
+            let worker = try DevelopmentDisplayWorkerClient(
+                host: host,
+                delivery: await host.issueBootstrap(for: bootstrapRequest)
+            )
+            try await worker.openSession()
+            #expect(await host.diagnosticCommittedReviewPublication() == nil)
+
+            // Act
+            try await worker.activateReviewViewerMode()
+
+            // Assert
+            #expect(await initialReviewPublicationArrives(in: host))
+        }
+    }
+
     @Test("fresh and replacement workers preserve bounded Review display installation")
     func freshAndReplacementWorkersPreserveBoundedReviewDisplayInstallation() async throws {
         // Arrange
@@ -34,6 +70,15 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
             try await commitAndApplyC(established: established, host: host, successor: successor)
         }
     }
+}
+
+private func initialReviewPublicationArrives(in host: BridgeDevelopmentProductHost) async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
+        if await host.diagnosticCommittedReviewPublication() != nil { return true }
+        await Task.yield()
+    }
+    return await host.diagnosticCommittedReviewPublication() != nil
 }
 
 @MainActor
@@ -254,6 +299,24 @@ final class DevelopmentDisplayWorkerClient {
         }
     }
 
+    func activateReviewViewerMode() async throws {
+        let response = try await sendProductCall(
+            method: "review.activeViewerMode.update",
+            request: [
+                "activeSource": NSNull(),
+                "nativeSelectionRequestId": NSNull(),
+                "sequence": 1,
+                "sessionId": "development-display-viewer-mode",
+            ]
+        )
+        guard case .callCompleted(let completed) = response,
+            completed.call == .reviewActiveViewerModeUpdate
+        else {
+            Issue.record("Expected a typed Review active-viewer update result")
+            return
+        }
+    }
+
     private func sendProductCall(
         method: String,
         request: [String: Any]
@@ -361,13 +424,14 @@ private func decodeDevelopmentDisplayBootstrapEnvelope(
 
 func developmentDisplayBootstrapRequest(
     paneSessionId: String? = nil,
-    reason: String
+    reason: String,
+    surface: String = "review"
 ) throws -> BridgeDevelopmentProductBootstrapRequest {
     var request: [String: Any] = [
         "navigationIntent": [
-            "commandId": "open-review-view",
+            "commandId": "open-\(surface)-view",
             "commandKind": "activateContext",
-            "surface": "review",
+            "surface": surface,
         ],
         "reason": reason,
     ]

@@ -297,8 +297,16 @@ struct BridgeDevHostSharedConstructionTests {
 
             // Assert
             let publication = await host.diagnosticCommittedReviewPublication()
-            #expect(publication?.package.reviewGeneration == 3)
-            #expect(await provider.snapshot().reviewGenerationValues == [1, 2, 3])
+            let requests = await provider.snapshot()
+            #expect(publication?.package.reviewGeneration == 1)
+            #expect(requests.reviewGenerationValues == [1, 1, 1])
+            #expect(requests.reviewAttemptAuthorityGenerations.count == 3)
+            #expect(
+                zip(
+                    requests.reviewAttemptAuthorityGenerations,
+                    requests.reviewAttemptAuthorityGenerations.dropFirst()
+                ).allSatisfy { $0 < $1 }
+            )
             #expect(didDrainRetiringTasks)
         }
     }
@@ -562,7 +570,7 @@ struct BridgeDevHostSharedConstructionTests {
     }
 }
 
-private func developmentFileInvalidation(
+func developmentFileInvalidation(
     source: BridgeDevelopmentProductSource,
     batchSequence: UInt64
 ) -> BridgePaneWorktreeProductInvalidation {
@@ -588,7 +596,7 @@ private func waitForRetiringReviewTasksToDrain(
     return await host.retiringReviewComparisonTasks.isEmpty
 }
 
-private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
+struct BridgeDevSharedReviewProviderSnapshot: Sendable {
     let contributionCaptureCount: Int
     let contributionTargets: [WorkspaceReviewContributionTarget]
     let regularComparisonCount: Int
@@ -624,7 +632,7 @@ private actor BridgeComparisonUpdateCompletionRecorder {
     }
 }
 
-private actor BridgeDevelopmentSharedConstructionReviewProvider:
+actor BridgeDevelopmentSharedConstructionReviewProvider:
     BridgeSharedReviewConstructionSourceProvider,
     BridgeReviewRefreshImpactSourceProvider
 {
@@ -857,7 +865,7 @@ extension BridgeReviewRefreshImpact {
     )
 }
 
-private func makeDevelopmentBootstrapRequest(
+func makeDevelopmentBootstrapRequest(
     surface: String
 ) throws -> BridgeDevelopmentProductBootstrapRequest {
     try JSONDecoder().decode(

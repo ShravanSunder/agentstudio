@@ -471,7 +471,11 @@ package actor BridgeDevelopmentProductHost {
                 reviewGeneration: initialGeneration
             )
         } catch {
-            await failReviewComparisonAttempt(initialGeneration, failureKind: "publication_failed")
+            await failReviewComparisonAttempt(
+                initialGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: nil
+            )
             throw error
         }
         let preparedPublication = construction.preparedPublication
@@ -510,7 +514,11 @@ package actor BridgeDevelopmentProductHost {
             return committedPublication
         }
         guard let committedPublication else {
-            await failReviewComparisonAttempt(initialGeneration, failureKind: "publication_failed")
+            await failReviewComparisonAttempt(
+                initialGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: nil
+            )
             throw BridgeDevelopmentProductHostError.reviewPublicationFailed
         }
         reviewGitRefreshSeedHolder.commit(construction.gitRefreshSeed)
@@ -824,6 +832,14 @@ final class BridgeDevelopmentProductCommittedCallTarget {
     func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
         guard (productAdmission.withValidAdmission { true }) == true else { return }
         await host?.retryUnavailableFileRefresh()
+    }
+
+    func applyActiveViewerModeUpdate(
+        _ call: BridgeProductCallRequest,
+        correlation _: BridgeProductControlCorrelation,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await host?.applyCommittedActiveViewerModeUpdate(call, productAdmission: productAdmission)
     }
 }
 

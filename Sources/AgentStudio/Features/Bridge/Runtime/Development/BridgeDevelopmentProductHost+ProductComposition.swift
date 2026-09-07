@@ -42,6 +42,12 @@ private struct BridgeDevelopmentProductProviderDependencies {
             BridgeProductAdmissionContext
         ) async -> Void
     let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
+    let applyActiveViewerModeUpdate:
+        @MainActor @Sendable (
+            BridgeProductCallRequest,
+            BridgeProductControlCorrelation,
+            BridgeProductAdmissionContext
+        ) async -> Void
     let fileMetadataSource: BridgePaneProductFileMetadataSource
     let initialPresentation: BridgePaneProductPresentationSnapshot
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -115,6 +121,7 @@ extension BridgeDevelopmentProductHost {
                     )
                 },
                 applyFileRefreshRetry: committedCallTarget.applyFileRefreshRetry,
+                applyActiveViewerModeUpdate: committedCallTarget.applyActiveViewerModeUpdate,
                 fileMetadataSource: fileMetadataSource,
                 initialPresentation: initialPresentation,
                 refreshWorkAdmissionSource: refreshWorkAdmissionSource,
@@ -257,6 +264,7 @@ extension BridgeDevelopmentProductHost {
                 )
             },
             markReviewItemViewed: { _, _ in },
+            applyActiveViewerModeUpdate: dependencies.applyActiveViewerModeUpdate,
             applyReviewComparisonUpdate: dependencies.applyReviewComparisonUpdate,
             applyFileRefreshRetry: dependencies.applyFileRefreshRetry,
             applyWorktreeAnnotationCommand: dependencies.applyWorktreeAnnotationCommand,

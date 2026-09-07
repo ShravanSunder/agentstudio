@@ -560,7 +560,7 @@ func developmentContributionTargetCommit(
     worktreeRoot: URL
 ) -> @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult {
     { target in
-        .unchanged(
+        .applied(
             BridgePaneState(
                 panelKind: .diffViewer,
                 source: .workspace(
