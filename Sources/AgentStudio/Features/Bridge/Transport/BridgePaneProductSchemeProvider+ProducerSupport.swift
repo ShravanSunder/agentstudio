@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 extension BridgePaneProductSchemeProvider {
@@ -41,7 +42,7 @@ extension BridgePaneProductSchemeProvider {
             guard !Task.isCancelled else { return .cancelled }
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
             let endOffset = min(
-                offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
+                offsetBytes + AppPolicies.Bridge.contentProducerChunkBytes,
                 body.data.count
             )
             let chunkOffsetBytes = offsetBytes

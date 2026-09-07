@@ -1602,8 +1602,13 @@ Body-bearing correlated responses are `workerSession.accepted`, `call.completed`
 Frame-observation success is instead HTTP `204` with an empty body. The worker transport maps the validated request plus status into a closed typed local outcome; no `stream.frameObservedAccepted` wire package exists. Rejection uses the closed bounded status mapping and likewise carries no product payload.
 These correlated control responses do not repeat `workerDerivationEpoch`: the single pending request supplies any surface and admitted epoch. At most one update id is staged per subscription; another is rejected with
 `sequence_conflict` while the worker coalesces newer desired state. Batches start at zero, are contiguous, repeat identical update metadata, and globally
-preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/bytes and returns the cached response; changed bytes or reuse of a committed
-update id through a new request is fatal. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
+preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/bytes and returns the cached response; changed bytes remain rejected.
+The [rolling-history needs RU-U1–RU-U3](../2026-09-06-bridge-rolling-update-history/requirements.md) govern recent-ID retention.
+Each subscription rejects reuse of an update ID among its most recent 1,024 successfully committed updates. This is a rolling count window, not a
+lifetime update limit: a successful new commit evicts the oldest retained ID when the window is full. Staged or rejected batches and exact request
+replays do not advance the window. An evicted ID may label a new update only when all current subscription, epoch, request-sequence, revision/hash,
+and batch checks pass; eviction never makes an old request current. Reconciliation reset clears recent-ID history with the reset interest state;
+retained reconciliation preserves it. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
 and its recomputed hash equals the target. `BridgeProductControlMux` permits one unacknowledged admission for ordinary control work. Frame-observed acknowledgements use independent bounded per-stream gates and MUST NOT head-of-line block interactive commands, the metadata stream, or another content stream.
 
 `resync.accepted` is the sole reconciliation authority. Its `reconciliation`

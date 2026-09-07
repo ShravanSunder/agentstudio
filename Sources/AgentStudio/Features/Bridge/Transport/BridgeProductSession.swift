@@ -92,6 +92,9 @@ actor BridgeProductSession {
     ) -> BridgeProductProducerRegistration {
         productAdmission.withValidAdmission {
             guard lifecycle == .active else { return .rejected(.inactiveSession) }
+            if let pendingControl, case .workerSessionResync = pendingControl.request {
+                return .rejected(.closing)
+            }
             guard request.paneSessionId == paneSessionId,
                 request.workerInstanceId == workerInstanceId
             else {
@@ -296,6 +299,10 @@ actor BridgeProductSession {
             contentAdmissionCount: contentAdmissionByProducerLease.count,
             productAdmissionCount: productAdmissionByProducerLease.count
         )
+    }
+
+    func subscriptionSnapshots() -> [BridgeProductSubscriptionSnapshot] {
+        subscriptionState.snapshots()
     }
 
     private var producerCompletion: BridgeProductProducerRegistry.ProducerCompletion {
@@ -542,7 +549,8 @@ actor BridgeProductSession {
                 response: response,
                 subscriptionState: subscriptionState,
                 resyncEpochs: pendingControl.deferredResyncEpochs,
-                currentEpochs: workerDerivationEpochBySurface
+                currentEpochs: workerDerivationEpochBySurface,
+                snapshotRequiredSubscriptionIds: subscriptionsRequiringSnapshot(for: pendingControl.request)
             )
         } catch let stateError as BridgeProductSubscriptionStateError {
             throw BridgeProductSessionError.subscriptionStateRejected(stateError)

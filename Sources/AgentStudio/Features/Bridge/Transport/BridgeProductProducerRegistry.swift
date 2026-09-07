@@ -26,6 +26,16 @@ struct BridgeProductProducerRegistry {
         self.limits = limits
     }
 
+    var metadataProducerLeases: [BridgeProductProducerLease] {
+        let activeIds = producersByLeaseId.compactMap { id, state in
+            state.key.isContent ? nil : id
+        }
+        let pendingIds = pendingAcknowledgementsByLeaseId.compactMap { id, pending in
+            pending.producerKey.isContent ? nil : id
+        }
+        return Set(activeIds + pendingIds).map(BridgeProductProducerLease.init(id:))
+    }
+
     mutating func registerMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         operation: @escaping ProducerOperation,

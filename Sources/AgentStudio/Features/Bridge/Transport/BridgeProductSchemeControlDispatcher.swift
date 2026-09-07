@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let bridgeProductControlDispatcherLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "BridgeProductSchemeControlDispatcher"
+)
 
 enum BridgeProductSchemeControlDispatchResult: Equatable, Sendable {
     case admissionClosed
@@ -57,6 +63,16 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             // task must finish and cache one exact response even if the URL task closes.
             let completion = Task {
                 do {
+                    guard
+                        try await session.retireMetadataResponseBeforeResync(
+                            token: token,
+                            acknowledgeLifecycle: { acknowledgement in
+                                await provider.acknowledgeLifecycle(acknowledgement)
+                            }
+                        )
+                    else {
+                        throw BridgeProductSchemeAdapterError.producerRetirementFailed
+                    }
                     let providerResponse = await provider.response(
                         for: request,
                         productAdmission: productAdmission
@@ -122,6 +138,12 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         } catch BridgeProductSessionError.admissionClosed {
             return .admissionClosed
         } catch {
+            // These enums contain only closed reason cases and bounded sequence
+            // integers. Never log an arbitrary provider error or request payload.
+            let failureReason = (error as? BridgeProductSessionError).map(String.init(describing:)) ?? "unexpected"
+            bridgeProductControlDispatcherLogger.error(
+                "Product control completion failed kind=\(request.kind, privacy: .public) sequence=\(request.requestSequence) reason=\(failureReason, privacy: .public)"
+            )
             let internalError = try BridgeProductControlResponse.requestError(
                 correlating: request,
                 code: .internal,

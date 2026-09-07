@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 
@@ -205,9 +206,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 }
                 return try .subscriptionCancelAccepted(correlating: request)
             case .workerSessionResync(let resyncRequest):
-                guard await metadataCoordinator.hasActiveStream else {
-                    return try metadataStreamRequiredError(for: request)
-                }
                 return try .resyncAccepted(
                     correlating: request,
                     metadataStreamSequenceBarrier: resyncRequest.lastAcceptedStreamSequence,
@@ -484,20 +482,15 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 productAdmission: productAdmission,
                 session: session
             )
-            _ = try await session.enqueueRequiredProducerOpeningFrame(
+            let opening = try await session.enqueueRequiredMetadataOpeningFrame(
                 for: lease,
-                productAdmission: productAdmission,
-                build: { _ in
-                    try .metadata(
-                        .metadataStreamAccepted(
-                            for: request,
-                            resumeDisposition: request.resumeFromStreamSequence == nil
-                                ? .snapshotRequired
-                                : .resumed
-                        )
-                    )
-                }
+                productAdmission: productAdmission
             )
+            guard case .enqueued = opening else {
+                await metadataCoordinator.uninstall(lease: lease)
+                return
+            }
+            await metadataCoordinator.replaySubscriptionsForInstalledStream()
             await metadataCoordinator.replayPanePresentation()
             await metadataCoordinator.replayPaneSurfaceSelectionRequest()
             await waitForProducerCancellation()
@@ -852,7 +845,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         while foregroundWorkAdmission.withValidAdmission({ true }) == true {
             guard
                 let chunk = try await reader.nextChunk(
-                    maximumByteCount: BridgeProductWireContract.maximumContentDataPayloadBytes
+                    maximumByteCount: AppPolicies.Bridge.contentProducerChunkBytes
                 )
             else { break }
             try Task.checkCancellation()

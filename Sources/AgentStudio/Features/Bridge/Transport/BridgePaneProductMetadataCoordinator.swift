@@ -225,8 +225,24 @@ actor BridgePaneProductMetadataCoordinator {
                     )
                     await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
                     removeSubscriptionLifecycleState(subscriptionId: outcome.subscriptionId)
-                case .retained, .reset:
-                    break
+                case .retained:
+                    guard subscriptionKindById[outcome.subscriptionId] == nil,
+                        let retainedStream = activeStream,
+                        let subscription = await retainedStream.session.subscriptionSnapshot(
+                            subscriptionId: outcome.subscriptionId
+                        ),
+                        activeStream?.lease == retainedStream.lease,
+                        subscriptionKindById[outcome.subscriptionId] == nil
+                    else { continue }
+                    applySubscriptionOpened(subscription, productAdmission: productAdmission)
+                case .reset:
+                    guard let resetStream = activeStream,
+                        let subscription = await resetStream.session.subscriptionSnapshot(
+                            subscriptionId: outcome.subscriptionId
+                        ),
+                        activeStream?.lease == resetStream.lease
+                    else { continue }
+                    applySubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
                 }
             }
             for subscriptionId in result.revokedNativeOnlySubscriptionIds {
@@ -419,6 +435,16 @@ actor BridgePaneProductMetadataCoordinator {
                 )
             }
         }
+    }
+
+    func replaySubscriptionsForInstalledStream() async {
+        guard let installedStream = activeStream else { return }
+        let subscriptions = await installedStream.session.subscriptionSnapshots()
+        guard activeStream?.lease == installedStream.lease else { return }
+        for subscription in subscriptions where subscriptionKindById[subscription.subscriptionId] == nil {
+            deferSubscriptionOpen(subscription, productAdmission: installedStream.productAdmission)
+        }
+        await resumeForegroundWork()
     }
 
     func publishPanePresentation(

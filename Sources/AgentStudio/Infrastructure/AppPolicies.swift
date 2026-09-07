@@ -98,6 +98,9 @@ package enum AppPolicies {
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
         package static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024
+        /// Keep ordinary File/Review read and cancellation quanta independent of
+        /// the larger wire envelope required for complete annotation records.
+        package static let contentProducerChunkBytes: Int = 128 * 1024
         /// Desktop byte-cache residency target. At 128MB this keeps at least
         /// 8 max-size content bodies warm, avoiding re-fetch/re-highlight
         /// churn without letting one item define total retention.

@@ -1,6 +1,29 @@
 import Foundation
 
 extension BridgeProductSession {
+    func enqueueRequiredMetadataOpeningFrame(
+        for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext
+    ) throws -> BridgeProductProducerEnqueueResult {
+        guard case .metadata(let metadataKey)? = producerRegistry.producersByLeaseId[lease.id]?.key else {
+            return .rejected(.unknownLease)
+        }
+        let admittedRequest = metadataKey.request
+        let admittedResumeDisposition = metadataKey.expectedResumeDisposition
+        return try enqueueRequiredProducerOpeningFrame(
+            for: lease,
+            productAdmission: productAdmission,
+            build: { _ in
+                try .metadata(
+                    .metadataStreamAccepted(
+                        for: admittedRequest,
+                        resumeDisposition: admittedResumeDisposition
+                    )
+                )
+            }
+        )
+    }
+
     func enqueueSubscriptionReset(
         subscriptionId: String,
         reason: BridgeProductResetReason,
@@ -82,9 +105,10 @@ extension BridgeProductSession {
                     overflowReset: metadataStreamOverflowReset(for: target)
                 )
                 switch result {
-                case .enqueued:
+                case .enqueued(let frame):
                     delivery.correlation = dataCorrelation
                     delivery.nextSequence += 1
+                    delivery.lastEnqueuedStreamSequence = frame.sequence
                     protocolSubscriptionDeliveryById[subscriptionId] = delivery
                     resumeProducerFrameWaiterIfPossible(for: target.lease)
                 case .queueReset:
@@ -155,7 +179,7 @@ extension BridgeProductSession {
     ) throws {
         let target = try activeMetadataFrameTarget()
         let correlation = try Self.subscriptionFrameCorrelation(for: snapshot)
-        try enqueueRequiredProtocolLifecycleFrame(
+        let streamSequence = try enqueueRequiredProtocolLifecycleFrame(
             target: target,
             build: { streamSequence in
                 .metadata(
@@ -169,7 +193,8 @@ extension BridgeProductSession {
         )
         protocolSubscriptionDeliveryById[snapshot.subscriptionId] = .init(
             correlation: correlation,
-            nextSequence: 1
+            nextSequence: 1,
+            lastEnqueuedStreamSequence: streamSequence
         )
     }
 
@@ -183,7 +208,7 @@ extension BridgeProductSession {
         }
         let correlation = try Self.subscriptionFrameCorrelation(for: snapshot)
         let subscriptionSequence = delivery.nextSequence
-        try enqueueRequiredProtocolLifecycleFrame(
+        let streamSequence = try enqueueRequiredProtocolLifecycleFrame(
             target: target,
             build: { streamSequence in
                 .metadata(
@@ -199,6 +224,7 @@ extension BridgeProductSession {
         )
         delivery.correlation = correlation
         delivery.nextSequence += 1
+        delivery.lastEnqueuedStreamSequence = streamSequence
         protocolSubscriptionDeliveryById[snapshot.subscriptionId] = delivery
     }
 
@@ -239,19 +265,21 @@ extension BridgeProductSession {
         throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
     }
 
+    @discardableResult
     private func enqueueRequiredProtocolLifecycleFrame(
         target: BridgeProductProtocolMetadataFrameTarget,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
-    ) throws {
+    ) throws -> Int {
         let result = try producerRegistry.enqueueNonterminalFrame(
             for: target.lease,
             build: build,
             overflowReset: metadataStreamOverflowReset(for: target)
         )
-        guard case .enqueued = result else {
+        guard case .enqueued(let frame) = result else {
             throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
         }
         resumeProducerFrameWaiterIfPossible(for: target.lease)
+        return frame.sequence
     }
 
     private func metadataStreamOverflowReset(
@@ -293,4 +321,5 @@ struct BridgeProductProtocolMetadataFrameTarget: Sendable {
 struct BridgeProductProtocolSubscriptionDelivery: Sendable {
     var correlation: BridgeProductSubscriptionFrameCorrelation
     var nextSequence: Int
+    var lastEnqueuedStreamSequence: Int
 }
