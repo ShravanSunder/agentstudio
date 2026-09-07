@@ -126,7 +126,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.pane.association_outcome",
         "agentstudio.performance.sidebar.group_mode",
-        "agentstudio.performance.sidebar.phase",
+        "agentstudio.performance.sidebar.phase", "agentstudio.performance.repo_explorer.wake_trigger",
         "agentstudio.performance.sidebar.query_state",
         "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.trigger",

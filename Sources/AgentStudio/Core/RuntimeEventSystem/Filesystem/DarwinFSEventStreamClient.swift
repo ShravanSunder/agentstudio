@@ -10,6 +10,7 @@ private struct StreamRegistration: @unchecked Sendable {
     let observationIdentity: AgentStudioGit.GitStatusObservationIdentity?
     let observationScopes: [AgentStudioGit.GitStatusObservationScope]
     let watchedPaths: [String]
+    let eventActivationGate: DarwinLocalFSEventRegistrationActivationGate
     let streamLifetime: any DarwinLocalFSEventStreamLifetime
 }
 
@@ -37,7 +38,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
     private var latestEventIDByParticipant: [FSEventParticipant: UInt64] = [:]
     let ingressBuffer: DarwinFSEventIngressBuffer
     private let continuityLedger: GitCleanContinuityLedger
-    private let localStreamFactory: DarwinLocalFSEventStreamFactory
+    private let sharedLocalObserverRegistry: DarwinSharedLocalFSEventObserverRegistry
     let sharedExactItemObserverRegistry: DarwinSharedExactItemObserverRegistry
     private let sharedExactItemFingerprintReader: DarwinSharedExactItemFingerprintReader
     private let ingressPerformanceAccumulator: DarwinFSEventIngressPerformanceAccumulator
@@ -60,10 +61,15 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             }
         )
         self.continuityLedger = continuityLedger
-        self.localStreamFactory = localStreamFactory
         self.ingressBuffer = ingressBuffer
         self.ingressPerformanceAccumulator = ingressPerformanceAccumulator
         self.sharedExactItemFingerprintReader = sharedExactItemFingerprintReader
+        sharedLocalObserverRegistry = DarwinSharedLocalFSEventObserverRegistry(
+            streamFactory: localStreamFactory,
+            recordPhysicalRawCallback: { eventCount in
+                ingressPerformanceAccumulator.recordLocalRawCallback(eventCount: eventCount)
+            }
+        )
         sharedExactItemObserverRegistry = DarwinSharedExactItemObserverRegistry(
             streamFactory: sharedExactItemStreamFactory,
             recordRawEvents: { worktreeId, events in
@@ -126,6 +132,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         ingressPerformanceAccumulator.snapshotAndReset()
     }
 
+    package func sharedLocalObservationSnapshot() -> DarwinSharedLocalFSEventObservationSnapshot {
+        sharedLocalObserverRegistry.snapshot()
+    }
+
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
         let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(rootPath)
 
@@ -168,18 +178,28 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
 
-        lifecycleLock.lock()
-        if hasShutdown {
-            lifecycleLock.unlock()
+        var displacedRegistration: StreamRegistration?
+        let didInstall = lifecycleLock.withLock { () -> Bool in
+            guard !hasShutdown else { return false }
+            if let currentRegistration = streamByWorktreeId[worktreeId],
+                currentRegistration.lifecycleGeneration >= registration.lifecycleGeneration
+            {
+                return false
+            }
+            displacedRegistration = streamByWorktreeId.updateValue(
+                registration,
+                forKey: worktreeId
+            )
+            return true
+        }
+        guard didInstall else {
             Self.teardown(registration)
             return
         }
-        if let existing = streamByWorktreeId.updateValue(registration, forKey: worktreeId) {
-            lifecycleLock.unlock()
-            Self.teardown(existing)
-            return
+        if let displacedRegistration {
+            Self.teardown(displacedRegistration)
         }
-        lifecycleLock.unlock()
+        registration.eventActivationGate.activate()
     }
 
     package func unregister(worktreeId: UUID) {
@@ -218,6 +238,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         for registration in registrations {
             Self.teardown(registration)
         }
+        sharedLocalObserverRegistry.shutdown()
         continuityLedger.shutdown()
         sharedExactItemObserverRegistry.shutdown()
         ingressBuffer.finish()
@@ -283,6 +304,8 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 continuityLedger.unregister(registrationId: worktreeId)
                 return nil
             }
+            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
+            replacement.eventActivationGate.activate()
             Self.teardown(currentRegistration)
             registration = replacement
         }
@@ -488,40 +511,36 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         else {
             return nil
         }
+        let eventActivationGate = DarwinLocalFSEventRegistrationActivationGate { [weak self] localRawEvents in
+            guard let self else { return }
+            let rawEvents = localRawEvents.map { event in
+                (path: event.path, eventId: event.eventId, flags: event.flags)
+            }
+            emitRawEvents(
+                worktreeId: worktreeId,
+                lifecycleGeneration: lifecycleGeneration,
+                rawEvents: rawEvents,
+                ordinaryPaths: localRawEvents.map(\.path)
+            )
+        }
         guard
-            let streamLifetime = localStreamFactory(
-                DarwinLocalFSEventStreamRequest(
-                    worktreeId: worktreeId,
-                    lifecycleGeneration: lifecycleGeneration,
-                    watchedPaths: watchedPaths,
-                    privateStagingExclusionPaths:
-                        DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
-                            observationScopes: observationScopes
-                        ),
-                    eventHandler: { [weak self] localRawEvents in
-                        guard let self else { return }
-                        let rawEvents = localRawEvents.map { event in
-                            (path: event.path, eventId: event.eventId, flags: event.flags)
-                        }
-                        ingressPerformanceAccumulator.recordLocalRawCallback(
-                            eventCount: rawEvents.count
-                        )
-                        emitRawEvents(
-                            worktreeId: worktreeId,
-                            lifecycleGeneration: lifecycleGeneration,
-                            rawEvents: rawEvents,
-                            ordinaryPaths: localRawEvents.map(\.path)
-                        )
-                    }
-                )
+            let streamLifetime = sharedLocalObserverRegistry.bind(
+                request:
+                    DarwinLocalFSEventStreamRequest(
+                        worktreeId: worktreeId,
+                        lifecycleGeneration: lifecycleGeneration,
+                        watchedPaths: watchedPaths,
+                        privateStagingExclusionPaths:
+                            DarwinFSEventStreamConfiguration.privateStagingExclusionPaths(
+                                observationScopes: observationScopes
+                            ),
+                        eventHandler: eventActivationGate.receive
+                    )
             )
         else {
+            eventActivationGate.cancel()
             return nil
         }
-        if let observationIdentity {
-            continuityLedger.register(registrationId: worktreeId, identity: observationIdentity)
-        }
-
         return StreamRegistration(
             lifecycleGeneration: lifecycleGeneration,
             participant: FSEventParticipant(
@@ -533,6 +552,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             observationIdentity: observationIdentity,
             observationScopes: observationScopes,
             watchedPaths: watchedPaths,
+            eventActivationGate: eventActivationGate,
             streamLifetime: streamLifetime
         )
     }
@@ -548,9 +568,16 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
 
-        if rawEvents.contains(where: { event in
+        let rootChangedEvents = rawEvents.filter { event in
             event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
-        }) {
+        }
+        if !rootChangedEvents.isEmpty,
+            rootChangeAffectsRegistration(
+                worktreeId: worktreeId,
+                lifecycleGeneration: lifecycleGeneration,
+                rootChangedEvents: rootChangedEvents
+            )
+        {
             retireRegistrationAfterRootChange(
                 worktreeId: worktreeId,
                 lifecycleGeneration: lifecycleGeneration,
@@ -560,7 +587,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             return
         }
 
-        var registrationWasReplaced = false
         let classificationInput = lifecycleLock.withLock {
             guard !hasShutdown, !hasStoppedActivityAdmission,
                 let registration = streamByWorktreeId[worktreeId]
@@ -568,7 +594,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 return Optional<LocalEventClassificationInput>.none
             }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
-                registrationWasReplaced = true
                 return nil
             }
             if let latestEventID = rawEvents.map(\.eventId).max() {
@@ -584,9 +609,6 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 scopes: registration.observationScopes
             )
         }
-        if registrationWasReplaced {
-            continuityLedger.markUncertain(registrationId: worktreeId)
-        }
         guard let classificationInput else { return }
 
         let classification = DarwinFSEventPathClassifier.classify(
@@ -596,13 +618,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
             observationScopes: classificationInput.scopes
         )
 
-        var registrationChangedDuringClassification = false
         lifecycleLock.withLock {
             guard !hasShutdown, !hasStoppedActivityAdmission,
                 let registration = streamByWorktreeId[worktreeId]
             else { return }
             guard registration.lifecycleGeneration == lifecycleGeneration else {
-                registrationChangedDuringClassification = true
                 return
             }
             if classificationInput.observesContinuity {
@@ -620,8 +640,31 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 )
             )
         }
-        if registrationChangedDuringClassification {
-            continuityLedger.markUncertain(registrationId: worktreeId)
+    }
+
+    private func rootChangeAffectsRegistration(
+        worktreeId: UUID,
+        lifecycleGeneration: UInt64,
+        rootChangedEvents: [(path: String, eventId: FSEventStreamEventId, flags: FSEventStreamEventFlags)]
+    ) -> Bool {
+        lifecycleLock.withLock {
+            guard !hasShutdown,
+                let registration = streamByWorktreeId[worktreeId],
+                registration.lifecycleGeneration == lifecycleGeneration
+            else {
+                return false
+            }
+            return rootChangedEvents.contains { event in
+                let changedRootPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(
+                    event.path
+                )
+                return registration.watchedPaths.contains { watchedPath in
+                    watchedPath == changedRootPath
+                        || (changedRootPath == "/"
+                            ? watchedPath.hasPrefix("/")
+                            : watchedPath.hasPrefix(changedRootPath + "/"))
+                }
+            }
         }
     }
 
@@ -824,10 +867,12 @@ extension DarwinFSEventStreamClient {
     }
 
     private static func teardown(_ registration: StreamRegistration) {
+        registration.eventActivationGate.cancel()
         registration.streamLifetime.retire()
     }
 
     private static func scheduleTeardown(_ registration: StreamRegistration) {
+        registration.eventActivationGate.cancel()
         registration.streamLifetime.scheduleRetirement()
     }
 }
@@ -840,10 +885,9 @@ extension DarwinFSEventStreamClient {
             return streamByWorktreeId.sorted { $0.key.uuidString < $1.key.uuidString }
         }
         guard let registrations else { return nil }
+        guard sharedLocalObservationMatches(registrations: registrations) else { return nil }
 
-        for (_, registration) in registrations {
-            guard registration.streamLifetime.flush() else { return nil }
-        }
+        guard sharedLocalObserverRegistry.flushAllPhysicalStreams() else { return nil }
         guard
             let sharedBarrierSnapshot =
                 sharedExactItemObserverRegistry
@@ -893,6 +937,7 @@ extension DarwinFSEventStreamClient {
         )
         guard await ingressBuffer.enqueueActivityProcessingFence() else { return nil }
         guard localActivityBarrierIsCurrent(registrations: registrations),
+            sharedLocalObservationMatches(registrations: registrations),
             sharedExactItemObserverRegistry.activityBarrierIsCurrent(sharedBarrierSnapshot)
         else {
             return nil
@@ -910,7 +955,26 @@ extension DarwinFSEventStreamClient {
             return registrations.allSatisfy { worktreeId, capturedRegistration in
                 streamByWorktreeId[worktreeId]?.lifecycleGeneration
                     == capturedRegistration.lifecycleGeneration
+                    && capturedRegistration.eventActivationGate.isDeliveringLiveEvents
             }
+        }
+    }
+
+    private func sharedLocalObservationMatches(
+        registrations: [(UUID, StreamRegistration)]
+    ) -> Bool {
+        let observationSnapshot = sharedLocalObserverRegistry.snapshot()
+        guard !observationSnapshot.hasPendingPhysicalReplacement else { return false }
+        let expectedGenerationsByWorktreeID = Dictionary(
+            uniqueKeysWithValues: registrations.map { worktreeID, registration in
+                (worktreeID, Set([registration.lifecycleGeneration]))
+            }
+        )
+        guard observationSnapshot.logicalGenerationsByWorktreeID == expectedGenerationsByWorktreeID else {
+            return false
+        }
+        return registrations.allSatisfy { _, registration in
+            registration.eventActivationGate.isDeliveringLiveEvents
         }
     }
 }

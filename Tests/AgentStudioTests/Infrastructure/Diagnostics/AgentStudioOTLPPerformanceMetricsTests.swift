@@ -6,8 +6,8 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
-    @Test("filesystem ingress snapshot numeric fields become counter metrics")
-    func filesystemIngressSnapshotFieldsBecomeCounterMetrics() throws {
+    @Test("filesystem ingress snapshot numeric fields become counters and gauges")
+    func filesystemIngressSnapshotFieldsBecomeCountersAndGauges() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 121,
             severityText: .info,
@@ -21,6 +21,8 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.filesystem.ingress.local.accepted.batch.count": .int(11),
                 "agentstudio.performance.filesystem.ingress.shared_uncertainty.dropped.path.count": .int(13),
                 "agentstudio.performance.filesystem.ingress.overflow.coarse_recovery.count": .int(17),
+                "agentstudio.performance.filesystem.local_stream.physical.count": .int(1),
+                "agentstudio.performance.filesystem.local_stream.logical_registration.count": .int(148),
             ]
         )
 
@@ -43,9 +45,25 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             ] == 17
         )
         #expect(
+            samplesByLabel[
+                "agentstudio_performance_filesystem_local_stream_physical_count"
+            ] == 1
+        )
+        #expect(
+            samplesByLabel[
+                "agentstudio_performance_filesystem_local_stream_logical_registration_count"
+            ] == 148
+        )
+        #expect(
             metricEvent.measurements.allSatisfy { measurement in
-                if case .counter = measurement { return true }
-                return false
+                switch measurement {
+                case .counter(let sample):
+                    return sample.label.hasPrefix("agentstudio_performance_filesystem_ingress_")
+                case .gauge(let sample):
+                    return sample.label.hasPrefix("agentstudio_performance_filesystem_local_stream_")
+                case .distribution:
+                    return false
+                }
             })
     }
 

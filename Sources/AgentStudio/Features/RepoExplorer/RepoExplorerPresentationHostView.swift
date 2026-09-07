@@ -6,6 +6,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
     let projectionAdapter: RepoExplorerProjectionAdapter
     let octiconLoader: OcticonLoader
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
+    let visibleSnapshotConsumerToken: UUID?
     let interactions: RepoExplorerTableInteractions
     let onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     let observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
@@ -14,6 +15,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         projectionAdapter: RepoExplorerProjectionAdapter,
         octiconLoader: OcticonLoader,
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
+        visibleSnapshotConsumerToken: UUID? = nil,
         interactions: RepoExplorerTableInteractions = .inert,
         onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
         observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void = { _ in }
@@ -21,6 +23,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         self.projectionAdapter = projectionAdapter
         self.octiconLoader = octiconLoader
         self.commandPresentationDelta = commandPresentationDelta
+        self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         self.interactions = interactions
         self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
         self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
@@ -32,7 +35,8 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             octiconLoader: octiconLoader,
             interactions: interactions,
             onVisibleWorktreeSnapshotChange: onVisibleWorktreeSnapshotChange,
-            observeCurrentVisibleTarget: observeCurrentVisibleTarget
+            observeCurrentVisibleTarget: observeCurrentVisibleTarget,
+            visibleSnapshotConsumerToken: visibleSnapshotConsumerToken
         )
     }
 
@@ -48,7 +52,8 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             materializationHost: materializationHost,
             commandPresentationDelta: commandPresentationDelta,
             onVisibleWorktreeSnapshotChange: onVisibleWorktreeSnapshotChange,
-            observeCurrentVisibleTarget: observeCurrentVisibleTarget
+            observeCurrentVisibleTarget: observeCurrentVisibleTarget,
+            visibleSnapshotConsumerToken: visibleSnapshotConsumerToken
         )
     }
 
@@ -69,19 +74,24 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         private var onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
         private var observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
         private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+        private var visibleSnapshotConsumerToken: UUID?
+        private var lastPublishedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+        private var lastPublishedConsumerToken: UUID?
 
         init(
             projectionAdapter: RepoExplorerProjectionAdapter,
             octiconLoader: OcticonLoader,
             interactions: RepoExplorerTableInteractions,
             onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
-            observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
+            observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
+            visibleSnapshotConsumerToken: UUID?
         ) {
             self.projectionAdapter = projectionAdapter
             self.octiconLoader = octiconLoader
             self.interactions = interactions
             self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
             self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
+            self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         }
 
         func makeHost() -> RepoExplorerMaterializationHost {
@@ -137,12 +147,19 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             materializationHost: RepoExplorerMaterializationHost,
             commandPresentationDelta: RepoExplorerCommandPresentationDelta?,
             onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
-            observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
+            observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
+            visibleSnapshotConsumerToken: UUID?
         ) {
             precondition(self.materializationHost === materializationHost)
             self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
             self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
-            if let currentVisibleSnapshot {
+            self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
+            if let currentVisibleSnapshot,
+                currentVisibleSnapshot != lastPublishedVisibleSnapshot
+                    || visibleSnapshotConsumerToken != lastPublishedConsumerToken
+            {
+                lastPublishedVisibleSnapshot = currentVisibleSnapshot
+                lastPublishedConsumerToken = visibleSnapshotConsumerToken
                 onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
             }
             if let commandPresentationDelta {
@@ -161,12 +178,16 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             currentVisibleSnapshot = nil
             onVisibleWorktreeSnapshotChange = { _ in }
             observeCurrentVisibleTarget = { _ in }
+            lastPublishedVisibleSnapshot = nil
+            lastPublishedConsumerToken = nil
         }
 
         private func publishVisibleWorktreeSnapshot(
             _ snapshot: RepoExplorerVisibleWorktreeSnapshot
         ) {
             currentVisibleSnapshot = snapshot
+            lastPublishedVisibleSnapshot = snapshot
+            lastPublishedConsumerToken = visibleSnapshotConsumerToken
             onVisibleWorktreeSnapshotChange(snapshot)
         }
 

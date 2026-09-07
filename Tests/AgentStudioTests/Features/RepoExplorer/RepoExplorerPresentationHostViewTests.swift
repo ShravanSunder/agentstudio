@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import Testing
@@ -133,14 +134,89 @@ struct RepoExplorerPresentationHostViewTests {
         adapter.unregisterMaterializationHost(lifetimeID: lifetimeID)
         #expect(adapter.materializationHost == nil)
     }
+
+    @Test("identical presentation updates do not republish the visible snapshot; a new consumer token does")
+    func identicalUpdatesSuppressRepublicationUntilConsumerTokenChanges() async throws {
+        let adapter = RepoExplorerProjectionAdapter()
+        let visibleSnapshotRecorder = PresentationHostVisibleSnapshotRecorder()
+        let token = UUIDv7.generate()
+        let hostingView = NSHostingView(
+            rootView: AnyView(
+                RepoExplorerPresentationHostView(
+                    projectionAdapter: adapter,
+                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                    visibleSnapshotConsumerToken: token,
+                    onVisibleWorktreeSnapshotChange: visibleSnapshotRecorder.record
+                )
+                .frame(width: 320, height: 180)
+            )
+        )
+        let window = makePresentationHostWindow(hostingView)
+        defer {
+            adapter.stop()
+            window.close()
+        }
+        let host = try await registeredPresentationHost(adapter: adapter)
+        _ = try #require(host.acceptedBaseline)
+
+        let request = makeProjectionIntentRequest(generation: 1)
+        adapter.admit(request)
+        _ = try await presentationHostPublishedResult(generation: 1, adapter: adapter)
+        let contentBaseline = try #require(host.acceptedBaseline)
+
+        for _ in 0..<10_000
+        where visibleSnapshotRecorder.latest?.target.materializationGeneration
+            != contentBaseline.visibleGeneration
+        {
+            await Task.yield()
+        }
+        let baseCount = visibleSnapshotRecorder.count
+        let baseSnapshot = try #require(visibleSnapshotRecorder.latest)
+
+        for _ in 0..<10 {
+            hostingView.rootView = AnyView(
+                RepoExplorerPresentationHostView(
+                    projectionAdapter: adapter,
+                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                    commandPresentationDelta: nil,
+                    visibleSnapshotConsumerToken: token,
+                    onVisibleWorktreeSnapshotChange: visibleSnapshotRecorder.record
+                )
+                .frame(width: 320, height: 180)
+            )
+            hostingView.layoutSubtreeIfNeeded()
+            for _ in 0..<20 { await Task.yield() }
+        }
+
+        #expect(visibleSnapshotRecorder.count == baseCount)
+
+        let differentToken = UUIDv7.generate()
+        hostingView.rootView = AnyView(
+            RepoExplorerPresentationHostView(
+                projectionAdapter: adapter,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                commandPresentationDelta: nil,
+                visibleSnapshotConsumerToken: differentToken,
+                onVisibleWorktreeSnapshotChange: visibleSnapshotRecorder.record
+            )
+            .frame(width: 320, height: 180)
+        )
+        hostingView.layoutSubtreeIfNeeded()
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(visibleSnapshotRecorder.count == baseCount + 1)
+        #expect(visibleSnapshotRecorder.latest == baseSnapshot)
+    }
 }
 
 @MainActor
 private final class PresentationHostVisibleSnapshotRecorder {
     private(set) var latest: RepoExplorerVisibleWorktreeSnapshot?
+    private(set) var count = 0
 
     func record(_ snapshot: RepoExplorerVisibleWorktreeSnapshot) {
         latest = snapshot
+        count += 1
     }
 }
 

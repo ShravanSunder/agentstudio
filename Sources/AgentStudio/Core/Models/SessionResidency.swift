@@ -1,15 +1,16 @@
 import Foundation
 
-/// Tracks where a session currently resides in the application lifecycle.
-/// Used by the Reconciler to determine intent — avoids false-positive orphan detection.
+/// Tracks the pane's application placement lifecycle independently of its
+/// filesystem location and optional repository/worktree association.
 package enum SessionResidency: Equatable, Codable, Hashable, Sendable {
-    /// Session is in a layout, view exists, fully active.
+    /// Pane participates in canonical workspace presentation and content mounting.
     case active
     /// Session was closed and is in the undo window. Not an orphan.
     case pendingUndo(expiresAt: Date)
     /// Session is alive but not visible in the current view. Not an orphan.
     case backgrounded
-    /// Session is still persisted but its backing worktree path is unavailable.
+    /// Legacy persisted state from releases that coupled pane placement to a
+    /// worktree path. Boot reconciliation converts this to active or backgrounded.
     case orphaned(reason: WorktreeUnavailableReason)
 
     package var isPendingUndo: Bool {

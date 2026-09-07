@@ -298,6 +298,8 @@ enum AgentStudioOTLPRepoExplorerTaxonomy {
         "agentstudio.performance.filesystem.ingress.overflow.recovery.count",
         "agentstudio.performance.filesystem.ingress.overflow.retained_path.count",
         "agentstudio.performance.filesystem.ingress.overflow.coarse_recovery.count",
+        "agentstudio.performance.filesystem.local_stream.physical.count",
+        "agentstudio.performance.filesystem.local_stream.logical_registration.count",
     ]
 
     static let stringAttributeKeys: Set<String> = [

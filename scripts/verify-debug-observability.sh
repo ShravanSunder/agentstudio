@@ -589,7 +589,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ]; then
-    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.created_pane.count,agentstudio.startup_diagnostic.association.initial_succeeded,agentstudio.startup_diagnostic.association.cwd_move_succeeded,agentstudio.startup_diagnostic.association.topology_clear_succeeded,agentstudio.startup_diagnostic.association.topology_orphan_succeeded,agentstudio.startup_diagnostic.association.topology_adopt_succeeded,agentstudio.startup_diagnostic.association.free_pane_remained_nil,agentstudio.startup_diagnostic.association_proof.succeeded"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.created_pane.count,agentstudio.startup_diagnostic.association.initial_succeeded,agentstudio.startup_diagnostic.association.cwd_move_succeeded,agentstudio.startup_diagnostic.association.topology_clear_succeeded,agentstudio.startup_diagnostic.association.topology_residency_preserved,agentstudio.startup_diagnostic.association.topology_adopt_succeeded,agentstudio.startup_diagnostic.association.free_pane_remained_nil,agentstudio.startup_diagnostic.association_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
     review_diagnostic_fields="agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_metadata.converged"
@@ -675,8 +675,8 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     exit 1
   fi
   if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ] &&
-    ! json_truthy_field "agentstudio.startup_diagnostic.association.topology_orphan_succeeded" "$diagnostic_completed_response"; then
-    echo "pane association runtime proof did not verify explicit orphan residency" >&2
+    ! json_truthy_field "agentstudio.startup_diagnostic.association.topology_residency_preserved" "$diagnostic_completed_response"; then
+    echo "pane association runtime proof did not verify active residency preservation" >&2
     echo "$diagnostic_completed_response" >&2
     exit 1
   fi

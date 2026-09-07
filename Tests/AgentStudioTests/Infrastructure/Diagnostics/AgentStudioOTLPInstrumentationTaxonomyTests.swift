@@ -283,6 +283,8 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
                     "agentstudio.performance.filesystem.ingress.local_raw_callback.batch.count": .int(3),
                     "agentstudio.performance.filesystem.ingress.shared_exact.accepted.batch.count": .int(5),
                     "agentstudio.performance.filesystem.ingress.overflow.recovery.count": .int(7),
+                    "agentstudio.performance.filesystem.local_stream.physical.count": .int(1),
+                    "agentstudio.performance.filesystem.local_stream.logical_registration.count": .int(148),
                     "agentstudio.performance.filesystem.ingress.raw_path": .string("/private/repository"),
                     "agentstudio.performance.filesystem.ingress.worktree_id": .string(
                         UUIDv7.generate().uuidString
@@ -305,6 +307,16 @@ struct AgentStudioOTLPInstrumentationTaxonomyTests {
             projection.attributes[
                 "agentstudio.performance.filesystem.ingress.overflow.recovery.count"
             ] == .int(7)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.filesystem.local_stream.physical.count"
+            ] == .int(1)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.filesystem.local_stream.logical_registration.count"
+            ] == .int(148)
         )
         #expect(projection.attributes["agentstudio.performance.filesystem.ingress.raw_path"] == nil)
         #expect(projection.attributes["agentstudio.performance.filesystem.ingress.worktree_id"] == nil)

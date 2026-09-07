@@ -6,24 +6,40 @@ package final class AtomPerformanceTelemetry {
 
     private var traceRuntime: AgentStudioTraceRuntime?
     private var eventQueue: AgentStudioTraceEventQueue?
+    private var now: @MainActor @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
+    private var readAdmission = AtomReadTraceAdmission()
 
     private init() {}
 
-    package func configure(traceRuntime: AgentStudioTraceRuntime?) {
+    package func configure(
+        traceRuntime: AgentStudioTraceRuntime?,
+        now: @escaping @MainActor @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
+    ) {
         self.traceRuntime = traceRuntime
-        if let traceRuntime,
-            traceRuntime.isEnabled(.atoms) || traceRuntime.isEnabled(.performance)
-        {
+        self.now = now
+        self.readAdmission = AtomReadTraceAdmission()
+        // Must match `record`'s gate exactly. Constructing the queue for
+        // `.performance` built an object that nothing could ever feed, because
+        // only `.atoms` admits an atom record.
+        if let traceRuntime, traceRuntime.isEnabled(.atoms) {
             self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
         } else {
             self.eventQueue = nil
         }
     }
 
+    /// Exposed so the suite can pin the invariant that the queue exists exactly
+    /// when `record` is able to feed it. The two conditions drifted apart once.
+    var isEventQueueActive: Bool {
+        eventQueue != nil
+    }
+
     func resetForTests() {
         eventQueue?.cancel()
         traceRuntime = nil
         eventQueue = nil
+        now = { ContinuousClock().now }
+        readAdmission = AtomReadTraceAdmission()
     }
 
     func drainForTests() async throws {
@@ -33,6 +49,9 @@ package final class AtomPerformanceTelemetry {
         }
     }
 
+    /// Reads are the highest-frequency call in the atom layer, so this path
+    /// sheds under a windowed admission budget. Mutation and derived events stay
+    /// unsampled: those are already bounded by write frequency.
     func recordRead(
         kind: String,
         label: String,
@@ -41,6 +60,18 @@ package final class AtomPerformanceTelemetry {
         cachedKeyCount: Int? = nil,
         cacheHit: Bool? = nil
     ) {
+        // Check the tag before the admitter so a disabled tag does not advance
+        // admission state, and so the shed count reported to a debugging
+        // session covers only reads the tag was actually watching.
+        guard let traceRuntime, traceRuntime.isEnabled(.atoms), eventQueue != nil else { return }
+        guard
+            let shedReadCount = readAdmission.admit(
+                now: now(),
+                window: AppPolicies.Diagnostics.atomReadTraceAdmissionWindow,
+                limit: AppPolicies.Diagnostics.atomReadTraceAdmissionLimit
+            )
+        else { return }
+
         record(
             .atomRead,
             kind: kind,
@@ -48,7 +79,8 @@ package final class AtomPerformanceTelemetry {
             operation: operation,
             slotCount: slotCount,
             cachedKeyCount: cachedKeyCount,
-            cacheHit: cacheHit
+            cacheHit: cacheHit,
+            shedReadCount: shedReadCount
         )
     }
 
@@ -110,7 +142,8 @@ package final class AtomPerformanceTelemetry {
         cachedKeyCount: Int? = nil,
         inputRevisionCount: Int? = nil,
         cacheHit: Bool? = nil,
-        outcome: String? = nil
+        outcome: String? = nil,
+        shedReadCount: Int? = nil
     ) {
         guard let traceRuntime, traceRuntime.isEnabled(.atoms), let eventQueue else { return }
         var attributes: [String: AgentStudioTraceValue] = [
@@ -138,11 +171,55 @@ package final class AtomPerformanceTelemetry {
         if let outcome {
             attributes["agentstudio.performance.atom.outcome"] = .string(outcome)
         }
+        if let shedReadCount {
+            // Without this the sampled stream cannot be told apart from a quiet
+            // one, which would make the `atoms` tag misleading for the focused
+            // debugging it exists to serve.
+            attributes["agentstudio.performance.atom.shed_read.count"] = .int(shedReadCount)
+        }
         eventQueue.record(
             tag: .atoms,
             body: event.rawValue,
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
             attributes: attributes
         )
+    }
+}
+
+/// Windowed admission for atom read telemetry, mirroring the trace recorder's
+/// pane-association and topology-lookup admitters. Reads are the highest
+/// frequency call in the atom layer, so the `atoms` tag must shed rather than
+/// emit one record per read.
+private struct AtomReadTraceAdmission {
+    private var windowStart: ContinuousClock.Instant?
+    private var admittedInWindow = 0
+    private var shedSinceLastAdmitted = 0
+
+    /// Returns the number of reads shed since the previous admitted read when
+    /// this read is admitted, and `nil` when this read must be shed.
+    mutating func admit(
+        now: ContinuousClock.Instant,
+        window: Duration,
+        limit: Int
+    ) -> Int? {
+        resetWindowIfNeeded(now: now, window: window)
+        guard admittedInWindow < limit else {
+            shedSinceLastAdmitted += 1
+            return nil
+        }
+        admittedInWindow += 1
+        defer { shedSinceLastAdmitted = 0 }
+        return shedSinceLastAdmitted
+    }
+
+    private mutating func resetWindowIfNeeded(now: ContinuousClock.Instant, window: Duration) {
+        guard let windowStart else {
+            self.windowStart = now
+            admittedInWindow = 0
+            return
+        }
+        guard windowStart.duration(to: now) >= window else { return }
+        self.windowStart = now
+        admittedInWindow = 0
     }
 }

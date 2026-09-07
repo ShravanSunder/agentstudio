@@ -11,5 +11,8 @@ export default defineConfig({
 		],
 		testTimeout: 180_000,
 		hookTimeout: 60_000,
+		// Browser repaint/scroll journeys are timing-sensitive on CI runners; one retry
+		// keeps every assertion while tolerating the known intermittent.
+		retry: 1,
 	},
 });

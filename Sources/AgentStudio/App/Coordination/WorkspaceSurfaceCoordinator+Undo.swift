@@ -204,6 +204,10 @@ extension WorkspaceSurfaceCoordinator {
         switch viewRegistry.terminalStatusPlaceholderView(for: pane.id)?.mode {
         case .preparing:
             return .deferred(reason: "terminalViewPreparing")
+        case .waitingForGeometry:
+            // SPEC R5: a settled deferral, not a failure — the same
+            // disposition as `.preparing`, distinguished only for diagnostics.
+            return .deferred(reason: "terminalViewWaitingForGeometry")
         case .failedToStart:
             return .hardFailure(reason: "terminalViewFailedToStart")
         case nil:

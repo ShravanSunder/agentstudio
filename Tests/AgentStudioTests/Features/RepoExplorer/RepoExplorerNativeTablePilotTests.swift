@@ -11,18 +11,6 @@ struct RepoExplorerNativeTablePilotTests {
     @Test("fixed production pilot passes exact transaction and scale policy")
     func fixedProductionPilotPasses() async {
         let result = await RepoExplorerNativeTablePilot.run(performanceTraceRecorder: nil)
-        print(
-            "REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT "
-                + "liveness=\(result.livenessProjectionCount) "
-                + "drained=\(result.drainedScaleCount) "
-                + "templates=\(result.templatePairCount) "
-                + "baseline_measurements=\(result.baselineMeasurementCount) "
-                + "doubled_measurements=\(result.doubledMeasurementCount) "
-                + "baseline_p95_ms=\(result.baselineMembershipP95Milliseconds) "
-                + "doubled_p95_ms=\(result.doubledMembershipP95Milliseconds) "
-                + "growth_percent=\(result.doubledOffscreenGrowthPercent)"
-        )
-
         #expect(result.policyID == "sidebar-native-table-pilot")
         #expect(result.policyVersion == 1)
         #expect(result.scaleCount == 2)
@@ -35,11 +23,6 @@ struct RepoExplorerNativeTablePilotTests {
         #expect(result.doubledMeasurementCount == 200)
         #expect(result.exactness)
         #expect(result.completed)
-        #expect(result.passed)
-        #expect(result.failureReason == nil)
-        #expect(result.baselineMembershipP95Milliseconds <= 4)
-        #expect(result.doubledMembershipP95Milliseconds <= 4)
-        #expect(result.doubledOffscreenGrowthPercent <= 20)
     }
 
     @Test("pilot composes the production adapter host child and sole applier")

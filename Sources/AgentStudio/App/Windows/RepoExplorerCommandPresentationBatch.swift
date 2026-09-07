@@ -9,33 +9,18 @@ import Observation
 @MainActor
 @Observable
 final class RepoExplorerCommandPresentationBatch {
-    private struct LocationCapabilityFacts: Equatable {
-        let tabID: UUID
-        let paneID: UUID
-        let tab: Tab?
-        let zoomPresentation: ZoomPresentation?
-        let paneStructuralFacts: PaneStructuralFacts?
-        let isDrawerExpanded: Bool?
-    }
-
+    /// Every sidebar request's capability derives from `WorkspaceCommandValidator.validate` over
+    /// `actionStateSnapshot()`, which reads only these four global facts plus repo/worktree
+    /// membership (tracked separately per visible key). Pane-to-worktree association never
+    /// changes a capability result, so it is intentionally absent here.
     private struct CapabilityFactsFingerprint: Equatable {
         let activeTabID: UUID?
+        let activePaneID: UUID?
+        let activeTabZoom: ZoomPresentation?
         let isManagementLayerActive: Bool
-        let locationsByWorktreeID: [UUID: [LocationCapabilityFacts]]
-
-        func changedWorktreeIDs(
-            comparedTo previous: Self,
-            among worktreeIDs: Set<UUID>
-        ) -> Set<UUID> {
-            Set(
-                worktreeIDs.filter { worktreeID in
-                    locationsByWorktreeID[worktreeID] != previous.locationsByWorktreeID[worktreeID]
-                })
-        }
 
         func globalCapabilitiesMatch(_ previous: Self) -> Bool {
-            activeTabID == previous.activeTabID
-                && isManagementLayerActive == previous.isManagementLayerActive
+            self == previous
         }
     }
 
@@ -62,6 +47,18 @@ final class RepoExplorerCommandPresentationBatch {
         let shouldPublish: Bool
     }
 
+    /// Which entry produced one refresh. `visibleSnapshot` means the materializer handed the
+    /// batch a changed visible-worktree snapshot; `observation` means a tracked atom changed.
+    package enum WakeTrigger: String, Sendable {
+        case visibleSnapshot = "visible_snapshot"
+        case observation = "observation"
+    }
+
+    /// Stable identity this batch presents to `RepoExplorerPresentationHostView.Coordinator` so it
+    /// republishes the visible snapshot at least once for a newly attached batch, then suppresses
+    /// republication for updates that carry an unchanged snapshot from the same batch.
+    let consumerToken: UUID = UUIDv7.generate()
+
     private(set) var snapshot = RepoExplorerCommandPresentationSnapshot.empty
     private(set) var latestDelta: RepoExplorerCommandPresentationDelta?
 
@@ -77,6 +74,10 @@ final class RepoExplorerCommandPresentationBatch {
     @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
     @ObservationIgnored private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
     @ObservationIgnored private var lastResolvedVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
+    /// Only the most recently armed Observation tracking may schedule a refresh; older one-shot trackings stay installed until they fire and must be ignored.
+    @ObservationIgnored private var armedTrackingGeneration: UInt64 = 0
+    /// Generation of the newest observation wake awaiting the coalescing yield; nil when no wake is pending.
+    @ObservationIgnored private var pendingObservationWakeGeneration: UInt64?
 
     init(
         store: WorkspaceStore,
@@ -101,23 +102,27 @@ final class RepoExplorerCommandPresentationBatch {
         currentVisibleSnapshot = nil
         lastResolvedVisibleSnapshot = nil
         latestDelta = nil
+        armedTrackingGeneration &+= 1
     }
 
     func stop() {
         observationID = nil
+        armedTrackingGeneration &+= 1
     }
 
     func acceptVisibleWorktreeSnapshot(_ visibleSnapshot: RepoExplorerVisibleWorktreeSnapshot) {
         guard let observationID else { return }
         guard currentVisibleSnapshot != visibleSnapshot else { return }
         currentVisibleSnapshot = visibleSnapshot
-        refresh(observationID: observationID)
+        refresh(observationID: observationID, trigger: .visibleSnapshot)
     }
 
-    private func refresh(observationID: UUID) {
+    private func refresh(observationID: UUID, trigger: WakeTrigger) {
         guard self.observationID == observationID,
             let capturedVisibleSnapshot = currentVisibleSnapshot
         else { return }
+        armedTrackingGeneration &+= 1
+        let armedGeneration = armedTrackingGeneration
         let capture = withObservationTracking {
             let visibleWorktreeIDs = capturedVisibleSnapshot.worktreeIDs
             let progressByRepositoryID = Dictionary(
@@ -131,9 +136,7 @@ final class RepoExplorerCommandPresentationBatch {
                 visibleWorktreeIDs: visibleWorktreeIDs,
                 visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
                 progressByRepositoryID: progressByRepositoryID,
-                capabilityFactsFingerprint: observeApprovedCapabilityFacts(
-                    visibleWorktreeIDs: visibleWorktreeIDs
-                ),
+                capabilityFactsFingerprint: observeGlobalCapabilityFacts(),
                 requests: commandPresentationRequests(
                     visibleWorktreeIDs: visibleWorktreeIDs,
                     visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs
@@ -143,15 +146,28 @@ final class RepoExplorerCommandPresentationBatch {
                 )
             )
         } onChange: { [weak self] in
+            // A wake arriving while one is pending records its (current) generation instead of
+            // scheduling a second task. After the yield, refresh only if no other refresh
+            // (visible snapshot, start, stop) has superseded the newest wake seen.
             Task { @MainActor [weak self] in
-                self?.refresh(observationID: observationID)
+                guard let self, self.armedTrackingGeneration == armedGeneration else { return }
+                if self.pendingObservationWakeGeneration != nil {
+                    self.pendingObservationWakeGeneration = armedGeneration
+                    return
+                }
+                self.pendingObservationWakeGeneration = armedGeneration
+                await Task.yield()
+                let newestWakeGeneration = self.pendingObservationWakeGeneration
+                self.pendingObservationWakeGeneration = nil
+                guard newestWakeGeneration == self.armedTrackingGeneration else { return }
+                self.refresh(observationID: observationID, trigger: .observation)
             }
         }
         let resolvedBatch = resolve(
             capture: capture,
             capturedVisibleSnapshot: capturedVisibleSnapshot
         )
-        publish(resolvedBatch)
+        publish(resolvedBatch, trigger: trigger)
     }
 
     private func resolve(
@@ -160,19 +176,11 @@ final class RepoExplorerCommandPresentationBatch {
     ) -> ResolvedBatch {
         let nextVisibleSnapshot = capturedVisibleSnapshot
         let visibleSetDelta = capture.visibleWorktreeIDs.symmetricDifference(lastVisibleWorktreeIDs)
-        let survivingVisibleWorktreeIDs = capture.visibleWorktreeIDs.intersection(lastVisibleWorktreeIDs)
         let previousFingerprint = lastCapabilityFactsFingerprint
         let globalCapabilitiesMatch =
             previousFingerprint.map {
                 capture.capabilityFactsFingerprint.globalCapabilitiesMatch($0)
             } ?? false
-        let changedWorktreeIDs =
-            previousFingerprint.map {
-                capture.capabilityFactsFingerprint.changedWorktreeIDs(
-                    comparedTo: $0,
-                    among: survivingVisibleWorktreeIDs
-                )
-            } ?? survivingVisibleWorktreeIDs
         let retainedResults = snapshot.results.filter { capture.requests.contains($0.key) }
         let changedProgressRepositoryIDs = Set(lastProgressByRepositoryID.keys)
             .union(capture.progressByRepositoryID.keys)
@@ -182,10 +190,6 @@ final class RepoExplorerCommandPresentationBatch {
             requestsToResolve = capture.requests
         } else {
             var affectedRequests = capture.requests.subtracting(lastRequests)
-            affectedRequests.formUnion(
-                worktreeCommandPresentationRequests(worktreeIDs: changedWorktreeIDs)
-                    .intersection(capture.requests)
-            )
             affectedRequests.formUnion(
                 changedProgressRepositoryIDs.map { repositoryID in
                     RepoExplorerRepositoryCommandPresentation.request(repoID: repositoryID)
@@ -221,7 +225,6 @@ final class RepoExplorerCommandPresentationBatch {
         let affectedTargets = affectedTargets(
             requestIdentities: affectedRequestIdentities,
             visibleSetDelta: visibleSetDelta,
-            changedWorktreeIDs: changedWorktreeIDs,
             targetChanged: targetChanged,
             visibleWorktreeIDs: capture.visibleWorktreeIDs
         )
@@ -246,11 +249,10 @@ final class RepoExplorerCommandPresentationBatch {
     private func affectedTargets(
         requestIdentities: Set<RepoExplorerCommandPresentationRequest>,
         visibleSetDelta: Set<UUID>,
-        changedWorktreeIDs: Set<UUID>,
         targetChanged: Bool,
         visibleWorktreeIDs: Set<UUID>
     ) -> (worktreeIDs: Set<UUID>, repositoryIDs: Set<UUID>) {
-        var affectedWorktreeIDs = visibleSetDelta.union(changedWorktreeIDs)
+        var affectedWorktreeIDs = visibleSetDelta
         var affectedRepositoryIDs: Set<UUID> = []
         for request in requestIdentities {
             switch request.targetType {
@@ -275,7 +277,7 @@ final class RepoExplorerCommandPresentationBatch {
         return (affectedWorktreeIDs, affectedRepositoryIDs)
     }
 
-    private func publish(_ resolvedBatch: ResolvedBatch) {
+    private func publish(_ resolvedBatch: ResolvedBatch, trigger: WakeTrigger) {
         lastVisibleWorktreeIDs = resolvedBatch.visibleSnapshot.worktreeIDs
         lastVisibleRepositoryIDs = resolvedBatch.visibleSnapshot.repositoryIDs
         lastProgressByRepositoryID = Dictionary(
@@ -329,6 +331,7 @@ final class RepoExplorerCommandPresentationBatch {
                     resolvedBatch.requestsToResolve.count
                 ),
                 "agentstudio.performance.repo_explorer.command_reused.count": .int(reusedCount),
+                "agentstudio.performance.repo_explorer.wake_trigger": .string(trigger.rawValue),
             ]
         )
     }
@@ -351,46 +354,19 @@ final class RepoExplorerCommandPresentationBatch {
         }
     }
 
-    private func observeApprovedCapabilityFacts(
-        visibleWorktreeIDs: Set<UUID>
-    ) -> CapabilityFactsFingerprint {
+    /// Reads only the global facts `actionStateSnapshot()` feeds into every sidebar request's
+    /// capability: the active tab, its active pane, that tab's zoom presentation, and the
+    /// management layer. Never iterates tabs or panes and never assembles a `Tab`.
+    private func observeGlobalCapabilityFacts() -> CapabilityFactsFingerprint {
         let activeTabID = store.tabLayoutAtom.activeTabId
+        let activePaneID = activeTabID.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let activeTabZoom = activeTabID.flatMap { store.panePresentationAtom.zoomPresentation(forTab: $0) }
         let isManagementLayerActive = atom(\.managementLayer).isActive
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let locationsByWorktreeID = atom(\.workspaceLookup).paneLocationsByWorktreeId(
-            repositoryTopology: store.repositoryTopologyAtom,
-            workspacePane: store.paneAtom,
-            workspaceTab: workspaceTab,
-            declaredWorktreeIDs: visibleWorktreeIDs
-        )
-        var capabilityFactsByWorktreeID: [UUID: [LocationCapabilityFacts]] = [:]
-        for (worktreeID, locations) in locationsByWorktreeID {
-            capabilityFactsByWorktreeID[worktreeID] = locations.map { location in
-                let structuralFacts = store.paneAtom.graphAtom.paneStructuralFacts(location.paneId)
-                return LocationCapabilityFacts(
-                    tabID: location.tabId,
-                    paneID: location.paneId,
-                    tab: store.tabLayoutAtom.tab(location.tabId),
-                    zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: location.tabId),
-                    paneStructuralFacts: structuralFacts,
-                    isDrawerExpanded: structuralFacts?.ownedDrawerID == nil
-                        ? nil
-                        : store.paneAtom.isDrawerExpanded(for: location.paneId)
-                )
-            }.sorted { lhs, rhs in
-                if lhs.tabID != rhs.tabID {
-                    return lhs.tabID.uuidString < rhs.tabID.uuidString
-                }
-                return lhs.paneID.uuidString < rhs.paneID.uuidString
-            }
-        }
         return CapabilityFactsFingerprint(
             activeTabID: activeTabID,
-            isManagementLayerActive: isManagementLayerActive,
-            locationsByWorktreeID: capabilityFactsByWorktreeID
+            activePaneID: activePaneID,
+            activeTabZoom: activeTabZoom,
+            isManagementLayerActive: isManagementLayerActive
         )
     }
 
@@ -435,25 +411,5 @@ final class RepoExplorerCommandPresentationBatch {
             favoriteStateByRepositoryID[repo.id] = repo.isFavorite
         }
         return favoriteStateByRepositoryID
-    }
-
-    private func worktreeCommandPresentationRequests(
-        worktreeIDs: Set<UUID>
-    ) -> Set<RepoExplorerCommandPresentationRequest> {
-        var requests: Set<RepoExplorerCommandPresentationRequest> = []
-        for worktreeID in worktreeIDs {
-            guard let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
-                let repo = store.repositoryTopologyAtom.repo(worktree.repoId)
-            else { continue }
-            requests.formUnion(
-                RepoExplorerWorktreeCommandPresentation.requests(
-                    worktreeId: worktree.id,
-                    repoId: repo.id,
-                    isFavorite: repo.isFavorite,
-                    showsFavoriteControl: worktree.isMainWorktree
-                )
-            )
-        }
-        return requests
     }
 }

@@ -22,6 +22,9 @@ final class RepoExplorerTableMaterializer: NSObject,
     let view: NSView
     private(set) var nativeTransactionApplyCount = 0
     private(set) var hostedCellCreationCount = 0
+    private(set) var tableFrameUpdateCount = 0
+    private(set) var forcedLayoutPassCount = 0
+    private(set) var explicitScrollRestorationCount = 0
 
     var numberOfRows: Int { snapshot?.rows.count ?? 0 }
 
@@ -77,6 +80,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var widthRevision = 0
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
+    private var pendingApplicationRequiresGeometryUpdate = false
     private var boundsObserver: NSObjectProtocol?
     private var isDetached = false
     private var isDemandActive = true
@@ -269,7 +273,13 @@ final class RepoExplorerTableMaterializer: NSObject,
         }
         heightByRowID = heightByRowID.filter { candidate.snapshot.rowIndexByID[$0.key] != nil }
         updateWidthRevisionIfNeeded()
-        updateTableFrame()
+        pendingApplicationRequiresGeometryUpdate = Self.requiresGeometryUpdate(
+            for: candidate.tableUpdatePlan,
+            snapshot: candidate.snapshot
+        )
+        if pendingApplicationRequiresGeometryUpdate {
+            updateTableFrame()
+        }
 
         nativeTransactionApplyCount += 1
         let didApply = RepoExplorerNativeTransactionApplier.apply(
@@ -283,16 +293,44 @@ final class RepoExplorerTableMaterializer: NSObject,
             acceptedCommandPresentationSnapshot = priorCommandSnapshot
             acceptedCommandGeneration = priorCommandGeneration
             updateTableFrame()
+            pendingApplicationRequiresGeometryUpdate = false
             completion(.rejected)
             return
         }
-        restore(
-            anchor: anchor,
-            tablePlan: candidate.tableUpdatePlan,
-            priorSnapshot: priorSnapshot
-        )
+        if pendingApplicationRequiresGeometryUpdate {
+            restore(
+                anchor: anchor,
+                tablePlan: candidate.tableUpdatePlan,
+                priorSnapshot: priorSnapshot
+            )
+        }
+        pendingApplicationRequiresGeometryUpdate = false
         scheduleViewportPublication()
         completion(.accepted)
+    }
+
+    /// Content-only application policy: a plan that only reloads row content in
+    /// place (same membership, no height-affecting change) skips the frame
+    /// update, forced layout passes, and anchor restoration that a membership
+    /// or height-affecting change still requires. A row that requires visible
+    /// width measurement is treated as height-affecting even when its cached
+    /// layout metrics did not change, because its rendered height depends on
+    /// content that just changed.
+    private static func requiresGeometryUpdate(
+        for tablePlan: RepoExplorerNativeTableUpdatePlan,
+        snapshot: RepoExplorerMaterializationSnapshot
+    ) -> Bool {
+        switch tablePlan {
+        case .membership:
+            return true
+        case .content(let content):
+            if !content.heightReloadRowsInNewSpace.isEmpty {
+                return true
+            }
+            return content.reloadRowsInNewSpace.contains { index in
+                snapshot.rows[safe: index]?.layout.requiresVisibleWidthMeasurement == true
+            }
+        }
     }
 
     func prepareForRemoval(
@@ -436,21 +474,32 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     func endUpdates() {
         tableView.endUpdates()
-        updateTableFrame()
-        scrollView.layoutSubtreeIfNeeded()
-        tableView.layoutSubtreeIfNeeded()
-        let represented = representedRowIndexes()
-        let visibleReloadRows = pendingReloadRows.intersection(represented)
-        if !visibleReloadRows.isEmpty {
-            tableView.reloadData(
-                forRowIndexes: visibleReloadRows,
-                columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
-            )
+        if pendingApplicationRequiresGeometryUpdate {
+            updateTableFrame()
+            forceTableAndScrollLayout()
+            let represented = representedRowIndexes()
+            let visibleReloadRows = pendingReloadRows.intersection(represented)
+            if !visibleReloadRows.isEmpty {
+                tableView.reloadData(
+                    forRowIndexes: visibleReloadRows,
+                    columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+                )
+            }
+            if !pendingHeightRows.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)
+            }
+            rebindRepresentedCells()
+        } else {
+            let represented = representedRowIndexes()
+            let visibleReloadRows = pendingReloadRows.intersection(represented)
+            if !visibleReloadRows.isEmpty {
+                tableView.reloadData(
+                    forRowIndexes: visibleReloadRows,
+                    columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+                )
+                rebindRepresentedCells(at: visibleReloadRows)
+            }
         }
-        if !pendingHeightRows.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: pendingHeightRows)
-        }
-        rebindRepresentedCells()
         pendingReloadRows.removeAll()
         pendingHeightRows.removeAll()
     }
@@ -474,6 +523,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             targetRowID = nil
         }
         guard let targetRowID else { return }
+        explicitScrollRestorationCount += 1
         scroll(to: targetRowID, offset: anchor.offset)
     }
 
@@ -490,6 +540,11 @@ final class RepoExplorerTableMaterializer: NSObject,
             )
         )
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        forceTableAndScrollLayout()
+    }
+
+    private func forceTableAndScrollLayout() {
+        forcedLayoutPassCount += 1
         scrollView.layoutSubtreeIfNeeded()
         tableView.layoutSubtreeIfNeeded()
     }
@@ -639,8 +694,12 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     private func rebindRepresentedCells() {
+        rebindRepresentedCells(at: representedRowIndexes())
+    }
+
+    private func rebindRepresentedCells(at indexes: IndexSet) {
         guard let snapshot, let visibleGeneration else { return }
-        for rowIndex in representedRowIndexes() {
+        for rowIndex in indexes {
             guard
                 let cell = tableView.view(
                     atColumn: 0,
@@ -679,6 +738,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     private func updateTableFrame() {
+        tableFrameUpdateCount += 1
         let fallbackContentHeight = snapshot?.fallbackContentHeight ?? 0
         let visibleMeasurementDelta = heightByRowID.reduce(into: CGFloat.zero) { delta, entry in
             guard let row = snapshot?.row(id: entry.key) else { return }

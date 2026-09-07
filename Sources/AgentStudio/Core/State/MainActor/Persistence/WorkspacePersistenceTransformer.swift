@@ -7,9 +7,14 @@ private let workspacePersistenceTransformerLogger = Logger(
     category: "WorkspacePersistenceTransformer"
 )
 
-struct WorkspaceBootPaneAssociationReconciliation: Sendable {
+struct WorkspaceBootPaneReconciliation: Sendable {
     let workspace: WorkspaceSQLiteSnapshot
-    let summary: PaneAssociationBootReconciliationSummary
+    let associationSummary: PaneAssociationBootReconciliationSummary
+    let repairedLegacyOrphanedResidencyCount: UInt64
+
+    var didChange: Bool {
+        associationSummary.changedCount > 0 || repairedLegacyOrphanedResidencyCount > 0
+    }
 }
 
 @MainActor
@@ -33,18 +38,19 @@ enum WorkspacePersistenceTransformer {
         prepareRepositoryTopology(snapshot)
     }
 
-    @concurrent nonisolated static func reconcilePaneAssociationsOffMain(
+    @concurrent nonisolated static func reconcilePanesForBootOffMain(
         in workspace: WorkspaceSQLiteSnapshot,
         topology: RepositoryTopologyReplacement
-    ) async -> WorkspaceBootPaneAssociationReconciliation {
+    ) async -> WorkspaceBootPaneReconciliation {
+        let residencyNormalization = normalizeLegacyOrphanedPaneResidency(in: workspace)
         let topologySnapshot = RepositoryTopologyReadSnapshot(replacement: topology)
         var retainedKnownCount: UInt64 = 0
         var backfilledCount: UInt64 = 0
         var danglingClearedCount: UInt64 = 0
         var freeNilCount: UInt64 = 0
         var changedCount: UInt64 = 0
-        var reconciledWorkspace = workspace
-        reconciledWorkspace.panes = workspace.panes.map { pane in
+        var reconciledWorkspace = residencyNormalization.workspace
+        reconciledWorkspace.panes = residencyNormalization.workspace.panes.map { pane in
             var reconciledPane = pane
             let durableFacets = pane.metadata.facets
             if let repoID = durableFacets.repoId, let worktreeID = durableFacets.worktreeId {
@@ -82,17 +88,34 @@ enum WorkspacePersistenceTransformer {
             )
             return reconciledPane
         }
-        return WorkspaceBootPaneAssociationReconciliation(
+        return WorkspaceBootPaneReconciliation(
             workspace: reconciledWorkspace,
-            summary: PaneAssociationBootReconciliationSummary(
+            associationSummary: PaneAssociationBootReconciliationSummary(
                 paneCount: UInt64(workspace.panes.count),
                 retainedKnownCount: retainedKnownCount,
                 backfilledCount: backfilledCount,
                 danglingClearedCount: danglingClearedCount,
                 freeNilCount: freeNilCount,
                 changedCount: changedCount
-            )
+            ),
+            repairedLegacyOrphanedResidencyCount: residencyNormalization.changedCount
         )
+    }
+
+    private nonisolated static func normalizeLegacyOrphanedPaneResidency(
+        in workspace: WorkspaceSQLiteSnapshot
+    ) -> (workspace: WorkspaceSQLiteSnapshot, changedCount: UInt64) {
+        let tabOwnedPaneIDs = Set(workspace.tabs.flatMap(\.allPaneIds))
+        var changedCount: UInt64 = 0
+        var normalizedWorkspace = workspace
+        normalizedWorkspace.panes = workspace.panes.map { pane in
+            guard pane.residency.isOrphaned else { return pane }
+            var normalizedPane = pane
+            normalizedPane.residency = tabOwnedPaneIDs.contains(pane.id) ? .active : .backgrounded
+            changedCount += 1
+            return normalizedPane
+        }
+        return (workspace: normalizedWorkspace, changedCount: changedCount)
     }
 
     nonisolated static func prepareRepositoryTopology(

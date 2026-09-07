@@ -479,6 +479,7 @@ struct TerminalActivityRouterTests {
                 control: .commandFinished
             )
         )
+        await router.waitForPendingDerivedActivityPosts()
 
         await assertEventuallyAsync("ordered commandFinished should publish a zero-row settled activity") {
             await subscriber.count { envelope in

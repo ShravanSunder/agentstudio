@@ -75,9 +75,18 @@ struct PreparedBridgeMountTopologyBoundaryTests {
         #expect(providerSource.contains("scopeKey: BridgeGitReadScopeKey(token: pane.id.uuidString)"))
         #expect(mountSource.contains("func mountPreparedNonterminalContent("))
         #expect(bridgeLifecycleSource.contains("bridgeReviewSourceProvider(for: pane, state: state)"))
+        // Updated for S5 (Hydration): the nonterminal branch gained a
+        // `preparedHandledPaneIDs` guard between the case label and the
+        // return statement — this text match tracks the current, intended
+        // shape rather than the pre-S5 two-line form.
         #expect(
             viewLifecycleSource.contains(
-                "case .webview, .codeViewer, .bridgePanel, .unsupported:\n            return mountCurrentNonterminalContent(pane: pane)"
+                "case .webview, .codeViewer, .bridgePanel, .unsupported:\n"
+                    + "            guard !preparedHandledPaneIDs.contains(runtimePaneID) else {\n"
+                    + "                RestoreTrace.log(\"createViewForContent signalledPreparedOwner pane=\\(pane.id)\")\n"
+                    + "                return nil\n"
+                    + "            }\n"
+                    + "            return mountCurrentNonterminalContent(pane: pane)"
             )
         )
         #expect(admissionSource.contains("PreparedNonterminalMountAdmissionPort"))

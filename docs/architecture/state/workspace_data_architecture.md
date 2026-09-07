@@ -263,7 +263,8 @@ FilesystemActor (raw filesystem I/O)
     - classifies .git directory (clone root) vs .git file (linked worktree)
     - groups linked worktrees under parent clones into ScannedRepoGroup
     - diffs grouped state per watched folder, global dedup for removes
-  worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
+  worktree roots → logical deep watches multiplexed onto one local FSEvents
+                   stream per filesystem volume (DarwinFSEventStreamClient)
   emits: SystemEnvelope(.topology(.repoDiscovered(linkedWorktrees: .scanned([...]))))
          SystemEnvelope(.topology(.repoRemoved))
          WorktreeEnvelope(.filesystem(.filesChanged))
@@ -292,7 +293,8 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
     → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   .topology(.repoDiscovered, linkedWorktrees: .notScanned):
     → register/reassociate repo only, skip worktree reconciliation (boot replay)
-  .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
+  .topology(.repoRemoved) → mark unavailable → clear invalid pane associations
+                           → preserve pane residency/tab membership → prune cache
   .snapshotChanged → write to cache store
   .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
   .pullRequestsChanged → map branch→worktreeId → write to cache
@@ -301,7 +303,8 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
       ▼
 WorkspaceSurfaceCoordinator (ordered post-topology effects)
   topologyDidChange(delta):
-    → orphanPanesForWorktree for delta.removedWorktrees
+    → clear invalid associations for delta.removedWorktrees
+    → preserve pane identity, residency, runtime, and tab membership
     → full filesystem reconciliation for accepted topology delta
   ordinary pane/CWD/active changes:
     → typed affected-key effect admission
@@ -324,11 +327,53 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | Aspect | Detail |
 |--------|--------|
 | **Owns** | FSEvents ingestion via DarwinFSEventStreamClient, path filtering, debounce, batching |
-| **Scope** | Worktree root paths (deep FSEvents watch) |
+| **Scope** | Logical worktree and watched-folder roots, multiplexed onto one physical local FSEvents stream per filesystem volume; external exact-item parents remain separately shared by parent identity |
 | **Reads** | Registered worktree paths from WorkspaceSurfaceCoordinator sync |
 | **Produces** | `SystemEnvelope(.topology(.repoDiscovered/.repoRemoved))` — discovery events |
 | | `WorktreeEnvelope(.filesystem(.filesChanged))` — file change facts |
 | **Does not** | Run git commands, access network, mutate canonical store |
+
+`DarwinFSEventStreamClient` separates logical registration identity from
+physical observation. Each logical root retains its worktree ID, lifecycle
+generation, observation scopes, continuity participant, and callback routing,
+while `DarwinSharedLocalFSEventObserverRegistry` contracts same-volume watched
+paths into one physical stream. Every distinct live logical root remains in the
+physical stream's watched-path set because macOS `WatchRoot` replacement events
+are defined only for paths supplied when the stream is created. A required
+physical replacement starts the successor, buffers successor callbacks,
+flushes the still-current predecessor, atomically installs the successor,
+and replays the buffer into a client-owned activation gate before retiring the
+physical predecessor. The client publishes the matching logical generation and
+continuity identity before activating that gate, which drains the replay in
+order; only then does it retire the logical predecessor registration. Thus
+steady native-client cardinality is bounded by mounted-volume count rather than
+repository/worktree count, with at most one physical replacement overlap at a
+time.
+
+Ordinary callbacks route only to intersecting logical registrations. Coverage
+loss from stream-global flags is broadcast to every logical participant on that
+physical stream so continuity fails closed. `UserDropped`, `KernelDropped`, and
+`EventIdsWrapped` are stream-global; bare `MustScanSubDirs`, `Mount`, `Unmount`,
+and `RootChanged` remain path-scoped. Only registrations rooted at or below a
+`RootChanged` watched path retire, including when a stream-global loss flag is
+present in the same event. Callback-driven logical retirement is deferred off
+the synchronous callback stack so a predecessor `FSEventStreamFlushSync` cannot
+wait on its own configuration lock.
+
+The native API accepts only eight exclusion directories, so the shared physical
+stream does not install per-repository private-staging exclusions in the kernel.
+Instead, the shared ingress contracts `refs/agentstudio/staged` events once in
+user space before logical callback fan-out. Activity barriers flush each
+physical local stream once, not once per logical worktree. Shutdown retires the
+final physical stream after its last logical lease disappears. Native callback
+context lifetime is owned through `FSEventStreamContext.retain`/`release`;
+application teardown does not manually free callback closures.
+
+An activity barrier is admitted only when the client registration generations
+exactly match the shared registry's logical generations, no physical replacement
+is pending, and every client activation gate is delivering live events. The same
+conditions are rechecked after the ingress fence; a handoff overlap fails closed
+instead of certifying a predecessor generation against a successor stream.
 
 #### GitWorkingDirectoryProjector
 
@@ -646,7 +691,7 @@ Note: ForgeActor gets `.branchChanged` directly from the bus fan-out. The coordi
 
 When a repo directory moves on disk, the plan is:
 1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
-2. Coordinator marks panes orphaned, prunes cache, keeps canonical entries for re-association
+2. Coordinator clears stale pane repo/worktree associations, preserves pane residency and tab membership, and prunes cache
 3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
 
 ### Deferred Launch Restore
@@ -665,7 +710,7 @@ zmx terminal panes require a trusted `initialFrame` before Ghostty surface creat
 
 **Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
 
-**Background hidden-pane restore behavior.** Hidden zmx panes are restored at boot only when a live zmx session already exists (discovered via `discoverLiveSessionIds()`). This is fixed product behavior, not a user-configurable preference.
+**Background hidden-pane restore behavior.** Every active zmx pane remains in the startup cohort. Foreground main panes restore first, followed by foreground drawer children, hidden main panes, and hidden drawer children. Hidden panes do not require selection or a pre-existing live-session inventory entry; the terminal activation owner resolves whether to reconnect or start each pane when its phase runs.
 
 **The flow:**
 
@@ -891,7 +936,7 @@ Reader             Sidebar                          Rendering truth via @Observa
 - `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
 - It handles cache cleanup itself (it owns `repoCache`)
 - It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects and a full filesystem reconciliation
-- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it orphans panes for removed worktrees and reconciles filesystem roots after accepted topology changes
+- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it clears invalid pane associations while preserving pane lifecycle, then reconciles filesystem roots after accepted topology changes
 - `WorkspaceSurfaceCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
 
 Ordinary pane mount/removal/CWD and active-pane changes do not re-enter this

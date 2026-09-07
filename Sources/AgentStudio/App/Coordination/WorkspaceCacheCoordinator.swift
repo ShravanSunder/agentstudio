@@ -52,6 +52,18 @@ final class WorkspaceCacheCoordinator {
     private var pendingConsumeStartGeneration: UInt64?
     private var nextConsumeStartGeneration: UInt64 = 0
     private var lastAppliedForgeProjectionSequenceByRepoId: [UUID: UInt64] = [:]
+    private var repositoryProjectionApplyGovernor:
+        BackgroundFactApplyGovernor<
+            UUID, PendingRepositoryProjection
+        >?
+
+    /// Read-only observability seam: exposes how many repository-projection
+    /// facts have been coalesced into the current pending batch since the
+    /// last drain. Lets tests wait for an actual coalescing invariant
+    /// instead of inferring it from tick-scheduling side effects.
+    var pendingRepositoryProjectionSupersessionCount: Int {
+        repositoryProjectionApplyGovernor?.supersededSinceLastDrainCount ?? 0
+    }
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -102,6 +114,7 @@ final class WorkspaceCacheCoordinator {
         pendingConsumeStartGeneration = nil
         let enrichmentApplyGovernor = makeEnrichmentApplyGovernor()
         let repositoryProjectionApplyGovernor = makeRepositoryProjectionApplyGovernor()
+        self.repositoryProjectionApplyGovernor = repositoryProjectionApplyGovernor
         enrichmentApplyGovernor.start()
         repositoryProjectionApplyGovernor.start()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
@@ -133,6 +146,7 @@ final class WorkspaceCacheCoordinator {
         pendingConsumeStartGeneration = nil
         consumeTask?.cancel()
         consumeTask = nil
+        repositoryProjectionApplyGovernor = nil
     }
 
     func shutdown() async {
@@ -143,6 +157,7 @@ final class WorkspaceCacheCoordinator {
         if let activeTask {
             await activeTask.value
         }
+        repositoryProjectionApplyGovernor = nil
     }
 
     func consume(_ envelope: RuntimeEnvelope) {
@@ -447,7 +462,7 @@ final class WorkspaceCacheCoordinator {
         }
         if !delta.removedWorktrees.isEmpty, topologyEffectHandler == nil {
             Self.logger.warning(
-                "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
+                "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane association cleanup skipped"
             )
         }
         if shouldApplyTopologyEffects {
@@ -550,15 +565,19 @@ final class WorkspaceCacheCoordinator {
         else { return }
 
         workspaceStore.mutationCoordinator.markRepoUnavailable(repo.id)
-        let unavailablePathByWorktreeId = Dictionary(
-            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
+        let clearedPaneIds = Set(
+            repo.worktrees.flatMap { worktree in
+                workspaceStore.mutationCoordinator.clearPaneAssociations(
+                    forRemovedWorktreeID: worktree.id
+                )
+            }
         )
-        let orphanedPaneIds = workspaceStore.paneAtom.orphanPanes(
-            forUnavailableWorktreePathsById: unavailablePathByWorktreeId
-        )
-        if !orphanedPaneIds.isEmpty {
+        for _ in clearedPaneIds {
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
+        }
+        if !clearedPaneIds.isEmpty {
             Self.logger.info(
-                "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
+                "Repo removed at path=\(repoPath.path, privacy: .public); cleared \(clearedPaneIds.count, privacy: .public) pane association(s)"
             )
         }
         repoCache.removeRepo(repo.id)

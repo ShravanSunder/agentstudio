@@ -4,9 +4,17 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  # Nightly run keeps the timing policies (benchmark suites, BridgeWeb stress, large lane)
+  # exercised without putting wall-clock gates in the pull-request lanes.
+  schedule:
+    - cron: "0 9 * * *"
 
 permissions:
   contents: read
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   benchmarks:
@@ -140,6 +148,8 @@ jobs:
           grep -oE "global-preferences-loader (missing|valid) count=[0-9]+ p95_ms=[0-9.]+ max_ms=[0-9.]+ slow_samples_over_10\\.0ms=[0-9]+" benchmark.log > benchmark-lines.txt
           test "$(grep -c "global-preferences-loader missing " benchmark-lines.txt)" -eq 1
           test "$(grep -c "global-preferences-loader valid " benchmark-lines.txt)" -eq 1
+          grep -oE "REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT baseline_p95_ms=[0-9.]+ doubled_p95_ms=[0-9.]+ growth_percent=-?[0-9.]+" benchmark.log >> benchmark-lines.txt
+          test "$(grep -c "REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT " benchmark-lines.txt)" -eq 1
           cat benchmark-lines.txt
 
       - name: Upload benchmark results

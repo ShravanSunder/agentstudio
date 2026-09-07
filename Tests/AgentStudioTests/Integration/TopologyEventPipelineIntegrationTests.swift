@@ -74,8 +74,8 @@ struct TopologyEventPipelineIntegrationTests {
         }
     }
 
-    @Test("authoritative removal prunes cache orphans panes and unregisters removed root")
-    func authoritativeRemovalPrunesCacheOrphansPanesAndUnregistersRoot() async {
+    @Test("authoritative removal prunes cache, preserves pane continuity, and unregisters removed root")
+    func authoritativeRemovalPrunesCachePreservesPaneContinuityAndUnregistersRoot() async {
         await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
@@ -148,11 +148,12 @@ struct TopologyEventPipelineIntegrationTests {
                 harness.repoCache.worktreeEnrichmentByWorktreeId[removedWorktree.id] == nil
             }
 
-            await assertEventuallyMain("pane should become orphaned for removed worktree") {
+            await assertEventuallyMain("pane should remain active and keep its tab membership") {
                 guard let updatedPane = harness.workspaceStore.pane(pane.id) else { return false }
                 let durableFacets = harness.workspaceStore.paneAtom.graphAtom
                     .paneState(pane.id)?.durableContextFacets
-                return updatedPane.residency == .orphaned(reason: .worktreeNotFound(path: removePath.path))
+                return updatedPane.residency == .active
+                    && harness.workspaceStore.tabContaining(paneId: pane.id)?.id == tab.id
                     && durableFacets?.repoId == nil
                     && durableFacets?.worktreeId == nil
             }

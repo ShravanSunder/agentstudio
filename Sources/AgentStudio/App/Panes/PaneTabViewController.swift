@@ -1519,6 +1519,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         RestoreTrace.log(geometryHierarchySnapshot(reason: reason))
+        executor.reevaluatePreparedTerminalGeometry()
         scheduleVisibleViewRestoreAfterLayout(reason: reason)
     }
 
