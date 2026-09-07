@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 import signal
+import shutil
 import sys
 import tempfile
 import tomllib
@@ -92,6 +93,45 @@ with tempfile.TemporaryDirectory(prefix="agentstudio-slot-contract-") as directo
     assert not (workspace / ".build-agent-1/.slot-claim").exists()
     print("PASS failure releases claim without changing exit status")
 
+    # Observe entry into the real release lock call, then inspect kernel-owned
+    # slot protection while maintenance holds the pool lock. No timed sleeps.
+    release_owner = subprocess.Popen(
+        ["/bin/bash", "-c", '''set -eu
+function /usr/bin/lockf() {
+  if [ "${releasing:-0}" = 1 ] && [ "${!#}" = 8 ]; then
+    echo RELEASE_WAITING
+  fi
+  command /usr/bin/lockf "$@"
+}
+source scripts/swift-build-slot.sh
+echo READY
+read -r release
+releasing=1
+'''], cwd=workspace, env=environment, text=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert release_owner.stdout is not None and release_owner.stdin is not None
+    release_owner.stdout.readline()
+    assert release_owner.stdout.readline().strip() == "READY"
+    try:
+        with (workspace / ".swift-build-pool.lock").open("w") as pool_file:
+            fcntl.flock(pool_file, fcntl.LOCK_EX)
+            release_owner.stdin.write("release\n")
+            release_owner.stdin.flush()
+            assert release_owner.stdout.readline().strip() == "RELEASE_WAITING"
+            with (workspace / ".swift-build-slot-1.lock").open("w") as slot_file:
+                try:
+                    fcntl.flock(slot_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    raise AssertionError("normal release abandoned its lifetime token while maintenance held the pool")
+    finally:
+        release_owner.communicate(timeout=10)
+    assert release_owner.returncode == 0
+    assert not (workspace / ".build-agent-1/.slot-claim").exists()
+    print("PASS normal release retains its token until maintenance permits claim removal")
+
     # A surviving child has no build file open while paused between commands.
     # The build lifetime must remain protected after its claiming shell dies.
     control_fifo = workspace / "orphan-control"
@@ -170,7 +210,7 @@ wait
 with tempfile.TemporaryDirectory(prefix="agentstudio-bundle-contract-") as directory:
     workspace = Path(directory)
     (workspace / "scripts").mkdir()
-    for name in ("swift-build-slot.sh", "swift-build-pool-lock.sh", "create-app-bundle.sh", "publish-app-bundle.sh"):
+    for name in ("swift-build-slot.sh", "swift-build-pool-lock.sh", "create-app-bundle.sh", "publish-app-bundle.sh", "create-local-beta-bundle.sh"):
         (workspace / "scripts" / name).write_text((root / "scripts" / name).read_text())
     (workspace / "scripts/vendor-worktree.sh").write_text('exit 0\n')
     (workspace / "scripts/xcb-helpers.sh").write_text('_xcb_pipe_cmd() { echo cat; }\n')
@@ -244,6 +284,59 @@ fi
     assert not list((workspace / "beta").glob(".agentstudio-package.*"))
     print("PASS resource/signing failures preserve old bundle; successful publication atomically replaces it")
 
+    second_worktree = workspace / "second-worktree"
+    for relative_path in ("scripts", "Sources", "vendor"):
+        shutil.copytree(workspace / relative_path, second_worktree / relative_path)
+    build_fifo = workspace / "build-barrier"
+    os.mkfifo(build_fifo)
+    swift.write_text(swift.read_text().replace("set -eu\n", '''set -eu
+if [ "${TEST_BUILD_BARRIER:-0}" = 1 ]; then
+  echo BUILD_PAUSED
+  read -r release < "$TEST_BUILD_FIFO"
+fi
+''', 1))
+    first_environment = environment | {"TEST_BUILD_BARRIER": "1", "TEST_BUILD_FIFO": str(build_fifo)}
+    first_publisher = subprocess.Popen(
+        ["/bin/bash", "scripts/create-app-bundle.sh"], cwd=workspace,
+        env=first_environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert first_publisher.stdout is not None
+    while True:
+        line = first_publisher.stdout.readline()
+        assert line, "first publisher exited before reaching its build barrier"
+        if line.strip() == "BUILD_PAUSED":
+            break
+    try:
+        second_publisher = subprocess.run(
+            ["/bin/bash", "scripts/create-app-bundle.sh"], cwd=second_worktree,
+            env=environment | {"PROJECT_ROOT": str(second_worktree)},
+            text=True, capture_output=True, timeout=10,
+        )
+        assert second_publisher.returncode != 0, "second worktree published into the first publisher's destination"
+        assert "another bundle publication" in second_publisher.stderr
+    finally:
+        build_fifo.write_text("release\n")
+        first_output, first_error = first_publisher.communicate(timeout=10)
+    assert first_publisher.returncode == 0, first_output + first_error
+    print("PASS two worktrees cannot publish concurrently into one destination")
+
+    shared_beta_root = workspace / "shared-beta-root"
+    shared_beta_root.mkdir()
+    for name, body in (("git", "exit 0"), ("mise", "exit 73")):
+        executable = binaries / name
+        executable.write_text(f"#!/bin/bash\n{body}\n")
+        executable.chmod(0o755)
+    with (shared_beta_root / ".agentstudio-local-beta.lock").open("w") as beta_selection:
+        fcntl.flock(beta_selection, fcntl.LOCK_EX)
+        for checkout in (workspace, second_worktree):
+            selection = subprocess.run(
+                ["/bin/bash", "scripts/create-local-beta-bundle.sh"], cwd=checkout,
+                env=environment | {"AGENTSTUDIO_BETA_ARTIFACT_ROOT": str(shared_beta_root)},
+                text=True, capture_output=True, timeout=10,
+            )
+            assert selection.returncode == 1 and "local beta publication already in progress" in selection.stderr
+    print("PASS beta destination selection shares a lock across worktrees")
+
 aggregate = tasks["test"]["run"]
 assert aggregate.count("mise run --skip-deps bridge-web-build") == 1
 assert "mise run --skip-deps test:swift" in aggregate
@@ -281,5 +374,5 @@ def visit(name: str, ancestors: set[str]) -> None:
 for name in tasks:
     visit(name, set())
 print(f"PASS {len(tasks)} task bodies parse and all dependency edges resolve without cycles")
-print("12 mise task contract groups passed")
+print("15 mise task contract groups passed")
 PY

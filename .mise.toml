@@ -462,7 +462,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --b
 """
 
 [tasks."test:swift:benchmark"]
-description = "Run global preferences bootstrap benchmarks"
+description = "Run global preferences and native sidebar benchmarks"
 depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash

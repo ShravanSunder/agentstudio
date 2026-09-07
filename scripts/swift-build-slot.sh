@@ -31,9 +31,9 @@ acquire_swift_build_pool_lock || { return 1 2>/dev/null || exit 1; }
 trap release_swift_build_pool_lock EXIT
 
 swift_build_slot_release() {
+  acquire_swift_build_pool_lock wait || return 1
   # Closing our descriptor does not release copies held by surviving children.
   exec 6>&-
-  acquire_swift_build_pool_lock || return 0
   exec 6>".swift-build-slot-${SWIFT_BUILD_DIR##*-}.lock"
   if /usr/bin/lockf -s -t 0 6; then
     rm -f "$SWIFT_BUILD_DIR/.slot-claim/owner-pid"

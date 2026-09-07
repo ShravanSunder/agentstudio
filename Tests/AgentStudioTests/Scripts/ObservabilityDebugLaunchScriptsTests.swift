@@ -966,8 +966,10 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
         let verifierScript = try String(contentsOfFile: "scripts/verify-release-scripts.sh", encoding: .utf8)
 
-        #expect(!miseConfig.contains("\nbash scripts/inject-bundle-version.sh"))
-        #expect(miseConfig.contains("/bin/bash scripts/inject-bundle-version.sh"))
+        let packagingScript = try String(contentsOfFile: "scripts/create-app-bundle.sh", encoding: .utf8)
+        #expect(miseConfig.contains("/bin/bash scripts/create-app-bundle.sh"))
+        #expect(!packagingScript.contains("\nbash scripts/inject-bundle-version.sh"))
+        #expect(packagingScript.contains("/bin/bash scripts/inject-bundle-version.sh"))
         #expect(
             !miseConfig.contains("run = \"bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\""))
         #expect(!miseConfig.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))

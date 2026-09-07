@@ -147,7 +147,7 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 
 The helper claims `<slot>/.slot-claim` and records its owning shell PID. An EXIT trap releases it when no surviving child holds the inherited lifetime lock. Descriptor 6 carries that lock through the build process tree; `.swift-build-slot-1.lock` and `.swift-build-slot-2.lock` remain as stable kernel-lock files. A short-lived kernel lock in `.swift-build-pool.lock` serializes allocation and cleanup; compilation happens after releasing that lock. SwiftPM's own locking serializes operations within each package cache. Main agents and subagents share the pool.
 
-**Concurrent agents land on different slots.** Allocation holds the pool lock while selecting a slot, so racing callers claim distinct slots. A third caller fails instead of creating another build directory. Allocation waits at most five seconds for an ongoing maintenance operation.
+**Concurrent agents land on different slots.** Allocation holds the pool lock while selecting a slot, so racing callers claim distinct slots. A third caller fails instead of creating another build directory. Allocation waits at most five seconds for an ongoing maintenance operation. Normal release retains its lifetime token and waits for maintenance to finish before handing ownership back; it does not abandon a claim when the allocation timeout expires.
 
 **If both slots are busy** the helper aborts with `swift-build-slot: all 2 slots are busy`.
 
@@ -155,7 +155,7 @@ The helper claims `<slot>/.slot-claim` and records its owning shell PID. An EXIT
 
 `mise run clean-artifacts` holds the pool lock while checking and deleting Swift scratch directories, refuses any claimed or inherited-locked slot, and refuses open or unverified build files. Published app bundles and the prepared Bridge development server are excluded: their consumers may be between commands. It is explicit cleanup, not a prerequisite of a build or test. Lock files remain on disk; their presence does not mean a kernel lock is held.
 
-`mise run create-app-bundle` builds and packages under one slot claim. It requires exactly one SwiftPM resource bundle, signs and verifies a private staging bundle, then atomically publishes it. A failure before publication preserves the previous app. Beta packaging passes its own destination directly rather than copying the shared stable bundle after its lock expires. A separate kernel lock on `.agentstudio-app-bundle.lock` excludes concurrent publication to `AgentStudio.app`; it never picks an artifact by modification time.
+`mise run create-app-bundle` builds and packages under one slot claim. It requires exactly one SwiftPM resource bundle, signs and verifies a private staging bundle, then atomically publishes it. A failure before publication preserves the previous app. Beta packaging passes its own destination directly rather than copying the shared stable bundle after its lock expires. Beta directory selection is locked in the canonical shared parent directory through final verification, and alternate directories use atomic unique creation. A kernel lock on `.agentstudio-app-bundle.lock` in the canonical destination directory excludes concurrent publication across worktrees; it never picks an artifact by modification time.
 
 `mise run test:mise` exercises allocation, live-owner protection, failure release, stale-owner recovery, and task-graph contracts without compiling the app. Packaging fixtures replace external compiler/signing commands; real packaging remains an additional proof gate.
 

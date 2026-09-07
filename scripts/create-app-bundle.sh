@@ -6,8 +6,12 @@ bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
-# The destination is shared even when two callers have different Swift slots.
-exec 7>.agentstudio-app-bundle.lock
+# Publication may target a directory shared by independent worktrees.
+destination_bundle="${APP_BUNDLE_PATH:-$PROJECT_ROOT/AgentStudio.app}"
+mkdir -p "$(dirname "$destination_bundle")"
+destination_directory="$(cd "$(dirname "$destination_bundle")" && pwd -P)"
+destination_bundle="$destination_directory/$(basename "$destination_bundle")"
+exec 7>"$destination_directory/.agentstudio-app-bundle.lock"
 if ! /usr/bin/lockf -s -t 0 7; then
   echo "create-app-bundle: another bundle publication is in progress" >&2
   exit 1
@@ -15,8 +19,6 @@ fi
 echo "[create-app-bundle] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-destination_bundle="${APP_BUNDLE_PATH:-$PROJECT_ROOT/AgentStudio.app}"
-mkdir -p "$(dirname "$destination_bundle")"
 staging_root="$(mktemp -d "$(dirname "$destination_bundle")/.agentstudio-package.XXXXXX")"
 staged_bundle="$staging_root/$(basename "$destination_bundle")"
 cleanup_packaging() {

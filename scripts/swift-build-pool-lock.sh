@@ -3,6 +3,11 @@
 # BSD flock ownership survives lockf's exit and is released by closing the fd.
 acquire_swift_build_pool_lock() {
   exec 8>.swift-build-pool.lock
+  # Release must finish the ownership handoff even when maintenance is slow.
+  if [ "${1:-bounded}" = wait ]; then
+    /usr/bin/lockf -s 8
+    return $?
+  fi
   if ! /usr/bin/lockf -s -t 5 8; then
     exec 8>&-
     echo "swift-build-pool: allocation or maintenance is still in progress" >&2

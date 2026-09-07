@@ -3,9 +3,6 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
-# Serialize destination selection through final metadata verification.
-exec 5>.agentstudio-local-beta.lock
-/usr/bin/lockf -s -t 0 5 || { echo "local beta publication already in progress" >&2; exit 1; }
 
 latest_beta_tag="$(git tag --list 'v*-beta.*' --sort=-v:refname | head -n 1)"
 if [[ "$latest_beta_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
@@ -24,11 +21,18 @@ bundle_path="$artifact_dir/AgentStudio Beta.app"
 signing_identity="${SIGNING_IDENTITY:--}"
 signing_timestamp="${SIGNING_TIMESTAMP:-0}"
 
+# Serialize selection through final verification across all worktrees sharing
+# this destination root. Kernel locks are keyed by the canonical filesystem path.
+mkdir -p "$(dirname "$artifact_dir")"
+publication_root="$(cd "$(dirname "$artifact_dir")" && pwd -P)"
+artifact_dir="$publication_root/$(basename "$artifact_dir")"
+exec 5>"$publication_root/.agentstudio-local-beta.lock"
+/usr/bin/lockf -s -t 0 5 || { echo "local beta publication already in progress" >&2; exit 1; }
+bundle_path="$artifact_dir/AgentStudio Beta.app"
 mkdir -p "$artifact_dir"
 if [ -e "$bundle_path" ]; then
-  artifact_dir="$beta_artifact_root/${marketing_version}-$(date +%Y%m%d%H%M%S)"
+  artifact_dir="$(mktemp -d "$publication_root/$(basename "$artifact_dir").XXXXXX")"
   bundle_path="$artifact_dir/AgentStudio Beta.app"
-  mkdir -p "$artifact_dir"
 fi
 
 APP_BUNDLE_PATH="$bundle_path" \
