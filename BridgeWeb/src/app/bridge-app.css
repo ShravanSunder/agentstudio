@@ -246,6 +246,18 @@
 	--scrollbar-thumb-hover: color-mix(in srgb, var(--foreground) 36%, transparent);
 	--scrollbar-track: transparent;
 
+	/* Annotation lane: subtle white wash over the code canvas. */
+	--annotation-lane-background: color-mix(
+		in srgb,
+		var(--background) 96%,
+		var(--palette-text-primary) 4%
+	);
+	/* Selected lane stays subdued; text and nested panels retain their own paint. */
+	--annotation-lane-active-background: color-mix(
+		in srgb,
+		var(--annotation-lane-background) 92%,
+		var(--warning) 8%
+	);
 	/* Inline-comment surface blended into the code canvas. */
 	--annotation-surface: color-mix(in srgb, var(--muted) 42%, var(--background));
 	/* Primary comment text. */

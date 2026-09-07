@@ -82,14 +82,14 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	},
 	unsafeCSS: `
 		[data-diffs-header] {
-			--diffs-addition-base: var(--bridge-added);
-			--diffs-deletion-base: var(--bridge-deleted);
-			--diffs-modified-base: var(--bridge-accent);
-			--diffs-fg: var(--bridge-text-primary);
-			--diffs-fg-number: var(--bridge-text-muted);
+			--diffs-addition-base: var(--success);
+			--diffs-deletion-base: var(--destructive);
+			--diffs-modified-base: var(--primary);
+			--diffs-fg: var(--foreground);
+			--diffs-fg-number: var(--faint-foreground);
 			container-type: scroll-state;
 			container-name: bridge-code-view-sticky-header;
-			background-color: var(--bridge-surface-bg);
+			background-color: var(--surface);
 			cursor: default;
 			height: 40px;
 			min-height: 40px;
@@ -106,8 +106,14 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			cursor: pointer;
 		}
 
+		[data-line-annotation],
+		[data-gutter-buffer='annotation'] {
+			--diffs-annotation-bg: var(--annotation-lane-background);
+		}
+
 		[data-line-annotation][data-selected-line],
 		[data-gutter-buffer='annotation'][data-selected-line] {
+			--diffs-annotation-bg: var(--annotation-lane-active-background);
 			--diffs-computed-selected-line-bg: var(--diffs-annotation-bg);
 			--diffs-line-bg: var(--diffs-annotation-bg);
 		}
@@ -119,14 +125,14 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 
 		[data-diffs-header='default'] {
 			align-items: center;
-			border-block: 1px solid var(--bridge-border-subtle);
-			color: var(--bridge-text-secondary);
+			border-block: 1px solid var(--border);
+			color: var(--muted-foreground);
 			padding-inline: 12px;
 		}
 
 		[data-diffs-header='default'] [data-title],
 		[data-diffs-header='default'] [data-prev-name] {
-			color: var(--bridge-text-secondary);
+			color: var(--muted-foreground);
 			font-weight: 500;
 		}
 
@@ -138,7 +144,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 				width: 100%;
 				height: 1px;
 				content: '';
-				background-color: var(--bridge-border-opaque);
+				background-color: var(--input);
 			}
 		}
 	`,
