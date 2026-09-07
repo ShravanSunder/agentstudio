@@ -169,6 +169,11 @@ private final class ProcessExecution: @unchecked Sendable {
     private var terminationStatus: Int32 = 0
     private var terminationCause: TerminationCause?
     private var completed = false
+    private let lifecycleDiagnosticsEnabled =
+        ProcessInfo.processInfo.environment["AGENTSTUDIO_PROCESS_LIFECYCLE_DIAGNOSTICS"] == "1"
+    private var launchStartedAtNanoseconds: UInt64 = 0
+    private var launchCompletedAtNanoseconds: UInt64 = 0
+    private var timeoutDeadlineNanoseconds: UInt64 = 0
     private var processSource: DispatchSourceProcess?
     private var stdoutSource: DispatchSourceRead?
     private var stderrSource: DispatchSourceRead?
@@ -216,7 +221,13 @@ private final class ProcessExecution: @unchecked Sendable {
         beforeLaunch()
 
         do {
-            guard try launchDecision.runUnlessCancelled({ try process.run() }) else {
+            guard
+                try launchDecision.runUnlessCancelled({
+                    launchStartedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
+                    try process.run()
+                    launchCompletedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
+                })
+            else {
                 terminationCause = .cancellation
                 complete(.failure(CancellationError()))
                 return
@@ -233,6 +244,7 @@ private final class ProcessExecution: @unchecked Sendable {
         stderrSource?.resume()
         processSource?.resume()
         timeoutSource?.resume()
+        recordLifecycleDiagnostic("launched")
     }
 
     private func configurePipeSources() {
@@ -261,8 +273,11 @@ private final class ProcessExecution: @unchecked Sendable {
         process.terminationHandler = { [weak self] terminatedProcess in
             guard let execution = self else { return }
             let status = terminatedProcess.terminationStatus
+            let observedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
             execution.queue.async {
                 execution.markProcessExited(status: status)
+                execution.recordLifecycleDiagnostic(
+                    "termination-callback", observedAtNanoseconds: observedAtNanoseconds)
             }
         }
     }
@@ -274,6 +289,7 @@ private final class ProcessExecution: @unchecked Sendable {
             queue: queue
         )
         source.setEventHandler { [self] in
+            recordLifecycleDiagnostic("process-source-exit")
             // DispatchSourceProcess is a wakeup/backstop; Foundation's
             // terminationHandler owns the status because terminationStatus can
             // still throw if the source fires before Process marks itself exited.
@@ -285,7 +301,9 @@ private final class ProcessExecution: @unchecked Sendable {
 
     private func configureTimeoutSource() {
         let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now() + timeoutSeconds)
+        let deadline = DispatchTime.now() + timeoutSeconds
+        timeoutDeadlineNanoseconds = deadline.uptimeNanoseconds
+        source.schedule(deadline: deadline)
         source.setEventHandler { [self] in
             markTimedOut()
         }
@@ -315,6 +333,10 @@ private final class ProcessExecution: @unchecked Sendable {
         case .stderr:
             stderrFinished = true
         }
+        switch kind {
+        case .stdout: recordLifecycleDiagnostic("stdout-eof")
+        case .stderr: recordLifecycleDiagnostic("stderr-eof")
+        }
         let completion = completionIfReady()
         if let completion {
             complete(completion)
@@ -334,6 +356,7 @@ private final class ProcessExecution: @unchecked Sendable {
         if completed || terminationCause != nil {
             return
         }
+        recordLifecycleDiagnostic("timer-fired")
         terminationCause = .timeout
 
         processLogger.warning(
@@ -405,11 +428,23 @@ private final class ProcessExecution: @unchecked Sendable {
             return
         }
         completed = true
+        recordLifecycleDiagnostic("completed")
         let continuationToResume = continuation
         continuation = nil
 
         cleanupSources()
         continuationToResume?.resume(with: result)
+    }
+
+    /// Opt-in CI evidence: monotonic timestamps and lifecycle flags only, never
+    /// command arguments, environment values, paths, or captured process output.
+    private func recordLifecycleDiagnostic(_ phase: String, observedAtNanoseconds: UInt64? = nil) {
+        guard lifecycleDiagnosticsEnabled, launchCompletedAtNanoseconds != 0 else { return }
+        let handledAtNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let observedAtNanoseconds = observedAtNanoseconds ?? handledAtNanoseconds
+        processLogger.notice(
+            "lifecycle phase=\(phase, privacy: .public) child_pid=\(self.process.processIdentifier, privacy: .public) observed_ns=\(observedAtNanoseconds, privacy: .public) handled_ns=\(handledAtNanoseconds, privacy: .public) launch_start_ns=\(self.launchStartedAtNanoseconds, privacy: .public) launch_end_ns=\(self.launchCompletedAtNanoseconds, privacy: .public) deadline_ns=\(self.timeoutDeadlineNanoseconds, privacy: .public) running=\(self.process.isRunning, privacy: .public) exit_observed=\(self.processExited, privacy: .public) stdout_eof=\(self.stdoutFinished, privacy: .public) stderr_eof=\(self.stderrFinished, privacy: .public) completed=\(self.completed, privacy: .public)"
+        )
     }
 
     private func cleanupSources() {
