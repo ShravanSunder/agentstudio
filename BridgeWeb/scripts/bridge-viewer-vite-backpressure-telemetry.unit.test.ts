@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { backpressureTelemetryObservation } from '../tests/e2e/bridge-viewer-vite-backpressure-telemetry.ts';
+import {
+	backpressureTelemetryObservation,
+	compactTelemetryDiagnostic,
+} from '../tests/e2e/bridge-viewer-vite-backpressure-telemetry.ts';
 
 interface TelemetrySampleProps {
 	readonly name: string;
@@ -9,6 +12,39 @@ interface TelemetrySampleProps {
 }
 
 describe('Vite backpressure telemetry settlement', () => {
+	test('retains bounded native File lifecycle evidence independently of render events', () => {
+		// Arrange
+		const nativeSamples = Array.from({ length: 20 }, (_, sourceGeneration) =>
+			telemetrySample({
+				name: 'performance.bridge.swift.metadata_bootstrap_lifecycle',
+				stringAttributes: {
+					'agentstudio.bridge.viewer': 'file',
+					'agentstudio.bridge.phase': 'metadata_producer_cancelled',
+					'agentstudio.bridge.protocol': 'file.metadata',
+					'agentstudio.bridge.result': 'failure',
+					'agentstudio.bridge.result_reason': 'task_cancellation',
+				},
+				numericAttributes: { 'agentstudio.bridge.source.generation': sourceGeneration },
+			}),
+		);
+
+		// Act
+		const diagnostic = compactTelemetryDiagnostic(settledReviewStatus(nativeSamples), 'file');
+
+		// Assert
+		expect(diagnostic).toHaveLength(16);
+		expect(diagnostic[0]?.['sourceGeneration']).toBe(4);
+		expect(diagnostic.at(-1)).toMatchObject({
+			event: 'performance.bridge.swift.metadata_bootstrap_lifecycle',
+			phase: 'metadata_producer_cancelled',
+			protocol: 'file.metadata',
+			result: 'failure',
+			resultReason: 'task_cancellation',
+			sourceGeneration: 19,
+			viewer: 'file',
+		});
+	});
+
 	test('does not classify viewer-less worker replacement snapshots as Review failures', () => {
 		const observation = backpressureTelemetryObservation({
 			expectedReceiptProducedCount: null,

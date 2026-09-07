@@ -103,9 +103,13 @@ export function compactTelemetryDiagnostic(
 				sample.stringAttributes['agentstudio.bridge.viewer'] === viewer &&
 				(sample.name === 'performance.bridge.web.render_disposition_admission' ||
 					sample.name === 'performance.bridge.worker.render_disposition_batch' ||
-					sample.name === 'performance.bridge.worker.render_publication_outstanding'),
+					sample.name === 'performance.bridge.worker.render_publication_outstanding' ||
+					sample.name === 'performance.bridge.swift.metadata_bootstrap_lifecycle'),
 		);
 	return [
+		...relevantSamples
+			.filter((sample) => sample.name === 'performance.bridge.swift.metadata_bootstrap_lifecycle')
+			.slice(-16),
 		...relevantSamples
 			.filter((sample) => sample.name === 'performance.bridge.web.render_disposition_admission')
 			.slice(-4),
@@ -132,6 +136,10 @@ export function compactTelemetryDiagnostic(
 			sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'],
 		pending: sample.numericAttributes['agentstudio.bridge.render_disposition.pending_count'],
 		phase: sample.stringAttributes['agentstudio.bridge.phase'],
+		protocol: sample.stringAttributes['agentstudio.bridge.protocol'],
+		result: sample.stringAttributes['agentstudio.bridge.result'],
+		resultReason: sample.stringAttributes['agentstudio.bridge.result_reason'],
+		sourceGeneration: sample.numericAttributes['agentstudio.bridge.source.generation'],
 		produced: sample.numericAttributes['agentstudio.bridge.render_disposition.produced_count'],
 		receipts: sample.numericAttributes['agentstudio.bridge.render_disposition.batch_receipt_count'],
 		rejected: sample.numericAttributes['agentstudio.bridge.render_disposition.rejected_count'],
