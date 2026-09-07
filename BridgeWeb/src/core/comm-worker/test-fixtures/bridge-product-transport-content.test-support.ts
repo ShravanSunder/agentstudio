@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
 import { vi } from 'vitest';
 
@@ -417,7 +418,8 @@ function sequenceIdentifier(prefix: string): () => string {
 }
 
 export async function waitForCondition(predicate: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt += 1) {
+	const deadline = performance.now() + 2_000;
+	while (performance.now() < deadline) {
 		if (predicate()) return;
 		// oxlint-disable-next-line eslint/no-await-in-loop -- Advances one bounded stream event turn.
 		await new Promise<void>((resolve): void => {
