@@ -341,6 +341,9 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			activeRecordsByItemId.delete(itemId);
 			latestMembership = latestMembership.filter((member) => member.itemId !== itemId);
 			reconcile(latestMembership);
+			if (activeRecord.publishedReceiptIdentity !== null) {
+				observeOutstandingPublications('render_publication_outstanding_changed', 'cleared');
+			}
 			return true;
 		},
 		releasePublished: (receipt): boolean => {

@@ -8,6 +8,33 @@ import {
 } from './bridge-worker-render-fulfillment.js';
 
 describe('Bridge comm worker Review published-position ownership', () => {
+	test('reports zero outstanding publications when a published preparation rejects', () => {
+		// Arrange: a publication exists when its preparation completion rejects.
+		const observedCounts: number[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			observeOutstandingPublications: (observation): void => {
+				observedCounts.push(observation.currentCount);
+			},
+			start: () => ({ cancel: () => {}, updateRole: () => {} }),
+		});
+		const admission = ledger.reconcile([{ itemId: 'rejected-publication', role: 'visible' }])
+			.active[0];
+		if (admission === undefined) throw new Error('Expected a Review admission.');
+		ledger.markPublished(
+			admission.itemId,
+			admission.attemptToken,
+			renderReceiptIdentity(admission.itemId, admission.attemptToken),
+		);
+		ledger.setSuspended(true);
+
+		// Act: the existing rejection path removes this exact owned position.
+		expect(ledger.releaseRejected(admission.itemId, admission.attemptToken)).toBe(true);
+
+		// Assert: operational evidence must agree with actual ledger ownership.
+		expect(ledger.reconcile([]).active).toEqual([]);
+		expect(observedCounts).toEqual([1, 0]);
+	});
+
 	test('keeps Review publication ownership fail-open when its observer throws', () => {
 		const ledger = createBridgeCommWorkerReviewDemandLedger({
 			observeOutstandingPublications: (): never => {
