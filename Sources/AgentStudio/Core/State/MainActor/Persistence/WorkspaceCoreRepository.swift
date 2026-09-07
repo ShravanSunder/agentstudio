@@ -163,6 +163,7 @@ package struct WorkspaceCoreRepository: Sendable {
         }
     }
 
+    @discardableResult
     func replaceWorkspaceSnapshot(
         workspace: WorkspaceRecord,
         paneGraph: PaneGraphRecord,
@@ -170,7 +171,7 @@ package struct WorkspaceCoreRepository: Sendable {
         tabGraph: TabGraphRecord,
         updatesActiveSelection: Bool = true,
         undoChange: WorkspaceUndoJournalChange? = nil
-    ) throws {
+    ) throws -> WorkspaceUndoJournalReceipt? {
         try replaceWorkspaceSnapshot(
             .init(
                 workspace: workspace,
@@ -183,7 +184,9 @@ package struct WorkspaceCoreRepository: Sendable {
         )
     }
 
-    private func replaceWorkspaceSnapshot(_ replacement: WorkspaceSnapshotReplacement) throws {
+    private func replaceWorkspaceSnapshot(_ replacement: WorkspaceSnapshotReplacement) throws
+        -> WorkspaceUndoJournalReceipt?
+    {
         try databaseWriter.write { database in
             try database.execute(
                 sql: """
@@ -218,7 +221,7 @@ package struct WorkspaceCoreRepository: Sendable {
                 guard undoClose.workspaceID == replacement.workspace.id else {
                     throw WorkspaceUndoCloseWriteFailure.workspaceMismatch
                 }
-                try writeUndoClose(undoClose, in: database)
+                return try writeUndoClose(undoClose, in: database)
             case .some(.restore(let closeID, let time)):
                 try restoreUndoClose(
                     closeID: closeID,
@@ -227,8 +230,10 @@ package struct WorkspaceCoreRepository: Sendable {
                     paneGraph: replacement.paneGraph,
                     database: database
                 )
+                return try readUndoJournalReceipt(
+                    workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
             case nil:
-                break
+                return nil
             }
         }
     }

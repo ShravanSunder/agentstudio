@@ -1,6 +1,42 @@
 import Foundation
 
 enum TabArrangementMutationRules {
+    static func insertingPane(
+        _ paneID: UUID, in state: TabArrangementState, at anchorID: UUID,
+        direction: Layout.SplitDirection, position: Layout.Position, sizingMode: DropSizingMode
+    ) -> TabArrangementState? {
+        guard !state.arrangements.isEmpty else { return nil }
+        let activeIndex = activeArrangementIndex(in: state)
+        guard
+            let activeLayout = state.arrangements[activeIndex].layout.inserting(
+                paneId: paneID, at: anchorID, direction: direction, position: position, sizingMode: sizingMode
+            )
+        else { return nil }
+        var updated = state
+        for index in updated.arrangements.indices {
+            if index == activeIndex {
+                updated.arrangements[index].layout = activeLayout
+                updated.arrangements[index].activePaneId = paneID
+            } else if !updated.arrangements[index].layout.contains(paneID) {
+                let layout = updated.arrangements[index].layout
+                if let lastID = layout.paneIds.last {
+                    guard
+                        let appended = layout.inserting(
+                            paneId: paneID, at: lastID, direction: .horizontal, position: .after,
+                            sizingMode: .proportional
+                        )
+                    else { return nil }
+                    updated.arrangements[index].layout = appended
+                } else {
+                    updated.arrangements[index].layout = Layout(paneId: paneID)
+                }
+            }
+            updated.arrangements[index].minimizedPaneIds.remove(paneID)
+        }
+        if !updated.allPaneIds.contains(paneID) { updated.allPaneIds.append(paneID) }
+        return updated
+    }
+
     static func createArrangement(
         name: String,
         from state: TabArrangementState

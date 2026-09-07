@@ -38,13 +38,17 @@ struct WorkspaceUndoClosePersistenceTests {
                 snapshotPayload: Data("{}".utf8),
                 members: [.init(paneID: UUIDv7.generate(), sessionID: sessionID)]
             )
-            try fixture.repository.replaceWorkspaceSnapshot(
+            let receipt = try fixture.repository.replaceWorkspaceSnapshot(
                 workspace: workspace,
                 paneGraph: .init(panes: []),
                 tabShells: [],
                 tabGraph: .init(tabs: []),
                 undoChange: .record(request)
             )
+            if index == 10 {
+                #expect(receipt?.availableCloseIDs.count == 10)
+                #expect(receipt?.retiredCloses.map(\.closeID) == [closeIDs[0]])
+            }
         }
 
         try fixture.databaseQueue.read { database in

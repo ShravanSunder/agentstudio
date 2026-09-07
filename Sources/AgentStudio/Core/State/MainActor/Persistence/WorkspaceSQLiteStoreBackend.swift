@@ -117,17 +117,20 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
+    @discardableResult
     func replaceWorkspaceSnapshot(
         _ bundle: WorkspaceSQLiteSaveBundle,
-        updatesActiveSelection: Bool
-    ) throws {
+        updatesActiveSelection: Bool,
+        undoChange: WorkspaceUndoJournalChange? = nil
+    ) throws -> WorkspaceUndoJournalReceipt? {
         let snapshot = bundle.workspace
-        try coreRepository.replaceWorkspaceSnapshot(
+        return try coreRepository.replaceWorkspaceSnapshot(
             workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: snapshot),
             paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: snapshot),
             tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: snapshot),
             tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: snapshot),
-            updatesActiveSelection: updatesActiveSelection
+            updatesActiveSelection: updatesActiveSelection,
+            undoChange: undoChange
         )
     }
 

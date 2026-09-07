@@ -29,12 +29,14 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
 
 struct WorkspaceSQLiteSaveBundle: Equatable, Sendable {
     let workspace: WorkspaceSQLiteSnapshot
+    let captureRevision: WorkspaceCompositionRevision?
 
     var id: UUID { workspace.id }
     var updatedAt: Date { workspace.updatedAt }
 
-    init(workspace: WorkspaceSQLiteSnapshot) {
+    init(workspace: WorkspaceSQLiteSnapshot, captureRevision: WorkspaceCompositionRevision? = nil) {
         self.workspace = workspace
+        self.captureRevision = captureRevision
     }
 }
 

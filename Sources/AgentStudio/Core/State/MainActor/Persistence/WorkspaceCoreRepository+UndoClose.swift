@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 
 /// Executes inside the same transaction as the workspace composition replacement.
-func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) throws {
+func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) throws -> WorkspaceUndoJournalReceipt {
     let previousSequence =
         try Int64.fetchOne(
             database,
@@ -51,6 +51,21 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
         )
     }
 
+    let evictedIDs = try String.fetchAll(
+        database,
+        sql: """
+            SELECT close_id FROM (
+                SELECT close_id, close_sequence FROM workspace_undo_close
+                WHERE workspace_id = ? AND state = 'available'
+                ORDER BY close_sequence DESC LIMIT -1 OFFSET ?
+            ) ORDER BY close_sequence
+            """,
+        arguments: [close.workspaceID.uuidString, AppPolicies.WorkspacePersistence.maximumAvailableUndoCloses]
+    )
+    let retiredCloses = try evictedIDs.map { rawID -> WorkspaceUndoCloseRetirement in
+        guard let closeID = UUID(uuidString: rawID) else { throw WorkspaceUndoJournalFailure.invalidStoredIdentifier }
+        return .init(closeID: closeID, members: try readUndoCloseMembers(closeID: closeID, database: database))
+    }
     try database.execute(
         sql: """
             UPDATE workspace_undo_close SET state = 'evicted'
@@ -67,6 +82,24 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
         workspaceID: close.workspaceID,
         requestedAt: close.closedAt
     )
+    return try readUndoJournalReceipt(workspaceID: close.workspaceID, retiredCloses: retiredCloses, database: database)
+}
+
+func readUndoJournalReceipt(
+    workspaceID: UUID,
+    retiredCloses: [WorkspaceUndoCloseRetirement],
+    database: Database
+) throws -> WorkspaceUndoJournalReceipt {
+    let available = try String.fetchAll(
+        database,
+        sql:
+            "SELECT close_id FROM workspace_undo_close WHERE workspace_id = ? AND state = 'available' ORDER BY close_sequence DESC",
+        arguments: [workspaceID.uuidString]
+    ).map { rawID -> UUID in
+        guard let closeID = UUID(uuidString: rawID) else { throw WorkspaceUndoJournalFailure.invalidStoredIdentifier }
+        return closeID
+    }
+    return .init(availableCloseIDs: available, retiredCloses: retiredCloses)
 }
 
 func markFinishedUndoSessionsForCleanup(

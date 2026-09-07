@@ -10,6 +10,10 @@ enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case databasesNotPrepared
     case applicationLocalRepositoryUnavailable
     case useDatastoreApplicationLocalRepositoryBundle
+    case unreconciledStructuralSave
+    case staleWorkspaceCapture
+    case missingWorkspaceCaptureRevision
+    case missingWorkspacePublication
 }
 
 package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {

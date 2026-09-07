@@ -12,6 +12,7 @@ enum WorkspaceSQLiteSaveCoordinatorFailure: Error, Equatable, Sendable {
 }
 
 struct WorkspaceSQLiteSaveCapture: Sendable {
+    let revision: WorkspaceCompositionRevision
     let workspaceID: UUID
     let workspaceName: String
     let paneStatesByID: [UUID: PaneGraphState]
@@ -103,7 +104,8 @@ enum WorkspaceSQLiteSavePreparation {
                 windowFrame: capture.windowFrame,
                 createdAt: capture.createdAt,
                 updatedAt: capture.persistedAt
-            )
+            ),
+            captureRevision: capture.revision
         )
     }
 }
@@ -130,9 +132,18 @@ package final class WorkspaceSQLiteSaveCoordinator {
         self.sqliteDatastore = sqliteDatastore
     }
 
+    var compositionRevision: WorkspaceCompositionRevision {
+        .init(
+            panes: workspacePaneAtom.graphAtom.paneAcceptedCommitRevision,
+            tabShells: workspaceTabLayoutAtom.shellAtom.tabShellAcceptedCommitRevision,
+            tabGraphs: workspaceTabLayoutAtom.arrangementAtom.graphAtom.tabGraphAcceptedCommitRevision
+        )
+    }
+
     func captureCurrentSaveState(persistedAt: Date) -> WorkspaceSQLiteSaveCapture {
         let arrangementAtom = workspaceTabLayoutAtom.arrangementAtom
         return WorkspaceSQLiteSaveCapture(
+            revision: compositionRevision,
             workspaceID: identityAtom.workspaceId,
             workspaceName: identityAtom.workspaceName,
             paneStatesByID: workspacePaneAtom.graphAtom.paneStateSnapshot(),
@@ -156,21 +167,102 @@ package final class WorkspaceSQLiteSaveCoordinator {
         )
     }
 
+    /// Keep capture, preparation, commit and publication in the existing writer order.
+    /// Autosaves cannot overtake a close while its value snapshot is being prepared.
+    func commitCloseForUndo(
+        tabID: UUID,
+        paneID: UUID?,
+        closeID: UUID,
+        time: WorkspaceUndoJournalTime,
+        publish: @escaping @MainActor @Sendable (WorkspaceUndoCloseProposal, WorkspaceUndoJournalReceipt) -> Void
+    ) async throws -> WorkspaceUndoJournalReceipt {
+        try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
+            let capture = await captureCurrentSaveState(persistedAt: time.utc)
+            let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+            let proposal = try await WorkspaceUndoComposition.prepareCloseOffMain(
+                in: source, tabID: tabID, paneID: paneID, closeID: closeID, time: time
+            )
+            switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
+            case .prepared:
+                break
+            case .rejected(let rejection):
+                throw WorkspaceSQLiteSaveCoordinatorFailure.compositionRejected(rejection)
+            }
+            guard
+                let receipt = try await datastore.performWorkspaceSnapshotBundleSave(
+                    proposal.bundle, undoChange: .record(proposal.write)
+                )
+            else {
+                preconditionFailure("A committed close must return its journal receipt")
+            }
+            let revision = await MainActor.run {
+                publish(proposal, receipt)
+                return compositionRevision
+            }
+            datastore.acceptedWorkspaceCaptureRevisions[source.id] = revision
+            return receipt
+        }
+    }
+
+    func commitMostRecentUndo(
+        time: WorkspaceUndoJournalTime,
+        publish: @escaping @MainActor @Sendable (WorkspaceUndoRestoreProposal, WorkspaceUndoJournalReceipt) -> Void
+    ) async throws -> WorkspaceUndoJournalReceipt? {
+        try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
+            let capture = await captureCurrentSaveState(persistedAt: time.utc)
+            let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+            let available = try datastore.journalRepository().fetchAvailableUndoCloses(workspaceID: source.id)
+            for close in available {
+                let proposal: WorkspaceUndoRestoreProposal
+                do {
+                    proposal = try await WorkspaceUndoComposition.prepareRestoreOffMain(
+                        in: source, close: close, time: time
+                    )
+                } catch is WorkspaceUndoCompositionFailure {
+                    // Invalid placement retains ownership and cannot hide an older restorable operation.
+                    continue
+                } catch WorkspaceUndoJournalFailure.undoExpired {
+                    continue
+                }
+                guard
+                    let receipt = try await datastore.performWorkspaceSnapshotBundleSave(
+                        proposal.bundle, undoChange: .restore(closeID: close.closeID, time: time)
+                    )
+                else {
+                    preconditionFailure("A committed restore must return its journal receipt")
+                }
+                let revision = await MainActor.run {
+                    publish(proposal, receipt)
+                    return compositionRevision
+                }
+                datastore.acceptedWorkspaceCaptureRevisions[source.id] = revision
+                return receipt
+            }
+            return nil
+        }
+    }
+
     func save(
         persistedAt: Date
     ) async throws(WorkspaceSQLiteSaveCoordinatorFailure) -> WorkspaceSQLiteSaveBundle {
-        let bundle = await captureCurrentSaveBundle(persistedAt: persistedAt)
-        switch await WorkspaceCompositionPreparer.prepareOffMain(bundle.workspace) {
-        case .prepared:
-            break
-        case .rejected(let rejection):
-            throw .compositionRejected(rejection)
+        var captureDate = persistedAt
+        while true {
+            let bundle = await captureCurrentSaveBundle(persistedAt: captureDate)
+            switch await WorkspaceCompositionPreparer.prepareOffMain(bundle.workspace) {
+            case .prepared:
+                break
+            case .rejected(let rejection):
+                throw .compositionRejected(rejection)
+            }
+            do {
+                try await sqliteDatastore.saveWorkspaceSnapshotBundle(bundle)
+                return bundle
+            } catch WorkspaceSQLiteDatastoreError.staleWorkspaceCapture {
+                // A newer committed composition superseded preparation; never replay the old payload.
+                captureDate = Date()
+            } catch {
+                throw .datastore(.init(error))
+            }
         }
-        do {
-            try await sqliteDatastore.saveWorkspaceSnapshotBundle(bundle)
-        } catch {
-            throw .datastore(.init(error))
-        }
-        return bundle
     }
 }

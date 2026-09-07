@@ -28,6 +28,11 @@ package struct WorkspaceUndoCloseRetirement: Sendable {
     package let members: [WorkspaceUndoCloseWrite.Member]
 }
 
+package struct WorkspaceUndoJournalReceipt: Sendable {
+    package let availableCloseIDs: [UUID]
+    package let retiredCloses: [WorkspaceUndoCloseRetirement]
+}
+
 enum WorkspaceUndoJournalFailure: Error, Equatable {
     case invalidStoredIdentifier
     case unsupportedSnapshotVersion(Int)

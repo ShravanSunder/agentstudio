@@ -22,6 +22,8 @@ package final class WorkspaceTabShellAtom {
     private var tabOrder: [UUID] = []
     private var tabIndexByID: [UUID: Int] = [:]
 
+    var tabShellAcceptedCommitRevision: Int { acceptedCommitRevision.value }
+
     package init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
         self.cursorAtom = cursorAtom
     }
@@ -50,6 +52,7 @@ package final class WorkspaceTabShellAtom {
         let replacementIndex = Self.makeUniqueIndex(shells)
         guard tabShells != shells else { return }
         let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        mutation.recordAcceptedChange()
         shellFamily.replaceAll(
             Dictionary(uniqueKeysWithValues: shells.map { ($0.id, $0) }),
             mutation: mutation
@@ -107,6 +110,9 @@ package final class WorkspaceTabShellAtom {
         let clampedIndex = max(0, min(adjustedIndex, tabOrder.count))
         tabOrder.insert(tabId, at: clampedIndex)
         reindexTabs(in: min(fromIndex, clampedIndex)..<tabOrder.count)
+        if clampedIndex != fromIndex {
+            acceptedCommitRevision.bump()
+        }
     }
 
     func moveTabByDelta(tabId: UUID, delta: Int) {
@@ -130,6 +136,7 @@ package final class WorkspaceTabShellAtom {
         let movedTabId = tabOrder.remove(at: fromIndex)
         tabOrder.insert(movedTabId, at: finalIndex)
         reindexTabs(in: min(fromIndex, finalIndex)..<tabOrder.count)
+        acceptedCommitRevision.bump()
     }
 
     func setActiveTab(_ tabId: UUID?) {

@@ -96,6 +96,56 @@ package final class WorkspaceMutationCoordinator {
         return true
     }
 
+    /// Publish only the committed close delta. Other pane metadata may have advanced during I/O.
+    func applyCommittedClose(_ proposal: WorkspaceUndoCloseProposal) {
+        for pane in proposal.snapshot.panes where proposal.removedPaneIDs.contains(pane.id) {
+            if let parentID = pane.parentPaneId, !proposal.removedPaneIDs.contains(parentID) {
+                workspacePaneAtom.removeDrawerPane(pane.id, from: parentID)
+            } else {
+                _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(pane.id)
+            }
+            workspaceTabArrangementAtom.presentationAtom.removeZoomSourcePane(pane.id)
+        }
+
+        let committedTab = proposal.bundle.workspace.tabs.first { $0.id == proposal.tabID }
+        let states = workspaceTabArrangementAtom.arrangementStates.compactMap { state -> TabArrangementState? in
+            guard state.tabId == proposal.tabID else { return state }
+            return committedTab.map(Self.arrangementState)
+        }
+        workspaceTabArrangementAtom.replaceArrangementStates(states)
+        if committedTab == nil {
+            workspaceTabShellAtom.removeTabShell(proposal.tabID)
+            workspaceTabArrangementAtom.presentationAtom.removeZoomTab(proposal.tabID)
+        }
+    }
+
+    func applyCommittedRestore(_ proposal: WorkspaceUndoRestoreProposal) {
+        for pane in proposal.close.snapshot.panes {
+            _ = workspacePaneAtom.insertRestoredPane(pane)
+        }
+        if case .pane(let snapshot) = proposal.close.snapshot,
+            let parentID = snapshot.pane.parentPaneId
+        {
+            _ = workspacePaneAtom.restoreDrawerPane(snapshot.pane, to: parentID)
+        }
+        guard let tab = proposal.bundle.workspace.tabs.first(where: { $0.id == proposal.tabID }) else {
+            preconditionFailure("Committed restore must include its target tab")
+        }
+        switch proposal.close.snapshot {
+        case .tab(_, _, let index):
+            workspaceTabShellAtom.insertTabShell(
+                .init(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: max(0, index)
+            )
+            workspaceTabArrangementAtom.insertState(Self.arrangementState(from: tab), at: max(0, index))
+        case .pane:
+            let states = workspaceTabArrangementAtom.arrangementStates.map { state in
+                state.tabId == tab.id ? Self.arrangementState(from: tab) : state
+            }
+            workspaceTabArrangementAtom.replaceArrangementStates(states)
+        }
+        workspaceTabShellAtom.setActiveTab(tab.id)
+    }
+
     @discardableResult
     package func backgroundPane(_ paneId: UUID) -> Bool {
         guard let backgroundedPane = workspacePaneAtom.pane(paneId) else {

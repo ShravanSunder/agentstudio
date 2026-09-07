@@ -168,6 +168,43 @@ package final class WorkspaceStore {
 
     // MARK: - Persistence
 
+    @discardableResult
+    package func closeForUndo(
+        tabID: UUID,
+        paneID: UUID?,
+        closeID: UUID,
+        time: WorkspaceUndoJournalTime,
+        willPublish: @escaping @MainActor @Sendable (WorkspaceUndoCloseProposal, WorkspaceUndoJournalReceipt) -> Void,
+        didPublish: @escaping @MainActor @Sendable (WorkspaceUndoCloseProposal, WorkspaceUndoJournalReceipt) -> Void
+    ) async throws -> WorkspaceUndoJournalReceipt {
+        guard let sqliteSaveCoordinator else { throw WorkspaceStoreError.missingSQLiteSaveCoordinator }
+        return try await sqliteSaveCoordinator.commitCloseForUndo(
+            tabID: tabID, paneID: paneID, closeID: closeID, time: time,
+            publish: { [self] proposal, receipt in
+                willPublish(proposal, receipt)
+                mutationCoordinator.applyCommittedClose(proposal)
+                didPublish(proposal, receipt)
+            }
+        )
+    }
+
+    @discardableResult
+    package func undoClose(
+        time: WorkspaceUndoJournalTime,
+        willPublish: @escaping @MainActor @Sendable (WorkspaceUndoRestoreProposal, WorkspaceUndoJournalReceipt) -> Void,
+        didPublish: @escaping @MainActor @Sendable (WorkspaceUndoRestoreProposal, WorkspaceUndoJournalReceipt) -> Void
+    ) async throws -> WorkspaceUndoJournalReceipt? {
+        guard let sqliteSaveCoordinator else { throw WorkspaceStoreError.missingSQLiteSaveCoordinator }
+        return try await sqliteSaveCoordinator.commitMostRecentUndo(
+            time: time,
+            publish: { [self] proposal, receipt in
+                willPublish(proposal, receipt)
+                mutationCoordinator.applyCommittedRestore(proposal)
+                didPublish(proposal, receipt)
+            }
+        )
+    }
+
     package func loadCanonicalComposition() async -> WorkspaceStoreLoadResult {
         guard let sqliteDatastore else {
             return .failed(.missingSQLiteDatastore)
