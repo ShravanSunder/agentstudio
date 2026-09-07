@@ -433,11 +433,11 @@ extension BridgePaneProductMetadataCoordinator {
         taskId: UUID,
         shouldRetireSubscription: Bool
     ) async {
-        producerTaskLifecycle.bootstrapTaskFinished(
+        let completedCurrentTask = producerTaskLifecycle.bootstrapTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
-        if shouldRetireSubscription {
+        if completedCurrentTask && shouldRetireSubscription {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
         }
     }
@@ -447,11 +447,11 @@ extension BridgePaneProductMetadataCoordinator {
         taskId: UUID,
         shouldRetireSubscription: Bool
     ) async {
-        producerTaskLifecycle.interestTaskFinished(
+        let completedCurrentTask = producerTaskLifecycle.interestTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
-        if shouldRetireSubscription {
+        if completedCurrentTask && shouldRetireSubscription {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
         }
     }

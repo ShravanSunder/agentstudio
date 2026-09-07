@@ -239,16 +239,20 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         )
     }
 
-    mutating func bootstrapTaskFinished(subscriptionId: String, taskId: UUID) {
-        guard bootstrapTaskBySubscriptionId[subscriptionId]?.taskId == taskId else { return }
+    mutating func bootstrapTaskFinished(subscriptionId: String, taskId: UUID) -> Bool {
+        guard bootstrapTaskBySubscriptionId[subscriptionId]?.taskId == taskId else { return false }
         bootstrapTaskBySubscriptionId.removeValue(forKey: subscriptionId)
+        return true
     }
 
-    mutating func interestTaskFinished(subscriptionId: String, taskId: UUID) {
-        interestTasksBySubscriptionId[subscriptionId]?.removeValue(forKey: taskId)
+    mutating func interestTaskFinished(subscriptionId: String, taskId: UUID) -> Bool {
+        guard interestTasksBySubscriptionId[subscriptionId]?.removeValue(forKey: taskId) != nil else {
+            return false
+        }
         if interestTasksBySubscriptionId[subscriptionId]?.isEmpty == true {
             interestTasksBySubscriptionId.removeValue(forKey: subscriptionId)
         }
+        return true
     }
 
     mutating func takeAndCancelProducerTasks(
