@@ -50,8 +50,12 @@ primary_worktree_root() {
     candidate_root="${record#worktree }"
     [[ -d "$candidate_root" ]] || continue
     candidate_root="$(canonical_directory "$candidate_root")"
-    candidate_git="$(canonical_directory "$(absolute_git_directory "$candidate_root")")"
-    candidate_common="$(canonical_directory "$(absolute_common_directory "$candidate_root")")"
+    # A registered worktree directory can survive after its .git link is gone.
+    # It cannot be the primary; skip it without emitting nested failure messages.
+    candidate_git="$(git -C "$candidate_root" rev-parse --path-format=absolute --absolute-git-dir 2>/dev/null)" || continue
+    candidate_common="$(git -C "$candidate_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || continue
+    candidate_git="$(canonical_directory "$candidate_git")"
+    candidate_common="$(canonical_directory "$candidate_common")"
     [[ "$candidate_common" == "$current_common" ]] || continue
     if [[ "$candidate_git" == "$candidate_common" ]]; then
       primary_root="$candidate_root"

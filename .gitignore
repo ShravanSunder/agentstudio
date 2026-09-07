@@ -107,3 +107,7 @@ build.db-journal
 # SwiftPM binary-artifact extraction + plugin cache (agentstudio-git CLibGit2Local etc.)
 artifacts/
 plugins/
+
+# Worktree-local kernel lock files; file presence does not mean locked.
+.swift-build-pool.lock
+.agentstudio-app-bundle.lock

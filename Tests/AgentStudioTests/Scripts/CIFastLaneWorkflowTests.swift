@@ -20,7 +20,7 @@ struct CIFastLaneWorkflowTests {
             )
         )
         #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
-        #expect(testTask.contains("mise run test:swift"))
+        #expect(testTask.contains("mise run --skip-deps test:swift"))
         #expect(testTask.contains("git diff --check"))
     }
 
