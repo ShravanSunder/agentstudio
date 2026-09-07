@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudioBridge
 
 struct BridgeProductAdmissionTestContext: Sendable {
-    private let gate: BridgeProductAdmissionGate
+    let gate: BridgeProductAdmissionGate
     let context: BridgeProductAdmissionContext
 
     static func make() throws -> Self {

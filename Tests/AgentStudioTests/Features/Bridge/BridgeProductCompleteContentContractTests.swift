@@ -113,7 +113,8 @@ extension BridgeProductContentFrameCodecTests {
     @Test("complete File content exceeds the legacy prefix through seventeen data frames")
     func completeFileContentExceedsLegacyPrefixThroughSeventeenDataFrames() throws {
         // Arrange
-        let dataFrameByteCount = BridgeProductWireContract.maximumContentDataPayloadBytes
+        // Keep this fixed seventeen-frame fragmentation vector independent of the maximum.
+        let dataFrameByteCount = 128 * 1024
         let legacyPrefixByteCount = BridgeProductWireContract.maximumContentBytes
         let finalDataFrameByteCount = 65
         var sourceData = Data(repeating: 0x61, count: legacyPrefixByteCount)
