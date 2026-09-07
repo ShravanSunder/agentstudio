@@ -8,7 +8,6 @@ import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/sha
 import { parseBridgeAppDevFixtureOptions } from './bridge-app-dev-fixture.js';
 import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
 import { BridgeAppDevSessionNotice } from './bridge-app-dev-session-notice.js';
-import { createBridgeAppDevTabOwnership } from './bridge-app-dev-tab-ownership.js';
 import { installBridgeAppDevTelemetryHost } from './bridge-app-dev-telemetry.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 import { createBridgeMarkdownRenderRuntimeWithClient } from './markdown/bridge-markdown-render-runtime.js';
@@ -27,39 +26,22 @@ const rootElement = document.querySelector('#root');
 if (rootElement !== null) {
 	const root = createRoot(rootElement);
 	let disposeViewer = (): void => {};
-	const ownership = createBridgeAppDevTabOwnership({
-		onSuperseded: (): void => {
-			disposeViewer();
-			renderInactiveSession();
-		},
-	});
 	function renderInactiveSession(): void {
-		root.render(
-			<BridgeAppDevSessionNotice
-				onTakeOver={(): void => {
-					ownership.clearSuperseded();
-					location.reload();
-				}}
-			/>,
-		);
+		disposeViewer();
+		root.render(<BridgeAppDevSessionNotice onRefresh={(): void => location.reload()} />);
 	}
-	if (ownership.isSuperseded()) renderInactiveSession();
-	else disposeViewer = mountDevelopmentViewer(root, ownership);
+	disposeViewer = mountDevelopmentViewer(root, renderInactiveSession);
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
 			root.unmount();
 			disposeViewer();
-			ownership.dispose();
 		},
 		{ once: true },
 	);
 }
 
-function mountDevelopmentViewer(
-	root: Root,
-	ownership: ReturnType<typeof createBridgeAppDevTabOwnership>,
-): () => void {
+function mountDevelopmentViewer(root: Root, onSessionInUse: () => void): () => void {
 	const searchParams = new URLSearchParams(window.location.search);
 	const options = parseBridgeAppDevFixtureOptions(searchParams);
 	const telemetryScenario = bridgeAppDevTelemetryScenario({
@@ -72,7 +54,7 @@ function mountDevelopmentViewer(
 	const productSessionHost = installBridgeAppDevProductSessionHost({
 		navigationIntent: options.navigationIntent,
 		reloadPage: (): void => location.reload(),
-		runBootstrap: ownership.runBootstrap,
+		onSessionInUse,
 	});
 	const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 	const markdownWorkerClient = createBridgeMarkdownRenderWebWorkerClient({

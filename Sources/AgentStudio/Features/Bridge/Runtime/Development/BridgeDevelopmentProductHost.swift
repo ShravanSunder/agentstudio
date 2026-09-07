@@ -186,7 +186,7 @@ package actor BridgeDevelopmentProductHost {
         for request: BridgeDevelopmentProductBootstrapRequest
     ) async throws -> Data {
         guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
-        try validateBootstrapTransition(request)
+        try await validateBootstrapTransition(request)
         let candidate = try await productSessionOwner.prepareCandidate(
             productAdmission: productAdmission
         )
@@ -299,10 +299,14 @@ package actor BridgeDevelopmentProductHost {
 
     private func validateBootstrapTransition(
         _ request: BridgeDevelopmentProductBootstrapRequest
-    ) throws {
+    ) async throws {
         switch request.reason {
         case .initial:
-            break
+            if let installation = await productSessionOwner.activeInstallation,
+                !(await installation.session.producerRegistry.metadataProducerLeases.isEmpty)
+            {
+                throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+            }
         case .workerReplacement:
             guard request.paneSessionId == paneSessionId else {
                 throw BridgeDevelopmentProductHostError.replacementPaneNotFound

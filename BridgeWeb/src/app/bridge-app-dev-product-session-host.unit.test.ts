@@ -30,36 +30,35 @@ const navigationIntent = {
 } as const;
 
 describe('Bridge app dev product session host', () => {
-	test('does not contact native bootstrap when dev tab ownership denies admission', async () => {
+	test('reports an occupied dev session without polling health or delivering a bootstrap', async () => {
 		// Arrange
 		const target = new EventTarget();
-		const deniedAdmission = vi.fn();
-		const fetchBootstrap = vi.fn<typeof fetch>(async () => new Response(null, { status: 403 }));
-		const host = installBridgeAppDevProductSessionHost({
-			fetchBootstrap,
+		const onSessionInUse = vi.fn();
+		const fetchHealth = vi.fn<typeof fetch>();
+		const delivered = vi.fn();
+		target.addEventListener('__bridge_product_session_bootstrap', delivered);
+		const props = {
+			fetchBootstrap: vi.fn<typeof fetch>(async () => new Response(null, { status: 409 })),
+			fetchHealth,
 			navigationIntent,
-			runBootstrap: async <TResult>(
-				_operation: () => Promise<TResult>,
-				signal: AbortSignal,
-			): Promise<TResult> => {
-				deniedAdmission(signal);
-				throw new Error('Development tab superseded');
-			},
+			onSessionInUse,
 			target,
-		});
-
-		// Act
-		target.dispatchEvent(
-			new CustomEvent('__bridge_product_session_bootstrap_request', {
-				detail: { reason: 'initial', requestId: 'blocked-tab-bootstrap' },
-			}),
-		);
-		await Promise.resolve();
-		host.dispose();
-
-		// Assert
-		expect(deniedAdmission).toHaveBeenCalledOnce();
-		expect(fetchBootstrap).not.toHaveBeenCalled();
+		};
+		const host = installBridgeAppDevProductSessionHost(props);
+		try {
+			// Act
+			target.dispatchEvent(
+				new CustomEvent('__bridge_product_session_bootstrap_request', {
+					detail: { reason: 'initial', requestId: 'occupied-session' },
+				}),
+			);
+			// Assert
+			await vi.waitFor(() => expect(onSessionInUse).toHaveBeenCalledOnce());
+			expect(delivered).not.toHaveBeenCalled();
+			expect(fetchHealth).not.toHaveBeenCalled();
+		} finally {
+			host.dispose();
+		}
 	});
 
 	test('keeps product capability minting out of page JavaScript', async () => {

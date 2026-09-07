@@ -170,6 +170,47 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
+    @Test("a second page cannot replace a session with an open metadata stream")
+    func secondPageCannotReplaceOpenMetadataStream() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-occupied-session")
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
+                let connection = try await openHTTPProductConnection(client: client)
+                let metadata = try await startHTTPMetadataStream(
+                    host: host, connection: connection, streamID: "occupied-session-stream"
+                )
+                do {
+                    _ = try await waitForAcknowledgedMetadataFrame(
+                        client: client, connection: connection, recorder: metadata.recorder
+                    ) { frame -> Bool? in
+                        if case .metadataStreamAccepted = frame { return true }
+                        return nil
+                    }
+                    // Act
+                    let response = try await client.execute(
+                        uri: "/__bridge-product/bootstrap", method: .post,
+                        headers: [.contentType: "application/json"],
+                        body: ByteBuffer(
+                            string:
+                                #"{"navigationIntent":{"commandId":"second-page","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                        )
+                    )
+                    // Assert: no new capability is issued; the original session still serves calls.
+                    #expect(response.status == .conflict)
+                    _ = try await queryHTTPFileSource(client: client, connection: connection, requestSequence: 2)
+                } catch {
+                    try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+                    throw error
+                }
+                try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+            }
+        }
+    }
+
     @MainActor
     @Test("first Review bootstrap does not create eager shared content files")
     func firstReviewBootstrapDoesNotCreateEagerSharedContentFiles() async throws {

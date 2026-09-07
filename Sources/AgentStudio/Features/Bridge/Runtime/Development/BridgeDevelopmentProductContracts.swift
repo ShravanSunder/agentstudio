@@ -35,6 +35,7 @@ package enum BridgeDevelopmentProductHostError: Error, Equatable, Sendable {
     case replacementPaneNotFound
     case reviewPublicationFailed
     case sessionActivationFailed
+    case sessionAlreadyOpen
     case shutdown
 }
 
