@@ -216,6 +216,7 @@ package enum AppPolicies {
         package static let maximumAvailableUndoCloses: Int = 10
         package static let undoGracePeriod: Duration = .seconds(300)
         package static let completedUndoHistoryLimit: Int = 100
+        package static let completedUndoPruneBatchSize: Int = 100
     }
 
     package enum TerminalActivation {

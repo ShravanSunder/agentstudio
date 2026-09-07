@@ -1,5 +1,19 @@
 import Foundation
 
+func decodeValidatedUndoCloseSnapshot(
+    version: Int, payload: Data, kind: String, members: [WorkspaceUndoCloseWrite.Member]
+) throws -> WorkspaceUndoCloseSnapshot {
+    guard version == WorkspaceUndoCloseSnapshot.currentVersion else {
+        throw WorkspaceUndoJournalFailure.unsupportedSnapshotVersion(version)
+    }
+    let snapshot = try JSONDecoder().decode(WorkspaceUndoCloseSnapshot.self, from: payload)
+    guard snapshot.kind.rawValue == kind else { throw WorkspaceUndoJournalFailure.snapshotKindMismatch }
+    guard Set(members).count == members.count,
+        members.count == snapshot.members.count, Set(members) == Set(snapshot.members)
+    else { throw WorkspaceUndoJournalFailure.snapshotMembershipMismatch }
+    return snapshot
+}
+
 /// Versioned value payload for durable undo. It contains no native or observation ownership.
 package enum WorkspaceUndoCloseSnapshot: Codable, Equatable, Sendable {
     package static let currentVersion = 1

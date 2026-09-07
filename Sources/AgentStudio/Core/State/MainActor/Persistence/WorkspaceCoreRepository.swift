@@ -211,6 +211,17 @@ package struct WorkspaceCoreRepository: Sendable {
                 )
             }
             try validatePaneGraph(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
+            if case .restore(let closeID, let time) = replacement.undoChange {
+                // Validate and consume the undo owner before admitting its proposed live rows.
+                // The encompassing transaction rolls this back if any subsequent write fails.
+                try restoreUndoClose(
+                    closeID: closeID,
+                    workspaceID: replacement.workspace.id,
+                    time: time,
+                    paneGraph: replacement.paneGraph,
+                    database: database
+                )
+            }
             try replacePaneGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
             try validateTabShells(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try replaceTabShellRows(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
@@ -222,14 +233,8 @@ package struct WorkspaceCoreRepository: Sendable {
                     throw WorkspaceUndoCloseWriteFailure.workspaceMismatch
                 }
                 return try writeUndoClose(undoClose, in: database)
-            case .some(.restore(let closeID, let time)):
-                try restoreUndoClose(
-                    closeID: closeID,
-                    workspaceID: replacement.workspace.id,
-                    time: time,
-                    paneGraph: replacement.paneGraph,
-                    database: database
-                )
+            case .some(.restore):
+                try pruneFinishedUndoRows(workspaceID: replacement.workspace.id, database: database)
                 return try readUndoJournalReceipt(
                     workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
             case nil:

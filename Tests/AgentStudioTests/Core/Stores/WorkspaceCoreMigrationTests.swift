@@ -102,6 +102,7 @@ struct WorkspaceCoreMigrationTests {
                 "014_drop_shows_minimized_panes",
                 "015_drop_pane_topology_facets",
                 "016_add_pane_association_facets",
+                "017_create_session_ownership_journal",
             ]
         )
     }

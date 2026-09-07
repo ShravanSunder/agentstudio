@@ -63,13 +63,14 @@ extension WorkspaceCoreRepository {
                 return .init(closeID: closeID, members: members)
             }
             try markFinishedUndoSessionsForCleanup(database, workspaceID: workspaceID, requestedAt: time.utc)
+            try pruneFinishedUndoRows(workspaceID: workspaceID, database: database)
             return retired
         }
     }
 }
 
 func validateUndoJournalTime(_ time: WorkspaceUndoJournalTime) throws {
-    guard !time.bootID.isEmpty, time.uptimeNanoseconds >= 0 else {
+    guard !time.bootID.isEmpty, time.uptimeNanoseconds >= 0, time.utc.timeIntervalSince1970.isFinite else {
         throw WorkspaceUndoJournalFailure.invalidClock
     }
 }
@@ -81,17 +82,11 @@ func decodeUndoClose(_ row: Row, database: Database) throws -> WorkspaceUndoClos
         throw WorkspaceUndoJournalFailure.invalidStoredIdentifier
     }
     let version: Int = row["snapshot_version"]
-    guard version == WorkspaceUndoCloseSnapshot.currentVersion else {
-        throw WorkspaceUndoJournalFailure.unsupportedSnapshotVersion(version)
-    }
     let payload: Data = row["snapshot_payload"]
-    let snapshot = try JSONDecoder().decode(WorkspaceUndoCloseSnapshot.self, from: payload)
     let kind: String = row["close_kind"]
-    guard snapshot.kind.rawValue == kind else { throw WorkspaceUndoJournalFailure.snapshotKindMismatch }
     let members = try readUndoCloseMembers(closeID: closeID, database: database)
-    guard members.count == snapshot.members.count, Set(members) == Set(snapshot.members) else {
-        throw WorkspaceUndoJournalFailure.snapshotMembershipMismatch
-    }
+    let snapshot = try decodeValidatedUndoCloseSnapshot(
+        version: version, payload: payload, kind: kind, members: members)
     return .init(
         closeID: closeID,
         workspaceID: workspaceID,

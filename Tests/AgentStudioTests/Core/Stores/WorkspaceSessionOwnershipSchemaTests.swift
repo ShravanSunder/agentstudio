@@ -107,7 +107,7 @@ struct WorkspaceSessionOwnershipSchemaTests {
             try database.execute(
                 sql: """
                     INSERT INTO workspace_terminal_session_ownership(session_id, cleanup_state)
-                    VALUES (?, 'owned')
+                    VALUES (?, 'owned') ON CONFLICT(session_id) DO NOTHING
                     """,
                 arguments: [sessionID]
             )

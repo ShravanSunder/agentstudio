@@ -4,6 +4,10 @@ import GRDB
 
 /// Executes inside the same transaction as the workspace composition replacement.
 func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) throws -> WorkspaceUndoJournalReceipt {
+    _ = try decodeValidatedUndoCloseSnapshot(
+        version: close.snapshotVersion, payload: close.snapshotPayload,
+        kind: close.kind.rawValue, members: close.members
+    )
     let previousSequence =
         try Int64.fetchOne(
             database,
@@ -82,6 +86,7 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
         workspaceID: close.workspaceID,
         requestedAt: close.closedAt
     )
+    try pruneFinishedUndoRows(workspaceID: close.workspaceID, database: database)
     return try readUndoJournalReceipt(workspaceID: close.workspaceID, retiredCloses: retiredCloses, database: database)
 }
 

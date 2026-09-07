@@ -21,6 +21,63 @@ extension WorkspaceCoreMigrations {
         WHERE zmx_session_id IS NOT NULL AND length(trim(zmx_session_id)) > 0
         """,
         """
+        CREATE TABLE pane_content_terminal_with_ownership (
+            pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            lifetime TEXT NOT NULL,
+            zmx_session_id TEXT REFERENCES workspace_terminal_session_ownership(session_id) ON DELETE RESTRICT
+        )
+        """,
+        """
+        INSERT INTO pane_content_terminal_with_ownership(pane_id, provider, lifetime, zmx_session_id)
+        SELECT pane_id, provider, lifetime, zmx_session_id FROM pane_content_terminal
+        """,
+        "DROP TABLE pane_content_terminal",
+        "ALTER TABLE pane_content_terminal_with_ownership RENAME TO pane_content_terminal",
+        """
+        CREATE INDEX workspace_terminal_session_live_owner ON pane_content_terminal(zmx_session_id)
+        """,
+        """
+        CREATE TRIGGER pane_content_terminal_matches_pane_content_type
+        BEFORE INSERT ON pane_content_terminal
+        WHEN (SELECT content_type FROM pane WHERE id = NEW.pane_id) != '\(SQLitePaneContentTypeStorage.terminal)'
+        BEGIN
+            SELECT RAISE(ABORT, 'pane_content_terminal requires terminal pane');
+        END
+        """,
+        """
+        CREATE TRIGGER pane_content_terminal_update_matches_pane_content_type
+        BEFORE UPDATE OF pane_id ON pane_content_terminal
+        WHEN (SELECT content_type FROM pane WHERE id = NEW.pane_id) != '\(SQLitePaneContentTypeStorage.terminal)'
+        BEGIN
+            SELECT RAISE(ABORT, 'pane_content_terminal requires terminal pane');
+        END
+        """,
+        """
+        CREATE TRIGGER workspace_terminal_session_insert_ownership
+        BEFORE INSERT ON pane_content_terminal WHEN NEW.zmx_session_id IS NOT NULL
+        BEGIN
+            INSERT INTO workspace_terminal_session_ownership(session_id) VALUES (NEW.zmx_session_id)
+                ON CONFLICT(session_id) DO NOTHING;
+            SELECT RAISE(ABORT, 'terminal session is retiring')
+            WHERE NOT EXISTS (
+                SELECT 1 FROM workspace_terminal_session_ownership
+                WHERE session_id = NEW.zmx_session_id AND cleanup_state = 'owned'
+            );
+        END
+        """,
+        """
+        CREATE TRIGGER workspace_terminal_session_update_ownership
+        BEFORE UPDATE OF zmx_session_id ON pane_content_terminal
+        WHEN NEW.zmx_session_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM workspace_terminal_session_ownership
+            WHERE session_id = NEW.zmx_session_id AND cleanup_state = 'owned'
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'terminal session requires registered ownership');
+        END
+        """,
+        """
         CREATE INDEX workspace_session_cleanup_state
         ON workspace_terminal_session_ownership(cleanup_state)
         """,

@@ -26,17 +26,23 @@ struct WorkspaceUndoClosePersistenceTests {
             closeIDs.append(closeID)
             let sessionID = shareSession ? sharedSessionID : ZmxSessionID.generateUUIDv7()
             sessionIDs.append(sessionID)
+            let pane = Pane(
+                id: UUIDv7.generate(),
+                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: sessionID)),
+                metadata: PaneMetadata(createdAt: Date(timeIntervalSince1970: 100))
+            )
+            let snapshot = WorkspaceUndoCloseSnapshot.tab(tab: Tab(paneId: pane.id), panes: [pane], tabIndex: 0)
             let request = WorkspaceUndoCloseWrite(
                 closeID: closeID,
                 workspaceID: workspaceID,
-                kind: .pane,
+                kind: .tab,
                 closedAt: Date(timeIntervalSince1970: 100 + Double(index)),
                 expiresAt: Date(timeIntervalSince1970: 400 + Double(index)),
                 deadlineBootID: "boot-fixture",
                 deadlineUptimeNanoseconds: Int64(400 + index) * 1_000_000_000,
                 snapshotVersion: 1,
-                snapshotPayload: Data("{}".utf8),
-                members: [.init(paneID: UUIDv7.generate(), sessionID: sessionID)]
+                snapshotPayload: try JSONEncoder().encode(snapshot),
+                members: snapshot.members
             )
             let receipt = try fixture.repository.replaceWorkspaceSnapshot(
                 workspace: workspace,
@@ -74,8 +80,8 @@ struct WorkspaceUndoClosePersistenceTests {
         }
     }
 
-    @Test("failed undo insertion rolls back its workspace composition change")
-    func failedUndoInsertionRollsBackComposition() throws {
+    @Test("malformed undo payload rolls back its workspace composition change")
+    func malformedUndoPayloadRollsBackComposition() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let workspaceID = UUIDv7.generate()
         let paneID = UUIDv7.generate()
@@ -96,12 +102,12 @@ struct WorkspaceUndoClosePersistenceTests {
             expiresAt: Date(timeIntervalSince1970: 400),
             deadlineBootID: "boot-fixture",
             deadlineUptimeNanoseconds: 400_000_000_000,
-            snapshotVersion: 0,
+            snapshotVersion: 1,
             snapshotPayload: Data("{}".utf8),
             members: [.init(paneID: paneID, sessionID: nil)]
         )
 
-        #expect(throws: DatabaseError.self) {
+        #expect(throws: DecodingError.self) {
             try fixture.repository.replaceWorkspaceSnapshot(
                 workspace: workspace,
                 paneGraph: .init(panes: []),
