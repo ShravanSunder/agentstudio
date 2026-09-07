@@ -35,6 +35,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 const transparentBackground = 'rgba(0, 0, 0, 0)';
 const floatingBorderColor = 'rgb(88, 88, 92)';
 const floatingSurfaceColor = 'rgb(41, 41, 41)';
+
+test('keeps lighter chrome and navigation separate from the reading canvas', () => {
+	const style = getComputedStyle(document.documentElement);
+	expect(style.getPropertyValue('--palette-neutral-n0').trim()).toBe('#272727');
+	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#27282b');
+	expect(style.getPropertyValue('--palette-neutral-n1').trim()).toBe('#282c34');
+});
 const popoverElevation = ['black/0.45 0px 10px 24px -8px', 'black/0.35 0px 3px 8px -2px'] as const;
 const contextPanelElevation = [
 	'black/0.45 -10px 8px 24px -8px',
