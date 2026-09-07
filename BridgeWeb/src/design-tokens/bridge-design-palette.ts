@@ -3,12 +3,12 @@
  * The design-token check enforces exact equality.
  */
 export const bridgeDesignPalette = {
-	'--palette-neutral-n0': '#1d2026',
+	'--palette-neutral-n0': '#1f1f1f',
 	'--palette-neutral-n1': '#282c34',
-	'--palette-neutral-n2': '#30343d',
-	'--palette-neutral-n3': '#323641',
-	'--palette-neutral-n4': '#343842',
-	'--palette-neutral-n5': '#464b57',
+	'--palette-neutral-n2': '#222222',
+	'--palette-neutral-n3': '#292929',
+	'--palette-neutral-n4': '#363636',
+	'--palette-neutral-n5': '#454545',
 	'--palette-text-primary': '#ffffff',
 	'--palette-text-secondary': '#eaeaea',
 	'--palette-text-muted': '#c5c8c6',

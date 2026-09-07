@@ -50,7 +50,7 @@ function ToggleGroup({
 			data-orientation={orientation}
 			style={style}
 			className={cn(
-				'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-md data-[variant=segmented]:h-6 data-[variant=segmented]:gap-0.5 data-[variant=segmented]:border data-[variant=segmented]:border-input data-[variant=segmented]:bg-surface data-[variant=segmented]:p-px data-vertical:flex-col data-vertical:items-stretch',
+				'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-md data-[variant=segmented]:h-6 data-[variant=segmented]:gap-0.5 data-[variant=segmented]:border data-[variant=segmented]:border-input data-[variant=segmented]:bg-muted data-[variant=segmented]:p-px data-vertical:flex-col data-vertical:items-stretch',
 				className,
 			)}
 			{...props}

@@ -100,12 +100,12 @@
 
 	/* @design-primitives:start */
 	/* Neutral ramp: darkest chrome through strongest selected surface. */
-	--palette-neutral-n0: #1d2026;
+	--palette-neutral-n0: #1f1f1f;
 	--palette-neutral-n1: #282c34;
-	--palette-neutral-n2: #30343d;
-	--palette-neutral-n3: #323641;
-	--palette-neutral-n4: #343842;
-	--palette-neutral-n5: #464b57;
+	--palette-neutral-n2: #222222;
+	--palette-neutral-n3: #292929;
+	--palette-neutral-n4: #363636;
+	--palette-neutral-n5: #454545;
 	/* Text tiers: primary through deliberately faint supporting text. */
 	--palette-text-primary: #ffffff;
 	--palette-text-secondary: #eaeaea;
@@ -186,7 +186,7 @@
 	/* Secondary text. */
 	--muted-foreground: var(--palette-text-muted);
 	/* Hover and active wash on rows and controls. */
-	--accent: var(--palette-neutral-n4);
+	--accent: var(--palette-neutral-n5);
 	/* Primary text on accent fills. */
 	--accent-foreground: var(--palette-text-primary);
 	/* Errors, deletions, and destructive actions. */
@@ -216,7 +216,7 @@
 	--chart-4: var(--palette-mauve);
 	--chart-5: var(--palette-red);
 	/* File-tree and rail chrome. */
-	--sidebar: var(--palette-neutral-n0);
+	--sidebar: var(--palette-neutral-n2);
 	--sidebar-foreground: var(--palette-text-primary);
 	--sidebar-primary: var(--primary);
 	--sidebar-primary-foreground: var(--palette-ansi-black);

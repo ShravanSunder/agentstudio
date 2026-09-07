@@ -34,7 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 
 const transparentBackground = 'rgba(0, 0, 0, 0)';
 const floatingBorderColor = 'rgb(88, 88, 92)';
-const floatingSurfaceColor = 'rgb(50, 54, 65)';
+const floatingSurfaceColor = 'rgb(41, 41, 41)';
 const popoverElevation = ['black/0.45 0px 10px 24px -8px', 'black/0.35 0px 3px 8px -2px'] as const;
 const contextPanelElevation = [
 	'black/0.45 -10px 8px 24px -8px',

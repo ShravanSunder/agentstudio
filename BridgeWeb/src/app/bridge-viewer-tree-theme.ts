@@ -43,12 +43,12 @@ export type BridgeViewerTreeStyle = CSSProperties &
 
 export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
 	...bridgeGhosttyCatppuccinTreeStyles,
-	backgroundColor: 'var(--background)',
+	backgroundColor: 'var(--sidebar)',
 	colorScheme: 'dark',
 	color: 'var(--foreground)',
 	display: 'block',
 	height: '100%',
-	'--trees-bg-override': 'var(--background)',
+	'--trees-bg-override': 'var(--sidebar)',
 	'--trees-fg-override': 'var(--foreground)',
 	'--trees-fg-muted-override': 'var(--faint-foreground)',
 	'--trees-bg-muted-override': 'var(--muted)',
