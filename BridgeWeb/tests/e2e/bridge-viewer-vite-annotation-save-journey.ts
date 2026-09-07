@@ -308,12 +308,13 @@ export async function runAnnotationSaveJourney(props: {
 		if (projectionOperationCorrelationId === null) {
 			throw new Error('Saved annotation projection lifecycle correlation was not retained.');
 		}
-		const sidecarDrainReport = await drainAnnotationLifecycleTelemetry(page);
+		// The committed overlay can be visible before authoritative projection finishes.
+		// Draining seals producers, so first await this operation's exact terminal stages.
 		const correlatedLifecycleStageCount = await waitForCompleteAnnotationLifecycleTelemetry({
 			operationCorrelationId: projectionOperationCorrelationId,
 			page,
-			sidecarDrainReport,
 		});
+		await drainAnnotationLifecycleTelemetry(page);
 
 		await page.reload({
 			timeout: annotationSaveJourneyTimeoutMilliseconds,

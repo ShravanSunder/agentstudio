@@ -43,7 +43,6 @@ export async function drainAnnotationLifecycleTelemetry(page: Page): Promise<unk
 export async function waitForCompleteAnnotationLifecycleTelemetry(props: {
 	readonly operationCorrelationId: string;
 	readonly page: Page;
-	readonly sidecarDrainReport: unknown;
 }): Promise<number> {
 	const statusUrl = new URL('/__bridge-dev-telemetry/status', props.page.url()).toString();
 	let completedStageCount: number | null = null;
@@ -136,10 +135,22 @@ export async function waitForCompleteAnnotationLifecycleTelemetry(props: {
 			)
 			.toBe(true);
 	} catch (error: unknown) {
+		const sidecarSnapshot: unknown = await props.page
+			.evaluate(async (): Promise<unknown> => {
+				const control: unknown = Reflect.get(globalThis, '__bridgeTelemetrySidecarControl');
+				if (typeof control !== 'object' || control === null) return { kind: 'unavailable' };
+				const snapshot: unknown = Reflect.get(control, 'snapshot');
+				if (typeof snapshot !== 'function') return { kind: 'unavailable' };
+				return await Reflect.apply(snapshot, control, []);
+			})
+			.catch((snapshotError: unknown): unknown => ({
+				kind: 'snapshot-failed',
+				reason: String(snapshotError),
+			}));
 		throw new Error(
 			`Annotation lifecycle telemetry did not complete for the saved projection: lifecycle=${JSON.stringify(
 				latestDiagnostic,
-			)} sidecarDrain=${JSON.stringify(props.sidecarDrainReport)}.`,
+			)} sidecarSnapshot=${JSON.stringify(sidecarSnapshot)}.`,
 			{ cause: error },
 		);
 	}

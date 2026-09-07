@@ -28,7 +28,7 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 	});
 	page.on('requestfailed', (request: Request): void => {
 		failedRequests.push(
-			`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown'}`,
+			`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown'} request=${request.postData()?.slice(0, 1_000) ?? ''}`,
 		);
 	});
 	page.on('request', (request: Request): void => {
@@ -107,7 +107,7 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 				productResponseCount: productResponses.length,
 				productResponses: productResponses
 					.slice(-8)
-					.map((response): string => response.slice(0, 500)),
+					.map((response): string => response.slice(0, 1_500)),
 				reviewComparison,
 				url: page.url(),
 			});
