@@ -710,9 +710,10 @@ function metadataWindowCacheKey(displayItem: BridgeWorkerReviewDisplayItem): str
 
 function presentationItemKind(displayItem: BridgeWorkerReviewDisplayItem): 'diff' | 'file' {
 	const roles = displayItem.metadata.contentRoles;
-	return roles.includes('base') || roles.includes('head') || roles.includes('diff')
-		? 'diff'
-		: 'file';
+	return roles.includes('file') &&
+		!roles.some((role) => role === 'base' || role === 'head' || role === 'diff')
+		? 'file'
+		: 'diff';
 }
 
 function presentationPackageForDisplay(props: {

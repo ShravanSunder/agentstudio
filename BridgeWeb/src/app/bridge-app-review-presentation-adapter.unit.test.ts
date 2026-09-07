@@ -11,6 +11,33 @@ import { bridgeReviewPresentationSnapshotForDisplay } from './bridge-app-review-
 import type { BridgeReviewDirectDisplayStore } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge Review presentation adapter', () => {
+	test.each([
+		{ roles: [], expectedKind: 'diff' },
+		{ roles: ['file'], expectedKind: 'file' },
+		{ roles: ['base', 'head'], expectedKind: 'diff' },
+	] as const)(
+		'classifies pending and hydrated roles consistently with the worker: $expectedKind',
+		({ roles, expectedKind }) => {
+			const item = reviewDisplayItem('kind-item', 'Sources/Kind.swift');
+			const result = bridgeReviewPresentationSnapshotForDisplay({
+				catalogSnapshot: catalogSnapshot({ itemCount: 1, revision: 1, treeRowCount: 1 }),
+				displayStore: displayStore({
+					items: [{ ...item, metadata: { ...item.metadata, contentRoles: roles } }],
+					rawTreeRows: [
+						{
+							depth: 0,
+							isDirectory: false,
+							itemId: 'kind-item',
+							path: 'Sources/Kind.swift',
+							rowId: 'kind-row',
+						},
+					],
+				}),
+				reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, revision: 1, treeRowCount: 1 }),
+			});
+			expect(result?.reviewPackage.itemsById['kind-item']?.itemKind).toBe(expectedKind);
+		},
+	);
 	test('projects a ready worker display into a correlated recovered-shell snapshot', () => {
 		// Arrange
 		const displayItem = reviewDisplayItem('item-source', 'Sources/App/Feature.swift');
