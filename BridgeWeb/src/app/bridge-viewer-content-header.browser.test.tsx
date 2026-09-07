@@ -51,7 +51,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		expect(modeIcon.textContent).toBe('');
 		expect(modeIcon.querySelector('svg')).not.toBeNull();
 		expect(verticalCenter(modeIconBounds)).toBe(verticalCenter(titleBoxWithStatus));
-		expect(Math.round(topbarBoxWithStatus.height)).toBe(36);
+		expect(Math.round(topbarBoxWithStatus.height)).toBe(32);
 		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
 
 		// Act
@@ -105,7 +105,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 			document.querySelector('[data-testid="bridge-viewer-context-review"]'),
 		);
 
-		expect(topbar.className).toContain('h-9');
+		expect(topbar.className).toContain('h-8');
 		expect(switcher.closest('[data-testid="bridge-viewer-content-topbar"]')).toBe(topbar);
 		expect(switcher.getAttribute('data-slot')).toBe('toggle-group');
 		expect(switcher.getAttribute('aria-label')).toBe('Bridge viewer context');
@@ -120,7 +120,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(Math.round(reviewButtonBox.height)).toBe(20);
 		expect(Math.abs(fileButtonBox.width - reviewButtonBox.width)).toBeLessThanOrEqual(1);
 		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
-		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(29, 32, 38)');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(54, 54, 54)');
 		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(reviewButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(fileButton.getAttribute('aria-label')).toBe('Files');
@@ -166,7 +166,7 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		expect(switcher.getAttribute('role')).toBe('radiogroup');
 		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
 		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
-		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(29, 32, 38)');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(54, 54, 54)');
 		expect(segments).toHaveLength(3);
 		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
 			'toggle-group-item',

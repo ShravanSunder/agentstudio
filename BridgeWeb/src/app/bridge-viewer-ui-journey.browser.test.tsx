@@ -167,6 +167,10 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		);
 		expect(enabledReset.hasAttribute('data-disabled')).toBe(false);
 		await clickAndSettle(enabledReset);
+		await finishAnimations(settingsPopup);
+		await act(async (): Promise<void> => {
+			await expect.poll(() => document.activeElement).toBe(settingsTrigger);
+		});
 		await expect.poll(() => codeViewOverflow(harness.renderResult.container)).toContain('wrap');
 		await expectSelectedPath(harness.renderResult.container, selectedFile.path);
 

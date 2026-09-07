@@ -395,8 +395,10 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		const selectorSurface = rendered.getByTestId('bridge-review-comparison-branch-selector');
 		await expect.element(selectorSurface).toBeVisible();
-		expect(getComputedStyle(selectorSurface.element()).borderTopWidth).toBe('1px');
-		expect(selectorSurface.element().querySelector('[data-slot="input-group"]')).not.toBeNull();
+		expect(getComputedStyle(selectorSurface.element()).borderTopWidth).toBe('0px');
+		const inputFrame = selectorSurface.element().querySelector('[data-slot="input-group"]');
+		if (inputFrame === null) throw new Error('Expected the owned input-group frame.');
+		expect(getComputedStyle(inputFrame).borderTopWidth).toBe('1px');
 		expect(
 			rendered
 				.getByTestId('bridge-review-comparison-content')
@@ -416,7 +418,8 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const title = rendered.getByRole('heading', { name: 'Compare Worktree' });
-		expect(getComputedStyle(title.element()).textTransform).toBe('uppercase');
+		expect(getComputedStyle(title.element()).textTransform).toBe('none');
+		expect(getComputedStyle(title.element()).fontSize).toBe('11px');
 		const compareWithHeading = rendered.getByText('Compare with', { exact: true });
 		await expect.element(compareWithHeading).toBeVisible();
 		const targetKindSelector = rendered.getByRole('group', { name: 'Comparison target kind' });
@@ -502,7 +505,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const rendered = await renderComparisonTargetPicker();
 		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
 		expect(getComputedStyle(trigger.element()).fontSize).toBe('11px');
-		expect(getComputedStyle(trigger.element()).lineHeight).toBe('11px');
+		expect(getComputedStyle(trigger.element()).lineHeight).toBe('14px');
 		expect(getComputedStyle(trigger.element()).color).toBe('rgb(197, 200, 198)');
 
 		// Act
@@ -512,7 +515,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
-		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(50, 54, 65)');
+		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(41, 41, 41)');
 	});
 
 	test('keeps the complete selected target readable in the closed toolbar control', async () => {
@@ -595,7 +598,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const compareButton = rendered.getByRole('button', { name: 'Compare to this commit' });
-		expect(getComputedStyle(compareButton.element()).backgroundColor).toBe('rgb(52, 56, 66)');
+		expect(getComputedStyle(compareButton.element()).backgroundColor).toBe('rgb(54, 54, 54)');
 	});
 });
 
