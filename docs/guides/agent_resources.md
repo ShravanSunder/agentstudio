@@ -90,8 +90,19 @@ iteration loop for Bridge development instead of repeatedly rebuilding the full
 app. The default command supervises both processes from the repository root:
 
 ```bash
-pnpm --dir BridgeWeb run dev
+bridge_vite_cache_root="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-vite-cache.XXXXXX")"
+BRIDGE_WEB_VITE_CACHE_DIR="$bridge_vite_cache_root" pnpm --dir BridgeWeb run dev
 ```
+
+Give each live Vite server its own cache directory, including parallel agent
+sessions on different ports. A port or browser-tab guard does not isolate Vite's
+on-disk dependency cache. Shared cache replacement can leave a running server
+advertising dependencies that return `504 Outdated Optimize Dep`; lazy Markdown
+workers then fail to load even when the Swift backend and content are healthy.
+The E2E launcher already uses an owned `vite-cache` under its fixture data root.
+The command above applies the same isolation to manual sessions. A fresh cache
+requires initial dependency prebundling; it does not change packaged rendering.
+Do not clear another running server's cache or compensate with product retries.
 
 Vite reports frontend readiness before the supervised Swift build finishes.
 Wait for the distinct `[bridge-backend] Bridge development server is ready.`
