@@ -427,22 +427,7 @@ struct CIFastLaneWorkflowTests {
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
-        let captureBlock = """
-                    run: |
-                      /usr/bin/log stream --style compact --no-backtrace --level info --timeout 20m \\
-                        --predicate 'subsystem == "com.agentstudio" AND category == "ProcessExecutor" AND eventMessage BEGINSWITH "lifecycle phase="' \\
-                        > "$RUNNER_TEMP/process-lifecycle.log" 2> "$RUNNER_TEMP/process-lifecycle-status.log" &
-                      diagnostic_pid=$!
-                      trap 'kill "$diagnostic_pid" 2>/dev/null || true; wait "$diagnostic_pid" 2>/dev/null || true' EXIT
-                      mise run --skip-deps --raw test:swift:large
-            """
-        #expect(ciLargeLaneStep.contains(captureBlock))
-        #expect(ciLargeLaneStep.contains("AGENTSTUDIO_PROCESS_LIFECYCLE_DIAGNOSTICS: \"1\""))
-        let diagnosticUpload = try workflowStep(named: "Upload process lifecycle diagnostics", in: ciWorkflow)
-        #expect(diagnosticUpload.contains("if: always()"))
-        #expect(diagnosticUpload.contains("uses: actions/upload-artifact@v4"))
-        #expect(diagnosticUpload.contains("path: ${{ runner.temp }}/process-lifecycle.log"))
-        #expect(diagnosticUpload.contains("retention-days: 1"))
+        #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_large_non_webkit_swift_tests"))

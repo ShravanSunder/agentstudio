@@ -33,7 +33,6 @@ const watchedManifestAndTaskFiles = ['.mise.toml', 'Package.swift', 'Package.res
 const watchedBuildScriptFiles = [
 	'scripts/build-bridge-development-server.sh',
 	'scripts/swift-build-slot.sh',
-	'scripts/swift-build-pool-lock.sh',
 	'scripts/vendor-worktree.sh',
 ] as const;
 

@@ -73,7 +73,6 @@ describe('Bridge development server Vite watch boundary', () => {
 			'Sources/AgentStudioProgrammaticControl/Command.swift',
 			'scripts/build-bridge-development-server.sh',
 			'scripts/swift-build-slot.sh',
-			'scripts/swift-build-pool-lock.sh',
 			'scripts/vendor-worktree.sh',
 		];
 
@@ -128,7 +127,6 @@ describe('Bridge development server Vite watch boundary', () => {
 			join(repoRootPath, 'Sources/AgentStudioProgrammaticControl'),
 			join(repoRootPath, 'scripts/build-bridge-development-server.sh'),
 			join(repoRootPath, 'scripts/swift-build-slot.sh'),
-			join(repoRootPath, 'scripts/swift-build-pool-lock.sh'),
 			join(repoRootPath, 'scripts/vendor-worktree.sh'),
 		]);
 	});

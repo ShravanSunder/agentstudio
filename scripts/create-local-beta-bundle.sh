@@ -21,27 +21,21 @@ bundle_path="$artifact_dir/AgentStudio Beta.app"
 signing_identity="${SIGNING_IDENTITY:--}"
 signing_timestamp="${SIGNING_TIMESTAMP:-0}"
 
-# Serialize selection through final verification across all worktrees sharing
-# this destination root. Kernel locks are keyed by the canonical filesystem path.
-mkdir -p "$(dirname "$artifact_dir")"
-publication_root="$(cd "$(dirname "$artifact_dir")" && pwd -P)"
-artifact_dir="$publication_root/$(basename "$artifact_dir")"
-exec 5>"$publication_root/.agentstudio-local-beta.lock"
-/usr/bin/lockf -s -t 0 5 || { echo "local beta publication already in progress" >&2; exit 1; }
-bundle_path="$artifact_dir/AgentStudio Beta.app"
 mkdir -p "$artifact_dir"
 if [ -e "$bundle_path" ]; then
-  artifact_dir="$(mktemp -d "$publication_root/$(basename "$artifact_dir").XXXXXX")"
+  artifact_dir="$beta_artifact_root/${marketing_version}-$(date +%Y%m%d%H%M%S)"
   bundle_path="$artifact_dir/AgentStudio Beta.app"
+  mkdir -p "$artifact_dir"
 fi
 
-APP_BUNDLE_PATH="$bundle_path" \
 APP_MARKETING_VERSION="$marketing_version" \
 APP_BUILD_VERSION="$build_version" \
 APP_RELEASE_CHANNEL=beta \
 SIGNING_IDENTITY="$signing_identity" \
 SIGNING_TIMESTAMP="$signing_timestamp" \
   mise run create-app-bundle
+
+/usr/bin/ditto "$PROJECT_ROOT/AgentStudio.app" "$bundle_path"
 
 echo "local beta bundle: $bundle_path"
 echo "signing identity: $signing_identity"

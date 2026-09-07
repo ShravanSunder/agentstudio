@@ -8,7 +8,7 @@
 #   - Normal exit / Ctrl-C / SIGTERM: trap fires, .slot-claim removed.
 #   - SIGKILL on the calling shell: trap doesn't fire, .slot-claim leaks.
 #     Recover with `mise run clean-agent-builds`, which removes claim dirs
-#     only when the recorded owner is dead and no build files remain open.
+#     under any .build-agent-* whose `lsof +D` shows no open file descriptors.
 #
 # Caller should source this without arguments:
 #   source scripts/swift-build-slot.sh
@@ -18,7 +18,6 @@ if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
   if { [ "${CI:-}" = "true" ] || [ "${GITHUB_ACTIONS:-}" = "true" ]; } && \
     [ "$SWIFT_BUILD_DIR" = ".build-ci" ]
   then
-    swift_build_slot_release() { :; }
     echo "[swift-build-slot] using CI build path $SWIFT_BUILD_DIR"
     return 0 2>/dev/null || exit 0
   fi
@@ -26,44 +25,15 @@ if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/swift-build-pool-lock.sh"
-acquire_swift_build_pool_lock || { return 1 2>/dev/null || exit 1; }
-trap release_swift_build_pool_lock EXIT
-
-swift_build_slot_release() {
-  acquire_swift_build_pool_lock wait || return 1
-  # Closing our descriptor does not release copies held by surviving children.
-  exec 6>&-
-  exec 6>".swift-build-slot-${SWIFT_BUILD_DIR##*-}.lock"
-  if /usr/bin/lockf -s -t 0 6; then
-    rm -f "$SWIFT_BUILD_DIR/.slot-claim/owner-pid"
-    rmdir "$SWIFT_BUILD_DIR/.slot-claim"
-  fi
-  exec 6>&-
-  release_swift_build_pool_lock
-}
-
 for _swift_build_slot_n in 1 2; do
   _swift_build_slot_dir=".build-agent-${_swift_build_slot_n}"
-  exec 6>".swift-build-slot-${_swift_build_slot_n}.lock"
-  if ! /usr/bin/lockf -s -t 0 6; then
-    exec 6>&-
-    continue
-  fi
   mkdir -p "$_swift_build_slot_dir"
   if mkdir "$_swift_build_slot_dir/.slot-claim" 2>/dev/null; then
-    printf '%s\n' "$$" > "$_swift_build_slot_dir/.slot-claim/owner-pid"
+    trap "rm -rf '$_swift_build_slot_dir/.slot-claim'" EXIT
     export SWIFT_BUILD_DIR="$_swift_build_slot_dir"
     break
   fi
-  exec 6>&-
 done
-
-release_swift_build_pool_lock
-trap - EXIT
-if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
-  trap swift_build_slot_release EXIT
-fi
 
 if [ -z "${SWIFT_BUILD_DIR:-}" ]; then
   echo "swift-build-slot: all 2 slots are busy" >&2
