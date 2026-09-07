@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 
 import { Toaster } from '@/components/ui/sonner.js';
 
@@ -7,6 +7,8 @@ import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/wo
 import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
 import { parseBridgeAppDevFixtureOptions } from './bridge-app-dev-fixture.js';
 import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
+import { BridgeAppDevSessionNotice } from './bridge-app-dev-session-notice.js';
+import { createBridgeAppDevTabOwnership } from './bridge-app-dev-tab-ownership.js';
 import { installBridgeAppDevTelemetryHost } from './bridge-app-dev-telemetry.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 import { createBridgeMarkdownRenderRuntimeWithClient } from './markdown/bridge-markdown-render-runtime.js';
@@ -23,6 +25,41 @@ await preloadBridgeReviewViewerShell();
 const rootElement = document.querySelector('#root');
 
 if (rootElement !== null) {
+	const root = createRoot(rootElement);
+	let disposeViewer = (): void => {};
+	const ownership = createBridgeAppDevTabOwnership({
+		onSuperseded: (): void => {
+			disposeViewer();
+			renderInactiveSession();
+		},
+	});
+	function renderInactiveSession(): void {
+		root.render(
+			<BridgeAppDevSessionNotice
+				onTakeOver={(): void => {
+					ownership.clearSuperseded();
+					location.reload();
+				}}
+			/>,
+		);
+	}
+	if (ownership.isSuperseded()) renderInactiveSession();
+	else disposeViewer = mountDevelopmentViewer(root, ownership);
+	window.addEventListener(
+		'beforeunload',
+		(): void => {
+			root.unmount();
+			disposeViewer();
+			ownership.dispose();
+		},
+		{ once: true },
+	);
+}
+
+function mountDevelopmentViewer(
+	root: Root,
+	ownership: ReturnType<typeof createBridgeAppDevTabOwnership>,
+): () => void {
 	const searchParams = new URLSearchParams(window.location.search);
 	const options = parseBridgeAppDevFixtureOptions(searchParams);
 	const telemetryScenario = bridgeAppDevTelemetryScenario({
@@ -35,6 +72,7 @@ if (rootElement !== null) {
 	const productSessionHost = installBridgeAppDevProductSessionHost({
 		navigationIntent: options.navigationIntent,
 		reloadPage: (): void => location.reload(),
+		runBootstrap: ownership.runBootstrap,
 	});
 	const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 	const markdownWorkerClient = createBridgeMarkdownRenderWebWorkerClient({
@@ -44,19 +82,6 @@ if (rootElement !== null) {
 	const paneRuntime = createBridgePaneRuntime({
 		sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
 	});
-	const root = createRoot(rootElement);
-	window.addEventListener(
-		'beforeunload',
-		(): void => {
-			root.unmount();
-			paneRuntime.dispose();
-			markdownRuntime.dispose();
-			productSessionHost.dispose();
-			telemetryHost.dispose();
-			workerFactory.revoke();
-		},
-		{ once: true },
-	);
 
 	root.render(
 		<>
@@ -70,6 +95,16 @@ if (rootElement !== null) {
 			<Toaster />
 		</>,
 	);
+	let disposed = false;
+	return (): void => {
+		if (disposed) return;
+		disposed = true;
+		productSessionHost.dispose();
+		paneRuntime.dispose();
+		markdownRuntime.dispose();
+		telemetryHost.dispose();
+		workerFactory.revoke();
+	};
 }
 
 async function preloadBridgeReviewViewerShell(): Promise<void> {

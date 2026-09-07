@@ -22,6 +22,10 @@ export interface BridgeAppDevProductSessionHostProps {
 	readonly fetchHealth?: typeof fetch;
 	readonly navigationIntent: BridgeProductDevNavigationIntent;
 	readonly reloadPage?: () => void;
+	readonly runBootstrap?: <TResult>(
+		operation: () => Promise<TResult>,
+		signal: AbortSignal,
+	) => Promise<TResult>;
 	readonly target?: BridgeAppDevProductSessionTarget;
 	readonly waitForHealthProbe?: (signal: AbortSignal) => Promise<void>;
 }
@@ -41,6 +45,9 @@ export function installBridgeAppDevProductSessionHost(
 	const fetchHealth = props.fetchHealth ?? globalThis.fetch.bind(globalThis);
 	const reloadPage = props.reloadPage ?? ((): void => globalThis.location.reload());
 	const waitForHealthProbe = props.waitForHealthProbe ?? defaultHealthProbeWait;
+	const runBootstrap =
+		props.runBootstrap ??
+		(<TResult>(operation: () => Promise<TResult>): Promise<TResult> => operation());
 	let activeRequestController: AbortController | null = null;
 	let healthProbeController: AbortController | null = null;
 	let initialBootstrapOutcome: InitialBootstrapOutcome = 'pending';
@@ -122,11 +129,15 @@ export function installBridgeAppDevProductSessionHost(
 		activeRequestController?.abort();
 		const requestController = new AbortController();
 		activeRequestController = requestController;
-		void fetchRegisteredBootstrap({
-			fetchBootstrap,
-			request: bootstrapRequest,
-			signal: requestController.signal,
-		})
+		void runBootstrap(
+			() =>
+				fetchRegisteredBootstrap({
+					fetchBootstrap,
+					request: bootstrapRequest,
+					signal: requestController.signal,
+				}),
+			requestController.signal,
+		)
 			.then(
 				(delivery): void => {
 					if (!isInstalled || issuedRequestSequence !== requestSequence) {
