@@ -213,6 +213,9 @@ package enum AppPolicies {
 
     package enum WorkspacePersistence {
         package static let debouncedAutosaveFailureDampingThreshold: Int = 3
+        package static let maximumAvailableUndoCloses: Int = 10
+        package static let undoGracePeriod: Duration = .seconds(300)
+        package static let completedUndoHistoryLimit: Int = 100
     }
 
     package enum TerminalActivation {

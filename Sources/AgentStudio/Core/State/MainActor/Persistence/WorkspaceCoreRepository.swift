@@ -29,6 +29,7 @@ package struct WorkspaceCoreRepository: Sendable {
         var tabShells: [TabShellRecord]
         var tabGraph: TabGraphRecord
         var updatesActiveSelection: Bool
+        var undoChange: WorkspaceUndoJournalChange?
     }
 
     let databaseWriter: any DatabaseWriter
@@ -167,7 +168,8 @@ package struct WorkspaceCoreRepository: Sendable {
         paneGraph: PaneGraphRecord,
         tabShells: [TabShellRecord],
         tabGraph: TabGraphRecord,
-        updatesActiveSelection: Bool = true
+        updatesActiveSelection: Bool = true,
+        undoChange: WorkspaceUndoJournalChange? = nil
     ) throws {
         try replaceWorkspaceSnapshot(
             .init(
@@ -175,7 +177,8 @@ package struct WorkspaceCoreRepository: Sendable {
                 paneGraph: paneGraph,
                 tabShells: tabShells,
                 tabGraph: tabGraph,
-                updatesActiveSelection: updatesActiveSelection
+                updatesActiveSelection: updatesActiveSelection,
+                undoChange: undoChange
             )
         )
     }
@@ -210,6 +213,23 @@ package struct WorkspaceCoreRepository: Sendable {
             try replaceTabShellRows(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try validateTabGraph(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
             try replaceTabGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
+            switch replacement.undoChange {
+            case .some(.record(let undoClose)):
+                guard undoClose.workspaceID == replacement.workspace.id else {
+                    throw WorkspaceUndoCloseWriteFailure.workspaceMismatch
+                }
+                try writeUndoClose(undoClose, in: database)
+            case .some(.restore(let closeID, let time)):
+                try restoreUndoClose(
+                    closeID: closeID,
+                    workspaceID: replacement.workspace.id,
+                    time: time,
+                    paneGraph: replacement.paneGraph,
+                    database: database
+                )
+            case nil:
+                break
+            }
         }
     }
 
