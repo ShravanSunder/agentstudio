@@ -341,11 +341,8 @@ export function createBridgeMainRenderSnapshotStore(
 				)
 			: promotedItemIds;
 		const rowPaintChanged = publishesKeyedSameSourceChange
-			? changedRecordItemIds(
-					previousSnapshot.rowPaintById,
-					snapshot.rowPaintById,
-					promotedItemIds,
-				).size > 0
+			? changedRecordItemIds(previousSnapshot.rowPaintById, snapshot.rowPaintById, promotedItemIds)
+					.size > 0
 			: true;
 		reviewItemIndexById.clear();
 		for (const [itemId, itemIndex] of candidate.reviewItemIndexById) {
