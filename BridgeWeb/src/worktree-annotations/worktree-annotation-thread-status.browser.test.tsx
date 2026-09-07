@@ -75,7 +75,9 @@ describe('worktree annotation thread status presentation', () => {
 				.element()
 				.getAttribute('data-slot'),
 		).toBe('tooltip-content');
-		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-lock-tooltip.png' });
+		await act(async (): Promise<void> => {
+			await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-lock-tooltip.png' });
+		});
 	});
 
 	test('distinguishes the neutral Draft cue from yellow Pending state', async () => {
