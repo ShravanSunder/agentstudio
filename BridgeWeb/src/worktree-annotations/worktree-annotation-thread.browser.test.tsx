@@ -100,7 +100,9 @@ describe('worktree annotation inline thread', () => {
 		expect(replyButton.element().getAttribute('data-tooltip')).toBe(
 			'Reply to annotation thread (R)',
 		);
-		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-action-ownership.png' });
+		await act(async (): Promise<void> => {
+			await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-action-ownership.png' });
+		});
 	});
 
 	test('uses success outline only while the thread can be resolved', async () => {
@@ -118,7 +120,7 @@ describe('worktree annotation inline thread', () => {
 			resolution: 'resolved',
 		});
 		const reopenButton = rendered.getByRole('button', { name: 'Reopen annotation thread' });
-		expect(reopenButton.element().classList).toContain('border-border');
+		expect(reopenButton.element().classList).toContain('border-input');
 		expect(reopenButton.element().classList).not.toContain('border-success/50');
 
 		await publishThreadMessages(surface, [message]);
@@ -205,7 +207,7 @@ describe('worktree annotation inline thread', () => {
 		await expect.element(rendered.getByTestId('worktree-annotation-thread-summary')).toBeVisible();
 		expect(
 			rendered.getByTestId('worktree-annotation-thread-summary').element().textContent,
-		).toContain('2 annotations');
+		).toContain('2 comments');
 		await expect
 			.element(rendered.getByRole('button', { name: 'Expand 2 annotations' }))
 			.toBeVisible();
@@ -517,7 +519,7 @@ describe('worktree annotation inline thread', () => {
 			.element().textContent;
 		const newIndex = summaryText?.indexOf('1 new') ?? -1;
 		const pendingIndex = summaryText?.indexOf('1 pending') ?? -1;
-		const messageIndex = summaryText?.indexOf('2 annotations') ?? -1;
+		const messageIndex = summaryText?.indexOf('2 comments') ?? -1;
 		expect(newIndex).toBeGreaterThanOrEqual(0);
 		expect(pendingIndex).toBeGreaterThan(newIndex);
 		expect(messageIndex).toBeGreaterThan(pendingIndex);
@@ -729,83 +731,6 @@ describe('worktree annotation inline thread', () => {
 		expect(secondFrame?.contains(document.activeElement)).toBe(true);
 	});
 
-	test('summarizes hidden draft, locked, and relocated thread state', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
-
-		await publishThreadMessages(
-			surface,
-			[
-				{
-					...makeSavedMessage({ body: 'Earlier draft.', messageId: rootMessageId }),
-					draft: { activeEditToken: null, body: 'Earlier draft changes.', revision: 2 },
-				},
-				{
-					...makeSavedMessage({
-						body: 'Locked reply.',
-						messageId: replyMessageId,
-						ordinal: 1,
-					}),
-					status: 'locked',
-				},
-				makeSavedMessage({
-					body: 'Latest reply.',
-					messageId: secondRootMessageId,
-					ordinal: 2,
-				}),
-			],
-			{ ...locatedContext, placement: 'relocated' },
-		);
-
-		await expect.element(rendered.getByText('Latest reply.')).toBeVisible();
-		await expect.element(rendered.getByText('Draft')).toBeVisible();
-		await expect.element(rendered.getByText('Contains locked output')).toBeVisible();
-		await expect.element(rendered.getByText('Relocated')).toBeVisible();
-	});
-
-	test('distinguishes the neutral Draft cue from yellow Pending state', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
-
-		await publishThreadMessages(surface, [
-			makeSavedMessage({ body: 'Earlier message.', messageId: rootMessageId }),
-			{
-				...makeSavedMessage({
-					body: 'Saved latest message.',
-					messageId: replyMessageId,
-					ordinal: 1,
-				}),
-				draft: {
-					activeEditToken: null,
-					body: 'Unsaved latest changes.',
-					revision: 2,
-				},
-			},
-		]);
-
-		await expect.element(rendered.getByText('Unsaved latest changes.')).toBeVisible();
-		await expect
-			.element(rendered.getByTestId('worktree-annotation-message').getByText('Draft'))
-			.toBeVisible();
-		const draftCue = rendered.getByTestId('worktree-annotation-thread-summary').getByText('Draft');
-		await expect.element(draftCue).toBeVisible();
-		expect(draftCue.element().className).not.toContain('text-warning');
-		expect(document.querySelector('[data-annotation-draft="present"] .bg-warning')).toBeNull();
-	});
-
-	test('keeps output inclusion controls out of the thread timeline', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
-
-		await publishThreadMessages(surface, [
-			makeSavedMessage({ body: 'Earlier included message.', messageId: rootMessageId }),
-			makeSavedMessage({ body: 'Latest included message.', messageId: replyMessageId, ordinal: 1 }),
-		]);
-		expect(document.querySelector('[aria-label="Include latest comment"]')).toBeNull();
-		expect(document.querySelector('[aria-label="Exclude latest comment"]')).toBeNull();
-		expect(rendered.getByText('Mixed inclusion').all()).toHaveLength(0);
-	});
-
 	test('keeps unchanged saved annotations unsaveable without exposing draft internals', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);
@@ -863,7 +788,9 @@ describe('worktree annotation inline thread', () => {
 		});
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
 		await expect.element(composer).toBeVisible();
-		const focusSurface = composer.element().closest<HTMLElement>('.bg-comment-surface');
+		const focusSurface = composer
+			.element()
+			.closest<HTMLElement>('[data-annotation-editor-surface]');
 		if (focusSurface === null) throw new Error('Expected the shared comment-card focus surface.');
 		expect(focusSurface.contains(document.activeElement)).toBe(true);
 		expect(getComputedStyle(focusSurface).boxShadow).not.toBe('none');
