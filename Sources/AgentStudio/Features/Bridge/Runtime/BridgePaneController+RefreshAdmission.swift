@@ -19,6 +19,19 @@ package enum BridgePaneWorktreeProductInvalidation: Sendable {
 
 @MainActor
 extension BridgePaneController {
+    func retainReviewPackageBuildReasonIfCurrent(
+        reset: ReviewPackageLoadReset,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        guard reset.reviewGeneration == nextReviewGeneration,
+            reset.reviewAuthorityGeneration
+                == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
+        else { return }
+        _ = productAdmission.withValidAdmission {
+            pendingReviewPackageBuildReasons.insert(reset.buildReason)
+        }
+    }
+
     func admitPreparedReviewPackageRefresh(
         currentPublication: BridgeReviewCommittedPublication,
         refreshGeneration: BridgeReviewGeneration,

@@ -207,7 +207,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await constructionResult.releaseArtifactPin()
-                pendingReviewPackageBuildReasons.insert(reset.buildReason)
+                retainReviewPackageBuildReasonIfCurrent(reset: reset, productAdmission: productAdmission)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             let load = try await makeReviewPackageLoadData(
@@ -230,7 +230,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await load.releaseArtifactPin()
-                pendingReviewPackageBuildReasons.insert(reset.buildReason)
+                retainReviewPackageBuildReasonIfCurrent(reset: reset, productAdmission: productAdmission)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             reviewGitRefreshSeedHolder.commit(result.gitRefreshSeed)
@@ -244,12 +244,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission,
                     traceContext: packageTraceContext
-                ),
-                buildReason: reset.buildReason
+                )
             )
         } catch BridgeProviderFailure.providerUnavailable {
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                pendingReviewPackageBuildReasons.insert(reset.buildReason)
+                retainReviewPackageBuildReasonIfCurrent(reset: reset, productAdmission: productAdmission)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             guard
@@ -269,22 +268,23 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 reset: reset,
                 reviewLoadStage: reviewLoadStage,
                 productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                buildReason: reset.buildReason
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         }
     }
 
     private func completeReviewPackageLoad(
-        _ commit: ReviewPackageLoadCommit,
-        buildReason: BridgeReviewPackageBuildReason
+        _ commit: ReviewPackageLoadCommit
     ) async -> ActionResult {
         guard
             case .committed(let deliveryDisposition) =
                 await commitReviewPackageLoadAndPublishDiffLoaded(commit)
         else {
             if commit.foregroundWorkAdmission.withValidAdmission({ true }) == nil {
-                pendingReviewPackageBuildReasons.insert(buildReason)
+                retainReviewPackageBuildReasonIfCurrent(
+                    reset: commit.reset,
+                    productAdmission: commit.productAdmission
+                )
             }
             guard
                 await retainCommittedReviewOrSetInitialFailure(
@@ -312,11 +312,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         reset: ReviewPackageLoadReset,
         reviewLoadStage: String,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        buildReason: BridgeReviewPackageBuildReason
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> ActionResult {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-            pendingReviewPackageBuildReasons.insert(buildReason)
+            retainReviewPackageBuildReasonIfCurrent(reset: reset, productAdmission: productAdmission)
             return .failure(.invalidPayload(description: "Stale bridge review load"))
         }
         let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
@@ -612,7 +611,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 productAdmission: productAdmission
             )
         else {
-            guard paneState.diff.status == .error else { return .succeeded }
+            guard paneState.diff.status == .error || paneState.diff.status == .loading else { return .succeeded }
             guard
                 let result = await loadInitialReviewPackageIfPossible(
                     correlationId: nil,

@@ -53,7 +53,7 @@ extension WebKitSerializedTests {
                     == .fileViewer
             )
             #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) is BridgeRuntime)
-            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
 
             #expect(harness.store.pane(companionPaneId) == nil)
             #expect(!sourceTab.allPaneIds.contains(companionPaneId))
