@@ -624,7 +624,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("observed auto-clearable event appends read dismissed history row")
-    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async {
+    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -642,15 +642,19 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
 
-        await assertEventuallyMain("observed auto-clearable event should append history") {
-            fixture.inboxAtom.notifications.count == 1
+        // Scheduler turns can expire before the bus consumer runs on a busy runner.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while fixture.inboxAtom.notifications.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
         }
-        #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        await stop(fixture)
+        #expect(fixture.inboxAtom.notifications.count == 1)
+        let notification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(notification.kind == .agentRpc)
+        #expect(notification.isRead == true)
+        #expect(notification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
-        await stop(fixture)
     }
 
     @Test("retention drop is emitted to JSONL trace")

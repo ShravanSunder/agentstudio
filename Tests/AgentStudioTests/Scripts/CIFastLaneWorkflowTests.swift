@@ -11,7 +11,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("mise run lint"))
         #expect(testTask.contains("mise run test:architecture"))
         #expect(testTask.contains("mise run test:bridge-web"))
-        #expect(testTask.contains("mise run bridge-web-build"))
+        #expect(testTask.contains("mise run --skip-deps bridge-web-build"))
         #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
         #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-300}\""))
         #expect(
@@ -20,7 +20,7 @@ struct CIFastLaneWorkflowTests {
             )
         )
         #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
-        #expect(testTask.contains("mise run test:swift"))
+        #expect(testTask.contains("mise run --skip-deps test:swift"))
         #expect(testTask.contains("git diff --check"))
     }
 
