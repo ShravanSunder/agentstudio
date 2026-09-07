@@ -9,7 +9,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct DraggableTabBarWindowDragTests {
     private static let doubleClickActionDefaultsKey = "AppleActionOnDoubleClick"
 

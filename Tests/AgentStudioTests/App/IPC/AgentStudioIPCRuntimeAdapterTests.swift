@@ -11,7 +11,7 @@ import Testing
 private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
 
 @MainActor
-@Suite("AgentStudio IPC runtime adapter")
+@Suite("AgentStudio IPC runtime adapter", .serialized)
 struct AgentStudioIPCRuntimeAdapterTests {
     @Test("terminal status reads registered runtime lifecycle and capabilities")
     func terminalStatusReadsRegisteredRuntimeLifecycleAndCapabilities() throws {

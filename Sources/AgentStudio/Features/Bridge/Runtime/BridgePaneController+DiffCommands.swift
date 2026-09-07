@@ -30,13 +30,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     func scheduleReviewPackageReloadForProductResync(reason: BridgeReviewPackageBuildReason) {
         pendingReviewPackageBuildReasons.insert(reason)
-        guard refreshAdmissionCoordinator.acquireForegroundWork() != nil else {
-            refreshAdmissionCoordinator.recordInvalidation(
-                fileChangeset: nil,
-                requiresReviewRefresh: true
-            )
-            return
-        }
+        guard refreshAdmissionCoordinator.acquireForegroundWork() != nil else { return }
         refreshAdmissionCoordinator.advanceAuthority(for: .review)
         retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible()
@@ -617,7 +611,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let currentPublication = reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission
             )
-        else { return .succeeded }
+        else {
+            guard paneState.diff.status == .error else { return .succeeded }
+            guard
+                let result = await loadInitialReviewPackageIfPossible(
+                    correlationId: nil,
+                    reviewAuthorityGeneration: reservation.authorityGeneration
+                )
+            else { return .stale }
+            if case .success = result { return .succeeded }
+            return .failed
+        }
         let currentPackage = currentPublication.package
         guard
             let refreshGeneration = beginReviewPackageRefresh(

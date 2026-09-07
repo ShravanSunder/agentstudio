@@ -154,6 +154,11 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     func initialReviewFailureResetsReviewThroughProductSessionAndLeavesFileActive() async throws {
         // Arrange
         let fixture = try await makeRefreshAdmissionIntegrationFixture()
+        guard fixture.controller.pendingReviewPackageBuildReasons.contains(.initialIntake) else {
+            Issue.record("Initial Review failure proof requires an admitted intake request before foreground")
+            await fixture.finish()
+            return
+        }
         await fixture.reviewProvider.setComparison(
             BridgeEndpointComparison(
                 baseEndpoint: fixture.baseEndpoint,
@@ -720,6 +725,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             )
         )
         await comparisonGate.waitForStartedComparisonCount(1)
+        await waitForActiveFileRefreshTaskToFinish(fixture.controller)
+        #expect(!fixture.controller.worktreeRefreshDriver.hasActiveFileOperation)
         fixture.controller.applyBridgePaneActivity(.loadedHidden)
         fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.releaseAll()

@@ -191,13 +191,7 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/bridge-refresh-admission",
-                baseline: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:))
-                    ?? .staged)
-        ),
+        state: makeRefreshAdmissionPaneState(initialContributionTarget: initialContributionTarget),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -222,6 +216,9 @@ func makeRefreshAdmissionIntegrationFixture(
         ),
         contributionTargetCommit: contributionTargetCommit
     )
+    // These tests exercise refresh after explicit Review intake. Foreground
+    // activity alone does not request the initial package.
+    controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
     let productAdmission = try #require(productAdmissionGate.acquire())
     let metadataProducerLease = try await installRefreshAdmissionMetadataProducer(
         installation: installation,
@@ -243,6 +240,18 @@ func makeRefreshAdmissionIntegrationFixture(
         productAdmission: productAdmission,
         productProvider: productProvider,
         controller: controller
+    )
+}
+
+private func makeRefreshAdmissionPaneState(
+    initialContributionTarget: WorkspaceReviewContributionTarget?
+) -> BridgePaneState {
+    BridgePaneState(
+        panelKind: .diffViewer,
+        source: .workspace(
+            rootPath: "/tmp/bridge-refresh-admission",
+            baseline: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:))
+                ?? .staged)
     )
 }
 

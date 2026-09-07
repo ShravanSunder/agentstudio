@@ -157,16 +157,20 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             Issue.record("Expected the initial contribution load to succeed")
             return
         }
-        let pendingGeneration = controller.nextReviewGeneration.next()
-        controller.pendingComparisonReviewGeneration = pendingGeneration
+        let pendingGeneration = controller.nextReviewGeneration
         controller.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
             activeTarget: .ref(name: "target"),
             reviewGeneration: pendingGeneration.rawValue
         )
+        try #require(
+            controller.pendingComparisonReviewGeneration == nil,
+            "Same-lineage refresh must not be blocked by a fabricated comparison replacement"
+        )
         let captureGate = BridgeContributionCaptureGate()
         await fixture.provider.setContributionCaptureGate(captureGate)
 
-        // Act — generation 2 remains physically blocked while generation 3 becomes current.
+        // Act — the predecessor attempt remains blocked while its successor
+        // becomes current under the same public Review generation.
         await controller.handlePaneFilesystemContextEvent(
             .cwdSubtreeChanged(
                 context: PaneFilesystemContext(
@@ -193,6 +197,13 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             )
         )
         await captureGate.waitForStartedCaptureCount(2)
+        let refreshRequests = await fixture.provider.recordedContributionRequests()
+        try #require(refreshRequests.count == 3)
+        #expect(refreshRequests.map { $0.reviewGenerationValue } == [1, 1, 1])
+        #expect(
+            refreshRequests[2].reviewAttemptAuthorityGeneration
+                > refreshRequests[1].reviewAttemptAuthorityGeneration
+        )
         await captureGate.releaseFirst()
         #expect(await waitForRetiringReviewRefreshTasksToDrain(controller))
 
