@@ -222,6 +222,7 @@ export function BridgeFileViewerAppImplementation(
 		abortKey: 'bridge-markdown-file',
 		isActive,
 		intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
+		selectedPath,
 		workerClient: markdownWorkerClient,
 	});
 	const displayedMarkdownItemId =
@@ -482,7 +483,11 @@ export function BridgeFileViewerAppImplementation(
 						: {
 								intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
 								presentationState:
-									markdownDecision.kind === 'loading'
+									markdownDecision.kind === 'loading' &&
+									!(
+										markdownPresentation.presentationState.status === 'ready' &&
+										markdownPresentation.presentationState.sourcePath === selectedPath
+									)
 										? { status: 'loading', sourcePath: selectedPath ?? 'Markdown' }
 										: markdownPresentation.presentationState,
 								mermaidRenderer,

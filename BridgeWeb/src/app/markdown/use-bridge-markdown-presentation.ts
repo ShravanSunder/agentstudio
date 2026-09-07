@@ -33,6 +33,7 @@ export function useBridgeMarkdownPresentation(props: {
 	readonly abortKey: string;
 	readonly isActive: boolean;
 	readonly intent: BridgeMarkdownRenderIntent | null;
+	readonly selectedPath: string | null;
 	readonly workerClient: BridgeMarkdownRenderWorkerClient | null;
 }): {
 	readonly presentationState: BridgeMarkdownPresentationState;
@@ -48,6 +49,8 @@ export function useBridgeMarkdownPresentation(props: {
 	);
 	const latestIntentRef = useRef(props.intent);
 	latestIntentRef.current = props.intent;
+	const completedIntentKeyRef = useRef<string | null>(null);
+	const completedSourcePathRef = useRef<string | null>(null);
 
 	useEffect((): (() => void) | void => {
 		if (!props.isActive) {
@@ -57,10 +60,22 @@ export function useBridgeMarkdownPresentation(props: {
 		const intent = latestIntentRef.current;
 		if (intent === null || intentKey === null) {
 			props.workerClient?.abort(props.abortKey);
-			setPresentationState({ status: 'idle' });
+			if (completedSourcePathRef.current !== props.selectedPath)
+				completedIntentKeyRef.current = null;
+			setPresentationState((current) =>
+				current.status === 'ready' && current.sourcePath === props.selectedPath
+					? current
+					: { status: 'idle' },
+			);
 			return;
 		}
-		setPresentationState({ status: 'loading', sourcePath: intent.sourcePath });
+		if (completedIntentKeyRef.current === intentKey) return;
+		completedIntentKeyRef.current = null;
+		setPresentationState((current) =>
+			current.status === 'ready' && current.sourcePath === intent.sourcePath
+				? current
+				: { status: 'loading', sourcePath: intent.sourcePath },
+		);
 		if (props.workerClient === null) {
 			setPresentationState({ status: 'failed', sourcePath: intent.sourcePath });
 			return;
@@ -79,13 +94,24 @@ export function useBridgeMarkdownPresentation(props: {
 			if (!acceptsCompletion) {
 				return;
 			}
+			if (completion.status === 'success') {
+				completedIntentKeyRef.current = intentKey;
+				completedSourcePathRef.current = intent.sourcePath;
+			}
 			applyBridgeMarkdownCompletion({ completion, intent, setPresentationState });
 		});
 		return (): void => {
 			acceptsCompletion = false;
 			workerClient.abort(props.abortKey);
 		};
-	}, [intentKey, props.abortKey, props.isActive, props.workerClient, retryRevision]);
+	}, [
+		intentKey,
+		props.abortKey,
+		props.isActive,
+		props.selectedPath,
+		props.workerClient,
+		retryRevision,
+	]);
 
 	const retry = useCallback((): void => setRetryRevision((revision): number => revision + 1), []);
 	return { presentationState, retry };
