@@ -649,16 +649,19 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
 
-        await assertEventuallyMain("observed auto-clearable event should append history") {
-            fixture.inboxAtom.notifications.count == 1
+        // Scheduler turns can expire before the bus consumer runs on a busy runner.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while fixture.inboxAtom.notifications.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
         }
+        await stop(fixture)
+        #expect(fixture.inboxAtom.notifications.count == 1)
         let firstNotification = try #require(fixture.inboxAtom.notifications.first)
         #expect(firstNotification.kind == .agentRpc)
         #expect(firstNotification.isRead == true)
         #expect(firstNotification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
-        await stop(fixture)
     }
 
     @Test("retention drop is emitted to JSONL trace")
