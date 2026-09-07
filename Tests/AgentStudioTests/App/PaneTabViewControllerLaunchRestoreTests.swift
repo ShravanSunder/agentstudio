@@ -859,6 +859,11 @@ private func preparedTerminalDescriptor(
 
 @MainActor
 private final class LaunchCapturingSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private(set) var createdPaneIds: [UUID] = []
     private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
 

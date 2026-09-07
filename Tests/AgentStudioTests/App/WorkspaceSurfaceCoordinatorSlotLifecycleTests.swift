@@ -51,7 +51,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("close then undo promotes the same retired slot in the coordinator path")
-    func closePaneThenUndo_promotesRetiredSlotInPlace() {
+    func closePaneThenUndo_promotesRetiredSlotInPlace() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -71,12 +71,12 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         let originalSlot = harness.viewRegistry.ensureSlot(for: closingPane.id)
         harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [closingPane.id, siblingPane.id])
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: closingPane.id))
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: closingPane.id))
 
         #expect(harness.viewRegistry.isRetiredForTesting(closingPane.id))
         #expect(harness.viewRegistry.peekSlotForTesting(closingPane.id) === originalSlot)
 
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.undoCloseTab()
 
         #expect(harness.store.pane(closingPane.id) != nil)
         #expect(!harness.viewRegistry.isRetiredForTesting(closingPane.id))
@@ -85,7 +85,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("registering a replacement releases the exact prior host cycle")
-    func registeringReplacementReleasesExactPriorHostCycle() {
+    func registeringReplacementReleasesExactPriorHostCycle() async throws {
         let harness = makeHarness()
         let paneID = UUIDv7.generate()
         let weakPriorHost = WeakPaneHostReference()
@@ -111,7 +111,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("unregistering releases the exact current host cycle but preserves the slot")
-    func unregisteringReleasesExactCurrentHostCycleButPreservesSlot() {
+    func unregisteringReleasesExactCurrentHostCycleButPreservesSlot() async throws {
         let harness = makeHarness()
         let paneID = UUIDv7.generate()
         let slot = harness.viewRegistry.ensureSlot(for: paneID)
@@ -135,7 +135,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("unregistering permanently unmounts content even while SwiftUI retains the old host")
-    func unregisteringUnmountsContentFromRetainedHost() {
+    func unregisteringUnmountsContentFromRetainedHost() async throws {
         let harness = makeHarness()
         let paneID = UUIDv7.generate()
         weak var weakContent: SlotLifecycleMountedContentView?
@@ -153,7 +153,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("unregistering asks mounted content to retire before unmount")
-    func unregisteringAsksMountedContentToRetireBeforeUnmount() {
+    func unregisteringAsksMountedContentToRetireBeforeUnmount() async throws {
         let harness = makeHarness()
         let paneID = UUIDv7.generate()
         let content = SlotLifecycleRetirementRecordingContentView()
@@ -166,7 +166,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("temporary transitions keep the host and mounted content intact")
-    func temporaryTransitionsKeepHostAndMountedContent() {
+    func temporaryTransitionsKeepHostAndMountedContent() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -178,14 +178,14 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         let content = SlotLifecycleMountedContentView()
         let host = harness.coordinator.registerHostedView(mountedView: content, for: pane.id)
 
-        harness.coordinator.execute(.minimizePane(tabId: tab.id, paneId: pane.id))
+        try await harness.coordinator.execute(.minimizePane(tabId: tab.id, paneId: pane.id))
 
         #expect(harness.viewRegistry.view(for: pane.id) === host)
         #expect(host.mountedContentViewForTesting != nil)
     }
 
     @Test("closing two drawer panes in sequence keeps fallback focus and both tombstones stable")
-    func closingTwoDrawerPanesInSequence_preservesFallbackFocusAndRetiredSlots() throws {
+    func closingTwoDrawerPanesInSequence_preservesFallbackFocusAndRetiredSlots() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -216,8 +216,8 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         let secondSlot = harness.viewRegistry.ensureSlot(for: second.id)
         harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [first.id, second.id, third.id])
 
-        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: second.id))
-        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: first.id))
+        try await harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: second.id))
+        try await harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: first.id))
 
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
         #expect(drawer.paneIds == [third.id])
@@ -229,7 +229,7 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     }
 
     @Test("closing the last drawer pane then creating a new one does not keep the old slot alive")
-    func closeLastDrawerPaneThenCreateNewDrawerPane_cleansOldSlotAndCreatesNewSlot() throws {
+    func closeLastDrawerPaneThenCreateNewDrawerPane_cleansOldSlotAndCreatesNewSlot() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -245,13 +245,13 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         )
         let oldSlot = harness.viewRegistry.ensureSlot(for: closedChild.id)
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: closedChild.id))
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: closedChild.id))
 
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.isEmpty == true)
         #expect(!harness.viewRegistry.isRetiredForTesting(closedChild.id))
         #expect(harness.viewRegistry.peekSlotForTesting(closedChild.id) == nil)
 
-        harness.coordinator.execute(.addDrawerPane(parentPaneId: parent.id))
+        try await harness.coordinator.execute(.addDrawerPane(parentPaneId: parent.id))
 
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
         let newChildId = try #require(harness.store.drawerView(forParent: parent.id)?.activeChildId)
@@ -287,6 +287,11 @@ private final class WeakPaneHostReference {
 
 @MainActor
 private final class SlotLifecycleSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

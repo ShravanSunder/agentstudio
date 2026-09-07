@@ -482,6 +482,11 @@ private func findDescendant<T: NSView>(in view: NSView, ofType type: T.Type) -> 
 }
 
 private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

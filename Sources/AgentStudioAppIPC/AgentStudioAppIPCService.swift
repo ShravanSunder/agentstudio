@@ -45,10 +45,10 @@ public struct AppIPCLayoutError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCLayoutPort: Sendable {
     func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult
-    func splitPane(_ params: IPCPaneSplitParams) throws -> IPCPaneSplitResult
-    func closePane(_ params: IPCPaneCloseParams) throws -> IPCPaneCloseResult
-    func addDrawerPane(_ params: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult
-    func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult
+    func splitPane(_ params: IPCPaneSplitParams) async throws -> IPCPaneSplitResult
+    func closePane(_ params: IPCPaneCloseParams) async throws -> IPCPaneCloseResult
+    func addDrawerPane(_ params: IPCDrawerAddPaneParams) async throws -> IPCDrawerAddPaneResult
+    func toggleDrawer(_ params: IPCDrawerToggleParams) async throws -> IPCDrawerToggleResult
 }
 
 public struct AppIPCRuntimeError: Error, Equatable, Sendable {

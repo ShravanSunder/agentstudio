@@ -47,7 +47,7 @@ extension WorkspaceSurfaceCoordinator {
         guard case .terminal = pane.content, pane.provider == .zmx else { return nil }
 
         let retryHandler: (UUID) -> Void = { [weak self] paneId in
-            self?.execute(.repair(.createMissingView(paneId: paneId)))
+            self?.submitWorkspaceAction(.repair(.createMissingView(paneId: paneId)))
         }
         let dismissHandler: (UUID) -> Void = { [weak self] paneId in
             self?.closePlaceholderPane(paneId)
@@ -86,9 +86,9 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
         if tab.allPaneIds.count > 1 {
-            execute(.closePane(tabId: tab.id, paneId: paneId))
+            submitWorkspaceAction(.closePane(tabId: tab.id, paneId: paneId))
         } else {
-            execute(.closeTab(tabId: tab.id))
+            submitWorkspaceAction(.closeTab(tabId: tab.id))
         }
     }
 

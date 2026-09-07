@@ -26,11 +26,18 @@ package struct WorkspaceUndoCloseRecord: Sendable {
 package struct WorkspaceUndoCloseRetirement: Sendable {
     package let closeID: UUID
     package let members: [WorkspaceUndoCloseWrite.Member]
+    package let unownedPaneIDs: Set<UUID>
 }
 
 package struct WorkspaceUndoJournalReceipt: Sendable {
     package let availableCloseIDs: [UUID]
     package let retiredCloses: [WorkspaceUndoCloseRetirement]
+}
+
+package struct WorkspaceUndoJournalRecovery: Sendable {
+    package let availableCloses: [WorkspaceUndoCloseRecord]
+    package let retiredCloses: [WorkspaceUndoCloseRetirement]
+    package let pendingSessionIDs: Set<ZmxSessionID>
 }
 
 enum WorkspaceUndoJournalFailure: Error, Equatable {

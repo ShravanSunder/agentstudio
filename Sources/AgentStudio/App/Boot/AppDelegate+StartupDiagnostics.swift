@@ -18,12 +18,12 @@ import Foundation
         static func prepare(
             store: WorkspaceStore,
             repositoryRoot: URL,
-            openTerminal: () -> Pane?
-        ) -> Self? {
+            openTerminal: () async -> Pane?
+        ) async -> Self? {
             let fixtureRepository = store.mutationCoordinator.addRepo(at: repositoryRoot)
             guard
                 let fixtureWorktree = fixtureRepository.worktrees.first,
-                let pane = openTerminal(),
+                let pane = await openTerminal(),
                 pane.metadata.contentType == .terminal,
                 let tabId = store.tabLayoutAtom.tabID(containingPane: pane.id),
                 let arrangementId = store.tabLayoutAtom.tab(tabId)?.activeArrangementId
@@ -318,7 +318,7 @@ extension AppDelegate {
             }
 
             guard
-                let pane = workspaceSurfaceCoordinator.openFloatingTerminal(
+                let pane = try? await workspaceSurfaceCoordinator.openFloatingTerminal(
                     launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                     title: "IPC Smoke Terminal"
                 )
@@ -490,11 +490,11 @@ extension AppDelegate {
                 )
             }
             guard
-                let fixture = SidebarPerformanceProofFixture.prepare(
+                let fixture = await SidebarPerformanceProofFixture.prepare(
                     store: store,
                     repositoryRoot: FileManager.default.homeDirectoryForCurrentUser,
                     openTerminal: {
-                        workspaceSurfaceCoordinator.openFloatingTerminal(
+                        try? await workspaceSurfaceCoordinator.openFloatingTerminal(
                             launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                             title: "Sidebar Performance Terminal"
                         )
@@ -578,7 +578,7 @@ extension AppDelegate {
         )
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeBefore")
         await Task.yield()
-        workspaceSurfaceCoordinator.execute(
+        let applied = await executor.execute(
             .movePaneAcrossTabs(
                 CrossTabPaneMoveRequest(
                     paneId: fixture.movedPaneId,
@@ -590,6 +590,10 @@ extension AppDelegate {
                 )
             )
         )
+        guard applied else {
+            RestoreTrace.log("StartupDiagnostic.crossTabMoveGeometrySmoke mutationRejected")
+            return
+        }
         await Task.yield()
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeAfter")
         let renderProof = crossTabMoveGeometrySmokeRenderProof(for: fixture)

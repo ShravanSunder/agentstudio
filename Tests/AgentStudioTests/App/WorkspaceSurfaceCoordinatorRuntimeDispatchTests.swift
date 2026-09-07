@@ -15,7 +15,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("coordinator injects its runtime registry into Ghostty action routing")
-    func coordinatorInjectsGhosttyRuntimeRegistry() {
+    func coordinatorInjectsGhosttyRuntimeRegistry() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-registry-injection-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -37,7 +37,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("dispatchRuntimeCommand resolves pane target centrally")
-    func dispatchUsesResolver() async {
+    func dispatchUsesResolver() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -72,7 +72,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("dispatchRuntimeCommand fails for unresolved target")
-    func dispatchFailsForMissingTarget() async {
+    func dispatchFailsForMissingTarget() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-missing-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -94,7 +94,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("dispatchRuntimeCommand rejects dispatch when runtime lifecycle is not ready")
-    func dispatchFailsWhenRuntimeNotReady() async {
+    func dispatchFailsWhenRuntimeNotReady() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-not-ready-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -130,7 +130,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("dispatchRuntimeCommand surfaces runtime capability failures")
-    func dispatchFailsWhenCapabilityMissing() async {
+    func dispatchFailsWhenCapabilityMissing() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-capability-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -171,7 +171,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("dispatchRuntimeCommand rejects diff artifact worktree mismatch")
-    func dispatchRejectsDiffWorktreeMismatch() async {
+    func dispatchRejectsDiffWorktreeMismatch() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-diff-worktree-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -220,7 +220,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("closeTab teardown unregisters runtime from registry")
-    func closeTab_unregistersRuntime() {
+    func closeTab_unregistersRuntime() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-close-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -250,7 +250,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
         #expect(coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) != nil)
 
-        coordinator.execute(.closeTab(tabId: tab.id))
+        try await coordinator.execute(.closeTab(tabId: tab.id))
 
         #expect(coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) == nil)
 
@@ -258,7 +258,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal closeTab(otherTabs) event closes non-source tabs")
-    func runtimeEventCloseOtherTabs() async {
+    func runtimeEventCloseOtherTabs() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -314,7 +314,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal gotoTab(next) event selects next tab")
-    func runtimeEventGotoNextTab() async {
+    func runtimeEventGotoNextTab() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -369,7 +369,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal title/cwd events update pane metadata")
-    func runtimeEventMetadataUpdatesPaneStore() async {
+    func runtimeEventMetadataUpdatesPaneStore() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-metadata-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -433,7 +433,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime cwd changed updates pane worktree identity")
-    func runtimeCwdChangedUpdatesPaneWorktreeIdentity() async {
+    func runtimeCwdChangedUpdatesPaneWorktreeIdentity() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-runtime-cwd-identity-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -504,7 +504,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal closeTab(rightTabs) closes tabs strictly to the right of source")
-    func runtimeEventCloseRightTabs() async {
+    func runtimeEventCloseRightTabs() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -568,7 +568,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal closeTab(rightTabs) from first tab closes all tabs to the right")
-    func runtimeEventCloseRightTabsFromFirstTab() async {
+    func runtimeEventCloseRightTabsFromFirstTab() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-first-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -630,7 +630,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal closeTab(rightTabs) from last tab closes no tabs")
-    func runtimeEventCloseRightTabsFromLastTab() async {
+    func runtimeEventCloseRightTabsFromLastTab() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-last-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -687,7 +687,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal gotoTab(index) clamps to valid tab bounds")
-    func runtimeEventGotoTabIndexClampsBounds() async {
+    func runtimeEventGotoTabIndexClampsBounds() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -765,7 +765,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal gotoTab(index) handles 1, N-1, N, and N+1 edges")
-    func runtimeEventGotoTabIndexBoundaryCoverage() async {
+    func runtimeEventGotoTabIndexBoundaryCoverage() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-boundaries-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -883,6 +883,11 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
 @MainActor
 private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

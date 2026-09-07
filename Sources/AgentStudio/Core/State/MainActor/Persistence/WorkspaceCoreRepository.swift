@@ -233,8 +233,14 @@ package struct WorkspaceCoreRepository: Sendable {
                     throw WorkspaceUndoCloseWriteFailure.workspaceMismatch
                 }
                 return try writeUndoClose(undoClose, in: database)
-            case .some(.restore):
+            case .some(.restore), .some(.create):
                 try pruneFinishedUndoRows(workspaceID: replacement.workspace.id, database: database)
+                return try readUndoJournalReceipt(
+                    workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
+            case .some(.discard(let time)):
+                try validateUndoJournalTime(time)
+                try markUnownedTerminalSessionsForCleanup(
+                    database, finishedUndoWorkspaceID: nil, requestedAt: time.utc)
                 return try readUndoJournalReceipt(
                     workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
             case nil:

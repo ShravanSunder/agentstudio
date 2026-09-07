@@ -802,6 +802,7 @@ private func makeVisibleWorktreeSnapshot(
 
 @MainActor
 private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCommandHandling {
+
     let batchArrivals = ExactEventAcknowledgement<Set<RepoExplorerCommandPresentationRequest>>()
     var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
     var capabilityResult = true

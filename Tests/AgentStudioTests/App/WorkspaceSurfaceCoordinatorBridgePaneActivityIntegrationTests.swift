@@ -358,11 +358,11 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
             )
 
-            harness.coordinator.execute(.closeTab(tabId: harness.tabId))
+            try await harness.coordinator.execute(.closeTab(tabId: harness.tabId))
             #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .closed)
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
 
-            harness.coordinator.undoCloseTab()
+            try await harness.coordinator.undoCloseTab()
 
             let replacementAuthorityIdentity = try #require(
                 harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)

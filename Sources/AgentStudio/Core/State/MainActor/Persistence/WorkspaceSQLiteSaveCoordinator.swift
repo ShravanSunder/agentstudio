@@ -204,6 +204,60 @@ package final class WorkspaceSQLiteSaveCoordinator {
         }
     }
 
+    func commitTerminalTab(
+        metadata: PaneMetadata,
+        topology: RepositoryTopologyReadSnapshot,
+        nameForPane: @escaping @MainActor @Sendable (Pane) -> String,
+        publish: @escaping @MainActor @Sendable (WorkspaceTerminalCreationProposal) -> Void
+    ) async throws -> Pane {
+        try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
+            let capture = await captureCurrentSaveState(persistedAt: Date())
+            let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+            let prepared = await WorkspaceTerminalCreationComposition.preparePaneOffMain(
+                metadata: metadata, topology: topology)
+            let name = await nameForPane(prepared.pane)
+            let proposal = await WorkspaceTerminalCreationComposition.prepareTabOffMain(
+                in: source, pane: prepared.pane, name: name, associationOutcome: prepared.outcome)
+            switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
+            case .prepared: break
+            case .rejected(let rejection):
+                throw WorkspaceSQLiteSaveCoordinatorFailure.compositionRejected(rejection)
+            }
+            _ = try await datastore.performWorkspaceSnapshotBundleSave(proposal.bundle, undoChange: .create)
+            let revision = await MainActor.run {
+                publish(proposal)
+                return compositionRevision
+            }
+            datastore.acceptedWorkspaceCaptureRevisions[source.id] = revision
+            return proposal.pane
+        }
+    }
+
+    func commitBackgroundedPaneDiscard(
+        paneID: UUID,
+        time: WorkspaceUndoJournalTime,
+        publish: @escaping @MainActor @Sendable (WorkspacePaneDiscardProposal) -> Void
+    ) async throws {
+        try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
+            let capture = await captureCurrentSaveState(persistedAt: time.utc)
+            let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+            let proposal = try await WorkspacePaneDiscardComposition.prepareBackgroundedPaneOffMain(
+                in: source, paneID: paneID)
+            switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
+            case .prepared: break
+            case .rejected(let rejection):
+                throw WorkspaceSQLiteSaveCoordinatorFailure.compositionRejected(rejection)
+            }
+            _ = try await datastore.performWorkspaceSnapshotBundleSave(
+                proposal.bundle, undoChange: .discard(time: time))
+            let revision = await MainActor.run {
+                publish(proposal)
+                return compositionRevision
+            }
+            datastore.acceptedWorkspaceCaptureRevisions[source.id] = revision
+        }
+    }
+
     func commitMostRecentUndo(
         time: WorkspaceUndoJournalTime,
         publish: @escaping @MainActor @Sendable (WorkspaceUndoRestoreProposal, WorkspaceUndoJournalReceipt) -> Void

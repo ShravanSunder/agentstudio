@@ -55,6 +55,17 @@ struct PaneTabViewControllerCommandHarness {
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let paneInboxPresenter: PaneInboxNotificationPresenter
     let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
+
+    /// Await submitted work before observing UI state; this is not a command success result.
+    func executeCommand(_ command: AppCommand) async {
+        controller.execute(command)
+        _ = await executor.submitGesture { _ in true }.value
+    }
+
+    func executeCommand(_ command: AppCommand, target: UUID, targetType: SearchItemType) async {
+        controller.execute(command, target: target, targetType: targetType)
+        _ = await executor.submitGesture { _ in true }.value
+    }
 }
 
 @MainActor
@@ -101,7 +112,7 @@ func makePaneTabViewControllerCommandHarness(
 
     let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
     let tempDir = makePaneTabCommandHarnessTempDir()
-    let store = WorkspaceStore()
+    let store = makeRequiredCommandHarnessStore()
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(store: store)
     let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
@@ -196,6 +207,13 @@ func makePaneTabViewControllerCommandHarness(
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )
+}
+
+@MainActor
+private func makeRequiredCommandHarnessStore() -> WorkspaceStore {
+    do { return try makeWorkspaceJournalTestStore() } catch {
+        preconditionFailure("Could not prepare the command harness SQLite store: \(error)")
+    }
 }
 
 @MainActor
@@ -346,6 +364,11 @@ final class FocusablePaneTabCommandMountedContentView: NSView, PaneMountedConten
 }
 
 final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
@@ -378,4 +401,18 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {}
+}
+
+@MainActor
+func withWorkspaceCommandHarness(
+    _ harness: PaneTabViewControllerCommandHarness,
+    operation: @MainActor () async throws -> Void
+) async rethrows {
+    do { try await operation() } catch {
+        await harness.executor.stopAcceptingCommandsAndDrain()
+        await harness.coordinator.shutdown()
+        throw error
+    }
+    await harness.executor.stopAcceptingCommandsAndDrain()
+    await harness.coordinator.shutdown()
 }

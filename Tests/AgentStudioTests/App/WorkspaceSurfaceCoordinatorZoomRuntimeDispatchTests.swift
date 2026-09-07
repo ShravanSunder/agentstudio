@@ -226,6 +226,7 @@ private final class DeferredMainActorOperationQueue: Sendable {
 
 @MainActor
 private final class RuntimeZoomCommandHandlerProbe: WorkspaceCommandHandling {
+
     typealias ScheduleCancellation = @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
 
     enum WaitError: Error {

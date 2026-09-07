@@ -92,15 +92,15 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test
-    func test_paneCoordinator_exposesExecuteAPI() async {
+    func test_paneCoordinator_exposesExecuteAPI() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let action: WorkspaceActionCommand = .selectTab(tabId: UUID())
-        harness.coordinator.execute(action)
+        try await harness.coordinator.execute(action)
     }
 
     @Test("undo close tab restores the tab and activates it")
-    func undoCloseTab_restoresAndActivatesClosedTab() {
+    func undoCloseTab_restoresAndActivatesClosedTab() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -114,12 +114,12 @@ struct WorkspaceSurfaceCoordinatorTests {
         store.appendTab(tabB)
         store.setActiveTab(tabB.id)
 
-        coordinator.execute(.closeTab(tabId: tabA.id))
+        try await coordinator.execute(.closeTab(tabId: tabA.id))
         #expect(store.tab(tabA.id) == nil)
         #expect(store.activeTabId == tabB.id)
         #expect(coordinator.undoStack.count == 1)
 
-        coordinator.undoCloseTab()
+        try await coordinator.undoCloseTab()
 
         #expect(store.tab(tabA.id) != nil)
         #expect(store.activeTabId == tabA.id)
@@ -127,7 +127,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("close pane undo round-trips pane in layout")
-    func closePane_undo_restoresPane() {
+    func closePane_undo_restoresPane() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -145,7 +145,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             position: .after, sizingMode: .halveTarget
         )
 
-        coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
+        try await coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
         guard let afterClose = store.tab(tab.id) else {
             Issue.record("Expected tab to remain after closing one pane")
             return
@@ -153,7 +153,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         #expect(afterClose.paneIds == [paneA.id])
         #expect(coordinator.undoStack.count == 1)
 
-        coordinator.undoCloseTab()
+        try await coordinator.undoCloseTab()
         guard let afterUndo = store.tab(tab.id) else {
             Issue.record("Expected tab to exist after undo")
             return
@@ -163,7 +163,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("closePane on the last pane in an active tab produces a TabCloseSnapshot")
-    func closePane_lastPaneActive_producesTabSnapshot() {
+    func closePane_lastPaneActive_producesTabSnapshot() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -174,7 +174,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        coordinator.execute(.closePane(tabId: tab.id, paneId: pane.id))
+        try await coordinator.execute(.closePane(tabId: tab.id, paneId: pane.id))
 
         #expect(store.tab(tab.id) == nil)
         #expect(store.pane(pane.id) == nil)
@@ -191,7 +191,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("closePane on the last pane in a background tab still produces a TabCloseSnapshot")
-    func closePane_lastPaneBackground_stillProducesTabSnapshot() {
+    func closePane_lastPaneBackground_stillProducesTabSnapshot() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -206,7 +206,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let backgroundTab = Tab(paneId: backgroundPane.id)
         store.appendTab(backgroundTab)
 
-        coordinator.execute(.closePane(tabId: backgroundTab.id, paneId: backgroundPane.id))
+        try await coordinator.execute(.closePane(tabId: backgroundTab.id, paneId: backgroundPane.id))
 
         #expect(store.tab(backgroundTab.id) == nil)
         guard case .tab(let snapshot)? = coordinator.undoStack.last else {
@@ -217,7 +217,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("closePane on a non-last pane in an active tab produces a PaneCloseSnapshot")
-    func closePane_nonLastPaneActive_producesPaneSnapshot() {
+    func closePane_nonLastPaneActive_producesPaneSnapshot() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -237,7 +237,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             sizingMode: .halveTarget
         )
 
-        coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
+        try await coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
 
         #expect(store.tab(tab.id) != nil)
         guard case .pane(let snapshot)? = coordinator.undoStack.last else {
@@ -248,7 +248,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
-    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() async {
+    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -275,7 +275,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("closing tab with drawer children snapshots all panes for undo")
-    func closeTab_withDrawerChildren_snapshotsUndo() {
+    func closeTab_withDrawerChildren_snapshotsUndo() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -294,7 +294,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             return
         }
 
-        coordinator.execute(.closeTab(tabId: tab.id))
+        try await coordinator.execute(.closeTab(tabId: tab.id))
 
         #expect(store.tab(tab.id) == nil)
         #expect(store.tabs.allSatisfy { !$0.paneIds.contains(parentPane.id) })
@@ -310,13 +310,13 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("terminal drawer creation from a locationless webview uses the user home directory")
-    func addDrawerPaneFromLocationlessWebviewUsesHomeDirectory() throws {
+    func addDrawerPaneFromLocationlessWebviewUsesHomeDirectory() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let parentPane = makeWebviewPane(harness.store, title: "Locationless")
         harness.store.appendTab(Tab(paneId: parentPane.id))
 
-        harness.coordinator.execute(.addDrawerPane(parentPaneId: parentPane.id))
+        try await harness.coordinator.execute(.addDrawerPane(parentPaneId: parentPane.id))
 
         let drawerPaneID = try #require(harness.store.pane(parentPane.id)?.drawer?.paneIds.single)
         let drawerPane = try #require(harness.store.pane(drawerPaneID))
@@ -325,7 +325,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("terminal drawer insertion from a locationless webview uses the user home directory")
-    func insertDrawerPaneFromLocationlessWebviewUsesHomeDirectory() throws {
+    func insertDrawerPaneFromLocationlessWebviewUsesHomeDirectory() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let parentPane = makeWebviewPane(harness.store, title: "Locationless")
@@ -353,7 +353,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("openWebview creates and activates a new tab")
-    func openWebview_createsAndActivatesTab() {
+    func openWebview_createsAndActivatesTab() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -373,7 +373,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("teardownView unregisters runtime from RuntimeRegistry")
-    func teardownViewUnregistersRuntime() {
+    func teardownViewUnregistersRuntime() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -396,7 +396,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("focusPane auto-expands minimized pane")
-    func focusPane_autoExpandsMinimizedPane() {
+    func focusPane_autoExpandsMinimizedPane() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -414,17 +414,17 @@ struct WorkspaceSurfaceCoordinatorTests {
             position: .after, sizingMode: .halveTarget
         )
 
-        coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
+        try await coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
         #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == true)
 
-        coordinator.execute(.expandPane(tabId: tab.id, paneId: paneB.id))
+        try await coordinator.execute(.expandPane(tabId: tab.id, paneId: paneB.id))
 
         #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == false)
         #expect(store.tab(tab.id)?.activePaneId == paneB.id)
     }
 
     @Test("undo skips stale pane entries whose tab no longer exists")
-    func undo_skipsStalePaneEntryWhenTabMissing() {
+    func undo_skipsStalePaneEntryWhenTabMissing() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -442,18 +442,18 @@ struct WorkspaceSurfaceCoordinatorTests {
             position: .after, sizingMode: .halveTarget
         )
 
-        coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
+        try await coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
         #expect(coordinator.undoStack.count == 1)
 
         store.removeTab(tab.id)
-        coordinator.undoCloseTab()
+        try await coordinator.undoCloseTab()
 
         #expect(store.tab(tab.id) == nil)
         #expect(coordinator.undoStack.isEmpty)
     }
 
     @Test("undo stack keeps only max configured entries")
-    func undoStack_capsAtMaxEntries() {
+    func undoStack_capsAtMaxEntries() async throws {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -463,7 +463,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             let pane = makeWebviewPane(store, title: "Pane-\(index)")
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
-            coordinator.execute(.closeTab(tabId: tab.id))
+            try await coordinator.execute(.closeTab(tabId: tab.id))
         }
 
         #expect(coordinator.undoStack.count == 10)
@@ -564,7 +564,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
         store.appendTab(tertiaryTab)
         coordinator.upsertPaneFilesystemProjectionContext(for: tertiaryPane)
-        coordinator.execute(WorkspaceActionCommand.selectTab(tabId: tertiaryTab.id))
+        try await coordinator.execute(WorkspaceActionCommand.selectTab(tabId: tertiaryTab.id))
 
         await waitUntilFilesystemState(
             source: filesystemSource,
@@ -577,7 +577,7 @@ struct WorkspaceSurfaceCoordinatorTests {
     }
 
     @Test("syncRootsAndActivity excludes unavailable repos from filesystem registration")
-    func syncRootsAndActivityExcludesUnavailableRepos() async {
+    func syncRootsAndActivityExcludesUnavailableRepos() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-unavailable-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -926,6 +926,11 @@ private actor DelayingRecordingFilesystemSource: WorkspaceFilesystemSourceManagi
 }
 
 private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

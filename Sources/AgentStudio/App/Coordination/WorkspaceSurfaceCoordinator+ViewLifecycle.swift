@@ -195,7 +195,7 @@ extension WorkspaceSurfaceCoordinator {
                 performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
-                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+                self?.submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(managed.surface)
             if let runtime = preparedRuntime?.runtime {
@@ -316,7 +316,7 @@ extension WorkspaceSurfaceCoordinator {
                 performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
-                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+                self?.submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(attachedSurface)
             if let runtime = preparedRuntime?.runtime {
@@ -433,7 +433,9 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
-    func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+    func teardownView(
+        for paneId: UUID, shouldUnregisterRuntime: Bool = true, retainingUndoSurface: Bool = false
+    ) {
         if shouldUnregisterRuntime {
             closeBridgePaneActivityAuthority(for: paneId)
         }
@@ -445,10 +447,9 @@ extension WorkspaceSurfaceCoordinator {
             )
             return
         }
-        if let terminal = viewRegistry.terminalView(for: paneId),
-            let surfaceId = terminal.surfaceId
-        {
-            surfaceManager.detach(surfaceId, reason: .close)
+        if !retainingUndoSurface {
+            // Repair/discard releases presentation resources; only committed undo grants cache retention.
+            surfaceManager.retireActiveAndHiddenSurfaces(forPaneIDs: [paneId])
         }
 
         if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {

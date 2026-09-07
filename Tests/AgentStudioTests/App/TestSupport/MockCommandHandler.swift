@@ -7,6 +7,7 @@ import Foundation
 
 @MainActor
 final class MockCommandHandler: WorkspaceCommandHandling {
+
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
     var canExecuteResult: Bool = true

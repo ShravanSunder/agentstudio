@@ -11,6 +11,27 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceMana
 /// `deliverVisibility` directly; both are non-`private` in `SurfaceManager.swift` for
 /// exactly this reason (Swift's `private` is file-scoped even across same-type extensions).
 extension SurfaceManager {
+    package func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {
+        let ids = (Array(activeSurfaces.values) + Array(hiddenSurfaces.values)).filter {
+            $0.attachmentPaneId.map(paneIDs.contains) ?? false
+        }.map(\.id)
+        for surfaceID in ids { detach(surfaceID, reason: .close) }
+    }
+
+    package func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {
+        let ids = (Array(activeSurfaces.values) + Array(hiddenSurfaces.values)).filter {
+            $0.attachmentPaneId.map(paneIDs.contains) ?? false
+        }.map(\.id)
+        for surfaceID in ids { destroy(surfaceID) }
+    }
+
+    package func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {
+        let surfaceIDs = undoStack.filter { entry in
+            (entry.previousPaneAttachmentId ?? entry.surface.attachmentPaneId).map(paneIDs.contains) ?? false
+        }.map(\.surface.id)
+        for surfaceID in surfaceIDs { destroy(surfaceID) }
+    }
+
     /// Outcome of one `deliverVisibility` call.
     ///
     /// Not `private`: it crosses from `SurfaceManager.swift`'s attach/detach/move/undoClose(forPaneId:)
@@ -230,46 +251,5 @@ extension SurfaceManager {
             closeUndo: undoStack.count - (isInUndoStack ? 1 : 0),
             windowFacts: nil
         )
-    }
-}
-
-// MARK: - Undo Expiration
-//
-// Relocated from `SurfaceManager.swift` (unchanged) to keep that file under the project's file
-// length gate once the renderer lifecycle emission call sites landed; `expireUndoEntry` is the
-// exact `released` emission path for undo-TTL expiry, so it belongs alongside the rest of this
-// file's renderer lifecycle machinery. `surfaceHealth` and `surfaceViewToId` are widened the
-// same way as `activeSurfaces`/`hiddenSurfaces` for the same cross-file reason.
-extension SurfaceManager {
-    /// Not `private`: called from `SurfaceManager.swift`'s `detach(.close)`.
-    func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
-        let delayScheduler = self.delayScheduler
-        return Task { @MainActor [weak self, delayScheduler] in
-            let delay = date.timeIntervalSinceNow
-            if delay > 0 {
-                try? await delayScheduler.wait(.seconds(delay))
-            }
-
-            guard !Task.isCancelled else { return }
-            guard let self else { return }
-            expireUndoEntry(surfaceId)
-        }
-    }
-
-    private func expireUndoEntry(_ surfaceId: UUID) {
-        guard let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) else {
-            return
-        }
-
-        emitRendererLifecycleReleasedBeforeRemoval(surfaceId)
-        let entry = undoStack.remove(at: idx)
-        logger.info("Undo entry expired, destroying surface: \(surfaceId)")
-        detachTerminalLocalActions(surfaceID: surfaceId, paneID: nil)
-
-        // Destroy the surface
-        lifecycleDelegate?.surfaceWillDestroy(entry.surface)
-        surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
-        surfaceHealth.removeValue(forKey: surfaceId)
-        // ARC will clean up the surface
     }
 }

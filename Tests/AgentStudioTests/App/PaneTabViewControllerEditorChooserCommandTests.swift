@@ -147,6 +147,11 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 }
 
 private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {

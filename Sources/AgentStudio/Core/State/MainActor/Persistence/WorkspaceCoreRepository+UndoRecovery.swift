@@ -51,17 +51,13 @@ extension WorkspaceCoreRepository {
                     """,
                 arguments: [workspaceID.uuidString, time.bootID, time.uptimeNanoseconds]
             )
-            let retired = try closeIDs.map { rawID -> WorkspaceUndoCloseRetirement in
-                guard let closeID = UUID(uuidString: rawID) else {
-                    throw WorkspaceUndoJournalFailure.invalidStoredIdentifier
-                }
-                let members = try readUndoCloseMembers(closeID: closeID, database: database)
+            for rawID in closeIDs {
                 try database.execute(
                     sql: "UPDATE workspace_undo_close SET state = 'expired' WHERE close_id = ?",
                     arguments: [rawID]
                 )
-                return .init(closeID: closeID, members: members)
             }
+            let retired = try closeIDs.map { try readUndoCloseRetirement(rawCloseID: $0, database: database) }
             try markFinishedUndoSessionsForCleanup(database, workspaceID: workspaceID, requestedAt: time.utc)
             try pruneFinishedUndoRows(workspaceID: workspaceID, database: database)
             return retired

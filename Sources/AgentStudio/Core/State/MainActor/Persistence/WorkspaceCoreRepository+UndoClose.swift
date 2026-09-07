@@ -66,10 +66,6 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
             """,
         arguments: [close.workspaceID.uuidString, AppPolicies.WorkspacePersistence.maximumAvailableUndoCloses]
     )
-    let retiredCloses = try evictedIDs.map { rawID -> WorkspaceUndoCloseRetirement in
-        guard let closeID = UUID(uuidString: rawID) else { throw WorkspaceUndoJournalFailure.invalidStoredIdentifier }
-        return .init(closeID: closeID, members: try readUndoCloseMembers(closeID: closeID, database: database))
-    }
     try database.execute(
         sql: """
             UPDATE workspace_undo_close SET state = 'evicted'
@@ -81,6 +77,7 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
             """,
         arguments: [close.workspaceID.uuidString, AppPolicies.WorkspacePersistence.maximumAvailableUndoCloses]
     )
+    let retiredCloses = try evictedIDs.map { try readUndoCloseRetirement(rawCloseID: $0, database: database) }
     try markFinishedUndoSessionsForCleanup(
         database,
         workspaceID: close.workspaceID,
@@ -112,27 +109,5 @@ func markFinishedUndoSessionsForCleanup(
     workspaceID: UUID,
     requestedAt: Date
 ) throws {
-    try database.execute(
-        sql: """
-            UPDATE workspace_terminal_session_ownership
-            SET cleanup_state = 'pending', cleanup_requested_at = ?
-            WHERE cleanup_state = 'owned'
-                AND session_id IN (
-                    SELECT member.session_id FROM workspace_undo_close_member AS member
-                    JOIN workspace_undo_close AS operation ON operation.close_id = member.close_id
-                    WHERE operation.workspace_id = ? AND operation.state IN ('evicted', 'expired', 'restored')
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM pane_content_terminal AS terminal
-                    WHERE terminal.zmx_session_id = workspace_terminal_session_ownership.session_id
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM workspace_undo_close_member AS member
-                    JOIN workspace_undo_close AS operation ON operation.close_id = member.close_id
-                    WHERE member.session_id = workspace_terminal_session_ownership.session_id
-                        AND operation.state = 'available'
-                )
-            """,
-        arguments: [requestedAt.timeIntervalSince1970, workspaceID.uuidString]
-    )
+    try markUnownedTerminalSessionsForCleanup(database, finishedUndoWorkspaceID: workspaceID, requestedAt: requestedAt)
 }

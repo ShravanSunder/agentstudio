@@ -37,7 +37,7 @@ enum SurfaceHealth: Equatable {
 enum SurfaceState: Equatable {
     case active(paneId: UUID)  // Attached to a visible container
     case hidden  // Alive but no container
-    case pendingUndo(expiresAt: Date)  // In undo stack
+    case pendingUndo  // Retained until the durable journal ends ownership
 
     var isActive: Bool {
         if case .active = self { return true }
@@ -102,6 +102,7 @@ package struct ManagedSurface {
     package let surface: Ghostty.SurfaceView
     package internal(set) var metadata: SurfaceMetadata
     var state: SurfaceState
+    private var mostRecentPaneAttachmentId: UUID?
     var health: SurfaceHealth
     /// The last renderer visibility delivered to libghostty for this exact surface, or `nil`
     /// before any delivery. Pinned Ghostty queues renderer work on every occlusion call, so
@@ -119,8 +120,23 @@ package struct ManagedSurface {
         self.surface = surface
         self.metadata = metadata
         self.state = state
+        if case .active(let paneId) = state {
+            self.mostRecentPaneAttachmentId = paneId
+        } else {
+            self.mostRecentPaneAttachmentId = metadata.paneId
+        }
         self.health = .healthy
         self.lastDeliveredVisibility = lastDeliveredVisibility
+    }
+
+    var attachmentPaneId: UUID? {
+        if case .active(let paneId) = state { return paneId }
+        return mostRecentPaneAttachmentId
+    }
+
+    mutating func setAttachment(paneId: UUID) {
+        state = .active(paneId: paneId)
+        mostRecentPaneAttachmentId = paneId
     }
 }
 
@@ -149,8 +165,6 @@ struct SurfaceUndoEntry {
     let surface: ManagedSurface
     let previousPaneAttachmentId: UUID?
     let closedAt: Date
-    let expiresAt: Date
-    var expirationTask: Task<Void, Never>?
 }
 
 // MARK: - Surface Checkpoint

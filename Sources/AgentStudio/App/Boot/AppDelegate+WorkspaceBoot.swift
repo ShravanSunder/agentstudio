@@ -305,10 +305,22 @@ extension AppDelegate {
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
+    private func bootRecoverUndoJournal() async -> WorkspaceUndoJournalRecovery {
+        let undoTime: WorkspaceUndoJournalTime?
+        do { undoTime = try await WorkspaceUndoJournalClock.current() } catch {
+            undoTime = nil
+            appLogger.warning("Undo clock unavailable; retirement decisions await a valid reading")
+        }
+        do { return try await store.recoverUndoJournal(time: undoTime) } catch {
+            preconditionFailure("Workspace undo journal failed startup validation")
+        }
+    }
+
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
+        let undoRecovery = await bootRecoverUndoJournal()
         runtime = SessionRuntime(atom: atomStore.core.sessionRuntime, store: store)
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
@@ -368,6 +380,7 @@ extension AppDelegate {
                 self?.requestTraceIdentityRefresh()
             }
         )
+        workspaceSurfaceCoordinator.installUndoJournalRecovery(undoRecovery)
         bootInstallPreparedContentMountOwners(coordinator: workspaceSurfaceCoordinator)
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
@@ -391,6 +404,13 @@ extension AppDelegate {
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
         startWorkspacePaneRecencyObservation()
+        bootInstallCommandBar()
+        bootStartTerminalActivityRouter(bus: paneRuntimeBus)
+        AppCommandDispatcher.shared.appCommandRouter = self
+        oauthService = OAuthService()
+    }
+
+    private func bootInstallCommandBar() {
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -405,9 +425,6 @@ extension AppDelegate {
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        bootStartTerminalActivityRouter(bus: paneRuntimeBus)
-        AppCommandDispatcher.shared.appCommandRouter = self
-        oauthService = OAuthService()
     }
 
     private func makeRepositoryLocalActivityStore(

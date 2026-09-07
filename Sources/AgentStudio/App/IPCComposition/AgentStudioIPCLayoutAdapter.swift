@@ -5,7 +5,7 @@ import Foundation
 
 @MainActor
 protocol AgentStudioIPCLayoutActionExecuting: AnyObject {
-    func execute(_ action: WorkspaceActionCommand) -> Bool
+    func execute(_ action: WorkspaceActionCommand) async -> Bool
 }
 
 extension WorkspaceActionExecutor: AgentStudioIPCLayoutActionExecuting {}
@@ -51,14 +51,14 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         return IPCPaneFocusResult(paneId: paneId, focused: true)
     }
 
-    func splitPane(_ params: IPCPaneSplitParams) throws -> IPCPaneSplitResult {
+    func splitPane(_ params: IPCPaneSplitParams) async throws -> IPCPaneSplitResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.handle), in: snapshot)
         let tabId = try resolveTabId(forPaneId: paneId, in: snapshot)
-        try executeLayoutAction(
+        try await executeLayoutAction(
             .insertPane(
                 source: .newTerminal,
                 targetTabId: tabId,
@@ -71,36 +71,36 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
             targetPaneId: paneId, direction: params.direction, correlationId: params.correlationId)
     }
 
-    func closePane(_ params: IPCPaneCloseParams) throws -> IPCPaneCloseResult {
+    func closePane(_ params: IPCPaneCloseParams) async throws -> IPCPaneCloseResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.handle), in: snapshot)
         let tabId = try resolveTabId(forPaneId: paneId, in: snapshot)
-        try executeLayoutAction(.closePane(tabId: tabId, paneId: paneId))
+        try await executeLayoutAction(.closePane(tabId: tabId, paneId: paneId))
         return IPCPaneCloseResult(paneId: paneId, correlationId: params.correlationId)
     }
 
-    func addDrawerPane(_ params: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult {
+    func addDrawerPane(_ params: IPCDrawerAddPaneParams) async throws -> IPCDrawerAddPaneResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.parentPaneHandle), in: snapshot)
         try validateDrawerParent(paneId, in: snapshot)
-        try executeLayoutAction(.addDrawerPane(parentPaneId: paneId))
+        try await executeLayoutAction(.addDrawerPane(parentPaneId: paneId))
         return IPCDrawerAddPaneResult(parentPaneId: paneId, correlationId: params.correlationId)
     }
 
-    func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult {
+    func toggleDrawer(_ params: IPCDrawerToggleParams) async throws -> IPCDrawerToggleResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.parentPaneHandle), in: snapshot)
         try validateDrawerParent(paneId, in: snapshot)
-        try executeLayoutAction(.toggleDrawer(paneId: paneId))
+        try await executeLayoutAction(.toggleDrawer(paneId: paneId))
         return IPCDrawerToggleResult(parentPaneId: paneId, correlationId: params.correlationId)
     }
 
@@ -158,8 +158,8 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         }
     }
 
-    private func executeLayoutAction(_ action: WorkspaceActionCommand) throws {
-        guard workspaceActionExecutor.execute(action) else {
+    private func executeLayoutAction(_ action: WorkspaceActionCommand) async throws {
+        guard await workspaceActionExecutor.execute(action) else {
             throw AppIPCLayoutError(reason: .validationRejected)
         }
     }

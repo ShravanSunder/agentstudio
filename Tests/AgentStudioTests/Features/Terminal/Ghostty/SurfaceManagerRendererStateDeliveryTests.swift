@@ -18,7 +18,6 @@ struct SurfaceManagerRendererStateDeliveryTests {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) -> SurfaceManager {
         SurfaceManager(
-            undoTTL: 300,
             maxCreationRetries: 0,
             healthCheckInterval: 3600,
             delayScheduler: AsyncDelay { _ in },
@@ -79,6 +78,29 @@ struct SurfaceManagerRendererStateDeliveryTests {
     }
 
     // MARK: - Tests
+
+    @Test("journal retention includes hidden surfaces while repair leaves undo-owned surfaces alone")
+    func journalRetentionAndRepairUseDistinctOwners() throws {
+        let manager = makeManager(delivery: RecordingSurfaceRendererStateDelivery())
+        let undoPaneID = UUIDv7.generate()
+        let repairPaneID = UUIDv7.generate()
+        let undoSurface = try acceptedSurface(makeBareSurface(), in: manager, paneId: UUIDv7.generate())
+        manager.attach(undoSurface.id, to: undoPaneID)
+        manager.detach(undoSurface.id, reason: .hide)
+        #expect(manager.paneId(for: undoSurface.id) == undoPaneID)
+        _ = try acceptedSurface(makeBareSurface(), in: manager, paneId: repairPaneID)
+        #expect(manager.hiddenSurfaceCount == 2)
+
+        manager.retainSurfacesForUndo(forPaneIDs: [undoPaneID])
+        #expect(manager.canUndo)
+        #expect(manager.hiddenSurfaceCount == 1)
+        manager.retireActiveAndHiddenSurfaces(forPaneIDs: [undoPaneID, repairPaneID])
+        #expect(manager.hiddenSurfaceCount == 0)
+        #expect(manager.undoClose(forPaneId: undoPaneID)?.id == undoSurface.id)
+        manager.retireActiveAndHiddenSurfaces(forPaneIDs: [undoPaneID])
+        #expect(!manager.canUndo)
+        #expect(manager.hiddenSurfaceCount == 0)
+    }
 
     @Test("accepting a created surface delivers hidden visibility")
     func acceptingCreatedSurfaceDeliversHidden() throws {
@@ -487,35 +509,27 @@ struct SurfaceManagerRendererStateDeliveryTests {
         #expect(manager.undoClose(forPaneId: paneA) == nil)
     }
 
-    @Test("undo expiry releases the surface and drops the manager's last reference")
-    func undoExpiryReleasesTheSurfaceAndDropsTheManagersLastReference() async throws {
+    @Test("committed undo release drops the manager's last reference")
+    func committedUndoReleaseDropsTheManagersLastReference() async throws {
         // Arrange
         let delivery = RecordingSurfaceRendererStateDelivery()
         let (recorder, sink) = makeRendererLifecycleRecorder()
         let manager = makeManager(delivery: delivery, performanceTraceRecorder: recorder)
         weak var weakSurface: Ghostty.SurfaceView?
 
-        // Act — close moves the surface into the undo stack; the injected no-op `AsyncDelay`
-        // resolves the scheduled expiration immediately once the task is given a turn. `final`
-        // `Ghostty.SurfaceView` means there is no deallocation-observing subclass available, so
-        // strong locals are dropped inside an autoreleasepool before asserting (see the destroy
-        // test above for the same caveat: ordering relative to deallocation is inferred from the
-        // recorded counts, not observed directly).
+        // The manager retains the surface until the journal explicitly releases its pane.
+        let paneID = UUIDv7.generate()
         try autoreleasepool {
             let surface = makeBareSurface()
             weakSurface = surface
             let managed = try acceptedSurface(surface, in: manager)
-            let paneID = UUIDv7.generate()
             manager.attach(managed.id, to: paneID)
 
             manager.detach(managed.id, reason: .close)
         }
 
-        // Await the exact expiry event with a bounded timeout instead of an arbitrary yield count.
-        let deadline = ContinuousClock.now + .seconds(5)
-        while manager.canUndo, ContinuousClock.now < deadline {
-            await Task.yield()
-        }
+        #expect(manager.canUndo)
+        manager.releaseUndoSurfaces(forPaneIDs: [paneID])
         try await recorder.drain()
 
         // Assert

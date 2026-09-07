@@ -18,7 +18,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let destinationTab = Tab(paneId: destinationPane.id)
         harness.store.appendTab(destinationTab)
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .movePaneAcrossTabs(
                 CrossTabPaneMoveRequest(
                     paneId: context.sourcePane.id,
@@ -47,7 +47,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .extractPaneToTab(
                 tabId: context.sourceTab.id,
                 paneId: context.sourcePane.id
@@ -70,7 +70,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        harness.coordinator.execute(.breakUpTab(tabId: context.sourceTab.id))
+        try await harness.coordinator.execute(.breakUpTab(tabId: context.sourceTab.id))
 
         let destinationTabId = try await expectZoomOwnershipTransition(
             context,
@@ -94,7 +94,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let targetTab = Tab(paneId: targetPane.id)
         harness.store.appendTab(targetTab)
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .mergeTab(
                 sourceTabId: context.sourceTab.id,
                 targetTabId: targetTab.id,
@@ -119,7 +119,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .extractPaneToTab(
                 tabId: context.sourceTab.id,
                 paneId: context.sourcePane.id
@@ -142,7 +142,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        harness.coordinator.execute(.breakUpTab(tabId: context.sourceTab.id))
+        try await harness.coordinator.execute(.breakUpTab(tabId: context.sourceTab.id))
 
         let destinationTabId = try await expectZoomOwnershipTransition(
             context,
@@ -166,7 +166,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         let targetTab = Tab(paneId: targetPane.id)
         harness.store.appendTab(targetTab)
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .mergeTab(
                 sourceTabId: context.sourceTab.id,
                 targetTabId: targetTab.id,

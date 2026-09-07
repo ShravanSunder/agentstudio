@@ -822,7 +822,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 if let tab = self.store.tabLayoutAtom.tab(tabId),
                     tab.activeMinimizedPaneIds.contains(paneId)
                 {
-                    self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
+                    self.dispatchGesture { execute in
+                        guard await execute(.expandPane(tabId: tabId, paneId: paneId)) else { return false }
+                        self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+                        atom(\.workspaceFocusOwner).focusMainPane(paneId)
+                        self.managementNavigationScope = .mainRow
+                        return true
+                    }
+                    return
                 }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
                 atom(\.workspaceFocusOwner).focusMainPane(paneId)
@@ -1680,27 +1687,29 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .moveTab(let tabId, let insertionIndex):
             dispatchAction(.reorderTab(tabId: tabId, insertionIndex: insertionIndex))
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let insertionIndex):
-            let tabCountBefore = store.tabLayoutAtom.tabs.count
-            dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
-            guard
-                store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-                let extractedTabId = store.tabLayoutAtom.activeTabId,
-                let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
-                    of: extractedTabId
+            dispatchGesture { [self] execute in
+                let tabCountBefore = store.tabLayoutAtom.tabs.count
+                guard await execute(.extractPaneToTab(tabId: sourceTabId, paneId: paneId)) else { return false }
+                guard
+                    store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
+                    let extractedTabId = store.tabLayoutAtom.activeTabId,
+                    let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
+                        of: extractedTabId
+                    )
+                else {
+                    return false
+                }
+                let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
+                    preExtractionInsertionIndex: insertionIndex,
+                    insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
                 )
-            else {
-                return
+                return await execute(
+                    .reorderTab(
+                        tabId: extractedTabId,
+                        insertionIndex: postExtractionInsertionIndex
+                    )
+                )
             }
-            let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
-                preExtractionInsertionIndex: insertionIndex,
-                insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
-            )
-            dispatchAction(
-                .reorderTab(
-                    tabId: extractedTabId,
-                    insertionIndex: postExtractionInsertionIndex
-                )
-            )
         }
     }
 
@@ -2197,49 +2206,50 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleManagementOpenDrawer() {
-        guard let parentPaneId = activeMainPaneId() else {
-            Self.logger.warning("management open drawer ignored because active main pane is unavailable")
-            return
-        }
-        let drawerIsExpanded = store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
-        if !drawerIsExpanded {
-            dispatchAction(.toggleDrawer(paneId: parentPaneId))
-            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
-        }
-
-        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-
-        if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
-            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+        guard let parentPaneId = activeMainPaneId() else { return }
+        dispatchGesture { [self] execute in
+            guard store.paneAtom.pane(parentPaneId) != nil else { return false }
+            if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded != true {
+                guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
+                handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
+            }
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
+                handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+            }
+            return true
         }
     }
 
     private func handleManagementMoveUp() {
         guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
-        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
-            dispatchAction(.toggleDrawer(paneId: parentPaneId))
-            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
+        dispatchGesture { [self] execute in
+            if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
+                guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
+                handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
+            }
+            managementNavigationScope = .mainRow
+            return true
         }
-        managementNavigationScope = .mainRow
     }
 
     private func enterDrawerFromActivePane() {
-        guard
-            let activeTabId = store.tabLayoutAtom.activeTabId,
+        guard let activeTabId = store.tabLayoutAtom.activeTabId,
             let parentPaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
         else { return }
-
-        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
-            dispatchAction(.toggleDrawer(paneId: parentPaneId))
-        }
-
-        if let drawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
+        dispatchGesture { [self] execute in
+            guard store.paneAtom.pane(parentPaneId) != nil else { return false }
+            if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
+                guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
+            }
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
-        } else {
-            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
-            _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+            if let drawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
+                handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+            } else {
+                atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+                _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+            }
+            return true
         }
     }
 
@@ -2278,10 +2288,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
         guard let target = resolveDrawerPaneOrdinalTarget(for: command) else { return false }
-        if target.drawerView.minimizedPaneIds.contains(target.drawerPaneId) {
-            dispatchAction(.expandDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId))
+        dispatchGesture { [self] execute in
+            await focusDrawerPaneAfterAdmission(
+                parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId, execute: execute)
         }
-        focusTargetedDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)
         return true
     }
 
@@ -2502,13 +2512,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     /// Central entry point: validates a WorkspaceActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
-    private func dispatchAction(_ action: WorkspaceActionCommand) {
-        switch WorkspaceCommandValidator.validate(action, state: actionStateSnapshot()) {
-        case .success:
-            executor.execute(action)
-            syncFocusOwnerAfterValidatedAction(action)
-        case .failure(let error):
-            ghosttyLogger.warning("Action rejected: \(error)")
+    @discardableResult
+    private func dispatchAction(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
+        dispatchGesture { execute in await execute(action) }
+    }
+
+    @discardableResult
+    private func dispatchGesture(
+        _ operation: @escaping @MainActor (@MainActor (WorkspaceActionCommand) async -> Bool) async -> Bool
+    ) -> Task<Bool, Never> {
+        executor.submitGesture { [weak self] execute in
+            guard let self else { return false }
+            return await operation { action in
+                let applied = await execute(action)
+                if applied { self.syncFocusOwnerAfterValidatedAction(action) }
+                return applied
+            }
         }
     }
 
@@ -2691,12 +2710,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleTabReorder(fromId: UUID, insertionIndex: Int, correlationId: UUID) {
         interactionProbe?.beginInteraction(.tabMove, correlationId: correlationId)
-        dispatchAction(.reorderTab(tabId: fromId, insertionIndex: insertionIndex))
-        pendingTabMovePublication = PendingTabMovePublication(
-            correlationId: correlationId,
-            movedTabId: fromId,
-            expectedOrderedTabIds: store.tabShellAtom.orderedTabIds
-        )
+        dispatchGesture { [self] execute in
+            guard await execute(.reorderTab(tabId: fromId, insertionIndex: insertionIndex)) else { return false }
+            pendingTabMovePublication = PendingTabMovePublication(
+                correlationId: correlationId, movedTabId: fromId,
+                expectedOrderedTabIds: store.tabShellAtom.orderedTabIds
+            )
+            return true
+        }
     }
 
     func acknowledgeTabBarPublication(frames: [UUID: CGRect]) {
@@ -2750,41 +2771,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
-        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
-        // so "single pane move ability" still works.
-        if let sourceTab = store.tabLayoutAtom.tab(tabId),
-            sourceTab.activePaneIds.count == 1
-        {
-            if let targetTabInsertionIndex {
-                dispatchAction(.reorderTab(tabId: tabId, insertionIndex: targetTabInsertionIndex))
+        dispatchGesture { [self] execute in
+            guard let sourceTab = store.tabLayoutAtom.tab(tabId) else { return false }
+            if sourceTab.activePaneIds.count == 1 {
+                guard let targetTabInsertionIndex else { return true }
+                return await execute(.reorderTab(tabId: tabId, insertionIndex: targetTabInsertionIndex))
             }
-            return
-        }
-
-        let tabCountBefore = store.tabLayoutAtom.tabs.count
-        dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
-
-        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
-        guard let targetTabInsertionIndex,
-            store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-            let extractedTabId = store.tabLayoutAtom.activeTabId,
-            let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
-                of: extractedTabId
+            let tabCountBefore = store.tabLayoutAtom.tabs.count
+            guard await execute(.extractPaneToTab(tabId: tabId, paneId: paneId)) else { return false }
+            guard let targetTabInsertionIndex else { return true }
+            guard store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
+                let extractedTabId = store.tabLayoutAtom.activeTabId,
+                let insertedIndex = store.tabShellAtom.orderedTabIds.firstIndex(of: extractedTabId)
+            else { return false }
+            let destination = Self.postExtractionInsertionIndex(
+                preExtractionInsertionIndex: targetTabInsertionIndex,
+                insertedTabIndexAfterExtraction: insertedIndex
             )
-        else {
-            return
+            return await execute(.reorderTab(tabId: extractedTabId, insertionIndex: destination))
         }
-
-        let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
-            preExtractionInsertionIndex: targetTabInsertionIndex,
-            insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
-        )
-        dispatchAction(
-            .reorderTab(
-                tabId: extractedTabId,
-                insertionIndex: postExtractionInsertionIndex
-            )
-        )
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
@@ -2830,7 +2835,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Undo Close Tab
 
     private func handleUndoCloseTab() {
-        executor.undoCloseTab()
+        executor.submitUndoClose()
     }
 
     // MARK: - Refocus Active Pane
@@ -3383,6 +3388,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return true
     }
 
+    private func dispatchDrawerToggle(paneId: UUID) {
+        dispatchGesture { [self] execute in
+            guard await execute(.toggleDrawer(paneId: paneId)) else { return false }
+            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
+            return true
+        }
+    }
+
     private func handleDirectCommand(_ command: AppCommand) {
         if handlePaneLocationCommand(command) {
             return
@@ -3425,9 +3438,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { break }
-            dispatchAction(.toggleDrawer(paneId: paneId))
-            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
-            syncFocusOwnerAfterDrawerMutation(parentPaneId: paneId)
+            dispatchDrawerToggle(paneId: paneId)
 
         case .closeDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,
@@ -3490,20 +3501,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .previousArrangement || command == .nextArrangement {
-            guard
-                targetType == .tab,
-                let tab = store.tabLayoutAtom.tab(target),
-                tab.arrangements.count > 1
-            else {
-                return
+            guard targetType == .tab else { return }
+            dispatchGesture { [self] execute in
+                guard let tab = store.tabLayoutAtom.tab(target), tab.arrangements.count > 1,
+                    let activeIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
+                else { return false }
+                if store.tabLayoutAtom.activeTabId != target {
+                    guard await execute(.selectTab(tabId: target)) else { return false }
+                }
+                let delta = command == .previousArrangement ? -1 : 1
+                let nextIndex = (activeIndex + delta + tab.arrangements.count) % tab.arrangements.count
+                return await execute(.switchArrangement(tabId: target, arrangementId: tab.arrangements[nextIndex].id))
             }
-            if store.tabLayoutAtom.activeTabId != target {
-                dispatchAction(.selectTab(tabId: target))
-            }
-            switchArrangement(
-                inTab: target,
-                delta: command == .previousArrangement ? -1 : 1
-            )
             return
         }
 
@@ -3557,27 +3566,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .toggleDrawer, targetType == .pane {
-            guard let action = targetedPaneWorkspaceAction(command: command, paneId: target, targetType: targetType)
-            else {
-                return
+            dispatchGesture { [self] execute in
+                guard
+                    let action = targetedPaneWorkspaceAction(command: command, paneId: target, targetType: targetType),
+                    await execute(action)
+                else { return false }
+                handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: target)))
+                return true
             }
-            dispatchAction(action)
-            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: target)))
-            syncFocusOwnerAfterDrawerMutation(parentPaneId: target)
             return
         }
 
-        if let action = targetedAction(command: command, target: target, targetType: targetType) {
-            guard
-                prepareTargetedArrangementTabSelection(
-                    command: command,
-                    target: target,
-                    targetType: targetType
-                )
-            else {
-                return
+        if targetedAction(command: command, target: target, targetType: targetType) != nil {
+            dispatchGesture { [self] execute in
+                guard let action = targetedAction(command: command, target: target, targetType: targetType),
+                    await prepareTargetedArrangementTabSelection(
+                        command: command, target: target, targetType: targetType, execute: execute
+                    )
+                else { return false }
+                return await execute(action)
             }
-            dispatchAction(action)
             return
         }
 
@@ -3588,6 +3596,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         Self.logger.warning(
             "Targeted command ignored for unsupported target pair command=\(String(describing: command), privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
         )
+        return
     }
 
     private func executeTargetedRenameCommand(
@@ -3661,18 +3670,30 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
-        guard
-            let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPaneId) == true
-        else {
-            return
+        dispatchGesture { [self] execute in
+            await focusDrawerPaneAfterAdmission(
+                parentPaneId: parentPaneId, drawerPaneId: drawerPaneId, execute: execute)
         }
+    }
 
-        handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: parentPaneId)))
+    private func focusDrawerPaneAfterAdmission(
+        parentPaneId: UUID, drawerPaneId: UUID,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool
+    ) async -> Bool {
+        guard let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
+            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPaneId) == true
+        else { return false }
         if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
-            dispatchAction(.toggleDrawer(paneId: parentPaneId))
+            guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
         }
+        if arrangementView.drawerView(forParent: parentPaneId)?.minimizedPaneIds.contains(drawerPaneId) == true {
+            guard await execute(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)) else {
+                return false
+            }
+        }
+        handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: parentPaneId)))
         handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+        return true
     }
 
     private func focusMainPaneOrdinal(command: AppCommand) -> Bool {
@@ -3796,18 +3817,20 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func switchArrangement(inTab tabId: UUID, delta: Int) {
-        guard
-            let tab = store.tabLayoutAtom.tab(tabId),
-            tab.arrangements.count > 1,
-            let activeIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
-        else {
-            return
-        }
+        dispatchGesture { [self] execute in
+            guard
+                let tab = store.tabLayoutAtom.tab(tabId),
+                tab.arrangements.count > 1,
+                let activeIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
+            else {
+                return false
+            }
 
-        let count = tab.arrangements.count
-        let nextIndex = (activeIndex + delta + count) % count
-        let arrangement = tab.arrangements[nextIndex]
-        dispatchAction(.switchArrangement(tabId: tab.id, arrangementId: arrangement.id))
+            let count = tab.arrangements.count
+            let nextIndex = (activeIndex + delta + count) % count
+            let arrangement = tab.arrangements[nextIndex]
+            return await execute(.switchArrangement(tabId: tab.id, arrangementId: arrangement.id))
+        }
     }
 
     private func handlePaneFocusCommand(_ command: AppCommand) -> Bool {
@@ -4127,8 +4150,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func prepareTargetedArrangementTabSelection(
         command: AppCommand,
         target: UUID,
-        targetType: SearchItemType
-    ) -> Bool {
+        targetType: SearchItemType,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool
+    ) async -> Bool {
         guard
             targetType == .tab,
             command == .switchArrangement || command == .deleteArrangement
@@ -4139,7 +4163,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
         if store.tabLayoutAtom.activeTabId != owningTabId {
-            dispatchAction(.selectTab(tabId: owningTabId))
+            guard await execute(.selectTab(tabId: owningTabId)) else { return false }
         }
         return store.tabLayoutAtom.activeTabId == owningTabId
     }

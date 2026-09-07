@@ -31,7 +31,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
-        coordinator.execute(.renameTab(tabId: tab.id, name: "renamed"))
+        try await coordinator.execute(.renameTab(tabId: tab.id, name: "renamed"))
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         #expect(await source.operations().isEmpty)
@@ -137,7 +137,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
-        _ = coordinator.openTerminal(for: secondWorktree, in: repo)
+        _ = try await coordinator.openTerminal(for: secondWorktree, in: repo)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         #expect(await source.operations().isEmpty)

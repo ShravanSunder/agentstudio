@@ -18,7 +18,7 @@ func makeWorkspaceLocalSQLiteStoreFixture(
 @MainActor
 func preparedWorkspaceSQLiteDatastore(
     from backend: WorkspaceSQLiteStoreBackend
-) async throws -> WorkspaceSQLiteDatastore {
+) throws -> WorkspaceSQLiteDatastore {
     let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
     let preparedApplicationLocalRepository: WorkspaceLocalRepository?
     let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
@@ -43,7 +43,7 @@ func preparedWorkspaceSQLiteDatastore(
     coreRepository: WorkspaceCoreRepository,
     preparedApplicationLocalRepository: WorkspaceLocalRepository
 ) async throws -> WorkspaceSQLiteDatastore {
-    try await preparedWorkspaceSQLiteDatastore(
+    try preparedWorkspaceSQLiteDatastore(
         from: WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { workspaceId in
@@ -88,7 +88,7 @@ func workspaceSQLiteDatastore(
     let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
     try coreRepository.migrate()
-    return try await preparedWorkspaceSQLiteDatastore(
+    return try preparedWorkspaceSQLiteDatastore(
         from: WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             localBackend: localBackend,
@@ -147,4 +147,15 @@ extension WorkspaceSQLiteSaveBundle {
     static func emptyTopologyFixture(workspace: WorkspaceSQLiteSnapshot) -> Self {
         Self(workspace: workspace)
     }
+}
+
+@MainActor
+func makeWorkspaceJournalTestStore() throws -> WorkspaceStore {
+    let workspaceID = UUIDv7.generate()
+    let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+    let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+    return WorkspaceStore(
+        identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+        sqliteDatastore: datastore, startsObserving: false
+    )
 }

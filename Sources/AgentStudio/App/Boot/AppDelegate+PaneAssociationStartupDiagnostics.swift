@@ -60,11 +60,11 @@ import Foundation
             guard
                 let firstWorktree = firstRepository.worktrees.first,
                 let secondWorktree = secondRepository.worktrees.first,
-                let associatedPane = workspaceSurfaceCoordinator.openFloatingTerminal(
+                let associatedPane = try? await workspaceSurfaceCoordinator.openFloatingTerminal(
                     launchDirectory: firstWorktree.path,
                     title: "Pane Association Runtime Proof"
                 ),
-                let freePane = workspaceSurfaceCoordinator.openFloatingTerminal(
+                let freePane = try? await workspaceSurfaceCoordinator.openFloatingTerminal(
                     launchDirectory: fixture.freePaneRoot,
                     title: "Free Pane Association Runtime Proof"
                 )

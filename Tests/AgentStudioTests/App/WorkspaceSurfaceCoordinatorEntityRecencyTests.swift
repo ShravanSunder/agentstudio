@@ -14,15 +14,18 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
     }
 
     @Test("successful worktree open records repository and worktree with one timestamp")
-    func successfulWorktreeOpen_recordsCoherentApplicationRecency() throws {
-        try withTestCoreAtoms { coreAtoms in
+    func successfulWorktreeOpen_recordsCoherentApplicationRecency() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: coreAtoms.workspaceIdentity.workspaceId)
+            let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
             let store = WorkspaceStore(
                 identityAtom: coreAtoms.workspaceIdentity,
                 windowMemoryAtom: coreAtoms.workspaceWindowMemory,
                 repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
                 paneAtom: coreAtoms.workspacePane,
                 tabLayoutAtom: coreAtoms.workspaceTabLayout,
-                mutationCoordinator: coreAtoms.workspaceMutationCoordinator
+                mutationCoordinator: coreAtoms.workspaceMutationCoordinator,
+                sqliteDatastore: datastore
             )
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/entity-recency-repo"))
             let worktree = try #require(store.repo(repo.id)?.worktrees.first)
@@ -34,7 +37,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
-            let openedPane = coordinator.openTerminal(for: worktree, in: repo)
+            let openedPane = try await coordinator.openTerminal(for: worktree, in: repo)
 
             #expect(openedPane != nil)
             let repositoryRecency = try #require(
@@ -50,12 +53,13 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
             #expect(repositoryRecency.interaction == .opened)
             #expect(worktreeRecency.interaction == .opened)
             #expect(repositoryRecency.lastInteractedAt == worktreeRecency.lastInteractedAt)
+            await coordinator.shutdown()
         }
     }
 
     @Test("rejected unknown worktree action records no application recency")
-    func rejectedUnknownWorktreeAction_recordsNothing() {
-        withTestCoreAtoms { coreAtoms in
+    func rejectedUnknownWorktreeAction_recordsNothing() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
             let store = makeStore(coreAtoms: coreAtoms)
             let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,
@@ -66,7 +70,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
 
-            let accepted = executor.execute(.openWorktree(worktreeId: UUID()))
+            let accepted = await executor.execute(.openWorktree(worktreeId: UUID()))
 
             #expect(!accepted)
             #expect(coreAtoms.applicationEntityRecency.recentEntities.isEmpty)
@@ -74,8 +78,8 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
     }
 
     @Test("failed split insertion records no application recency")
-    func failedSplitInsertion_recordsNothing() throws {
-        try withTestCoreAtoms { coreAtoms in
+    func failedSplitInsertion_recordsNothing() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
             let store = makeStore(coreAtoms: coreAtoms)
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/entity-recency-split-failure"))
             let worktree = try #require(store.repo(repo.id)?.worktrees.first)
@@ -100,7 +104,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
 
-            let accepted = executor.execute(.openWorktreeInPane(worktreeId: worktree.id))
+            let accepted = await executor.execute(.openWorktreeInPane(worktreeId: worktree.id))
 
             #expect(accepted)
             #expect(store.panes.count == 1)

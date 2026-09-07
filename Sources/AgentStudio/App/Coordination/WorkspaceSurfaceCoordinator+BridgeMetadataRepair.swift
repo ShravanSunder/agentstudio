@@ -28,7 +28,7 @@ extension WorkspaceSurfaceCoordinator {
                 repairedMetadata.worktreeId != nil
             else { continue }
 
-            execute(.repair(.recreateSurface(paneId: paneId)))
+            submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
         }
     }
 

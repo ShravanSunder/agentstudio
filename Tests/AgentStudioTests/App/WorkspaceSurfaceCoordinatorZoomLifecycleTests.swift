@@ -68,7 +68,7 @@ extension WebKitSerializedTests {
             )
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
-            harness.coordinator.execute(
+            try await harness.coordinator.execute(
                 .closePane(tabId: sourceTab.id, paneId: sourcePane.id)
             )
             await harness.coordinator.drainBridgePaneRetirements()
@@ -169,7 +169,7 @@ extension WebKitSerializedTests {
                     == .loadedHidden
             )
 
-            harness.coordinator.execute(
+            try await harness.coordinator.execute(
                 .movePaneAcrossTabs(
                     CrossTabPaneMoveRequest(
                         paneId: sourcePane.id,
@@ -242,7 +242,7 @@ extension WebKitSerializedTests {
                     == .loadedHidden
             )
 
-            harness.coordinator.execute(
+            try await harness.coordinator.execute(
                 .movePaneAcrossTabs(
                     CrossTabPaneMoveRequest(
                         paneId: sourcePane.id,
@@ -311,7 +311,7 @@ extension WebKitSerializedTests {
             )
 
             // Act
-            harness.coordinator.execute(.backgroundPane(paneId: sourcePane.id))
+            try await harness.coordinator.execute(.backgroundPane(paneId: sourcePane.id))
             await harness.coordinator.drainBridgePaneRetirements()
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
@@ -383,7 +383,7 @@ extension WebKitSerializedTests {
             )
 
             // Act
-            harness.coordinator.execute(.purgeOrphanedPane(paneId: sourcePane.id))
+            try await harness.coordinator.execute(.purgeOrphanedPane(paneId: sourcePane.id))
             await harness.coordinator.drainBridgePaneRetirements()
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 

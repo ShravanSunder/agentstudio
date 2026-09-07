@@ -673,6 +673,7 @@ private final class PaneInboxCommandDispatcherProbe: AppCommandDispatching {
 
 @MainActor
 private final class PaneInboxCommandHandlerProbe: WorkspaceCommandHandling {
+
     var executedCommands: [AppCommand] = []
     var executedTargets: [(command: AppCommand, target: UUID, targetType: SearchItemType)] = []
 

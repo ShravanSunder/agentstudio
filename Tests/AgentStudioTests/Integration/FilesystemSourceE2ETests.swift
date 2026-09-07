@@ -141,6 +141,11 @@ extension E2ESerializedTests {
 private final class FilesystemE2ESurfaceManager:
     WorkspaceSurfaceManaging
 {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

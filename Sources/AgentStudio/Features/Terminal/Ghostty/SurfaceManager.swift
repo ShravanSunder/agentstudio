@@ -63,7 +63,6 @@ package final class SurfaceManager {
     // MARK: - Configuration
 
     /// How long to keep surfaces in undo stack (default 5 minutes)
-    private let undoTTL: TimeInterval
 
     /// Maximum retry count for surface creation
     private let maxCreationRetries: Int
@@ -121,14 +120,12 @@ package final class SurfaceManager {
     // MARK: - Initialization
 
     package init(
-        undoTTL: TimeInterval = 300,
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
         delayScheduler: AsyncDelay = .taskSleep,
         rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
-        self.undoTTL = undoTTL
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
         self.delayScheduler = delayScheduler
@@ -300,7 +297,7 @@ package final class SurfaceManager {
         RestoreTrace.log("SurfaceManager.attach requested surface=\(surfaceId) pane=\(paneId)")
         // Check hidden surfaces first
         if var managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
-            managed.state = .active(paneId: paneId)
+            managed.setAttachment(paneId: paneId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -318,10 +315,9 @@ package final class SurfaceManager {
         // Check undo stack
         if let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
             let entry = undoStack.remove(at: idx)
-            entry.expirationTask?.cancel()
 
             var managed = entry.surface
-            managed.state = .active(paneId: paneId)
+            managed.setAttachment(paneId: paneId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -338,7 +334,7 @@ package final class SurfaceManager {
         // Check if already active (re-attach)
         if let managed = activeSurfaces[surfaceId] {
             var updated = managed
-            updated.state = .active(paneId: paneId)
+            updated.setAttachment(paneId: paneId)
             updated.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = updated
             emitRendererLifecycleAttached()
@@ -386,12 +382,7 @@ package final class SurfaceManager {
             hiddenSurfaces.removeValue(forKey: surfaceId)
         }
 
-        let previousPaneAttachmentId: UUID?
-        if case .active(let cid) = managed.state {
-            previousPaneAttachmentId = cid
-        } else {
-            previousPaneAttachmentId = nil
-        }
+        let previousPaneAttachmentId = managed.attachmentPaneId
 
         switch reason {
         case .hide:
@@ -405,19 +396,16 @@ package final class SurfaceManager {
                 surfaceID: surfaceId,
                 paneID: previousPaneAttachmentId
             )
-            let expiresAt = Date().addingTimeInterval(undoTTL)
-            managed.state = .pendingUndo(expiresAt: expiresAt)
+            managed.state = .pendingUndo
 
-            var entry = SurfaceUndoEntry(
+            let entry = SurfaceUndoEntry(
                 surface: managed,
                 previousPaneAttachmentId: previousPaneAttachmentId,
-                closedAt: Date(),
-                expiresAt: expiresAt
+                closedAt: Date()
             )
-            entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
             undoStack.append(entry)
             emitRendererLifecycleClosedForUndo()
-            logger.info("Surface closed (undo-able): \(surfaceId), expires at \(expiresAt)")
+            logger.info("Surface retained by durable undo: \(surfaceId)")
 
         case .move:
             // Temporarily detached for reattachment elsewhere
@@ -447,7 +435,7 @@ package final class SurfaceManager {
             detachTerminalLocalActions(surfaceID: surfaceId, paneID: previousPaneID)
         }
 
-        managed.state = .active(paneId: targetPaneId)
+        managed.setAttachment(paneId: targetPaneId)
         managed.metadata.lastActiveAt = Date()
         activeSurfaces[surfaceId] = managed
 
@@ -469,8 +457,8 @@ package final class SurfaceManager {
             return
         }
 
-        managedA.state = .active(paneId: containerB)
-        managedB.state = .active(paneId: containerA)
+        managedA.setAttachment(paneId: containerB)
+        managedB.setAttachment(paneId: containerA)
 
         activeSurfaces[surfaceA] = managedA
         activeSurfaces[surfaceB] = managedB
@@ -485,11 +473,14 @@ package final class SurfaceManager {
     /// undo stack.
     /// - Returns: The restored surface, or `nil` when no retained surface belongs to that pane.
     package func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
-        guard let index = undoStack.lastIndex(where: { $0.surface.metadata.paneId == paneId }) else {
+        guard
+            let index = undoStack.lastIndex(where: {
+                ($0.previousPaneAttachmentId ?? $0.surface.attachmentPaneId) == paneId
+            })
+        else {
             return nil
         }
         let entry = undoStack.remove(at: index)
-        entry.expirationTask?.cancel()
 
         var managed = entry.surface
         managed.state = .hidden
@@ -527,7 +518,6 @@ package final class SurfaceManager {
         // Remove from undo stack
         if let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
             let entry = undoStack.remove(at: idx)
-            entry.expirationTask?.cancel()
             lifecycleDelegate?.surfaceWillDestroy(entry.surface)
             surfaceViewToId.removeValue(forKey: ObjectIdentifier(entry.surface.surface))
         }
@@ -838,12 +828,11 @@ extension SurfaceManager {
     }
 
     /// Reverse-lookup: surfaceId → paneId.
-    /// Derives from surface state (authoritative after attach/move) rather than
-    /// metadata.paneId which is only set at creation time.
+    /// Uses current or most recent attachment, including after hide/move/undo.
+    /// Creation metadata is not a live binding.
     func paneId(for surfaceId: UUID) -> UUID? {
         guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else { return nil }
-        if case .active(let paneId) = managed.state { return paneId }
-        return managed.metadata.paneId
+        return managed.attachmentPaneId
     }
 
     /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.
@@ -859,16 +848,13 @@ extension SurfaceManager {
     /// Reverse-lookup: paneId → surfaceId.
     func surfaceId(forPaneId paneId: UUID) -> UUID? {
         if let activeMatch = activeSurfaces.first(where: { _, managed in
-            if case .active(let activePaneId) = managed.state {
-                return activePaneId == paneId
-            }
-            return managed.metadata.paneId == paneId
+            managed.attachmentPaneId == paneId
         }) {
             return activeMatch.key
         }
 
         if let hiddenMatch = hiddenSurfaces.first(where: { _, managed in
-            managed.metadata.paneId == paneId
+            managed.attachmentPaneId == paneId
         }) {
             return hiddenMatch.key
         }
@@ -916,7 +902,7 @@ extension SurfaceManager {
             }
             print("Undo stack: \(undoStack.count)")
             for entry in undoStack {
-                print("  - \(entry.surface.id): expires \(entry.expiresAt)")
+                print("  - \(entry.surface.id): retained by undo ownership")
             }
         }
     }

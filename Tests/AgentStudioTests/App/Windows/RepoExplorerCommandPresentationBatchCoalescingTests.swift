@@ -525,6 +525,7 @@ private func coalescingRefreshCount(at outputFileURL: URL, trigger: String) thro
 
 @MainActor
 private final class RepoExplorerCoalescingRecordingHandler: WorkspaceCommandHandling {
+
     let batchArrivals = ExactEventAcknowledgement<Set<RepoExplorerCommandPresentationRequest>>()
     var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
     var capabilityResult = true

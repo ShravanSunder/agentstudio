@@ -13,18 +13,18 @@ struct WorkspacePaneAssociationCreationPathTests {
     }
 
     @Test("worktree terminal tab and split creation persist the requested association")
-    func worktreeTerminalCreationPathsPersistAssociation() throws {
+    func worktreeTerminalCreationPathsPersistAssociation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
 
-        let sidebarPane = try #require(harness.coordinator.openTerminal(for: worktree, in: repo))
+        let sidebarPane = try #require(try await harness.coordinator.openTerminal(for: worktree, in: repo))
         expectDurableAssociation(sidebarPane.id, repo: repo, worktree: worktree, store: harness.store)
 
-        let newTabPane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let newTabPane = try #require(try await harness.coordinator.openNewTerminal(for: worktree, in: repo))
         expectDurableAssociation(newTabPane.id, repo: repo, worktree: worktree, store: harness.store)
 
-        let splitPane = try #require(harness.coordinator.openWorktreeInPane(for: worktree, in: repo))
+        let splitPane = try #require(try await harness.coordinator.openWorktreeInPane(for: worktree, in: repo))
         expectDurableAssociation(splitPane.id, repo: repo, worktree: worktree, store: harness.store)
     }
 
@@ -77,7 +77,7 @@ struct WorkspacePaneAssociationCreationPathTests {
     }
 
     @Test("floating terminals remain durably unassociated")
-    func floatingTerminalCreationRemainsUnassociated() throws {
+    func floatingTerminalCreationRemainsUnassociated() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         _ = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -85,7 +85,7 @@ struct WorkspacePaneAssociationCreationPathTests {
         try FileManager.default.createDirectory(at: freeDirectory, withIntermediateDirectories: true)
 
         let pane = try #require(
-            harness.coordinator.openFloatingTerminal(launchDirectory: freeDirectory, title: "Floating")
+            try await harness.coordinator.openFloatingTerminal(launchDirectory: freeDirectory, title: "Floating")
         )
 
         expectDurablyUnassociated(pane.id, expectedCWD: freeDirectory, store: harness.store)
@@ -124,7 +124,7 @@ struct WorkspacePaneAssociationCreationPathTests {
     }
 
     @Test("drawer creation inherits the parent pane association")
-    func drawerCreationPersistsParentAssociation() throws {
+    func drawerCreationPersistsParentAssociation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -137,10 +137,12 @@ struct WorkspacePaneAssociationCreationPathTests {
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parentPane.id, inTab: tab.id)
 
-        harness.controller.execute(.addDrawerPane)
+        await harness.executeCommand(.addDrawerPane)
 
         let drawerPaneId = try #require(harness.store.drawerView(forParent: parentPane.id)?.activeChildId)
         expectDurableAssociation(drawerPaneId, repo: repo, worktree: worktree, store: harness.store)
+        await harness.executor.stopAcceptingCommandsAndDrain()
+        await harness.coordinator.shutdown()
     }
 
     @Test("existing-pane insertion and cross-tab move preserve durable association")

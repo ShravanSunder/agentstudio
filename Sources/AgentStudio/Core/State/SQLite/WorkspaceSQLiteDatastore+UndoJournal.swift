@@ -1,6 +1,54 @@
 import Foundation
 
 extension WorkspaceSQLiteDatastore {
+    package func nextUndoDeadline(bootID: String) async throws -> Int64? {
+        try await withWorkspacePersistenceOrder { datastore in
+            try datastore.journalRepository().nextUndoDeadline(bootID: bootID)
+        }
+    }
+
+    package func expireAllUndoCloses(time: WorkspaceUndoJournalTime) async throws -> [WorkspaceUndoCloseRetirement] {
+        try await withWorkspacePersistenceOrder { datastore in
+            try datastore.requireJournalMutationAdmission()
+            try validateUndoJournalTime(time)
+            let repository = try datastore.journalRepository()
+            var retired: [WorkspaceUndoCloseRetirement] = []
+            for workspaceID in try repository.workspaceIDsWithAvailableUndo() {
+                try repository.recoverUndoCloseDeadlines(workspaceID: workspaceID, time: time)
+                retired.append(contentsOf: try repository.expireUndoCloses(workspaceID: workspaceID, time: time))
+            }
+            // Also finishes startup reconciliation if the boot clock was initially unavailable.
+            try repository.reconcileUnownedTerminalSessions(at: time)
+            return retired
+        }
+    }
+
+    /// Called after valid canonical composition is loaded and before runtime hosts are admitted.
+    package func recoverUndoJournal(
+        workspaceID: UUID, time: WorkspaceUndoJournalTime?
+    ) async throws -> WorkspaceUndoJournalRecovery {
+        try await withWorkspacePersistenceOrder { datastore in
+            let repository = try datastore.journalRepository()
+            var retiredCloses: [WorkspaceUndoCloseRetirement] = []
+            if let time {
+                try datastore.requireJournalMutationAdmission()
+                try validateUndoJournalTime(time)
+                for ownerWorkspaceID in try repository.workspaceIDsWithAvailableUndo() {
+                    try repository.recoverUndoCloseDeadlines(workspaceID: ownerWorkspaceID, time: time)
+                    retiredCloses.append(
+                        contentsOf: try repository.expireUndoCloses(workspaceID: ownerWorkspaceID, time: time))
+                }
+                try repository.reconcileUnownedTerminalSessions(at: time)
+                try repository.pruneCompletedUndoHistory(workspaceID: workspaceID)
+            }
+            return .init(
+                availableCloses: try repository.fetchAvailableUndoCloses(workspaceID: workspaceID),
+                retiredCloses: retiredCloses,
+                pendingSessionIDs: try repository.pendingTerminalSessionIDs()
+            )
+        }
+    }
+
     func requireJournalMutationAdmission(reconciling workspaceID: UUID? = nil) throws {
         let unresolved =
             workspaceID.map { failedStructuralWorkspaceIDs.subtracting([$0]) }

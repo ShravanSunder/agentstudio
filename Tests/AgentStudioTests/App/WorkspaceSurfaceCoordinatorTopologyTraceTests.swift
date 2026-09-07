@@ -104,9 +104,9 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             for _ in 0..<16 {
                 _ = store.paneAtom.paneSnapshot()
             }
-            coordinator.execute(.closeTab(tabId: tab.id))
+            try await coordinator.execute(.closeTab(tabId: tab.id))
         }
-        coordinator.undoCloseTab()
+        try await coordinator.undoCloseTab()
         for _ in 0..<16 {
             _ = store.paneAtom.paneSnapshot()
         }

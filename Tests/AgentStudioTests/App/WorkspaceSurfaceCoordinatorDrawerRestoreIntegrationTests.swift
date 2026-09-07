@@ -263,7 +263,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test("opening a deferred drawer restores every visible arranged child")
-    func toggleDrawer_restoresEveryVisibleArrangedChild() throws {
+    func toggleDrawer_restoresEveryVisibleArrangedChild() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -286,7 +286,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         harness.windowLifecycleStore.recordLaunchLayoutSettled()
 
-        harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
+        try await harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
 
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
         #expect(
@@ -300,28 +300,28 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test("tab selection during initial restore does not duplicate prepared terminal mounts")
-    func selectTabDuringInitialRestore_doesNotDuplicatePreparedTerminalMounts() throws {
+    func selectTabDuringInitialRestore_doesNotDuplicatePreparedTerminalMounts() async throws {
         // Arrange
         let context = try makeStartupTabSwitchHarness()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         // Act
-        harness.coordinator.execute(.selectTab(tabId: context.selectedTabID))
+        try await harness.coordinator.execute(.selectTab(tabId: context.selectedTabID))
 
         // Assert
         #expect(harness.viewRegistry.isInitialRestorePending)
         #expect(harness.surfaceManager.createdPaneIds.isEmpty)
         #expect(harness.store.tabLayoutAtom.activeTab?.id == context.selectedTabID)
 
-        harness.coordinator.execute(.selectTab(tabId: context.startupTabID))
+        try await harness.coordinator.execute(.selectTab(tabId: context.startupTabID))
 
         #expect(harness.viewRegistry.isInitialRestorePending)
         #expect(harness.surfaceManager.createdPaneIds.isEmpty)
     }
 
     @Test
-    func boundsSettlementSignalsPreparingForegroundDrawerWithoutArrangementMutation() throws {
+    func boundsSettlementSignalsPreparingForegroundDrawerWithoutArrangementMutation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -372,7 +372,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.store.setActiveTab(tab.id)
         let visibleDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
         let minimizedDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .minimizeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: minimizedDrawerPane.id)
         )
         let drawerViewBeforePreparedMount = try #require(harness.store.drawerView(forParent: parentPane.id))
@@ -418,7 +418,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .expandDrawerPane(parentPaneId: parentPane.id, drawerPaneId: minimizedDrawerPane.id)
         )
 
@@ -451,7 +451,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds.count
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .setActiveDrawerPane(parentPaneId: parentPane.id, drawerPaneId: secondDrawerPane.id)
         )
 
@@ -471,7 +471,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         #expect((await harness.store.flushAsync()).succeeded)
 
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: harness.sqliteBackend)
+            sqliteDatastore: try preparedWorkspaceSQLiteDatastore(from: harness.sqliteBackend)
         )
         _ = await restoredStore.loadCanonicalComposition()
         let restoredViewRegistry = ViewRegistry()
@@ -493,7 +493,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         restoredWindowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         restoredWindowLifecycleStore.recordLaunchLayoutSettled()
 
-        restoredCoordinator.execute(
+        try await restoredCoordinator.execute(
             .reactivatePane(
                 paneId: harness.parentPaneID,
                 targetTabId: harness.tabID,
@@ -560,7 +560,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .expandDrawerPane(
                 parentPaneId: harness.parentPaneID,
                 drawerPaneId: harness.secondDrawerPaneID
@@ -591,7 +591,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             workspaceName: "Composed Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_089)
         )
-        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let sqliteDatastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         try fixture.coreRepository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -639,17 +639,17 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
-        coordinator.execute(
+        try await coordinator.execute(
             .minimizeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: secondDrawerPane.id)
         )
 
-        coordinator.execute(.closeTab(tabId: tab.id))
-        coordinator.undoCloseTab()
+        try await coordinator.execute(.closeTab(tabId: tab.id))
+        try await coordinator.undoCloseTab()
         let flushOutcome = await store.flushAsync()
 
         #expect(flushOutcome.succeeded)
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         _ = await restoredStore.loadCanonicalComposition()
         let restoredViewRegistry = ViewRegistry()
@@ -843,6 +843,11 @@ private func preparedDrawerTerminalDescriptor(
 
 @MainActor
 private final class DrawerRestoreCapturingSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private(set) var createdPaneIds: [UUID] = []
     private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
 

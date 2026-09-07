@@ -21,6 +21,9 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason)
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface?
     func destroy(_ surfaceId: UUID)
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>)
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>)
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>)
 
     /// Registers (or clears, passing `nil`) a handler fired whenever attached-surface
     /// membership changes (attach/detach/move/swap/destroy). Defaulted to a no-op so
@@ -62,6 +65,11 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     let store: WorkspaceStore
+    let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
+    let undoDelay: AsyncDelay
+    let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    var undoDeadlineTask: Task<Void, Never>?
+    var workspaceActionSubmission: (@MainActor (WorkspaceActionCommand) -> Void)?
     let viewRegistry: ViewRegistry
     let runtime: SessionRuntime
     let surfaceManager: WorkspaceSurfaceManaging
@@ -167,10 +175,12 @@ final class WorkspaceSurfaceCoordinator {
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
     /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and
     /// SessionRuntime. Future: extract to UndoEngine when undo requirements grow.
-    private(set) var undoStack: [WorkspaceMutationCoordinator.CloseEntry] = []
+    private var undoCloses: [WorkspaceUndoCloseProjection] = []
+    var undoStack: [WorkspaceMutationCoordinator.CloseEntry] {
+        undoCloses.map { $0.snapshot.restoreEntry }
+    }
 
     /// Maximum undo stack entries before oldest are garbage-collected.
-    let maxUndoStackSize = 10
 
     convenience init(
         store: WorkspaceStore,
@@ -216,7 +226,11 @@ final class WorkspaceSurfaceCoordinator {
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
+        traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil,
+        undoClock: @escaping @Sendable () async throws -> WorkspaceUndoJournalTime = {
+            try await WorkspaceUndoJournalClock.current()
+        },
+        undoDelay: AsyncDelay = .clock(ContinuousClock())
     ) {
         let suppliedFilesystemTrioCount = [
             filesystemSource != nil,
@@ -249,6 +263,8 @@ final class WorkspaceSurfaceCoordinator {
         }
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
+        self.undoClock = undoClock
+        self.undoDelay = undoDelay
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         self.surfaceManager = surfaceManager
@@ -284,6 +300,8 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     isolated deinit {
+        undoDeadlineWakeups.continuation.finish()
+        undoDeadlineTask?.cancel()
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
             task.cancel()
@@ -308,6 +326,10 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
+        undoDeadlineWakeups.continuation.finish()
+        undoDeadlineTask?.cancel()
+        await undoDeadlineTask?.value
+        undoDeadlineTask = nil
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
@@ -373,18 +395,35 @@ final class WorkspaceSurfaceCoordinator {
         await filesystemSource.shutdown()
     }
 
-    func appendUndoEntry(_ entry: WorkspaceMutationCoordinator.CloseEntry) {
-        undoStack.append(entry)
+    func submitWorkspaceAction(_ action: WorkspaceActionCommand) {
+        guard let workspaceActionSubmission else {
+            Self.logger.error("Workspace command ingress arrived before its execution owner was installed")
+            return
+        }
+        workspaceActionSubmission(action)
     }
 
-    @discardableResult
-    func popLastUndoEntry() -> WorkspaceMutationCoordinator.CloseEntry? {
-        undoStack.popLast()
+    func installUndoJournalRecovery(_ recovery: WorkspaceUndoJournalRecovery) {
+        undoCloses = recovery.availableCloses.reversed().map(WorkspaceUndoCloseProjection.init)
+        consumeUndoRetirements(recovery.retiredCloses)
+        signalUndoDeadlineChange()
     }
 
-    @discardableResult
-    func removeFirstUndoEntry() -> WorkspaceMutationCoordinator.CloseEntry {
-        undoStack.removeFirst()
+    func publishUndoReceipt(_ receipt: WorkspaceUndoJournalReceipt, adding: WorkspaceUndoCloseProjection? = nil) {
+        // This bounded UI projection follows committed IDs; it never decides ownership or consumes undo.
+        var projections = Dictionary(uniqueKeysWithValues: undoCloses.map { ($0.closeID, $0) })
+        if let adding { projections[adding.closeID] = adding }
+        undoCloses = receipt.availableCloseIDs.reversed().compactMap { projections[$0] }
+        consumeUndoRetirements(receipt.retiredCloses)
+        signalUndoDeadlineChange()
+    }
+
+    func consumeUndoRetirements(_ retirements: [WorkspaceUndoCloseRetirement]) {
+        let retiredCloseIDs = Set(retirements.map(\.closeID))
+        undoCloses.removeAll { retiredCloseIDs.contains($0.closeID) }
+        let unownedPaneIDs = Set(retirements.flatMap(\.unownedPaneIDs))
+        surfaceManager.releaseUndoSurfaces(forPaneIDs: unownedPaneIDs)
+        for paneID in unownedPaneIDs { viewRegistry.retireSlot(for: paneID) }
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
@@ -641,7 +680,7 @@ final class WorkspaceSurfaceCoordinator {
         case .newTab:
             openNewTabFromSourcePane(sourcePaneUUID)
         case .newSplit(let direction):
-            execute(
+            submitWorkspaceAction(
                 .insertPane(
                     source: .newTerminal,
                     targetTabId: sourceTabId,
@@ -661,9 +700,9 @@ final class WorkspaceSurfaceCoordinator {
                 )
                 return
             }
-            execute(action)
+            submitWorkspaceAction(action)
         case .resizeSplit(let amount, let direction):
-            execute(
+            submitWorkspaceAction(
                 .resizePaneByDelta(
                     tabId: sourceTabId,
                     paneId: sourcePaneUUID,
@@ -672,7 +711,7 @@ final class WorkspaceSurfaceCoordinator {
                 )
             )
         case .equalizeSplits:
-            execute(.equalizePanes(tabId: sourceTabId))
+            submitWorkspaceAction(.equalizePanes(tabId: sourceTabId))
         case .toggleSplitZoom:
             AppCommandDispatcher.shared.dispatch(
                 .zoomPane,
@@ -684,7 +723,7 @@ final class WorkspaceSurfaceCoordinator {
         case .gotoTab(let target):
             executeGotoTabTarget(target, sourceTabId: sourceTabId)
         case .moveTab(let amount):
-            execute(.moveTab(tabId: sourceTabId, delta: amount))
+            submitWorkspaceAction(.moveTab(tabId: sourceTabId, delta: amount))
         case .titleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .tabTitleChanged(let title):
@@ -722,14 +761,14 @@ final class WorkspaceSurfaceCoordinator {
             let worktreeId = sourcePane.worktreeId,
             let repoId = sourcePane.repoId,
             let worktree = workspaceRepositoryTopology.worktree(worktreeId),
-            let repo = workspaceRepositoryTopology.repo(repoId)
+            workspaceRepositoryTopology.repo(repoId) != nil
         {
-            _ = openNewTerminal(for: worktree, in: repo)
+            submitWorkspaceAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
             return
         }
 
         if let repo = workspaceRepositoryTopology.repos.first, let worktree = repo.worktrees.first {
-            _ = openNewTerminal(for: worktree, in: repo)
+            submitWorkspaceAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
             return
         }
 
@@ -742,16 +781,16 @@ final class WorkspaceSurfaceCoordinator {
         let tabs = store.tabLayoutAtom.tabs
         switch mode {
         case .thisTab:
-            execute(.closeTab(tabId: sourceTabId))
+            submitWorkspaceAction(.closeTab(tabId: sourceTabId))
         case .otherTabs:
             for tab in tabs where tab.id != sourceTabId {
-                execute(.closeTab(tabId: tab.id))
+                submitWorkspaceAction(.closeTab(tabId: tab.id))
             }
         case .rightTabs:
             guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceTabId }) else { return }
             let rightTabs = tabs.dropFirst(sourceTabIndex + 1)
             for tab in rightTabs {
-                execute(.closeTab(tabId: tab.id))
+                submitWorkspaceAction(.closeTab(tabId: tab.id))
             }
         }
     }
@@ -774,7 +813,7 @@ final class WorkspaceSurfaceCoordinator {
         }
 
         if let action {
-            execute(action)
+            submitWorkspaceAction(action)
         } else {
             Self.logger.debug(
                 "Unable to resolve gotoTab runtime event for sourceTabId \(sourceTabId.uuidString, privacy: .public) target=\(String(describing: target), privacy: .public)"

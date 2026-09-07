@@ -170,6 +170,11 @@ package final class WorkspacePaneAtom {
         return didInsert
     }
 
+    func insertCommittedTerminalPane(_ pane: Pane, associationOutcome: PaneAssociationOutcome) {
+        precondition(insertRestoredPane(pane), "Committed new pane must have a fresh identity")
+        associationOutcomeRecorder?(associationOutcome)
+    }
+
     @discardableResult
     func deletePaneAndOwnedDrawerChildren(_ paneId: UUID) -> Bool {
         let didDelete = graphAtom.deletePaneAndOwnedDrawerChildren(paneId)

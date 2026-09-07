@@ -102,6 +102,10 @@ extension WorkspaceCoreMigrations {
         CREATE INDEX workspace_undo_close_deadline ON workspace_undo_close(state, expires_at)
         """,
         """
+        CREATE INDEX workspace_undo_continuous_deadline
+        ON workspace_undo_close(state, deadline_boot_id, deadline_uptime_ns)
+        """,
+        """
         CREATE TABLE workspace_undo_close_member (
             close_id TEXT NOT NULL REFERENCES workspace_undo_close(close_id) ON DELETE CASCADE,
             pane_id TEXT NOT NULL,
@@ -111,6 +115,9 @@ extension WorkspaceCoreMigrations {
         """,
         """
         CREATE INDEX workspace_undo_member_session ON workspace_undo_close_member(session_id)
+        """,
+        """
+        CREATE INDEX workspace_undo_member_pane ON workspace_undo_close_member(pane_id)
         """,
         """
         CREATE TRIGGER workspace_undo_member_insert_guard

@@ -7,6 +7,55 @@ import Testing
 
 @Suite("Workspace durable close persistence")
 struct WorkspaceUndoClosePersistenceTests {
+    @Test("retirement effects exclude panes still owned by another undo entry")
+    func retirementEffectsPreserveAnotherUndoOwner() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let workspaceID = UUIDv7.generate()
+        let sharedPane = Pane(
+            id: UUIDv7.generate(),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
+            metadata: PaneMetadata(createdAt: Date(timeIntervalSince1970: 100))
+        )
+        var lastReceipt: WorkspaceUndoJournalReceipt?
+        for index in 0..<11 {
+            let pane =
+                index < 2
+                ? sharedPane
+                : Pane(
+                    id: UUIDv7.generate(),
+                    content: .terminal(
+                        TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
+                    metadata: PaneMetadata(createdAt: Date(timeIntervalSince1970: 100))
+                )
+            let snapshot = WorkspaceUndoCloseSnapshot.tab(tab: Tab(paneId: pane.id), panes: [pane], tabIndex: 0)
+            lastReceipt = try fixture.repository.replaceWorkspaceSnapshot(
+                workspace: .init(
+                    id: workspaceID, name: "Shared undo", createdAt: Date(timeIntervalSince1970: 100),
+                    updatedAt: Date(timeIntervalSince1970: 100)),
+                paneGraph: .init(panes: []), tabShells: [], tabGraph: .init(tabs: []),
+                undoChange: .record(
+                    .init(
+                        closeID: UUIDv7.generate(), workspaceID: workspaceID, kind: .tab,
+                        closedAt: Date(timeIntervalSince1970: Double(100 + index)),
+                        expiresAt: Date(timeIntervalSince1970: Double(400 + index)),
+                        deadlineBootID: "boot-fixture", deadlineUptimeNanoseconds: Int64(400 + index) * 1_000_000_000,
+                        snapshotVersion: 1, snapshotPayload: try JSONEncoder().encode(snapshot),
+                        members: snapshot.members
+                    ))
+            )
+        }
+        #expect(lastReceipt?.retiredCloses.count == 1)
+        #expect(lastReceipt?.retiredCloses.first?.unownedPaneIDs.isEmpty == true)
+
+        let expired = try fixture.repository.expireUndoCloses(
+            workspaceID: workspaceID,
+            time: .init(
+                utc: Date(timeIntervalSince1970: 401), bootID: "boot-fixture", uptimeNanoseconds: 401_000_000_000)
+        )
+        #expect(expired.count == 1)
+        #expect(expired.first?.unownedPaneIDs == [sharedPane.id])
+    }
+
     @Test("eleventh committed close evicts oldest and retires only unowned sessions", arguments: [true, false])
     func eleventhCloseEvictsOldestWithoutRetiringSharedSession(shareSession: Bool) throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()

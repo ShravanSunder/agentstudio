@@ -98,6 +98,11 @@ struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
 
 @MainActor
 private final class RestoreMutationSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private(set) var createSurfaceCallCount = 0
 
     func syncFocus(activeSurfaceId _: UUID?) {}

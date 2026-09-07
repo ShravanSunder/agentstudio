@@ -22,7 +22,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     @Test("undo eviction preserves a pane still owned by another retained snapshot")
     func undoEvictionPreservesPaneOwnedByAnotherSnapshot() async throws {
         // Arrange
-        let harness = makeHarness()
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let retainedPane = makeWebviewPane(harness.store, title: "Retained snapshot pane")
         let retainedTab = Tab(paneId: retainedPane.id)
@@ -30,20 +30,38 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let earlierSnapshot = try #require(
             harness.store.mutationCoordinator.snapshotForClose(tabId: retainedTab.id)
         )
-        harness.coordinator.appendUndoEntry(.tab(earlierSnapshot))
-        harness.coordinator.execute(.closeTab(tabId: retainedTab.id))
+        let time = try await WorkspaceUndoJournalClock.current()
+        let snapshot = WorkspaceUndoCloseSnapshot(entry: .tab(earlierSnapshot))
+        let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
+            identityAtom: harness.store.identityAtom, windowMemoryAtom: harness.store.windowMemoryAtom,
+            workspacePaneAtom: harness.store.paneAtom, workspaceTabLayoutAtom: harness.store.tabLayoutAtom,
+            sqliteDatastore: harness.datastore
+        )
+        let bundle = await saveCoordinator.captureCurrentSaveBundle(persistedAt: time.utc)
+        try harness.backend.replaceWorkspaceSnapshot(
+            bundle, updatesActiveSelection: true,
+            undoChange: .record(
+                .init(
+                    closeID: UUIDv7.generate(), workspaceID: harness.store.identityAtom.workspaceId, kind: .tab,
+                    closedAt: time.utc, expiresAt: time.utc.addingTimeInterval(300), deadlineBootID: time.bootID,
+                    deadlineUptimeNanoseconds: time.uptimeNanoseconds + 300_000_000_000,
+                    snapshotVersion: 1, snapshotPayload: try JSONEncoder().encode(snapshot), members: snapshot.members
+                )))
+        harness.coordinator.installUndoJournalRecovery(try await harness.store.recoverUndoJournal(time: time))
+        try await harness.coordinator.execute(.closeTab(tabId: retainedTab.id))
 
         // Act: evict only the earlier snapshot; the second snapshot remains undoable.
         for index in 0..<9 {
             let pane = makeWebviewPane(harness.store, title: "Later close \(index)")
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
-            harness.coordinator.execute(.closeTab(tabId: tab.id))
+            try await harness.coordinator.execute(.closeTab(tabId: tab.id))
         }
 
         // Assert
         #expect(harness.coordinator.undoStack.count == 10)
-        #expect(harness.store.pane(retainedPane.id) != nil)
+        #expect(harness.coordinator.undoStack.contains { $0.panes.contains { $0.id == retainedPane.id } })
+        #expect(!harness.surfaceManager.releasedUndoPaneIDs.contains(retainedPane.id))
         await harness.coordinator.shutdown()
     }
 
@@ -54,15 +72,22 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let coordinator: WorkspaceSurfaceCoordinator
         let tempDir: URL
         let surfaceManager: UndoRestoreSurfaceManager
+        let datastore: WorkspaceSQLiteDatastore
+        let backend: WorkspaceSQLiteStoreBackend
     }
 
     private func makeHarness(
         createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
         undoCloseResults: [ManagedSurface] = []
-    ) -> Harness {
+    ) throws -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-undo-restore-\(UUID().uuidString)")
-        let store = WorkspaceStore()
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore, startsObserving: false)
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = UndoRestoreSurfaceManager(
@@ -84,7 +109,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             runtime: runtime,
             coordinator: coordinator,
             tempDir: tempDir,
-            surfaceManager: surfaceManager
+            surfaceManager: surfaceManager,
+            datastore: datastore, backend: fixture.backend
         )
     }
 
@@ -136,9 +162,9 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         )
     }
 
-    @Test("close tab marks snapshot panes pending undo and undo restores active ownership")
-    func closeTab_marksSnapshotPanesPendingUndo_andUndoRestoresActiveOwnership() throws {
-        let harness = makeHarness()
+    @Test("close moves pane ownership to the journal and undo restores live ownership")
+    func closeTab_marksSnapshotPanesPendingUndo_andUndoRestoresActiveOwnership() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let firstPane = makeWebviewPane(harness.store, title: "First")
@@ -155,16 +181,15 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             sizingMode: .halveTarget
         )
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
 
         #expect(harness.store.tab(tab.id) == nil)
         for paneId in [firstPane.id, secondPane.id] {
-            let closedPane = try #require(harness.store.pane(paneId))
-            #expect(closedPane.residency.isPendingUndo)
-            #expect(!closedPane.residency.isActive)
+            #expect(harness.store.pane(paneId) == nil)
+            #expect(harness.coordinator.undoStack.contains { $0.panes.contains { $0.id == paneId } })
         }
 
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.undoCloseTab()
 
         let restoredTab = try #require(harness.store.tab(tab.id))
         #expect(Set(restoredTab.allPaneIds) == Set([firstPane.id, secondPane.id]))
@@ -173,9 +198,9 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         }
     }
 
-    @Test("undoTabClose keeps tab only with successfully restored panes")
-    func undoTabClose_partialRestore_removesFailedPanes() {
-        let harness = makeHarness()
+    @Test("undoTabClose preserves restored ownership when a terminal renderer fails")
+    func undoTabClose_partialRestore_preservesFailedPaneOwnership() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -193,21 +218,23 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         )
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         guard let restoredTab = harness.store.tab(tab.id) else {
             Issue.record("Expected tab to remain after partial restore")
             return
         }
-        #expect(restoredTab.paneIds == [webviewPane.id])
-        #expect(harness.store.pane(terminalPane.id) == nil)
+        #expect(Set(restoredTab.paneIds) == [terminalPane.id, webviewPane.id])
+        #expect(
+            harness.store.pane(terminalPane.id)?.terminalState?.zmxSessionID == terminalPane.terminalState?.zmxSessionID
+        )
         #expect(harness.viewRegistry.view(for: webviewPane.id) != nil)
     }
 
     @Test("undoTabClose preserves drawer state when terminal restore is deferred by missing geometry")
-    func undoTabClose_deferredTerminalRestore_preservesDrawerState() throws {
-        let harness = makeHarness()
+    func undoTabClose_deferredTerminalRestore_preservesDrawerState() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -228,8 +255,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             #expect(facets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
         }
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         let restoredTab = try #require(harness.store.tab(tab.id))
         let restoredParent = try #require(harness.store.pane(parentPane.id))
@@ -262,7 +289,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             workspaceName: "Deferred Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
-        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let sqliteDatastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         try fixture.coreRepository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -303,13 +330,13 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
 
-        coordinator.execute(.closeTab(tabId: tab.id))
-        coordinator.undoCloseTab()
+        try await coordinator.execute(.closeTab(tabId: tab.id))
+        try await coordinator.undoCloseTab()
         let flushOutcome = await store.flushAsync()
 
         #expect(flushOutcome.succeeded)
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         await restoredStore.loadCanonicalComposition()
 
@@ -323,9 +350,9 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         #expect(restoredStore.drawerCursorAtom.isExpanded(drawerId: drawerId))
     }
 
-    @Test("undoTabClose removes empty tab when all pane restorations fail")
-    func undoTabClose_allRestoreFailures_removesTab() {
-        let harness = makeHarness()
+    @Test("undoTabClose preserves tab ownership when all renderers fail")
+    func undoTabClose_allRestoreFailures_preservesTab() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -334,17 +361,17 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.store.appendTab(tab)
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
-        #expect(harness.store.tab(tab.id) == nil)
-        #expect(harness.store.activeTabId == nil)
-        #expect(harness.store.pane(terminalPane.id) == nil)
+        #expect(harness.store.tab(tab.id) != nil)
+        #expect(harness.store.activeTabId == tab.id)
+        #expect(harness.store.pane(terminalPane.id) != nil)
     }
 
-    @Test("undoTabClose restore failure retires a stale rendered slot instead of deleting it")
-    func undoTabClose_restoreFailure_retiresStaleRenderedSlot() {
-        let harness = makeHarness()
+    @Test("undoTabClose restore failure preserves the restored pane and rendered slot")
+    func undoTabClose_restoreFailure_preservesRenderedSlot() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -355,17 +382,17 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [terminalPane.id])
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
-        #expect(harness.store.pane(terminalPane.id) == nil)
-        #expect(harness.viewRegistry.isRetiredForTesting(terminalPane.id))
+        #expect(harness.store.pane(terminalPane.id) != nil)
+        #expect(!harness.viewRegistry.isRetiredForTesting(terminalPane.id))
         #expect(harness.viewRegistry.peekSlotForTesting(terminalPane.id) === originalSlot)
     }
 
-    @Test("undoPaneClose deferred drawer restore preserves stale rendered drawer slot")
-    func undoPaneClose_deferredRestore_preservesStaleRenderedDrawerSlot() throws {
-        let harness = makeHarness()
+    @Test("drawer undo preserves ownership and slot through deferred or failed rendering", arguments: [false, true])
+    func undoPaneClose_preservesStaleRenderedDrawerSlot(geometryAvailable: Bool) async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -376,20 +403,25 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let child = try #require(harness.store.addDrawerPane(to: parent.id))
         let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
         harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
-        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        if geometryAvailable {
+            harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        }
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: child.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: child.id))
+        try await harness.coordinator.undoCloseTab()
 
         #expect(harness.store.pane(child.id) != nil)
         #expect(!harness.viewRegistry.isRetiredForTesting(child.id))
         #expect(harness.viewRegistry.peekSlotForTesting(child.id) === originalSlot)
-        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: child.id)?.mode == .preparing)
+        #expect(
+            harness.viewRegistry.terminalStatusPlaceholderView(for: child.id)?.mode
+                == (geometryAvailable ? .failedToStart : .preparing)
+        )
     }
 
-    @Test("undoPaneClose hard failure removes failed main pane through explicit cleanup")
-    func undoPaneClose_hardFailure_removesFailedMainPane() throws {
-        let harness = makeHarness(createSurfaceResult: .failure(.ghosttyNotInitialized))
+    @Test("undoPaneClose renderer failure preserves the restored main pane")
+    func undoPaneClose_hardFailure_preservesMainPane() async throws {
+        let harness = try makeHarness(createSurfaceResult: .failure(.ghosttyNotInitialized))
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -410,18 +442,18 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [terminal.id])
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: terminal.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: terminal.id))
+        try await harness.coordinator.undoCloseTab()
 
-        #expect(harness.store.pane(terminal.id) == nil)
-        #expect(harness.store.tab(tab.id)?.paneIds == [anchor.id])
-        #expect(harness.viewRegistry.isRetiredForTesting(terminal.id))
+        #expect(harness.store.pane(terminal.id) != nil)
+        #expect(Set(harness.store.tab(tab.id)?.paneIds ?? []) == [anchor.id, terminal.id])
+        #expect(!harness.viewRegistry.isRetiredForTesting(terminal.id))
         #expect(harness.viewRegistry.peekSlotForTesting(terminal.id) === originalSlot)
     }
 
-    @Test("undoTabClose preserves tab when only active arrangement is emptied")
-    func undoTabClose_activeArrangementEmpty_preservesTabViaFallbackArrangement() {
-        let harness = makeHarness()
+    @Test("undoTabClose preserves the active arrangement when a renderer fails")
+    func undoTabClose_preservesActiveArrangementOnRendererFailure() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -449,21 +481,21 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.store.switchArrangement(to: terminalOnlyArrangementId, inTab: tab.id)
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         guard let restoredTab = harness.store.tab(tab.id) else {
             Issue.record("Expected tab to remain after fallback arrangement recovery")
             return
         }
-        #expect(restoredTab.panes == [webviewPane.id])
-        #expect(!(restoredTab.activeArrangement.layout.paneIds.isEmpty))
+        #expect(Set(restoredTab.panes) == [terminalPane.id, webviewPane.id])
+        #expect(restoredTab.activeArrangementId == terminalOnlyArrangementId)
         #expect(restoredTab.activeArrangement.layout.contains(webviewPane.id))
     }
 
     @Test("undoCloseTab skips orphaned drawer-child pane snapshots safely")
-    func undoCloseTab_skipsOrphanedDrawerChildSnapshot() {
-        let harness = makeHarness()
+    func undoCloseTab_skipsOrphanedDrawerChildSnapshot() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let anchorPane = makeWebviewPane(harness.store, title: "Anchor")
@@ -489,21 +521,21 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             return
         }
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
         #expect(harness.coordinator.undoStack.count == 1)
 
         harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
         harness.store.removePane(parentPane.id)
 
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.undoCloseTab()
 
-        #expect(harness.coordinator.undoStack.isEmpty)
+        #expect(harness.coordinator.undoStack.count == 1)
         #expect(harness.store.pane(drawerPane.id) == nil)
     }
 
-    @Test("undoTabClose removes tab when all arrangements become empty after restore failures")
-    func undoTabClose_allArrangementsEmptyAfterFailures_removesTab() {
-        let harness = makeHarness()
+    @Test("undoTabClose preserves all arrangements after renderer failures")
+    func undoTabClose_preservesAllArrangementsAfterFailures() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -522,15 +554,15 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.store.switchArrangement(to: terminalOnlyArrangementId, inTab: tab.id)
         harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
-        #expect(harness.store.tab(tab.id) == nil)
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == terminalOnlyArrangementId)
     }
 
     @Test("tab close undo reattaches the retained surface without repository enrichment")
-    func tabCloseUndoReattachesRetainedSurfaceWithoutRepositoryEnrichment() {
-        let harness = makeHarness()
+    func tabCloseUndoReattachesRetainedSurfaceWithoutRepositoryEnrichment() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         // Arrange: a floating terminal pane (no worktree/repo) with a mounted view, closed via tab close.
@@ -552,8 +584,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.surfaceManager.undoCloseResults = [retainedSurface]
 
         // Act
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         // Assert: the retained surface is reattached; no fresh surface is created.
         #expect(harness.surfaceManager.attachCalls.map(\.surfaceID) == [retainedSurface.id])
@@ -561,8 +593,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     }
 
     @Test("pane close undo still reattaches the retained surface")
-    func paneCloseUndoStillReattachesRetainedSurface() {
-        let harness = makeHarness()
+    func paneCloseUndoStillReattachesRetainedSurface() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         // Arrange: a worktree-bound terminal pane with a mounted view, closed via pane close.
@@ -596,8 +628,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.surfaceManager.undoCloseResults = [retainedSurface]
 
         // Act
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: terminal.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: terminal.id))
+        try await harness.coordinator.undoCloseTab()
 
         // Assert: pane-close undo already reuses the retained surface — pin this today and after the fix.
         #expect(harness.surfaceManager.attachCalls.map(\.surfaceID) == [retainedSurface.id])
@@ -605,8 +637,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     }
 
     @Test("tab close undo reuses retained surfaces when stack order differs from snapshot order")
-    func tabCloseUndoReusesRetainedSurfacesWhenStackOrderDiffersFromSnapshotOrder() {
-        let harness = makeHarness()
+    func tabCloseUndoReusesRetainedSurfacesWhenStackOrderDiffersFromSnapshotOrder() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         // Arrange: two floating terminal panes in one tab, each with a mounted view and a
@@ -652,8 +684,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.surfaceManager.undoCloseResults = [retainedSecond, retainedFirst]
 
         // Act
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         // Assert: both retained surfaces are reused by pane id; no fresh surface is created.
         #expect(harness.surfaceManager.createSurfaceCallCount == 0)
@@ -664,8 +696,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     }
 
     @Test("undo without a retained surface falls back to fresh creation")
-    func undoWithoutRetainedSurfaceFallsBackToFreshCreation() {
-        let harness = makeHarness()
+    func undoWithoutRetainedSurfaceFallsBackToFreshCreation() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         // Arrange: a floating terminal pane with no retained surface available on undo.
@@ -678,8 +710,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         harness.coordinator.registerHostedView(mountedView: mountedView, for: pane.id)
 
         // Act
-        harness.coordinator.execute(.closeTab(tabId: tab.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closeTab(tabId: tab.id))
+        try await harness.coordinator.undoCloseTab()
 
         // Assert: with no retained surface to pop, restore falls back to fresh surface creation.
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
@@ -688,6 +720,12 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
 
 @MainActor
 private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    private(set) var releasedUndoPaneIDs = Set<UUID>()
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) { releasedUndoPaneIDs.formUnion(paneIDs) }
+
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
     /// Retained surfaces looked up by pane id via `undoClose(forPaneId:)`, mirroring `SurfaceManager`'s undo stack.
     var undoCloseResults: [ManagedSurface]

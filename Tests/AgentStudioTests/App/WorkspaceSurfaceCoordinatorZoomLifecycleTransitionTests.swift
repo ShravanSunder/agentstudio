@@ -33,7 +33,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         )
         #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
 
-        harness.coordinator.execute(.selectTab(tabId: context.secondTab.id))
+        try await harness.coordinator.execute(.selectTab(tabId: context.secondTab.id))
         harness.coordinator.refreshBridgePaneActivities()
         await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
@@ -48,7 +48,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         )
         #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
 
-        harness.coordinator.execute(.selectTab(tabId: context.firstTab.id))
+        try await harness.coordinator.execute(.selectTab(tabId: context.firstTab.id))
         harness.coordinator.refreshBridgePaneActivities()
         await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
@@ -110,9 +110,9 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
                 inTab: context.firstTab.id
             )
         )
-        harness.coordinator.execute(.selectTab(tabId: context.firstTab.id))
+        try await harness.coordinator.execute(.selectTab(tabId: context.firstTab.id))
 
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .switchArrangement(
                 tabId: context.firstTab.id,
                 arrangementId: selectedArrangementId
@@ -199,7 +199,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
             in: harness
         )
 
-        harness.coordinator.execute(.closeTab(tabId: context.firstTab.id))
+        try await harness.coordinator.execute(.closeTab(tabId: context.firstTab.id))
         await harness.coordinator.drainBridgePaneRetirements()
         await harness.coordinator.drainBridgeGitReadActivityPropagation()
 

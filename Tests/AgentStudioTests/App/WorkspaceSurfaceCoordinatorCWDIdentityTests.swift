@@ -298,6 +298,11 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
 
 @MainActor
 private final class CWDIdentitySurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

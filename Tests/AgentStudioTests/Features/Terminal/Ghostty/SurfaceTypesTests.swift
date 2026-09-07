@@ -93,7 +93,7 @@ final class SurfaceTypesTests {
     @Test
     func test_surfaceState_isActive_pendingUndoCase_returnsFalse() {
         // Assert
-        #expect(!(SurfaceState.pendingUndo(expiresAt: Date()).isActive))
+        #expect(!(SurfaceState.pendingUndo.isActive))
     }
 
     // MARK: - SurfaceState Equatable

@@ -128,12 +128,12 @@ struct AgentStudioStartupDiagnosticActionTests {
 
     @MainActor
     @Test("sidebar performance fixture installs sortable repository membership and resets its owning tab title")
-    func sidebarPerformanceFixtureInstallsSortableRepositoryMembershipAndPlaceholderTabTitle() throws {
-        try withTestCoreAtoms { _ in
+    func sidebarPerformanceFixtureInstallsSortableRepositoryMembershipAndPlaceholderTabTitle() async throws {
+        try await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repositoryRoot = URL(fileURLWithPath: "/tmp/sidebar-performance-fixture")
 
-            let fixture = SidebarPerformanceProofFixture.prepare(store: store, repositoryRoot: repositoryRoot) {
+            let fixture = await SidebarPerformanceProofFixture.prepare(store: store, repositoryRoot: repositoryRoot) {
                 let pane = store.createPane(title: "Runtime title")
                 store.appendTab(Tab(paneId: pane.id, name: "Runtime title"))
                 return pane
@@ -174,11 +174,11 @@ struct AgentStudioStartupDiagnosticActionTests {
 
     @MainActor
     @Test("sidebar performance fixture rejects terminal creation failure")
-    func sidebarPerformanceFixtureRejectsTerminalCreationFailure() {
-        withTestCoreAtoms { _ in
+    func sidebarPerformanceFixtureRejectsTerminalCreationFailure() async {
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
 
-            let fixture = SidebarPerformanceProofFixture.prepare(
+            let fixture = await SidebarPerformanceProofFixture.prepare(
                 store: store,
                 repositoryRoot: URL(fileURLWithPath: "/tmp/sidebar-performance-fixture")
             ) { nil }

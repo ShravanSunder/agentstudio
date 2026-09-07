@@ -3,6 +3,8 @@ import Foundation
 package enum WorkspaceUndoJournalChange: Sendable {
     case record(WorkspaceUndoCloseWrite)
     case restore(closeID: UUID, time: WorkspaceUndoJournalTime)
+    case discard(time: WorkspaceUndoJournalTime)
+    case create
 }
 
 package struct WorkspaceUndoCloseWrite: Sendable {

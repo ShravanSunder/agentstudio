@@ -297,6 +297,7 @@ private final class RecordingDispatcherShellCommandOwner: ShellCommandHandling {
 
 @MainActor
 private final class RecordingDispatcherWorkspaceCommandOwner: WorkspaceCommandHandling {
+
     private let capabilityResult: Bool
     private(set) var interactions: [DispatcherOwnerInteraction] = []
 

@@ -40,10 +40,10 @@ extension WebKitSerializedTests {
             )
 
             // Act — intentionally do not yield between close and undo.
-            harness.coordinator.execute(
+            try await harness.coordinator.execute(
                 .closePane(tabId: harness.tabId, paneId: harness.bridgePane.id)
             )
-            harness.coordinator.undoCloseTab()
+            try await harness.coordinator.undoCloseTab()
 
             // Assert — the synchronous undo must retain the model under fresh authority.
             let replacementAuthorityIdentity = try #require(

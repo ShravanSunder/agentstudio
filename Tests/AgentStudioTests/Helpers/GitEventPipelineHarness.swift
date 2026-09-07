@@ -10,6 +10,12 @@ import Testing
 @testable import AgentStudioTestSupport
 
 final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
+    private(set) var retainedUndoPaneIDs = Set<UUID>()
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) { retainedUndoPaneIDs.formUnion(paneIDs) }
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    private(set) var releasedUndoPaneIDs = Set<UUID>()
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) { releasedUndoPaneIDs.formUnion(paneIDs) }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

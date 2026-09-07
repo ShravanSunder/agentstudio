@@ -13,10 +13,16 @@ final class WorkspaceActionExecutor {
 
     private let coordinator: WorkspaceSurfaceCoordinator
     private let store: WorkspaceStore
+    private var submittedGestureTail: Task<Bool, Never>?
+    private var submittedGestureGeneration: UInt64 = 0
+    private var acceptsWorkspaceCommands = true
 
     init(coordinator: WorkspaceSurfaceCoordinator, store: WorkspaceStore) {
         self.coordinator = coordinator
         self.store = store
+        coordinator.workspaceActionSubmission = { [weak self] action in
+            _ = self?.submit(action)
+        }
     }
 
     private var arrangementView: WorkspaceArrangementViewDerived {
@@ -52,15 +58,35 @@ final class WorkspaceActionExecutor {
     /// Open a terminal for a worktree. Creates pane + tab + view.
     /// Returns the pane if a new one was created, nil if already open.
     @discardableResult
-    func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        coordinator.openTerminal(for: worktree, in: repo)
+    func openTerminal(for worktree: Worktree, in repo: Repo) async -> Pane? {
+        var createdPane: Pane?
+        _ = await submitGesture { [self] _ in
+            do {
+                createdPane = try await coordinator.openTerminal(for: worktree, in: repo)
+                return true
+            } catch {
+                Self.logger.error("Terminal creation failed before publication")
+                return false
+            }
+        }.value
+        return createdPane
     }
 
     /// Open a new terminal for a worktree, always creating a fresh pane+tab
     /// (never navigates to an existing one).
     @discardableResult
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        coordinator.openNewTerminal(for: worktree, in: repo)
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) async -> Pane? {
+        var createdPane: Pane?
+        _ = await submitGesture { [self] _ in
+            do {
+                createdPane = try await coordinator.openNewTerminal(for: worktree, in: repo)
+                return true
+            } catch {
+                Self.logger.error("Terminal creation failed before publication")
+                return false
+            }
+        }.value
+        return createdPane
     }
 
     /// Open a new generic GitHub webview pane in a new tab.
@@ -128,8 +154,19 @@ final class WorkspaceActionExecutor {
     }
 
     /// Undo the last close operation (tab or pane).
-    func undoCloseTab() {
-        coordinator.undoCloseTab()
+    @discardableResult
+    func undoCloseTab() async -> Bool {
+        await submitUndoClose().value
+    }
+
+    @discardableResult
+    func submitUndoClose() -> Task<Bool, Never> {
+        submitGesture { [self] _ in
+            do { return try await coordinator.undoCloseTab() } catch {
+                Self.logger.error("Undo failed before completion; ownership was preserved")
+                return false
+            }
+        }
     }
 
     func restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
@@ -172,7 +209,41 @@ final class WorkspaceActionExecutor {
 
     /// Validate/canonicalize a WorkspaceActionCommand against current state, then execute it.
     @discardableResult
-    func execute(_ action: WorkspaceActionCommand) -> Bool {
+    func execute(_ action: WorkspaceActionCommand) async -> Bool {
+        await submit(action).value
+    }
+
+    @discardableResult
+    func submit(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
+        submitGesture { execute in await execute(action) }
+    }
+
+    /// One admitted user operation includes resolution and dependent effects, not just its first mutation.
+    @discardableResult
+    func submitGesture(
+        _ operation: @escaping @MainActor (@MainActor (WorkspaceActionCommand) async -> Bool) async -> Bool
+    ) -> Task<Bool, Never> {
+        guard acceptsWorkspaceCommands else { return Task { false } }
+        let predecessor = submittedGestureTail
+        submittedGestureGeneration &+= 1
+        let generation = submittedGestureGeneration
+        let task = Task { @MainActor [self] in
+            _ = await predecessor?.value
+            let result = await operation { [self] action in await executeValidatedAction(action) }
+            if submittedGestureGeneration == generation { submittedGestureTail = nil }
+            return result
+        }
+        submittedGestureTail = task
+        return task
+    }
+
+    /// Shutdown waits for accepted work; callers must use their own submission for a command result.
+    func stopAcceptingCommandsAndDrain() async {
+        acceptsWorkspaceCommands = false
+        _ = await submittedGestureTail?.value
+    }
+
+    private func executeValidatedAction(_ action: WorkspaceActionCommand) async -> Bool {
         let tabLayout = store.tabLayoutAtom
         let repositoryTopology = store.repositoryTopologyAtom
         let snapshot = WorkspaceCommandResolver.snapshot(
@@ -192,8 +263,13 @@ final class WorkspaceActionExecutor {
         )
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):
-            coordinator.execute(validated.action)
-            return true
+            do {
+                try await coordinator.execute(validated.action)
+                return true
+            } catch {
+                Self.logger.error("Workspace action failed before completion")
+                return false
+            }
         case .failure(let error):
             Self.logger.warning(
                 "Action rejected: \(String(describing: action), privacy: .public) reason=\(String(describing: error), privacy: .public)"

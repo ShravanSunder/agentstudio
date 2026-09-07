@@ -136,7 +136,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         // Act: a layout change on the ACTIVE tab — unrelated to the hidden
         // pane's own tab — triggers the reevaluation tail. The hidden tab is
         // never selected.
-        harness.coordinator.execute(.equalizePanes(tabId: activeTab.id))
+        try await harness.coordinator.execute(.equalizePanes(tabId: activeTab.id))
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2 }
 
         // Assert: the still-hidden pane was hydrated exactly once, without
@@ -202,7 +202,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         // Act: minimize the still-deferred pane. Its own minimized frame
         // (the small collapsed-bar rect) is exactly what makes its placement
         // safe.
-        harness.coordinator.execute(.minimizePane(tabId: tab.id, paneId: secondPane.id))
+        try await harness.coordinator.execute(.minimizePane(tabId: tab.id, paneId: secondPane.id))
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == secondPane.id }.count == 2 }
 
         // Assert: created with the canonical minimized (collapsed-bar) frame.
@@ -270,7 +270,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
 
         // Act: an unrelated layout change on the same tab triggers
         // reevaluation. The drawer is never toggled back open.
-        harness.coordinator.execute(.equalizePanes(tabId: tab.id))
+        try await harness.coordinator.execute(.equalizePanes(tabId: tab.id))
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == drawerPane.id }.count == 2 }
 
         // Assert: hydrated while still collapsed.
@@ -326,7 +326,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
             harness.surfaceManager.createdPaneIds.filter { $0 == failedPane.id }.count
 
         // Act
-        harness.coordinator.execute(.equalizePanes(tabId: failedTab.id))
+        try await harness.coordinator.execute(.equalizePanes(tabId: failedTab.id))
         await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == deferredPane.id }.count == 2 }
 
         // Assert: the deferred member was hydrated, and the already-settled
@@ -403,7 +403,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         #expect(harness.store.pane(ambiguousDrawerChild.id) != nil)
 
         // Act
-        harness.coordinator.execute(.equalizePanes(tabId: mainTab.id))
+        try await harness.coordinator.execute(.equalizePanes(tabId: mainTab.id))
         // Bounded settle for a negative assertion: give the MainActor queue
         // room to run anything the tail scheduled, then assert nothing
         // arrived. Never a sleep — each iteration only yields.
@@ -484,7 +484,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         )
 
         // Act
-        harness.coordinator.execute(.equalizePanes(tabId: activeTab.id))
+        try await harness.coordinator.execute(.equalizePanes(tabId: activeTab.id))
         await waitUntil {
             harness.surfaceManager.createdPaneIds.contains(backgroundDeferredPane.id)
                 || harness.surfaceManager.createdPaneIds.contains(visibleSiblingPane.id)
@@ -709,6 +709,11 @@ private func geometryReevaluationTerminalDescriptor(
 
 @MainActor
 private final class GeometryReevaluationCapturingSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private(set) var lastConfig: Ghostty.SurfaceConfiguration?
     private(set) var lastMetadata: SurfaceMetadata?
     private(set) var createdPaneIds: [UUID] = []

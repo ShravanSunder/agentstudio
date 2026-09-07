@@ -16,10 +16,10 @@ private struct WorkspaceActionExecutorHarness {
 }
 
 @MainActor
-private func makeWorkspaceActionExecutorHarness() -> WorkspaceActionExecutorHarness {
+private func makeWorkspaceActionExecutorHarness() throws -> WorkspaceActionExecutorHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-action-executor-tests-\(UUID().uuidString)")
-    let store = WorkspaceStore()
+    let store = try makeWorkspaceJournalTestStore()
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(store: store)
     let coordinator = WorkspaceSurfaceCoordinator(
@@ -109,8 +109,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openWebview creates a generic GitHub tab without workspace association")
-        func openWebview_addsGenericGitHubTabAndRegistersView() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openWebview_addsGenericGitHubTabAndRegistersView() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -132,8 +132,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeReviewInNewTab inherits active pane worktree context")
-        func openBridgeReviewInNewTab_inheritsActivePaneWorktreeContext() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeReviewInNewTab_inheritsActivePaneWorktreeContext() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
             let tempDir = harness.tempDir
@@ -183,8 +183,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeReviewInNewTab starts without a target when enrichment is unavailable")
-        func openBridgeReviewInNewTab_startsWithoutTargetWhenEnrichmentIsUnavailable() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeReviewInNewTab_startsWithoutTargetWhenEnrichmentIsUnavailable() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -223,8 +223,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeReviewInNewTab does not persist the cached main-worktree branch")
-        func openBridgeReviewInNewTab_doesNotPersistCachedMainWorktreeBranch() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeReviewInNewTab_doesNotPersistCachedMainWorktreeBranch() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
             let tempDir = harness.tempDir
@@ -256,8 +256,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeReviewInNewTab can target a registered worktree without an active source pane")
-        func openBridgeReviewInNewTab_targetsRegisteredWorktree() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeReviewInNewTab_targetsRegisteredWorktree() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -298,8 +298,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeFilesInNewTab can target a registered worktree without an active source pane")
-        func openBridgeFilesInNewTab_targetsRegisteredWorktree() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeFilesInNewTab_targetsRegisteredWorktree() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -342,8 +342,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeFilesInNewTab inherits active pane worktree context")
-        func openBridgeFilesInNewTab_inheritsActivePaneWorktreeContext() throws {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeFilesInNewTab_inheritsActivePaneWorktreeContext() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -389,8 +389,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeFilesInNewTab falls back to the only registered worktree when no pane has context")
-        func openBridgeFilesInNewTab_usesOnlyRegisteredWorktreeWithoutActivePaneContext() throws {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeFilesInNewTab_usesOnlyRegisteredWorktreeWithoutActivePaneContext() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -417,8 +417,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("openBridgeFilesInNewTab keeps source identity out of the page bootstrap")
-        func openBridgeFilesInNewTab_keepsSourceIdentityOutOfPageBootstrap() throws {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func openBridgeFilesInNewTab_keepsSourceIdentityOutOfPageBootstrap() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let executor = harness.executor
@@ -449,8 +449,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("typed webview insertion creates a split browser pane with inherited workspace association")
-        func typedWebviewInsertionAddsSplitPaneWithAssociation() throws {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func typedWebviewInsertionAddsSplitPaneWithAssociation() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
             let tempDir = harness.tempDir
@@ -481,7 +481,7 @@ extension WebKitSerializedTests {
             let paneIdsBefore = store.paneAtom.graphAtom.paneIDs
             let url = URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
 
-            let didExecute = executor.execute(
+            let didExecute = await executor.execute(
                 .insertPane(
                     source: .newWebview(WebviewState(url: url)),
                     targetTabId: tab.id,
@@ -506,8 +506,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("typed webview drawer insertion inherits the parent workspace association")
-        func typedWebviewDrawerInsertionPersistsAssociation() throws {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func typedWebviewDrawerInsertionPersistsAssociation() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let coordinator = harness.coordinator
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -539,8 +539,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("failed webview layout insertion tears down its mounted host and runtime")
-        func failedWebviewLayoutInsertionTearsDownMountedResources() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func failedWebviewLayoutInsertionTearsDownMountedResources() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let coordinator = harness.coordinator
@@ -569,8 +569,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("failed webview drawer calibration tears down its mounted host and runtime")
-        func failedWebviewDrawerCalibrationTearsDownMountedResources() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func failedWebviewDrawerCalibrationTearsDownMountedResources() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let coordinator = harness.coordinator
@@ -593,8 +593,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("repair recreateSurface replaces a missing webview view")
-        func repair_recreateSurface_recreatesWebviewView() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func repair_recreateSurface_recreatesWebviewView() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let coordinator = harness.coordinator
@@ -617,7 +617,7 @@ extension WebKitSerializedTests {
 
             viewRegistry.unregister(pane.id)
 
-            executor.execute(.repair(.recreateSurface(paneId: pane.id)))
+            await executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
             let afterView = viewRegistry.view(for: pane.id)
             #expect(afterView != nil)
@@ -625,8 +625,8 @@ extension WebKitSerializedTests {
         }
 
         @Test("expandPane does not restore unrelated missing visible views")
-        func expandPane_doesNotInvokeVisibleViewRestoreSweep() {
-            let harness = makeWorkspaceActionExecutorHarness()
+        func expandPane_doesNotInvokeVisibleViewRestoreSweep() async throws {
+            let harness = try makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
             let coordinator = harness.coordinator
@@ -662,8 +662,8 @@ extension WebKitSerializedTests {
             #expect(viewRegistry.view(for: paneOne.id) != nil)
             #expect(viewRegistry.view(for: paneTwo.id) == nil)
 
-            executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
-            executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
+            await executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
+            await executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
 
             #expect(viewRegistry.view(for: paneTwo.id) == nil)
         }
@@ -680,8 +680,8 @@ struct WorkspaceActionExecutorTestsQuick {
     }
 
     @Test("openBridgeReviewInNewTab without a worktree context does not create a blank Bridge tab")
-    func openBridgeReviewInNewTab_withoutWorktreeContextDoesNotCreateBlankBridgeTab() {
-        let harness = makeWorkspaceActionExecutorHarness()
+    func openBridgeReviewInNewTab_withoutWorktreeContextDoesNotCreateBlankBridgeTab() async throws {
+        let harness = try makeWorkspaceActionExecutorHarness()
         let store = harness.store
         let viewRegistry = harness.viewRegistry
         let executor = harness.executor
@@ -697,8 +697,8 @@ struct WorkspaceActionExecutorTestsQuick {
     }
 
     @Test("minimizePane hides pane and expandPane restores active pane")
-    func minimize_then_expandPane_updatesTransientState() {
-        let harness = makeWorkspaceActionExecutorHarness()
+    func minimize_then_expandPane_updatesTransientState() async throws {
+        let harness = try makeWorkspaceActionExecutorHarness()
         let store = harness.store
         let executor = harness.executor
         let tempDir = harness.tempDir
@@ -716,7 +716,7 @@ struct WorkspaceActionExecutorTestsQuick {
             position: .after, sizingMode: .halveTarget
         )
 
-        executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
+        await executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
         guard let minimized = store.tab(tab.id) else {
             Issue.record("Expected tab \(tab.id) after minimizing pane")
             return
@@ -724,7 +724,7 @@ struct WorkspaceActionExecutorTestsQuick {
         #expect(minimized.activeMinimizedPaneIds == Set([paneOne.id]))
         #expect(minimized.activePaneId == paneTwo.id)
 
-        executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
+        await executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
         guard let expanded = store.tab(tab.id) else {
             Issue.record("Expected tab \(tab.id) after expanding pane")
             return

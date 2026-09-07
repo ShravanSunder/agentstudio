@@ -96,6 +96,22 @@ package final class WorkspaceMutationCoordinator {
         return true
     }
 
+    func applyCommittedTerminalTab(_ proposal: WorkspaceTerminalCreationProposal) {
+        workspacePaneAtom.insertCommittedTerminalPane(proposal.pane, associationOutcome: proposal.associationOutcome)
+        workspaceTabShellAtom.appendTabShell(
+            .init(id: proposal.tab.id, name: proposal.tab.name, colorHex: proposal.tab.colorHex))
+        workspaceTabArrangementAtom.insertState(
+            Self.arrangementState(from: proposal.tab), at: workspaceTabShellAtom.tabShells.count - 1)
+        workspaceTabShellAtom.setActiveTab(proposal.tab.id)
+    }
+
+    func applyCommittedDiscard(_ proposal: WorkspacePaneDiscardProposal) {
+        _ = removePane(proposal.paneID)
+        if let parentID = proposal.parentPaneID {
+            workspacePaneAtom.removeDrawerPane(proposal.paneID, from: parentID)
+        }
+    }
+
     /// Publish only the committed close delta. Other pane metadata may have advanced during I/O.
     func applyCommittedClose(_ proposal: WorkspaceUndoCloseProposal) {
         for pane in proposal.snapshot.panes where proposal.removedPaneIDs.contains(pane.id) {
@@ -144,6 +160,9 @@ package final class WorkspaceMutationCoordinator {
             workspaceTabArrangementAtom.replaceArrangementStates(states)
         }
         workspaceTabShellAtom.setActiveTab(tab.id)
+        if let expandedDrawer = proposal.close.snapshot.panes.compactMap(\.drawer).first(where: \.isExpanded) {
+            workspacePaneAtom.drawerCursorAtom.expandDrawer(drawerId: expandedDrawer.drawerId)
+        }
     }
 
     @discardableResult
