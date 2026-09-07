@@ -57,7 +57,9 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 	});
 	return {
 		describe: async (): Promise<string> => {
-			await Promise.allSettled(responseBodyReads);
+			const responseBodyRead = await readBrowserDiagnosticWithinDeadline(
+				Promise.allSettled(responseBodyReads),
+			);
 			const productBootstrapResponses = productResponses
 				.filter((response): boolean => response.includes(' /__bridge-product/bootstrap '))
 				.slice(-4)
@@ -66,34 +68,42 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 				.filter((response): boolean => /^[45]\d\d /u.test(response))
 				.slice(-8)
 				.map((response): string => response.slice(0, 3_000));
-			const reviewComparison = await page.evaluate(() => {
-				const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
-				return {
-					comparisonStatus:
-						document.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ??
-						null,
-					comparisonTrigger:
-						document.querySelector('[data-testid="bridge-review-comparison-trigger"]')
-							?.textContent ?? null,
-					packageId: reviewShell?.getAttribute('data-review-metadata-id') ?? null,
-					resolvedTargetOID:
-						document
-							.querySelector('[data-testid="bridge-review-comparison-current-state"]')
-							?.getAttribute('data-resolved-target-oid') ?? null,
-					reviewGeneration: reviewShell?.getAttribute('data-review-metadata-generation') ?? null,
-					revision: reviewShell?.getAttribute('data-review-metadata-revision') ?? null,
-					updateReadyCount: [...document.querySelectorAll('*')].filter(
-						(element): boolean => element.textContent?.trim() === 'Update ready',
-					).length,
-				};
-			});
+			const reviewComparisonRead = await readBrowserDiagnosticWithinDeadline(
+				page.evaluate(() => {
+					const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+					return {
+						comparisonStatus:
+							document.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ??
+							null,
+						comparisonTrigger:
+							document.querySelector('[data-testid="bridge-review-comparison-trigger"]')
+								?.textContent ?? null,
+						packageId: reviewShell?.getAttribute('data-review-metadata-id') ?? null,
+						resolvedTargetOID:
+							document
+								.querySelector('[data-testid="bridge-review-comparison-current-state"]')
+								?.getAttribute('data-resolved-target-oid') ?? null,
+						reviewGeneration: reviewShell?.getAttribute('data-review-metadata-generation') ?? null,
+						revision: reviewShell?.getAttribute('data-review-metadata-revision') ?? null,
+						updateReadyCount: [...document.querySelectorAll('*')].filter(
+							(element): boolean => element.textContent?.trim() === 'Update ready',
+						).length,
+					};
+				}),
+			);
+			const bodyTextRead = await readBrowserDiagnosticWithinDeadline(
+				page.locator('body').textContent({ timeout: 2_000 }),
+			);
 			return JSON.stringify({
-				bodyText: (
-					await page
-						.locator('body')
-						.textContent()
-						.catch((): null => null)
-				)?.slice(0, 2_000),
+				bodyText:
+					bodyTextRead.status === 'fulfilled'
+						? (bodyTextRead.value?.slice(0, 2_000) ?? null)
+						: null,
+				diagnosticReadStatus: {
+					bodyText: bodyTextRead.status,
+					responseBodies: responseBodyRead.status,
+					reviewComparison: reviewComparisonRead.status,
+				},
 				consoleErrorCount: consoleErrors.length,
 				consoleErrors: consoleErrors.slice(-8),
 				failedRequestCount: failedRequests.length,
@@ -108,11 +118,35 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 				productResponses: productResponses
 					.slice(-8)
 					.map((response): string => response.slice(0, 1_500)),
-				reviewComparison,
+				reviewComparison:
+					reviewComparisonRead.status === 'fulfilled' ? reviewComparisonRead.value : null,
 				url: page.url(),
 			});
 		},
 	};
+}
+
+type BrowserDiagnosticRead<TValue> =
+	| { readonly status: 'fulfilled'; readonly value: TValue }
+	| { readonly status: 'failed' | 'timed_out' };
+
+export async function readBrowserDiagnosticWithinDeadline<TValue>(
+	operation: Promise<TValue>,
+): Promise<BrowserDiagnosticRead<TValue>> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			operation.then(
+				(value): BrowserDiagnosticRead<TValue> => ({ status: 'fulfilled', value }),
+				(): BrowserDiagnosticRead<TValue> => ({ status: 'failed' }),
+			),
+			new Promise<BrowserDiagnosticRead<TValue>>((resolve): void => {
+				timeout = setTimeout((): void => resolve({ status: 'timed_out' }), 2_000);
+			}),
+		]);
+	} finally {
+		if (timeout !== undefined) clearTimeout(timeout);
+	}
 }
 
 export async function waitForSettledReviewComparison(props: {
