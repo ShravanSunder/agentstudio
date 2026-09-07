@@ -73,6 +73,7 @@ describe('Bridge development server Vite watch boundary', () => {
 			'Sources/AgentStudioProgrammaticControl/Command.swift',
 			'scripts/build-bridge-development-server.sh',
 			'scripts/swift-build-slot.sh',
+			'scripts/swift-build-pool-lock.sh',
 			'scripts/vendor-worktree.sh',
 		];
 

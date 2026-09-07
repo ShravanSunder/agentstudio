@@ -43,6 +43,9 @@ struct VendorConsumerWiringScriptTests {
         // Arrange
         let contracts = [
             DirectVendorConsumerContract(
+                path: "scripts/create-app-bundle.sh",
+                requiredConsumers: ["swift build", "codesign"]),
+            DirectVendorConsumerContract(
                 path: "scripts/build-bridge-development-server.sh",
                 requiredConsumers: ["swift build"]),
             DirectVendorConsumerContract(
@@ -190,6 +193,7 @@ struct VendorConsumerWiringScriptTests {
     func closedDirectConsumerInventory() throws {
         // Arrange
         let expectedScripts: Set<String> = [
+            "scripts/create-app-bundle.sh",
             "scripts/build-bridge-development-server.sh",
             "scripts/run-swift-test-task.sh",
             "scripts/run-debug-observability.sh",

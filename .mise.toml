@@ -254,7 +254,7 @@ else
   if [[ "$role" == "primary" ]]; then
     mise run copy-xcframework
     mise run --skip-deps setup-dev-resources
-    mise run build-zmx
+    mise run --skip-deps build-zmx
   else
     bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" setup-shared
   fi
@@ -325,7 +325,7 @@ mise run test:atomlib-compile-negative
 mise run test:bridge-web
 mise run test:web
 mise run verify-vendors
-mise run bridge-web-build
+mise run --skip-deps bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
 SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
@@ -477,7 +477,7 @@ swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapBenchm
 """
 
 [tasks.clean-artifacts]
-description = "Clean inactive Swift build directories and app bundle; preserve vendors"
+description = "Clean inactive Swift scratch directories; preserve published artifacts and vendors"
 run = "/bin/bash scripts/clean-build-artifacts.sh"
 
 [tasks.refresh-vendors]
@@ -499,88 +499,9 @@ description = "Reap dead-owner slot claims; preserve live and unknown owners"
 run = "/bin/bash scripts/clean-agent-builds.sh"
 
 [tasks.create-app-bundle]
-description = "Create signed AgentStudio.app bundle"
+description = "Build, validate, and atomically publish a signed app bundle"
 depends = ["verify-vendors", "bridge-web-build"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
-BUILD_PATH="$SWIFT_BUILD_DIR"
-# The destination is shared even when two callers have different Swift slots.
-exec 7>.agentstudio-app-bundle.lock
-if ! /usr/bin/lockf -s -t 0 7; then
-  echo "create-app-bundle: another bundle publication is in progress" >&2
-  exit 1
-fi
-echo "[create-app-bundle] BUILD_PATH=$BUILD_PATH"
-xcb_pipe=$(_xcb_pipe_cmd)
-swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-APP_DIR="AgentStudio.app/Contents"
-rm -rf AgentStudio.app
-mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
-
-# Binary
-cp "$BUILD_PATH/release/AgentStudio" "$APP_DIR/MacOS/"
-
-# zmx
-if [ ! -x "vendor/zmx/zig-out/bin/zmx" ] || [ -L "vendor/zmx/zig-out/bin/zmx" ]; then
-  echo "create-app-bundle: verified zmx executable is missing or unsafe" >&2
-  exit 1
-fi
-cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
-
-# Info.plist + icon
-cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
-MARKETING_VERSION="${APP_MARKETING_VERSION:-0.0.1-dev}"
-BUILD_VERSION="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
-RELEASE_CHANNEL="${APP_RELEASE_CHANNEL:-stable}"
-/bin/bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION" "$RELEASE_CHANNEL"
-cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
-
-# terminfo
-TERMINFO="Sources/AgentStudio/Resources/terminfo"
-[ -d "$TERMINFO" ] && cp -R "$TERMINFO" "$APP_DIR/Resources/"
-
-# shell-integration
-GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
-[ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
-
-# GhosttyKit is a static library — already linked into the binary at build time.
-# Do NOT embed the xcframework; it's only needed at build time for SwiftPM.
-
-# SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
-RESOURCE_BUNDLE="$(find "$BUILD_PATH" -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
-[ -n "$RESOURCE_BUNDLE" ] && cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
-
-# Sign — uses Developer ID if SIGNING_IDENTITY is set, else ad-hoc
-ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
-IDENTITY="${SIGNING_IDENTITY:--}"
-TIMESTAMP_ARGS=()
-if [ "${SIGNING_TIMESTAMP:-1}" != "0" ]; then
-  TIMESTAMP_ARGS=(--timestamp)
-elif [ "$IDENTITY" != "-" ]; then
-  echo "Signing timestamp disabled (SIGNING_TIMESTAMP=0)"
-fi
-
-if [ "$IDENTITY" != "-" ]; then
-  echo "Signing with: $IDENTITY"
-  if [ -d "AgentStudio.app/Contents/Frameworks" ]; then
-    find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
-      codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime "$item"
-    done
-  fi
-  [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
-    codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
-  codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
-else
-  echo "Ad-hoc signing (set SIGNING_IDENTITY for Developer ID)"
-  codesign --force --deep --sign - AgentStudio.app
-fi
-
-codesign --verify --deep --strict AgentStudio.app
-echo "AgentStudio.app created and signed"
-"""
+run = "/bin/bash scripts/create-app-bundle.sh"
 
 [tasks.create-beta-app-bundle]
 description = "Create a local signed AgentStudio Beta.app bundle from this branch"

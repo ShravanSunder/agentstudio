@@ -3,6 +3,9 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
+# Serialize destination selection through final metadata verification.
+exec 5>.agentstudio-local-beta.lock
+/usr/bin/lockf -s -t 0 5 || { echo "local beta publication already in progress" >&2; exit 1; }
 
 latest_beta_tag="$(git tag --list 'v*-beta.*' --sort=-v:refname | head -n 1)"
 if [[ "$latest_beta_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
@@ -28,14 +31,13 @@ if [ -e "$bundle_path" ]; then
   mkdir -p "$artifact_dir"
 fi
 
+APP_BUNDLE_PATH="$bundle_path" \
 APP_MARKETING_VERSION="$marketing_version" \
 APP_BUILD_VERSION="$build_version" \
 APP_RELEASE_CHANNEL=beta \
 SIGNING_IDENTITY="$signing_identity" \
 SIGNING_TIMESTAMP="$signing_timestamp" \
   mise run create-app-bundle
-
-/usr/bin/ditto "$PROJECT_ROOT/AgentStudio.app" "$bundle_path"
 
 echo "local beta bundle: $bundle_path"
 echo "signing identity: $signing_identity"

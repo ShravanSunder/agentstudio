@@ -92,6 +92,41 @@ with tempfile.TemporaryDirectory(prefix="agentstudio-slot-contract-") as directo
     assert not (workspace / ".build-agent-1/.slot-claim").exists()
     print("PASS failure releases claim without changing exit status")
 
+    # A surviving child has no build file open while paused between commands.
+    # The build lifetime must remain protected after its claiming shell dies.
+    control_fifo = workspace / "orphan-control"
+    os.mkfifo(control_fifo)
+    orphan_owner = subprocess.Popen(
+        ["/bin/bash", "-c", '''set -eu
+source scripts/swift-build-slot.sh
+(echo CHILD_READY; read -r release < orphan-control; echo CHILD_DONE) &
+wait
+'''], cwd=workspace, env=environment, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert orphan_owner.stdout is not None
+    orphan_owner.stdout.readline()
+    assert orphan_owner.stdout.readline().strip() == "CHILD_READY"
+    orphan_owner.kill()
+    orphan_owner.wait(timeout=10)
+    try:
+        cleanup = run_shell("bash scripts/clean-agent-builds.sh")
+        assert cleanup.returncode == 0, cleanup.stderr
+        assert (workspace / ".build-agent-1/.slot-claim").exists(), "orphan child lost its slot protection"
+    finally:
+        control_fifo.write_text("release\n")
+        assert orphan_owner.stdout.readline().strip() == "CHILD_DONE"
+        orphan_owner.stdout.close()
+        assert orphan_owner.stderr is not None
+        orphan_owner.stderr.close()
+    # Synchronize with the child's descriptor close before testing recovery.
+    released = run_shell('exec 6>.swift-build-slot-1.lock; /usr/bin/lockf -s -t 5 6')
+    assert released.returncode == 0
+    cleanup = run_shell("bash scripts/clean-agent-builds.sh")
+    assert cleanup.returncode == 0
+    assert not (workspace / ".build-agent-1/.slot-claim").exists()
+    print("PASS orphan child retains slot until its inherited lifetime lock closes")
+
     interrupted = subprocess.Popen(
         ["/bin/bash", "-c", 'set -eu; source scripts/swift-build-slot.sh; echo READY; read -r release'],
         cwd=workspace, env=environment, text=True,
@@ -113,6 +148,17 @@ with tempfile.TemporaryDirectory(prefix="agentstudio-slot-contract-") as directo
     claim.rmdir()
     print("PASS legacy or partially published claims are not guessed stale")
 
+    published_server = workspace / ".build-bridge-development-server/server"
+    published_server.parent.mkdir()
+    published_server.write_text("prepared for next consumer")
+    published_app = workspace / "AgentStudio.app/sentinel"
+    published_app.parent.mkdir()
+    published_app.write_text("published")
+    cleaned = run_shell("bash scripts/clean-build-artifacts.sh")
+    assert cleaned.returncode == 0, cleaned.stderr
+    assert published_server.exists() and published_app.exists()
+    print("PASS scratch cleanup preserves published artifacts between consumers")
+
     ci = run_shell('export CI=true SWIFT_BUILD_DIR=.build-ci; source scripts/swift-build-slot.sh')
     assert ci.returncode == 0
     invalid = run_shell('export SWIFT_BUILD_DIR=.build; source scripts/swift-build-slot.sh')
@@ -124,8 +170,9 @@ with tempfile.TemporaryDirectory(prefix="agentstudio-slot-contract-") as directo
 with tempfile.TemporaryDirectory(prefix="agentstudio-bundle-contract-") as directory:
     workspace = Path(directory)
     (workspace / "scripts").mkdir()
-    for name in ("swift-build-slot.sh", "swift-build-pool-lock.sh"):
+    for name in ("swift-build-slot.sh", "swift-build-pool-lock.sh", "create-app-bundle.sh", "publish-app-bundle.sh"):
         (workspace / "scripts" / name).write_text((root / "scripts" / name).read_text())
+    (workspace / "scripts/vendor-worktree.sh").write_text('exit 0\n')
     (workspace / "scripts/xcb-helpers.sh").write_text('_xcb_pipe_cmd() { echo cat; }\n')
     binaries = workspace / "bin"
     binaries.mkdir()
@@ -148,15 +195,64 @@ with tempfile.TemporaryDirectory(prefix="agentstudio-bundle-contract-") as direc
     assert not (workspace / ".build-agent-1/.slot-claim").exists()
     print("PASS packaging preserves prior bundle and releases its slot on compiler failure")
 
+    swift.write_text('''#!/bin/bash
+set -eu
+mkdir -p "$SWIFT_BUILD_DIR/release"
+printf current > "$SWIFT_BUILD_DIR/release/AgentStudio"
+if [ "${TEST_RESOURCE:-0}" = 1 ]; then
+  mkdir -p "$SWIFT_BUILD_DIR/release/AgentStudio_AgentStudio.bundle"
+fi
+''')
+    (workspace / "scripts/inject-bundle-version.sh").write_text('exit 0\n')
+    resources = workspace / "Sources/AgentStudio/Resources"
+    resources.mkdir(parents=True)
+    for name in ("Info.plist", "AppIcon.icns"):
+        (resources / name).write_text("fixture")
+    zmx = workspace / "vendor/zmx/zig-out/bin/zmx"
+    zmx.parent.mkdir(parents=True)
+    zmx.write_text("fixture")
+    zmx.chmod(0o755)
+    codesign = binaries / "codesign"
+    codesign.write_text('#!/bin/bash\nexit "${TEST_SIGN_STATUS:-0}"\n')
+    codesign.chmod(0o755)
+    environment.update(APP_BUILD_VERSION="1", SIGNING_IDENTITY="-")
+
+    def package_fixture() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["/bin/bash", "-c", tasks["create-app-bundle"]["run"]], cwd=workspace,
+            env=environment, text=True, capture_output=True, timeout=10,
+        )
+
+    missing_resource = package_fixture()
+    assert missing_resource.returncode != 0 and "exactly one SwiftPM resource" in missing_resource.stderr
+    assert (bundle / "sentinel").exists()
+    environment.update(TEST_RESOURCE="1", TEST_SIGN_STATUS="42")
+    failed_signing = package_fixture()
+    assert failed_signing.returncode == 42, failed_signing.stderr
+    assert (bundle / "sentinel").exists()
+    assert not list(workspace.glob(".agentstudio-package.*"))
+    environment["TEST_SIGN_STATUS"] = "0"
+    published = package_fixture()
+    assert published.returncode == 0, published.stdout + published.stderr
+    assert not (bundle / "sentinel").exists()
+    assert (bundle / "Contents/MacOS/AgentStudio").read_text() == "current"
+    beta_bundle = workspace / "beta/AgentStudio Beta.app"
+    environment["APP_BUNDLE_PATH"] = str(beta_bundle)
+    beta_published = package_fixture()
+    assert beta_published.returncode == 0, beta_published.stdout + beta_published.stderr
+    assert (beta_bundle / "Contents/MacOS/AgentStudio").read_text() == "current"
+    assert not list((workspace / "beta").glob(".agentstudio-package.*"))
+    print("PASS resource/signing failures preserve old bundle; successful publication atomically replaces it")
+
 aggregate = tasks["test"]["run"]
-assert aggregate.count("mise run bridge-web-build") == 1
+assert aggregate.count("mise run --skip-deps bridge-web-build") == 1
 assert "mise run --skip-deps test:swift" in aggregate
 assert "mise run verify-vendors" in aggregate
 assert 'test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html' in aggregate
 assert "mise run --skip-deps setup-dev-resources" in tasks["refresh-vendors"]["run"]
 assert "build" not in tasks["test:swift:benchmark"]["depends"]
 assert "build-release" not in tasks["create-app-bundle"]["depends"]
-assert "swift-build-slot.sh" in tasks["create-app-bundle"]["run"]
+assert "swift-build-slot.sh" in (root / "scripts/create-app-bundle.sh").read_text()
 assert "newest_mtime" not in tasks["create-app-bundle"]["run"]
 print("PASS task graph preserves preparation once and packages its own claimed build")
 package_scripts = json.loads((root / "BridgeWeb/package.json").read_text())["scripts"]
@@ -185,5 +281,5 @@ def visit(name: str, ancestors: set[str]) -> None:
 for name in tasks:
     visit(name, set())
 print(f"PASS {len(tasks)} task bodies parse and all dependency edges resolve without cycles")
-print("9 mise task contract groups passed")
+print("12 mise task contract groups passed")
 PY

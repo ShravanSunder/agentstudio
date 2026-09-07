@@ -1111,6 +1111,10 @@ else
 fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
+# The runnable app now owns its copied bundle, not the Swift scratch directory.
+# Do not let a long-lived launched app inherit the build lifetime descriptor.
+exec 6>&-
+
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"

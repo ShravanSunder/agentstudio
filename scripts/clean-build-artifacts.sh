@@ -15,7 +15,17 @@ for claim in .build-agent-1/.slot-claim .build-agent-2/.slot-claim; do
 done
 command -v lsof >/dev/null 2>&1 || { echo "clean-artifacts: lsof is required" >&2; exit 1; }
 shopt -s nullglob
-artifacts=(.build .build-* AgentStudio.app)
+# Published artifacts have consumers between commands; generic scratch cleanup
+# must not delete the prepared Bridge server or published app bundles.
+artifacts=(.build .build-agent-* .build-ci)
+for slot_number in 1 2; do
+  exec 6>".swift-build-slot-$slot_number.lock"
+  if ! /usr/bin/lockf -s -t 0 6; then
+    echo "clean-artifacts: refusing to remove a slot with surviving descendants" >&2
+    exit 1
+  fi
+  exec 6>&-
+done
 for artifact in "${artifacts[@]}"; do
   [ -d "$artifact" ] || continue
   if ! swift_build_directory_is_idle "$artifact"; then
@@ -24,4 +34,4 @@ for artifact in "${artifacts[@]}"; do
   fi
 done
 rm -rf -- "${artifacts[@]}"
-echo "Cleaned Swift build directories and app bundle in $PROJECT_ROOT"
+echo "Cleaned Swift build directories in $PROJECT_ROOT"

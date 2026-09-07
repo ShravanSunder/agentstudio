@@ -111,3 +111,8 @@ plugins/
 # Worktree-local kernel lock files; file presence does not mean locked.
 .swift-build-pool.lock
 .agentstudio-app-bundle.lock
+
+.agentstudio-local-beta.lock
+.agentstudio-package.*
+
+.swift-build-slot-*.lock

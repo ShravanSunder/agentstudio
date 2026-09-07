@@ -539,7 +539,7 @@ setup_local() {
   if [[ "$role" == "primary" ]]; then
     mise run copy-xcframework
     mise run --skip-deps setup-dev-resources
-    mise run build-zmx
+    mise run --skip-deps build-zmx
     verify_local "$current_root"
     return
   fi
@@ -587,7 +587,7 @@ setup_local() {
     export _AGENTSTUDIO_VENDOR_SETUP_LOCAL_TRANSITION=1
     mise run copy-xcframework
     mise run --skip-deps setup-dev-resources
-    mise run build-zmx
+    mise run --skip-deps build-zmx
   )
   verify_local "$current_root"
   printf '[vendor-worktree] local vendor inputs built in %s\n' "$current_root"

@@ -31,18 +31,32 @@ acquire_swift_build_pool_lock || { return 1 2>/dev/null || exit 1; }
 trap release_swift_build_pool_lock EXIT
 
 swift_build_slot_release() {
-  rm -f "$SWIFT_BUILD_DIR/.slot-claim/owner-pid"
-  rmdir "$SWIFT_BUILD_DIR/.slot-claim"
+  # Closing our descriptor does not release copies held by surviving children.
+  exec 6>&-
+  acquire_swift_build_pool_lock || return 0
+  exec 6>".swift-build-slot-${SWIFT_BUILD_DIR##*-}.lock"
+  if /usr/bin/lockf -s -t 0 6; then
+    rm -f "$SWIFT_BUILD_DIR/.slot-claim/owner-pid"
+    rmdir "$SWIFT_BUILD_DIR/.slot-claim"
+  fi
+  exec 6>&-
+  release_swift_build_pool_lock
 }
 
 for _swift_build_slot_n in 1 2; do
   _swift_build_slot_dir=".build-agent-${_swift_build_slot_n}"
+  exec 6>".swift-build-slot-${_swift_build_slot_n}.lock"
+  if ! /usr/bin/lockf -s -t 0 6; then
+    exec 6>&-
+    continue
+  fi
   mkdir -p "$_swift_build_slot_dir"
   if mkdir "$_swift_build_slot_dir/.slot-claim" 2>/dev/null; then
     printf '%s\n' "$$" > "$_swift_build_slot_dir/.slot-claim/owner-pid"
     export SWIFT_BUILD_DIR="$_swift_build_slot_dir"
     break
   fi
+  exec 6>&-
 done
 
 release_swift_build_pool_lock

@@ -20,17 +20,27 @@ for directory in .build-agent-1 .build-agent-2; do
     echo "[clean-agent-builds] preserving live owner: $claim"
     continue
   fi
-  # Descendant compiler processes can outlive the claiming shell.
+  # Descriptor 6 is inherited through the build process tree. Reclamation must
+  # acquire a different open-file description, so surviving children exclude it.
+  exec 6>".swift-build-slot-${directory##*-}.lock"
+  if ! /usr/bin/lockf -s -t 0 6; then
+    exec 6>&-
+    echo "[clean-agent-builds] preserving surviving build descendants: $claim"
+    continue
+  fi
+  # Also protect non-inheriting processes with open build files.
   if ! command -v lsof >/dev/null 2>&1; then
     echo "clean-agent-builds: lsof is required to verify dead-owner claims" >&2
     exit 1
   fi
   if ! swift_build_directory_is_idle "$directory"; then
     echo "[clean-agent-builds] preserving active or unverified build files: $claim"
+    exec 6>&-
     continue
   fi
   rm -f "$claim/owner-pid"
   rmdir "$claim"
+  exec 6>&-
   echo "[clean-agent-builds] reaped dead owner: $claim"
   reaped=$((reaped + 1))
 done
