@@ -28,6 +28,7 @@ package struct RepoExplorerView: View {
     let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
     let commandDispatcher: any AppCommandDispatching
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
+    let visibleSnapshotConsumerToken: UUID?
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -50,6 +51,7 @@ package struct RepoExplorerView: View {
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         commandDispatcher: any AppCommandDispatching,
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
+        visibleSnapshotConsumerToken: UUID? = nil,
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
@@ -74,6 +76,7 @@ package struct RepoExplorerView: View {
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.commandDispatcher = commandDispatcher
         self.commandPresentationDelta = commandPresentationDelta
+        self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         self.onSetSortOrder = onSetSortOrder
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
@@ -136,6 +139,7 @@ package struct RepoExplorerView: View {
                 projectionAdapter: projectionAdapter,
                 octiconLoader: octiconLoader,
                 commandPresentationDelta: commandPresentationDelta,
+                visibleSnapshotConsumerToken: visibleSnapshotConsumerToken,
                 interactions: tableInteractions,
                 onVisibleWorktreeSnapshotChange: updateSidebarVisibleWorktrees,
                 observeCurrentVisibleTarget: onVisibleWorktreeSnapshotChanged

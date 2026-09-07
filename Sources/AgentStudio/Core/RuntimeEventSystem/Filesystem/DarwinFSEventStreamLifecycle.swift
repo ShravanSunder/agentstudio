@@ -121,16 +121,13 @@ package final class DarwinFSEventNativeStreamLifetime:
     private let lifecycleGate = DarwinFSEventStreamLifecycleGate()
     private let stream: FSEventStreamRef
     private let queue: DispatchQueue
-    private let releaseCallbackContext: () -> Void
 
     package init(
         stream: FSEventStreamRef,
-        queue: DispatchQueue,
-        releaseCallbackContext: @escaping () -> Void
+        queue: DispatchQueue
     ) {
         self.stream = stream
         self.queue = queue
-        self.releaseCallbackContext = releaseCallbackContext
     }
 
     deinit {
@@ -164,7 +161,6 @@ package final class DarwinFSEventNativeStreamLifetime:
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
-        releaseCallbackContext()
         _ = queue
     }
 }

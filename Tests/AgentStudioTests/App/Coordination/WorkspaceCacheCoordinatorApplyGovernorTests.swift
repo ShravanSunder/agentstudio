@@ -67,8 +67,9 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                 )
             )
         )
-        await eventually("repository projection drain should be scheduled") {
+        await eventually("both repository projections should coalesce before draining") {
             clock.pendingSleepCount == 1
+                && coordinator.pendingRepositoryProjectionSupersessionCount == 1
         }
         #expect(repoCache.cacheRevision == 0)
 

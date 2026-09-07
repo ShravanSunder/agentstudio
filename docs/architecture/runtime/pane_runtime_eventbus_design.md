@@ -138,6 +138,16 @@ App-wide instance (constructed by `FilesystemGitPipeline`, not `.shared`).
 FSEvents ingress, deepest-root routing, path filtering, debounce/max-latency,
 chunked `filesChanged` and topology facts.
 
+Logical worktree/watched-folder registrations do not each own a kernel client.
+`DarwinFSEventStreamClient` multiplexes same-volume local paths through one
+physical FSEvents stream, then routes admitted callbacks back to their logical
+registration identities before `FilesystemActor` batching. Stream-global
+coverage-loss flags fan out to every participant covered by that physical
+stream, while path-specific `RootChanged` retires only affected logical roots.
+Private staged refs are contracted before logical callback fan-out because the
+native exclusion API cannot represent an unbounded repository set. External
+exact-item parents use the existing parent-keyed shared observer.
+
 ### `actor GitWorkingDirectoryProjector`
 
 Consumes filesystem facts; emits `snapshotChanged`, `branchChanged`,

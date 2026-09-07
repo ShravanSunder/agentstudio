@@ -241,7 +241,11 @@ struct CIFastLaneWorkflowTests {
         )
         let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
 
-        #expect(benchmarkTask.contains("--filter \"GlobalPreferencesBootstrapBenchmarkTests\""))
+        #expect(
+            benchmarkTask.contains(
+                "--filter \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests\""
+            )
+        )
         #expect(benchmarkTask.contains("set -euo pipefail"))
         #expect(benchmarkTask.contains("export _XCB_BYPASS=1"))
         #expect(!benchmarkTask.contains("PushBenchmarkSupportTests"))
@@ -251,6 +255,22 @@ struct CIFastLaneWorkflowTests {
         #expect(benchmarkStep.contains("grep -c \"global-preferences-loader missing \""))
         #expect(benchmarkStep.contains("grep -c \"global-preferences-loader valid \""))
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
+    }
+
+    @Test("benchmark lane runs nightly and pins the native table pilot result line")
+    func benchmarkLaneRunsNightlyAndPinsPilotResult() throws {
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
+
+        #expect(benchmarkWorkflow.contains("  schedule:\n    - cron: \"0 9 * * *\""))
+        #expect(benchmarkWorkflow.contains("  push:\n    branches: [main]"))
+        #expect(benchmarkWorkflow.contains("concurrency:\n  group: benchmarks-${{ github.ref }}"))
+        #expect(benchmarkWorkflow.contains("cancel-in-progress: false"))
+        #expect(benchmarkStep.contains("grep -oE \"REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT"))
+        #expect(benchmarkStep.contains("grep -c \"REPO_EXPLORER_NATIVE_TABLE_PILOT_RESULT \""))
     }
 
     @Test("fast lane uses native Swift Testing concurrency after cold prebuild")
@@ -576,7 +596,7 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
         #expect(
             fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
+                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
             )
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
@@ -625,6 +645,8 @@ struct CIFastLaneWorkflowTests {
             "AgentStudioOTLPBootstrapSmokeTests",
             "DarwinCompositeFSEventContinuityTests",
             "DarwinFSEventStreamClientTests",
+            "DarwinSharedLocalFSEventObserverFailureTests",
+            "DarwinSharedLocalFSEventObserverTests",
             "DarwinSharedExactItemObserverTests",
             "DarwinSharedExactItemRealStreamIntegrationTests",
             "DerivedActivityNotificationIntegrationTests",

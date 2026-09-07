@@ -31,16 +31,28 @@ package enum DarwinLocalFSEventNativeStream {
         context.eventHandler(rawEvents)
     }
 
+    private static let retainCallback: CFAllocatorRetainCallBack = { info in
+        guard let info else { return nil }
+        return UnsafeRawPointer(
+            Unmanaged<CallbackContext>.fromOpaque(info).retain().toOpaque()
+        )
+    }
+
+    private static let releaseCallback: CFAllocatorReleaseCallBack = { info in
+        guard let info else { return }
+        Unmanaged<CallbackContext>.fromOpaque(info).release()
+    }
+
     package static func start(
         request: DarwinLocalFSEventStreamRequest
     ) -> (any DarwinLocalFSEventStreamLifetime)? {
         let callbackContext = CallbackContext(eventHandler: request.eventHandler)
-        let callbackContextPointer = Unmanaged.passRetained(callbackContext).toOpaque()
+        let callbackContextPointer = Unmanaged.passUnretained(callbackContext).toOpaque()
         var streamContext = FSEventStreamContext(
             version: 0,
             info: callbackContextPointer,
-            retain: nil,
-            release: nil,
+            retain: retainCallback,
+            release: releaseCallback,
             copyDescription: nil
         )
         let watchedPaths = request.watchedPaths.map { $0 as NSString } as CFArray
@@ -55,7 +67,6 @@ package enum DarwinLocalFSEventNativeStream {
                 DarwinFSEventStreamConfiguration.continuityFlags
             )
         else {
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
             return nil
         }
 
@@ -65,9 +76,7 @@ package enum DarwinLocalFSEventNativeStream {
                 on: stream
             )
         else {
-            FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
             return nil
         }
 
@@ -79,15 +88,11 @@ package enum DarwinLocalFSEventNativeStream {
         guard FSEventStreamStart(stream) else {
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
-            Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
             return nil
         }
         return DarwinFSEventNativeStreamLifetime(
             stream: stream,
-            queue: queue,
-            releaseCallbackContext: {
-                Unmanaged<CallbackContext>.fromOpaque(callbackContextPointer).release()
-            }
+            queue: queue
         )
     }
 }

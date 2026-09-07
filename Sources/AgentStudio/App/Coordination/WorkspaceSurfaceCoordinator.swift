@@ -68,7 +68,24 @@ final class WorkspaceSurfaceCoordinator {
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
-    var preparedContentVisibilitySignalHandler: @MainActor ([PaneId]) -> Set<PaneId> = { _ in [] }
+    var preparedContentVisibilitySignalHandler: @MainActor (PreparedContentVisibleQueuedSet) -> Set<PaneId> = { _ in
+        []
+    }
+    /// The generation of the currently accepted composition, threaded from
+    /// the installed prepared-content mount owners once boot installs them
+    /// (`AppDelegate+WorkspaceBoot.swift`). `nil` only in the brief pre-boot
+    /// window and in test harnesses that never install a cohort.
+    var acceptedPreparedContentMountGeneration: WorkspaceContentMountGeneration?
+    /// `reevaluatePreparedTerminalGeometry()`'s sole path to
+    /// `PreparedTerminalMountAdmissionPort.acceptLaterTrustedFrames` and
+    /// `WorkspacePreparedContentMountCoordinator.acceptTerminalGeometry` —
+    /// both installed-owner-scoped objects this coordinator has no other
+    /// reference to. Wired post-construction exactly like
+    /// `preparedContentVisibilitySignalHandler`, in the same
+    /// `AppDelegate+WorkspaceBoot.swift` boot step. Defaults to a no-op so
+    /// harnesses that construct this coordinator without installing prepared
+    /// content mount owners keep compiling unchanged.
+    var preparedTerminalGeometryReevaluationHandler: @MainActor ([PaneId: NSRect]) async -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var paneEventIngressTask: Task<Void, Never>?
@@ -782,14 +799,12 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
         applyTopologyAdoptions(from: [delta])
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
-        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
@@ -804,26 +819,18 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
             let clearedPaneIDs = store.mutationCoordinator.clearPaneAssociations(
                 forRemovedWorktreeID: entry.id
             )
-            for _ in clearedPaneIDs {
+            for sourcePaneID in clearedPaneIDs {
                 performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
-            }
-            let orphanedPaneIds = store.mutationCoordinator.orphanPanesForRemovedWorktreeIfUnmatched(entry)
-            for sourcePaneId in orphanedPaneIds {
                 guard
                     let companion = store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePaneId
+                        forSourcePane: sourcePaneID
                     )
                 else {
                     continue
                 }
                 _ = reconcileZoomCompanion(
-                    sourcePaneId: sourcePaneId,
+                    sourcePaneId: sourcePaneID,
                     owningTabId: companion.owningTabId
-                )
-            }
-            if !orphanedPaneIds.isEmpty {
-                Self.logger.info(
-                    "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
                 )
             }
         }

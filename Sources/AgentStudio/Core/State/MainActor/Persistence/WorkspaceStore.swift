@@ -256,14 +256,13 @@ package final class WorkspaceStore {
             return .failure(.topologyRejected(rejection))
         }
 
-        let associationReconciliation = await WorkspacePersistenceTransformer.reconcilePaneAssociationsOffMain(
+        let paneReconciliation = await WorkspacePersistenceTransformer.reconcilePanesForBootOffMain(
             in: snapshot.workspace,
             topology: preparedTopology
         )
-        let didRepairAssociations = associationReconciliation.summary.changedCount > 0
 
         let preparedComposition: PreparedWorkspaceComposition
-        switch await WorkspaceCompositionPreparer.prepareOffMain(associationReconciliation.workspace) {
+        switch await WorkspaceCompositionPreparer.prepareOffMain(paneReconciliation.workspace) {
         case .prepared(let prepared):
             preparedComposition = prepared
         case .rejected(let rejection):
@@ -278,10 +277,9 @@ package final class WorkspaceStore {
                 preparedTopology,
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
-            _ = mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
-            paneAssociationBootReconciliationReporter?(associationReconciliation.summary)
+            paneAssociationBootReconciliationReporter?(paneReconciliation.associationSummary)
             isDirty = false
-            if didRepairAssociations {
+            if paneReconciliation.didChange {
                 _ = await persistNow()
             }
             workspaceStoreLogger.info(

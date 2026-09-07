@@ -239,4 +239,183 @@ struct EntityRecencyAtomTests {
         )
         #expect(observationRecorder.changeCount == 1)
     }
+
+    @Test("hydration is capped per kind exactly as recording is")
+    func applicationHydrationIsCappedPerKind() throws {
+        let cap = AppPolicies.EntityRecency.maximumApplicationRetainedEntityCountPerKind
+        let hydratedCountPerKind = cap + 8
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: Double(hydratedCountPerKind)) }
+        )
+        var persistedRecencies: [ApplicationEntityRecency] = []
+        for index in 0..<hydratedCountPerKind {
+            persistedRecencies.append(
+                try ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: String(format: "%016x", index)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+            persistedRecencies.append(
+                try ApplicationEntityRecency(
+                    entity: .worktree(worktreeStableKey: String(format: "%016x", index + 10_000)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+        }
+
+        atom.hydrate(persistedRecencies)
+
+        #expect(atom.recentEntities.filter { $0.entity.storageKind == "repository" }.count == cap)
+        #expect(atom.recentEntities.filter { $0.entity.storageKind == "worktree" }.count == cap)
+    }
+
+    @Test("application record suppresses publication when normalization changes nothing")
+    func applicationRecordSuppressesEqualWrite() throws {
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 300) }
+        )
+        let recency = try ApplicationEntityRecency(
+            entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+            interaction: .opened,
+            lastInteractedAt: Date(timeIntervalSince1970: 100)
+        )
+        atom.record(recency)
+        let observationRecorder = EntityRecencyObservationRecorder()
+
+        _ = withObservationTracking {
+            atom.recentEntities
+        } onChange: {
+            observationRecorder.recordChange()
+        }
+
+        atom.record(recency)
+
+        #expect(observationRecorder.changeCount == 0)
+        #expect(atom.recentEntities.count == 1)
+    }
+
+    @Test("application record suppresses publication for a superseded older interaction")
+    func applicationRecordSuppressesSupersededTimestamp() throws {
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 300) }
+        )
+        try atom.record(
+            ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        let observationRecorder = EntityRecencyObservationRecorder()
+
+        _ = withObservationTracking {
+            atom.recentEntities
+        } onChange: {
+            observationRecorder.recordChange()
+        }
+
+        try atom.record(
+            ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(observationRecorder.changeCount == 0)
+    }
+
+    @Test("application remove of an absent identity publishes nothing")
+    func applicationRemoveOfAbsentIdentityPublishesNothing() throws {
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 300) }
+        )
+        try atom.record(
+            ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        let observationRecorder = EntityRecencyObservationRecorder()
+
+        _ = withObservationTracking {
+            atom.recentEntities
+        } onChange: {
+            observationRecorder.recordChange()
+        }
+
+        atom.remove(.worktree(worktreeStableKey: "cccccccccccccccc"))
+
+        #expect(observationRecorder.changeCount == 0)
+        #expect(atom.recentEntities.count == 1)
+    }
+
+    @Test("application remove of a present identity still publishes")
+    func applicationRemoveOfPresentIdentityPublishes() throws {
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 300) }
+        )
+        try atom.record(
+            ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        let observationRecorder = EntityRecencyObservationRecorder()
+
+        _ = withObservationTracking {
+            atom.recentEntities
+        } onChange: {
+            observationRecorder.recordChange()
+        }
+
+        atom.remove(.repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"))
+
+        #expect(observationRecorder.changeCount == 1)
+        #expect(atom.recentEntities.isEmpty)
+    }
+
+    @Test("application retention caps each kind independently and keeps the newest")
+    func applicationRetentionCapsEachKindIndependently() throws {
+        let cap = AppPolicies.EntityRecency.maximumApplicationRetainedEntityCountPerKind
+        let recordedCountPerKind = cap + 8
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: Double(recordedCountPerKind)) }
+        )
+
+        for index in 0..<recordedCountPerKind {
+            try atom.record(
+                ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: String(format: "%016x", index)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+            try atom.record(
+                ApplicationEntityRecency(
+                    entity: .worktree(worktreeStableKey: String(format: "%016x", index + 10_000)),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: Double(index))
+                )
+            )
+        }
+
+        let retainedRepositories = atom.recentEntities.filter { $0.entity.storageKind == "repository" }
+        let retainedWorktrees = atom.recentEntities.filter { $0.entity.storageKind == "worktree" }
+
+        #expect(retainedRepositories.count == cap)
+        #expect(retainedWorktrees.count == cap)
+        #expect(
+            retainedRepositories.first?.entity
+                == .repository(repositoryStableKey: String(format: "%016x", recordedCountPerKind - 1))
+        )
+        #expect(
+            retainedRepositories.last?.entity
+                == .repository(repositoryStableKey: String(format: "%016x", recordedCountPerKind - cap))
+        )
+    }
 }
