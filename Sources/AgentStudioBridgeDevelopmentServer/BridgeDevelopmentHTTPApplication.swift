@@ -6,7 +6,6 @@ import WebKit
 
 enum BridgeDevelopmentHTTPApplication {
     private static let bootstrapBodyLimit = 8 * 1024
-    private static let productBodyLimit = 128 * 1024
 
     static func make(
         host: BridgeDevelopmentProductHost,
@@ -14,7 +13,7 @@ enum BridgeDevelopmentHTTPApplication {
         eventLoopGroupProvider: EventLoopGroupProvider = .singleton,
         healthIsReady: @escaping @Sendable () async -> Bool = { true }
     ) -> some ApplicationProtocol {
-        let router = Router()
+        let router = Router(context: BridgeDevelopmentHTTPRequestContext.self)
         router.get("/__bridge-product/health") { _, _ -> Response in
             Response(status: await healthIsReady() ? .noContent : .serviceUnavailable)
         }
@@ -49,11 +48,11 @@ enum BridgeDevelopmentHTTPApplication {
     private static func registerProductRoute(
         _ path: RouterPath,
         destination: String,
-        router: Router<BasicRequestContext>,
+        router: Router<BridgeDevelopmentHTTPRequestContext>,
         host: BridgeDevelopmentProductHost
     ) {
-        router.post(path) { request, _ -> Response in
-            let body = try await request.body.collect(upTo: productBodyLimit)
+        router.post(path) { request, context -> Response in
+            let body = try await request.body.collect(upTo: BridgeProductWireContract.maximumRequestBodyBytes)
             guard let destinationURL = URL(string: destination) else {
                 throw HTTPError(.internalServerError)
             }
@@ -63,7 +62,8 @@ enum BridgeDevelopmentHTTPApplication {
                 headers: request.headers
             )
             return try await BridgeDevelopmentHTTPProductResponse.make(
-                from: await host.route(forwardedRequest)
+                from: await host.route(forwardedRequest),
+                onConnectionClose: context.onConnectionClose
             )
         }
     }
@@ -113,9 +113,25 @@ enum BridgeDevelopmentHTTPApplication {
     }
 }
 
+/// Carries the existing socket lifetime into a response that can be idle indefinitely.
+/// It does not consume the request body or change finite-response keep-alive semantics.
+struct BridgeDevelopmentHTTPRequestContext: RequestContext {
+    var coreContext: CoreRequestContextStorage
+    let onConnectionClose: @Sendable (@escaping @Sendable () -> Void) -> Void
+
+    init(source: ApplicationRequestContextSource) {
+        coreContext = .init(source: source)
+        let connectionClosed = source.channel.closeFuture
+        onConnectionClose = { handler in
+            connectionClosed.whenComplete { _ in handler() }
+        }
+    }
+}
+
 enum BridgeDevelopmentHTTPProductResponse {
     static func make(
-        from results: AsyncThrowingStream<URLSchemeTaskResult, any Error>
+        from results: AsyncThrowingStream<URLSchemeTaskResult, any Error>,
+        onConnectionClose: (@Sendable (@escaping @Sendable () -> Void) -> Void)? = nil
     ) async throws -> Response {
         let (responseHeads, responseHeadContinuation) =
             AsyncThrowingStream<HTTPURLResponse, any Error>.makeStream(
@@ -164,6 +180,8 @@ enum BridgeDevelopmentHTTPProductResponse {
                 responseBodyContinuation.finish(throwing: error)
             }
         }
+        let responseLifetime = BridgeDevelopmentHTTPResponseLifetime(task: routeTask)
+        onConnectionClose? { [weak responseLifetime] in responseLifetime?.cancel() }
         responseBodyContinuation.onTermination = { _ in routeTask.cancel() }
 
         var responseHeadIterator = responseHeads.makeAsyncIterator()
@@ -174,7 +192,21 @@ enum BridgeDevelopmentHTTPProductResponse {
         return Response(
             status: .init(code: responseHead.statusCode),
             headers: forwardedHeaders(responseHead),
-            body: .init(asyncSequence: responseBody)
+            body: .init { writer in
+                defer { responseLifetime.cancel() }
+                do {
+                    try await withTaskCancellationHandler {
+                        try await writer.write(responseBody)
+                        try await writer.finish(nil)
+                    } onCancel: {
+                        responseLifetime.cancel()
+                    }
+                } catch {
+                    routeTask.cancel()
+                    await routeTask.value
+                    throw error
+                }
+            }
         )
     }
 
@@ -194,6 +226,17 @@ enum BridgeDevelopmentHTTPProductResponse {
         }
         return fields
     }
+}
+
+/// The connection callback holds this weakly, so keep-alive cannot retain completed bodies.
+private final class BridgeDevelopmentHTTPResponseLifetime: Sendable {
+    let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) { self.task = task }
+
+    func cancel() { task.cancel() }
+
+    deinit { task.cancel() }
 }
 
 private enum BridgeDevelopmentHTTPResponseError: Error {

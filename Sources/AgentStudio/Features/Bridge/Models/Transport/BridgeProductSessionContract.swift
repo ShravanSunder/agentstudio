@@ -26,11 +26,12 @@ package enum BridgeProductWireContract {
     static let maximumFileMetadataOperationCount = 256
     static let maximumFileMetadataDeltaMemberCount = 256
 
-    static let maximumRequestBodyBytes = 128 * 1024
+    package static let maximumRequestBodyBytes = 256 * 1024
     static let maximumMetadataFrameBytes = 128 * 1024
     static let maximumContentControlBodyBytes = 16 * 1024
     static let maximumContentFrameBytes = 256 * 1024
-    static let maximumContentDataPayloadBytes = 128 * 1024
+    // Frame-body budget minus tag, sequence, offset, and correlation envelope.
+    static let maximumContentDataPayloadBytes = maximumContentFrameBytes - (1 + 4 + 4 + 33)
     static let maximumQueuedStreamFrames = 64
     static let maximumQueuedStreamBytes = 4 * 1024 * 1024
     static let maximumContentStreamBytes = Int(UInt32.max)

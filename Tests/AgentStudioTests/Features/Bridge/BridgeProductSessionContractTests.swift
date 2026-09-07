@@ -15,9 +15,9 @@ struct BridgeProductSessionContractTests {
         #expect(
             BridgeProductWireContract.capabilityHeaderName
                 == "X-AgentStudio-Bridge-Product-Capability")
-        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 256 * 1024)
         #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
-        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 256 * 1024 - 42)
     }
 
     @Test("shared product-session corpus decodes and round-trips every v2 union")

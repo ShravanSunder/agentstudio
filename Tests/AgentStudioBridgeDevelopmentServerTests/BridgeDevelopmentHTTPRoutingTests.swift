@@ -288,8 +288,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
-    @Test("command route forwards worker admission through the existing product adapter")
-    func commandRouteForwardsWorkerAdmission() async throws {
+    @Test(
+        "command route honors the advertised product body budget",
+        arguments: ["normal", "at_limit", "over_limit"]
+    )
+    func commandRouteForwardsWorkerAdmission(bodySize: String) async throws {
         // Arrange
         let repositoryURL = try FilesystemTestGitRepo.create(
             named: "bridge-development-http-command"
@@ -315,7 +318,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                 let capability = try BridgeProductCapabilityHeaderEncoding.encode(
                     Array(envelope.capabilityBytes)
                 )
-                let requestBody = try JSONSerialization.data(
+                var requestBody = try JSONSerialization.data(
                     withJSONObject: [
                         "kind": "workerSession.open",
                         "paneSessionId": envelope.bootstrap.paneSessionId,
@@ -327,6 +330,12 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     ],
                     options: [.sortedKeys]
                 )
+                if bodySize != "normal" {
+                    let targetSize =
+                        envelope.bootstrap.policy.maximumRequestBodyBytes + (bodySize == "over_limit" ? 1 : 0)
+                    try #require(targetSize >= requestBody.count)
+                    requestBody.append(Data(repeating: 0x20, count: targetSize - requestBody.count))
+                }
                 let capabilityHeader = try #require(
                     HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
                 )
@@ -339,6 +348,10 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     ],
                     body: ByteBuffer(data: requestBody)
                 ) { response in
+                    if bodySize == "over_limit" {
+                        #expect(response.status == .contentTooLarge)
+                        return
+                    }
                     #expect(response.status == .ok)
                     #expect(response.headers[.contentType] == "application/json")
                     let controlResponse = try BridgeProductStrictJSON.decode(

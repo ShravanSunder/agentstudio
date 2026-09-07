@@ -7,7 +7,7 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
         let acceptedFrame: Data
     }
 
-    static let payloadSHA256 = "15601535eca4a38b7e31ad6494861121cb9f84ccf55d4beb6a707d4f7a87813d"
+    static let payloadSHA256 = "a66334f9cff3e68ac54defbc8b60a35972fdb36805adb1c44e541cfdd5e9be00"
 
     static func makeFixture() throws -> Fixture {
         let request = try makeRequest()
@@ -59,12 +59,12 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
               "contentKind":"file.content",
               "descriptor":{
                 "contentKind":"file.content",
-                "declaredByteLength":131072,
+                "declaredByteLength":\#(BridgeProductWireContract.maximumContentDataPayloadBytes),
                 "descriptorId":"s2a-file-descriptor",
                 "encoding":"utf-8",
-                "expectedSha256":"15601535eca4a38b7e31ad6494861121cb9f84ccf55d4beb6a707d4f7a87813d",
+                "expectedSha256":"\#(payloadSHA256)",
                 "fileId":"s2a-file",
-                "maximumBytes":131072,
+                "maximumBytes":\#(BridgeProductWireContract.maximumContentDataPayloadBytes),
                 "source":{
                   "repoId":"00000000-0000-4000-8000-000000000001",
                   "rootRevisionToken":null,
@@ -75,7 +75,7 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
                 },
                 "window":{
                   "kind":"prefix",
-                  "maximumBytes":131072,
+                  "maximumBytes":\#(BridgeProductWireContract.maximumContentDataPayloadBytes),
                   "maximumLines":10000,
                   "startByte":0
                 }

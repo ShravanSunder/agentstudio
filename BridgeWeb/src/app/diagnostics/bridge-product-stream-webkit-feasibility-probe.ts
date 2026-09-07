@@ -92,7 +92,7 @@ interface StreamFrameCursor {
 }
 
 const feasibilityContentPayloadSHA256 =
-	'15601535eca4a38b7e31ad6494861121cb9f84ccf55d4beb6a707d4f7a87813d';
+	'a66334f9cff3e68ac54defbc8b60a35972fdb36805adb1c44e541cfdd5e9be00';
 const feasibilityContentRequest = {
 	contentKind: 'file.content',
 	contentRequestId: 's2a-content-request',

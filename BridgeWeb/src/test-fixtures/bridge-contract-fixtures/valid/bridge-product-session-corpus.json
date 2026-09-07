@@ -7,7 +7,7 @@
     "workerInstanceId": "worker-instance-1",
     "policy": {
       "maximumContentBytes": 2097152,
-      "maximumRequestBodyBytes": 131072,
+      "maximumRequestBodyBytes": 262144,
       "maximumMetadataFrameBytes": 131072,
       "maximumQueuedStreamBytes": 4194304,
       "maximumQueuedStreamFrames": 64,

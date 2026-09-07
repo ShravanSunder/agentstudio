@@ -91,7 +91,7 @@ describe('Bridge product content stream decoder', () => {
 		expect(request.contentRequestId).toBe(accepted.header.contentRequestId);
 	});
 
-	test('accepts exactly 128 KiB of raw data and rejects one byte more', async () => {
+	test('accepts the full data envelope and rejects one byte more', async () => {
 		const exactPayload = new Uint8Array(BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES).fill(
 			0x61,
 		);
@@ -120,7 +120,7 @@ describe('Bridge product content stream decoder', () => {
 					encodeMinimalDataFrame(1, 0, new Uint8Array(exactPayload.byteLength + 1)),
 				),
 			),
-		).rejects.toThrow(/payload|128|bounds/iu);
+		).rejects.toThrow('Bridge product content frame exceeds its byte ceiling.');
 		expect(oversizedDecoder.state).toBe('poisoned');
 		expect(oversizedDecoder.retainedByteCount).toBe(0);
 	});
@@ -134,8 +134,20 @@ describe('Bridge product content stream decoder', () => {
 		);
 		exactFrameBody[4] = 0x02;
 		new DataView(exactFrameBody.buffer).setUint32(5, 1, false);
-		const exactFrameDecoder = new BridgeProductContentStreamDecoder(contentRequest());
-		await expect(exactFrameDecoder.push(exactFrameBody)).rejects.toThrow(/payload|bounds/iu);
+		const exactAccepted = contentAcceptedFrameForByteCount(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
+		);
+		const exactFrameDecoder = new BridgeProductContentStreamDecoder(
+			contentRequestForAccepted(exactAccepted),
+		);
+		await exactFrameDecoder.push(
+			encodeMinimalControlFrame(0x01, 0, contentAcceptedControlBody(exactAccepted)),
+		);
+		const exactFrameResult = await exactFrameDecoder.push(exactFrameBody);
+		expect(exactFrameResult.frames[0]?.payload.byteLength).toBe(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
+		);
 
 		const oversizedFrameBody = exactFrameBody.slice();
 		new DataView(oversizedFrameBody.buffer).setUint32(

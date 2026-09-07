@@ -270,9 +270,9 @@ struct BridgeProductContentFrameCodecTests {
         #expect(maximumDecoder.storageDiagnostics.allocationCount == 7)
     }
 
-    @Test("content data cap accepts exactly 128 KiB and rejects one byte more")
-    func contentDataCapIsExactly128KiB() throws {
-        let maximumPayload = Data(repeating: 0x61, count: 128 * 1024)
+    @Test("content data fills the frame after its header and rejects one byte more")
+    func contentDataCapAccountsForItsFrameHeader() throws {
+        let maximumPayload = Data(repeating: 0x61, count: 256 * 1024 - 42)
         let oversizedPayload = Data(repeating: 0x62, count: maximumPayload.count + 1)
         let maximumObjects = try contentHeaderObjects(
             declaredByteLength: maximumPayload.count,
@@ -900,6 +900,6 @@ extension BridgeProductContentFrameCodecTests {
     func everySwiftResponseFrameUsesSharedCeiling() {
         #expect(BridgeProductWireContract.maximumMetadataFrameBytes == 128 * 1024)
         #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
-        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 256 * 1024 - 42)
     }
 }

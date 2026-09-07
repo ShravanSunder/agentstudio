@@ -178,7 +178,8 @@ describe('Bridge product content frame encoder and validator', () => {
 	});
 
 	test('admits complete File content beyond the legacy prefix through seventeen data frames', async () => {
-		const dataFrameByteCount = BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES;
+		// Preserve the original 128 KiB fragmentation vector independently of the maximum.
+		const dataFrameByteCount = 128 * 1024;
 		const legacyPrefixByteCount = 2 * 1024 * 1024;
 		const finalDataFrameByteCount = 65;
 		const sourceBytes = new Uint8Array(legacyPrefixByteCount + finalDataFrameByteCount);
