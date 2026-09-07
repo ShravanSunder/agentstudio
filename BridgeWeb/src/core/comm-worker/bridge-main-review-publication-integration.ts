@@ -511,9 +511,10 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 			unsubscribeLifecycle = props.client.lifecycle.subscribe(settleLifecycle);
 			unsubscribePresentation =
 				props.store.subscribeReviewRefreshPresentation(handlePresentationChanged);
-			unsubscribeWorkerReplacement = props.store.subscribeWorkerReplacement(
-				installationGate.prepareForWorkerReplacement,
-			);
+			unsubscribeWorkerReplacement = props.store.subscribeWorkerReplacement((): void => {
+				publicationEpochById.clear();
+				installationGate.prepareForWorkerReplacement();
+			});
 		},
 		whenSettled,
 	};

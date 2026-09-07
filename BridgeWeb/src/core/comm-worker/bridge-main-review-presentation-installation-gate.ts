@@ -102,6 +102,9 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	let lifecycleRevision = 0;
 	let pendingInstalledReceiptCandidate: ReadyCandidate | null = null;
 	let readyCandidate: ReadyCandidate | null = null;
+	// Retained paint does not establish native display ownership for a replacement worker.
+	let confirmedDisplayedPublicationId =
+		props.store.getReviewRefreshPresentation().activeIdentity?.publicationId ?? null;
 
 	const candidateMatchesStore = (candidate: ReadyCandidate): boolean => {
 		const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
@@ -151,19 +154,23 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		candidate: ReadyCandidate,
 		trigger: 'applyNow' | 'automatic',
 	): Promise<void> => {
+		const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
+		const reinstallsRetainedPublication =
+			confirmedDisplayedPublicationId === null &&
+			activeIdentity !== null &&
+			identitiesAreExact(activeIdentity, candidate.identity);
 		if (
 			isClosed ||
 			installationInFlightPublicationId !== null ||
 			pendingInstalledReceiptCandidate !== null ||
-			!candidateMatchesStore(candidate)
+			(!reinstallsRetainedPublication && !candidateMatchesStore(candidate))
 		) {
 			return;
 		}
-		const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 		const requestLifecycleRevision = lifecycleRevision;
 		installationInFlightPublicationId = candidate.identity.publicationId;
 		let editorContinuityPrepared = true;
-		if (candidateAffectsActiveEditor(candidate)) {
+		if (!reinstallsRetainedPublication && candidateAffectsActiveEditor(candidate)) {
 			try {
 				editorContinuityPrepared = await props.prepareActiveEditorsForInstallation();
 			} catch {
@@ -174,7 +181,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			isClosed ||
 			requestLifecycleRevision !== lifecycleRevision ||
 			installationInFlightPublicationId !== candidate.identity.publicationId ||
-			!candidateMatchesStore(candidate)
+			(!reinstallsRetainedPublication && !candidateMatchesStore(candidate))
 		) {
 			if (installationInFlightPublicationId === candidate.identity.publicationId) {
 				installationInFlightPublicationId = null;
@@ -222,6 +229,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			return;
 		}
 		if (
+			!reinstallsRetainedPublication &&
 			!props.store.markReviewCandidateReady({
 				identity: candidate.identity,
 				role: 'installing',
@@ -239,7 +247,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		try {
 			result = await props.installationPort.requestInstallAdmission({
 				candidatePublicationId: candidate.identity.publicationId,
-				expectedDisplayedPublicationId: activeIdentity?.publicationId ?? null,
+				expectedDisplayedPublicationId: confirmedDisplayedPublicationId,
 			});
 		} catch {
 			const requestIsCurrent =
@@ -297,9 +305,10 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			) {
 				readyCandidate = null;
 			}
+			if (reinstallsRetainedPublication) await evaluateReadyCandidate();
 			return;
 		}
-		if (!props.store.promoteReviewCandidate(candidate.identity)) {
+		if (!reinstallsRetainedPublication && !props.store.promoteReviewCandidate(candidate.identity)) {
 			props.onLifecycleEvent?.({
 				...candidateTelemetryFacts(candidate),
 				phase: 'installTerminal',
@@ -370,14 +379,18 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	const sendPendingInstalledReceipt = async (): Promise<boolean> => {
 		const candidate = pendingInstalledReceiptCandidate;
 		if (candidate === null || isClosed) return false;
+		const receiptLifecycleRevision = lifecycleRevision;
 		try {
 			await props.installationPort.sendInstalledReceipt(candidate.identity);
 			if (
-				pendingInstalledReceiptCandidate?.identity.publicationId ===
-				candidate.identity.publicationId
+				isClosed ||
+				receiptLifecycleRevision !== lifecycleRevision ||
+				pendingInstalledReceiptCandidate !== candidate
 			) {
-				pendingInstalledReceiptCandidate = null;
+				return false;
 			}
+			confirmedDisplayedPublicationId = candidate.identity.publicationId;
+			pendingInstalledReceiptCandidate = null;
 			return true;
 		} catch {
 			props.onLifecycleEvent?.({
@@ -401,6 +414,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			installationInFlightPublicationId = null;
 			pendingInstalledReceiptCandidate = null;
 			readyCandidate = null;
+			confirmedDisplayedPublicationId = null;
 			props.store.discardReviewCandidate();
 			props.store.clearReviewCandidateFailure();
 			recordCleanupLifecycle(props, 'close');
@@ -415,7 +429,30 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			attentionFileIdentities = nextAttentionFileIdentities;
 			activeEditorFileIdentities = nextActiveEditorFileIdentities;
 			const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
-			if (storedCandidate === null) return;
+			if (storedCandidate === null) {
+				const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
+				if (
+					confirmedDisplayedPublicationId === null &&
+					activeIdentity !== null &&
+					identitiesAreExact(activeIdentity, {
+						generation: event.reviewGeneration,
+						packageId: event.packageId,
+						publicationId: event.publicationId,
+						revision: event.revision,
+						sourceIdentity: event.sourceIdentity,
+					})
+				) {
+					await installCandidate(
+						{
+							affectedStableFileIdentities: [],
+							identity: activeIdentity,
+							presentationClass: { kind: 'ordinary' },
+						},
+						'automatic',
+					);
+				}
+				return;
+			}
 			const candidate = readyCandidateFromEvent(event, storedCandidate);
 			if (candidate === null) return;
 			if (!candidateMatchesStore(candidate)) return;
@@ -474,6 +511,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			installationInFlightPublicationId = null;
 			pendingInstalledReceiptCandidate = null;
 			readyCandidate = null;
+			confirmedDisplayedPublicationId = null;
 			props.store.discardReviewCandidate();
 			props.store.clearReviewCandidateFailure();
 			recordCleanupLifecycle(props, 'workerReplacement');
