@@ -9,7 +9,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props): ReactE
 		<CheckboxPrimitive.Root
 			data-slot="checkbox"
 			className={cn(
-				'peer relative flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-primary-foreground transition-shadow outline-none after:absolute after:-inset-x-2 after:-inset-y-1.5 focus-visible:border-[var(--bridge-focus-border)] focus-visible:ring-2 focus-visible:ring-[var(--bridge-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-primary data-checked:bg-primary',
+				'peer relative flex size-3.5 shrink-0 items-center justify-center rounded-sm border border-input bg-transparent text-primary-foreground transition-shadow outline-none after:absolute after:-inset-x-2 after:-inset-y-1.5 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:border-input disabled:bg-transparent disabled:text-faint-foreground disabled:opacity-100 data-checked:border-primary data-checked:bg-primary disabled:data-checked:border-input disabled:data-checked:bg-muted',
 				className,
 			)}
 			{...props}

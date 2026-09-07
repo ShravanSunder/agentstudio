@@ -1,10 +1,12 @@
 /*
  * BridgeWeb design-token source of truth. It is correlated by convention with
  * Sources/AgentStudio/Infrastructure/AppStyles.swift; see
- * docs/architecture/bridgeweb_design_token_architecture.md for the tri-system map.
+ * docs/architecture/bridge/bridgeweb_design_token_architecture.md for the tri-system map.
  * Layers flow primitives -> roles -> contexts. To add a token, add its canonical
  * :root value, register a semantic role in @theme inline when utilities consume it,
  * and place a one-line meaning comment beside the definition.
+ * components/ui owns complete control recipes. Keep base resets in @layer base.
+ * Dark appearance is unconditional; the style checker rejects aliases and palette drift.
  */
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -13,19 +15,35 @@
 @source "../**/*.ts";
 @source "../**/*.tsx";
 
-@custom-variant dark (&:is(.dark *, .dark));
-
 @theme inline {
+	--default-transition-duration: var(--motion-fast);
 	--font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
 	--font-heading: var(--font-sans);
 	--font-mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
-	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-	--radius-2xl: calc(var(--radius) * 1.8);
-	--radius-3xl: calc(var(--radius) * 2.2);
-	--radius-4xl: calc(var(--radius) * 2.6);
+	--radius-*: initial;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-xl: 14px;
+	--text-*: initial;
+	--text-2xs: 9px;
+	--text-2xs--line-height: 12px;
+	--text-xs: 11px;
+	--text-xs--line-height: 14px;
+	--text-sm: 12px;
+	--text-sm--line-height: 16px;
+	--text-base: 13px;
+	--text-base--line-height: 18px;
+	--text-lg: 14px;
+	--text-lg--line-height: 20px;
+	--text-xl: 16px;
+	--text-xl--line-height: 22px;
+	--text-2xl: 24px;
+	--text-2xl--line-height: 30px;
+	--shadow-popover: var(--elevation-popover);
+	--shadow-context-panel: var(--elevation-context-panel);
+	--color-popover-border: var(--popover-border);
+	--color-overlay: var(--overlay);
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -63,21 +81,22 @@
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
-	--color-comment-surface: var(--comment-surface);
-	--color-comment-foreground: var(--comment-foreground);
-	--color-comment-muted: var(--comment-muted);
-	--color-comment-border: var(--comment-border);
-	--color-comment-divider: var(--comment-divider);
-	--color-comment-hover: var(--comment-hover);
-	--color-comment-active: var(--comment-active);
-	--color-comment-active-surface: var(--comment-active-surface);
-	--color-comment-composer-bg: var(--comment-composer-bg);
-	--color-comment-destructive: var(--comment-destructive);
+	--color-annotation-surface: var(--annotation-surface);
+	--color-annotation-foreground: var(--annotation-foreground);
+	--color-annotation-muted: var(--annotation-muted);
+	--color-annotation-border: var(--annotation-border);
+	--color-annotation-divider: var(--annotation-divider);
+	--color-annotation-hover: var(--annotation-hover);
+	--color-annotation-active: var(--annotation-active);
+	--color-annotation-active-surface: var(--annotation-active-surface);
+	--color-annotation-composer-bg: var(--annotation-composer-bg);
+	--color-annotation-destructive: var(--annotation-destructive);
+	--color-annotation-status-new: var(--annotation-status-new);
+	--color-annotation-status-pending: var(--annotation-status-pending);
 }
 
 :root {
 	color-scheme: dark;
-	--radius: 0.45rem;
 
 	/* @design-primitives:start */
 	/* Neutral ramp: darkest chrome through strongest selected surface. */
@@ -151,6 +170,8 @@
 	--popover-foreground: var(--palette-text-primary);
 	/* Visible neutral outline around floating popover frames. */
 	--popover-border: var(--palette-stroke-floating);
+	/* Modal backdrop color; opacity is owned by the floating primitive. */
+	--overlay: var(--palette-black);
 	/* Primary has exactly three tonal rungs: solid, 15% tint, and text. */
 	/* Brand accent for actions and active identity. */
 	--primary: var(--palette-primary-blue);
@@ -197,7 +218,7 @@
 	/* File-tree and rail chrome. */
 	--sidebar: var(--palette-neutral-n0);
 	--sidebar-foreground: var(--palette-text-primary);
-	--sidebar-primary: var(--palette-blue);
+	--sidebar-primary: var(--primary);
 	--sidebar-primary-foreground: var(--palette-ansi-black);
 	--sidebar-accent: var(--palette-neutral-n2);
 	--sidebar-accent-foreground: var(--palette-text-primary);
@@ -208,123 +229,45 @@
 	--motion-fast: 120ms;
 	--motion-standard: 200ms;
 	/* System shadows preserve the approved chrome elevations. */
-	--shadow-popover:
+	--elevation-popover:
 		0 10px 24px -8px color-mix(in srgb, var(--palette-black) 45%, transparent),
 		0 3px 8px -2px color-mix(in srgb, var(--palette-black) 35%, transparent);
-	--shadow-floating-panel: 0 18px 48px color-mix(in srgb, var(--palette-black) 45%, transparent);
-	--shadow-menu: 0 24px 68px color-mix(in srgb, var(--palette-black) 86%, transparent);
+	--elevation-context-panel:
+		-10px 8px 24px -8px color-mix(in srgb, var(--palette-black) 45%, transparent),
+		-3px 2px 8px -2px color-mix(in srgb, var(--palette-black) 35%, transparent);
 	--shadow-divider: 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 	--shadow-tree-sticky: 0 2px 4px -4px color-mix(in srgb, var(--palette-black) 90%, transparent);
 	--shadow-focus-dot: 0 0 0 1px var(--surface);
 	/* System focus and menu translucencies preserve their exact current alphas. */
 	--focus-ring: color-mix(in srgb, var(--ring) 30%, transparent);
-	--menu-border: color-mix(in srgb, var(--ring) 28%, transparent);
-	--menu-ring: color-mix(in srgb, var(--foreground) 16%, transparent);
 	/* System scrollbar dimensions and paints. */
 	--scrollbar-size: 6px;
 	--scrollbar-thumb: color-mix(in srgb, var(--foreground) 24%, transparent);
 	--scrollbar-thumb-hover: color-mix(in srgb, var(--foreground) 36%, transparent);
 	--scrollbar-track: transparent;
 
-	/* S1 compatibility aliases: definitions are one-line lookups and references burn down by S6. */
-	--bridge-app-bg: var(--background);
-	--bridge-canvas-bg: var(--background);
-	--bridge-header-bg: var(--surface);
-	--bridge-header-control-bg: var(--surface);
-	--bridge-header-control-active-bg: var(--accent);
-	--bridge-surface-bg: var(--surface);
-	--bridge-surface-raised-bg: var(--muted);
-	--bridge-menu-bg: var(--popover);
-	--bridge-surface-muted-bg: var(--muted);
-	--bridge-border-subtle: var(--border);
-	--bridge-border-opaque: var(--input);
-	--bridge-text-primary: var(--foreground);
-	/* Warning: this maps to muted-foreground (#c5c8c6), NOT --palette-text-secondary (#eaeaea). */
-	--bridge-text-secondary: var(--muted-foreground);
-	--bridge-text-muted: var(--faint-foreground);
-	--bridge-accent: var(--primary);
-	--bridge-accent-soft: color-mix(in srgb, var(--primary) 15%, transparent);
-	--bridge-focus-border: var(--ring);
-	--bridge-focus-ring: var(--focus-ring);
-	--bridge-focus-dot-shadow: var(--shadow-focus-dot);
-	--bridge-menu-border: var(--menu-border);
-	--bridge-menu-ring: var(--menu-ring);
-	--bridge-divider-shadow: var(--shadow-divider);
-	--bridge-floating-panel-shadow: var(--shadow-floating-panel);
-	--bridge-menu-shadow: var(--shadow-menu);
-	--bridge-tree-sticky-shadow: var(--shadow-tree-sticky);
-	--bridge-scrollbar-size: var(--scrollbar-size);
-	--bridge-scrollbar-thumb: var(--scrollbar-thumb);
-	--bridge-scrollbar-thumb-hover: var(--scrollbar-thumb-hover);
-	--bridge-scrollbar-track: var(--scrollbar-track);
-	--bridge-motion-fast: var(--motion-fast);
-	--bridge-list-hover-bg: var(--accent);
-	--bridge-list-selected-bg: var(--selection);
-	--bridge-added: var(--success);
-	--bridge-deleted: var(--destructive);
-	--bridge-warning: var(--warning);
-	--bridge-code-view-file-separator: var(--input);
-
-	/* Pierre contract: frozen names derive only from canonical roles and primitives. */
-	--diffs-focus-border: var(--ring);
-	--diffs-focus-ring: var(--focus-ring);
-	--diffs-border-subtle: var(--border);
-	--diffs-border-opaque: var(--input);
-	--diffs-foreground: var(--foreground);
-	--diffs-background: var(--background);
-	--diffs-ansi-black: var(--palette-ansi-black);
-	--diffs-ansi-red: var(--palette-ansi-red);
-	--diffs-ansi-green: var(--palette-ansi-green);
-	--diffs-ansi-yellow: var(--palette-ansi-yellow);
-	--diffs-ansi-blue: var(--palette-ansi-blue);
-	--diffs-ansi-magenta: var(--palette-ansi-magenta);
-	--diffs-ansi-cyan: var(--palette-ansi-cyan);
-	--diffs-ansi-white: var(--palette-ansi-white);
-	--diffs-ansi-bright-black: var(--palette-ansi-bright-black);
-	--diffs-ansi-bright-red: var(--palette-ansi-bright-red);
-	--diffs-ansi-bright-green: var(--palette-ansi-bright-green);
-	--diffs-ansi-bright-yellow: var(--palette-ansi-bright-yellow);
-	--diffs-ansi-bright-blue: var(--palette-ansi-bright-blue);
-	--diffs-ansi-bright-magenta: var(--palette-ansi-bright-magenta);
-	--diffs-ansi-bright-cyan: var(--palette-ansi-bright-cyan);
-	--diffs-ansi-bright-white: var(--palette-ansi-bright-white);
-	--diffs-token-link: var(--palette-blue);
-	--diffs-token-string: var(--palette-green);
-	--diffs-token-comment: var(--palette-text-faint);
-	--diffs-token-constant: var(--palette-peach);
-	--diffs-token-keyword: var(--palette-mauve);
-	--diffs-token-parameter: var(--palette-yellow);
-	--diffs-token-function: var(--palette-blue);
-	--diffs-token-string-expression: var(--palette-teal);
-	--diffs-token-punctuation: var(--palette-subtext);
-	--diffs-token-inserted: var(--palette-green);
-	--diffs-token-deleted: var(--palette-red);
-	--diffs-token-changed: var(--palette-yellow);
-
 	/* Inline-comment surface blended into the code canvas. */
-	--comment-surface: color-mix(in srgb, var(--muted) 42%, var(--background));
+	--annotation-surface: color-mix(in srgb, var(--muted) 42%, var(--background));
 	/* Primary comment text. */
-	--comment-foreground: var(--foreground);
+	--annotation-foreground: var(--foreground);
 	/* Muted comment metadata and supporting text. */
-	--comment-muted: var(--faint-foreground);
+	--annotation-muted: var(--faint-foreground);
 	/* Comment container outline. */
-	--comment-border: color-mix(in srgb, var(--input) 70%, transparent);
+	--annotation-border: color-mix(in srgb, var(--input) 70%, transparent);
 	/* Dividers within a comment surface. */
-	--comment-divider: color-mix(in srgb, var(--border) 72%, transparent);
+	--annotation-divider: color-mix(in srgb, var(--border) 72%, transparent);
 	/* Hover feedback aligned with the code canvas. */
-	--comment-hover: color-mix(in srgb, var(--accent) 64%, transparent);
-	/* Comment-lane-owned active-range placeholder; S5 defines its final interaction use. */
-	--comment-active: var(--primary);
-	/* Active thread overlay inherits Pierre's selection hue while preserving its row beneath. */
-	--comment-active-surface: color-mix(
-		in lab,
-		transparent 86%,
-		var(--diffs-selection-base, var(--warning))
-	);
+	--annotation-hover: color-mix(in srgb, var(--accent) 64%, transparent);
+	/* Product identity for active annotation actions. */
+	--annotation-active: var(--primary);
+	/* Active thread overlay preserves the current warning-role hue over its row. */
+	--annotation-active-surface: color-mix(in lab, transparent 86%, var(--warning));
 	/* Composer inherits the comment surface. */
-	--comment-composer-bg: transparent;
+	--annotation-composer-bg: transparent;
 	/* Destructive comment feedback. */
-	--comment-destructive: var(--destructive);
+	--annotation-destructive: var(--destructive);
+	--annotation-status-new: var(--primary);
+	--annotation-status-pending: var(--warning);
 }
 
 @keyframes bridge-comparison-status-enter {
@@ -356,11 +299,11 @@
 }
 
 .bridge-review-comparison-status-region[data-motion-state='entering'] {
-	animation: bridge-comparison-status-enter var(--bridge-motion-fast) ease-out both;
+	animation: bridge-comparison-status-enter var(--motion-fast) ease-out both;
 }
 
 .bridge-review-comparison-status-region[data-motion-state='exiting'] {
-	animation: bridge-comparison-status-exit var(--bridge-motion-fast) ease-in both;
+	animation: bridge-comparison-status-exit var(--motion-fast) ease-in both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -376,8 +319,8 @@ body,
 	height: 100%;
 	margin: 0;
 	overflow: hidden;
-	background: var(--bridge-app-bg);
-	color: var(--bridge-text-primary);
+	background: var(--background);
+	color: var(--foreground);
 	font-family: var(--font-sans);
 }
 
@@ -385,10 +328,13 @@ body,
 	box-sizing: border-box;
 }
 
-button,
-input,
-select {
-	font: inherit;
+/* Base resets must not outrank primitive typography utilities. */
+@layer base {
+	button,
+	input,
+	select {
+		font: inherit;
+	}
 }
 
 button:not(:disabled),
@@ -403,37 +349,38 @@ button:disabled,
 
 .bridge-scrollbar {
 	scrollbar-width: thin;
-	scrollbar-color: var(--bridge-scrollbar-thumb) var(--bridge-scrollbar-track);
+	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 .bridge-scrollbar:hover {
-	scrollbar-color: var(--bridge-scrollbar-thumb-hover) var(--bridge-scrollbar-track);
+	scrollbar-color: var(--scrollbar-thumb-hover) var(--scrollbar-track);
 }
 
 .bridge-scrollbar::-webkit-scrollbar {
-	width: var(--bridge-scrollbar-size);
-	height: var(--bridge-scrollbar-size);
+	width: var(--scrollbar-size);
+	height: var(--scrollbar-size);
 }
 
 .bridge-scrollbar::-webkit-scrollbar-track {
-	background: var(--bridge-scrollbar-track);
+	background: var(--scrollbar-track);
 }
 
 .bridge-scrollbar::-webkit-scrollbar-thumb {
 	border: 1px solid transparent;
 	border-radius: 999px;
-	background: var(--bridge-scrollbar-thumb);
+	background: var(--scrollbar-thumb);
 	background-clip: content-box;
 }
 
 .bridge-scrollbar::-webkit-scrollbar-thumb:hover {
-	background: var(--bridge-scrollbar-thumb-hover);
+	background: var(--scrollbar-thumb-hover);
 	background-clip: content-box;
 }
 
-.bridge-review-projection-button {
-	font-size: 11px;
-	line-height: 1;
+.bridge-code-view-panel {
+	--diffs-font-size: var(--text-sm);
+	--diffs-font-family: var(--font-mono);
+	--diffs-header-font-family: var(--font-sans);
 }
 
 .bridge-code-view-panel :where(.cm-scroller, .cm-editor, pre, code) {
@@ -448,137 +395,6 @@ button:disabled,
 	--diffs-scrollbar-gutter-override: 0px;
 }
 
-.bridge-worktree-file-app {
-	--bridge-worktree-file-layout-proof: applied;
-	display: grid;
-	grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
-	width: 100%;
-	height: 100%;
-	min-height: 0;
-	background: var(--bridge-canvas-bg);
-	color: var(--bridge-text-primary);
-}
-
-.bridge-worktree-file-sidebar {
-	display: grid;
-	grid-template-rows: auto minmax(0, 1fr);
-	min-width: 0;
-	min-height: 0;
-	border-right: 1px solid var(--bridge-border-subtle);
-	background: var(--bridge-surface-bg);
-}
-
-.bridge-worktree-file-toolbar {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	gap: 8px;
-	padding: 8px;
-	border-bottom: 1px solid var(--border);
-	background: var(--bridge-header-bg);
-}
-
-.bridge-worktree-file-search-input {
-	min-width: 0;
-	height: 28px;
-	border: 1px solid var(--bridge-border-opaque);
-	border-radius: 6px;
-	padding: 0 8px;
-	background: var(--bridge-header-control-bg);
-	color: var(--bridge-text-primary);
-	font-size: 12px;
-}
-
-.bridge-worktree-file-toolbar-button {
-	height: 28px;
-	border: 1px solid var(--bridge-border-opaque);
-	border-radius: 6px;
-	padding: 0 8px;
-	background: var(--bridge-header-control-bg);
-	color: var(--bridge-text-secondary);
-	font-size: 12px;
-	line-height: 26px;
-}
-
-.bridge-worktree-file-toolbar-button[aria-pressed='true'] {
-	background: var(--bridge-header-control-active-bg);
-	color: var(--bridge-text-primary);
-}
-
-.bridge-worktree-file-filter-group {
-	display: flex;
-	grid-column: 1 / -1;
-	gap: 6px;
-	min-width: 0;
-}
-
-.bridge-worktree-file-query-status {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	min-width: 0;
-	height: 28px;
-	color: var(--bridge-text-muted);
-	font-size: 11px;
-}
-
-.bridge-worktree-file-tree,
-.bridge-worktree-file-content {
-	min-width: 0;
-	min-height: 0;
-	overflow: auto;
-}
-
-.bridge-worktree-file-tree {
-	background: var(--bridge-surface-bg);
-}
-
-.bridge-worktree-file-content {
-	background: var(--bridge-canvas-bg);
-}
-
-.bridge-worktree-file-tree-extent,
-.bridge-worktree-file-content-extent {
-	position: relative;
-	min-width: 0;
-}
-
-.bridge-worktree-file-tree-row {
-	display: block;
-	width: 100%;
-	height: 24px;
-	border: 0;
-	border-radius: 0;
-	padding: 0 12px;
-	overflow: hidden;
-	background: transparent;
-	color: var(--bridge-text-secondary);
-	font-family: var(--font-mono);
-	font-size: 12px;
-	line-height: 24px;
-	text-align: left;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.bridge-worktree-file-tree-row:hover {
-	background: var(--bridge-list-hover-bg);
-	color: var(--bridge-text-primary);
-}
-
-.bridge-worktree-file-content pre {
-	font-family: var(--font-mono);
-	font-size: 12px;
-}
-
-.bridge-worktree-file-stale-notice {
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 12px;
-	color: var(--bridge-text-secondary);
-	font-size: 12px;
-}
-
 .bridge-markdown-document :where(h1, h2, h3, h4, h5, h6) {
 	margin-block: 1.5em 0.55em;
 	font-weight: 650;
@@ -587,7 +403,7 @@ button:disabled,
 
 .bridge-markdown-document h1 {
 	padding-bottom: 0.35em;
-	border-bottom: 1px solid var(--bridge-border-subtle);
+	border-bottom: 1px solid var(--border);
 	font-size: 2em;
 }
 

@@ -54,10 +54,10 @@ function PopoverContent({
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
 					className={cn(
-						'z-50 flex w-72 origin-(--transform-origin) flex-col gap-4 rounded-lg border border-[var(--popover-border)] bg-popover p-2.5 text-xs text-popover-foreground shadow-[var(--shadow-popover)] outline-hidden',
+						'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2 rounded-lg border border-popover-border bg-popover p-2 text-sm text-popover-foreground shadow-popover outline-hidden',
 						motion === 'shelf'
 							? 'translate-y-0 transition-transform duration-[var(--motion-fast)] ease-out data-ending-style:-translate-y-2 data-ending-style:ease-in data-starting-style:-translate-y-2 motion-reduce:translate-y-0 motion-reduce:transition-none'
-							: 'duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+							: 'duration-[var(--motion-fast)] data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
 						className,
 					)}
 					{...props}
@@ -71,7 +71,7 @@ function PopoverHeader({ className, ...props }: ComponentProps<'div'>): ReactEle
 	return (
 		<div
 			data-slot="popover-header"
-			className={cn('flex flex-col gap-1 text-xs', className)}
+			className={cn('flex flex-col gap-1 text-sm', className)}
 			{...props}
 		/>
 	);
@@ -81,7 +81,7 @@ function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props): Re
 	return (
 		<PopoverPrimitive.Title
 			data-slot="popover-title"
-			className={cn('text-sm font-medium', className)}
+			className={cn('text-xs font-medium', className)}
 			{...props}
 		/>
 	);

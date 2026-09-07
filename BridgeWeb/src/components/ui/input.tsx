@@ -1,15 +1,32 @@
 import { Input as InputPrimitive } from '@base-ui/react/input';
+import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 
 import { cn } from '@/lib/utils.js';
 
-function Input({ className, type, ...props }: React.ComponentProps<'input'>): React.ReactElement {
+const inputVariants = cva(
+	'w-full min-w-0 border border-input bg-input/30 px-2 text-xs text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-input disabled:bg-transparent disabled:text-faint-foreground disabled:opacity-100 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20',
+	{
+		variants: {
+			size: {
+				sm: 'h-6 rounded-md',
+				default: 'h-7 rounded-md',
+			},
+		},
+		defaultVariants: { size: 'default' },
+	},
+);
+
+type InputProps = Omit<React.ComponentProps<'input'>, 'size'> & VariantProps<typeof inputVariants>;
+
+function Input({ className, size = 'default', type, ...props }: InputProps): React.ReactElement {
 	return (
 		<InputPrimitive
 			type={type}
 			data-slot="input"
 			className={cn(
-				'h-7 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-0.5 text-sm transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-xs/relaxed file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 md:text-xs/relaxed dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40',
+				inputVariants({ size }),
+				'file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-xs file:font-medium file:text-foreground',
 				className,
 			)}
 			{...props}
@@ -17,4 +34,4 @@ function Input({ className, type, ...props }: React.ComponentProps<'input'>): Re
 	);
 }
 
-export { Input };
+export { Input, inputVariants, type InputProps };

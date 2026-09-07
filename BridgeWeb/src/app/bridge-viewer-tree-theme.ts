@@ -1,26 +1,18 @@
 import { themeToTreeStyles, type TreeThemeInput, type TreeThemeStyles } from '@pierre/trees';
 import type { CSSProperties } from 'react';
 
+import { bridgeDesignPalette } from '../design-tokens/bridge-design-palette.js';
+
 export const bridgeGhosttyCatppuccinTreeTheme = {
 	type: 'dark',
-	fg: '#FFFFFF',
-	bg: '#282C34',
+	fg: bridgeDesignPalette['--palette-text-primary'],
+	bg: bridgeDesignPalette['--palette-neutral-n1'],
 	colors: {
-		descriptionForeground: '#6C7086',
-		focusBorder: '#B4BEFE',
-		'editor.background': '#282C34',
-		'editor.foreground': '#FFFFFF',
-		'gitDecoration.addedResourceForeground': '#A6E3A1',
-		'gitDecoration.deletedResourceForeground': '#F38BA8',
-		'gitDecoration.modifiedResourceForeground': '#89B4FA',
-		'input.background': '#181825',
-		'list.activeSelectionBackground': '#45475A',
-		'list.activeSelectionForeground': '#CDD6F4',
-		'list.focusOutline': '#00000000',
-		'list.hoverBackground': '#313244',
-		'sideBar.background': '#181825',
-		'sideBar.foreground': '#CDD6F4',
-		'sideBarSectionHeader.foreground': '#BAC2DE',
+		'editor.background': bridgeDesignPalette['--palette-neutral-n1'],
+		'editor.foreground': bridgeDesignPalette['--palette-text-primary'],
+		'gitDecoration.addedResourceForeground': bridgeDesignPalette['--palette-green'],
+		'gitDecoration.deletedResourceForeground': bridgeDesignPalette['--palette-red'],
+		'gitDecoration.modifiedResourceForeground': bridgeDesignPalette['--palette-blue'],
 	},
 } as const satisfies TreeThemeInput;
 
@@ -41,6 +33,8 @@ export type BridgeViewerTreeStyle = CSSProperties &
 		| '--trees-selected-bg-override'
 		| '--trees-selected-focused-border-color-override'
 		| '--trees-focus-ring-color-override'
+		| '--trees-font-family-override'
+		| '--trees-font-size-override'
 		| '--trees-level-gap-override'
 		| '--trees-padding-inline-override'
 		| '--trees-git-renamed-color-override',
@@ -49,25 +43,27 @@ export type BridgeViewerTreeStyle = CSSProperties &
 
 export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
 	...bridgeGhosttyCatppuccinTreeStyles,
-	backgroundColor: 'var(--bridge-surface-bg)',
+	backgroundColor: 'var(--background)',
 	colorScheme: 'dark',
-	color: 'var(--bridge-text-primary)',
+	color: 'var(--foreground)',
 	display: 'block',
 	height: '100%',
-	'--trees-bg-override': 'var(--bridge-surface-bg)',
-	'--trees-fg-override': 'var(--bridge-text-primary)',
-	'--trees-fg-muted-override': 'var(--bridge-text-muted)',
-	'--trees-bg-muted-override': 'var(--bridge-surface-raised-bg)',
-	'--trees-search-fg-override': 'var(--bridge-text-primary)',
-	'--trees-search-bg-override': 'var(--bridge-header-control-bg)',
-	'--trees-border-color-override': 'var(--bridge-border-subtle)',
-	'--trees-selected-fg-override': 'var(--bridge-text-primary)',
-	'--trees-selected-bg-override': 'var(--bridge-list-selected-bg)',
-	'--trees-selected-focused-border-color-override': 'var(--bridge-focus-border)',
-	'--trees-focus-ring-color-override': 'var(--bridge-focus-border)',
+	'--trees-bg-override': 'var(--background)',
+	'--trees-fg-override': 'var(--foreground)',
+	'--trees-fg-muted-override': 'var(--faint-foreground)',
+	'--trees-bg-muted-override': 'var(--muted)',
+	'--trees-search-fg-override': 'var(--foreground)',
+	'--trees-search-bg-override': 'var(--surface)',
+	'--trees-border-color-override': 'var(--border)',
+	'--trees-selected-fg-override': 'var(--foreground)',
+	'--trees-selected-bg-override': 'var(--selection)',
+	'--trees-selected-focused-border-color-override': 'var(--ring)',
+	'--trees-focus-ring-color-override': 'var(--ring)',
+	'--trees-font-family-override': 'var(--font-sans)',
+	'--trees-font-size-override': '12px',
 	'--trees-level-gap-override': '4px',
 	'--trees-padding-inline-override': 8,
-	'--trees-git-renamed-color-override': 'var(--bridge-accent)',
+	'--trees-git-renamed-color-override': 'var(--primary)',
 };
 
 export const bridgeViewerTreeUnsafeCSS = `
@@ -76,27 +72,27 @@ export const bridgeViewerTreeUnsafeCSS = `
     padding-inline-end: 2px;
     margin-inline-end: 2px;
     scrollbar-width: thin;
-    scrollbar-color: var(--bridge-scrollbar-thumb) var(--bridge-scrollbar-track);
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar {
-    width: var(--bridge-scrollbar-size);
-    height: var(--bridge-scrollbar-size);
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-track {
-    background: var(--bridge-scrollbar-track);
+    background: var(--scrollbar-track);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb {
     border: 1px solid transparent;
     border-radius: 999px;
-    background: var(--bridge-scrollbar-thumb);
+    background: var(--scrollbar-thumb);
     background-clip: content-box;
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb:hover {
-    background: var(--bridge-scrollbar-thumb-hover);
+    background: var(--scrollbar-thumb-hover);
     background-clip: content-box;
   }
 
@@ -107,7 +103,7 @@ export const bridgeViewerTreeUnsafeCSS = `
   [data-file-tree-search-container] {
     margin: 0 4px 8px 0;
     padding: 0 4px 8px 1px;
-    border-bottom: 1px solid var(--bridge-border-subtle);
+    border-bottom: 1px solid var(--border);
   }
 
   [role='treeitem'][data-item-path] {
@@ -115,11 +111,11 @@ export const bridgeViewerTreeUnsafeCSS = `
   }
 
   [data-file-tree-sticky-overlay-content] {
-    box-shadow: var(--bridge-tree-sticky-shadow);
+    box-shadow: var(--shadow-tree-sticky);
   }
 
   [data-item-type='folder'] {
-    color: var(--bridge-text-primary);
+    color: var(--foreground);
     font-weight: 500;
   }
 `;

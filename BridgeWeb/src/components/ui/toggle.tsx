@@ -5,18 +5,24 @@ import type { ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const toggleVariants = cva(
-	"group/toggle inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium whitespace-nowrap transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-primary/15 aria-pressed:text-primary data-pressed:bg-primary/15 data-pressed:text-primary dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+	'group/toggle inline-flex items-center justify-center gap-1 border border-transparent bg-transparent text-xs font-medium whitespace-nowrap text-muted-foreground transition-all outline-none hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-faint-foreground disabled:opacity-100 disabled:hover:bg-transparent disabled:hover:text-faint-foreground aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-pressed:bg-primary/15 aria-pressed:text-primary disabled:aria-pressed:bg-transparent disabled:aria-pressed:text-faint-foreground data-pressed:bg-primary/15 data-pressed:text-primary disabled:data-pressed:bg-transparent disabled:data-pressed:text-faint-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current',
 	{
 		variants: {
 			variant: {
 				default: 'bg-transparent',
-				outline: 'border border-input bg-transparent hover:bg-muted',
+				outline: 'border-input bg-transparent disabled:border-input',
+				segmented: 'bg-transparent',
 			},
 			size: {
 				default:
-					'h-7 min-w-7 px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
-				sm: "h-6 min-w-6 rounded-[min(var(--radius-md),8px)] px-2 !text-[11px] !leading-none has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-				lg: 'h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+					"h-7 min-w-7 rounded-md px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+				xs: "h-5 min-w-5 rounded-sm px-1.5 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 [&_svg:not([class*='size-'])]:size-2.5",
+				sm: "h-6 min-w-6 rounded-md px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+				lg: "h-8 min-w-8 rounded-md px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-4",
+				icon: "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
+				'icon-xs': "size-5 rounded-sm [&_svg:not([class*='size-'])]:size-2.5",
+				'icon-sm': "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+				'icon-lg': "size-8 rounded-md [&_svg:not([class*='size-'])]:size-4",
 			},
 		},
 		defaultVariants: {
