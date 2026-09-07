@@ -4,16 +4,16 @@ import type { ComponentProps, ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const annotationConversationFrameVariants = cva(
-	'min-w-0 rounded-2xl font-sans text-comment-foreground transition-colors outline-none',
+	'min-w-0 rounded-xl bg-background font-sans text-annotation-foreground ring-inset transition-colors outline-none',
 	{
 		variants: {
 			active: {
-				false: 'bg-transparent',
-				true: 'bg-comment-active-surface',
+				false: 'ring-annotation-border',
+				true: 'ring-warning',
 			},
 			placement: {
 				embedded: 'm-0 w-full max-w-none',
-				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl p-3',
+				standalone: 'm-2 w-[calc(100%-1rem)] max-w-3xl p-3 ring-1',
 			},
 		},
 		defaultVariants: { active: false, placement: 'standalone' },

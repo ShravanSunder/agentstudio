@@ -11,6 +11,7 @@ import {
 	annotationSessionSummary,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
+import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationThreadContext,
@@ -22,6 +23,23 @@ import {
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline shell', () => {
+	test('marks the active conversation with an outline without washing out its text', async () => {
+		// Arrange
+		const rendered = await render(
+			<WorktreeAnnotationConversationFrame active>
+				Readable comment
+			</WorktreeAnnotationConversationFrame>,
+		);
+		// Act
+		const frame = rendered.getByTestId('worktree-annotation-conversation-frame').element();
+		const style = getComputedStyle(frame);
+		// Assert
+		expect(style.backgroundColor).toBe('rgb(40, 44, 52)');
+		expect(style.color).toBe('rgb(255, 255, 255)');
+		expect(style.opacity).toBe('1');
+		expect(style.boxShadow).toContain('249, 226, 175');
+	});
+
 	beforeEach(async (): Promise<void> => {
 		await act(async (): Promise<void> => {
 			await userEvent.unhover(document.body);
@@ -51,11 +69,11 @@ describe('worktree annotation inline shell', () => {
 		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
-		expect(expandButton.classList).toContain('text-comment-muted');
+		expect(expandButton.classList).toContain('text-muted-foreground');
 		await expect.element(rendered.getByText('1 pending')).toBeVisible();
 		const pendingStatus = rendered.getByTestId('worktree-annotation-pending-status').element();
-		expect(pendingStatus.classList).toContain('text-warning');
-		expect(pendingStatus.querySelector('.bg-warning')).not.toBeNull();
+		expect(pendingStatus.classList).toContain('text-annotation-status-pending');
+		expect(pendingStatus.querySelector('.bg-annotation-status-pending')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Expand 2 annotations' }).click();
@@ -99,6 +117,8 @@ describe('worktree annotation inline shell', () => {
 		}
 		const latestCommandRailBounds = latestCommandRail.getBoundingClientRect();
 		const latestCardBounds = latestCard.getBoundingClientRect();
+		expect(getComputedStyle(latestCard).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+		expect(getComputedStyle(latestCard).borderTopColor).toBe('rgba(0, 0, 0, 0)');
 		const latestCardContent = latestCard.firstElementChild;
 		if (!(latestCardContent instanceof HTMLElement)) {
 			throw new Error('Expected the latest message card content inset owner.');
@@ -168,6 +188,13 @@ describe('worktree annotation inline shell', () => {
 		const composer = rendered.getByRole('textbox', { name: 'Reply with Markdown' });
 		await expect.element(composer).toBeVisible();
 		expect(thread.contains(composer.element())).toBe(true);
+		const replyFrame = composer.element().closest('[data-annotation-frame-placement="embedded"]');
+		if (!(replyFrame instanceof HTMLElement)) throw new Error('Expected an embedded reply frame.');
+		expect(getComputedStyle(replyFrame).boxShadow).toBe('none');
+		const editorSurface = composer.element().closest('[data-annotation-editor-surface]');
+		if (!(editorSurface instanceof HTMLElement))
+			throw new Error('Expected the reply editor surface.');
+		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
 		const timelineMessages = [
 			...thread.querySelectorAll<HTMLElement>('[data-testid="worktree-annotation-message"]'),
@@ -226,7 +253,7 @@ describe('worktree annotation inline shell', () => {
 		await act(async (): Promise<void> => {
 			await rendered
 				.getByTestId('worktree-annotation-thread-summary')
-				.getByText('2 annotations')
+				.getByText('2 comments')
 				.click();
 			await Promise.resolve();
 		});
@@ -255,15 +282,15 @@ describe('worktree annotation inline shell', () => {
 		await publishFiveMessageThread(surface);
 		const summary = rendered.getByTestId('worktree-annotation-thread-summary').element();
 		expect(summary.textContent?.indexOf('5 pending')).toBeLessThan(
-			summary.textContent?.indexOf('5 annotations') ?? -1,
+			summary.textContent?.indexOf('5 comments') ?? -1,
 		);
 		expect(
 			rendered.getByTestId('worktree-annotation-pending-status').element().classList,
-		).toContain('text-warning');
+		).toContain('text-annotation-status-pending');
 		const expandButton = rendered.getByRole('button', { name: 'Expand 5 annotations' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
-		expect(expandButton.classList).toContain('text-comment-muted');
+		expect(expandButton.classList).toContain('text-muted-foreground');
 		const expansionChevron = expandButton.querySelector('svg');
 		if (expansionChevron === null) throw new Error('Expected the thread expansion chevron.');
 		expect(getComputedStyle(expansionChevron).transitionDuration).toBe('0.12s');
@@ -329,23 +356,23 @@ describe('worktree annotation inline shell', () => {
 		});
 		expect(document.body.textContent).not.toContain('Root message.');
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).not.toContain(
-			'bg-comment-active-surface',
+			'ring-warning',
 		);
-		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'rounded-2xl',
-		);
+		expect(
+			getComputedStyle(rendered.getByTestId('worktree-annotation-thread').element()).borderRadius,
+		).toBe('14px');
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain('p-3');
 
 		await act(async (): Promise<void> => {
 			await rendered
 				.getByTestId('worktree-annotation-thread-summary')
-				.getByText('2 annotations')
+				.getByText('2 comments')
 				.click();
 			await Promise.resolve();
 		});
 		await expect.element(rendered.getByText('Root message.')).toBeVisible();
 		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
-			'bg-comment-active-surface',
+			'ring-warning',
 		);
 
 		const externalFocusTarget = document.createElement('button');
@@ -399,7 +426,7 @@ describe('worktree annotation inline shell', () => {
 		const replyButton = thread
 			.getByRole('button', { name: 'Reply to annotation thread' })
 			.element();
-		expect(replyButton.classList).toContain('border-border');
+		expect(replyButton.classList).toContain('border-input');
 		expect(replyButton.classList).toContain('size-6');
 		const resolveButton = thread.getByRole('button', { name: 'Resolve annotation thread' });
 		await expect.element(resolveButton).toBeVisible();
@@ -456,6 +483,15 @@ describe('worktree annotation inline shell', () => {
 		expect(editorSurface.classList).toContain('ring-inset');
 		expect(getComputedStyle(editorSurface).boxShadow).not.toBe('none');
 		const revert = rendered.getByRole('button', { name: 'Revert annotation draft' });
+		const surfaceBounds = editorSurface.getBoundingClientRect();
+		const revertBounds = revert.element().getBoundingClientRect();
+		expect(revertBounds.top - surfaceBounds.top).toBeGreaterThanOrEqual(8);
+		expect(surfaceBounds.right - revertBounds.right).toBeGreaterThanOrEqual(8);
+		expect(revertBounds.width).toBe(24);
+		expect(revertBounds.height).toBe(24);
+		expect(editor.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+			revertBounds.left - 8,
+		);
 		let commandFocusedBoxShadow = 'none';
 		await act(async (): Promise<void> => {
 			revert.element().focus();

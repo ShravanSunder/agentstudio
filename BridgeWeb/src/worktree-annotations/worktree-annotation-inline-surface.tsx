@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, LockKeyhole } from 'lucide-react';
 import type { FocusEvent, KeyboardEvent, MouseEvent, ReactElement, ReactNode, Ref } from 'react';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar.js';
@@ -11,8 +11,24 @@ import {
 	type WorktreeAnnotationActionId,
 } from './worktree-annotation-action-spec.js';
 
-const annotationEditingSurfaceClassName =
-	'border-ring ring-2 ring-inset ring-ring/30 focus-within:ring-ring/50';
+const annotationEditingSurfaceClassName = 'border-ring ring-2 ring-inset ring-ring/30';
+
+export function WorktreeAnnotationLockedStatus(props: {
+	readonly summary?: boolean;
+}): ReactElement {
+	const label =
+		props.summary === true ? 'Contains copied or exported comments' : 'Comment editing locked';
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={<span aria-label={label} role="img" tabIndex={0} className="inline-flex" />}
+			>
+				<LockKeyhole aria-hidden="true" className="size-3" />
+			</TooltipTrigger>
+			<TooltipContent>Copied or exported comments cannot be edited.</TooltipContent>
+		</Tooltip>
+	);
+}
 
 export interface WorktreeAnnotationInlineSurfaceProps {
 	readonly active?: boolean | undefined;
@@ -55,7 +71,7 @@ export function WorktreeAnnotationInlineSurface(
 				onFocusCapture={props.onFocusCapture}
 				onKeyDownCapture={props.onKeyDownCapture}
 			>
-				<div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs/relaxed text-comment-muted">
+				<div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs/relaxed text-annotation-muted">
 					{props.metadata}
 				</div>
 				<div
@@ -97,7 +113,7 @@ export function WorktreeAnnotationInlineSurface(
 			<Avatar aria-label={authorLabel}>
 				<AvatarFallback>{authorInitial}</AvatarFallback>
 			</Avatar>
-			<div className="flex min-w-0 items-center gap-1.5 self-center text-xs/relaxed text-comment-muted">
+			<div className="flex min-w-0 items-center gap-1.5 self-center text-xs/relaxed text-annotation-muted">
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{props.metadata}</div>
 				{props.timelineActions === undefined ? null : (
 					<div
@@ -110,7 +126,7 @@ export function WorktreeAnnotationInlineSurface(
 			</div>
 			<div className="flex justify-center" aria-hidden="true">
 				{props.continueTimeline === true ? (
-					<span className="h-full w-px bg-comment-border" />
+					<span className="h-full w-px bg-annotation-border" />
 				) : null}
 			</div>
 			{props.appearance === 'chronology' ? (
@@ -150,16 +166,27 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 	return (
 		<div
 			className={cn(
-				'relative mt-1 min-h-20 min-w-0 overflow-hidden rounded-2xl border border-comment-border bg-comment-surface text-comment-foreground transition-[border-color,box-shadow]',
-				props.editing === true ? annotationEditingSurfaceClassName : undefined,
+				'relative mt-1 min-w-0 overflow-hidden rounded-xl border text-annotation-foreground transition-[border-color,box-shadow]',
+				props.editing === true
+					? cn(
+							'grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-annotation-border bg-annotation-surface p-2',
+							annotationEditingSurfaceClassName,
+						)
+					: 'border-transparent bg-transparent',
 			)}
 			data-annotation-editor-surface
 		>
-			<div className="min-w-0 p-2 pr-10">{props.children}</div>
+			<div className={props.editing === true ? 'min-w-0' : 'min-w-0 p-2 pr-10'}>
+				{props.children}
+			</div>
 			{props.commands === undefined ? null : (
 				<div
 					aria-label="Annotation commands"
-					className="absolute right-2 bottom-2 flex flex-col items-center gap-2"
+					className={
+						props.editing === true
+							? 'flex min-h-14 flex-col items-center justify-between gap-2'
+							: 'absolute right-2 bottom-2 flex flex-col items-center gap-2'
+					}
 				>
 					{props.commands}
 				</div>
@@ -207,17 +234,6 @@ export function WorktreeAnnotationCommandButton(
 						aria-label={accessibleName}
 						aria-expanded={props.expanded}
 						data-tooltip={actionSpec.tooltip}
-						className={
-							appearance === 'primary' || appearance === 'success'
-								? undefined
-								: appearance === 'timeline'
-									? 'text-comment-muted aria-expanded:bg-transparent aria-expanded:text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-									: appearance === 'toolbar'
-										? 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-										: appearance === 'thread' || appearance === 'thread-action'
-											? 'text-comment-foreground hover:bg-comment-hover hover:text-comment-foreground'
-											: 'text-comment-muted hover:bg-comment-hover hover:text-comment-foreground'
-						}
 						disabled={props.disabled}
 						ref={props.buttonRef}
 						shape="default"
