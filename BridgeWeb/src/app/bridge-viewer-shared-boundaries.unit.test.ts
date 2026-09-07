@@ -154,21 +154,27 @@ describe('BridgeViewer shared component boundaries', () => {
 		const appCss = await source('src/app/bridge-app.css');
 		const treeTheme = await source('src/app/bridge-viewer-tree-theme.ts');
 		const filterMenu = await source('src/app/bridge-viewer-filter-menu.tsx');
+		const menuPrimitive = await source('src/components/ui/dropdown-menu.tsx');
+		const buttonPrimitive = await source('src/components/ui/button.tsx');
 		const reviewFacetMenu = await source('src/review-viewer/chrome/bridge-review-facet-menu.tsx');
 
 		expect(appCss).toContain('--border: var(--palette-stroke-subtle);');
 		expect(appCss).toContain('--input: var(--palette-stroke-hover);');
 		expect(appCss).toContain('--ring: var(--palette-lavender);');
-		expect(appCss).toContain('--diffs-focus-border: var(--ring);');
+		expect(buttonPrimitive).toContain('focus-visible:border-ring');
+		expect(buttonPrimitive).toContain('focus-visible:ring-ring/30');
 		expect(appCss).toContain('scrollbar-width: thin;');
 		expect(appCss).toContain('scrollbar-gutter: auto;');
 		expect(appCss).not.toContain('scrollbar-width: none;');
 		expect(appCss).not.toContain(
 			'.bridge-code-view-panel .bridge-code-view-scroll-owner::-webkit-scrollbar',
 		);
-		expect(treeTheme).toContain('scrollbar-color: var(--bridge-scrollbar-thumb)');
-		expect(filterMenu).toContain('border-[var(--bridge-menu-border)]');
-		expect(filterMenu).toContain('ring-[var(--bridge-menu-ring)]');
+		expect(treeTheme).toContain('scrollbar-color: var(--scrollbar-thumb)');
+		expect(menuPrimitive).toContain('border-popover-border');
+		expect(menuPrimitive).toContain('shadow-popover');
+		expect(filterMenu).toContain('DropdownMenuContent');
+		expect(filterMenu).not.toContain('border-popover-border');
+		expect(filterMenu).not.toContain('shadow-popover');
 		expect(filterMenu).not.toContain('rgb(137_180_250_/_0.28)');
 		expect(reviewFacetMenu).toContain('BridgeViewerFacetMenu');
 		expect(reviewFacetMenu).not.toContain('bridgeViewerFilterMenuSurfaceClassName');

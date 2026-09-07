@@ -10,18 +10,23 @@ const commentColorTokenNames = [
 	'divider',
 	'hover',
 	'active',
+	'active-surface',
 	'composer-bg',
 	'destructive',
+	'status-new',
+	'status-pending',
 ] as const;
 
 describe('worktree annotation design-token contract', () => {
-	test('registers every frozen comment context color as a Tailwind utility', async () => {
+	test('registers the complete annotation context as canonical Tailwind utilities', async () => {
 		const appCss = await readFile(new URL('../app/bridge-app.css', import.meta.url), 'utf8');
 		const themeBlock = appCss.match(/@theme inline \{(?<body>[\s\S]*?)\n\}/u)?.groups?.['body'];
 
 		expect(themeBlock).toBeDefined();
 		for (const tokenName of commentColorTokenNames) {
-			expect(themeBlock).toContain(`--color-comment-${tokenName}: var(--comment-${tokenName});`);
+			expect(themeBlock).toContain(
+				`--color-annotation-${tokenName}: var(--annotation-${tokenName});`,
+			);
 		}
 	});
 });

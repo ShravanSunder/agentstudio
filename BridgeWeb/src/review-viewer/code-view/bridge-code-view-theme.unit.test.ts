@@ -41,8 +41,12 @@ describe('Bridge CodeView theme', () => {
 
 		const [resolvedTheme] = await resolveThemes([bridgePierreDarkThemeName]);
 
-		expect(resolvedTheme?.bg).toBe(bridgeDesignPalette['--palette-neutral-n1']);
-		expect(resolvedTheme?.fg).toBe(bridgeDesignPalette['--palette-text-primary']);
+		expect(resolvedTheme?.bg.toLowerCase()).toBe(
+			bridgeDesignPalette['--palette-neutral-n1'].toLowerCase(),
+		);
+		expect(resolvedTheme?.fg.toLowerCase()).toBe(
+			bridgeDesignPalette['--palette-text-primary'].toLowerCase(),
+		);
 		expect(resolvedTheme?.settings).toEqual(catppuccinMochaTheme.tokenColors);
 		expect(resolvedTheme?.semanticTokenColors).toEqual(catppuccinMochaTheme.semanticTokenColors);
 	});
