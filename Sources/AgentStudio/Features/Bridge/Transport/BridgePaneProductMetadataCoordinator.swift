@@ -380,7 +380,9 @@ actor BridgePaneProductMetadataCoordinator {
 
     func suspendForegroundWork() async {
         for subscriptionId in subscriptionKindById.keys {
-            if subscriptionKindById[subscriptionId] == .reviewMetadata {
+            if subscriptionKindById[subscriptionId] == .reviewMetadata
+                || producerTaskLifecycle.hasBootstrapTask(subscriptionId: subscriptionId)
+            {
                 deferredOpenSubscriptionIds.insert(subscriptionId)
                 deferredUpdateSubscriptionIds.remove(subscriptionId)
             } else if openedSourceSubscriptionIds.contains(subscriptionId) {

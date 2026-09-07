@@ -144,11 +144,11 @@ extension BridgePaneProductMetadataCoordinator {
                 productAdmission: productAdmission,
                 session: activeStream.session
             ),
-            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
+            taskFinished: { [weak self] subscriptionId, taskId, completion in
                 await self?.bootstrapProducerTaskFinished(
                     subscriptionId: subscriptionId,
                     taskId: taskId,
-                    shouldRetireSubscription: shouldRetireSubscription
+                    completion: completion
                 )
             },
             operation: { traceContext in
@@ -401,11 +401,11 @@ extension BridgePaneProductMetadataCoordinator {
                 productAdmission: productAdmission,
                 session: activeStream.session
             ),
-            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
+            taskFinished: { [weak self] subscriptionId, taskId, completion in
                 await self?.interestProducerTaskFinished(
                     subscriptionId: subscriptionId,
                     taskId: taskId,
-                    shouldRetireSubscription: shouldRetireSubscription
+                    completion: completion
                 )
             },
             operation: { traceContext in
@@ -431,13 +431,21 @@ extension BridgePaneProductMetadataCoordinator {
     private func bootstrapProducerTaskFinished(
         subscriptionId: String,
         taskId: UUID,
-        shouldRetireSubscription: Bool
+        completion: BridgePaneProductMetadataProducerCompletion
     ) async {
         let completedCurrentTask = producerTaskLifecycle.bootstrapTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
-        if completedCurrentTask && shouldRetireSubscription {
+        guard completedCurrentTask else { return }
+        if completion == .interrupted, subscriptionKindById[subscriptionId] != nil {
+            // Acceptance permits concurrent interests, but an interrupted bootstrap
+            // may have released its source. Resume must establish that source again.
+            openedSourceSubscriptionIds.remove(subscriptionId)
+            deferredUpdateSubscriptionIds.remove(subscriptionId)
+            deferredOpenSubscriptionIds.insert(subscriptionId)
+        }
+        if completion == .resetEnqueued {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
         }
     }
@@ -445,13 +453,13 @@ extension BridgePaneProductMetadataCoordinator {
     private func interestProducerTaskFinished(
         subscriptionId: String,
         taskId: UUID,
-        shouldRetireSubscription: Bool
+        completion: BridgePaneProductMetadataProducerCompletion
     ) async {
         let completedCurrentTask = producerTaskLifecycle.interestTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
-        if completedCurrentTask && shouldRetireSubscription {
+        if completedCurrentTask && completion == .resetEnqueued {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
         }
     }
