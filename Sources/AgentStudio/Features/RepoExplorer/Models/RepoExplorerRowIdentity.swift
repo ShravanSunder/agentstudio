@@ -1,6 +1,7 @@
 import Foundation
 
 enum RepoExplorerRowID: Hashable, Sendable {
+    case activitySubgroup(groupID: String, bucket: RepoExplorerActivityBucket)
     case sectionHeader(RepoExplorerSidebarSectionKind)
     case loadingSectionHeader(RepoExplorerSidebarSectionKind)
     case loadingRepository(section: RepoExplorerSidebarSectionKind, repoID: UUID)
@@ -13,6 +14,8 @@ enum RepoExplorerRowID: Hashable, Sendable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
+        case (.activitySubgroup(let leftGroup, let leftBucket), .activitySubgroup(let rightGroup, let rightBucket)):
+            leftGroup == rightGroup && leftBucket == rightBucket
         case (.sectionHeader(let lhsKind), .sectionHeader(let rhsKind)):
             lhsKind == rhsKind
         case (.loadingSectionHeader(let lhsKind), .loadingSectionHeader(let rhsKind)):
@@ -49,6 +52,10 @@ enum RepoExplorerRowID: Hashable, Sendable {
 
     func hash(into hasher: inout Hasher) {
         switch self {
+        case .activitySubgroup(let groupID, let bucket):
+            hasher.combine(9)
+            hasher.combine(groupID)
+            hasher.combine(bucket)
         case .sectionHeader(let kind):
             hasher.combine(0)
             hasher.combine(kind.rawValue)

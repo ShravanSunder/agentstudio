@@ -13,6 +13,7 @@ package enum AppEntityIcon: Equatable {
         case squareSplit2x1 = "square.split.2x1"
         case squareStackFill = "square.stack.fill"
         case tray
+        case clock
     }
 
     enum OcticonSymbol: String, Equatable {
@@ -30,6 +31,7 @@ package enum AppEntityIcon: Equatable {
     case tabGroup
     case workspace
     case otherSources
+    case activity
 
     var symbol: Symbol {
         switch self {
@@ -45,6 +47,8 @@ package enum AppEntityIcon: Equatable {
             return .system(.building2)
         case .otherSources:
             return .system(.tray)
+        case .activity:
+            return .system(.clock)
         }
     }
 
@@ -67,7 +71,7 @@ package enum AppEntityIcon: Equatable {
         foregroundOverride: Color? = nil
     ) -> some View {
         switch self {
-        case .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
+        case .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foregroundOverride ?? foregroundStyle)
@@ -84,7 +88,7 @@ package enum AppEntityIcon: Equatable {
             return Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
         case .tabGroup:
             return AppStyles.Shell.Sidebar.tabGroupIconColor
-        case .repo, .pane, .paneGroup, .tab, .workspace, .otherSources:
+        case .repo, .pane, .paneGroup, .tab, .workspace, .otherSources, .activity:
             return .secondary
         }
     }
@@ -93,7 +97,7 @@ package enum AppEntityIcon: Equatable {
         switch self {
         case .checkout(_, let isMain):
             return isMain ? 0 : 180
-        case .repo, .coloredRepo, .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
+        case .repo, .coloredRepo, .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity:
             return 0
         }
     }

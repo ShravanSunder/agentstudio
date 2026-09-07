@@ -3,9 +3,11 @@ import SwiftUI
 
 package struct SectionSubheadingLabel: View {
     private let title: String
+    private let isSecondary: Bool
 
-    package init(_ title: String) {
+    package init(_ title: String, isSecondary: Bool = false) {
         self.title = title
+        self.isSecondary = isSecondary
     }
 
     package static func displayTitle(for title: String) -> String {
@@ -19,8 +21,10 @@ package struct SectionSubheadingLabel: View {
                     .smallCaps()
             )
             .foregroundStyle(
-                AppStyles.General.Accent.primaryColor.opacity(
-                    AppStyles.Components.SectionSubheading.foregroundOpacity)
+                isSecondary
+                    ? Color.secondary
+                    : AppStyles.General.Accent.primaryColor.opacity(
+                        AppStyles.Components.SectionSubheading.foregroundOpacity)
             )
             .lineLimit(1)
             .truncationMode(.tail)

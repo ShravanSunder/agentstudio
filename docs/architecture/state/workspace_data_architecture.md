@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer is the sole sidebar and is a pure reader of state owners via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer hosts the Repos and Panes sidebar screens and reads state owners via `@Observable` binding. Projection performs no imperative fetches or mutations; controls dispatch through command specs.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -584,12 +584,45 @@ binding, and command-presentation snapshot publication. Whole dictionaries and
 topology snapshots remain persistence/cold-batch bridges, not hot sidebar
 observation inputs.
 
-`By Tab` membership comes from `WorkspaceTabGraph`: every canonical active pane
-belongs to its canonical tab regardless of repository association. Repository
-topology optionally enriches those pane rows with repo, worktree, branch, Git,
-and pull-request facts; it never admits or suppresses tab membership. `By Repo`
-remains repository-only, and `All Panes` continues to place unassociated panes
-under `No Repositories`.
+Repos renders worktrees under Pinned Repositories, Open Repositories, and Other
+Repositories. Open means an existing eligible pane destination belongs to that
+repository. Panes renders Pinned Panes and Other Panes, grouped by Repository,
+Tab, or Activity. These pin choices are independent: repository pins never
+partition Panes. Hiding a pinned section merges its members into ordinary
+sections without clearing their flags or duplicating rows.
+
+Panes membership comes from canonical active-residency `allPaneIds`, including
+panes retained across arrangements. Repository association and enrichment add
+context but do not decide membership. Repository grouping gives unassociated
+panes a No Repository group; Tab and Activity grouping include them directly.
+Repository headers keep stable display-name order, tab headers keep shell order,
+and activity buckets keep their fixed time order. Name/Activity and direction
+sort only leaves within their section, group, and optional activity subgroup.
+
+Window-local screen, grouping, subgroup, Show Pinned, and collapse choices live
+in the existing sidebar memory/local-window persistence lane. Workspace-local
+per-screen sort choices live in `RepoExplorerSidebarPrefsAtom` and
+`WorkspaceSettingsStore`. Core migration 017 renames repository `is_favorite`
+to `is_pinned` and adds independent pane `is_pinned`; local migration 007 carries
+old modes, sort direction, and all legacy collapse-key types into the new
+screen-scoped state. Panes defaults to Activity subgrouping; both screens
+default to Name ascending. Main Activity grouping suppresses the effective
+subgroup while preserving its saved choice.
+
+The worker classifies `PaneActivityStatusFact.observedAt` into Active (under one
+minute), Just Now, Last hour, Today, Last 7 days, Older, or No activity. This is
+runtime-only settled-output evidence with its existing coverage and equal-line
+suppression; missing evidence never falls back to focus time. The detached
+worker also prepares the earliest presentation deadline and affected IDs.
+`ApplicationLifecycleMonitor` forwards system clock/time-zone changes to the
+existing adapter. Its MainActor side publishes or applies prepared results;
+remaining wait duration is calculated in the concurrent wait.
+
+The header has two rows: Repos/Panes plus Filter, then directly exposed group,
+subgroup, sort field, direction, and Show Pinned controls. Each action uses its
+surface-specific command identity and dispatcher. Activity subgroup headings
+reuse `SectionSubheadingLabel` with secondary gray, aligned to the existing row
+icon column; they do not add indentation or disclosure state.
 
 This is not a broad live "join" problem — each store has one clear job and the
 capture declares the exact keys being combined. The bus keeps owners current;

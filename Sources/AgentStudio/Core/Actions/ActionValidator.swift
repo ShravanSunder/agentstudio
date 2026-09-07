@@ -17,6 +17,7 @@ package enum ActionValidationError: Error, Equatable {
     case tabNotFound(tabId: UUID)
     case emptyName
     case paneNotFound(paneId: UUID, tabId: UUID)
+    case paneTargetNotFound(paneId: UUID)
     case worktreeNotFound(worktreeId: UUID)
     case tabNotSplit(tabId: UUID)
     case singlePaneTab(tabId: UUID)
@@ -222,9 +223,15 @@ package enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .removeRepo(let repoId), .setRepoFavorite(let repoId, _):
+        case .removeRepo(let repoId), .setRepoPinned(let repoId, _):
             guard state.knownRepoIds.contains(repoId) else {
                 return .failure(.repoNotFound(repoId: repoId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .setPanePinned(let paneId, _):
+            guard state.knownPaneIds.contains(paneId) else {
+                return .failure(.paneTargetNotFound(paneId: paneId))
             }
             return .success(ValidatedAction(action))
 

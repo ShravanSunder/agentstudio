@@ -16,25 +16,54 @@ struct RepoExplorerRenderedEqualityTests {
         let host = registerProjectionTestMaterializationHost(adapter: adapter)
         defer { host.detach() }
 
-        adapter.admit(fixture.request(generation: 1, paneFacts: fixture.initialPaneFacts))
+        adapter.admit(
+            fixture.request(
+                generation: 1,
+                paneFacts: fixture.initialPaneFacts,
+                referenceDate: fixture.initialReferenceDate
+            )
+        )
         var previousRevision = try await publishedResult(
             generation: 1,
             from: adapter
         ).materializedRevision
 
-        let changedPaneFacts: [RepoExplorerPaneRowFacts] = [
-            fixture.paneFacts(terminalTitle: "build running"),
-            fixture.paneFacts(noteText: "Waiting on review"),
-            fixture.paneFacts(latestMessageText: "Tests passed"),
-            fixture.paneFacts(recencyText: "5m"),
-            fixture.paneFacts(recencyTier: .grey),
-            fixture.paneFacts(isActive: true),
-            fixture.paneFacts(isDrawerPane: true),
+        let scenarios: [(facts: RepoExplorerPaneRowFacts, referenceDate: Date)] = [
+            (fixture.paneFacts(terminalTitle: "build running"), fixture.initialReferenceDate),
+            (fixture.paneFacts(noteText: "Waiting on review"), fixture.initialReferenceDate),
+            (fixture.paneFacts(latestMessageText: "Tests passed"), fixture.initialReferenceDate),
+            (
+                fixture.paneFacts(
+                    recencyReferenceDate: fixture.initialReferenceDate.addingTimeInterval(-5 * 60)
+                ),
+                fixture.initialReferenceDate
+            ),
+            (
+                fixture.paneFacts(),
+                fixture.initialReferenceDate.addingTimeInterval(
+                    AppPolicies.EntityRecency.faintBlueDuration + 1
+                )
+            ),
+            (
+                fixture.paneFacts(
+                    activityAt: fixture.initialReferenceDate.addingTimeInterval(-30)
+                ),
+                fixture.initialReferenceDate
+            ),
+            (fixture.paneFacts(isPinned: true), fixture.initialReferenceDate),
+            (fixture.paneFacts(isActive: true), fixture.initialReferenceDate),
+            (fixture.paneFacts(isDrawerPane: true), fixture.initialReferenceDate),
         ]
 
-        for (offset, paneFacts) in changedPaneFacts.enumerated() {
+        for (offset, scenario) in scenarios.enumerated() {
             let generation = offset + 2
-            adapter.admit(fixture.request(generation: generation, paneFacts: paneFacts))
+            adapter.admit(
+                fixture.request(
+                    generation: generation,
+                    paneFacts: scenario.facts,
+                    referenceDate: scenario.referenceDate
+                )
+            )
             let publication = try await publishedResult(generation: generation, from: adapter)
 
             #expect(publication.materializedRevision == previousRevision + 1)
@@ -51,7 +80,8 @@ struct RepoExplorerRenderedEqualityTests {
         defer { host.detach() }
         let initialRequest = fixture.request(
             generation: 1,
-            paneFacts: fixture.initialPaneFacts
+            paneFacts: fixture.initialPaneFacts,
+            referenceDate: fixture.initialReferenceDate
         )
 
         adapter.admit(initialRequest)
@@ -92,6 +122,7 @@ private struct PaneEqualityFixture {
     let worktreeId = UUIDv7.generate()
     let paneId = UUIDv7.generate()
     let tabId = UUIDv7.generate()
+    let initialReferenceDate = Date(timeIntervalSince1970: 1000)
 
     var initialPaneFacts: RepoExplorerPaneRowFacts {
         paneFacts()
@@ -99,20 +130,23 @@ private struct PaneEqualityFixture {
 
     func paneFacts(
         terminalTitle: String = "zsh",
+        activityAt: Date? = nil,
+        isPinned: Bool = false,
         noteText: String? = nil,
         latestMessageText: String? = nil,
-        recencyText: String = "Now",
-        recencyTier: RepoExplorerPaneRecencyTier = .strongBlue,
+        recencyReferenceDate: Date = Date(timeIntervalSince1970: 900),
         isActive: Bool = false,
         isDrawerPane: Bool = false
     ) -> RepoExplorerPaneRowFacts {
         RepoExplorerPaneRowFacts(
             terminalTitle: terminalTitle,
+            activityAt: activityAt,
+            isPinned: isPinned,
             noteText: noteText,
             latestMessageText: latestMessageText,
-            recencyReferenceDate: Date(timeIntervalSince1970: 100),
-            recencyText: recencyText,
-            recencyTier: recencyTier,
+            recencyReferenceDate: recencyReferenceDate,
+            recencyText: "captured-placeholder",
+            recencyTier: .strongBlue,
             isActive: isActive,
             isDrawerPane: isDrawerPane
         )
@@ -120,7 +154,8 @@ private struct PaneEqualityFixture {
 
     func request(
         generation: Int,
-        paneFacts: RepoExplorerPaneRowFacts
+        paneFacts: RepoExplorerPaneRowFacts,
+        referenceDate: Date
     ) -> RepoExplorerProjectionRequest {
         let worktree = Worktree(
             id: worktreeId,
@@ -141,7 +176,10 @@ private struct PaneEqualityFixture {
             snapshot: RepoExplorerSnapshot(
                 repos: [repo],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
+                subgroupMode: .activity,
+                referenceDate: referenceDate,
                 query: "",
                 paneLocationsByWorktreeId: [
                     worktreeId: [

@@ -24,8 +24,10 @@ struct WorkspaceSettingsStoreTests {
             repoExplorerPreferences: repoExplorerPreferences
         )
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPreferences.setGroupingMode(.tab)
-        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setSortField(.activity, for: .repos)
+        repoExplorerPreferences.setSortDirection(.descending, for: .repos)
+        repoExplorerPreferences.setSortField(.name, for: .panes)
+        repoExplorerPreferences.setSortDirection(.ascending, for: .panes)
 
         try await store.flush(for: workspaceId)
 
@@ -38,17 +40,16 @@ struct WorkspaceSettingsStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredRepoExplorerPreferences.groupingMode == .repo)
-        #expect(restoredRepoExplorerPreferences.sortOrder == .descending)
+        #expect(restoredRepoExplorerPreferences.sortField(for: .repos) == .activity)
+        #expect(restoredRepoExplorerPreferences.sortDirection(for: .repos) == .descending)
+        #expect(restoredRepoExplorerPreferences.sortField(for: .panes) == .name)
+        #expect(restoredRepoExplorerPreferences.sortDirection(for: .panes) == .ascending)
 
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
             databaseWriter: fixture.localDatabaseQueue
         )
-        #expect(
-            try repository.fetchRepoExplorerPreferences().visibilityMode
-                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
-        )
+        #expect(try repository.fetchRepoExplorerPreferences().reposSortField == .activity)
     }
 
     @Test
@@ -57,8 +58,8 @@ struct WorkspaceSettingsStoreTests {
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPreferences.setGroupingMode(.pane)
-        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setSortField(.activity, for: .panes)
+        repoExplorerPreferences.setSortDirection(.descending, for: .panes)
 
         await makeStore(
             datastore: fixture.datastore,
@@ -70,7 +71,7 @@ struct WorkspaceSettingsStoreTests {
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences
         )
-        #expect(repoExplorerPreferences.groupingMode == .pane)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
     }
 
     @Test(
@@ -91,11 +92,11 @@ struct WorkspaceSettingsStoreTests {
             updatedAt: Date(timeIntervalSince1970: 1)
         )
         try repository.replaceRepoExplorerPreferences(
-            try #require(
-                WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                    sortOrder: SQLiteLocalUXStorage.repoExplorerSortDescending,
-                    visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
-                )
+            .init(
+                reposSortField: .activity,
+                panesSortField: .name,
+                reposSortDirection: .descending,
+                panesSortDirection: .ascending
             ),
             updatedAt: Date(timeIntervalSince1970: 1)
         )
@@ -112,7 +113,10 @@ struct WorkspaceSettingsStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == (unavailableLane == .editor ? nil : "cursor"))
-        #expect(repoExplorerPreferences.groupingMode == .repo)
+        #expect(
+            repoExplorerPreferences.sortField(for: .repos)
+                == (unavailableLane == .repoExplorer ? .name : .activity)
+        )
         let tableStillMissing = try await fixture.localDatabaseQueue.read { database in
             try !database.tableExists(unavailableLane.tableName)
         }
@@ -134,10 +138,11 @@ struct WorkspaceSettingsStoreTests {
             try database.execute(
                 sql: """
                     INSERT INTO local_repo_explorer_preferences(
-                        workspace_id, sort_order, visibility_mode, updated_at
-                    ) VALUES (?, ?, ?, ?)
+                        workspace_id, repos_sort_field, panes_sort_field,
+                        repos_sort_direction, panes_sort_direction, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                arguments: [workspaceId.uuidString, "unsupported", "favoritesOnly", 1]
+                arguments: [workspaceId.uuidString, "unsupported", "name", "ascending", "descending", 1]
             )
             try database.execute(
                 sql: """
@@ -163,26 +168,20 @@ struct WorkspaceSettingsStoreTests {
         await store.restoreAsync(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
-        #expect(repoExplorerPreferences.groupingMode == .repo)
-        #expect(repoExplorerPreferences.sortOrder == .ascending)
+        #expect(repoExplorerPreferences.sortField(for: .repos) == .name)
+        #expect(repoExplorerPreferences.sortDirection(for: .repos) == .ascending)
 
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
             databaseWriter: fixture.localDatabaseQueue
         )
-        #expect(
-            try repository.fetchRepoExplorerPreferences().visibilityMode
-                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
-        )
+        #expect(try repository.fetchRepoExplorerPreferences() == .default)
 
         editorPreference.setBookmarkedEditor("zed")
         try await store.flush(for: workspaceId)
 
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "zed")
-        #expect(
-            try repository.fetchRepoExplorerPreferences().visibilityMode
-                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
-        )
+        #expect(try repository.fetchRepoExplorerPreferences() == .default)
         #expect(
             try repository.fetchInboxNotificationPreferences().grouping
                 == SQLiteLocalUXStorage.inboxNotificationGroupingByRepo
@@ -237,7 +236,7 @@ struct WorkspaceSettingsStoreTests {
         await store.restoreAsync(for: workspaceId)
         store.startObserving()
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setSortDirection(.descending, for: .repos)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
         await store.waitForPendingAutosave()
@@ -257,7 +256,7 @@ struct WorkspaceSettingsStoreTests {
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPreferences.setGroupingMode(.pane)
+        repoExplorerPreferences.setSortField(.activity, for: .panes)
         var recoveryEvents: [PersistenceRecoveryEvent] = []
 
         await makeStore(
@@ -271,7 +270,7 @@ struct WorkspaceSettingsStoreTests {
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences
         )
-        #expect(repoExplorerPreferences.groupingMode == .pane)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
         #expect(
             recoveryEvents.contains(
                 .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .resetToDefaults)
@@ -297,8 +296,8 @@ struct WorkspaceSettingsStoreTests {
         store.startObserving()
 
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPreferences.setGroupingMode(.pane)
-        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setSortField(.activity, for: .panes)
+        repoExplorerPreferences.setSortDirection(.descending, for: .panes)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
         await store.waitForPendingAutosave()
@@ -308,7 +307,8 @@ struct WorkspaceSettingsStoreTests {
             databaseWriter: fixture.localDatabaseQueue
         )
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try repository.fetchRepoExplorerPreferences().sortOrder == "descending")
+        #expect(try repository.fetchRepoExplorerPreferences().panesSortField == .activity)
+        #expect(try repository.fetchRepoExplorerPreferences().panesSortDirection == .descending)
     }
 
     @Test
@@ -422,7 +422,10 @@ struct WorkspaceSettingsStoreTests {
         repoExplorerPreferences: RepoExplorerSidebarPrefsAtom
     ) {
         #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(repoExplorerPreferences.sortOrder == .ascending)
+        #expect(repoExplorerPreferences.sortField(for: .repos) == .name)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
+        #expect(repoExplorerPreferences.sortDirection(for: .repos) == .ascending)
+        #expect(repoExplorerPreferences.sortDirection(for: .panes) == .ascending)
     }
 
     private func inboxRetirementSnapshot(

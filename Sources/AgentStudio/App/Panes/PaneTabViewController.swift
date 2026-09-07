@@ -1665,6 +1665,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             ),
             knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownPaneIds: store.paneAtom.graphAtom.paneIDs,
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
             visiblePaneIds: { [arrangementView] tab in
@@ -3406,7 +3407,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .watchFolder, .toggleSidebar, .filterSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
-            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -4061,7 +4070,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         ) {
             return paneAction
         }
-        if let repositoryAction = targetedRepositoryAction(command: command, target: target, targetType: targetType) {
+        if let repositoryAction = targetedSidebarAction(command: command, target: target, targetType: targetType) {
             return repositoryAction
         }
         if let tabAction = targetedTabAction(command: command, target: target, targetType: targetType) {
@@ -4192,7 +4201,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func targetedRepositoryAction(
+    private func targetedSidebarAction(
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
@@ -4200,10 +4209,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch (command, targetType) {
         case (.removeRepo, .repo):
             return .removeRepo(repoId: target)
-        case (.addRepoFavorite, .repo):
-            return .setRepoFavorite(repoId: target, isFavorite: true)
-        case (.removeRepoFavorite, .repo):
-            return .setRepoFavorite(repoId: target, isFavorite: false)
+        case (.pinRepo, .repo):
+            return .setRepoPinned(repoId: target, isPinned: true)
+        case (.unpinRepo, .repo):
+            return .setRepoPinned(repoId: target, isPinned: false)
+        case (.pinPane, .pane):
+            return .setPanePinned(paneId: target, isPinned: true)
+        case (.unpinPane, .pane):
+            return .setPanePinned(paneId: target, isPinned: false)
         case (.openWorktree, .worktree):
             return .openWorktree(worktreeId: target)
         case (.openNewTerminalInTab, .worktree):

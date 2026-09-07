@@ -195,7 +195,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
 
     @Test("worktree sidebar presentation is filtered by app toolbar surface and command context")
     func worktreeSidebarPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
-        expectAppToolbarPresentationFiltering(for: .showWorktreeSidebar)
+        expectAppToolbarPresentationFiltering(for: .showReposSidebar)
     }
 
     @Test("Inbox has no app-toolbar presentation")

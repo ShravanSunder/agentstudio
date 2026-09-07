@@ -14,6 +14,7 @@ final class WorkspaceCommandValidatorTests {
         activeTabId: UUID? = nil,
         isManagementLayerActive: Bool = false,
         knownRepoIds: Set<UUID> = [],
+        knownPaneIds: Set<UUID>? = nil,
         drawerParentByPaneId: [UUID: UUID] = [:],
         drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
@@ -22,6 +23,7 @@ final class WorkspaceCommandValidatorTests {
             activeTabId: activeTabId,
             isManagementLayerActive: isManagementLayerActive,
             knownRepoIds: knownRepoIds,
+            knownPaneIds: knownPaneIds,
             drawerParentByPaneId: drawerParentByPaneId,
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
@@ -30,9 +32,9 @@ final class WorkspaceCommandValidatorTests {
     // MARK: - Repo metadata
 
     @Test
-    func setRepoFavorite_existingRepo_succeeds() {
+    func setRepoPinned_existingRepo_succeeds() {
         let repoId = UUID()
-        let action = WorkspaceActionCommand.setRepoFavorite(repoId: repoId, isFavorite: true)
+        let action = WorkspaceActionCommand.setRepoPinned(repoId: repoId, isPinned: true)
 
         let result = WorkspaceCommandValidator.validate(
             action,
@@ -43,15 +45,40 @@ final class WorkspaceCommandValidatorTests {
     }
 
     @Test
-    func setRepoFavorite_missingRepo_fails() {
+    func setRepoPinned_missingRepo_fails() {
         let repoId = UUID()
 
         let result = WorkspaceCommandValidator.validate(
-            .setRepoFavorite(repoId: repoId, isFavorite: true),
+            .setRepoPinned(repoId: repoId, isPinned: true),
             state: makeSnapshot()
         )
 
         #expect(result == .failure(.repoNotFound(repoId: repoId)))
+    }
+
+    @Test
+    func setPanePinned_existingPane_succeeds() {
+        let paneId = UUIDv7.generate()
+        let action = WorkspaceActionCommand.setPanePinned(paneId: paneId, isPinned: true)
+
+        let result = WorkspaceCommandValidator.validate(
+            action,
+            state: makeSnapshot(knownPaneIds: [paneId])
+        )
+
+        #expect((try? result.get().action) == action)
+    }
+
+    @Test
+    func setPanePinned_missingPane_fails() {
+        let paneId = UUIDv7.generate()
+
+        let result = WorkspaceCommandValidator.validate(
+            .setPanePinned(paneId: paneId, isPinned: true),
+            state: makeSnapshot(knownPaneIds: [])
+        )
+
+        #expect(result == .failure(.paneTargetNotFound(paneId: paneId)))
     }
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)

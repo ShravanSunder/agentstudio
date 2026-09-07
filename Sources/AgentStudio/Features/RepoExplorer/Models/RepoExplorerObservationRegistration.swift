@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 struct RepoExplorerObservationRegistration: Equatable, Sendable {
@@ -25,7 +26,10 @@ struct RepoExplorerObservationRegistration: Equatable, Sendable {
 
     static func make(
         isVisible: Bool,
+        surface: SidebarSurface = .repos,
         groupingMode: RepoExplorerGroupingMode,
+        subgroupMode: SidebarSubgroupMode = .ungrouped,
+        sortField: SidebarSortField = .name,
         repositoryIDs: Set<UUID>,
         worktreeIDs: Set<UUID>,
         paneIDs: Set<UUID>,
@@ -33,36 +37,27 @@ struct RepoExplorerObservationRegistration: Equatable, Sendable {
     ) -> Self {
         guard isVisible else { return .hidden }
 
-        switch groupingMode {
-        case .repo:
+        switch surface {
+        case .repos, .inbox:
+            let observesPaneActivity = subgroupMode == .activity || sortField == .activity
             return Self(
                 repositoryIDs: repositoryIDs,
                 worktreeIDs: worktreeIDs,
-                paneIDs: [],
+                paneIDs: observesPaneActivity ? paneIDs : [],
                 tabIDs: [],
                 observesPanePresentation: false,
                 observesAttention: false,
                 observesTabPresentation: false
             )
-        case .pane:
+        case .panes:
             return Self(
                 repositoryIDs: repositoryIDs,
                 worktreeIDs: worktreeIDs,
                 paneIDs: paneIDs,
-                tabIDs: [],
+                tabIDs: groupingMode == .tab ? tabIDs : [],
                 observesPanePresentation: true,
                 observesAttention: true,
-                observesTabPresentation: false
-            )
-        case .tab:
-            return Self(
-                repositoryIDs: repositoryIDs,
-                worktreeIDs: worktreeIDs,
-                paneIDs: paneIDs,
-                tabIDs: tabIDs,
-                observesPanePresentation: true,
-                observesAttention: true,
-                observesTabPresentation: true
+                observesTabPresentation: groupingMode == .tab
             )
         }
     }

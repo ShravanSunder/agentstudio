@@ -238,13 +238,13 @@ struct RepoExplorerCommandPresentationBatchTests {
         }
     }
 
-    @Test("favorite transition includes both old and new request identities")
-    func favoriteTransitionIncludesOldAndNewRequestIdentities() async throws {
+    @Test("pin transition includes both old and new request identities")
+    func pinTransitionIncludesOldAndNewRequestIdentities() async throws {
         await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repo = store.addRepo(
                 at: FileManager.default.temporaryDirectory.appending(
-                    path: "repo-command-favorite-union-\(UUIDv7.generate().uuidString)"
+                    path: "repo-command-pin-union-\(UUIDv7.generate().uuidString)"
                 )
             )
             let worktree = try! #require(repo.worktrees.first)
@@ -258,27 +258,27 @@ struct RepoExplorerCommandPresentationBatchTests {
             batch.acceptVisibleWorktreeSnapshot(
                 makeVisibleWorktreeSnapshot(worktreeIDs: [worktree.id])
             )
-            await eventually("initial favorite command delta") {
+            await eventually("initial pin command delta") {
                 batch.latestDelta != nil
             }
 
-            store.mutationCoordinator.setRepoFavorite(repo.id, isFavorite: true)
+            store.mutationCoordinator.setRepoPinned(repo.id, isPinned: true)
 
-            await eventually("favorite command identity transition") {
+            await eventually("pin command identity transition") {
                 batch.latestDelta?.affectedRequestIdentities.contains { request in
-                    request.command == .removeRepoFavorite
+                    request.command == .unpinRepo
                 } == true
             }
             let delta = try! #require(batch.latestDelta)
             #expect(
                 delta.affectedRequestIdentities.contains { request in
-                    request.command == .addRepoFavorite
+                    request.command == .pinRepo
                         && request.target == repo.id
                 }
             )
             #expect(
                 delta.affectedRequestIdentities.contains { request in
-                    request.command == .removeRepoFavorite
+                    request.command == .unpinRepo
                         && request.target == repo.id
                 }
             )
@@ -287,23 +287,14 @@ struct RepoExplorerCommandPresentationBatchTests {
         }
     }
 
-    @Test("toolbar capability requests keep both sort destinations mounted")
-    func toolbarCapabilityRequestsKeepBothSortDestinationsMounted() {
-        let requestsBeforeToggle = RepoExplorerToolbarCommandPresentation.requests(
-            nextSortOrder: .descending
-        )
-        let requestsAfterToggle = RepoExplorerToolbarCommandPresentation.requests(
-            nextSortOrder: .ascending
-        )
-        let requestedSortOrders = Set(
-            requestsBeforeToggle.compactMap { request -> RepoExplorerSortOrder? in
-                guard case .repoSidebarSortOrder(let order) = request.arguments else { return nil }
-                return order
-            }
-        )
+    @Test("toolbar capability requests keep every direct destination mounted")
+    func toolbarCapabilityRequestsKeepEveryDirectDestinationMounted() {
+        let requests = RepoExplorerToolbarCommandPresentation.requests()
 
-        #expect(requestsBeforeToggle == requestsAfterToggle)
-        #expect(requestedSortOrders == Set(RepoExplorerSortOrder.allCases))
+        #expect(requests.count == 18)
+        #expect(requests.allSatisfy { $0.arguments == .noArguments })
+        #expect(requests.contains { $0.command == .setReposSortFieldName })
+        #expect(requests.contains { $0.command == .setPanesSortFieldActivity })
     }
 
     @Test("mixed capability and visible-set wake re-resolves surviving requests")
@@ -369,21 +360,19 @@ struct RepoExplorerCommandPresentationBatchTests {
                             }
                         }
                     )
-                    let expectedRequests = RepoExplorerToolbarCommandPresentation.requests(
-                        nextSortOrder: .default.toggled
-                    ).union(
+                    let expectedRequests = RepoExplorerToolbarCommandPresentation.requests().union(
                         RepoExplorerWorktreeCommandPresentation.requests(
                             worktreeId: firstWorktree.id,
                             repoId: firstRepo.id,
-                            isFavorite: firstRepo.isFavorite,
-                            showsFavoriteControl: firstWorktree.isMainWorktree
+                            isPinned: firstRepo.isPinned,
+                            showsPinnedControl: firstWorktree.isMainWorktree
                         )
                     ).union(
                         RepoExplorerWorktreeCommandPresentation.requests(
                             worktreeId: secondWorktree.id,
                             repoId: secondRepo.id,
-                            isFavorite: secondRepo.isFavorite,
-                            showsFavoriteControl: secondWorktree.isMainWorktree
+                            isPinned: secondRepo.isPinned,
+                            showsPinnedControl: secondWorktree.isMainWorktree
                         )
                     )
                     #expect(resolvedRequests == expectedRequests)
@@ -454,8 +443,8 @@ struct RepoExplorerCommandPresentationBatchTests {
                     let expectedRequests = RepoExplorerWorktreeCommandPresentation.requests(
                         worktreeId: secondWorktree.id,
                         repoId: secondRepo.id,
-                        isFavorite: secondRepo.isFavorite,
-                        showsFavoriteControl: secondWorktree.isMainWorktree
+                        isPinned: secondRepo.isPinned,
+                        showsPinnedControl: secondWorktree.isMainWorktree
                     )
                     #expect(resolvedRequests == expectedRequests)
                 }
@@ -482,9 +471,7 @@ struct RepoExplorerCommandPresentationBatchTests {
             )
             let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
             let store = WorkspaceStore()
-            let expectedResolutionCount = RepoExplorerToolbarCommandPresentation.requests(
-                nextSortOrder: .default.toggled
-            ).count
+            let expectedResolutionCount = RepoExplorerToolbarCommandPresentation.requests().count
             let batch = RepoExplorerCommandPresentationBatch(
                 store: store,
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
@@ -536,8 +523,8 @@ struct RepoExplorerCommandPresentationBatchTests {
         let requests = RepoExplorerWorktreeCommandPresentation.requests(
             worktreeId: worktreeId,
             repoId: UUIDv7.generate(),
-            isFavorite: false,
-            showsFavoriteControl: true
+            isPinned: false,
+            showsPinnedControl: true
         )
 
         try await withIsolatedCommandDispatcher(
@@ -657,9 +644,7 @@ struct RepoExplorerCommandPresentationBatchTests {
                     // The dispatcher is process-global, so unrelated toolbar traffic must not be
                     // attributed to this batch owner's exact visible-worktree request set.
                     _ = AppCommandDispatcher.shared.repoExplorerCommandPresentationSnapshot(
-                        requests: RepoExplorerToolbarCommandPresentation.requests(
-                            nextSortOrder: prefs.sortOrder.toggled
-                        ),
+                        requests: RepoExplorerToolbarCommandPresentation.requests(),
                         generation: batch.snapshot.generation &+ 1
                     )
 

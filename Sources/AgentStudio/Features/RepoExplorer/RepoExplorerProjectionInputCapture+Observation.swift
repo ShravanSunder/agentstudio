@@ -9,6 +9,7 @@ enum RepoExplorerObservationToken: Hashable, Sendable {
     case repository(UUID)
     case worktree(UUID)
     case paneStructure(UUID)
+    case paneActivity(UUID)
     case pane(UUID)
     case tabStructure(UUID)
     case tab(UUID)
@@ -55,10 +56,12 @@ extension RepoExplorerProjectionInputCapture {
         case .demand:
             _ = sidebarState.sidebarSurface
         case .presentation:
-            _ = preferences.groupingMode
-            if request?.snapshot.groupingMode != .tab {
-                _ = preferences.sortOrder
-            }
+            let surface = sidebarState.sidebarSurface
+            _ = preferences.groupingMode(for: surface)
+            _ = preferences.subgroupMode(for: surface)
+            _ = preferences.sortField(for: surface)
+            _ = preferences.sortDirection(for: surface)
+            _ = preferences.showsPinned(for: surface)
             _ = sidebarCache.collapsedGroups
         case .membership:
             _ = store.repositoryTopologyAtom.repositoryIdsInOrder
@@ -82,6 +85,8 @@ extension RepoExplorerProjectionInputCapture {
             }
         case .paneStructure(let paneID):
             _ = store.paneAtom.graphAtom.paneStructuralFacts(paneID)
+        case .paneActivity(let paneID):
+            _ = latestPaneMessageSnapshot(paneID)
         case .pane(let paneID):
             _ = store.paneAtom.pane(paneID)
             _ = latestPaneMessageSnapshot(paneID)
@@ -124,18 +129,21 @@ extension RepoExplorerProjectionInputCapture {
         tokens.formUnion(request.snapshot.repos.flatMap(\.worktrees).map { .worktree($0.id) })
         tokens.formUnion(structuralPaneIDs.map(RepoExplorerObservationToken.paneStructure))
         tokens.formUnion(structuralTabIDs.map(RepoExplorerObservationToken.tabStructure))
-        if request.snapshot.groupingMode == .repo {
+        if request.snapshot.surface == .repos {
             tokens.insert(.activityHydration)
             tokens.formUnion(
                 request.snapshot.repos.map {
                     .repositoryActivity(repositoryID: $0.id, stableKey: $0.stableKey)
                 }
             )
-        } else {
+        }
+        if request.snapshot.surface == .panes {
             tokens.formUnion(presentedPaneIDs.map(RepoExplorerObservationToken.pane))
             tokens.insert(.attention)
+        } else if request.snapshot.subgroupMode == .activity || request.snapshot.sortField == .activity {
+            tokens.formUnion(presentedPaneIDs.map(RepoExplorerObservationToken.paneActivity))
         }
-        if request.snapshot.groupingMode == .tab {
+        if request.snapshot.surface == .panes && request.snapshot.groupingMode == .tab {
             tokens.formUnion(structuralTabIDs.map(RepoExplorerObservationToken.tab))
         }
         return tokens
@@ -153,7 +161,7 @@ extension RepoExplorerProjectionInputCapture {
             .repository(repositoryID)
         case .worktree(let worktreeID):
             .worktree(worktreeID)
-        case .pane(let paneID):
+        case .paneActivity(let paneID), .pane(let paneID):
             .pane(paneID)
         case .tab(let tabID):
             .tab(tabID)

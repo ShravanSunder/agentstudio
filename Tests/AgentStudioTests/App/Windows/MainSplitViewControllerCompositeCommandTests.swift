@@ -11,6 +11,22 @@ struct MainSplitViewControllerCompositeCommandTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("sidebar filter focuses Panes without switching screens")
+    func sidebarFilterPreservesPanesScreen() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: {
+                $0.setSidebarSurface(.panes)
+                $0.setFilterVisible(false)
+            },
+            body: { harness in
+                harness.controller.showSidebarFilter()
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarSurface == .panes)
+                #expect(harness.atoms.core.workspaceSidebarState.isFilterVisible)
+            }
+        )
+    }
+
     @Test("retired Inbox commands have no interactive presentation")
     func retiredInboxCommandsHaveNoInteractivePresentation() {
         #expect(AppCommand.showInboxNotifications.definition.surfacePolicy == .notPresented)

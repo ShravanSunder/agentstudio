@@ -9,11 +9,7 @@ import SwiftUI
 package typealias BridgeAttendanceSnapshot =
     @MainActor (UUID) -> UInt64?
 package typealias LatestPaneMessageSnapshot =
-    @MainActor (UUID) -> String?
-
-enum RepoSidebarToolbarTooltipTarget: Hashable {
-    case sort
-}
+    @MainActor (UUID) -> PaneActivityStatusFact?
 
 /// Sidebar chrome and interaction wiring around the persistent native presentation host.
 @MainActor
@@ -29,19 +25,18 @@ package struct RepoExplorerView: View {
     let commandDispatcher: any AppCommandDispatching
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
     let visibleSnapshotConsumerToken: UUID?
-    let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onVisibleWorktreeSnapshotChanged: @MainActor @Sendable (RepoExplorerVisibleWorktreeSnapshot) -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let installSystemTimeInvalidationHandler: (@escaping @MainActor @Sendable () -> Void) -> Void
+    let removeSystemTimeInvalidationHandler: () -> Void
     let initialProjectionSequence: Int
     let onInitialProjectionApplied: @MainActor (Int) -> Void
 
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
-    static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
-    private static let filterDebounceMilliseconds = 25
 
     package init(
         store: WorkspaceStore,
@@ -52,7 +47,6 @@ package struct RepoExplorerView: View {
         commandDispatcher: any AppCommandDispatching,
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
         visibleSnapshotConsumerToken: UUID? = nil,
-        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onVisibleWorktreeSnapshotChanged:
@@ -65,6 +59,8 @@ package struct RepoExplorerView: View {
         recencyDelay: AsyncDelay = .taskSleep,
         initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
+        installSystemTimeInvalidationHandler: @escaping (@escaping @MainActor @Sendable () -> Void) -> Void = { _ in },
+        removeSystemTimeInvalidationHandler: @escaping () -> Void = {},
         onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
     ) {
         let resolvedInitialProjectionTrigger =
@@ -77,7 +73,6 @@ package struct RepoExplorerView: View {
         self.commandDispatcher = commandDispatcher
         self.commandPresentationDelta = commandPresentationDelta
         self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
-        self.onSetSortOrder = onSetSortOrder
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onVisibleWorktreeSnapshotChanged = onVisibleWorktreeSnapshotChanged
@@ -102,6 +97,8 @@ package struct RepoExplorerView: View {
                 initialProjectionTrigger: resolvedInitialProjectionTrigger
             )
         )
+        self.installSystemTimeInvalidationHandler = installSystemTimeInvalidationHandler
+        self.removeSystemTimeInvalidationHandler = removeSystemTimeInvalidationHandler
         self.initialProjectionSequence = initialProjectionSequence
         self.onInitialProjectionApplied = onInitialProjectionApplied
     }
@@ -115,12 +112,8 @@ package struct RepoExplorerView: View {
     }
 
     @State private var filterText = ""
-    @State private var debouncedQuery = ""
     @State private var hasReportedInitialProjection = false
-    @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
-    @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
-    @State private var debounceTask: Task<Void, Never>?
     @State private var projectionAdapter: RepoExplorerProjectionAdapter
 
     var commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot {
@@ -129,7 +122,7 @@ package struct RepoExplorerView: View {
 
     package var body: some View {
         VStack(spacing: 0) {
-            RepoExplorerFocusBridge(uiState: uiState)
+            RepoExplorerFocusBridge(uiState: uiState, onFilterFocusRequest: { focusedField = .filter })
                 .frame(width: 1, height: 1)
                 .opacity(0.001)
 
@@ -148,15 +141,17 @@ package struct RepoExplorerView: View {
         }
         .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
+            installSystemTimeInvalidationHandler { [weak projectionAdapter] in
+                projectionAdapter?.handleSystemTimeInvalidation()
+            }
             filterText = uiState.filterText
-            debouncedQuery = uiState.filterText
             projectionAdapter.updateDemand(
                 isVisible: isProjectionDemanded,
                 query: uiState.filterText
             )
         }
         .onDisappear {
-            debounceTask?.cancel()
+            removeSystemTimeInvalidationHandler()
             projectionAdapter.stop()
             clearSidebarVisibleWorktrees()
             RepoExplorerFocusPublisher.publish(focusedField: nil, into: uiState)
@@ -167,47 +162,15 @@ package struct RepoExplorerView: View {
                     await Task.yield()
                     focusedField = .filter
                 }
-            } else {
-                focusedField = nil
-                if !filterText.isEmpty || !debouncedQuery.isEmpty {
-                    filterText = ""
-                    debouncedQuery = ""
-                    uiState.setFilterText("")
-                }
             }
         }
+
         .onChange(of: filterText) { _, newValue in
-            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-            performanceTraceRecorder?.record(
-                .sidebarFilterInput,
-                attributes: [
-                    "agentstudio.performance.sidebar.query_character.count": .int(trimmed.count),
-                    "agentstudio.performance.sidebar.was_empty": .bool(trimmed.isEmpty),
-                ]
-            )
-            uiState.setFilterText(trimmed)
-            debounceTask?.cancel()
-            if trimmed.isEmpty {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    debouncedQuery = ""
-                }
-            } else {
-                debounceTask = Task { @MainActor in
-                    try? await Task.sleep(
-                        nanoseconds: Duration.milliseconds(Self.filterDebounceMilliseconds)
-                            .nanosecondsForTaskSleep
-                    )
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        debouncedQuery = trimmed
-                    }
-                }
-            }
-        }
-        .onChange(of: debouncedQuery) { _, _ in
+            uiState.setFilterText(newValue)
+
             projectionAdapter.updateDemand(
                 isVisible: isProjectionDemanded,
-                query: debouncedQuery
+                query: filterText
             )
         }
         .onChange(of: projectionAdapter.publishedResult) { _, result in
@@ -217,7 +180,7 @@ package struct RepoExplorerView: View {
         .onChange(of: isProjectionDemanded) { _, isDemanded in
             projectionAdapter.updateDemand(
                 isVisible: isDemanded,
-                query: debouncedQuery
+                query: filterText
             )
             recordPerformanceProofReadback()
         }
@@ -229,41 +192,26 @@ package struct RepoExplorerView: View {
 
     private var filterBar: some View {
         SidebarHeaderLayout {
-            SidebarSearchField(
-                placeholder: "Filter...",
-                text: $filterText,
-                focusedField: $focusedField,
-                focusValue: .filter,
-                clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
-                onExit: hideFilter,
-                onDownArrow: {
-                    focusedField = nil
-                    return .handled
-                }
-            )
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                sidebarSurfaceSelector
+                SidebarSearchField(
+                    placeholder: "Filter...",
+                    text: $filterText,
+                    focusedField: $focusedField,
+                    focusValue: .filter,
+                    clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
+                    onExit: hideFilter,
+                    onDownArrow: {
+                        focusedField = nil
+                        return .handled
+                    }
+                )
+            }
         } toolbarRow: {
             repoToolbarRow
         } statusRow: {
             EmptyView()
         }
-        .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
-        .onPreferenceChange(HoverTooltipAnchorPreferenceKey<RepoSidebarToolbarTooltipTarget>.self) {
-            tooltipFrames = $0
-        }
-        .overlay(alignment: .topLeading) {
-            GeometryReader { geometryProxy in
-                FloatingHoverTooltipPresenter(
-                    activeTarget: hoveredTooltipTarget,
-                    anchorFrames: tooltipFrames,
-                    availableWidth: geometryProxy.size.width,
-                    verticalAnchor: .aboveAnchor,
-                    verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset,
-                    tooltipValue: tooltipValue(for:)
-                )
-                .allowsHitTesting(false)
-            }
-        }
-        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var tableInteractions: RepoExplorerTableInteractions {
@@ -274,21 +222,6 @@ package struct RepoExplorerView: View {
         )
     }
 
-    func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
-        withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
-            hoveredTooltipTarget = isHovered ? target : nil
-        }
-    }
-
-    private func tooltipValue(for target: RepoSidebarToolbarTooltipTarget) -> ControlTooltipRenderValue? {
-        switch target {
-        case .sort:
-            AppCommand.setRepoSidebarSortOrder.definition.controlTooltipRenderValue(
-                textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-            )
-        }
-    }
-
     private func dispatchTableCommand(_ request: RepoExplorerCommandPresentationRequest) {
         switch request.arguments {
         case .noArguments:
@@ -297,13 +230,11 @@ package struct RepoExplorerView: View {
             } else {
                 commandDispatcher.dispatch(request.command)
             }
-        case .repoSidebarSortOrder(let sortOrder):
-            onSetSortOrder(sortOrder)
         }
     }
 
     private func toggleGroupExpansion(_ groupID: String) {
-        guard projectionAdapter.cachedProjectionRequest?.isFiltering != true else { return }
+        guard projectionAdapter.publishedResult?.rowIndex.isFiltering != true else { return }
         let key = SidebarGroupKey(groupID)
         sidebarCache.setGroupExpanded(
             key,
@@ -313,7 +244,6 @@ package struct RepoExplorerView: View {
 
     private func hideFilter() {
         filterText = ""
-        debouncedQuery = ""
         focusedField = nil
         uiState.setFilterText("")
         uiState.setFilterVisible(false)

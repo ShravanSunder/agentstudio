@@ -246,7 +246,7 @@ enum WorkspacePersistenceTransformer {
                 repoPath: repo.repoPath,
                 stableKey: stableKeysByID[repo.id],
                 createdAt: repo.createdAt,
-                isFavorite: repo.isFavorite,
+                isPinned: repo.isPinned,
                 note: repo.note,
                 tags: repo.tags
             )
@@ -294,7 +294,7 @@ enum WorkspacePersistenceTransformer {
                 repoPath: canonicalRepo.repoPath,
                 worktrees: worktrees,
                 createdAt: canonicalRepo.createdAt,
-                isFavorite: canonicalRepo.isFavorite,
+                isPinned: canonicalRepo.isPinned,
                 note: canonicalRepo.note,
                 tags: canonicalRepo.tags
             )

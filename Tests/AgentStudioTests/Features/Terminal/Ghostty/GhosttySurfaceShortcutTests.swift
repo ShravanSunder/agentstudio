@@ -213,7 +213,7 @@ final class GhosttySurfaceShortcutTests {
             "Retired pane Inbox trigger remains reserved from terminal input"
         )
         #expect(
-            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showWorktreeSidebar),
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showReposSidebar),
             "Expected worktree sidebar shortcut in appOwnedShortcuts"
         )
     }

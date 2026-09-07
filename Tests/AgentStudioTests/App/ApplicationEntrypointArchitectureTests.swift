@@ -232,7 +232,7 @@ struct ApplicationEntrypointArchitectureTests {
                 of: "await settleRepoExplorerProjection("
             )?.lowerBound)
         let mutationIndex = try #require(
-            diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)
+            diagnosticSource.range(of: "self.runRenderedRepoPinnedMutations()")?.lowerBound)
         #expect(readinessIndex < mutationIndex)
         #expect(
             !diagnosticSource.contains(

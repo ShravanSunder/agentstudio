@@ -66,6 +66,8 @@ final class FakeSidebarPort: AppIPCSidebarPort {
         switch params.surface {
         case .repo:
             return IPCSidebarGroupingResult(surface: .repo, mode: repoGrouping)
+        case .panes:
+            return IPCSidebarGroupingResult(surface: .panes, mode: repoGrouping)
         case .inbox:
             return IPCSidebarGroupingResult(surface: .inbox, mode: inboxGrouping)
         }

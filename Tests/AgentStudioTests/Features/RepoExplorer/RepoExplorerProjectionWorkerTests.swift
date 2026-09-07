@@ -22,14 +22,14 @@ struct RepoExplorerProjectionWorkerTests {
 }
 
 extension RepoExplorerProjectionWorkerTests {
-    @Test("one rendered repo favorite change is classified as a scoped row delta")
-    func renderedRepoFavoriteChangeIsScoped() {
+    @Test("repository pin changes refuse the obsolete scoped organization path")
+    func repositoryPinChangeRefusesScopedProjection() {
         let repoId = UUID()
         let initialRepo = repo(id: repoId, name: "agent-studio")
         let before = request(repos: [initialRepo])
-        let after = request(repos: [withFavorite(initialRepo)])
+        let after = request(repos: [withPin(initialRepo)])
 
-        #expect(after.scopedChange(from: before) == .repo(repoId))
+        #expect(after.scopedChange(from: before) == nil)
     }
 
     @Test("a repo resolving to unavailable pull request data with zero facts refuses the scoped fast path")
@@ -98,57 +98,53 @@ extension RepoExplorerProjectionWorkerTests {
         #expect(unavailableStatus.pullRequestDataUnavailable)
     }
 
-    @Test("scoped favorite projection matches the full reference without whole-surface projection")
-    func scopedFavoriteProjectionMatchesReference() throws {
+    @Test("repository pin changes require the full detached organization projection")
+    func repositoryPinChangeRequiresFullProjection() throws {
         let repoId = UUID()
         let initialRepo = repo(id: repoId, name: "agent-studio")
         let before = request(repos: [initialRepo])
-        let after = request(repos: [withFavorite(initialRepo)])
+        let after = request(repos: [withPin(initialRepo)])
         let previous = try RepoExplorerProjectionWorker.project(before)
 
-        let scoped = try #require(
-            RepoExplorerProjectionWorker.applyScopedChange(.repo(repoId), request: after, previous: previous)
+        let scoped = RepoExplorerProjectionWorker.applyScopedChange(
+            .repo(repoId), request: after, previous: previous
         )
         let reference = try RepoExplorerProjectionWorker.project(after)
 
-        #expect(scoped.projection == reference.projection)
-        #expect(scoped.rowIndex == reference.rowIndex)
+        #expect(scoped == nil)
+        #expect(reference.projection.sections.map(\.kind) == [.pinnedRepositories])
     }
 
-    @Test("successive scoped favorite changes preserve full reference ordering")
-    func successiveScopedFavoriteChangesPreserveReferenceOrdering() throws {
+    @Test("successive repository pin changes remain full-projection inputs")
+    func successiveRepositoryPinChangesRemainFullProjectionInputs() throws {
         let alphaRepo = repo(id: UUID(), name: "alpha")
         let bravoRepo = repo(id: UUID(), name: "bravo")
         let charlieRepo = repo(id: UUID(), name: "charlie")
         let initialRequest = request(repos: [alphaRepo, bravoRepo, charlieRepo])
         let charlieFavoriteRequest = request(
-            repos: [alphaRepo, bravoRepo, withFavorite(charlieRepo)]
+            repos: [alphaRepo, bravoRepo, withPin(charlieRepo)]
         )
         let alphaAndCharlieFavoriteRequest = request(
-            repos: [withFavorite(alphaRepo), bravoRepo, withFavorite(charlieRepo)]
+            repos: [withPin(alphaRepo), bravoRepo, withPin(charlieRepo)]
         )
         let initialProjection = try RepoExplorerProjectionWorker.project(initialRequest)
-        let charlieFavoriteProjection = try #require(
-            RepoExplorerProjectionWorker.applyScopedChange(
-                .repo(charlieRepo.id),
-                request: charlieFavoriteRequest,
-                previous: initialProjection
-            )
+        let charlieFavoriteProjection = RepoExplorerProjectionWorker.applyScopedChange(
+            .repo(charlieRepo.id),
+            request: charlieFavoriteRequest,
+            previous: initialProjection
         )
-
-        let scopedProjection = try #require(
-            RepoExplorerProjectionWorker.applyScopedChange(
-                .repo(alphaRepo.id),
-                request: alphaAndCharlieFavoriteRequest,
-                previous: charlieFavoriteProjection
-            )
+        let scopedProjection = RepoExplorerProjectionWorker.applyScopedChange(
+            .repo(alphaRepo.id),
+            request: alphaAndCharlieFavoriteRequest,
+            previous: initialProjection
         )
         let referenceProjection = try RepoExplorerProjectionWorker.project(
             alphaAndCharlieFavoriteRequest
         )
 
-        #expect(scopedProjection.projection == referenceProjection.projection)
-        #expect(scopedProjection.rowIndex.entries == referenceProjection.rowIndex.entries)
+        #expect(charlieFavoriteProjection == nil)
+        #expect(scopedProjection == nil)
+        #expect(referenceProjection.projection.sections.first?.kind == .pinnedRepositories)
     }
 
     @Test("worker projects sidebar model and row index off caller isolation")
@@ -211,12 +207,12 @@ extension RepoExplorerProjectionWorkerTests {
         #expect(result.branchNameByWorktreeId[matchingWorktree.id]?.isEmpty == true)
     }
 
-    @Test("worker preserves favorites-first section ordering off caller isolation")
-    func workerPreservesFavoritesFirstSectionOrdering() async throws {
+    @Test("worker preserves pinned-first section ordering off caller isolation")
+    func workerPreservesPinnedFirstSectionOrdering() async throws {
         let normalRepoId = UUID()
         let favoriteRepoId = UUID()
         let normalRepo = repo(id: normalRepoId, name: "alpha-normal")
-        let favoriteRepo = repo(id: favoriteRepoId, name: "zeta-favorite", isFavorite: true)
+        let favoriteRepo = repo(id: favoriteRepoId, name: "zeta-favorite", isPinned: true)
         let snapshot = RepoExplorerSnapshot(
             repos: [normalRepo, favoriteRepo],
             repoEnrichmentByRepoId: [
@@ -239,7 +235,7 @@ extension RepoExplorerProjectionWorkerTests {
 
         #expect(result.generation == 4)
         #expect(result.snapshot == snapshot)
-        #expect(result.projection.sections.map(\.kind) == [.favorites, .repositories])
+        #expect(result.projection.sections.map(\.kind) == [.pinnedRepositories, .repositories])
         #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
         #expect(result.projection.resolvedGroups.flatMap(\.repos).map(\.id) == [favoriteRepoId, normalRepoId])
         #expect(result.rowIndex.entries.count == 6)
@@ -273,9 +269,9 @@ extension RepoExplorerProjectionWorkerTests {
         #expect(
             result.rowIndex.entries.map(\.id) == [
                 .sectionHeader(.repositories),
-                .group(groupID: "remote:askluna/agent-studio"),
+                .group(groupID: "repos:repositories:remote:askluna/agent-studio"),
                 .worktree(
-                    groupID: "remote:askluna/agent-studio",
+                    groupID: "repos:repositories:remote:askluna/agent-studio",
                     repoID: repoId,
                     worktreeID: repo.worktrees[0].id
                 ),
@@ -314,6 +310,56 @@ extension RepoExplorerProjectionWorkerTests {
         #expect(generatedRequest.trigger == .dataRefresh)
         #expect(generatedRequest.paneRowFactsByPaneId == [paneId: paneFacts])
         #expect(generatedRequest.tabGroupFactsByTabId == [tabId: tabFacts])
+    }
+
+    @Test("worker prepares activity expiry from the immutable reference date")
+    func workerPreparesActivityExpiry() throws {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let paneID = UUIDv7.generate()
+        let activityAt = now.addingTimeInterval(-30)
+        let paneFacts = RepoExplorerPaneRowFacts(
+            terminalTitle: "",
+            activityAt: activityAt,
+            latestMessageText: nil,
+            recencyReferenceDate: .distantPast,
+            recencyText: "",
+            recencyTier: .grey,
+            isActive: false
+        )
+        let snapshot = RepoExplorerSnapshot(
+            repos: [],
+            repoEnrichmentByRepoId: [:],
+            surface: .repos,
+            groupingMode: .repo,
+            subgroupMode: .activity,
+            referenceDate: now,
+            query: ""
+        )
+        let result = try RepoExplorerProjectionWorker.project(
+            RepoExplorerProjectionRequest(
+                generation: 1,
+                snapshot: snapshot,
+                collapsedGroupIds: [],
+                isFiltering: false,
+                trigger: .dataRefresh,
+                paneRowFactsByPaneId: [paneID: paneFacts]
+            )
+        )
+
+        #expect(
+            result.sidebarPresentationTransitionAtByPaneId[paneID]
+                == activityAt.addingTimeInterval(AppPolicies.RepoExplorer.activeActivityDuration)
+        )
+        #expect(
+            result.preparedPresentationDeadline
+                == RepoExplorerPreparedPresentationDeadline(
+                    deadline: activityAt.addingTimeInterval(
+                        AppPolicies.RepoExplorer.activeActivityDuration
+                    ),
+                    paneIDs: [paneID],
+                    repositoryIDs: []
+                )
+        )
     }
 
     @Test("worker resolves Bridge command candidates off the capture path")
@@ -423,7 +469,7 @@ extension RepoExplorerProjectionWorkerTests {
     func keyedEagerSequenceMatchesUngatedReference() async throws {
         let repoId = UUID()
         let initialRepo = repo(id: repoId, name: "agent-studio")
-        let addedRepo = repo(id: UUID(), name: "agent-vm", isFavorite: true)
+        let addedRepo = repo(id: UUID(), name: "agent-vm", isPinned: true)
         let snapshots = [
             RepoExplorerSnapshot(
                 repos: [initialRepo],
@@ -742,7 +788,7 @@ extension RepoExplorerProjectionWorkerTests {
         worktreeId: UUID = UUIDv7.generate(),
         name: String,
         stableKey: String? = nil,
-        isFavorite: Bool = false,
+        isPinned: Bool = false,
         note: String? = nil,
         worktreePath: String? = nil
     ) -> RepoPresentationItem {
@@ -751,7 +797,7 @@ extension RepoExplorerProjectionWorkerTests {
             name: name,
             repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
             stableKey: stableKey ?? name,
-            isFavorite: isFavorite,
+            isPinned: isPinned,
             note: note,
             worktrees: [
                 Worktree(
@@ -772,7 +818,7 @@ extension RepoExplorerProjectionWorkerTests {
     ) -> RepoExplorerProjectionRequest {
         request(
             repos: repos,
-            generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) },
+            generation: repos.reduce(0) { $0 + ($1.isPinned ? 1 : 0) },
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
             loadingPullRequestRepoIds: loadingPullRequestRepoIds
         )
@@ -842,13 +888,13 @@ extension RepoExplorerProjectionWorkerTests {
         )
     }
 
-    func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
+    func withPin(_ repo: RepoPresentationItem) -> RepoPresentationItem {
         RepoPresentationItem(
             id: repo.id,
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
-            isFavorite: true,
+            isPinned: true,
             note: repo.note,
             tags: repo.tags,
             worktrees: repo.worktrees

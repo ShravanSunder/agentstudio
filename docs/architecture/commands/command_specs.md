@@ -314,7 +314,7 @@ parallel system — back up to step 0.
 
 | Handler | Owns | Examples |
 |---------|------|----------|
-| `ShellCommandHandling` (`AppDelegate`) | App/window/sidebar/command-bar shell actions that do not need pane-local focus or drawer resolution. | `newWindow`, `closeWindow`, `showCommandBarEverything`, `toggleSidebar`, `showWorktreeSidebar`, sign-in flows. |
+| `ShellCommandHandling` (`AppDelegate`) | App/window/sidebar/command-bar shell actions that do not need pane-local focus or drawer resolution. | `newWindow`, `closeWindow`, `showCommandBarEverything`, `toggleSidebar`, `showReposSidebar`, `showPanesSidebar`, per-screen sidebar settings, sign-in flows. |
 | `WorkspaceCommandHandling` (`PaneTabViewController`) | Tab, pane, drawer, and workspace actions that need active pane state, drawer focus, pane target resolution, or workspace validation. | `toggleDrawer`, `addDrawerPane`, `openPaneLocationInEditorMenu`, `openPaneLocationInFinder`, focus and layout commands. |
 
 If a command operates on a pane, drawer, or pane-adjacent control, it

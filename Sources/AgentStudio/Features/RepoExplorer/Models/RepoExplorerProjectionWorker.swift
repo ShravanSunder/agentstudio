@@ -174,16 +174,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
                 : nil
         }
 
-        guard previous.worktreeEnrichmentSnapshot == worktreeEnrichmentSnapshot,
-            previous.snapshot.repos.count == snapshot.repos.count
-        else { return nil }
-        let changedRepos = zip(previous.snapshot.repos, snapshot.repos).filter { before, after in
-            before != after
-        }
-        guard changedRepos.count == 1,
-            Self.differsOnlyByFavorite(changedRepos[0].0, changedRepos[0].1)
-        else { return nil }
-        return .repo(changedRepos[0].1.id)
+        return nil
     }
 
     func hasMembershipChange(from previous: Self) -> Bool {
@@ -192,18 +183,37 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
                 != previous.snapshot.repos.flatMap(\.worktrees).map(\.id)
     }
 
-    private static func differsOnlyByFavorite(
-        _ before: RepoPresentationItem,
-        _ after: RepoPresentationItem
-    ) -> Bool {
-        before.id == after.id
-            && before.name == after.name
-            && before.repoPath == after.repoPath
-            && before.stableKey == after.stableKey
-            && before.note == after.note
-            && before.tags == after.tags
-            && before.worktrees == after.worktrees
-            && before.isFavorite != after.isFavorite
+}
+
+struct RepoExplorerPreparedPresentationDeadline: Equatable, Sendable {
+    let deadline: Date
+    let paneIDs: Set<UUID>
+    let repositoryIDs: Set<UUID>
+
+    static func prepare(
+        sidebarTransitionsByPaneID: [UUID: Date],
+        repositoryTransitionsByRepositoryID: [UUID: Date]
+    ) -> Self? {
+        guard
+            let deadline = sidebarTransitionsByPaneID.values.min()
+                .map({ sidebarDeadline in
+                    min(sidebarDeadline, repositoryTransitionsByRepositoryID.values.min() ?? sidebarDeadline)
+                })
+                ?? repositoryTransitionsByRepositoryID.values.min()
+        else { return nil }
+        return Self(
+            deadline: deadline,
+            paneIDs: Set(
+                sidebarTransitionsByPaneID.compactMap { paneID, transition in
+                    transition == deadline ? paneID : nil
+                }
+            ),
+            repositoryIDs: Set(
+                repositoryTransitionsByRepositoryID.compactMap { repositoryID, transition in
+                    transition == deadline ? repositoryID : nil
+                }
+            )
+        )
     }
 }
 
@@ -226,11 +236,9 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
     let repositoryActivityDispositionByRepoId: [UUID: RepositoryActivityDisposition]
     let repositoryActivityTransitionAtByRepoId: [UUID: Date]
+    let sidebarPresentationTransitionAtByPaneId: [UUID: Date]
+    let preparedPresentationDeadline: RepoExplorerPreparedPresentationDeadline?
     let semanticBaselineSequence: UInt64?
-
-    var nextRepositoryActivityTransitionAt: Date? {
-        repositoryActivityTransitionAtByRepoId.values.min()
-    }
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -269,6 +277,8 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             tabGroupFactsByTabId: [:],
             repositoryActivityDispositionByRepoId: [:],
             repositoryActivityTransitionAtByRepoId: [:],
+            sidebarPresentationTransitionAtByPaneId: [:],
+            preparedPresentationDeadline: nil,
             semanticBaselineSequence: nil
         )
     }()
@@ -287,11 +297,14 @@ actor RepoExplorerProjectionWorker {
             else {
                 return try project(delta.targetRequest)
             }
-            let repositoryChanges = delta.changes.compactMap { change -> UUID? in
-                guard case .repo(let repositoryID) = change else { return nil }
-                return repositoryID
-            }
-            .sorted { $0.uuidString < $1.uuidString }
+            guard
+                delta.changes.allSatisfy({ change in
+                    switch change {
+                    case .repositoryActivity, .worktreeFact: true
+                    case .repo, .pane, .tab: false
+                    }
+                })
+            else { return try project(delta.targetRequest) }
             let repositoryActivityChanges = delta.changes.compactMap { change -> UUID? in
                 guard case .repositoryActivity(let repositoryID) = change else { return nil }
                 return repositoryID
@@ -302,30 +315,6 @@ actor RepoExplorerProjectionWorker {
                 return worktreeID
             }
             .sorted { $0.uuidString < $1.uuidString }
-            let paneChanges = delta.changes.compactMap { change -> UUID? in
-                guard case .pane(let paneID) = change else { return nil }
-                return paneID
-            }
-            .sorted { $0.uuidString < $1.uuidString }
-            let tabChanges = delta.changes.compactMap { change -> UUID? in
-                guard case .tab(let tabID) = change else { return nil }
-                return tabID
-            }
-            .sorted { $0.uuidString < $1.uuidString }
-
-            for repositoryID in repositoryChanges {
-                try Task.checkCancellation()
-                guard
-                    let updated = applyScopedRepoChange(
-                        repoId: repositoryID,
-                        request: delta.targetRequest,
-                        previous: result
-                    )
-                else {
-                    return try project(delta.targetRequest)
-                }
-                result = updated
-            }
             if !repositoryActivityChanges.isEmpty {
                 guard
                     let updated = try applyScopedRepositoryActivityChanges(
@@ -349,32 +338,6 @@ actor RepoExplorerProjectionWorker {
                 }
                 result = updated
             }
-            for paneID in paneChanges {
-                try Task.checkCancellation()
-                guard
-                    let updated = applyScopedPaneChange(
-                        paneId: paneID,
-                        request: delta.targetRequest,
-                        previous: result
-                    )
-                else {
-                    return try project(delta.targetRequest)
-                }
-                result = updated
-            }
-            for tabID in tabChanges {
-                try Task.checkCancellation()
-                guard
-                    let updated = applyScopedTabChange(
-                        tabId: tabID,
-                        request: delta.targetRequest,
-                        previous: result
-                    )
-                else {
-                    return try project(delta.targetRequest)
-                }
-                result = updated
-            }
             return result.withSemanticBaselineSequence(delta.context.semanticBaselineSequence)
         }
     }
@@ -385,8 +348,8 @@ actor RepoExplorerProjectionWorker {
         previous: RepoExplorerProjectionResult
     ) -> RepoExplorerProjectionResult? {
         switch change {
-        case .repo(let repoId):
-            return applyScopedRepoChange(repoId: repoId, request: request, previous: previous)
+        case .repo, .pane, .tab:
+            return nil
         case .repositoryActivity(let repositoryID):
             return applyScopedRepositoryActivityChange(
                 repositoryID: repositoryID,
@@ -399,10 +362,6 @@ actor RepoExplorerProjectionWorker {
                 request: request,
                 previous: previous
             )
-        case .pane(let paneId):
-            return applyScopedPaneChange(paneId: paneId, request: request, previous: previous)
-        case .tab(let tabId):
-            return applyScopedTabChange(tabId: tabId, request: request, previous: previous)
         }
     }
 
@@ -439,26 +398,23 @@ actor RepoExplorerProjectionWorker {
             worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
             cancellationCheck: { try Task.checkCancellation() }
         )
-        let activity = RepositoryActivityClassifier.classify(
-            RepositoryActivityClassificationInput(
-                repositories: request.snapshot.repos.map { repository in
-                    RepositoryActivityTopology(
-                        repositoryID: repository.id,
-                        repositoryStableKey: repository.stableKey,
-                        worktreeStableKeysByID: repository.worktreeStableKeysByID
-                    )
-                },
-                openWorktreeIDs: Set(request.snapshot.paneLocationsByWorktreeId.keys),
-                localActivityHydrationDisposition: request.localActivityHydrationDisposition,
-                repositoryLocalActivityByStableKey: request.repositoryLocalActivityByStableKey,
-                referenceDate: request.activityReferenceDate,
-                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
-            )
+        let activity = repositoryActivityClassification(for: request)
+        let paneRowFactsByPaneId = preparedPaneRowFacts(
+            request.paneRowFactsByPaneId,
+            snapshot: request.snapshot
+        )
+        let sidebarPresentationTransitionAtByPaneId = sidebarPresentationTransitions(
+            paneRowFactsByPaneId,
+            snapshot: request.snapshot
+        )
+        let preparedPresentationDeadline = RepoExplorerPreparedPresentationDeadline.prepare(
+            sidebarTransitionsByPaneID: sidebarPresentationTransitionAtByPaneId,
+            repositoryTransitionsByRepositoryID: activity.transitionAtByRepositoryID
         )
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(
             request.snapshot,
-            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             branchNameByWorktreeId: branchNameByWorktreeId,
             branchStatusByWorktreeId: branchStatusByWorktreeId,
@@ -470,7 +426,7 @@ actor RepoExplorerProjectionWorker {
         let rowIndex = RepoExplorerRowIndex(
             projection: projection,
             collapsedGroupIds: request.collapsedGroupIds,
-            isFiltering: request.isFiltering
+            isFiltering: request.isFiltering && !RepoExplorerFilter.normalizedQuery(request.snapshot.query).isEmpty
         )
         let rowIndexDuration = rowIndexStart.duration(to: clock.now)
         try Task.checkCancellation()
@@ -487,7 +443,7 @@ actor RepoExplorerProjectionWorker {
                 branchStatusByWorktreeID: branchStatusByWorktreeId,
                 branchNameByWorktreeID: branchNameByWorktreeId,
                 bridgeCommandResolutionByWorktreeID: bridgeCommandResolutionByWorktreeId,
-                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                paneRowFactsByPaneID: paneRowFactsByPaneId,
                 repositoryActivityDispositionByRepoID: activity.dispositionByRepositoryID,
                 repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
             )
@@ -508,10 +464,12 @@ actor RepoExplorerProjectionWorker {
             branchStatusByWorktreeId: branchStatusByWorktreeId,
             branchNameByWorktreeId: branchNameByWorktreeId,
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
-            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: activity.dispositionByRepositoryID,
             repositoryActivityTransitionAtByRepoId: activity.transitionAtByRepositoryID,
+            sidebarPresentationTransitionAtByPaneId: sidebarPresentationTransitionAtByPaneId,
+            preparedPresentationDeadline: preparedPresentationDeadline,
             semanticBaselineSequence: nil
         )
     }
@@ -582,87 +540,6 @@ actor RepoExplorerProjectionWorker {
         return "detached HEAD"
     }
 
-    private static func applyScopedRepoChange(
-        repoId: UUID,
-        request: RepoExplorerProjectionRequest,
-        previous: RepoExplorerProjectionResult
-    ) -> RepoExplorerProjectionResult? {
-        guard request.snapshot.groupingMode == .repo,
-            let changedRepo = request.snapshot.repos.first(where: { $0.id == repoId }),
-            case .ready(let previousContent) = previous.projection
-        else { return nil }
-
-        func replacingRepo(in repo: RepoPresentationItem) -> RepoPresentationItem {
-            repo.id == repoId ? changedRepo : repo
-        }
-        let updatedGroups = previousContent.resolvedGroups
-            .map { group in
-                RepoPresentationGroup(
-                    id: group.id,
-                    repoTitle: group.repoTitle,
-                    organizationName: group.organizationName,
-                    repos: group.repos.map { replacingRepo(in: $0) }
-                )
-            }
-            .sorted { lhs, rhs in
-                RepoExplorerProjection.repoGroupPrecedes(
-                    lhs,
-                    rhs,
-                    sortOrder: request.snapshot.sortOrder
-                )
-            }
-        let favoriteGroups = updatedGroups.filter { !$0.repos.isEmpty && $0.repos.allSatisfy(\.isFavorite) }
-        let regularGroups = updatedGroups.filter { $0.repos.contains { !$0.isFavorite } }
-        let updatedLoadingRepos = RepoExplorerProjection.sortedRepos(
-            previousContent.loadingRepos.map { replacingRepo(in: $0) },
-            sortOrder: request.snapshot.sortOrder
-        )
-        let favoriteLoadingRepos = updatedLoadingRepos.filter(\.isFavorite)
-        let regularLoadingRepos = updatedLoadingRepos.filter { !$0.isFavorite }
-        var sections: [RepoExplorerSidebarSection] = []
-        if !favoriteGroups.isEmpty || !favoriteLoadingRepos.isEmpty {
-            sections.append(
-                RepoExplorerSidebarSection(
-                    kind: .favorites,
-                    resolvedGroups: favoriteGroups,
-                    loadingRepos: favoriteLoadingRepos
-                )
-            )
-        }
-        sections.append(
-            RepoExplorerSidebarSection(
-                kind: .repositories,
-                resolvedGroups: regularGroups,
-                loadingRepos: regularLoadingRepos
-            )
-        )
-        let updatedRows = previousContent.worktreeRowsByGroupId.mapValues { rows in
-            rows.map { row in
-                RepoExplorerProjectedWorktreeRow(
-                    groupId: row.groupId,
-                    repo: replacingRepo(in: row.repo),
-                    worktree: row.worktree,
-                    rowId: row.rowId,
-                    checkoutColorHex: row.checkoutColorHex,
-                    placementContext: row.placementContext
-                )
-            }
-        }
-        let projection = RepoExplorerSidebarProjection.ready(
-            RepoExplorerSidebarContent(
-                sections: sections,
-                resolvedGroups: sections.flatMap(\.resolvedGroups),
-                worktreeRowsByGroupId: updatedRows,
-                paneRowsByGroupId: previousContent.paneRowsByGroupId,
-                paneDestinationsByWorktreeId: previousContent.paneDestinationsByWorktreeId,
-                paneDestinationsByRepoId: previousContent.paneDestinationsByRepoId,
-                loadingRepos: sections.flatMap(\.loadingRepos),
-                emptyState: previousContent.emptyState
-            )
-        )
-        return scopedResult(request: request, previous: previous, projection: projection)
-    }
-
     private static func applyScopedWorktreeFactChange(
         worktreeId: UUID,
         request: RepoExplorerProjectionRequest,
@@ -726,210 +603,12 @@ actor RepoExplorerProjectionWorker {
             tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
             repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
+            sidebarPresentationTransitionAtByPaneId: previous.sidebarPresentationTransitionAtByPaneId,
+            preparedPresentationDeadline: previous.preparedPresentationDeadline,
             semanticBaselineSequence: nil
         )
     }
 
-    private static func applyScopedPaneChange(
-        paneId: UUID,
-        request: RepoExplorerProjectionRequest,
-        previous: RepoExplorerProjectionResult
-    ) -> RepoExplorerProjectionResult? {
-        guard request.snapshot.groupingMode != .repo,
-            request.paneRowFactsByPaneId[paneId] != nil,
-            case .ready(let previousContent) = previous.projection
-        else { return nil }
-        var foundPaneRow = false
-        let updatedPaneRows = previousContent.paneRowsByGroupId.mapValues { rows in
-            let updatedRows = rows.map { row in
-                guard row.destination.paneId == paneId else { return row }
-                foundPaneRow = true
-                return updatedPaneRow(
-                    row,
-                    request: request,
-                    branchNames: previous.branchNameByWorktreeId,
-                    branchStatuses: previous.branchStatusByWorktreeId
-                )
-            }
-            guard foundPaneRow else { return updatedRows }
-            return updatedRows.sorted { lhs, rhs in
-                RepoExplorerProjection.paneRowPrecedes(
-                    lhs.destination,
-                    rhs.destination,
-                    paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-                    usesRecency: request.snapshot.groupingMode == .pane
-                )
-            }
-        }
-        let isUnassociatedPane = request.snapshot.unassociatedPaneLocations.contains { $0.paneId == paneId }
-        guard foundPaneRow || isUnassociatedPane else { return nil }
-        let projection = RepoExplorerSidebarProjection.ready(
-            RepoExplorerSidebarContent(
-                sections: previousContent.sections,
-                resolvedGroups: previousContent.resolvedGroups,
-                worktreeRowsByGroupId: previousContent.worktreeRowsByGroupId,
-                paneRowsByGroupId: updatedPaneRows,
-                paneDestinationsByWorktreeId: previousContent.paneDestinationsByWorktreeId,
-                paneDestinationsByRepoId: previousContent.paneDestinationsByRepoId,
-                loadingRepos: previousContent.loadingRepos,
-                emptyState: previousContent.emptyState
-            )
-        )
-        return scopedResult(request: request, previous: previous, projection: projection)
-    }
-
-    private static func updatedPaneRow(
-        _ row: RepoExplorerProjectedPaneRow,
-        request: RepoExplorerProjectionRequest,
-        branchNames: [UUID: String],
-        branchStatuses: [UUID: GitBranchStatus]
-    ) -> RepoExplorerProjectedPaneRow {
-        let paneFacts = request.paneRowFactsByPaneId[row.destination.paneId]
-        let normalizedBranchName = RepoExplorerProjection.normalizedBranchName(
-            row.worktreeId.flatMap { branchNames[$0] }
-        )
-        let branchContextText: String?
-        if request.snapshot.groupingMode == .tab {
-            branchContextText = normalizedBranchName.map { branchName in
-                let repositoryName =
-                    row.repoId.flatMap { repoId in
-                        request.snapshot.repos.first(where: { $0.id == repoId })?.name
-                    }
-                    ?? "Repository"
-                return "\(repositoryName) · \(branchName)"
-            }
-        } else {
-            branchContextText = normalizedBranchName
-        }
-        switch row.destination {
-        case .associated(let destination):
-            return RepoExplorerProjectedPaneRow(
-                groupId: row.groupId,
-                repoId: destination.repoId,
-                destination: destination,
-                membershipOwner: row.membershipOwner,
-                rowId: row.rowId,
-                primaryText: RepoExplorerProjection.panePrimaryText(
-                    row.destination,
-                    terminalTitle: paneFacts?.sidebarTerminalTitle
-                ),
-                secondaryLine: paneFacts?.secondaryLine,
-                branchContextText: branchContextText,
-                branchStatus: branchStatuses[destination.worktreeId],
-                recencyText: paneFacts?.recencyText ?? "Now",
-                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
-                isActive: paneFacts?.isActive ?? false,
-                isDrawerPane: paneFacts?.isDrawerPane ?? false
-            )
-        case .unassociated(let destination):
-            return RepoExplorerProjectedPaneRow(
-                groupId: row.groupId,
-                destination: destination,
-                rowId: row.rowId,
-                primaryText: RepoExplorerProjection.panePrimaryText(
-                    row.destination,
-                    terminalTitle: paneFacts?.sidebarTerminalTitle
-                ),
-                secondaryLine: paneFacts?.secondaryLine,
-                recencyText: paneFacts?.recencyText ?? "Now",
-                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
-                isActive: paneFacts?.isActive ?? false,
-                isDrawerPane: paneFacts?.isDrawerPane ?? false
-            )
-        }
-    }
-
-    private static func applyScopedTabChange(
-        tabId: UUID,
-        request: RepoExplorerProjectionRequest,
-        previous: RepoExplorerProjectionResult
-    ) -> RepoExplorerProjectionResult? {
-        guard request.snapshot.groupingMode == .tab,
-            let tabFacts = request.tabGroupFactsByTabId[tabId],
-            case .ready(let previousContent) = previous.projection
-        else { return nil }
-        let groupID = "tab:\(tabId.uuidString)"
-        var foundGroup = false
-        func updatedGroup(_ group: RepoPresentationGroup) -> RepoPresentationGroup {
-            guard group.id == groupID else { return group }
-            foundGroup = true
-            return RepoPresentationGroup(
-                id: group.id,
-                repoTitle: tabFacts.displayTitle,
-                organizationName: group.organizationName,
-                repos: group.repos
-            )
-        }
-        let resolvedGroups = previousContent.resolvedGroups.map(updatedGroup)
-        let sections = previousContent.sections.map { section in
-            RepoExplorerSidebarSection(
-                kind: section.kind,
-                resolvedGroups: section.resolvedGroups.map(updatedGroup),
-                loadingRepos: section.loadingRepos,
-                unassociatedPaneDestinations: section.unassociatedPaneDestinations
-            )
-        }
-        guard foundGroup else { return nil }
-        let projection = RepoExplorerSidebarProjection.ready(
-            RepoExplorerSidebarContent(
-                sections: sections,
-                resolvedGroups: resolvedGroups,
-                worktreeRowsByGroupId: previousContent.worktreeRowsByGroupId,
-                paneRowsByGroupId: previousContent.paneRowsByGroupId,
-                paneDestinationsByWorktreeId: previousContent.paneDestinationsByWorktreeId,
-                paneDestinationsByRepoId: previousContent.paneDestinationsByRepoId,
-                loadingRepos: previousContent.loadingRepos,
-                emptyState: previousContent.emptyState
-            )
-        )
-        return scopedResult(request: request, previous: previous, projection: projection)
-    }
-
-    private static func scopedResult(
-        request: RepoExplorerProjectionRequest,
-        previous: RepoExplorerProjectionResult,
-        projection: RepoExplorerSidebarProjection
-    ) -> RepoExplorerProjectionResult {
-        let rowIndex = RepoExplorerRowIndex(
-            projection: projection,
-            collapsedGroupIds: request.collapsedGroupIds,
-            isFiltering: request.isFiltering
-        )
-        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
-            rowIndex: rowIndex,
-            inputs: RepoExplorerMaterializationInputs(
-                snapshot: request.snapshot,
-                projection: projection,
-                branchStatusByWorktreeID: previous.branchStatusByWorktreeId,
-                branchNameByWorktreeID: previous.branchNameByWorktreeId,
-                bridgeCommandResolutionByWorktreeID: previous.bridgeCommandResolutionByWorktreeId,
-                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
-                repositoryActivityDispositionByRepoID: previous.repositoryActivityDispositionByRepoId,
-                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
-            )
-        )
-        return RepoExplorerProjectionResult(
-            generation: request.generation,
-            snapshot: request.snapshot,
-            collapsedGroupIds: request.collapsedGroupIds,
-            isFiltering: request.isFiltering,
-            trigger: request.trigger,
-            projection: projection,
-            rowIndex: rowIndex,
-            materializationSnapshot: materializationSnapshot,
-            workerDuration: .zero,
-            projectionDuration: .zero,
-            rowIndexDuration: .zero,
-            branchStatusByWorktreeId: previous.branchStatusByWorktreeId,
-            branchNameByWorktreeId: previous.branchNameByWorktreeId,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
-            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
-            repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
-            repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
-            semanticBaselineSequence: nil
-        )
-    }
 }
 
 extension RepoExplorerProjectionResult {
@@ -953,6 +632,8 @@ extension RepoExplorerProjectionResult {
             tabGroupFactsByTabId: tabGroupFactsByTabId,
             repositoryActivityDispositionByRepoId: repositoryActivityDispositionByRepoId,
             repositoryActivityTransitionAtByRepoId: repositoryActivityTransitionAtByRepoId,
+            sidebarPresentationTransitionAtByPaneId: sidebarPresentationTransitionAtByPaneId,
+            preparedPresentationDeadline: preparedPresentationDeadline,
             semanticBaselineSequence: semanticBaselineSequence
         )
     }

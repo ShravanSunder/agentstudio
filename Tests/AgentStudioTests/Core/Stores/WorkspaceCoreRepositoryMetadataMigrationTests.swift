@@ -51,7 +51,10 @@ struct WorkspaceCoreRepositoryMetadataMigrationTests {
             upTo: "010_repository_topology_tags_and_tab_color"
         )
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "011_add_repo_sidebar_metadata"
+        )
 
         let repoColumns = try columnNames(in: databaseQueue, tableName: "repo")
         let worktreeColumns = try columnNames(in: databaseQueue, tableName: "worktree")

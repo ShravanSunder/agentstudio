@@ -302,7 +302,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                     name: repo.name,
                     repoPath: repo.repoPath,
                     createdAt: repo.createdAt,
-                    isFavorite: repo.isFavorite,
+                    isPinned: repo.isPinned,
                     note: repo.note,
                     worktrees: [
                         .init(

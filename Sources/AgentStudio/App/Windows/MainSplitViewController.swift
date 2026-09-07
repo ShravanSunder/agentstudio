@@ -10,6 +10,8 @@ struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
     let paneActivityStatusAtom: PaneActivityStatusAtom
+    let applicationLifecycleMonitor: ApplicationLifecycleMonitor
+    let sidebarTimeInvalidationConsumerID: UUID
     let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
@@ -42,6 +44,8 @@ class MainSplitViewController: NSSplitViewController {
                 store: dependencies.store,
                 octiconLoader: dependencies.octiconLoader,
                 paneActivityStatusAtom: dependencies.paneActivityStatusAtom,
+                applicationLifecycleMonitor: dependencies.applicationLifecycleMonitor,
+                sidebarTimeInvalidationConsumerID: dependencies.sidebarTimeInvalidationConsumerID,
                 sidebarState: dependencies.sidebarState,
                 repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
@@ -75,6 +79,7 @@ class MainSplitViewController: NSSplitViewController {
     private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
     private let commandDispatcher: any AppCommandDispatching
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
+    private let sidebarTimeInvalidationConsumerID: UUID
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
@@ -139,6 +144,7 @@ class MainSplitViewController: NSSplitViewController {
         self.runtimeCommandDispatcher = runtimeCommandDispatcher
         self.commandDispatcher = commandDispatcher
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        sidebarTimeInvalidationConsumerID = workspaceWindowId ?? UUIDv7.generate()
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
         self.tabBarAdapter = tabBarAdapter
@@ -218,6 +224,8 @@ class MainSplitViewController: NSSplitViewController {
                 store: store,
                 octiconLoader: octiconLoader,
                 paneActivityStatusAtom: atom(\.paneActivityStatus),
+                applicationLifecycleMonitor: applicationLifecycleMonitor,
+                sidebarTimeInvalidationConsumerID: sidebarTimeInvalidationConsumerID,
                 sidebarState: uiState,
                 repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
@@ -535,11 +543,15 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
-        // Contract: the sidebar filter command focuses the always-visible repo search
-        // without silently flipping the user out of another sidebar surface.
-        guard uiState.sidebarSurface == .repos else { return }
+        // Focus the current screen's always-visible filter, including repeat requests.
+        guard uiState.sidebarSurface != .inbox else { return }
         expandSidebar()
         uiState.setFilterVisible(true)
+        if let target = sidebarHostingController?.view.descendantView(
+            matching: RepoExplorerView.focusTargetIdentifier
+        ) {
+            RepoExplorerView.requestFilterFocus(on: target)
+        }
     }
 
     func showWorktreeSidebar() {

@@ -126,15 +126,16 @@ struct InboxRetirementArchitectureTests {
         #expect(!FileManager.default.fileExists(atPath: retiredProjectionPath.path))
     }
 
-    @Test("App IPC sidebar composition is repository-only")
-    func appIPCSidebarCompositionIsRepositoryOnly() throws {
+    @Test("App IPC sidebar composition supports Repos and Panes while rejecting Inbox")
+    func appIPCSidebarCompositionRejectsInbox() throws {
         let adapter = try sourceFile(
             "Sources/AgentStudio/App/IPCComposition/AgentStudioIPCSidebarAdapter.swift"
         )
         let appIPC = try sourceFile("Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
 
         #expect(!adapter.contains("InboxNotificationPrefsAtom"))
-        #expect(!adapter.contains("case .inbox"))
+        #expect(adapter.contains("case .panes"))
+        #expect(adapter.contains("case .inbox: throw AppIPCQueryError(reason: .targetNotFound)"))
         #expect(!appIPC.contains("inboxPrefs:"))
     }
 

@@ -109,9 +109,9 @@ struct CoreAtomsTests {
         coreAtoms.sidebarCollapsedGroup.setGroupExpanded(sidebarGroup, isExpanded: false)
         #expect(coreAtoms.sidebarCache.collapsedGroups.contains(sidebarGroup))
 
-        coreAtoms.workspaceSidebarMemory.setSidebarSurface(.inbox)
+        coreAtoms.workspaceSidebarMemory.setSidebarSurface(.panes)
         coreAtoms.sidebarFocusRuntime.setSidebarHasFocus(true)
-        #expect(coreAtoms.workspaceSidebarState.sidebarSurface == .repos)
+        #expect(coreAtoms.workspaceSidebarState.sidebarSurface == .panes)
         #expect(coreAtoms.workspaceSidebarState.sidebarHasFocus)
     }
 

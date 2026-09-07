@@ -11,10 +11,6 @@ private let workspaceSettingsStoreLogger = Logger(
     category: "WorkspaceSettingsStore"
 )
 
-private enum WorkspaceSettingsStoreMappingError: Error {
-    case unsupportedRepoExplorerPreferenceVocabulary
-}
-
 @MainActor
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
@@ -89,7 +85,10 @@ final class WorkspaceSettingsStore {
         isObservingSettings = true
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
-            _ = repoExplorerSidebarPrefsAtom.sortOrder
+            _ = repoExplorerSidebarPrefsAtom.repoSortField
+            _ = repoExplorerSidebarPrefsAtom.paneSortField
+            _ = repoExplorerSidebarPrefsAtom.repoSortDirection
+            _ = repoExplorerSidebarPrefsAtom.paneSortDirection
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -124,7 +123,7 @@ final class WorkspaceSettingsStore {
         do {
             try await sqliteDatastore.saveWorkspaceSettings(
                 editor: currentEditorPreferences(),
-                repoExplorer: try currentRepoExplorerPreferences(),
+                repoExplorer: currentRepoExplorerPreferences(),
                 workspaceId: workspaceId
             )
         } catch {
@@ -137,18 +136,15 @@ final class WorkspaceSettingsStore {
         .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId?.rawValue)
     }
 
-    private func currentRepoExplorerPreferences() throws
+    private func currentRepoExplorerPreferences()
         -> WorkspaceLocalRepository.RepoExplorerPreferencesRecord
     {
-        guard
-            let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder.rawValue,
-                visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
-            )
-        else {
-            throw WorkspaceSettingsStoreMappingError.unsupportedRepoExplorerPreferenceVocabulary
-        }
-        return preferences
+        .init(
+            reposSortField: repoExplorerSidebarPrefsAtom.repoSortField,
+            panesSortField: repoExplorerSidebarPrefsAtom.paneSortField,
+            reposSortDirection: repoExplorerSidebarPrefsAtom.repoSortDirection,
+            panesSortDirection: repoExplorerSidebarPrefsAtom.paneSortDirection
+        )
     }
 
     private func hydrateDefaults() {
@@ -181,15 +177,11 @@ final class WorkspaceSettingsStore {
     ) {
         switch value {
         case .loaded(let preferences):
-            guard
-                let sortOrder = RepoExplorerSortOrder(rawValue: preferences.sortOrder)
-            else {
-                hydrateRepoExplorerDefaults()
-                reportResetToDefaults(workspaceId: workspaceId)
-                return
-            }
             repoExplorerSidebarPrefsAtom.hydrate(
-                sortOrder: sortOrder
+                repoSortField: preferences.reposSortField,
+                paneSortField: preferences.panesSortField,
+                repoSortDirection: preferences.reposSortDirection,
+                paneSortDirection: preferences.panesSortDirection
             )
         case .defaulted:
             hydrateRepoExplorerDefaults()
@@ -199,7 +191,10 @@ final class WorkspaceSettingsStore {
 
     private func hydrateRepoExplorerDefaults() {
         repoExplorerSidebarPrefsAtom.hydrate(
-            sortOrder: .default
+            repoSortField: .name,
+            paneSortField: .name,
+            repoSortDirection: .default,
+            paneSortDirection: .default
         )
     }
 

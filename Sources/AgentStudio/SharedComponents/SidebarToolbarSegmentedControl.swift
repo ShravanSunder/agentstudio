@@ -28,18 +28,21 @@ package struct SidebarToolbarSegment<Value: Hashable>: Identifiable {
 @MainActor
 package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View {
     let segments: [SidebarToolbarSegment<Value>]
-    let selection: Value
+    let selection: Value?
+    let showsSelectedLabel: Bool
     @ViewBuilder let icon: (Value) -> Icon
     let onSelect: (Value) -> Void
 
     package init(
         segments: [SidebarToolbarSegment<Value>],
-        selection: Value,
+        selection: Value?,
+        showsSelectedLabel: Bool = true,
         @ViewBuilder icon: @escaping (Value) -> Icon,
         onSelect: @escaping (Value) -> Void
     ) {
         self.segments = segments
         self.selection = selection
+        self.showsSelectedLabel = showsSelectedLabel
         self.icon = icon
         self.onSelect = onSelect
     }
@@ -58,7 +61,7 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                 height: AppStyles.General.Button.compact
                             )
 
-                        if isSelected {
+                        if isSelected && showsSelectedLabel {
                             Text(segment.label)
                                 .font(
                                     .system(

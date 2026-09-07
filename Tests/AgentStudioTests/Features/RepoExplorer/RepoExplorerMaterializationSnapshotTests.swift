@@ -8,6 +8,21 @@ import Testing
 
 @Suite("RepoExplorerMaterializationSnapshotTests")
 struct RepoExplorerMaterializationSnapshotTests {
+    @Test("activity subgroup materializes as a section-style row aligned to the child icon column")
+    func activitySubgroupUsesSectionStyleAndChildIconAlignment() {
+        let presentation = RepoExplorerMaterializedRowPresentation.activitySubgroup(.justNow)
+        let layout = RepoExplorerRowLayout.make(for: presentation)
+
+        #expect(layout.rowClass == .sectionHeader)
+        #expect(
+            layout.metrics.leadingInset
+                == AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+                + AppStyles.Shell.Sidebar.rowHorizontalInset
+        )
+        #expect(layout.metrics.metadataLineHeight == AppStyles.Shell.Sidebar.nativeMetadataTextLineHeight)
+        #expect(RepoExplorerActivityBucket.justNow.title == "Just Now")
+    }
+
     @Test("locally inactive rows retain cached branch and status facts")
     func locallyInactiveRowsRetainCachedBranchAndStatusFacts() throws {
         let repoID = UUIDv7.generate()
@@ -145,7 +160,7 @@ extension RepoExplorerMaterializationSnapshotTests {
         #expect(
             materialization.rowIDsByWorktreeID[worktreeID]?.first
                 == .worktree(
-                    groupID: "remote:askluna/agent-studio",
+                    groupID: "repos:repositories:remote:askluna/agent-studio",
                     repoID: repoID,
                     worktreeID: worktreeID
                 )
@@ -172,6 +187,7 @@ extension RepoExplorerMaterializationSnapshotTests {
         let tabSnapshot = RepoExplorerSnapshot(
             repos: request.snapshot.repos,
             repoEnrichmentByRepoId: request.snapshot.repoEnrichmentSnapshotByRepoId,
+            surface: .panes,
             groupingMode: .tab,
             query: request.snapshot.query
         )
@@ -197,7 +213,8 @@ extension RepoExplorerMaterializationSnapshotTests {
         let paneSnapshot = RepoExplorerSnapshot(
             repos: request.snapshot.repos,
             repoEnrichmentByRepoId: request.snapshot.repoEnrichmentSnapshotByRepoId,
-            groupingMode: .pane,
+            surface: .panes,
+            groupingMode: .repo,
             query: request.snapshot.query
         )
         let paneMaterialization = RepoExplorerMaterializationSnapshot.build(
@@ -273,7 +290,7 @@ extension RepoExplorerMaterializationSnapshotTests {
         )
         let childPresentations: [(RepoExplorerGroupingMode, RepoExplorerMaterializedRowPresentation)] = [
             (.repo, .worktree(worktreePresentation)),
-            (.pane, .pane(panePresentation)),
+            (.repo, .pane(panePresentation)),
             (.tab, .pane(tabPanePresentation)),
         ]
 
@@ -296,7 +313,9 @@ extension RepoExplorerMaterializationSnapshotTests {
 
             #expect(groupLayout.rowClass == .groupHeader)
             #expect(groupLayout.metrics.leadingInset == 0)
-            #expect(childLayout.rowClass == (groupingMode == .repo ? .worktree : .pane))
+            let expectedRowClass: RepoExplorerRowLayoutClass =
+                if case .worktree = childPresentation { .worktree } else { .pane }
+            #expect(childLayout.rowClass == expectedRowClass)
             #expect(
                 childLayout.metrics.leadingInset
                     == AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
@@ -666,7 +685,7 @@ extension RepoExplorerMaterializationSnapshotTests {
             RepoExplorerSidebarContent(
                 sections: [
                     RepoExplorerSidebarSection(
-                        kind: .tabs,
+                        kind: .panes,
                         resolvedGroups: [group],
                         loadingRepos: []
                     )
@@ -688,6 +707,7 @@ extension RepoExplorerMaterializationSnapshotTests {
                 snapshot: RepoExplorerSnapshot(
                     repos: [],
                     repoEnrichmentByRepoId: [:],
+                    surface: .panes,
                     groupingMode: .tab,
                     query: ""
                 ),

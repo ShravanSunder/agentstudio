@@ -5,23 +5,17 @@ import Foundation
 
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
-        if request.arguments == .noArguments {
-            return canExecute(request.command)
-        }
-        guard atomStore != nil else { return false }
-        switch (request.command, request.arguments) {
-        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder):
-            return true
-        default:
-            return false
-        }
+        guard request.arguments == .noArguments else { return false }
+        return canExecute(request.command)
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
-        switch command {
+        if let sidebarCapability = sidebarCommandCapability(command) {
+            return sidebarCapability
+        }
+        return switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .showReposSidebar, .showPanesSidebar,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
@@ -48,7 +42,7 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
             .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
@@ -62,7 +56,14 @@ extension AppDelegate: ShellCommandHandling {
             .setInboxGroupingNone,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
-            .setRepoSidebarSortOrder,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxRowStateFilter, .setInboxContentMode,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             false
@@ -70,6 +71,13 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func execute(_ command: AppCommand) -> Bool {
+        if sidebarSettingSurface(for: command) != nil {
+            return executeSidebarSettingCommand(command) == .applied
+        }
+        return executeShellAction(command)
+    }
+
+    private func executeShellAction(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder:
             Task { await handleWatchFolderRequested() }
@@ -90,13 +98,10 @@ extension AppDelegate: ShellCommandHandling {
             return false
         case .clearAllInboxNotifications:
             return false
-        case .showWorktreeSidebar:
-            mainWindowController?.showWorktreeSidebar()
-            return true
-        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab:
-            return executeSidebarGroupingCommand(command) == .applied
-        case .setRepoSidebarSortOrder:
-            return false
+        case .showReposSidebar:
+            return executeSidebarScreenCommand(.repos) == .applied
+        case .showPanesSidebar:
+            return executeSidebarScreenCommand(.panes) == .applied
         case .setInboxRowStateFilter, .setInboxContentMode:
             return false
         case .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
@@ -151,7 +156,7 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .removeRepo, .addRepoFavorite, .removeRepoFavorite, .openWorktree, .openWorktreeInPane,
+            .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -160,6 +165,14 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
@@ -191,7 +204,7 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .watchFolder, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
             .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
@@ -200,9 +213,15 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerExit,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
-            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
@@ -374,13 +393,6 @@ extension AppDelegate: ShellCommandHandling {
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
         switch (request.command, request.arguments) {
-        case (.showWorktreeSidebar, .noArguments) where request.executionContext == .headlessIPC:
-            return executeHeadlessRepoSidebarCommand()
-        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
-            return executeRepoSidebarSortOrderCommand(order)
-        case (.setRepoSidebarGroupingRepo, .noArguments), (.setRepoSidebarGroupingPane, .noArguments),
-            (.setRepoSidebarGroupingTab, .noArguments):
-            return executeSidebarGroupingCommand(request.command)
         case (.showInboxNotifications, _), (.toggleInboxNotificationSort, _),
             (.clearReadInboxNotifications, _), (.clearAllInboxNotifications, _),
             (.showPaneInboxNotifications, _), (.clearPaneInboxNotifications, _),
@@ -393,40 +405,85 @@ extension AppDelegate: ShellCommandHandling {
         }
     }
 
-    private func executeSidebarGroupingCommand(_ command: AppCommand) -> AppCommandExecutionOutcome {
-        guard let atomStore else { return .stateUnavailable }
+    private func sidebarSettingSurface(for command: AppCommand) -> SidebarSurface? {
         switch command {
-        case .setRepoSidebarGroupingRepo:
-            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.repo)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .repo ? .applied : .stateUnavailable
-        case .setRepoSidebarGroupingPane:
-            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .pane ? .applied : .stateUnavailable
-        case .setRepoSidebarGroupingTab:
-            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.tab)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab ? .applied : .stateUnavailable
+        case .setReposGroupingRepo, .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .toggleReposSortDirection, .toggleReposShowsPinned:
+            .repos
+        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .togglePanesSortDirection, .togglePanesShowsPinned:
+            .panes
         default:
-            return .unsupportedCommand
+            nil
         }
     }
 
-    private func executeHeadlessRepoSidebarCommand() -> AppCommandExecutionOutcome {
+    private func sidebarCommandCapability(_ command: AppCommand) -> Bool? {
+        if command == .showReposSidebar || command == .showPanesSidebar {
+            return atomStore != nil
+        }
+        guard let requiredSurface = sidebarSettingSurface(for: command) else { return nil }
+        guard let atomStore else { return false }
+        guard atomStore.core.workspaceSidebarState.sidebarSurface == requiredSurface else {
+            return false
+        }
+        if command == .setPanesSubgroupNone || command == .setPanesSubgroupActivity {
+            return atomStore.repoExplorerSidebarPrefs.groupingMode(for: .panes) != .activity
+        }
+        return true
+    }
+
+    private func executeSidebarSettingCommand(_ command: AppCommand) -> AppCommandExecutionOutcome {
         guard let atomStore else { return .stateUnavailable }
-        atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
-        mainWindowController?.expandSidebar()
-        guard
-            atomStore.core.workspaceSidebarState.sidebarSurface == .repos,
-            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
-        else {
-            return .stateUnavailable
+        guard let surface = sidebarSettingSurface(for: command) else { return .unsupportedCommand }
+        guard atomStore.core.workspaceSidebarState.sidebarSurface == surface else {
+            return .unsupportedCommand
+        }
+        let prefs = atomStore.repoExplorerSidebarPrefs
+        if surface == .panes,
+            prefs.groupingMode(for: surface) == .activity,
+            command == .setPanesSubgroupNone || command == .setPanesSubgroupActivity
+        {
+            return .unsupportedCommand
+        }
+        switch command {
+        case .setReposGroupingRepo:
+            prefs.setGroupingMode(.repo, for: surface)
+        case .setPanesGroupingRepo:
+            prefs.setGroupingMode(.repo, for: surface)
+        case .setPanesGroupingTab:
+            prefs.setGroupingMode(.tab, for: surface)
+        case .setPanesGroupingActivity:
+            prefs.setGroupingMode(.activity, for: surface)
+        case .setReposSubgroupNone, .setPanesSubgroupNone:
+            prefs.setSubgroupMode(.ungrouped, for: surface)
+        case .setReposSubgroupActivity, .setPanesSubgroupActivity:
+            prefs.setSubgroupMode(.activity, for: surface)
+        case .setReposSortFieldName, .setPanesSortFieldName:
+            prefs.setSortField(.name, for: surface)
+        case .setReposSortFieldActivity, .setPanesSortFieldActivity:
+            prefs.setSortField(.activity, for: surface)
+        case .toggleReposSortDirection, .togglePanesSortDirection:
+            prefs.setSortDirection(prefs.sortDirection(for: surface).toggled, for: surface)
+        case .toggleReposShowsPinned, .togglePanesShowsPinned:
+            prefs.setShowsPinned(!prefs.showsPinned(for: surface), for: surface)
+        default:
+            return .unsupportedCommand
         }
         return .applied
     }
 
-    private func executeRepoSidebarSortOrderCommand(_ order: RepoExplorerSortOrder) -> AppCommandExecutionOutcome {
+    private func executeSidebarScreenCommand(_ surface: SidebarSurface) -> AppCommandExecutionOutcome {
         guard let atomStore else { return .stateUnavailable }
-        atomStore.repoExplorerSidebarPrefs.setSortOrder(order)
-        guard atomStore.repoExplorerSidebarPrefs.sortOrder == order else {
+        atomStore.core.workspaceSidebarState.setSidebarSurface(surface)
+        mainWindowController?.expandSidebar()
+        guard
+            atomStore.core.workspaceSidebarState.sidebarSurface == surface,
+            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
+        else {
             return .stateUnavailable
         }
         return .applied

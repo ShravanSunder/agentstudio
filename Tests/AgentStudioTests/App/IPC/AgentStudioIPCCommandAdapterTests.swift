@@ -51,31 +51,24 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(reloadBridgeWebView.targetKinds == [.pane])
         #expect(reloadBridgeWebView.requiredPrivileges == [.workspaceRead])
 
-        let repoSortOrder = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue)])
-        #expect(repoSortOrder.executionModes == [.headless])
-        #expect(repoSortOrder.targetKinds.isEmpty)
-        #expect(repoSortOrder.requiredPrivileges == [.sidebarStateMutate])
-        #expect(
-            repoSortOrder.argumentSchema == [
-                IPCCommandArgumentSchema(
-                    name: "order",
-                    kind: .stringEnum(values: ["ascending", "descending"]),
-                    isRequired: true
-                )
-            ])
+        let repoSortField = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue)])
+        #expect(repoSortField.executionModes == [.headless])
+        #expect(repoSortField.targetKinds.isEmpty)
+        #expect(repoSortField.requiredPrivileges == [.sidebarStateMutate])
+        #expect(repoSortField.argumentSchema.isEmpty)
 
-        let addRepoFavorite = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue)])
-        #expect(addRepoFavorite.executionModes == [.headless])
-        #expect(addRepoFavorite.targetKinds == [.repo])
-        #expect(addRepoFavorite.requiredPrivileges == [.sidebarStateMutate])
+        let pinRepo = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue)])
+        #expect(pinRepo.executionModes == [.headless])
+        #expect(pinRepo.targetKinds == [.repo])
+        #expect(pinRepo.requiredPrivileges == [.sidebarStateMutate])
 
-        let removeRepoFavorite = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.removeRepoFavorite.rawValue)])
-        #expect(removeRepoFavorite.executionModes == [.headless])
-        #expect(removeRepoFavorite.targetKinds == [.repo])
-        #expect(removeRepoFavorite.requiredPrivileges == [.sidebarStateMutate])
+        let pinPane = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.pinPane.rawValue)])
+        #expect(pinPane.executionModes == [.headless])
+        #expect(pinPane.targetKinds == [.pane])
+        #expect(pinPane.requiredPrivileges == [.sidebarStateMutate])
     }
 
     @Test("command list entries are full-catalog IPC projections")
@@ -97,7 +90,7 @@ struct AgentStudioIPCCommandAdapterTests {
     @Test("sidebar command mutation permissions resolve to current workspace")
     func sidebarCommandMutationPermissionsResolveToCurrentWorkspace() throws {
         let harness = CommandAdapterHarness()
-        let command = AppCommand.setRepoSidebarSortOrder.definition.ipcCommandListEntry
+        let command = AppCommand.setReposSortFieldName.definition.ipcCommandListEntry
 
         let scopes = try harness.adapter.requiredPermissionScopes(for: command)
 
@@ -141,38 +134,36 @@ struct AgentStudioIPCCommandAdapterTests {
         }
     }
 
-    @Test("executes repo sidebar sort order command through injected shell owner")
-    func executesRepoSidebarSortOrderCommandThroughInjectedShellOwner() throws {
+    @Test("executes surface-specific sidebar settings through injected shell owner")
+    func executesSurfaceSpecificSidebarSettingsThroughInjectedShellOwner() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
 
-        let descending = try harness.adapter.executeCommand(
+        let sortField = try harness.adapter.executeCommand(
             IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
-                targetHandle: nil,
-                arguments: ["order": "descending"]
+                commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldActivity.rawValue),
+                targetHandle: nil
             )
         )
-        let ascending = try harness.adapter.executeCommand(
+        let direction = try harness.adapter.executeCommand(
             IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
-                targetHandle: nil,
-                arguments: ["order": "ascending"]
+                commandId: IPCCommandIdentifier(rawValue: AppCommand.toggleReposSortDirection.rawValue),
+                targetHandle: nil
             )
         )
 
-        #expect(descending.applied)
-        #expect(ascending.applied)
+        #expect(sortField.applied)
+        #expect(direction.applied)
         #expect(
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
-                    command: .setRepoSidebarSortOrder,
-                    arguments: .repoSidebarSortOrder(.descending),
+                    command: .setReposSortFieldActivity,
+                    arguments: .noArguments,
                     executionContext: .headlessIPC
                 ),
                 AppCommandExecutionRequest(
-                    command: .setRepoSidebarSortOrder,
-                    arguments: .repoSidebarSortOrder(.ascending),
+                    command: .toggleReposSortDirection,
+                    arguments: .noArguments,
                     executionContext: .headlessIPC
                 ),
             ])
@@ -203,8 +194,8 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("rejects invalid repo sort order before active window lookup")
-    func rejectsInvalidRepoSortOrderBeforeActiveWindowLookup() throws {
+    @Test("rejects extraneous sidebar arguments before active window lookup")
+    func rejectsExtraneousSidebarArgumentsBeforeActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
@@ -214,27 +205,27 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
                     targetHandle: nil,
                     arguments: ["order": "currentRepoOrder"]
                 )
             )
-            Issue.record("invalid repo sort order unexpectedly executed")
+            Issue.record("sidebar command with extraneous arguments unexpectedly executed")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .validationRejected)
         }
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("rejects wrong typed repo sort order arguments before active window lookup")
-    func rejectsWrongTypedRepoSortOrderArgumentsBeforeActiveWindowLookup() throws {
+    @Test("rejects non-string sidebar arguments before active window lookup")
+    func rejectsNonStringSidebarArgumentsBeforeActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
             shellCommandHandler: shellCommandHandler
         )
         let paramsData = try JSONSerialization.data(withJSONObject: [
-            "commandId": AppCommand.setRepoSidebarSortOrder.rawValue,
+            "commandId": AppCommand.setReposSortFieldName.rawValue,
             "targetHandle": NSNull(),
             "arguments": ["order": 42],
         ])
@@ -242,15 +233,15 @@ struct AgentStudioIPCCommandAdapterTests {
 
         do {
             _ = try harness.adapter.executeCommand(params)
-            Issue.record("wrong typed repo sort order unexpectedly executed")
+            Issue.record("sidebar command with a non-string argument unexpectedly executed")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .validationRejected)
         }
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("rejects missing repo sort order before active window lookup")
-    func rejectsMissingRepoSortOrderBeforeActiveWindowLookup() throws {
+    @Test("no-argument repo sort field reaches active window lookup")
+    func noArgumentRepoSortFieldReachesActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
@@ -260,20 +251,20 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
                     targetHandle: nil,
                     arguments: [:]
                 )
             )
-            Issue.record("missing repo sort order unexpectedly executed")
+            Issue.record("repo sort field unexpectedly executed without an active window")
         } catch let error as AppIPCCommandError {
-            #expect(error.reason == .validationRejected)
+            #expect(error.reason == .noActiveWindow)
         }
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("valid repo sort order command without active window returns no active window")
-    func validRepoSortOrderCommandWithoutActiveWindowReturnsNoActiveWindow() throws {
+    @Test("valid repo sort direction toggle without active window returns no active window")
+    func validRepoSortDirectionToggleWithoutActiveWindowReturnsNoActiveWindow() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
@@ -283,12 +274,12 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.toggleReposSortDirection.rawValue),
                     targetHandle: nil,
-                    arguments: ["order": "descending"]
+                    arguments: [:]
                 )
             )
-            Issue.record("repo sort order command unexpectedly executed without an active window")
+            Issue.record("repo sort direction unexpectedly executed without an active window")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .noActiveWindow)
         }
@@ -303,9 +294,9 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
                     targetHandle: nil,
-                    arguments: ["order": "descending"]
+                    arguments: [:]
                 )
             )
             Issue.record("state-unavailable shell owner unexpectedly reported success")
@@ -315,8 +306,8 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
-                    command: .setRepoSidebarSortOrder,
-                    arguments: .repoSidebarSortOrder(.descending),
+                    command: .setReposSortFieldName,
+                    arguments: .noArguments,
                     executionContext: .headlessIPC
                 )
             ])
@@ -397,7 +388,7 @@ struct AgentStudioIPCCommandAdapterTests {
             body: {
                 let result = try harness.adapter.executeCommand(
                     IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                        commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
                         targetHandle: "repo:\(repoId.uuidString)"
                     )
                 )
@@ -405,7 +396,7 @@ struct AgentStudioIPCCommandAdapterTests {
                 #expect(result.applied)
                 #expect(result.targetHandle == "repo:\(repoId.uuidString)")
                 #expect(commandHandler.targetedCommands.count == 1)
-                #expect(commandHandler.targetedCommands[0].command == .addRepoFavorite)
+                #expect(commandHandler.targetedCommands[0].command == .pinRepo)
                 #expect(commandHandler.targetedCommands[0].target == repoId)
                 #expect(commandHandler.targetedCommands[0].targetType == .repo)
             }
@@ -468,7 +459,7 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
                     targetHandle: "repo:\(UUID().uuidString)"
                 )
             )
@@ -486,7 +477,7 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
                     targetHandle: "pane:\(UUID().uuidString)"
                 )
             )
@@ -843,7 +834,7 @@ private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
 
     func canExecute(_ command: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
         switch (command, targetType) {
-        case (.addRepoFavorite, .repo), (.removeRepoFavorite, .repo),
+        case (.pinRepo, .repo), (.unpinRepo, .repo),
             (.zoomPane, .pane), (.reloadBridgeWebView, .pane):
             true
         default:

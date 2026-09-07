@@ -96,8 +96,8 @@ struct SidebarSurfaceConvergenceTests {
         #expect(!repoSource.contains("InboxSidebarHeader("))
     }
 
-    @Test("repo sidebar owns sort and grouping controls through shared header slots")
-    func repoSidebarOwnsSortAndGroupingControlsThroughSharedHeaderSlots() throws {
+    @Test("repo sidebar owns two-row organization controls through shared header slots")
+    func repoSidebarOwnsTwoRowOrganizationControlsThroughSharedHeaderSlots() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
             contentsOf: projectRoot.appending(
@@ -111,21 +111,21 @@ struct SidebarSurfaceConvergenceTests {
             encoding: .utf8
         )
         #expect(repoSource.contains("} toolbarRow: {"))
-        #expect(commandToolbarSource.contains("repoSidebarSortButton"))
-        #expect(commandToolbarSource.contains("repoSidebarGroupingControl"))
-        #expect(commandToolbarSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(!commandToolbarSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(repoSource.contains("sidebarSurfaceSelector"))
+        #expect(repoSource.contains("repoToolbarRow"))
+        #expect(commandToolbarSource.contains("organizationControls(showsSelectedLabels:"))
+        #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
         #expect(commandToolbarSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
-        #expect(commandToolbarSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
-        #expect(commandToolbarSource.contains("label: sortCommand.commandSpec.label"))
+        #expect(commandToolbarSource.contains("label: command.definition.label"))
+        #expect(commandToolbarSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!commandToolbarSource.contains("RepoExplorerVisibilityButton"))
         #expect(!commandToolbarSource.contains("setRepoSidebarVisibilityMode"))
         #expect(!commandToolbarSource.contains("visibilityCommand"))
         #expect(!commandToolbarSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 
-    @Test("repo and inbox sort controls share the toolbar sort primitive")
-    func repoAndInboxSortControlsShareToolbarSortPrimitive() throws {
+    @Test("repo and inbox use their approved shared toolbar primitives")
+    func repoAndInboxUseApprovedSharedToolbarPrimitives() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
             contentsOf: projectRoot.appending(
@@ -142,7 +142,7 @@ struct SidebarSurfaceConvergenceTests {
             encoding: .utf8
         )
 
-        #expect(repoSource.contains("SidebarToolbarSortButton("))
+        #expect(repoSource.contains("SidebarToolbarSegmentedControl("))
         #expect(inboxSource.contains("SidebarToolbarSortButton("))
         #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
         #expect(!sharedSource.contains("CommandIcon"))
@@ -196,11 +196,9 @@ struct SidebarSurfaceConvergenceTests {
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
         #expect(!commandToolbarSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
-        #expect(commandToolbarSource.contains("AppEntityIcon.repo"))
-        #expect(commandToolbarSource.contains("AppEntityIcon.pane"))
-        #expect(commandToolbarSource.contains("AppEntityIcon.tab"))
+        #expect(commandToolbarSource.contains("command.definition.icon.swiftUIImage("))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
-        #expect(commandToolbarSource.contains("label: groupingMode.title"))
+        #expect(commandToolbarSource.contains("label: command.definition.label"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
         #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))

@@ -79,6 +79,7 @@ package struct ActionStateSnapshot: Equatable {
     let zoomSourcePaneIdByTabId: [UUID: UUID]
     package let knownRepoIds: Set<UUID>
     package let knownWorktreeIds: Set<UUID>
+    package let knownPaneIds: Set<UUID>
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
     let drawerParentByPaneId: [UUID: UUID]
     /// Parent layout pane -> current drawer layout for validator-side legality checks.
@@ -96,6 +97,7 @@ package struct ActionStateSnapshot: Equatable {
         zoomSourcePaneIdByTabId: [UUID: UUID] = [:],
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
+        knownPaneIds: Set<UUID>? = nil,
         drawerParentByPaneId: [UUID: UUID] = [:],
         drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) {
@@ -127,6 +129,7 @@ package struct ActionStateSnapshot: Equatable {
         }
         self.ownedPaneToTab = ownedLookup
         self.visiblePaneToTab = visibleLookup
+        self.knownPaneIds = knownPaneIds ?? Set(ownedLookup.keys)
     }
 
     func tab(_ id: UUID) -> TabSnapshot? {
@@ -173,6 +176,7 @@ package struct ActionStateSnapshot: Equatable {
             && lhs.zoomSourcePaneIdByTabId == rhs.zoomSourcePaneIdByTabId
             && lhs.knownRepoIds == rhs.knownRepoIds
             && lhs.knownWorktreeIds == rhs.knownWorktreeIds
+            && lhs.knownPaneIds == rhs.knownPaneIds
             && lhs.drawerParentByPaneId == rhs.drawerParentByPaneId
             && lhs.drawerLayoutByParentPaneId == rhs.drawerLayoutByParentPaneId
     }

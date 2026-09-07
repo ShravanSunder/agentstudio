@@ -217,8 +217,11 @@ extension WorkspaceSurfaceCoordinator {
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
 
-        case .setRepoFavorite(let repoId, let isFavorite):
-            store.mutationCoordinator.setRepoFavorite(repoId, isFavorite: isFavorite)
+        case .setRepoPinned(let repoId, let isPinned):
+            store.mutationCoordinator.setRepoPinned(repoId, isPinned: isPinned)
+
+        case .setPanePinned(let paneId, let isPinned):
+            store.mutationCoordinator.setPanePinned(paneId, isPinned: isPinned)
 
         case .selectTab(let tabId):
             store.tabLayoutAtom.setActiveTab(tabId)

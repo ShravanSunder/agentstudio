@@ -445,21 +445,70 @@ def record_time_ns(record):
     timestamp = str(record.get("_time", "")).replace("Z", "+00:00")
     parsed = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z")
     return int(parsed.timestamp() * 1_000_000_000)
+def latest_repo_sort_projection():
+    matching = [
+        record for record in marker_records()
+        if record.get("_msg") == "performance.sidebar.projection"
+        and record.get("agentstudio.performance.sidebar.surface") == "repo"
+        and record.get("agentstudio.performance.sidebar.phase") == "projection_worker"
+        and record.get("agentstudio.performance.sidebar.sort_order") in {"ascending", "descending"}
+    ]
+    if not matching: return None
+    return max(matching, key=record_time_ns)
+def wait_for_repo_sort_projection(expected_order=None, after_ns=0, timeout=10):
+    deadline = time.monotonic() + timeout
+    latest = None
+    while time.monotonic() < deadline:
+        latest = latest_repo_sort_projection()
+        if latest is not None:
+            order = latest.get("agentstudio.performance.sidebar.sort_order")
+            if record_time_ns(latest) > after_ns and (expected_order is None or order == expected_order):
+                return latest
+        time.sleep(0.25)
+    raise RuntimeError(
+        f"timed out waiting for completed repo sort projection order={expected_order}: {latest}"
+    )
 request("auth.login", {"token":token})
-request("command.execute", {"commandId":"showWorktreeSidebar","targetHandle":None,"arguments":{}})
+show_repos_result = request(
+    "command.execute",
+    {"commandId":"showReposSidebar","targetHandle":None,"arguments":{}},
+)
+if show_repos_result.get("applied") is not True:
+    raise RuntimeError(f"showReposSidebar did not apply: {show_repos_result}")
 pane = wait_for_terminal_pane()
 wait_for_startup_diagnostic_completion()
 handle = f"pane:{pane['id']}"
-repo_sort_baseline_result = request(
+initial_sort_projection = wait_for_repo_sort_projection()
+initial_sort_order = initial_sort_projection["agentstudio.performance.sidebar.sort_order"]
+first_sort_toggle_result = request(
     "command.execute",
     {
-        "commandId":"setRepoSidebarSortOrder",
+        "commandId":"toggleReposSortDirection",
         "targetHandle":None,
-        "arguments":{"order":"ascending"},
+        "arguments":{},
     },
 )
-if repo_sort_baseline_result.get("applied") is not True:
-    raise RuntimeError(f"repo sort baseline did not apply: {repo_sort_baseline_result}")
+if first_sort_toggle_result.get("applied") is not True:
+    raise RuntimeError(f"first repo sort toggle did not apply: {first_sort_toggle_result}")
+opposite_sort_order = "descending" if initial_sort_order == "ascending" else "ascending"
+first_sort_projection = wait_for_repo_sort_projection(
+    expected_order=opposite_sort_order,
+    after_ns=record_time_ns(initial_sort_projection),
+)
+second_sort_toggle_result = request(
+    "command.execute",
+    {
+        "commandId":"toggleReposSortDirection",
+        "targetHandle":None,
+        "arguments":{},
+    },
+)
+if second_sort_toggle_result.get("applied") is not True:
+    raise RuntimeError(f"second repo sort toggle did not apply: {second_sort_toggle_result}")
+wait_for_repo_sort_projection(
+    expected_order=initial_sort_order,
+    after_ns=record_time_ns(first_sort_projection),
+)
 title_baseline = quiescent_snapshot()
 private_title = "cadence-private-title"
 private_payload = "printf-private-payload"
@@ -565,16 +614,17 @@ if not 1 <= pane_structural_delta["structural_accepted"] <= 8:
 if not 1 <= pane_structural_delta["membership_accepted"] <= 8:
     raise RuntimeError(f"pane membership work was not bounded: {pane_structural_delta}")
 capability_baseline = quiescent_snapshot()
+capability_baseline_sort_projection = wait_for_repo_sort_projection(expected_order=initial_sort_order)
 capability_result = request(
     "command.execute",
     {
-        "commandId":"setRepoSidebarSortOrder",
+        "commandId":"toggleReposSortDirection",
         "targetHandle":None,
-        "arguments":{"order":"descending"},
+        "arguments":{},
     },
 )
 if capability_result.get("applied") is not True:
-    raise RuntimeError(f"repo sort change did not apply: {capability_result}")
+    raise RuntimeError(f"repo sort toggle did not apply: {capability_result}")
 capability_delta = wait_for_delta(capability_baseline, lambda value: value["repo_events"] >= 1, "capability presentation telemetry")
 capability_after = quiescent_snapshot()
 capability_delta = delta(capability_baseline, capability_after)
@@ -586,6 +636,24 @@ if capability_delta["repo_capability_snapshots"] != 1:
     raise RuntimeError(f"capability phase expected one coherent snapshot: {capability_delta}")
 if capability_delta["tab_affected"] != 0:
     raise RuntimeError(f"capability phase affected unrelated tab items: {capability_delta}")
+capability_sort_projection = wait_for_repo_sort_projection(
+    expected_order=opposite_sort_order,
+    after_ns=record_time_ns(capability_baseline_sort_projection),
+)
+capability_restore_result = request(
+    "command.execute",
+    {
+        "commandId":"toggleReposSortDirection",
+        "targetHandle":None,
+        "arguments":{},
+    },
+)
+if capability_restore_result.get("applied") is not True:
+    raise RuntimeError(f"repo sort restoration toggle did not apply: {capability_restore_result}")
+wait_for_repo_sort_projection(
+    expected_order=initial_sort_order,
+    after_ns=record_time_ns(capability_sort_projection),
+)
 rendered_marker_records = json.dumps(marker_records(), sort_keys=True)
 if private_title in rendered_marker_records or private_payload in rendered_marker_records:
     raise RuntimeError("sensitive title or payload survived marker-scoped OTLP projection")

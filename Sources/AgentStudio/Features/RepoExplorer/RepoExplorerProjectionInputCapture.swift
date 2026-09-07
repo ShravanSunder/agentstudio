@@ -25,7 +25,7 @@ final class RepoExplorerProjectionInputCapture {
     private(set) var paneFactCaptureCount = 0
 
     var isRepoSurfaceVisible: Bool {
-        sidebarState.sidebarSurface == .repos
+        sidebarState.sidebarSurface != .inbox
     }
 
     init(
@@ -69,11 +69,12 @@ final class RepoExplorerProjectionInputCapture {
             for: repos.flatMap(\.worktrees).map(\.id),
             repoCache: repoCache
         )
-        let groupingMode = preferences.groupingMode
+        let surface = sidebarState.sidebarSurface
+        let groupingMode = preferences.groupingMode(for: surface)
         let repositoryIDs = Set(repos.map(\.id))
         let repositoryActivityInputs = captureRepositoryActivityInputs(
             for: repos,
-            groupingMode: groupingMode
+            surface: surface
         )
         let snapshot = makeSidebarSnapshot(
             repos: repos,
@@ -82,8 +83,14 @@ final class RepoExplorerProjectionInputCapture {
                     repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
                 }
             ),
+            surface: surface,
             groupingMode: groupingMode,
-            sortOrder: preferences.sortOrder,
+            subgroupMode: preferences.subgroupMode(for: surface),
+            sortField: preferences.sortField(for: surface),
+            showsPinned: preferences.showsPinned(for: surface),
+            referenceDate: referenceDate,
+            calendar: .current,
+            sortOrder: preferences.sortDirection(for: surface),
             query: query
         )
         return RepoExplorerProjectionRequest(
@@ -97,9 +104,7 @@ final class RepoExplorerProjectionInputCapture {
                 for: worktreeEnrichmentSnapshot,
                 repoCache: repoCache
             ),
-            paneRowFactsByPaneId: groupingMode == .repo
-                ? [:]
-                : paneRowFactsByPaneId(now: referenceDate),
+            paneRowFactsByPaneId: paneRowFactsByPaneId(for: snapshot),
             tabGroupFactsByTabId: groupingMode == .tab ? tabGroupFactsByTabId() : [:],
             unavailablePullRequestRepoIds: repositoryIDs.filter {
                 repoCache.isPullRequestDataUnavailable(forRepository: $0)
@@ -126,14 +131,22 @@ final class RepoExplorerProjectionInputCapture {
         referenceDate: Date
     ) -> RepoExplorerProjectionRequest {
         presentationCaptureCount += 1
-        let groupingMode = preferences.groupingMode
-        let sortOrder = groupingMode == .tab ? previous.snapshot.sortOrder : preferences.sortOrder
-        let groupingChanged = groupingMode != previous.snapshot.groupingMode
+        let surface = sidebarState.sidebarSurface
+        let groupingMode = preferences.groupingMode(for: surface)
+        let subgroupMode = preferences.subgroupMode(for: surface)
+        let sortField = preferences.sortField(for: surface)
+        let sortOrder = preferences.sortDirection(for: surface)
+        let showsPinned = preferences.showsPinned(for: surface)
+        let presentationDemandChanged =
+            surface != previous.snapshot.surface
+            || groupingMode != previous.snapshot.groupingMode
+            || subgroupMode != previous.snapshot.subgroupMode
+            || sortField != previous.snapshot.sortField
         let repositoryActivityInputs =
-            groupingChanged
+            presentationDemandChanged
             ? captureRepositoryActivityInputs(
                 for: previous.snapshot.repos,
-                groupingMode: groupingMode
+                surface: surface
             )
             : (
                 hydrationDisposition: previous.localActivityHydrationDisposition,
@@ -141,19 +154,22 @@ final class RepoExplorerProjectionInputCapture {
             )
         let paneFacts: [UUID: RepoExplorerPaneRowFacts]
         let tabFacts: [UUID: RepoExplorerTabGroupFacts]
-        if groupingChanged {
-            let paneIDs = demandedPaneIDs(in: previous.snapshot)
-            let tabIDs = demandedTabIDs(in: previous.snapshot)
-            paneFacts =
-                groupingMode == .repo
-                ? [:]
-                : Dictionary(
-                    uniqueKeysWithValues: paneIDs.compactMap { paneID in
-                        capturePaneFact(paneID: paneID, now: referenceDate).map { (paneID, $0) }
-                    }
-                )
+        let nextSnapshot = previous.snapshot.replacing(
+            surface: surface,
+            groupingMode: groupingMode,
+            subgroupMode: subgroupMode,
+            sortField: sortField,
+            showsPinned: showsPinned,
+            referenceDate: referenceDate,
+            calendar: .current,
+            sortOrder: sortOrder,
+            query: query
+        )
+        if presentationDemandChanged {
+            let tabIDs = demandedTabIDs(in: nextSnapshot)
+            paneFacts = paneRowFactsByPaneId(for: nextSnapshot)
             tabFacts =
-                groupingMode == .tab
+                surface == .panes && groupingMode == .tab
                 ? Dictionary(
                     uniqueKeysWithValues: tabIDs.compactMap { tabID in
                         captureTabFact(tabID: tabID).map { (tabID, $0) }
@@ -165,18 +181,14 @@ final class RepoExplorerProjectionInputCapture {
             tabFacts = previous.tabGroupFactsByTabId
         }
         return previous.replacing(
-            snapshot: previous.snapshot.replacing(
-                groupingMode: groupingMode,
-                sortOrder: sortOrder,
-                query: query
-            ),
+            snapshot: nextSnapshot,
             collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
             isFiltering: !query.isEmpty,
             paneRowFactsByPaneId: paneFacts,
             tabGroupFactsByTabId: tabFacts,
             localActivityHydrationDisposition: repositoryActivityInputs.hydrationDisposition,
             repositoryLocalActivityByStableKey: repositoryActivityInputs.activityByStableKey,
-            activityReferenceDate: groupingChanged ? referenceDate : previous.activityReferenceDate
+            activityReferenceDate: referenceDate
         )
     }
 
@@ -263,7 +275,7 @@ final class RepoExplorerProjectionInputCapture {
         guard !changedRepositoryIDs.isEmpty else { return unchangedScopedCapture(previous) }
 
         var request = previous
-        if previous.snapshot.groupingMode == .repo {
+        if previous.snapshot.surface == .repos {
             var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
             let previousStableKeysByRepositoryID = Dictionary(
                 uniqueKeysWithValues: previous.snapshot.repos.map { ($0.id, $0.stableKey) }
@@ -317,7 +329,7 @@ final class RepoExplorerProjectionInputCapture {
         previous: RepoExplorerProjectionRequest,
         referenceDate: Date
     ) -> RepoExplorerScopedCapture? {
-        guard previous.snapshot.groupingMode == .repo,
+        guard previous.snapshot.surface == .repos,
             let repositoryStableKey = store.repositoryTopologyAtom.repositoryStableKey(
                 for: repositoryID
             )
@@ -337,12 +349,12 @@ final class RepoExplorerProjectionInputCapture {
 
     private func captureRepositoryActivityInputs(
         for repositories: [RepoPresentationItem],
-        groupingMode: RepoExplorerGroupingMode
+        surface: SidebarSurface
     ) -> (
         hydrationDisposition: RepositoryLocalActivityHydrationDisposition,
         activityByStableKey: [String: RepositoryLocalActivity]
     ) {
-        guard groupingMode == .repo else { return (.pending, [:]) }
+        guard surface == .repos else { return (.pending, [:]) }
         let repositoryLocalActivity = coreAtoms.repositoryLocalActivity
         return (
             repositoryLocalActivity.hydrationDisposition,
@@ -380,7 +392,7 @@ final class RepoExplorerProjectionInputCapture {
         let previousRepoEnrichment = repoEnrichment[repositoryID]
         repoEnrichment[repositoryID] = repoCache.repoEnrichment(for: repositoryID)
         let repositoryActivityIdentityChanged =
-            previous.snapshot.groupingMode == .repo
+            previous.snapshot.surface == .repos
             && previousRepository.stableKey != updatedRepository.stableKey
         var activityByRepositoryStableKey = previous.repositoryLocalActivityByStableKey
         if repositoryActivityIdentityChanged, retargetRepositoryActivityIdentity {
@@ -488,12 +500,14 @@ final class RepoExplorerProjectionInputCapture {
         previous: RepoExplorerProjectionRequest,
         referenceDate: Date
     ) -> RepoExplorerScopedCapture {
-        guard previous.snapshot.groupingMode != .repo else { return unchangedScopedCapture(previous) }
+        guard shouldCapturePaneFacts(for: previous.snapshot) else {
+            return unchangedScopedCapture(previous)
+        }
         var paneFacts = previous.paneRowFactsByPaneId
         var bridgeCandidates = previous.snapshot.bridgePaneCommandCandidatesByWorktreeId
         var changes = Set<RepoExplorerScopedProjectionChange>()
         for paneID in paneIDs where paneFacts[paneID] != nil {
-            let nextFact = capturePaneFact(paneID: paneID, now: referenceDate)
+            let nextFact = capturePaneFact(paneID: paneID, for: previous.snapshot.surface)
             if paneFacts[paneID] != nextFact {
                 paneFacts[paneID] = nextFact
                 changes.insert(.pane(paneID))
@@ -512,9 +526,12 @@ final class RepoExplorerProjectionInputCapture {
         return RepoExplorerScopedCapture(
             request: previous.replacing(
                 snapshot: previous.snapshot.replacing(
+                    referenceDate: referenceDate,
+                    calendar: .current,
                     bridgePaneCommandCandidatesByWorktreeId: bridgeCandidates
                 ),
-                paneRowFactsByPaneId: paneFacts
+                paneRowFactsByPaneId: paneFacts,
+                activityReferenceDate: referenceDate
             ),
             changes: changes,
             requiresFullProjection: false
@@ -582,7 +599,13 @@ final class RepoExplorerProjectionInputCapture {
     func makeSidebarSnapshot(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        surface: SidebarSurface = .repos,
         groupingMode: RepoExplorerGroupingMode,
+        subgroupMode: SidebarSubgroupMode = .ungrouped,
+        sortField: SidebarSortField = .name,
+        showsPinned: Bool = true,
+        referenceDate: Date = .distantPast,
+        calendar: Calendar = .current,
         sortOrder: RepoExplorerSortOrder,
         query: String
     ) -> RepoExplorerSnapshot {
@@ -606,7 +629,13 @@ final class RepoExplorerProjectionInputCapture {
         return RepoExplorerSnapshot(
             repos: repos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId,
+            surface: surface,
             groupingMode: groupingMode,
+            subgroupMode: subgroupMode,
+            sortField: sortField,
+            showsPinned: showsPinned,
+            referenceDate: referenceDate,
+            calendar: calendar,
             sortOrder: sortOrder,
             query: query,
             paneLocationsByWorktreeId: paneLocationsByWorktreeId,
@@ -676,28 +705,43 @@ final class RepoExplorerProjectionInputCapture {
         return candidatesByWorktreeID
     }
 
-    private func paneRowFactsByPaneId(now: Date) -> [UUID: RepoExplorerPaneRowFacts] {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let presentedPaneIDs = workspaceTab.tabs.flatMap(\.activePaneIds).filter { paneID in
-            store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.residency == .active
-        }
+    private func paneRowFactsByPaneId(
+        for snapshot: RepoExplorerSnapshot
+    ) -> [UUID: RepoExplorerPaneRowFacts] {
+        guard shouldCapturePaneFacts(for: snapshot) else { return [:] }
+        let presentedPaneIDs = demandedPaneIDs(in: snapshot)
         let facts = Dictionary(
             uniqueKeysWithValues: presentedPaneIDs.compactMap { paneID in
-                capturePaneFact(paneID: paneID, now: now).map { (paneID, $0) }
+                capturePaneFact(paneID: paneID, for: snapshot.surface).map { (paneID, $0) }
             }
         )
-        paneDisplayTitleCache.retainOnly(paneIds: Set(presentedPaneIDs))
+        paneDisplayTitleCache.retainOnly(paneIds: presentedPaneIDs)
         return facts
+    }
+
+    private func shouldCapturePaneFacts(for snapshot: RepoExplorerSnapshot) -> Bool {
+        snapshot.surface == .panes
+            || snapshot.subgroupMode == .activity
+            || snapshot.sortField == .activity
     }
 
     func capturePaneFact(
         paneID: UUID,
-        now: Date
+        for surface: SidebarSurface
     ) -> RepoExplorerPaneRowFacts? {
         paneFactCaptureCount += 1
+        let activityFact = latestPaneMessageSnapshot(paneID)
+        guard surface == .panes else {
+            return RepoExplorerPaneRowFacts(
+                terminalTitle: "",
+                activityAt: activityFact?.observedAt,
+                latestMessageText: nil,
+                recencyReferenceDate: .distantPast,
+                recencyText: "",
+                recencyTier: .grey,
+                isActive: false
+            )
+        }
         guard let pane = store.paneAtom.pane(paneID) else { return nil }
         let terminalTitle = paneDisplayTitleCache.resolve(
             paneId: paneID,
@@ -713,17 +757,13 @@ final class RepoExplorerProjectionInputCapture {
             ?? pane.metadata.createdAt
         return RepoExplorerPaneRowFacts(
             terminalTitle: terminalTitle,
+            activityAt: activityFact?.observedAt,
+            isPinned: pane.metadata.isPinned,
             noteText: pane.metadata.note,
-            latestMessageText: latestPaneMessageSnapshot(paneID),
+            latestMessageText: activityFact?.lastOutputLine,
             recencyReferenceDate: referenceDate,
-            recencyText: RepoExplorerPaneRecencyText.display(
-                lastInteractedAt: referenceDate,
-                now: now
-            ),
-            recencyTier: RepoExplorerPaneRecencyTier.classify(
-                referenceDate: referenceDate,
-                now: now
-            ),
+            recencyText: "",
+            recencyTier: .grey,
             isActive: paneID == focusedPaneID(),
             isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
         )

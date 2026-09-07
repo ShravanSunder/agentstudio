@@ -36,7 +36,7 @@ final class PilotFixture {
                         name: repo.name,
                         repoPath: repo.repoPath,
                         stableKey: repo.stableKey,
-                        isFavorite: favoriteTarget,
+                        isPinned: favoriteTarget,
                         note: repo.note,
                         tags: repo.tags,
                         worktrees: repo.worktrees,

@@ -14,7 +14,7 @@ struct WorkspaceLocalSchemaContractTests {
             SidebarSurface.allCases.map { SQLiteLocalUXStorage.storageValue(for: $0) }
         )
 
-        #expect(sidebarSurfaceStorageValues == Set(["repos", "inbox"]))
+        #expect(sidebarSurfaceStorageValues == Set(["repos", "panes", "inbox"]))
     }
 
     @Test("notification claim lane storage matches mergeable lane vocabulary")
@@ -30,17 +30,17 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
     }
 
-    @Test("legacy repo visibility tokens are inert while other preferences round trip")
-    func legacyRepoVisibilityTokensAreInertWhileOtherPreferencesRoundTrip() throws {
+    @Test("per-screen repo preferences round trip while inbox preferences remain independent")
+    func perScreenRepoPreferencesRoundTripWhileInboxPreferencesRemainIndependent() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let workspaceId = UUID()
         let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
-        let repoPreferences = try #require(
-            WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                sortOrder: "descending",
-                visibilityMode: "legacy-favorites-only"
-            )
+        let repoPreferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord(
+            reposSortField: .activity,
+            panesSortField: .name,
+            reposSortDirection: .descending,
+            panesSortDirection: .ascending
         )
         let inboxPreferences = try #require(
             WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
@@ -150,8 +150,10 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
     "local_window_state": [
         ("window_id", 1), ("window_role", 0), ("sidebar_width", 0),
         ("window_frame_json", 0), ("filter_text", 0), ("is_filter_visible", 0),
-        ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("repo_grouping_mode", 0),
-        ("updated_at", 0),
+        ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("updated_at", 0),
+        ("repos_grouping_mode", 0), ("panes_grouping_mode", 0),
+        ("repos_subgroup_mode", 0), ("panes_subgroup_mode", 0),
+        ("repos_shows_pinned", 0), ("panes_shows_pinned", 0),
     ],
     "local_window_sidebar_collapsed_group": [
         ("window_id", 1), ("group_key", 2),
@@ -196,7 +198,8 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("workspace_id", 1), ("bookmarked_editor_id", 0), ("updated_at", 0),
     ],
     "local_repo_explorer_preferences": [
-        ("workspace_id", 1), ("sort_order", 0), ("visibility_mode", 0), ("updated_at", 0),
+        ("workspace_id", 1), ("updated_at", 0), ("repos_sort_field", 0),
+        ("panes_sort_field", 0), ("repos_sort_direction", 0), ("panes_sort_direction", 0),
     ],
     "local_inbox_notification_preferences": [
         ("workspace_id", 1), ("grouping", 0), ("sort_order", 0), ("bell_enabled", 0),
@@ -224,7 +227,8 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_drawer_cursor": ["TEXT", "TEXT", "INTEGER", "REAL"],
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_window_state": [
-        "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "TEXT", "REAL",
+        "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL",
+        "TEXT", "TEXT", "TEXT", "TEXT", "INTEGER", "INTEGER",
     ],
     "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
@@ -239,7 +243,7 @@ private let localSchemaExpectedTypes: [String: [String]] = [
         "TEXT", "TEXT", "INTEGER", "INTEGER",
     ],
     "local_editor_preferences": ["TEXT", "TEXT", "REAL"],
-    "local_repo_explorer_preferences": ["TEXT", "TEXT", "TEXT", "REAL"],
+    "local_repo_explorer_preferences": ["TEXT", "REAL", "TEXT", "TEXT", "TEXT", "TEXT"],
     "local_inbox_notification_preferences": [
         "TEXT", "TEXT", "TEXT", "INTEGER", "TEXT", "TEXT", "TEXT", "TEXT", "REAL",
     ],
@@ -256,7 +260,8 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
     "local_arrangement_drawer_cursor": ["workspace_id", "arrangement_id", "drawer_id", "updated_at"],
     "local_window_state": [
         "window_role", "sidebar_width", "filter_text", "is_filter_visible", "sidebar_collapsed",
-        "sidebar_surface", "repo_grouping_mode", "updated_at",
+        "sidebar_surface", "updated_at", "repos_grouping_mode", "panes_grouping_mode",
+        "repos_subgroup_mode", "panes_subgroup_mode", "repos_shows_pinned", "panes_shows_pinned",
     ],
     "local_window_sidebar_collapsed_group": ["window_id", "group_key"],
     "local_entity_recency": [
@@ -275,7 +280,10 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "is_dismissed_from_pane_inbox",
     ],
     "local_editor_preferences": ["updated_at"],
-    "local_repo_explorer_preferences": ["sort_order", "visibility_mode", "updated_at"],
+    "local_repo_explorer_preferences": [
+        "updated_at", "repos_sort_field", "panes_sort_field",
+        "repos_sort_direction", "panes_sort_direction",
+    ],
     "local_inbox_notification_preferences": [
         "grouping", "sort_order", "bell_enabled", "global_content_mode", "global_row_state_filter",
         "pane_content_mode", "pane_row_state_filter", "updated_at",
@@ -316,7 +324,22 @@ private func assertColumnContracts(in databaseQueue: DatabaseQueue) throws {
         let expectedDefaults: [String: String] =
             switch tableName {
             case "cache_metadata": ["source_revision": "0"]
-            case "local_window_state": ["repo_grouping_mode": "'repo'"]
+            case "local_window_state":
+                [
+                    "repos_grouping_mode": "'repo'",
+                    "panes_grouping_mode": "'repo'",
+                    "repos_subgroup_mode": "'none'",
+                    "panes_subgroup_mode": "'activity'",
+                    "repos_shows_pinned": "1",
+                    "panes_shows_pinned": "1",
+                ]
+            case "local_repo_explorer_preferences":
+                [
+                    "repos_sort_field": "'name'",
+                    "panes_sort_field": "'name'",
+                    "repos_sort_direction": "'ascending'",
+                    "panes_sort_direction": "'ascending'",
+                ]
             default: [:]
             }
         #expect(declaredDefaults == expectedDefaults)
@@ -374,7 +397,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_arrangement_cursor": 0,
         "local_drawer_cursor": 1,
         "local_arrangement_drawer_cursor": 0,
-        "local_window_state": 3,
+        "local_window_state": 5,
         "local_window_sidebar_collapsed_group": 0,
         "local_entity_recency": 0,
         "local_workspace_entity_recency": 0,
@@ -393,10 +416,12 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         let tableDefinition = try #require(tableSQL[tableName])
         #expect(tableDefinition.components(separatedBy: "CHECK (").count - 1 == expectedCheckCount)
     }
-    #expect(tableSQL["local_window_state"]?.components(separatedBy: "CHECK (").count == 4)
+    #expect(tableSQL["local_window_state"]?.components(separatedBy: "CHECK (").count == 6)
     #expect(tableSQL["local_window_state"]?.contains("window_role = 'main'") == true)
     #expect(tableSQL["local_window_state"]?.contains("is_filter_visible IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("sidebar_collapsed IN (0, 1)") == true)
+    #expect(tableSQL["local_window_state"]?.contains("repos_shows_pinned IN (0, 1)") == true)
+    #expect(tableSQL["local_window_state"]?.contains("panes_shows_pinned IN (0, 1)") == true)
     #expect(tableSQL["local_window_sidebar_collapsed_group"]?.contains("ON DELETE CASCADE") == true)
     #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)

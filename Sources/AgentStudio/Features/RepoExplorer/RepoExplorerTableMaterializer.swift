@@ -266,6 +266,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             advanceVisibleTarget(
                 materializationGeneration: candidate.visibleGeneration,
                 worktreeIDs: priorVisibleSnapshot.worktreeIDs,
+                paneIDs: priorVisibleSnapshot.paneIDs,
                 repositoryIDs: priorVisibleSnapshot.repositoryIDs
             )
             acceptedCommandPresentationSnapshot = .empty
@@ -365,6 +366,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         advanceVisibleTarget(
             materializationGeneration: visibleGeneration,
             worktreeIDs: currentVisibleSnapshot.worktreeIDs,
+            paneIDs: currentVisibleSnapshot.paneIDs,
             repositoryIDs: currentVisibleSnapshot.repositoryIDs
         )
         acceptedCommandPresentationSnapshot = .empty
@@ -417,6 +419,9 @@ final class RepoExplorerTableMaterializer: NSObject,
         acceptedCommandGeneration = delta.commandGeneration
         var affectedRowIDs: Set<RepoExplorerRowID> = []
         if let snapshot {
+            for paneID in delta.affectedPaneIDs {
+                affectedRowIDs.formUnion(snapshot.rowIDsByPaneID[paneID] ?? [])
+            }
             for worktreeID in delta.affectedWorktreeIDs {
                 affectedRowIDs.formUnion(snapshot.rowIDsByWorktreeID[worktreeID] ?? [])
             }
@@ -605,6 +610,14 @@ final class RepoExplorerTableMaterializer: NSObject,
                 snapshot.rows[safe: rowIndex]?.representedWorktreeID
             }
         )
+        let paneIDs = Set(
+            representedRowIndexes().compactMap { rowIndex -> UUID? in
+                guard let row = snapshot.rows[safe: rowIndex], case .pane(let pane) = row.presentation else {
+                    return nil
+                }
+                return pane.destination.paneId
+            }
+        )
         let repositoryIDs = Set(
             representedRowIndexes().compactMap { rowIndex -> UUID? in
                 guard let row = snapshot.rows[safe: rowIndex],
@@ -627,7 +640,8 @@ final class RepoExplorerTableMaterializer: NSObject,
                 return (progress.repoId, progress.attemptId)
             }
         )
-        if worktreeIDs != currentVisibleSnapshot.worktreeIDs
+        if paneIDs != currentVisibleSnapshot.paneIDs
+            || worktreeIDs != currentVisibleSnapshot.worktreeIDs
             || repositoryIDs != currentVisibleSnapshot.repositoryIDs
             || settledUpdateAttemptByRepositoryID
                 != currentVisibleSnapshot.settledUpdateAttemptByRepositoryID
@@ -635,6 +649,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             advanceVisibleTarget(
                 materializationGeneration: visibleGeneration ?? 0,
                 worktreeIDs: worktreeIDs,
+                paneIDs: paneIDs,
                 repositoryIDs: repositoryIDs,
                 settledUpdateAttemptByRepositoryID: settledUpdateAttemptByRepositoryID
             )
@@ -646,7 +661,8 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private func clearViewportDemand() {
         guard
-            !currentVisibleSnapshot.worktreeIDs.isEmpty
+            !currentVisibleSnapshot.paneIDs.isEmpty
+                || !currentVisibleSnapshot.worktreeIDs.isEmpty
                 || !currentVisibleSnapshot.repositoryIDs.isEmpty
                 || !currentVisibleSnapshot.settledUpdateAttemptByRepositoryID.isEmpty
         else {
@@ -669,6 +685,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     private func advanceVisibleTarget(
         materializationGeneration: UInt64,
         worktreeIDs: Set<UUID>,
+        paneIDs: Set<UUID> = [],
         repositoryIDs: Set<UUID> = [],
         settledUpdateAttemptByRepositoryID: [UUID: UUID] = [:]
     ) {
@@ -681,6 +698,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             ),
             worktreeIDs: worktreeIDs,
             repositoryIDs: repositoryIDs,
+            paneIDs: paneIDs,
             settledUpdateAttemptByRepositoryID: settledUpdateAttemptByRepositoryID
         )
     }

@@ -5,35 +5,146 @@ import Observation
 @Observable
 package final class RepoExplorerSidebarPrefsAtom {
     private let sidebarState: WorkspaceSidebarState
-    package private(set) var sortOrder: RepoExplorerSortOrder = .default
+    package private(set) var repoSortField: SidebarSortField = .name
+    package private(set) var paneSortField: SidebarSortField = .name
+    package private(set) var repoSortDirection: SidebarSortDirection = .default
+    package private(set) var paneSortDirection: SidebarSortDirection = .default
 
     package var groupingMode: RepoExplorerGroupingMode {
-        sidebarState.repoGroupingMode
+        groupingMode(for: sidebarState.sidebarSurface)
+    }
+
+    package var sidebarSurface: SidebarSurface {
+        sidebarState.sidebarSurface
+    }
+
+    package var subgroupMode: SidebarSubgroupMode {
+        subgroupMode(for: sidebarState.sidebarSurface)
+    }
+
+    package var sortField: SidebarSortField {
+        sortField(for: sidebarState.sidebarSurface)
+    }
+
+    package var sortDirection: SidebarSortDirection {
+        sortDirection(for: sidebarState.sidebarSurface)
+    }
+
+    package var showsPinned: Bool {
+        showsPinned(for: sidebarState.sidebarSurface)
     }
 
     package init(sidebarState: WorkspaceSidebarState = .init()) {
         self.sidebarState = sidebarState
     }
 
-    package func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
-        sidebarState.setRepoGroupingMode(groupingMode)
+    package func groupingMode(for surface: SidebarSurface) -> RepoExplorerGroupingMode {
+        switch surface {
+        case .panes:
+            sidebarState.paneGroupingMode
+        case .repos, .inbox:
+            sidebarState.repoGroupingMode
+        }
     }
 
-    package func toggleSortOrder() {
-        sortOrder = sortOrder.toggled
+    package func subgroupMode(for surface: SidebarSurface) -> SidebarSubgroupMode {
+        guard groupingMode(for: surface) != .activity else { return .ungrouped }
+        return switch surface {
+        case .panes:
+            sidebarState.paneSubgroupMode
+        case .repos, .inbox:
+            sidebarState.repoSubgroupMode
+        }
     }
 
-    package func setSortOrder(_ sortOrder: RepoExplorerSortOrder) {
-        self.sortOrder = sortOrder
+    package func sortField(for surface: SidebarSurface) -> SidebarSortField {
+        switch surface {
+        case .panes:
+            paneSortField
+        case .repos, .inbox:
+            repoSortField
+        }
+    }
+
+    package func sortDirection(for surface: SidebarSurface) -> SidebarSortDirection {
+        switch surface {
+        case .panes:
+            paneSortDirection
+        case .repos, .inbox:
+            repoSortDirection
+        }
+    }
+
+    package func showsPinned(for surface: SidebarSurface) -> Bool {
+        switch surface {
+        case .panes:
+            sidebarState.showsPinnedPanes
+        case .repos, .inbox:
+            sidebarState.showsPinnedRepos
+        }
+    }
+
+    package func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode, for surface: SidebarSurface) {
+        switch surface {
+        case .panes:
+            sidebarState.setPaneGroupingMode(groupingMode)
+        case .repos, .inbox:
+            sidebarState.setRepoGroupingMode(groupingMode)
+        }
+    }
+
+    package func setSubgroupMode(_ subgroupMode: SidebarSubgroupMode, for surface: SidebarSurface) {
+        switch surface {
+        case .panes:
+            sidebarState.setPaneSubgroupMode(subgroupMode)
+        case .repos, .inbox:
+            sidebarState.setRepoSubgroupMode(subgroupMode)
+        }
+    }
+
+    package func setSortField(_ sortField: SidebarSortField, for surface: SidebarSurface) {
+        switch surface {
+        case .panes:
+            paneSortField = sortField
+        case .repos, .inbox:
+            repoSortField = sortField
+        }
+    }
+
+    package func setSortDirection(_ sortDirection: SidebarSortDirection, for surface: SidebarSurface) {
+        switch surface {
+        case .panes:
+            paneSortDirection = sortDirection
+        case .repos, .inbox:
+            repoSortDirection = sortDirection
+        }
+    }
+
+    package func setShowsPinned(_ showsPinned: Bool, for surface: SidebarSurface) {
+        switch surface {
+        case .panes:
+            sidebarState.setShowsPinnedPanes(showsPinned)
+        case .repos, .inbox:
+            sidebarState.setShowsPinnedRepos(showsPinned)
+        }
     }
 
     package func hydrate(
-        sortOrder: RepoExplorerSortOrder
+        repoSortField: SidebarSortField,
+        paneSortField: SidebarSortField,
+        repoSortDirection: SidebarSortDirection,
+        paneSortDirection: SidebarSortDirection
     ) {
-        self.sortOrder = sortOrder
+        self.repoSortField = repoSortField
+        self.paneSortField = paneSortField
+        self.repoSortDirection = repoSortDirection
+        self.paneSortDirection = paneSortDirection
     }
 
     package func reset() {
-        sortOrder = .default
+        repoSortField = .name
+        paneSortField = .name
+        repoSortDirection = .default
+        paneSortDirection = .default
     }
 }

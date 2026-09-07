@@ -45,6 +45,7 @@ extension WorkspaceCoreRepository {
         var title: String
         var note: String?
         var checkoutRef: String?
+        var isPinned: Bool
         var durableFacets: DurableFacetsRecord
 
         init(
@@ -54,6 +55,7 @@ extension WorkspaceCoreRepository {
             title: String,
             note: String? = nil,
             checkoutRef: String? = nil,
+            isPinned: Bool = false,
             durableFacets: DurableFacetsRecord = .init()
         ) {
             self.launchDirectory = launchDirectory
@@ -62,6 +64,7 @@ extension WorkspaceCoreRepository {
             self.title = title
             self.note = note
             self.checkoutRef = checkoutRef
+            self.isPinned = isPinned
             self.durableFacets = durableFacets
         }
     }
@@ -148,6 +151,7 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
     let title: String = row["title"]
     let note: String? = row["note"]
     let checkoutRef: String? = row["checkout_ref"]
+    let isPinned = (row["is_pinned"] as Int) == 1
     let cwdPath: String? = row["cwd"]
     let facetRepoId = try decodeOptionalUUID(
         row["facet_repo_id"],
@@ -166,6 +170,7 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
         title: title,
         note: note,
         checkoutRef: checkoutRef,
+        isPinned: isPinned,
         durableFacets: .init(
             repoId: facetRepoId,
             worktreeId: facetWorktreeId,

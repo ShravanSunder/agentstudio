@@ -40,22 +40,23 @@ struct RepoExplorerViewTests {
         #expect(sharedChipsSource.contains("SidebarPullRequestChipSpec.chip(count:"))
     }
 
-    @Test("selected grouping segment icon call site passes the accent foregroundOverride")
-    func selectedGroupingSegmentIconUsesAccentOverride() throws {
-        let source = try String(
+    @Test("selected organization segments inherit accent ownership from the shared control")
+    func selectedOrganizationSegmentsUseSharedAccentOwnership() throws {
+        let toolbarSource = try String(
             contentsOfFile:
                 "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
             encoding: .utf8
         )
-        let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))
-        let iconClosureEnd = try #require(
-            source.range(of: "},", range: iconClosureStart.upperBound..<source.endIndex))
-        let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
+        let sharedControlSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
+            encoding: .utf8
+        )
 
-        #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
-        #expect(iconClosureSource.contains("foregroundOverride:"))
-        #expect(iconClosureSource.contains("AppStyles.General.Accent.primaryColor"))
-        #expect(!iconClosureSource.contains(".foregroundStyle("))
+        #expect(toolbarSource.contains("SidebarToolbarSegmentedControl("))
+        #expect(!toolbarSource.contains("foregroundOverride:"))
+        #expect(sharedControlSource.contains("ChromeToolbarControlPalette.foregroundColor("))
+        #expect(sharedControlSource.contains("ChromeToolbarControlPalette.fillColor("))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

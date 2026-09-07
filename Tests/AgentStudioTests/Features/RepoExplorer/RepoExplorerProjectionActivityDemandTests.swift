@@ -117,7 +117,9 @@ private final class RepoExplorerLocalActivityProjectionFixture {
             )
         }
         let preferences = RepoExplorerSidebarPrefsAtom()
-        preferences.setGroupingMode(groupingMode)
+        let surface: SidebarSurface = groupingMode == .repo ? .repos : .panes
+        atoms.workspaceSidebarState.setSidebarSurface(surface)
+        preferences.setGroupingMode(groupingMode, for: surface)
         capture = RepoExplorerProjectionInputCapture(
             store: store,
             preferences: preferences,
@@ -310,7 +312,7 @@ extension RepoExplorerProjectionDemandTests {
     @MainActor
     @Test(
         "non-repository grouping rejects repository activity and hydration before capture",
-        arguments: [RepoExplorerGroupingMode.pane, .tab]
+        arguments: [RepoExplorerGroupingMode.activity, .tab]
     )
     func nonRepositoryGroupingRejectsRepositoryActivityBeforeCapture(
         groupingMode: RepoExplorerGroupingMode
@@ -616,7 +618,7 @@ extension RepoExplorerProjectionDemandTests {
 
             fixture.store.repositoryTopologyAtom.applyValidatedRepositoryMetadata(
                 repositoryID: fixture.repo.id,
-                isFavorite: true,
+                isPinned: true,
                 note: nil,
                 tags: []
             )

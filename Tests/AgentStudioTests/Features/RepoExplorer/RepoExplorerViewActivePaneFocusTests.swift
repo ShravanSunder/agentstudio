@@ -29,16 +29,17 @@ extension RepoExplorerViewProjectionHelperTests {
         )
     }
 
-    @Test("By Tab does not observe Repo-only sort changes")
-    func byTabDoesNotObserveRepoOnlySortChanges() {
+    @Test("Panes by Tab observes its surface sort changes")
+    func panesByTabObservesSurfaceSortChanges() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
+            atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.tab)
+            preferences.setGroupingMode(.tab, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -52,9 +53,9 @@ extension RepoExplorerViewProjectionHelperTests {
             } onChange: {
                 invalidationRecorder.record()
             }
-            preferences.setSortOrder(.descending)
+            preferences.setSortDirection(.descending, for: .panes)
 
-            #expect(invalidationRecorder.invalidationCount == 0)
+            #expect(invalidationRecorder.invalidationCount == 1)
         }
     }
 
@@ -119,8 +120,9 @@ extension RepoExplorerViewProjectionHelperTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
+            atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.pane)
+            preferences.setGroupingMode(.repo, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -135,7 +137,7 @@ extension RepoExplorerViewProjectionHelperTests {
                 scope: .everything,
                 workspaceWindowId: UUIDv7.generate()
             )
-            preferences.setGroupingMode(.tab)
+            preferences.setGroupingMode(.tab, for: .panes)
 
             #expect(invalidationRecorder.invalidationCount == 0)
             #expect(adapter.observationTokens.isEmpty)
@@ -157,8 +159,9 @@ extension RepoExplorerViewProjectionHelperTests {
                 facets: PaneContextFacets(cwd: worktree.path)
             )
             store.appendTab(Tab(paneId: pane.id))
+            atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.pane)
+            preferences.setGroupingMode(.repo, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -208,8 +211,9 @@ extension RepoExplorerViewProjectionHelperTests {
                 facets: PaneContextFacets(cwd: worktree.path)
             )
             store.appendTab(Tab(paneId: pane.id))
+            atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.pane)
+            preferences.setGroupingMode(.repo, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -254,8 +258,9 @@ extension RepoExplorerViewProjectionHelperTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
+            atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.pane)
+            preferences.setGroupingMode(.repo, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,

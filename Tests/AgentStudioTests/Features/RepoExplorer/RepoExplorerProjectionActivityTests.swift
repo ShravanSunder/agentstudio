@@ -97,7 +97,7 @@ extension RepoExplorerProjectionWorkerTests {
                 == initial.repositoryActivityTransitionAtByRepoId[secondRepository.id]
         )
         #expect(
-            scoped.nextRepositoryActivityTransitionAt
+            scoped.preparedPresentationDeadline?.deadline
                 == scoped.repositoryActivityTransitionAtByRepoId[secondRepository.id]
         )
         #expect(scoped.projection == initial.projection)
@@ -242,8 +242,8 @@ extension RepoExplorerProjectionWorkerTests {
         )
 
         #expect(warm.repositoryActivityDispositionByRepoId[repository.id] == .warm)
-        #expect(warm.nextRepositoryActivityTransitionAt == transition)
+        #expect(warm.preparedPresentationDeadline?.deadline == transition)
         #expect(inactive.repositoryActivityDispositionByRepoId[repository.id] == .locallyInactive)
-        #expect(inactive.nextRepositoryActivityTransitionAt == nil)
+        #expect(inactive.preparedPresentationDeadline == nil)
     }
 }

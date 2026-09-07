@@ -97,19 +97,20 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
         sql: """
             INSERT INTO pane(
                 id, workspace_id, content_type, execution_backend,
-                launch_directory, title, note,
+                launch_directory, title, note, is_pinned,
                 cwd, facet_repo_id, facet_worktree_id,
                 checkout_ref, residency_kind, pending_undo_expires_at,
                 orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 content_type = excluded.content_type,
                 execution_backend = excluded.execution_backend,
                 launch_directory = excluded.launch_directory,
                 title = excluded.title,
                 note = excluded.note,
+                is_pinned = excluded.is_pinned,
                 cwd = excluded.cwd,
                 facet_repo_id = excluded.facet_repo_id,
                 facet_worktree_id = excluded.facet_worktree_id,
@@ -253,6 +254,7 @@ private func paneStatementArguments(
         pane.metadata.launchDirectory?.path,
         pane.metadata.title,
         pane.metadata.note,
+        pane.metadata.isPinned ? 1 : 0,
         pane.metadata.durableFacets.cwd?.path,
         pane.metadata.durableFacets.repoId?.uuidString,
         pane.metadata.durableFacets.worktreeId?.uuidString,

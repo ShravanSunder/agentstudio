@@ -595,18 +595,10 @@ extension AppCommand {
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
-        case .addRepoFavorite:
-            return repoFavoriteDefinition(
-                label: "Add Favorite",
-                icon: .bookmark,
-                helpText: "Add favorite"
-            )
-        case .removeRepoFavorite:
-            return repoFavoriteDefinition(
-                label: "Remove Favorite",
-                icon: .bookmarkFill,
-                helpText: "Remove favorite"
-            )
+        case .pinRepo: return pinRepoDefinition()
+        case .unpinRepo: return unpinRepoDefinition()
+        case .pinPane: return pinPaneDefinition()
+        case .unpinPane: return unpinPaneDefinition()
         case .openWorktree:
             return worktreeDefinition(
                 label: "Open Worktree",
@@ -695,71 +687,15 @@ extension AppCommand {
                 surfacePolicy: .exposed([.toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .targeted([.pane])
             )
-        case .toggleManagementLayer:
-            return windowDefinition(
-                shortcut: .toggleManagementLayer,
-                label: "Manage Workspace",
-                icon: .system(.rectangleSplit2x2),
-                helpText: "Toggle workspace management mode",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
-                targeting: .contextual
-            )
-        case .managementLayerFocusLeft:
-            return managementDefinition(
-                shortcut: .managementLayerFocusLeft,
-                label: "Management Focus Left",
-                icon: .system(.arrowLeft),
-                helpText: "Move focus left in management mode"
-            )
-        case .managementLayerFocusRight:
-            return managementDefinition(
-                shortcut: .managementLayerFocusRight,
-                label: "Management Focus Right",
-                icon: .system(.arrowRight),
-                helpText: "Move focus right in management mode"
-            )
-        case .managementLayerEnterDrawer:
-            return managementDefinition(
-                shortcut: .managementLayerEnterDrawer,
-                label: "Management Enter Drawer",
-                icon: .system(.arrowDown),
-                helpText: "Enter or expand the current drawer in management mode"
-            )
-        case .managementLayerExitDrawer:
-            return managementDefinition(
-                shortcut: .managementLayerExitDrawer,
-                label: "Management Exit Drawer",
-                icon: .system(.arrowUp),
-                helpText: "Collapse the current drawer in management mode"
-            )
-        case .managementLayerOpenDrawer:
-            return managementDefinition(
-                shortcut: .managementLayerOpenDrawer,
-                label: "Management Open Drawer",
-                icon: .system(.rectangleExpandVertical),
-                helpText: "Open the current drawer in management mode"
-            )
-        case .managementLayerCreateTerminal:
-            return managementDefinition(
-                shortcut: .managementLayerCreateTerminal,
-                label: "Management Create Terminal",
-                icon: .system(.plusSquare),
-                helpText: "Create a terminal in the current management-mode context"
-            )
-        case .managementLayerCreateBrowser:
-            return managementDefinition(
-                shortcut: .managementLayerCreateBrowser,
-                label: "Management Create Browser",
-                icon: .system(.globe),
-                helpText: "Create a browser in the current management-mode context"
-            )
-        case .managementLayerExit:
-            return managementDefinition(
-                shortcut: .managementLayerExit,
-                label: "Management Exit Mode",
-                icon: .system(.rectangleSplit2x2Fill),
-                helpText: "Exit management mode"
-            )
+        case .toggleManagementLayer: return toggleManagementLayerDefinition()
+        case .managementLayerFocusLeft: return managementLayerFocusLeftDefinition()
+        case .managementLayerFocusRight: return managementLayerFocusRightDefinition()
+        case .managementLayerEnterDrawer: return managementLayerEnterDrawerDefinition()
+        case .managementLayerExitDrawer: return managementLayerExitDrawerDefinition()
+        case .managementLayerOpenDrawer: return managementLayerOpenDrawerDefinition()
+        case .managementLayerCreateTerminal: return managementLayerCreateTerminalDefinition()
+        case .managementLayerCreateBrowser: return managementLayerCreateBrowserDefinition()
+        case .managementLayerExit: return managementLayerExitDefinition()
         case .toggleSidebar:
             return windowDefinition(
                 shortcut: .toggleSidebar,
@@ -769,103 +705,36 @@ extension AppCommand {
                 surfacePolicy: .exposed([.commandBar]),
                 targeting: .contextual
             )
-        case .showInboxNotifications:
-            return retiredGlobalInboxDefinition()
-        case .toggleInboxNotificationSort:
-            return retiredInboxDefinition(
-                label: "Toggle Inbox Sort Order",
-                icon: .system(.arrowUpArrowDown),
-                helpText: "The notification inbox is retired"
-            )
-        case .clearReadInboxNotifications:
-            return retiredInboxDefinition(
-                label: "Clear Read Inbox Notifications",
-                icon: .system(.deleteLeft),
-                helpText: "The notification inbox is retired"
-            )
-        case .clearAllInboxNotifications:
-            return retiredInboxDefinition(
-                label: "Clear All Inbox Notifications",
-                icon: .system(.deleteLeft),
-                helpText: "The notification inbox is retired"
-            )
-        case .showPaneInboxNotifications:
-            return retiredInboxDefinition(
-                label: "Toggle Pane Inbox",
-                icon: .system(.bellBadge),
-                helpText: "The pane notification inbox is retired"
-            )
-        case .clearPaneInboxNotifications:
-            return retiredInboxDefinition(
-                label: "Clear Pane Inbox",
-                icon: .system(.deleteLeft),
-                helpText: "The pane notification inbox is retired"
-            )
-        case .showWorktreeSidebar:
-            return windowDefinition(
-                shortcut: .showWorktreeSidebar,
-                label: "Toggle Worktrees",
-                icon: .system(.sidebarLeft),
-                helpText: "Show or hide the repo explorer in the sidebar",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
-                targeting: .contextual
-            )
-        case .setRepoSidebarGroupingRepo:
-            return repoSidebarGroupingDefinition(
-                label: "Repo",
-                icon: .system(.folder),
-                helpTarget: "repo"
-            )
-        case .setRepoSidebarGroupingPane:
-            return repoSidebarGroupingDefinition(
-                label: "Pane",
-                icon: .system(.rectangleSplit2x1),
-                helpTarget: "pane"
-            )
-        case .setRepoSidebarGroupingTab:
-            return repoSidebarGroupingDefinition(
-                label: "Tab",
-                icon: .system(.rectangleStack),
-                helpTarget: "tab"
-            )
-        case .setRepoSidebarSortOrder:
-            return repoSidebarSortOrderDefinition()
-        case .setInboxGroupingTab:
-            return retiredInboxDefinition(
-                label: "Tab",
-                icon: .system(.rectangleStack),
-                helpText: "The notification inbox is retired"
-            )
-        case .setInboxGroupingRepo:
-            return retiredInboxDefinition(
-                label: "Repo",
-                icon: .system(.folder),
-                helpText: "The notification inbox is retired"
-            )
-        case .setInboxGroupingPane:
-            return retiredInboxDefinition(
-                label: "Pane",
-                icon: .system(.rectangleSplit2x1),
-                helpText: "The notification inbox is retired"
-            )
-        case .setInboxGroupingNone:
-            return retiredInboxDefinition(
-                label: "None",
-                icon: .system(.line3Horizontal),
-                helpText: "The notification inbox is retired"
-            )
-        case .setInboxRowStateFilter:
-            return retiredInboxDefinition(
-                label: "Set Inbox Row Filter",
-                icon: .system(.line3Horizontal),
-                helpText: "The notification inbox is retired"
-            )
-        case .setInboxContentMode:
-            return retiredInboxDefinition(
-                label: "Set Inbox Content Mode",
-                icon: .system(.line3Horizontal),
-                helpText: "The notification inbox is retired"
-            )
+        case .showInboxNotifications: return showInboxNotificationsDefinition()
+        case .toggleInboxNotificationSort: return toggleInboxNotificationSortDefinition()
+        case .clearReadInboxNotifications: return clearReadInboxNotificationsDefinition()
+        case .clearAllInboxNotifications: return clearAllInboxNotificationsDefinition()
+        case .showPaneInboxNotifications: return showPaneInboxNotificationsDefinition()
+        case .clearPaneInboxNotifications: return clearPaneInboxNotificationsDefinition()
+        case .showReposSidebar: return showReposSidebarDefinition()
+        case .showPanesSidebar: return showPanesSidebarDefinition()
+        case .setReposGroupingRepo: return setReposGroupingRepoDefinition()
+        case .setPanesGroupingRepo: return setPanesGroupingRepoDefinition()
+        case .setPanesGroupingTab: return setPanesGroupingTabDefinition()
+        case .setPanesGroupingActivity: return setPanesGroupingActivityDefinition()
+        case .setReposSubgroupNone: return setReposSubgroupNoneDefinition()
+        case .setReposSubgroupActivity: return setReposSubgroupActivityDefinition()
+        case .setPanesSubgroupNone: return setPanesSubgroupNoneDefinition()
+        case .setPanesSubgroupActivity: return setPanesSubgroupActivityDefinition()
+        case .setReposSortFieldName: return setReposSortFieldNameDefinition()
+        case .setReposSortFieldActivity: return setReposSortFieldActivityDefinition()
+        case .setPanesSortFieldName: return setPanesSortFieldNameDefinition()
+        case .setPanesSortFieldActivity: return setPanesSortFieldActivityDefinition()
+        case .toggleReposSortDirection: return toggleReposSortDirectionDefinition()
+        case .togglePanesSortDirection: return togglePanesSortDirectionDefinition()
+        case .toggleReposShowsPinned: return toggleReposShowsPinnedDefinition()
+        case .togglePanesShowsPinned: return togglePanesShowsPinnedDefinition()
+        case .setInboxGroupingTab: return setInboxGroupingTabDefinition()
+        case .setInboxGroupingRepo: return setInboxGroupingRepoDefinition()
+        case .setInboxGroupingPane: return setInboxGroupingPaneDefinition()
+        case .setInboxGroupingNone: return setInboxGroupingNoneDefinition()
+        case .setInboxRowStateFilter: return setInboxRowStateFilterDefinition()
+        case .setInboxContentMode: return setInboxContentModeDefinition()
         case .newFloatingTerminal:
             return windowDefinition(
                 label: "New Floating Terminal",

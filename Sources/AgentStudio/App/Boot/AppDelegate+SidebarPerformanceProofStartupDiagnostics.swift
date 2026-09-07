@@ -254,7 +254,7 @@ import Observation
                 return
             }
             mainWindowController.expandSidebar()
-            AppCommandDispatcher.shared.dispatch(.setRepoSidebarGroupingRepo)
+            AppCommandDispatcher.shared.dispatch(.showReposSidebar)
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",

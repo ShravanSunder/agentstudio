@@ -84,7 +84,7 @@ package enum AppShortcutDispatchPolicy {
             .toggleDrawer, .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
             .openWorktree, .openWorktreeInPane, .toggleManagementLayer,
             .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -92,9 +92,15 @@ package enum AppShortcutDispatchPolicy {
             .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort, .clearReadInboxNotifications,
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
@@ -118,7 +124,7 @@ package enum AppShortcutDispatchPolicy {
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar,
             .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
             .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
@@ -198,7 +204,7 @@ package enum AppShortcutDispatchPolicy {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .toggleManagementLayer, .toggleSidebar, .filterSidebar, .showInboxNotifications,
-            .showPaneInboxNotifications, .showWorktreeSidebar, .showCommandBarEverything,
+            .showPaneInboxNotifications, .showReposSidebar, .showCommandBarEverything,
             .showCommandBarCommands, .showCommandBarPanes, .newWindow, .closeWindow,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
             .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
@@ -218,7 +224,7 @@ package enum AppShortcutDispatchPolicy {
             .zoomPane, .showViewer, .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
-            .showPaneInboxNotifications, .showWorktreeSidebar, .newWindow, .closeWindow,
+            .showPaneInboxNotifications, .showReposSidebar, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
             .selectTab7, .selectTab8, .selectTab9, .focusPane1, .focusPane2, .focusPane3,
@@ -236,8 +242,8 @@ package enum AppShortcutDispatchPolicy {
     ) -> Bool {
         switch shortcut {
         case .filterSidebar:
-            return surface == .repos
-        case .toggleSidebar, .showInboxNotifications, .showWorktreeSidebar,
+            return surface == .repos || surface == .panes
+        case .toggleSidebar, .showInboxNotifications, .showReposSidebar,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,

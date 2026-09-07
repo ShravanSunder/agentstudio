@@ -108,7 +108,10 @@ extension RepoExplorerProjectionAdapter {
         observationTokens = tokens
         observationRegistration = RepoExplorerObservationRegistration.make(
             isVisible: true,
+            surface: cachedProjectionRequest.snapshot.surface,
             groupingMode: cachedProjectionRequest.snapshot.groupingMode,
+            subgroupMode: cachedProjectionRequest.snapshot.subgroupMode,
+            sortField: cachedProjectionRequest.snapshot.sortField,
             repositoryIDs: Set(cachedProjectionRequest.snapshot.repos.map(\.id)),
             worktreeIDs: Set(cachedProjectionRequest.snapshot.repos.flatMap(\.worktrees).map(\.id)),
             paneIDs: Set(cachedProjectionRequest.paneRowFactsByPaneId.keys),
@@ -253,6 +256,7 @@ extension RepoExplorerProjectionAdapter {
 
     private func captureFullProjection(force: Bool) {
         guard isDemanded, let inputCapture else { return }
+        recencyReferenceDate = recencyNow()
         let clock = ContinuousClock()
         let requestBuildStart = clock.now
         let request = inputCapture.captureRequest(
@@ -279,6 +283,7 @@ extension RepoExplorerProjectionAdapter {
             captureFullProjection(force: false)
             return
         }
+        recencyReferenceDate = recencyNow()
         let clock = ContinuousClock()
         let requestBuildStart = clock.now
         let request = inputCapture.capturePresentationRequest(
@@ -287,7 +292,11 @@ extension RepoExplorerProjectionAdapter {
             referenceDate: recencyReferenceDate
         )
         let requestBuildDuration = requestBuildStart.duration(to: clock.now)
-        let groupingChanged = request.snapshot.groupingMode != previous.snapshot.groupingMode
+        let observationDemandChanged =
+            request.snapshot.surface != previous.snapshot.surface
+            || request.snapshot.groupingMode != previous.snapshot.groupingMode
+            || request.snapshot.subgroupMode != previous.snapshot.subgroupMode
+            || request.snapshot.sortField != previous.snapshot.sortField
         refreshProjection(
             request: request,
             requestBuildDuration: requestBuildDuration,
@@ -295,7 +304,7 @@ extension RepoExplorerProjectionAdapter {
             scopedChanges: [],
             requiresFullProjection: true
         )
-        if groupingChanged {
+        if observationDemandChanged {
             installObservationTokens()
         }
     }
@@ -350,32 +359,16 @@ extension RepoExplorerProjectionAdapter {
         recencyDeadlineTask = nil
         guard isDemanded else { return }
 
-        let now = recencyNow()
-        let nextDatesByPaneID = result.paneRowFactsByPaneId.mapValues { facts in
-            RepoExplorerPaneRecencyText.nextPresentationChangeDate(
-                referenceDate: facts.recencyReferenceDate,
-                now: now
-            )
-        }
-        let nextPaneDeadline =
-            observationRegistration.requiresRecencyDeadline
-            ? nextDatesByPaneID.values.min()
-            : nil
-        guard
-            let nextDeadline = [nextPaneDeadline, result.nextRepositoryActivityTransitionAt]
-                .compactMap(\.self).min()
-        else { return }
-        let deadlinePaneIDs = Set(
-            nextDatesByPaneID.compactMap { paneID, deadline in deadline == nextDeadline ? paneID : nil }
-        )
-        let delayNanoseconds = Int64(max(0, nextDeadline.timeIntervalSince(now)) * 1_000_000_000)
+        guard let preparedDeadline = result.preparedPresentationDeadline else { return }
         let generation = observationGeneration
         let delay = recencyDelay
+        let now = deadlineNow
         recencyDeadlineTask = Task { [weak self] in
             do {
                 try await Self.waitForRecencyDeadline(
                     delay: delay,
-                    duration: .nanoseconds(delayNanoseconds)
+                    deadline: preparedDeadline.deadline,
+                    now: now
                 )
             } catch {
                 return
@@ -384,23 +377,34 @@ extension RepoExplorerProjectionAdapter {
             await MainActor.run {
                 guard let self, self.isDemanded, self.observationGeneration == generation else { return }
                 self.recencyReferenceDate = self.recencyNow()
-                for (repositoryID, transitionAt) in result.repositoryActivityTransitionAtByRepoId
-                where transitionAt == nextDeadline {
-                    self.pendingInvalidation.insert(.repositoryActivity(repositoryID))
+                if !preparedDeadline.paneIDs.isEmpty {
+                    self.captureFullProjection(force: true)
+                    return
                 }
-                for paneID in deadlinePaneIDs {
-                    self.pendingInvalidation.insert(.pane(paneID))
+                for repositoryID in preparedDeadline.repositoryIDs {
+                    self.pendingInvalidation.insert(.repositoryActivity(repositoryID))
                 }
                 self.enqueuePendingInvalidationTurn()
             }
         }
     }
 
+    func handleSystemTimeInvalidation() {
+        recencyDeadlineTask?.cancel()
+        recencyDeadlineTask = nil
+        guard !hasStopped, isDemanded else { return }
+        captureFullProjection(force: true)
+    }
+
     @concurrent nonisolated private static func waitForRecencyDeadline(
         delay: AsyncDelay,
-        duration: Duration
+        deadline: Date,
+        now: @Sendable () -> Date
     ) async throws {
-        try await delay.wait(duration)
+        let maximumDelaySeconds = Double(Int64.max / 1_000_000_000)
+        let delaySeconds = max(0, min(deadline.timeIntervalSince(now()), maximumDelaySeconds))
+        let delayNanoseconds = Int64(delaySeconds * 1_000_000_000)
+        try await delay.wait(.nanoseconds(delayNanoseconds))
     }
 
     private func enqueuePendingInvalidationTurn() {

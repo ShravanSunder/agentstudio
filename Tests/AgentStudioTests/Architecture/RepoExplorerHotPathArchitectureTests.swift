@@ -345,7 +345,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(table.contains("snapshot.rowIDsByWorktreeID"))
         #expect(table.contains("snapshot.rowIDsByRepoID"))
         #expect(!table.contains("snapshot.rows.map"))
-        #expect(!renderer.contains("worktree.repo.isFavorite"))
+        #expect(!renderer.contains("worktree.repo.isPinned"))
         #expect(repoExplorerView.contains("RepoExplorerPresentationHostView("))
         #expect(renderer.contains("onToggleGroup(group.groupID)"))
         #expect(renderer.contains("onFocusPane(pane.destination.paneId)"))
@@ -493,7 +493,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(completeAdapterSource.contains("admitDelta("))
         #expect(completeAdapterSource.contains("stage: \"affected_row\""))
         #expect(captureSource.contains(".recency(for: .pane(paneID:"))
-        #expect(source.contains(".onChange(of: debouncedQuery)"))
+        #expect(source.contains(".onChange(of: filterText)"))
         #expect(source.contains("projectionAdapter.updateDemand("))
         #expect(sidebarHostSource.contains("isProjectionDemanded: !sidebarState.sidebarCollapsed"))
     }
@@ -656,8 +656,8 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(workerSource.contains("Task.detached(priority: .userInitiated)"))
     }
 
-    @Test("repo favorite rows read the current App-owned command delta")
-    func repoFavoriteRowsReadCurrentCommandDelta() throws {
+    @Test("repo pinned rows read the current App-owned command delta")
+    func repoPinnedRowsReadCurrentCommandDelta() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoExplorerViewSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
@@ -671,12 +671,12 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(!repoExplorerViewSource.contains("repositoryTopologyAtom.repo"))
-        #expect(rendererSource.contains("commandPresentationSnapshot.favoriteStateByRepositoryID"))
-        #expect(rendererSource.contains("isFavorite: isFavorite"))
+        #expect(rendererSource.contains("commandPresentationSnapshot.pinnedStateByRepositoryID"))
+        #expect(rendererSource.contains("isPinned: isPinned"))
     }
 
-    @Test("repo favorite mutations enter through targeted app commands")
-    func repoFavoriteMutationsEnterThroughTargetedAppCommands() throws {
+    @Test("repo pinned mutations enter through targeted app commands")
+    func repoPinnedMutationsEnterThroughTargetedAppCommands() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let rendererSource = try String(
             contentsOf: projectRoot.appending(
@@ -685,9 +685,9 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(!rendererSource.contains("repositoryTopologyAtom.setRepoFavorite"))
-        #expect(rendererSource.contains(".addRepoFavorite"))
-        #expect(rendererSource.contains(".removeRepoFavorite"))
+        #expect(!rendererSource.contains("repositoryTopologyAtom.setRepoPinned"))
+        #expect(rendererSource.contains(".pinRepo"))
+        #expect(rendererSource.contains(".unpinRepo"))
         #expect(rendererSource.contains("onCommandRequest(request)"))
     }
 
@@ -715,14 +715,16 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("onSetVisibilityMode"))
         #expect(!featureSource.contains("repoExplorerPrefs.toggleSortOrder"))
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
-        #expect(featureSource.contains("let nextSortOrder = repoExplorerPrefs.sortOrder.toggled"))
-        #expect(featureSource.contains("onSetSortOrder(nextSortOrder)"))
-        #expect(featureSource.contains("let command = groupingCommand(for: groupingMode)"))
-        #expect(featureSource.contains("commandPresentation.command(command)?.isEnabled == true"))
+        #expect(featureSource.contains(".toggleReposSortDirection"))
+        #expect(featureSource.contains(".togglePanesSortDirection"))
+        #expect(featureSource.contains(".setPanesGroupingActivity"))
+        #expect(featureSource.contains(".setReposSubgroupActivity"))
+        #expect(featureSource.contains("presentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!featureSource.contains("AppCommandDispatcher.shared"))
-        #expect(appCompositionSource.contains("command: .setRepoSidebarSortOrder"))
-        #expect(appCompositionSource.contains("arguments: .repoSidebarSortOrder(order)"))
+        #expect(appCompositionSource.contains("commandDispatcher: AppCommandDispatcher.shared"))
+        #expect(!featureSource.contains("repoExplorerPrefs.setSortDirection"))
+        #expect(!featureSource.contains("repoExplorerPrefs.setShowsPinned"))
         #expect(!appCompositionSource.contains("setRepoSidebarVisibilityMode"))
         #expect(!appCompositionSource.contains("repoSidebarVisibilityMode"))
     }

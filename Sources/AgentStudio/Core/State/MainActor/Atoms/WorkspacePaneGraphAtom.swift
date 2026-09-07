@@ -106,6 +106,7 @@ struct PaneGraphMetadata: Hashable, Sendable {
     var facets: PaneGraphFacets
     var checkoutRef: String?
     var note: String?
+    var isPinned: Bool
 
     init(metadata: PaneMetadata) {
         self.paneId = metadata.paneId
@@ -117,6 +118,7 @@ struct PaneGraphMetadata: Hashable, Sendable {
         self.facets = PaneGraphFacets(contextFacets: metadata.facets)
         self.checkoutRef = metadata.checkoutRef
         self.note = metadata.note
+        self.isPinned = metadata.isPinned
     }
 
     mutating func updateNote(_ newNote: String?) {
@@ -135,6 +137,7 @@ struct PaneGraphMetadata: Hashable, Sendable {
             facets: facets.paneContextFacets,
             checkoutRef: checkoutRef,
             note: note,
+            isPinned: isPinned,
             fillNilLaunchDirectoryFacet: false
         )
     }
@@ -483,6 +486,17 @@ package final class WorkspacePaneGraphAtom {
         }
         mutatePaneStates { paneStates in
             paneStates[paneId]?.metadata.updateNote(note)
+        }
+    }
+
+    func updatePanePinned(_ paneId: UUID, isPinned: Bool) {
+        guard let currentState = paneStateMap.snapshotValue(for: paneId) else {
+            workspacePaneLogger.warning("updatePanePinned: pane \(paneId) not found")
+            return
+        }
+        guard currentState.metadata.isPinned != isPinned else { return }
+        mutatePaneStates { paneStates in
+            paneStates[paneId]?.metadata.isPinned = isPinned
         }
     }
 

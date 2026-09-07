@@ -250,7 +250,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let startedAction = tracker.begin(
             sequence: 1,
             baseline: baseline,
-            expectedOutcome: .grouping(.pane)
+            expectedOutcome: .grouping(.activity)
         )
         let action = try #require(startedAction)
 
@@ -266,8 +266,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 11,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
-                    nativeGroupingMode: .pane
+                    groupingMode: .activity,
+                    nativeGroupingMode: .activity
                 ),
                 action: action
             )
@@ -290,7 +290,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
+                    groupingMode: .activity,
                     nativeGroupingMode: .repo
                 ),
                 action: action
@@ -302,8 +302,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
-                    nativeGroupingMode: .pane
+                    groupingMode: .activity,
+                    nativeGroupingMode: .activity
                 ),
                 action: action
             )
@@ -336,7 +336,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let startedAction = tracker.begin(
             sequence: 1,
             baseline: baseline,
-            expectedOutcome: .grouping(.pane)
+            expectedOutcome: .grouping(.activity)
         )
         let action = try #require(startedAction)
 
@@ -376,8 +376,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 semanticGeneration: 8,
                 acknowledgedRevision: 12,
                 visibleGeneration: 14,
-                groupingMode: .pane,
-                nativeGroupingMode: .pane,
+                groupingMode: .activity,
+                nativeGroupingMode: .activity,
                 materializationFingerprint: 101,
                 nativeVisibleProjection: mismatchedNativeProjection
             )
@@ -388,8 +388,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             semanticGeneration: 8,
             acknowledgedRevision: 12,
             visibleGeneration: 14,
-            groupingMode: .pane,
-            nativeGroupingMode: .pane,
+            groupingMode: .activity,
+            nativeGroupingMode: .activity,
             materializationFingerprint: 101,
             nativeVisibleProjection: .matching(
                 materializationGeneration: 14,
@@ -592,7 +592,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             let segment = SelectedSidebarGroupingAccessibilityButton(
                 identifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
                 label: groupingMode.title,
-                isSelected: groupingMode == .pane
+                isSelected: groupingMode == .activity
             )
             rootView.addSubview(segment)
         }
@@ -600,7 +600,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         rootView.addSubview(tableView)
 
         #expect(
-            SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(in: rootView) == .pane
+            SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(in: rootView) == .activity
         )
         #expect(
             SidebarPerformanceProofAccessibility.firstDescendant(

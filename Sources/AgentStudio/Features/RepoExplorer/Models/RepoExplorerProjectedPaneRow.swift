@@ -88,6 +88,8 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
     let recencyTier: RepoExplorerPaneRecencyTier
     let isActive: Bool
     let isDrawerPane: Bool
+    var isPinned = false
+    var activitySubgroup: RepoExplorerActivityBucket?
 
     var secondaryText: String? { secondaryLine?.text }
     var repoId: UUID? { destination.repoId }

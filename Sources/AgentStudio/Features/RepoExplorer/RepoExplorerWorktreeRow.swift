@@ -8,7 +8,7 @@ package enum RepoExplorerCheckoutIconKind {
     case gitWorktree
 }
 
-struct RepoExplorerFavoriteControlVisibility: Equatable {
+struct RepoExplorerPinnedControlVisibility: Equatable {
     let showsInlineButton: Bool
     let showsContextMenuAction: Bool
 
@@ -27,21 +27,21 @@ struct RepoExplorerWorktreeRowContent: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     var showsRepositoryFactStatus = true
-    let showsFavoriteControl: Bool
-    var isFavorite = false
-    var favoriteCommandPresentation: RepoExplorerPresentedCommand?
-    var onToggleFavorite: () -> Void = {}
+    let showsPinnedControl: Bool
+    var isPinned = false
+    var pinnedCommandPresentation: RepoExplorerPresentedCommand?
+    var onTogglePinned: () -> Void = {}
 
-    static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
-        favoriteActionSpec(isFavorite: isFavorite).label
+    static func pinnedAccessibilityLabel(isPinned: Bool) -> String {
+        pinnedActionSpec(isPinned: isPinned).label
     }
 
-    static func favoriteHelpText(isFavorite: Bool) -> String {
-        favoriteActionSpec(isFavorite: isFavorite).helpText
+    static func pinnedHelpText(isPinned: Bool) -> String {
+        pinnedActionSpec(isPinned: isPinned).helpText
     }
 
-    static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
-        (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
+    static func pinnedActionSpec(isPinned: Bool) -> AppCommandSpec {
+        (isPinned ? AppCommand.unpinRepo : AppCommand.pinRepo).definition
     }
 
     static func diffChipDetail(branchStatus: GitBranchStatus) -> SidebarDiffChip.WorkingTreeDetail? {
@@ -83,16 +83,16 @@ struct RepoExplorerWorktreeRowContent: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if showsFavoriteControl,
-                    let favoriteCommandPresentation
+                if showsPinnedControl,
+                    let pinnedCommandPresentation
                 {
-                    let favoriteActionSpec = favoriteCommandPresentation.commandSpec
-                    Button(action: onToggleFavorite) {
-                        favoriteActionSpec.icon.swiftUIImage(
+                    let pinnedActionSpec = pinnedCommandPresentation.commandSpec
+                    Button(action: onTogglePinned) {
+                        pinnedActionSpec.icon.swiftUIImage(
                             loader: octiconLoader,
                             size: AppStyles.General.Icon.compact
                         )
-                        .foregroundStyle(isFavorite ? iconColor : .secondary)
+                        .foregroundStyle(isPinned ? iconColor : .secondary)
                         .frame(
                             width: AppStyles.General.Button.compact,
                             height: AppStyles.General.Button.compact
@@ -100,9 +100,9 @@ struct RepoExplorerWorktreeRowContent: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(favoriteActionSpec.label)
-                    .controlHelp(favoriteActionSpec.controlTooltipRenderValue())
-                    .disabled(!favoriteCommandPresentation.isEnabled)
+                    .accessibilityLabel(pinnedActionSpec.label)
+                    .controlHelp(pinnedActionSpec.controlTooltipRenderValue())
+                    .disabled(!pinnedCommandPresentation.isEnabled)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,9 +171,9 @@ package struct RepoExplorerWorktreeRow: View {
     let branchStatus: GitBranchStatus
     var showsRepositoryFactStatus = true
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
-    var isFavorite = false
+    var isPinned = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
-    var onToggleFavorite: () -> Void = {}
+    var onTogglePinned: () -> Void = {}
     let onOpen: () -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
@@ -190,9 +190,9 @@ package struct RepoExplorerWorktreeRow: View {
         branchStatus: GitBranchStatus,
         showsRepositoryFactStatus: Bool = true,
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
-        isFavorite: Bool = false,
+        isPinned: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
-        onToggleFavorite: @escaping () -> Void = {},
+        onTogglePinned: @escaping () -> Void = {},
         onOpen: @escaping () -> Void
     ) {
         self.octiconLoader = octiconLoader
@@ -205,19 +205,19 @@ package struct RepoExplorerWorktreeRow: View {
         self.branchStatus = branchStatus
         self.showsRepositoryFactStatus = showsRepositoryFactStatus
         self.bridgeCommandResolution = bridgeCommandResolution
-        self.isFavorite = isFavorite
+        self.isPinned = isPinned
         self.commandPresentation = commandPresentation
-        self.onToggleFavorite = onToggleFavorite
+        self.onTogglePinned = onTogglePinned
         self.onOpen = onOpen
     }
 
     package var body: some View {
-        let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
+        let pinnedControlVisibility = RepoExplorerPinnedControlVisibility(
             isMainWorktree: worktree.isMainWorktree
         )
-        let favoriteCommand = isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite
+        let pinnedCommand = isPinned ? AppCommand.unpinRepo : AppCommand.pinRepo
         let inlineOpenWorktree = commandPresentation.inlineCommand(.openWorktree)
-        let inlineFavorite = commandPresentation.inlineCommand(favoriteCommand)
+        let inlinePinned = commandPresentation.inlineCommand(pinnedCommand)
 
         SidebarRowShell(isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
@@ -229,10 +229,10 @@ package struct RepoExplorerWorktreeRow: View {
                 iconColor: iconColor,
                 branchStatus: branchStatus,
                 showsRepositoryFactStatus: showsRepositoryFactStatus,
-                showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
-                isFavorite: isFavorite,
-                favoriteCommandPresentation: inlineFavorite,
-                onToggleFavorite: onToggleFavorite
+                showsPinnedControl: pinnedControlVisibility.showsInlineButton,
+                isPinned: isPinned,
+                pinnedCommandPresentation: inlinePinned,
+                onTogglePinned: onTogglePinned
             )
         }
         .onHover { isHovering = $0 }

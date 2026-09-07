@@ -45,6 +45,8 @@ struct SidebarSurfaceHost: View {
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
     let paneActivityStatusAtom: PaneActivityStatusAtom
+    let applicationLifecycleMonitor: ApplicationLifecycleMonitor
+    let sidebarTimeInvalidationConsumerID: UUID
     let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
@@ -72,14 +74,6 @@ struct SidebarSurfaceHost: View {
                 commandDispatcher: AppCommandDispatcher.shared,
                 commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
                 visibleSnapshotConsumerToken: repoCommandPresentationBatch?.consumerToken,
-                onSetSortOrder: { order in
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarSortOrder,
-                            arguments: .repoSidebarSortOrder(order)
-                        )
-                    )
-                },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onVisibleWorktreeSnapshotChanged: { snapshot in
@@ -90,10 +84,21 @@ struct SidebarSurfaceHost: View {
                 },
                 onPerformanceProofReadback: onPerformanceProofReadback,
                 latestPaneMessageSnapshot: { paneId in
-                    paneActivityStatusAtom.status(for: paneId)?.lastOutputLine
+                    paneActivityStatusAtom.status(for: paneId)
                 },
                 performanceTraceRecorder: performanceTraceRecorder,
-                initialProjectionTrigger: "data_refresh"
+                initialProjectionTrigger: "data_refresh",
+                installSystemTimeInvalidationHandler: { handler in
+                    applicationLifecycleMonitor.installSidebarTimeInvalidationHandler(
+                        consumerID: sidebarTimeInvalidationConsumerID,
+                        handler: handler
+                    )
+                },
+                removeSystemTimeInvalidationHandler: {
+                    applicationLifecycleMonitor.removeSidebarTimeInvalidationHandler(
+                        consumerID: sidebarTimeInvalidationConsumerID
+                    )
+                }
             )
             .task {
                 guard repoCommandPresentationBatch == nil else { return }

@@ -89,7 +89,6 @@ enum AppCommandIPCDurableTargetContract: Equatable, Sendable {
 
 enum AppCommandIPCArgumentContract: Equatable, Sendable {
     case noArguments
-    case repoSidebarSortOrder
     case inboxRowStateFilter
     case inboxContentMode
 
@@ -97,14 +96,6 @@ enum AppCommandIPCArgumentContract: Equatable, Sendable {
         switch self {
         case .noArguments:
             []
-        case .repoSidebarSortOrder:
-            [
-                IPCCommandArgumentSchema(
-                    name: "order",
-                    kind: .stringEnum(values: RepoExplorerSortOrder.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ]
         case .inboxRowStateFilter:
             [
                 IPCCommandArgumentSchema(
@@ -144,8 +135,6 @@ extension AppCommand {
     var ipcSpec: AppCommandIPCSpec {
         let argumentContract: AppCommandIPCArgumentContract =
             switch self {
-            case .setRepoSidebarSortOrder:
-                .repoSidebarSortOrder
             case .setInboxRowStateFilter:
                 .inboxRowStateFilter
             case .setInboxContentMode:
@@ -172,7 +161,7 @@ extension AppCommand {
                 .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
                 .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
                 .openPullRequest,
-                .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+                .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
                 .openWorktree, .openWorktreeInPane,
                 .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -180,9 +169,15 @@ extension AppCommand {
                 .managementLayerCreateBrowser, .managementLayerExit,
                 .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
                 .clearReadInboxNotifications, .clearAllInboxNotifications,
-                .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
-                .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane,
-                .setRepoSidebarGroupingTab,
+                .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
+                .setReposGroupingRepo,
+                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+                .setReposSubgroupNone, .setReposSubgroupActivity,
+                .setPanesSubgroupNone, .setPanesSubgroupActivity,
+                .setReposSortFieldName, .setReposSortFieldActivity,
+                .setPanesSortFieldName, .setPanesSortFieldActivity,
+                .toggleReposSortDirection, .togglePanesSortDirection,
+                .toggleReposShowsPinned, .togglePanesShowsPinned,
                 .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
                 .setInboxGroupingNone,
                 .newFloatingTerminal, .newWindow, .closeWindow,
@@ -218,18 +213,24 @@ extension AppCommand {
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .showWorktreeSidebar:
+            case .showReposSidebar, .showPanesSidebar:
                 .headlessAndInteractive(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-                .setRepoSidebarSortOrder:
+            case .setReposGroupingRepo,
+                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+                .setReposSubgroupNone, .setReposSubgroupActivity,
+                .setPanesSubgroupNone, .setPanesSubgroupActivity,
+                .setReposSortFieldName, .setReposSortFieldActivity,
+                .setPanesSortFieldName, .setPanesSortFieldActivity,
+                .toggleReposSortDirection, .togglePanesSortDirection,
+                .toggleReposShowsPinned, .togglePanesShowsPinned:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .addRepoFavorite, .removeRepoFavorite:
+            case .pinRepo, .unpinRepo, .pinPane, .unpinPane:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
@@ -290,7 +291,7 @@ extension AppCommand {
             return .required(primary: .tab, additional: [])
         case .splitRight, .splitLeft:
             return .required(primary: .tab, additional: [.pane])
-        case .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite:
+        case .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo:
             return .required(primary: .repo, additional: [])
         case .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
             .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -299,7 +300,7 @@ extension AppCommand {
             .focusDrawerPaneRight, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .openPullRequest, .reloadBridgeWebView,
+            .copyCurrentPanePath, .openPullRequest, .reloadBridgeWebView, .pinPane, .unpinPane,
             .showPaneInboxNotifications, .clearPaneInboxNotifications:
             return .required(primary: .pane, additional: [])
         case .newTab, .undoCloseTab, .nextTab, .prevTab,
@@ -318,10 +319,16 @@ extension AppCommand {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
             .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
-            .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane,
-            .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder, .setInboxGroupingTab, .setInboxGroupingRepo,
+            .clearReadInboxNotifications, .clearAllInboxNotifications, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
             .setInboxContentMode, .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
@@ -340,12 +347,18 @@ extension AppCommand {
             return .uiPresent
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return .terminalInputWrite
-        case .showInboxNotifications, .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane,
-            .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder, .setInboxGroupingTab, .setInboxGroupingRepo,
+        case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
-            .setInboxContentMode, .addRepoFavorite, .removeRepoFavorite:
+            .setInboxContentMode, .pinRepo, .unpinRepo, .pinPane, .unpinPane:
             return .sidebarStateMutate
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .copyCurrentPanePath, .openPullRequest,

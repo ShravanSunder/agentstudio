@@ -81,7 +81,7 @@ struct AppCommandDispatcherModePreflightTests {
     func contextualDispatchRejectsTargetedOnlyCommandBeforeExecutionOwners() async throws {
         let shellOwner = RecordingDispatcherShellCommandOwner()
         let workspaceOwner = RecordingDispatcherWorkspaceCommandOwner()
-        #expect(AppCommand.addRepoFavorite.definition.targeting == .targeted([.repo]))
+        #expect(AppCommand.pinRepo.definition.targeting == .targeted([.repo]))
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -89,7 +89,7 @@ struct AppCommandDispatcherModePreflightTests {
                 AppCommandDispatcher.shared.handler = workspaceOwner
             },
             body: {
-                AppCommandDispatcher.shared.dispatch(.addRepoFavorite)
+                AppCommandDispatcher.shared.dispatch(.pinRepo)
 
                 #expect(shellOwner.interactions.isEmpty)
                 #expect(workspaceOwner.interactions.isEmpty)

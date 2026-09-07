@@ -10,14 +10,16 @@ import Observation
 @Observable
 final class RepoExplorerCommandPresentationBatch {
     /// Every sidebar request's capability derives from `WorkspaceCommandValidator.validate` over
-    /// `actionStateSnapshot()`, which reads only these four global facts plus repo/worktree
-    /// membership (tracked separately per visible key). Pane-to-worktree association never
-    /// changes a capability result, so it is intentionally absent here.
+    /// `actionStateSnapshot()` plus the sidebar settings that gate the static toolbar request set.
+    /// Repo/worktree membership is tracked separately per visible key. Pane-to-worktree
+    /// association never changes a capability result, so it is intentionally absent here.
     private struct CapabilityFactsFingerprint: Equatable {
         let activeTabID: UUID?
         let activePaneID: UUID?
         let activeTabZoom: ZoomPresentation?
         let isManagementLayerActive: Bool
+        let sidebarSurface: SidebarSurface
+        let paneGroupingMode: RepoExplorerGroupingMode
 
         func globalCapabilitiesMatch(_ previous: Self) -> Bool {
             self == previous
@@ -27,10 +29,11 @@ final class RepoExplorerCommandPresentationBatch {
     private struct ObservationCapture {
         let visibleWorktreeIDs: Set<UUID>
         let visibleRepositoryIDs: Set<UUID>
+        let visiblePaneIDs: Set<UUID>
         let progressByRepositoryID: [UUID: RepositoryFactUpdateProgress]
         let capabilityFactsFingerprint: CapabilityFactsFingerprint
         let requests: Set<RepoExplorerCommandPresentationRequest>
-        let favoriteStateByRepositoryID: [UUID: Bool]
+        let pinnedStateByRepositoryID: [UUID: Bool]
     }
 
     private struct ResolvedBatch {
@@ -42,6 +45,7 @@ final class RepoExplorerCommandPresentationBatch {
         let nextSnapshot: RepoExplorerCommandPresentationSnapshot
         let affectedWorktreeIDs: Set<UUID>
         let affectedRepositoryIDs: Set<UUID>
+        let affectedPaneIDs: Set<UUID>
         let affectedRequestIdentities: Set<RepoExplorerCommandPresentationRequest>
         let toolbarChanged: Bool
         let shouldPublish: Bool
@@ -69,6 +73,7 @@ final class RepoExplorerCommandPresentationBatch {
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
     @ObservationIgnored private var lastVisibleRepositoryIDs: Set<UUID> = []
+    @ObservationIgnored private var lastVisiblePaneIDs: Set<UUID> = []
     @ObservationIgnored private var lastProgressByRepositoryID: [UUID: RepositoryFactUpdateProgress] = [:]
     @ObservationIgnored private var lastRequests: Set<RepoExplorerCommandPresentationRequest> = []
     @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
@@ -96,6 +101,7 @@ final class RepoExplorerCommandPresentationBatch {
         self.observationID = observationID
         lastVisibleWorktreeIDs = []
         lastVisibleRepositoryIDs = []
+        lastVisiblePaneIDs = []
         lastProgressByRepositoryID = [:]
         lastRequests = []
         lastCapabilityFactsFingerprint = nil
@@ -135,13 +141,15 @@ final class RepoExplorerCommandPresentationBatch {
             return ObservationCapture(
                 visibleWorktreeIDs: visibleWorktreeIDs,
                 visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
+                visiblePaneIDs: capturedVisibleSnapshot.paneIDs,
                 progressByRepositoryID: progressByRepositoryID,
                 capabilityFactsFingerprint: observeGlobalCapabilityFacts(),
                 requests: commandPresentationRequests(
                     visibleWorktreeIDs: visibleWorktreeIDs,
-                    visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs
+                    visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
+                    visiblePaneIDs: capturedVisibleSnapshot.paneIDs
                 ),
-                favoriteStateByRepositoryID: favoriteStateByRepositoryID(
+                pinnedStateByRepositoryID: pinnedStateByRepositoryID(
                     visibleWorktreeIDs: visibleWorktreeIDs
                 )
             )
@@ -208,12 +216,12 @@ final class RepoExplorerCommandPresentationBatch {
         let nextSnapshot = RepoExplorerCommandPresentationSnapshot(
             generation: nextGeneration,
             results: retainedResults.merging(resolvedResults) { _, resolved in resolved },
-            favoriteStateByRepositoryID: capture.favoriteStateByRepositoryID
+            pinnedStateByRepositoryID: capture.pinnedStateByRepositoryID
         )
         let targetChanged = nextVisibleSnapshot.target != lastResolvedVisibleSnapshot?.target
         let presentationChanged =
             snapshot.results != nextSnapshot.results
-            || snapshot.favoriteStateByRepositoryID != nextSnapshot.favoriteStateByRepositoryID
+            || snapshot.pinnedStateByRepositoryID != nextSnapshot.pinnedStateByRepositoryID
         let affectedRequestIdentities =
             requestsToResolve
             .union(lastRequests.subtracting(capture.requests))
@@ -225,6 +233,7 @@ final class RepoExplorerCommandPresentationBatch {
         let affectedTargets = affectedTargets(
             requestIdentities: affectedRequestIdentities,
             visibleSetDelta: visibleSetDelta,
+            visiblePaneSetDelta: capture.visiblePaneIDs.symmetricDifference(lastVisiblePaneIDs),
             targetChanged: targetChanged,
             visibleWorktreeIDs: capture.visibleWorktreeIDs
         )
@@ -237,6 +246,7 @@ final class RepoExplorerCommandPresentationBatch {
             nextSnapshot: nextSnapshot,
             affectedWorktreeIDs: affectedTargets.worktreeIDs,
             affectedRepositoryIDs: affectedTargets.repositoryIDs,
+            affectedPaneIDs: affectedTargets.paneIDs,
             affectedRequestIdentities: affectedRequestIdentities,
             toolbarChanged: Self.toolbarPresentationChanged(
                 previous: snapshot.results,
@@ -249,17 +259,21 @@ final class RepoExplorerCommandPresentationBatch {
     private func affectedTargets(
         requestIdentities: Set<RepoExplorerCommandPresentationRequest>,
         visibleSetDelta: Set<UUID>,
+        visiblePaneSetDelta: Set<UUID>,
         targetChanged: Bool,
         visibleWorktreeIDs: Set<UUID>
-    ) -> (worktreeIDs: Set<UUID>, repositoryIDs: Set<UUID>) {
+    ) -> (worktreeIDs: Set<UUID>, repositoryIDs: Set<UUID>, paneIDs: Set<UUID>) {
         var affectedWorktreeIDs = visibleSetDelta
         var affectedRepositoryIDs: Set<UUID> = []
+        var affectedPaneIDs = visiblePaneSetDelta
         for request in requestIdentities {
             switch request.targetType {
             case .worktree:
                 if let target = request.target { affectedWorktreeIDs.insert(target) }
             case .repo:
                 if let target = request.target { affectedRepositoryIDs.insert(target) }
+            case .pane:
+                if let target = request.target { affectedPaneIDs.insert(target) }
             default:
                 break
             }
@@ -274,12 +288,13 @@ final class RepoExplorerCommandPresentationBatch {
                 affectedWorktreeIDs.insert(worktreeID)
             }
         }
-        return (affectedWorktreeIDs, affectedRepositoryIDs)
+        return (affectedWorktreeIDs, affectedRepositoryIDs, affectedPaneIDs)
     }
 
     private func publish(_ resolvedBatch: ResolvedBatch, trigger: WakeTrigger) {
         lastVisibleWorktreeIDs = resolvedBatch.visibleSnapshot.worktreeIDs
         lastVisibleRepositoryIDs = resolvedBatch.visibleSnapshot.repositoryIDs
+        lastVisiblePaneIDs = resolvedBatch.visibleSnapshot.paneIDs
         lastProgressByRepositoryID = Dictionary(
             uniqueKeysWithValues: resolvedBatch.visibleSnapshot.repositoryIDs.compactMap { repositoryID in
                 atom(\.repoCache).repositoryFactUpdateProgress(for: repositoryID).map {
@@ -313,6 +328,7 @@ final class RepoExplorerCommandPresentationBatch {
                 snapshot: resolvedBatch.nextSnapshot,
                 affectedWorktreeIDs: resolvedBatch.affectedWorktreeIDs,
                 affectedRepositoryIDs: resolvedBatch.affectedRepositoryIDs,
+                affectedPaneIDs: resolvedBatch.affectedPaneIDs,
                 affectedRequestIdentities: resolvedBatch.affectedRequestIdentities,
                 toolbarChanged: resolvedBatch.toolbarChanged
             )
@@ -355,29 +371,32 @@ final class RepoExplorerCommandPresentationBatch {
     }
 
     /// Reads only the global facts `actionStateSnapshot()` feeds into every sidebar request's
-    /// capability: the active tab, its active pane, that tab's zoom presentation, and the
-    /// management layer. Never iterates tabs or panes and never assembles a `Tab`.
+    /// capability: the active tab, its active pane, that tab's zoom presentation, management
+    /// layer, sidebar surface, and Panes grouping. Never iterates tabs or panes and never
+    /// assembles a `Tab`.
     private func observeGlobalCapabilityFacts() -> CapabilityFactsFingerprint {
         let activeTabID = store.tabLayoutAtom.activeTabId
         let activePaneID = activeTabID.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
         let activeTabZoom = activeTabID.flatMap { store.panePresentationAtom.zoomPresentation(forTab: $0) }
         let isManagementLayerActive = atom(\.managementLayer).isActive
+        let sidebarSurface = repoExplorerPrefs.sidebarSurface
+        let paneGroupingMode = repoExplorerPrefs.groupingMode(for: .panes)
         return CapabilityFactsFingerprint(
             activeTabID: activeTabID,
             activePaneID: activePaneID,
             activeTabZoom: activeTabZoom,
-            isManagementLayerActive: isManagementLayerActive
+            isManagementLayerActive: isManagementLayerActive,
+            sidebarSurface: sidebarSurface,
+            paneGroupingMode: paneGroupingMode
         )
     }
 
     private func commandPresentationRequests(
         visibleWorktreeIDs: Set<UUID>,
-        visibleRepositoryIDs: Set<UUID>
+        visibleRepositoryIDs: Set<UUID>,
+        visiblePaneIDs: Set<UUID>
     ) -> Set<RepoExplorerCommandPresentationRequest> {
-        let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
-        var requests = RepoExplorerToolbarCommandPresentation.requests(
-            nextSortOrder: nextSortOrder
-        )
+        var requests = RepoExplorerToolbarCommandPresentation.requests()
         requests.formUnion(
             visibleRepositoryIDs.map { repositoryID in
                 RepoExplorerRepositoryCommandPresentation.request(repoID: repositoryID)
@@ -392,24 +411,33 @@ final class RepoExplorerCommandPresentationBatch {
                 RepoExplorerWorktreeCommandPresentation.requests(
                     worktreeId: worktree.id,
                     repoId: repo.id,
-                    isFavorite: repo.isFavorite,
-                    showsFavoriteControl: worktree.isMainWorktree
+                    isPinned: repo.isPinned,
+                    showsPinnedControl: worktree.isMainWorktree
+                )
+            )
+        }
+        for paneID in visiblePaneIDs {
+            guard let pane = store.paneAtom.pane(paneID) else { continue }
+            requests.formUnion(
+                RepoExplorerPaneCommandPresentation.requests(
+                    paneId: paneID,
+                    isPinned: pane.metadata.isPinned
                 )
             )
         }
         return requests
     }
 
-    private func favoriteStateByRepositoryID(
+    private func pinnedStateByRepositoryID(
         visibleWorktreeIDs: Set<UUID>
     ) -> [UUID: Bool] {
-        var favoriteStateByRepositoryID: [UUID: Bool] = [:]
+        var pinnedStateByRepositoryID: [UUID: Bool] = [:]
         for worktreeID in visibleWorktreeIDs {
             guard let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
                 let repo = store.repositoryTopologyAtom.repo(worktree.repoId)
             else { continue }
-            favoriteStateByRepositoryID[repo.id] = repo.isFavorite
+            pinnedStateByRepositoryID[repo.id] = repo.isPinned
         }
-        return favoriteStateByRepositoryID
+        return pinnedStateByRepositoryID
     }
 }

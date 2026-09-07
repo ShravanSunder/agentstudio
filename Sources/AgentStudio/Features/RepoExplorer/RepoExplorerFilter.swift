@@ -6,6 +6,10 @@ import Foundation
 /// Pure filter logic for sidebar repo/worktree searching.
 /// Extracted for testability and single source of truth.
 enum RepoExplorerFilter {
+    static func normalizedQuery(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Filter repos by a search query with worktree-level granularity.
     ///
     /// - If `query` is empty, returns all repos unchanged.
@@ -16,14 +20,15 @@ enum RepoExplorerFilter {
         repos: [RepoPresentationItem],
         query: String
     ) -> [RepoPresentationItem] {
-        guard !query.isEmpty else { return repos }
+        let normalizedQuery = normalizedQuery(query)
+        guard !normalizedQuery.isEmpty else { return repos }
 
         return repos.compactMap { repo in
-            if repoMatches(repo, query: query) {
+            if repoMatches(repo, query: normalizedQuery) {
                 return repo
             }
             let matchingWorktrees = repo.worktrees.filter {
-                worktreeMatches($0, query: query)
+                worktreeMatches($0, query: normalizedQuery)
             }
             guard !matchingWorktrees.isEmpty else { return nil }
             var filtered = repo

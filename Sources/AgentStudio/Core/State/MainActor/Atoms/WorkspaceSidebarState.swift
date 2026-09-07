@@ -2,8 +2,32 @@ import Observation
 
 package enum RepoSidebarGroupingMode: String, CaseIterable, Codable, Hashable, Sendable {
     case repo
-    case pane
     case tab
+    case activity
+}
+
+package enum SidebarSubgroupMode: String, CaseIterable, Codable, Hashable, Sendable {
+    case ungrouped = "none"
+    case activity
+}
+
+package enum SidebarSortField: String, CaseIterable, Codable, Hashable, Sendable {
+    case name
+    case activity
+}
+
+package enum SidebarSortDirection: String, CaseIterable, Codable, Hashable, Sendable {
+    case ascending
+    case descending
+
+    package static let `default`: Self = .ascending
+
+    package var toggled: Self {
+        switch self {
+        case .ascending: .descending
+        case .descending: .ascending
+        }
+    }
 }
 
 @MainActor
@@ -14,6 +38,11 @@ package final class WorkspaceSidebarMemoryAtom {
     private(set) var sidebarCollapsed: Bool = false
     private(set) var sidebarSurface: SidebarSurface = .repos
     private(set) var repoGroupingMode: RepoSidebarGroupingMode = .repo
+    private(set) var paneGroupingMode: RepoSidebarGroupingMode = .repo
+    private(set) var repoSubgroupMode: SidebarSubgroupMode = .ungrouped
+    private(set) var paneSubgroupMode: SidebarSubgroupMode = .activity
+    private(set) var showsPinnedRepos: Bool = true
+    private(set) var showsPinnedPanes: Bool = true
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -28,12 +57,31 @@ package final class WorkspaceSidebarMemoryAtom {
     }
 
     func setSidebarSurface(_ surface: SidebarSurface) {
-        _ = surface
-        sidebarSurface = .repos
+        sidebarSurface = surface == .inbox ? .repos : surface
     }
 
     func setRepoGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
         repoGroupingMode = groupingMode
+    }
+
+    func setPaneGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
+        paneGroupingMode = groupingMode
+    }
+
+    func setRepoSubgroupMode(_ subgroupMode: SidebarSubgroupMode) {
+        repoSubgroupMode = subgroupMode
+    }
+
+    func setPaneSubgroupMode(_ subgroupMode: SidebarSubgroupMode) {
+        paneSubgroupMode = subgroupMode
+    }
+
+    func setShowsPinnedRepos(_ showsPinned: Bool) {
+        showsPinnedRepos = showsPinned
+    }
+
+    func setShowsPinnedPanes(_ showsPinned: Bool) {
+        showsPinnedPanes = showsPinned
     }
 
     func hydrate(
@@ -41,14 +89,23 @@ package final class WorkspaceSidebarMemoryAtom {
         isFilterVisible: Bool,
         sidebarCollapsed: Bool = false,
         sidebarSurface: SidebarSurface = .repos,
-        repoGroupingMode: RepoSidebarGroupingMode = .repo
+        repoGroupingMode: RepoSidebarGroupingMode = .repo,
+        paneGroupingMode: RepoSidebarGroupingMode = .repo,
+        repoSubgroupMode: SidebarSubgroupMode = .ungrouped,
+        paneSubgroupMode: SidebarSubgroupMode = .activity,
+        showsPinnedRepos: Bool = true,
+        showsPinnedPanes: Bool = true
     ) {
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.sidebarCollapsed = sidebarCollapsed
-        _ = sidebarSurface
-        self.sidebarSurface = .repos
+        self.sidebarSurface = sidebarSurface == .inbox ? .repos : sidebarSurface
         self.repoGroupingMode = repoGroupingMode
+        self.paneGroupingMode = paneGroupingMode
+        self.repoSubgroupMode = repoSubgroupMode
+        self.paneSubgroupMode = paneSubgroupMode
+        self.showsPinnedRepos = showsPinnedRepos
+        self.showsPinnedPanes = showsPinnedPanes
     }
 
     func clear() {
@@ -57,6 +114,11 @@ package final class WorkspaceSidebarMemoryAtom {
         sidebarCollapsed = false
         sidebarSurface = .repos
         repoGroupingMode = .repo
+        paneGroupingMode = .repo
+        repoSubgroupMode = .ungrouped
+        paneSubgroupMode = .activity
+        showsPinnedRepos = true
+        showsPinnedPanes = true
     }
 }
 
@@ -108,6 +170,12 @@ package final class WorkspaceSidebarState {
         memoryAtom.repoGroupingMode
     }
 
+    package var paneGroupingMode: RepoSidebarGroupingMode { memoryAtom.paneGroupingMode }
+    package var repoSubgroupMode: SidebarSubgroupMode { memoryAtom.repoSubgroupMode }
+    package var paneSubgroupMode: SidebarSubgroupMode { memoryAtom.paneSubgroupMode }
+    package var showsPinnedRepos: Bool { memoryAtom.showsPinnedRepos }
+    package var showsPinnedPanes: Bool { memoryAtom.showsPinnedPanes }
+
     package var sidebarHasFocus: Bool {
         focusAtom.sidebarHasFocus
     }
@@ -132,6 +200,26 @@ package final class WorkspaceSidebarState {
         memoryAtom.setRepoGroupingMode(groupingMode)
     }
 
+    package func setPaneGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
+        memoryAtom.setPaneGroupingMode(groupingMode)
+    }
+
+    package func setRepoSubgroupMode(_ subgroupMode: SidebarSubgroupMode) {
+        memoryAtom.setRepoSubgroupMode(subgroupMode)
+    }
+
+    package func setPaneSubgroupMode(_ subgroupMode: SidebarSubgroupMode) {
+        memoryAtom.setPaneSubgroupMode(subgroupMode)
+    }
+
+    package func setShowsPinnedRepos(_ showsPinned: Bool) {
+        memoryAtom.setShowsPinnedRepos(showsPinned)
+    }
+
+    package func setShowsPinnedPanes(_ showsPinned: Bool) {
+        memoryAtom.setShowsPinnedPanes(showsPinned)
+    }
+
     package func setSidebarHasFocus(_ hasFocus: Bool) {
         focusAtom.setSidebarHasFocus(hasFocus)
     }
@@ -141,14 +229,24 @@ package final class WorkspaceSidebarState {
         isFilterVisible: Bool,
         sidebarCollapsed: Bool = false,
         sidebarSurface: SidebarSurface = .repos,
-        repoGroupingMode: RepoSidebarGroupingMode = .repo
+        repoGroupingMode: RepoSidebarGroupingMode = .repo,
+        paneGroupingMode: RepoSidebarGroupingMode = .repo,
+        repoSubgroupMode: SidebarSubgroupMode = .ungrouped,
+        paneSubgroupMode: SidebarSubgroupMode = .activity,
+        showsPinnedRepos: Bool = true,
+        showsPinnedPanes: Bool = true
     ) {
         memoryAtom.hydrate(
             filterText: filterText,
             isFilterVisible: isFilterVisible,
             sidebarCollapsed: sidebarCollapsed,
             sidebarSurface: sidebarSurface,
-            repoGroupingMode: repoGroupingMode
+            repoGroupingMode: repoGroupingMode,
+            paneGroupingMode: paneGroupingMode,
+            repoSubgroupMode: repoSubgroupMode,
+            paneSubgroupMode: paneSubgroupMode,
+            showsPinnedRepos: showsPinnedRepos,
+            showsPinnedPanes: showsPinnedPanes
         )
         focusAtom.clear()
     }

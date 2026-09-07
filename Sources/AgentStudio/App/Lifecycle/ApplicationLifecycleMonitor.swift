@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AppKit
 import Foundation
 
 @MainActor
@@ -15,11 +16,15 @@ final class ApplicationLifecycleMonitor {
     private let scheduleFirstMainRunLoopDrain: ScheduleFirstMainRunLoopDrain
     private var didScheduleFirstInteractiveFrameSources = false
     private var launchLayoutSettledInstant: ContinuousClock.Instant?
+    private let notificationCenter: NotificationCenter
+    private var systemTimeObservationTokens: [NSObjectProtocol] = []
+    private var sidebarTimeInvalidationHandlers: [UUID: @MainActor @Sendable () -> Void] = [:]
 
     init(
         appLifecycleStore: AppLifecycleAtom,
         windowLifecycleStore: WindowLifecycleAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        notificationCenter: NotificationCenter = .default,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
         scheduleFirstDisplayCommit: @escaping ScheduleFirstDisplayCommit = { _ in },
         scheduleFirstMainRunLoopDrain: @escaping ScheduleFirstMainRunLoopDrain = { completion in
@@ -33,9 +38,32 @@ final class ApplicationLifecycleMonitor {
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.notificationCenter = notificationCenter
         self.now = now
         self.scheduleFirstDisplayCommit = scheduleFirstDisplayCommit
         self.scheduleFirstMainRunLoopDrain = scheduleFirstMainRunLoopDrain
+        installSystemTimeObservation()
+    }
+
+    isolated deinit {
+        stopSystemTimeObservation()
+    }
+
+    func installSidebarTimeInvalidationHandler(
+        consumerID: UUID,
+        handler: @escaping @MainActor @Sendable () -> Void
+    ) {
+        sidebarTimeInvalidationHandlers[consumerID] = handler
+    }
+
+    func removeSidebarTimeInvalidationHandler(consumerID: UUID) {
+        sidebarTimeInvalidationHandlers[consumerID] = nil
+    }
+
+    func handleSystemTimeChanged() {
+        for handler in sidebarTimeInvalidationHandlers.values {
+            handler()
+        }
     }
 
     func installFirstDisplayCommitScheduler(_ scheduler: @escaping ScheduleFirstDisplayCommit) {
@@ -54,6 +82,7 @@ final class ApplicationLifecycleMonitor {
     func handleApplicationWillTerminate(onWillTerminate: () -> Void = {}) {
         appLifecycleStore.markTerminating()
         onWillTerminate()
+        stopSystemTimeObservation()
     }
 
     func handleWindowRegistered(_ windowId: UUID) {
@@ -140,5 +169,25 @@ final class ApplicationLifecycleMonitor {
         scheduleFirstMainRunLoopDrain { [weak self] in
             self?.handleFirstMainRunLoopDrainCompleted()
         }
+    }
+
+    private func installSystemTimeObservation() {
+        guard systemTimeObservationTokens.isEmpty else { return }
+        let names: [Notification.Name] = [.NSSystemClockDidChange, .NSSystemTimeZoneDidChange]
+        systemTimeObservationTokens = names.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSystemTimeChanged()
+                }
+            }
+        }
+    }
+
+    private func stopSystemTimeObservation() {
+        for token in systemTimeObservationTokens {
+            notificationCenter.removeObserver(token)
+        }
+        systemTimeObservationTokens = []
+        sidebarTimeInvalidationHandlers = [:]
     }
 }

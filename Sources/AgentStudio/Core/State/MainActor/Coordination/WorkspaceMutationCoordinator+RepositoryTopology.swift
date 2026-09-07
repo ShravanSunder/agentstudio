@@ -126,11 +126,11 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
-    package func setRepoFavorite(_ repositoryID: UUID, isFavorite: Bool) {
+    package func setRepoPinned(_ repositoryID: UUID, isPinned: Bool) {
         guard let repository = repositoryTopologyAtom.repo(repositoryID) else { return }
         repositoryTopologyAtom.applyValidatedRepositoryMetadata(
             repositoryID: repositoryID,
-            isFavorite: isFavorite,
+            isPinned: isPinned,
             note: repository.note,
             tags: repository.tags
         )
@@ -140,7 +140,7 @@ extension WorkspaceMutationCoordinator {
         guard let repository = repositoryTopologyAtom.repo(repositoryID) else { return }
         repositoryTopologyAtom.applyValidatedRepositoryMetadata(
             repositoryID: repositoryID,
-            isFavorite: repository.isFavorite,
+            isPinned: repository.isPinned,
             note: normalizedRepositoryNote(note),
             tags: repository.tags
         )
@@ -161,7 +161,7 @@ extension WorkspaceMutationCoordinator {
         }
         repositoryTopologyAtom.applyValidatedRepositoryMetadata(
             repositoryID: repositoryID,
-            isFavorite: repository.isFavorite,
+            isPinned: repository.isPinned,
             note: repository.note,
             tags: tags.sorted()
         )

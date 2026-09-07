@@ -244,7 +244,12 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                 worktreeRows: worktreeRows,
                 entries: &entries
             )
+            var previousBucket: RepoExplorerActivityBucket?
             for row in projectedPaneRowsByGroupId[group.id] ?? [] {
+                if let bucket = row.activitySubgroup, bucket != previousBucket {
+                    entries.append(.activitySubgroup(groupId: group.id, bucket: bucket))
+                    previousBucket = bucket
+                }
                 entries.append(
                     .resolvedPaneRow(
                         groupId: group.id,
@@ -267,20 +272,18 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         worktreeRows: [RepoExplorerProjectedWorktreeRow],
         entries: inout [RepoExplorerListEntry]
     ) {
-        entries.append(
-            contentsOf: worktreeRows.map { row in
-                .resolvedWorktreeRow(
-                    groupId: groupId,
-                    repoId: row.repo.id,
-                    worktreeId: row.worktree.id,
-                    rowId: .worktree(
-                        groupID: row.groupId,
-                        repoID: row.repo.id,
-                        worktreeID: row.worktree.id
-                    )
-                )
+        var previousBucket: RepoExplorerActivityBucket?
+        for row in worktreeRows {
+            if let bucket = row.activitySubgroup, bucket != previousBucket {
+                entries.append(.activitySubgroup(groupId: groupId, bucket: bucket))
+                previousBucket = bucket
             }
-        )
+            entries.append(
+                .resolvedWorktreeRow(
+                    groupId: groupId, repoId: row.repo.id, worktreeId: row.worktree.id,
+                    rowId: .worktree(groupID: row.groupId, repoID: row.repo.id, worktreeID: row.worktree.id)
+                ))
+        }
     }
 
     private static func paneRowID(

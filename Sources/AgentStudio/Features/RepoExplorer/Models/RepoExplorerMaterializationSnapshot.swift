@@ -75,6 +75,7 @@ struct RepoExplorerUnassociatedPanePresentation: Equatable, Sendable {
 }
 
 enum RepoExplorerMaterializedRowPresentation: Equatable, Sendable {
+    case activitySubgroup(RepoExplorerActivityBucket)
     case sectionHeader(kind: RepoExplorerSidebarSectionKind, isFirstRow: Bool)
     case loadingSectionHeader(
         kind: RepoExplorerSidebarSectionKind,
@@ -167,6 +168,14 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
 
     private static func facts(for presentation: RepoExplorerMaterializedRowPresentation) -> Facts {
         switch presentation {
+        case .activitySubgroup:
+            var facts = Facts(
+                rowClass: .sectionHeader, primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight)
+            facts.leadingInset =
+                AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+                + AppStyles.Shell.Sidebar.rowHorizontalInset
+            facts.additionalVerticalPadding = AppStyles.Components.SectionSubheading.bottomPadding
+            return facts
         case .sectionHeader(_, let isFirstRow):
             var facts = Facts(
                 rowClass: .sectionHeader,
@@ -334,6 +343,7 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
     let fallbackContentHeight: CGFloat
     let rowIndexByID: [RepoExplorerRowID: Int]
     let rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]]
+    let rowIDsByPaneID: [UUID: [RepoExplorerRowID]]
     let rowIDsByRepoID: [UUID: [RepoExplorerRowID]]
     let performanceProofPresentationSummary: RepoExplorerPerformanceProofPresentationSummary
 
@@ -342,6 +352,7 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
     init(rows: [RepoExplorerMaterializedRow]) {
         var rowIndexByID: [RepoExplorerRowID: Int] = [:]
         var rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]] = [:]
+        var rowIDsByPaneID: [UUID: [RepoExplorerRowID]] = [:]
         var rowIDsByRepoID: [UUID: [RepoExplorerRowID]] = [:]
         var inactiveRepositoryHeaderCount = 0
         var suppressedRepositoryFactRowCount = 0
@@ -350,6 +361,9 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
 
         for (index, row) in rows.enumerated() {
             precondition(rowIndexByID.updateValue(index, forKey: row.id) == nil)
+            if case .pane(let pane) = row.presentation {
+                rowIDsByPaneID[pane.destination.paneId, default: []].append(row.id)
+            }
             if let worktreeID = row.representedWorktreeID {
                 rowIDsByWorktreeID[worktreeID, default: []].append(row.id)
             }
@@ -382,6 +396,7 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         }
         self.rowIndexByID = rowIndexByID
         self.rowIDsByWorktreeID = rowIDsByWorktreeID
+        self.rowIDsByPaneID = rowIDsByPaneID
         self.rowIDsByRepoID = rowIDsByRepoID
         performanceProofPresentationSummary = RepoExplorerPerformanceProofPresentationSummary(
             inactiveRepositoryHeaderCount: inactiveRepositoryHeaderCount,
@@ -465,6 +480,8 @@ extension RepoExplorerMaterializationSnapshot {
         inputs: RepoExplorerMaterializationInputs
     ) -> RepoExplorerMaterializedRowPresentation {
         switch entry {
+        case .activitySubgroup(_, let bucket):
+            return .activitySubgroup(bucket)
         case .sectionHeader(let kind):
             return .sectionHeader(kind: kind, isFirstRow: index == 0)
         case .loadingSectionHeader(let kind):
@@ -551,7 +568,7 @@ extension RepoExplorerMaterializationSnapshot {
         inputs: RepoExplorerMaterializationInputs
     ) -> RepoExplorerMaterializedRowPresentation {
         let semanticRepo = semanticRepo(for: group, groupingMode: inputs.snapshot.groupingMode)
-        let activityRepo = inputs.snapshot.groupingMode == .repo ? semanticRepo : nil
+        let activityRepo = inputs.snapshot.surface == .repos ? semanticRepo : nil
         let paneDestinations =
             inputs.snapshot.groupingMode != .tab && group.repos.count == 1
             ? inputs.projection.paneDestinationsByRepoId[group.repos[0].id] ?? []
@@ -559,7 +576,9 @@ extension RepoExplorerMaterializationSnapshot {
         return .groupHeader(
             RepoExplorerMaterializedGroupHeaderPresentation(
                 groupID: group.id,
-                icon: inputs.snapshot.groupingMode == .tab ? .tabGroup : .repo,
+                icon: inputs.snapshot.groupingMode == .activity
+                    ? .activity
+                    : (inputs.snapshot.groupingMode == .tab ? .tabGroup : .repo),
                 title: group.repoTitle,
                 organizationName: group.organizationName,
                 colorHex: RepoPresentationColoring.sourceGroupColorHex(for: group),
@@ -588,7 +607,7 @@ extension RepoExplorerMaterializationSnapshot {
             return (worktree.repo.id, worktree.worktree.id)
         case .pane(let pane):
             return (pane.repoId, pane.worktreeId)
-        case .sectionHeader, .loadingSectionHeader, .groupHeader, .unassociatedPane,
+        case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .groupHeader, .unassociatedPane,
             .topologyFault, .unresolved:
             return (nil, nil)
         }
@@ -598,7 +617,7 @@ extension RepoExplorerMaterializationSnapshot {
         for group: RepoPresentationGroup,
         groupingMode: RepoExplorerGroupingMode
     ) -> RepoPresentationItem? {
-        guard groupingMode == .repo || groupingMode == .pane, group.repos.count == 1 else {
+        guard groupingMode == .repo, group.repos.count == 1 else {
             return nil
         }
         return group.repos[0]

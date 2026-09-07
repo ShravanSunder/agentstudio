@@ -3,7 +3,6 @@ import Foundation
 
 package enum RepoExplorerCommandPresentationArguments: Hashable, Sendable {
     case noArguments
-    case repoSidebarSortOrder(RepoExplorerSortOrder)
 }
 
 package struct RepoExplorerCommandPresentationRequest: Hashable, Sendable {
@@ -32,21 +31,21 @@ package struct RepoExplorerCommandPresentationSnapshot: Equatable, Sendable {
     package static let empty = Self(
         generation: 0,
         results: [:],
-        favoriteStateByRepositoryID: [:]
+        pinnedStateByRepositoryID: [:]
     )
 
     package let generation: UInt64
     package let results: [RepoExplorerCommandPresentationRequest: Bool]
-    package let favoriteStateByRepositoryID: [UUID: Bool]
+    package let pinnedStateByRepositoryID: [UUID: Bool]
 
     package init(
         generation: UInt64,
         results: [RepoExplorerCommandPresentationRequest: Bool],
-        favoriteStateByRepositoryID: [UUID: Bool] = [:]
+        pinnedStateByRepositoryID: [UUID: Bool] = [:]
     ) {
         self.generation = generation
         self.results = results
-        self.favoriteStateByRepositoryID = favoriteStateByRepositoryID
+        self.pinnedStateByRepositoryID = pinnedStateByRepositoryID
     }
 }
 
@@ -60,17 +59,20 @@ package struct RepoExplorerVisibleWorktreeSnapshot: Equatable, Sendable {
     package let target: RepoExplorerCommandPresentationTarget
     package let worktreeIDs: Set<UUID>
     package let repositoryIDs: Set<UUID>
+    package let paneIDs: Set<UUID>
     package let settledUpdateAttemptByRepositoryID: [UUID: UUID]
 
     package init(
         target: RepoExplorerCommandPresentationTarget,
         worktreeIDs: Set<UUID>,
         repositoryIDs: Set<UUID> = [],
+        paneIDs: Set<UUID> = [],
         settledUpdateAttemptByRepositoryID: [UUID: UUID] = [:]
     ) {
         self.target = target
         self.worktreeIDs = worktreeIDs
         self.repositoryIDs = repositoryIDs
+        self.paneIDs = paneIDs
         self.settledUpdateAttemptByRepositoryID = settledUpdateAttemptByRepositoryID
     }
 }
@@ -81,6 +83,7 @@ package struct RepoExplorerCommandPresentationDelta: Equatable, Sendable {
     package let snapshot: RepoExplorerCommandPresentationSnapshot
     package let affectedWorktreeIDs: Set<UUID>
     package let affectedRepositoryIDs: Set<UUID>
+    package let affectedPaneIDs: Set<UUID>
     package let affectedRequestIdentities: Set<RepoExplorerCommandPresentationRequest>
     package let toolbarChanged: Bool
 
@@ -90,6 +93,7 @@ package struct RepoExplorerCommandPresentationDelta: Equatable, Sendable {
         snapshot: RepoExplorerCommandPresentationSnapshot,
         affectedWorktreeIDs: Set<UUID>,
         affectedRepositoryIDs: Set<UUID>,
+        affectedPaneIDs: Set<UUID> = [],
         affectedRequestIdentities: Set<RepoExplorerCommandPresentationRequest>,
         toolbarChanged: Bool
     ) {
@@ -99,6 +103,7 @@ package struct RepoExplorerCommandPresentationDelta: Equatable, Sendable {
         self.snapshot = snapshot
         self.affectedWorktreeIDs = affectedWorktreeIDs
         self.affectedRepositoryIDs = affectedRepositoryIDs
+        self.affectedPaneIDs = affectedPaneIDs
         self.affectedRequestIdentities = affectedRequestIdentities
         self.toolbarChanged = toolbarChanged
     }
@@ -191,10 +196,10 @@ package struct RepoExplorerWorktreeCommandPresentation {
     package static func requests(
         worktreeId: UUID,
         repoId: UUID,
-        isFavorite: Bool,
-        showsFavoriteControl: Bool
+        isPinned: Bool,
+        showsPinnedControl: Bool
     ) -> Set<RepoExplorerCommandPresentationRequest> {
-        let favoriteCommand: AppCommand = isFavorite ? .removeRepoFavorite : .addRepoFavorite
+        let pinCommand: AppCommand = isPinned ? .unpinRepo : .pinRepo
         var requests = Set(
             contextMenuWorktreeCommands.map { command in
                 RepoExplorerCommandPresentationRequest(
@@ -215,11 +220,11 @@ package struct RepoExplorerWorktreeCommandPresentation {
                 arguments: .noArguments
             )
         )
-        if showsFavoriteControl {
+        if showsPinnedControl {
             for surface in [AppCommandSurface.contextMenu, .inlineControl] {
                 requests.insert(
                     RepoExplorerCommandPresentationRequest(
-                        command: favoriteCommand,
+                        command: pinCommand,
                         surface: surface,
                         target: repoId,
                         targetType: .repo,
@@ -234,15 +239,15 @@ package struct RepoExplorerWorktreeCommandPresentation {
     static func resolve(
         worktreeId: UUID,
         repoId: UUID,
-        isFavorite: Bool,
-        showsFavoriteControl: Bool,
+        isPinned: Bool,
+        showsPinnedControl: Bool,
         snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
         let presentedCommands = requests(
             worktreeId: worktreeId,
             repoId: repoId,
-            isFavorite: isFavorite,
-            showsFavoriteControl: showsFavoriteControl
+            isPinned: isPinned,
+            showsPinnedControl: showsPinnedControl
         ).compactMap { request -> (RepoExplorerCommandPresentationRequest, RepoExplorerPresentedCommand)? in
             RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
                 .map { (request, $0) }
@@ -294,23 +299,65 @@ package struct RepoExplorerWorktreeCommandPresentation {
     }
 }
 
+package struct RepoExplorerPaneCommandPresentation {
+    package static func requests(
+        paneId: UUID,
+        isPinned: Bool
+    ) -> Set<RepoExplorerCommandPresentationRequest> {
+        let command: AppCommand = isPinned ? .unpinPane : .pinPane
+        return Set(
+            [AppCommandSurface.contextMenu, .inlineControl].map { surface in
+                RepoExplorerCommandPresentationRequest(
+                    command: command,
+                    surface: surface,
+                    target: paneId,
+                    targetType: .pane,
+                    arguments: .noArguments
+                )
+            }
+        )
+    }
+
+    package static func resolve(
+        paneId: UUID,
+        isPinned: Bool,
+        surface: AppCommandSurface = .inlineControl,
+        snapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> RepoExplorerPresentedCommand? {
+        let request = requests(paneId: paneId, isPinned: isPinned).first { $0.surface == surface }
+        guard let request else { return nil }
+        return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
+    }
+}
+
 package struct RepoExplorerToolbarCommandPresentation {
     private static let toolbarCommands: [AppCommand] = [
-        .setRepoSidebarGroupingRepo,
-        .setRepoSidebarGroupingPane,
-        .setRepoSidebarGroupingTab,
-        .setRepoSidebarSortOrder,
+        .showReposSidebar,
+        .showPanesSidebar,
+        .setReposGroupingRepo,
+        .setPanesGroupingRepo,
+        .setPanesGroupingTab,
+        .setPanesGroupingActivity,
+        .setReposSubgroupNone,
+        .setReposSubgroupActivity,
+        .setPanesSubgroupNone,
+        .setPanesSubgroupActivity,
+        .setReposSortFieldName,
+        .setReposSortFieldActivity,
+        .setPanesSortFieldName,
+        .setPanesSortFieldActivity,
+        .toggleReposSortDirection,
+        .togglePanesSortDirection,
+        .toggleReposShowsPinned,
+        .togglePanesShowsPinned,
     ]
 
     private let commandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
 
-    package static func requests(
-        nextSortOrder _: RepoExplorerSortOrder
-    ) -> Set<RepoExplorerCommandPresentationRequest> {
-        var requests = Set(
-            toolbarCommands.compactMap { command -> RepoExplorerCommandPresentationRequest? in
-                guard command != .setRepoSidebarSortOrder else { return nil }
-                return RepoExplorerCommandPresentationRequest(
+    package static func requests() -> Set<RepoExplorerCommandPresentationRequest> {
+        Set(
+            toolbarCommands.map { command in
+                RepoExplorerCommandPresentationRequest(
                     command: command,
                     surface: .inlineControl,
                     target: nil,
@@ -319,22 +366,9 @@ package struct RepoExplorerToolbarCommandPresentation {
                 )
             }
         )
-        for sortOrder in RepoExplorerSortOrder.allCases {
-            requests.insert(
-                RepoExplorerCommandPresentationRequest(
-                    command: .setRepoSidebarSortOrder,
-                    surface: .inlineControl,
-                    target: nil,
-                    targetType: nil,
-                    arguments: .repoSidebarSortOrder(sortOrder)
-                )
-            )
-        }
-        return requests
     }
 
     static func resolve(
-        nextSortOrder: RepoExplorerSortOrder,
         snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
         let presentedCommands = toolbarCommands.compactMap { command in
@@ -343,9 +377,7 @@ package struct RepoExplorerToolbarCommandPresentation {
                 surface: .inlineControl,
                 target: nil,
                 targetType: nil,
-                arguments: command == .setRepoSidebarSortOrder
-                    ? .repoSidebarSortOrder(nextSortOrder)
-                    : .noArguments
+                arguments: .noArguments
             )
             return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
         }

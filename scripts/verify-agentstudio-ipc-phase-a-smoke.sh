@@ -265,30 +265,52 @@ try:
     if command_bar_entry.get("title") != "Command Palette":
         print(f"showCommandBarCommands title mismatch: {command_bar_entry}", file=sys.stderr)
         sys.exit(1)
-    repo_sort_entry = next(
+    repo_sort_toggle_entry = next(
         (
             command
             for command in commands
-            if command.get("id") == "setRepoSidebarSortOrder"
+            if command.get("id") == "toggleReposSortDirection"
         ),
         None,
     )
-    if repo_sort_entry is None:
-        print("command.list did not include setRepoSidebarSortOrder", file=sys.stderr)
+    if repo_sort_toggle_entry is None:
+        print("command.list did not include toggleReposSortDirection", file=sys.stderr)
         sys.exit(1)
-    repo_sort_arguments = repo_sort_entry.get("argumentSchema", [])
-    if repo_sort_arguments != [
-        {
-            "name": "order",
-            "kind": {"type": "stringEnum", "values": ["ascending", "descending"]},
-            "isRequired": True,
-        }
-    ]:
+    if repo_sort_toggle_entry.get("argumentSchema") != []:
         print(
-            f"setRepoSidebarSortOrder argument schema mismatch: {repo_sort_entry}",
+            f"toggleReposSortDirection argument schema mismatch: {repo_sort_toggle_entry}",
             file=sys.stderr,
         )
         sys.exit(1)
+    required_sidebar_no_argument_commands = {
+        "showReposSidebar",
+        "showPanesSidebar",
+        "setReposGroupingRepo",
+        "setPanesGroupingRepo",
+        "setPanesGroupingTab",
+        "setPanesGroupingActivity",
+        "setReposSubgroupNone",
+        "setReposSubgroupActivity",
+        "setPanesSubgroupNone",
+        "setPanesSubgroupActivity",
+        "setReposSortFieldName",
+        "setReposSortFieldActivity",
+        "setPanesSortFieldName",
+        "setPanesSortFieldActivity",
+        "toggleReposSortDirection",
+        "togglePanesSortDirection",
+        "toggleReposShowsPinned",
+        "togglePanesShowsPinned",
+    }
+    commands_by_id = {command.get("id"): command for command in commands}
+    for command_id in sorted(required_sidebar_no_argument_commands):
+        command_entry = commands_by_id.get(command_id)
+        if command_entry is None:
+            print(f"command.list did not include {command_id}", file=sys.stderr)
+            sys.exit(1)
+        if command_entry.get("argumentSchema") != []:
+            print(f"{command_id} must expose no arguments: {command_entry}", file=sys.stderr)
+            sys.exit(1)
     allowed_command_keys = {
         "id",
         "title",
@@ -317,56 +339,68 @@ try:
         "requires presentation",
     )
 
-    repo_sort_descending = require_success(
+    show_repos_result = require_success(
         session.request(
             8,
             "command.execute",
-            {
-                "commandId": "setRepoSidebarSortOrder",
-                "targetHandle": None,
-                "arguments": {"order": "descending"},
-            },
+            {"commandId": "showReposSidebar", "targetHandle": None, "arguments": {}},
         ),
-        "command.execute setRepoSidebarSortOrder descending",
+        "command.execute showReposSidebar before repo settings",
     )
-    if repo_sort_descending.get("applied") is not True:
-        print(f"repo sort descending command did not apply: {repo_sort_descending}", file=sys.stderr)
+    if show_repos_result.get("applied") is not True:
+        print(f"showReposSidebar did not apply: {show_repos_result}", file=sys.stderr)
         sys.exit(1)
 
-    repo_sort_ascending = require_success(
+    repo_sort_first_toggle = require_success(
         session.request(
             9,
             "command.execute",
             {
-                "commandId": "setRepoSidebarSortOrder",
+                "commandId": "toggleReposSortDirection",
                 "targetHandle": None,
-                "arguments": {"order": "ascending"},
+                "arguments": {},
             },
         ),
-        "command.execute setRepoSidebarSortOrder ascending",
+        "command.execute toggleReposSortDirection first toggle",
     )
-    if repo_sort_ascending.get("applied") is not True:
-        print(f"repo sort ascending command did not apply: {repo_sort_ascending}", file=sys.stderr)
+    if repo_sort_first_toggle.get("applied") is not True:
+        print(f"first repo sort toggle did not apply: {repo_sort_first_toggle}", file=sys.stderr)
         sys.exit(1)
 
-    require_error(
+    repo_sort_second_toggle = require_success(
         session.request(
             10,
             "command.execute",
             {
-                "commandId": "setRepoSidebarSortOrder",
+                "commandId": "toggleReposSortDirection",
+                "targetHandle": None,
+                "arguments": {},
+            },
+        ),
+        "command.execute toggleReposSortDirection second toggle",
+    )
+    if repo_sort_second_toggle.get("applied") is not True:
+        print(f"second repo sort toggle did not apply: {repo_sort_second_toggle}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            11,
+            "command.execute",
+            {
+                "commandId": "toggleReposSortDirection",
                 "targetHandle": None,
                 "arguments": {"order": "currentRepoOrder"},
             },
         ),
-        "command.execute setRepoSidebarSortOrder invalid order",
+        "command.execute toggleReposSortDirection extraneous order",
         -32007,
         "validation rejected",
     )
 
     command_bar_open = require_success(
         session.request(
-            11,
+            12,
             "ui.commandBar.open",
             {"scope": "commands"},
         ),
@@ -393,29 +427,44 @@ try:
             sys.exit(1)
 
     sidebar_command_expectations = [
-        (12, "showWorktreeSidebar"),
-        (13, "setRepoSidebarGroupingRepo"),
-        (14, "setRepoSidebarGroupingPane"),
-        (15, "setRepoSidebarGroupingTab"),
-        (16, "showInboxNotifications"),
-        (17, "setInboxGroupingTab"),
-        (18, "setInboxGroupingRepo"),
-        (19, "setInboxGroupingPane"),
-        (20, "setInboxGroupingNone"),
+        (13, "setReposGroupingRepo"),
+        (14, "setReposSubgroupNone"),
+        (15, "setReposSubgroupActivity"),
+        (16, "setReposSortFieldName"),
+        (17, "setReposSortFieldActivity"),
+        (18, "toggleReposShowsPinned"),
+        (19, "toggleReposShowsPinned"),
+        (20, "showPanesSidebar"),
+        (21, "setPanesGroupingRepo"),
+        (22, "setPanesSubgroupNone"),
+        (23, "setPanesSubgroupActivity"),
+        (24, "setPanesGroupingTab"),
+        (25, "setPanesGroupingActivity"),
+        (26, "setPanesSortFieldName"),
+        (27, "setPanesSortFieldActivity"),
+        (28, "togglePanesSortDirection"),
+        (29, "togglePanesSortDirection"),
+        (30, "togglePanesShowsPinned"),
+        (31, "togglePanesShowsPinned"),
+        (32, "showInboxNotifications"),
+        (33, "setInboxGroupingTab"),
+        (34, "setInboxGroupingRepo"),
+        (35, "setInboxGroupingPane"),
+        (36, "setInboxGroupingNone"),
     ]
     for request_id, command_id in sidebar_command_expectations:
         execute_sidebar_command(request_id, command_id)
 
     repo_grouping = require_success(
-        session.request(21, "sidebar.grouping.get", {"surface": "repo"}),
+        session.request(37, "sidebar.grouping.get", {"surface": "repo"}),
         "sidebar.grouping.get repo",
     )
-    if repo_grouping.get("mode") != "tab":
-        print(f"repo grouping did not persist tab mode: {repo_grouping}", file=sys.stderr)
+    if repo_grouping.get("mode") != "repo":
+        print(f"repo grouping did not persist repository mode: {repo_grouping}", file=sys.stderr)
         sys.exit(1)
 
     inbox_grouping = require_success(
-        session.request(22, "sidebar.grouping.get", {"surface": "inbox"}),
+        session.request(38, "sidebar.grouping.get", {"surface": "inbox"}),
         "sidebar.grouping.get inbox",
     )
     if inbox_grouping.get("mode") != "none":
@@ -423,7 +472,7 @@ try:
         sys.exit(1)
 
     sidebar_surface = require_success(
-        session.request(23, "sidebar.surface.get", {}),
+        session.request(39, "sidebar.surface.get", {}),
         "sidebar.surface.get",
     )
     if sidebar_surface.get("surface") != "inbox":
@@ -432,7 +481,7 @@ try:
 
     require_error(
         session.request(
-            24,
+            40,
             "sidebar.grouping.set",
             {"surface": "repo", "mode": "none"},
         ),

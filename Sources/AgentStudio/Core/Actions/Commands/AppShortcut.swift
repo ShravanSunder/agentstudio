@@ -207,7 +207,7 @@ package enum AppShortcut: String, CaseIterable {
     case filterSidebar
     case showInboxNotifications
     case showPaneInboxNotifications
-    case showWorktreeSidebar
+    case showReposSidebar
     case newWindow
     case closeWindow
     case showCommandBarEverything
@@ -379,7 +379,7 @@ package enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.u), modifiers: [.command, .shift]),
                 contexts: [.global, .terminalAppOwned]
             )
-        case .showWorktreeSidebar:
+        case .showReposSidebar:
             return .init(
                 trigger: .init(key: .character(.s), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
@@ -528,8 +528,8 @@ package enum AppShortcut: String, CaseIterable {
             return .showInboxNotifications
         case .showPaneInboxNotifications:
             return .showPaneInboxNotifications
-        case .showWorktreeSidebar:
-            return .showWorktreeSidebar
+        case .showReposSidebar:
+            return .showReposSidebar
         case .newWindow:
             return .newWindow
         case .closeWindow:
@@ -609,7 +609,7 @@ extension AppShortcut {
             .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar,
             .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,

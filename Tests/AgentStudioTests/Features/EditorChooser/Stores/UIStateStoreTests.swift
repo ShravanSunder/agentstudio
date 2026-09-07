@@ -19,8 +19,12 @@ struct UIStateStoreTests {
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
-        atom.setSidebarSurface(.inbox)
+        atom.setSidebarSurface(.panes)
         atom.setRepoGroupingMode(.tab)
+        atom.setPaneGroupingMode(.activity)
+        atom.setRepoSubgroupMode(.activity)
+        atom.setPaneSubgroupMode(.ungrouped)
+        atom.setShowsPinnedRepos(false)
         atom.setSidebarHasFocus(true)
 
         try await store.flushAsync(for: workspaceId)
@@ -30,8 +34,13 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.sidebarCollapsed)
-        #expect(restoredAtom.sidebarSurface == .repos)
+        #expect(restoredAtom.sidebarSurface == .panes)
         #expect(restoredAtom.repoGroupingMode == .tab)
+        #expect(restoredAtom.paneGroupingMode == .activity)
+        #expect(restoredAtom.repoSubgroupMode == .activity)
+        #expect(restoredAtom.paneSubgroupMode == .ungrouped)
+        #expect(!restoredAtom.showsPinnedRepos)
+        #expect(restoredAtom.showsPinnedPanes)
         #expect(restoredAtom.sidebarHasFocus == false)
     }
 
@@ -43,8 +52,8 @@ struct UIStateStoreTests {
         atom.setFilterText("stale")
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
-        atom.setSidebarSurface(.inbox)
-        atom.setRepoGroupingMode(.pane)
+        atom.setSidebarSurface(.panes)
+        atom.setRepoGroupingMode(.activity)
         atom.setSidebarHasFocus(true)
 
         await UIStateStore(
@@ -65,8 +74,8 @@ struct UIStateStoreTests {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         atom.setFilterText("stale")
-        atom.setSidebarSurface(.inbox)
-        atom.setRepoGroupingMode(.pane)
+        atom.setSidebarSurface(.panes)
+        atom.setRepoGroupingMode(.activity)
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
 
         await UIStateStore(
@@ -104,14 +113,14 @@ struct UIStateStoreTests {
         store.startObserving()
 
         atom.setFilterText("terminal")
-        atom.setSidebarSurface(.inbox)
+        atom.setSidebarSurface(.panes)
         atom.setRepoGroupingMode(.tab)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
 
         await assertEventuallyMain("sidebar state should autosave") {
             guard let state = try? fixture.repository.fetchSidebarState() else { return false }
-            return state.filterText == "terminal" && state.sidebarSurface == .repos
+            return state.filterText == "terminal" && state.sidebarSurface == .panes
                 && state.repoGroupingMode == .tab
         }
     }

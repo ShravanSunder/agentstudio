@@ -2,6 +2,7 @@ import Foundation
 
 package enum SQLiteLocalUXStorage {
     package static let sidebarSurfaceRepos = "repos"
+    package static let sidebarSurfacePanes = "panes"
     package static let sidebarSurfaceInbox = "inbox"
     package static let repoExplorerGroupingRepo = "repo"
     package static let repoExplorerGroupingPane = "pane"
@@ -54,6 +55,8 @@ package enum SQLiteLocalUXStorage {
         switch surface {
         case .repos:
             sidebarSurfaceRepos
+        case .panes:
+            sidebarSurfacePanes
         case .inbox:
             sidebarSurfaceInbox
         }
@@ -63,6 +66,8 @@ package enum SQLiteLocalUXStorage {
         switch rawValue {
         case sidebarSurfaceRepos:
             .repos
+        case sidebarSurfacePanes:
+            .panes
         case sidebarSurfaceInbox:
             .inbox
         default:

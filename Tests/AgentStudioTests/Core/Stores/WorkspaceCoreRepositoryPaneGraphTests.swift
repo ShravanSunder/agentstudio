@@ -63,6 +63,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         title: "Parent",
                         note: "keep this note",
                         checkoutRef: "feature/pane-graph",
+                        isPinned: true,
                         durableFacets: .init(
                             repoId: repoId,
                             worktreeId: worktreeId,
@@ -105,6 +106,9 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
         #expect(restoredGraph == graph)
+        #expect(restoredGraph.panes.first?.metadata.isPinned == true)
+        #expect(restoredGraph.panes.last?.metadata.isPinned == false)
+        #expect(restoredGraph.panes.first?.residency == .pendingUndo(expiresAt: Date(timeIntervalSince1970: 400)))
     }
 
     @Test("pane graph round trips a dangling soft association without topology rows")

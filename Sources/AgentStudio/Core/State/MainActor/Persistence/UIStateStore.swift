@@ -55,7 +55,12 @@ package final class UIStateStore {
                     isFilterVisible: state.isFilterVisible,
                     sidebarCollapsed: state.sidebarCollapsed,
                     sidebarSurface: state.sidebarSurface,
-                    repoGroupingMode: state.repoGroupingMode
+                    repoGroupingMode: state.repoGroupingMode,
+                    paneGroupingMode: state.paneGroupingMode,
+                    repoSubgroupMode: state.repoSubgroupMode,
+                    paneSubgroupMode: state.paneSubgroupMode,
+                    showsPinnedRepos: state.showsPinnedRepos,
+                    showsPinnedPanes: state.showsPinnedPanes
                 )
             } else {
                 atom.clear()
@@ -91,6 +96,11 @@ package final class UIStateStore {
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
             _ = atom.repoGroupingMode
+            _ = atom.paneGroupingMode
+            _ = atom.repoSubgroupMode
+            _ = atom.paneSubgroupMode
+            _ = atom.showsPinnedRepos
+            _ = atom.showsPinnedPanes
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // WorkspaceSidebarState is @MainActor; this traps if that ownership changes.
@@ -145,7 +155,12 @@ package final class UIStateStore {
             isFilterVisible: atom.isFilterVisible,
             sidebarCollapsed: atom.sidebarCollapsed,
             sidebarSurface: atom.sidebarSurface,
-            repoGroupingMode: atom.repoGroupingMode
+            repoGroupingMode: atom.repoGroupingMode,
+            paneGroupingMode: atom.paneGroupingMode,
+            repoSubgroupMode: atom.repoSubgroupMode,
+            paneSubgroupMode: atom.paneSubgroupMode,
+            showsPinnedRepos: atom.showsPinnedRepos,
+            showsPinnedPanes: atom.showsPinnedPanes
         )
     }
 

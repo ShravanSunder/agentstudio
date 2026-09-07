@@ -8,7 +8,7 @@ struct CanonicalRepo: Codable, Identifiable, Hashable, Sendable {
     var repoPath: URL
     let stableKey: String
     var createdAt: Date
-    var isFavorite: Bool
+    var isPinned: Bool
     var note: String?
     var tags: [String]
 
@@ -18,7 +18,7 @@ struct CanonicalRepo: Codable, Identifiable, Hashable, Sendable {
         repoPath: URL,
         stableKey: String? = nil,
         createdAt: Date = Date(),
-        isFavorite: Bool = false,
+        isPinned: Bool = false,
         note: String? = nil,
         tags: [String] = []
     ) {
@@ -27,7 +27,7 @@ struct CanonicalRepo: Codable, Identifiable, Hashable, Sendable {
         self.repoPath = repoPath
         self.stableKey = stableKey ?? StableKey.fromPath(repoPath)
         self.createdAt = createdAt
-        self.isFavorite = isFavorite
+        self.isPinned = isPinned
         self.note = note
         self.tags = tags
     }
@@ -41,7 +41,7 @@ struct CanonicalRepo: Codable, Identifiable, Hashable, Sendable {
             try container.decodeIfPresent(String.self, forKey: .stableKey)
             ?? StableKey.fromPath(repoPath)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
-        self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.note = try container.decodeIfPresent(String.self, forKey: .note)
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }

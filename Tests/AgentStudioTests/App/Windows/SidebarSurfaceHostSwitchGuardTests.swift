@@ -217,10 +217,16 @@ struct SidebarSurfaceHostSwitchGuardTests {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder
     ) -> MountedSwitchGuardHost {
         let repoExplorerSidebarPrefs = RepoExplorerSidebarPrefsAtom()
+        let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: AppLifecycleAtom(),
+            windowLifecycleStore: coreAtoms.windowLifecycle
+        )
         let host = SidebarSurfaceHost(
             store: store,
             octiconLoader: OcticonLoader(resourceRootURL: testAgentStudioResourceRootURL()),
             paneActivityStatusAtom: coreAtoms.paneActivityStatus,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
+            sidebarTimeInvalidationConsumerID: UUIDv7.generate(),
             sidebarState: coreAtoms.workspaceSidebarState,
             repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
             bridgeAttendanceSnapshot: { _ in nil },
@@ -317,7 +323,10 @@ struct SidebarSurfaceHostSwitchGuardTests {
         hostingView: NSView
     ) async {
         for update in 0..<100 {
-            prefs.setSortOrder(update.isMultiple(of: 2) ? .descending : .ascending)
+            prefs.setSortDirection(
+                update.isMultiple(of: 2) ? .descending : .ascending,
+                for: .repos
+            )
             for iteration in 0..<50 {
                 if iteration.isMultiple(of: 10) { hostingView.layoutSubtreeIfNeeded() }
                 await Task.yield()

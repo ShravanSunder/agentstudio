@@ -289,7 +289,7 @@ private func insertRepo(
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO repo(id, name, repo_path, stable_key, created_at, is_favorite, note)
+            INSERT INTO repo(id, name, repo_path, stable_key, created_at, is_pinned, note)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
         arguments: StatementArguments(repoArguments(repo: repo))
@@ -303,7 +303,7 @@ private func updateRepo(
     try database.execute(
         sql: """
             UPDATE repo
-            SET name = ?, repo_path = ?, stable_key = ?, created_at = ?, is_favorite = ?, note = ?
+            SET name = ?, repo_path = ?, stable_key = ?, created_at = ?, is_pinned = ?, note = ?
             WHERE id = ?
             """,
         arguments: [
@@ -311,7 +311,7 @@ private func updateRepo(
             repo.repoPath.path,
             repo.stableKey,
             repo.createdAt.timeIntervalSince1970,
-            repo.isFavorite ? 1 : 0,
+            repo.isPinned ? 1 : 0,
             repo.note,
             repo.id.uuidString,
         ]
@@ -427,7 +427,7 @@ private func repoArguments(
         repo.repoPath.path,
         repo.stableKey,
         repo.createdAt.timeIntervalSince1970,
-        repo.isFavorite ? 1 : 0,
+        repo.isPinned ? 1 : 0,
         repo.note,
     ]
 }

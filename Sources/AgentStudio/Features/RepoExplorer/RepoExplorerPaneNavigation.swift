@@ -6,27 +6,31 @@ import SwiftUI
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
+    var pinPresentation: RepoExplorerPresentedCommand?
+    var onPin: () -> Void = {}
     let onFocus: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onFocus) {
-            SidebarRowShell(isHovering: isHovering) {
-                RepoExplorerPaneRowContent(
-                    primaryText: row.primaryText,
-                    secondaryLine: row.secondaryLine,
-                    branchContextText: row.branchContextText,
-                    branchStatus: row.branchStatus,
-                    recencyText: row.recencyText,
-                    recencyTier: row.recencyTier,
-                    isActive: row.isActive,
-                    isDrawerPane: row.isDrawerPane,
-                    octiconLoader: octiconLoader
-                )
-            }
+        SidebarRowShell(isHovering: isHovering) {
+            RepoExplorerPaneRowContent(
+                primaryText: row.primaryText,
+                secondaryLine: row.secondaryLine,
+                branchContextText: row.branchContextText,
+                branchStatus: row.branchStatus,
+                recencyText: row.recencyText,
+                recencyTier: row.recencyTier,
+                isActive: row.isActive,
+                isDrawerPane: row.isDrawerPane,
+                octiconLoader: octiconLoader,
+                pinPresentation: pinPresentation,
+                onPin: onPin
+            )
         }
-        .buttonStyle(.plain)
+        .onTapGesture(perform: onFocus)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onFocus() }
         .onHover { isHovering = $0 }
         .accessibilityLabel(
             [
@@ -55,6 +59,8 @@ struct RepoExplorerPaneRowContent: View {
     let isActive: Bool
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
+    var pinPresentation: RepoExplorerPresentedCommand?
+    var onPin: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
@@ -74,6 +80,18 @@ struct RepoExplorerPaneRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let pinPresentation {
+                    Button(action: onPin) {
+                        pinPresentation.commandSpec.icon.swiftUIImage(
+                            loader: octiconLoader, size: AppStyles.General.Icon.compact
+                        )
+                        .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!pinPresentation.isEnabled)
+                    .accessibilityLabel(pinPresentation.commandSpec.label)
+                    .controlHelp(pinPresentation.commandSpec.controlTooltipRenderValue())
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let secondaryLine {

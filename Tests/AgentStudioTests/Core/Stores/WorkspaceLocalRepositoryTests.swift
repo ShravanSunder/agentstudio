@@ -230,7 +230,13 @@ struct WorkspaceLocalRepositoryTests {
             filterText: "new",
             isFilterVisible: true,
             sidebarCollapsed: true,
-            sidebarSurface: .inbox
+            sidebarSurface: .panes,
+            repoGroupingMode: .repo,
+            paneGroupingMode: .tab,
+            repoSubgroupMode: .ungrouped,
+            paneSubgroupMode: .activity,
+            showsPinnedRepos: false,
+            showsPinnedPanes: true
         )
 
         try seedWorkspaceMemoryLanes(

@@ -195,6 +195,10 @@ package final class WorkspacePaneAtom {
         graphAtom.updatePaneNote(paneId, note: note)
     }
 
+    package func updatePanePinned(_ paneId: UUID, isPinned: Bool) {
+        graphAtom.updatePanePinned(paneId, isPinned: isPinned)
+    }
+
     package func updatePaneCWDAndResolvedContext(
         _ paneId: UUID,
         cwd: URL?,

@@ -21,7 +21,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
         #expect(
             encodedCommandListSHA256
-                == "cc8cb6b4f61899bc3b590b2aed044a49ab04457e262747f2027f09cb3510c166"
+                == "78dfcc37cc0cc484ce56f6a21e5758c67ba4d8b441e3f06ce29937d9a940f973"
         )
     }
 
@@ -53,10 +53,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
         #expect(AppCommand.showViewer.ipcSpec.exposure == .notExposed)
 
         #expect(AppCommand.closePane.ipcSpec.argumentContract == .noArguments)
-        #expect(
-            AppCommand.setRepoSidebarSortOrder.ipcSpec.argumentContract
-                == .repoSidebarSortOrder
-        )
+        #expect(AppCommand.setReposSortFieldName.ipcSpec.argumentContract == .noArguments)
         #expect(
             AppCommand.setInboxRowStateFilter.ipcSpec.argumentContract
                 == .inboxRowStateFilter
@@ -69,21 +66,14 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
     @Test("execution requests use exhaustive argument payloads decoded from the IPC contract")
     func executionRequestsUseExhaustiveArgumentPayloadsDecodedFromIPCContract() throws {
-        let defaultRequest = AppCommandExecutionRequest(command: .showWorktreeSidebar)
+        let defaultRequest = AppCommandExecutionRequest(command: .showReposSidebar)
         let noArguments = try AppCommandExecutionArguments.commandOwnedArguments(
             contract: .noArguments,
             rawArguments: [:],
             argumentsContainOnlyStrings: true
         )
-        let sortOrder = try AppCommandExecutionArguments.commandOwnedArguments(
-            contract: .repoSidebarSortOrder,
-            rawArguments: ["order": "descending"],
-            argumentsContainOnlyStrings: true
-        )
-
         #expect(defaultRequest.arguments == .noArguments)
         #expect(noArguments == .noArguments)
-        #expect(sortOrder == .repoSidebarSortOrder(.descending))
     }
 
     // Mutation caught: the presentation-policy migration changes accepted public command metadata or encoding.
@@ -94,8 +84,8 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
         let commandsById = Dictionary(uniqueKeysWithValues: result.commands.map { ($0.id, $0) })
         let acceptedEntries: [IPCCommandListEntry] = [
             IPCCommandListEntry(
-                id: IPCCommandIdentifier(rawValue: "addRepoFavorite"),
-                title: "Add Favorite",
+                id: IPCCommandIdentifier(rawValue: "pinRepo"),
+                title: "Pin Repository",
                 executionModes: [.headless],
                 targetKinds: [.repo],
                 requiredPrivileges: [.sidebarStateMutate]

@@ -64,7 +64,8 @@ package enum AppCommand: String, CaseIterable {
     case openPullRequest
     // Repo commands
     case watchFolder, updateRepositoryFacts, removeRepo
-    case addRepoFavorite, removeRepoFavorite
+    case pinRepo, unpinRepo
+    case pinPane, unpinPane
     case openWorktree
     case openWorktreeInPane
     // Management layer
@@ -85,11 +86,24 @@ package enum AppCommand: String, CaseIterable {
     case clearAllInboxNotifications
     case showPaneInboxNotifications
     case clearPaneInboxNotifications
-    case showWorktreeSidebar
-    case setRepoSidebarGroupingRepo
-    case setRepoSidebarGroupingPane
-    case setRepoSidebarGroupingTab
-    case setRepoSidebarSortOrder
+    case showReposSidebar
+    case showPanesSidebar
+    case setReposGroupingRepo
+    case setPanesGroupingRepo
+    case setPanesGroupingTab
+    case setPanesGroupingActivity
+    case setReposSubgroupNone
+    case setReposSubgroupActivity
+    case setPanesSubgroupNone
+    case setPanesSubgroupActivity
+    case setReposSortFieldName
+    case setReposSortFieldActivity
+    case setPanesSortFieldName
+    case setPanesSortFieldActivity
+    case toggleReposSortDirection
+    case togglePanesSortDirection
+    case toggleReposShowsPinned
+    case togglePanesShowsPinned
     case setInboxGroupingTab
     case setInboxGroupingRepo
     case setInboxGroupingPane

@@ -25,12 +25,12 @@ struct RepositoryTopologyAtomObservationTests {
         let invalidation = RepositoryTopologyKeyedObservationFlag()
 
         withObservationTracking {
-            _ = atom.repo(observedRepository.id)?.isFavorite
+            _ = atom.repo(observedRepository.id)?.isPinned
         } onChange: {
             invalidation.didFire = true
         }
 
-        coordinator.setRepoFavorite(unrelatedRepository.id, isFavorite: true)
+        coordinator.setRepoPinned(unrelatedRepository.id, isPinned: true)
 
         #expect(invalidation.didFire == false)
     }
@@ -88,7 +88,7 @@ struct RepositoryTopologyAtomObservationTests {
             metadataInvalidation.didFire = true
         }
 
-        coordinator.setRepoFavorite(firstRepository.id, isFavorite: true)
+        coordinator.setRepoPinned(firstRepository.id, isPinned: true)
         #expect(metadataInvalidation.didFire == false)
 
         let reorderInvalidation = RepositoryTopologyKeyedObservationFlag()
@@ -110,16 +110,16 @@ struct RepositoryTopologyAtomObservationTests {
         let repository = coordinator.addRepo(
             at: URL(fileURLWithPath: "/tmp/agentstudio-topology-keyed-removal")
         )
-        coordinator.setRepoFavorite(repository.id, isFavorite: true)
+        coordinator.setRepoPinned(repository.id, isPinned: true)
         let equalWriteInvalidation = RepositoryTopologyKeyedObservationFlag()
 
         withObservationTracking {
-            _ = atom.repo(repository.id)?.isFavorite
+            _ = atom.repo(repository.id)?.isPinned
         } onChange: {
             equalWriteInvalidation.didFire = true
         }
 
-        coordinator.setRepoFavorite(repository.id, isFavorite: true)
+        coordinator.setRepoPinned(repository.id, isPinned: true)
         #expect(equalWriteInvalidation.didFire == false)
 
         let removalInvalidation = RepositoryTopologyKeyedObservationFlag()
@@ -143,7 +143,7 @@ struct RepositoryTopologyAtomObservationTests {
         )
         let worktree = try #require(repository.worktrees.single)
 
-        coordinator.setRepoFavorite(repository.id, isFavorite: true)
+        coordinator.setRepoPinned(repository.id, isPinned: true)
         try coordinator.updateWorktreeNote(worktree.id, note: "snapshot parity")
 
         let snapshot = atom.captureReadSnapshot()

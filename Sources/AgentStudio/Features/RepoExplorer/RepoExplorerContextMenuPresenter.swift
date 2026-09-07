@@ -36,7 +36,17 @@ final class RepoExplorerContextMenuPresenter: NSObject {
                 worktree: worktree,
                 commandPresentationSnapshot: commandPresentationSnapshot
             )
-        case .sectionHeader, .loadingSectionHeader, .loadingRepository, .pane,
+        case .pane(let pane):
+            guard
+                let pin = RepoExplorerPaneCommandPresentation.resolve(
+                    paneId: pane.destination.paneId, isPinned: pane.isPinned, surface: .contextMenu,
+                    snapshot: commandPresentationSnapshot
+                )
+            else { return nil }
+            let menu = makeEmptyMenu()
+            addCommand(pin, rowID: row.id, to: menu)
+            return menu
+        case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .loadingRepository,
             .unassociatedPane, .topologyFault, .unresolved:
             return nil
         }
@@ -68,16 +78,16 @@ final class RepoExplorerContextMenuPresenter: NSObject {
         worktree: RepoExplorerMaterializedWorktreePresentation,
         commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     ) -> NSMenu {
-        let isFavorite =
-            commandPresentationSnapshot.favoriteStateByRepositoryID[worktree.repo.id] ?? false
-        let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
+        let isPinned =
+            commandPresentationSnapshot.pinnedStateByRepositoryID[worktree.repo.id] ?? false
+        let pinnedControlVisibility = RepoExplorerPinnedControlVisibility(
             isMainWorktree: worktree.isMainCheckout
         )
         let commandPresentation = RepoExplorerWorktreeCommandPresentation.resolve(
             worktreeId: worktree.worktree.id,
             repoId: worktree.repo.id,
-            isFavorite: isFavorite,
-            showsFavoriteControl: favoriteControlVisibility.showsContextMenuAction,
+            isPinned: isPinned,
+            showsPinnedControl: pinnedControlVisibility.showsContextMenuAction,
             snapshot: commandPresentationSnapshot
         )
         let menu = makeEmptyMenu()
@@ -105,9 +115,9 @@ final class RepoExplorerContextMenuPresenter: NSObject {
         addPaneDestinationSubmenu(worktree.paneDestinations, rowID: rowID, to: menu)
 
         addSeparatorIfNeeded(to: menu)
-        let favoriteCommand: AppCommand = isFavorite ? .removeRepoFavorite : .addRepoFavorite
-        if let favoritePresentation = commandPresentation.contextMenuCommand(favoriteCommand) {
-            addCommand(favoritePresentation, rowID: rowID, to: menu)
+        let pinnedCommand: AppCommand = isPinned ? .unpinRepo : .pinRepo
+        if let pinnedPresentation = commandPresentation.contextMenuCommand(pinnedCommand) {
+            addCommand(pinnedPresentation, rowID: rowID, to: menu)
         }
 
         let editorMenu = makeEmptyMenu()

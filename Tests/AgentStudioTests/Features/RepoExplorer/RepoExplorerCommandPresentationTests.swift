@@ -30,35 +30,35 @@ struct RepoExplorerCommandPresentationTests {
         #expect(!RepoExplorerRepositoryUpdatePresentation.isLoading(settled))
     }
 
-    @Test("typed presentation requests keep grouping and sort choices distinct")
-    func typedPresentationRequestsKeepArgumentChoicesDistinct() {
+    @Test("surface-specific presentation requests keep grouping and sort choices distinct")
+    func surfaceSpecificPresentationRequestsKeepChoicesDistinct() {
         let groupingRepo = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarGroupingRepo,
+            command: .setReposGroupingRepo,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
             arguments: .noArguments
         )
         let groupingPane = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarGroupingPane,
+            command: .setPanesGroupingRepo,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
             arguments: .noArguments
         )
         let sortName = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarSortOrder,
+            command: .setReposSortFieldName,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
-            arguments: .repoSidebarSortOrder(.ascending)
+            arguments: .noArguments
         )
         let sortRecent = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarSortOrder,
+            command: .setPanesSortFieldActivity,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
-            arguments: .repoSidebarSortOrder(.descending)
+            arguments: .noArguments
         )
 
         #expect(Set([groupingRepo, groupingPane, sortName, sortRecent]).count == 4)
@@ -69,12 +69,25 @@ struct RepoExplorerCommandPresentationTests {
         let requests = RepoExplorerWorktreeCommandPresentation.requests(
             worktreeId: UUID(),
             repoId: UUID(),
-            isFavorite: false,
-            showsFavoriteControl: true
+            isPinned: false,
+            showsPinnedControl: true
         )
 
         #expect(requests.count == 10)
         #expect(requests.allSatisfy { $0.target != nil })
+    }
+
+    @Test("one visible pane produces independent pin requests")
+    func visiblePaneProducesIndependentPinRequests() {
+        let paneId = UUIDv7.generate()
+        let requests = RepoExplorerPaneCommandPresentation.requests(
+            paneId: paneId,
+            isPinned: false
+        )
+
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.command == .pinPane })
+        #expect(requests.allSatisfy { $0.target == paneId && $0.targetType == .pane })
     }
 
     @Test("repository update presentation uses one exact targeted command request")
@@ -110,30 +123,30 @@ struct RepoExplorerCommandPresentationTests {
         let requests = RepoExplorerWorktreeCommandPresentation.requests(
             worktreeId: worktreeId,
             repoId: repoId,
-            isFavorite: false,
-            showsFavoriteControl: true
+            isPinned: false,
+            showsPinnedControl: true
         )
         let openRequest = requests.first { request in
             request.command == .openWorktree && request.surface == .inlineControl
         }!
-        let favoriteRequest = requests.first { request in
-            request.command == .addRepoFavorite && request.surface == .inlineControl
+        let pinRequest = requests.first { request in
+            request.command == .pinRepo && request.surface == .inlineControl
         }!
         let snapshot = RepoExplorerCommandPresentationSnapshot(
             generation: 7,
-            results: [openRequest: true, favoriteRequest: false]
+            results: [openRequest: true, pinRequest: false]
         )
 
         let presentation = RepoExplorerWorktreeCommandPresentation.resolve(
             worktreeId: worktreeId,
             repoId: repoId,
-            isFavorite: false,
-            showsFavoriteControl: true,
+            isPinned: false,
+            showsPinnedControl: true,
             snapshot: snapshot
         )
 
         #expect(presentation.inlineCommand(.openWorktree)?.isEnabled == true)
-        #expect(presentation.inlineCommand(.addRepoFavorite)?.isEnabled == false)
+        #expect(presentation.inlineCommand(.pinRepo)?.isEnabled == false)
         #expect(presentation.contextMenuCommand(.openWorktree)?.isEnabled == nil)
     }
 
@@ -179,13 +192,13 @@ struct RepoExplorerCommandPresentationTests {
         let request = RepoExplorerWorktreeCommandPresentation.requests(
             worktreeId: worktreeID,
             repoId: repoID,
-            isFavorite: false,
-            showsFavoriteControl: true
+            isPinned: false,
+            showsPinnedControl: true
         ).first!
         let snapshot = RepoExplorerCommandPresentationSnapshot(
             generation: 9,
             results: [request: true],
-            favoriteStateByRepositoryID: [repoID: true]
+            pinnedStateByRepositoryID: [repoID: true]
         )
         let delta = RepoExplorerCommandPresentationDelta(
             commandGeneration: 9,
@@ -193,6 +206,7 @@ struct RepoExplorerCommandPresentationTests {
             snapshot: snapshot,
             affectedWorktreeIDs: [worktreeID],
             affectedRepositoryIDs: [repoID],
+            affectedPaneIDs: [],
             affectedRequestIdentities: [request],
             toolbarChanged: false
         )
@@ -200,6 +214,6 @@ struct RepoExplorerCommandPresentationTests {
         #expect(delta.commandGeneration == delta.snapshot.generation)
         #expect(delta.target == target)
         #expect(delta.snapshot.results[request] == true)
-        #expect(delta.snapshot.favoriteStateByRepositoryID[repoID] == true)
+        #expect(delta.snapshot.pinnedStateByRepositoryID[repoID] == true)
     }
 }

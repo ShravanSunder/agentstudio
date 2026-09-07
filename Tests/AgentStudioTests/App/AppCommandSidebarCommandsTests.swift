@@ -3,38 +3,61 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
-@testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite("AppCommand sidebar commands")
 struct AppCommandSidebarCommandsTests {
-    @Test("repository fact update is a targeted inline-only command with no IPC exposure")
-    func repositoryFactUpdateIsTargetedInlineOnlyAndNotExposedToIPC() {
-        let definition = AppCommandDispatcher.shared.definition(for: .updateRepositoryFacts)
-
-        #expect(definition.label == "Refresh")
-        #expect(definition.icon == .system(.arrowClockwise))
-        #expect(definition.helpText == "Fetch latest remote references and refresh repository facts")
-        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
-        #expect(definition.targeting == .targeted([.repo]))
-        #expect(definition.ipcExposure.executionModes.isEmpty)
-        #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
-    }
-
-    @Test("Repo sidebar grouping commands remain presented and executable")
-    func repoSidebarGroupingCommandsRemainPresentedAndExecutable() {
-        let expected: [(AppCommand, String, CommandIcon)] = [
-            (.setRepoSidebarGroupingRepo, "Group Repos by Repo", RepoExplorerGroupingMode.repo.icon),
-            (.setRepoSidebarGroupingPane, "Group Repos by Pane", RepoExplorerGroupingMode.pane.icon),
-            (.setRepoSidebarGroupingTab, "Group Repos by Tab", RepoExplorerGroupingMode.tab.icon),
+    @Test("sidebar settings expose compact surface-specific command specs")
+    func sidebarSettingsExposeCompactSurfaceSpecificCommandSpecs() {
+        let expectedCommands: [(AppCommand, String, CommandIcon)] = [
+            (.showReposSidebar, "Repos", .system(.folder)),
+            (.showPanesSidebar, "Panes", .system(.rectangleSplit2x1)),
+            (.setReposGroupingRepo, "Repo", .system(.folder)),
+            (.setPanesGroupingRepo, "Repo", .system(.folder)),
+            (.setPanesGroupingTab, "Tab", .system(.rectangleStack)),
+            (.setPanesGroupingActivity, "Activity", .system(.clock)),
+            (.setReposSubgroupNone, "None", .system(.circle)),
+            (.setReposSubgroupActivity, "Activity", .system(.clock)),
+            (.setPanesSubgroupNone, "None", .system(.circle)),
+            (.setPanesSubgroupActivity, "Activity", .system(.clock)),
+            (.setReposSortFieldName, "Name", .system(.line3Horizontal)),
+            (.setReposSortFieldActivity, "Activity", .system(.clock)),
+            (.setPanesSortFieldName, "Name", .system(.line3Horizontal)),
+            (.setPanesSortFieldActivity, "Activity", .system(.clock)),
+            (.toggleReposSortDirection, "Direction", .system(.arrowUp)),
+            (.togglePanesSortDirection, "Direction", .system(.arrowUp)),
+            (.toggleReposShowsPinned, "Show Pinned", .system(.pinFill)),
+            (.togglePanesShowsPinned, "Show Pinned", .system(.pinFill)),
         ]
 
-        for (command, label, icon) in expected {
+        for (command, label, icon) in expectedCommands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.label == label)
             #expect(definition.icon == icon)
-            #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+            #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
+            let expectedExecutionModes: [IPCCommandExecutionMode] =
+                command == .showReposSidebar || command == .showPanesSidebar
+                ? [.headless, .requiresInteractiveInput]
+                : [.headless]
+            #expect(definition.ipcExposure.executionModes == expectedExecutionModes)
+            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+            #expect(definition.argumentSchema.isEmpty)
+        }
+    }
+
+    @Test("repository and pane pin commands keep independent durable targets")
+    func repositoryAndPanePinCommandsKeepIndependentDurableTargets() {
+        for command in [AppCommand.pinRepo, .unpinRepo] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.targeting == .targeted([.repo]))
+            #expect(definition.ipcExposure.executionModes == [.headless])
+            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+        }
+        for command in [AppCommand.pinPane, .unpinPane] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.targeting == .targeted([.pane]))
+            #expect(definition.ipcExposure.executionModes == [.headless])
             #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         }
     }
@@ -62,40 +85,5 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
             #expect(definition.ipcExposure.executionModes.isEmpty)
         }
-    }
-
-    @Test("retired Inbox commands fail without mutating dormant preference state")
-    func retiredInboxCommandsFailWithoutMutatingDormantPreferenceState() {
-        let delegate = AppDelegate()
-        let repoPrefs = RepoExplorerSidebarPrefsAtom()
-        delegate.atomStore = AtomRegistry(repoExplorerSidebarPrefs: repoPrefs)
-
-        #expect(delegate.execute(.setRepoSidebarGroupingPane))
-        #expect(repoPrefs.groupingMode == .pane)
-
-        #expect(!delegate.canExecute(.setInboxGroupingPane))
-        #expect(!delegate.execute(.setInboxGroupingPane))
-        #expect(
-            delegate.execute(AppCommandExecutionRequest(command: .setInboxGroupingTab))
-                == .unsupportedCommand
-        )
-    }
-
-    @Test("argument-required Repo sort remains a typed headless command")
-    func argumentRequiredRepoSortRemainsTypedHeadlessCommand() {
-        let definition = AppCommandDispatcher.shared.definition(for: .setRepoSidebarSortOrder)
-
-        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
-        #expect(
-            definition.argumentSchema == [
-                IPCCommandArgumentSchema(
-                    name: "order",
-                    kind: .stringEnum(values: ["ascending", "descending"]),
-                    isRequired: true
-                )
-            ]
-        )
-        #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
 }

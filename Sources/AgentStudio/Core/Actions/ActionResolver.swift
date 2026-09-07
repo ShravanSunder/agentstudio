@@ -115,13 +115,19 @@ package enum WorkspaceCommandResolver {
             .focusPane6, .focusPane7, .focusPane8, .focusPane9:
             return nil
 
-        case .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+        case .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
-            .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal,
@@ -155,13 +161,19 @@ package enum WorkspaceCommandResolver {
 
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+        case .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
-            .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarSortOrder,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setReposSubgroupNone, .setReposSubgroupActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal,
@@ -267,6 +279,7 @@ package enum WorkspaceCommandResolver {
         zoomSourcePaneIdByTabId: [UUID: UUID] = [:],
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
+        knownPaneIds: Set<UUID>? = nil,
         drawerParentByPaneId: [UUID: UUID] = [:],
         drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:],
         visiblePaneIds: (T) -> [UUID] = { $0.visiblePaneIds }
@@ -290,6 +303,7 @@ package enum WorkspaceCommandResolver {
             zoomSourcePaneIdByTabId: zoomSourcePaneIdByTabId,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
+            knownPaneIds: knownPaneIds,
             drawerParentByPaneId: drawerParentByPaneId,
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )

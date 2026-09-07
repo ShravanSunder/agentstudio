@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 @MainActor
@@ -49,6 +50,43 @@ struct ApplicationLifecycleMonitorTests {
         monitor.handleApplicationWillTerminate()
 
         #expect(appStore.isTerminating == true)
+    }
+
+    @Test("system time ingress invalidates every registered sidebar consumer independently")
+    func systemTimeIngressInvalidatesRegisteredSidebarConsumers() async {
+        let notificationCenter = NotificationCenter()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: AppLifecycleAtom(),
+            windowLifecycleStore: WindowLifecycleAtom(),
+            notificationCenter: notificationCenter
+        )
+        let firstConsumerID = UUIDv7.generate()
+        let secondConsumerID = UUIDv7.generate()
+        var firstInvalidationCount = 0
+        var secondInvalidationCount = 0
+        monitor.installSidebarTimeInvalidationHandler(consumerID: firstConsumerID) {
+            firstInvalidationCount += 1
+        }
+        monitor.installSidebarTimeInvalidationHandler(consumerID: secondConsumerID) {
+            secondInvalidationCount += 1
+        }
+
+        notificationCenter.post(name: .NSSystemClockDidChange, object: nil)
+        for _ in 0..<100 where firstInvalidationCount == 0 || secondInvalidationCount == 0 {
+            await Task.yield()
+        }
+
+        #expect(firstInvalidationCount == 1)
+        #expect(secondInvalidationCount == 1)
+
+        monitor.removeSidebarTimeInvalidationHandler(consumerID: firstConsumerID)
+        notificationCenter.post(name: .NSSystemTimeZoneDidChange, object: nil)
+        for _ in 0..<100 where secondInvalidationCount == 1 {
+            await Task.yield()
+        }
+
+        #expect(firstInvalidationCount == 1)
+        #expect(secondInvalidationCount == 2)
     }
 
     @Test("updates window lifecycle store through key-window ingress")

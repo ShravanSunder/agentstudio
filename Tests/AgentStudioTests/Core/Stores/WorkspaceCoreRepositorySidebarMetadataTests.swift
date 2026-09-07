@@ -40,7 +40,7 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
         )
         try fixture.insertTabShell(workspaceId: workspaceId, tabId: tabId)
 
-        try repository.updateRepoFavorite(repoId: repoId, isFavorite: true)
+        try repository.updateRepoPinned(repoId: repoId, isPinned: true)
         try repository.updateRepoNote(repoId: repoId, note: "  repo note  ")
         try repository.updateWorktreeNote(worktreeId: worktreeId, note: " worktree note ")
         try repository.updateTabColorHex(workspaceId: workspaceId, tabId: tabId, colorHex: " #58C4FF ")
@@ -50,7 +50,7 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
         let shells = try repository.fetchTabShells(workspaceId: workspaceId)
         let tags = try repository.fetchRepoTags(repoId: repoId)
 
-        #expect(topology.repos.first?.isFavorite == true)
+        #expect(topology.repos.first?.isPinned == true)
         #expect(topology.repos.first?.note == "repo note")
         #expect(topology.repos.first?.worktrees.first?.note == "worktree note")
         #expect(shells.first?.colorHex == "#58C4FF")
@@ -75,7 +75,7 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
                     name: "agent-studio",
                     repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
                     createdAt: Date(timeIntervalSince1970: 1),
-                    isFavorite: true,
+                    isPinned: true,
                     note: "repo note",
                     worktrees: [
                         .init(
@@ -106,7 +106,7 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
         let restoredTopology = try repository.fetchRepositoryTopology()
         let restoredShells = try repository.fetchTabShells(workspaceId: workspaceId)
 
-        #expect(restoredTopology.repos.first?.isFavorite == true)
+        #expect(restoredTopology.repos.first?.isPinned == true)
         #expect(restoredTopology.repos.first?.note == "repo note")
         #expect(restoredTopology.repos.first?.worktrees.first?.note == "worktree note")
         #expect(restoredShells.first == .init(id: tabId, name: "Renamed", colorHex: "#58C4FF"))

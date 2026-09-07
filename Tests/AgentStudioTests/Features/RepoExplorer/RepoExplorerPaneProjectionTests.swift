@@ -82,7 +82,11 @@ struct RepoExplorerPaneProjectionTests {
         let snapshot = RepoExplorerSnapshot(
             repos: [makeRepo(id: repoId, worktrees: [worktree])],
             repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
-            groupingMode: .pane,
+            surface: .panes,
+            groupingMode: .repo,
+            sortField: .activity,
+            referenceDate: Date(timeIntervalSince1970: 30),
+            sortOrder: .descending,
             query: "",
             paneLocationsByWorktreeId: [
                 worktree.id: [
@@ -109,6 +113,7 @@ struct RepoExplorerPaneProjectionTests {
             paneRowFactsByPaneId: [
                 olderPaneId: .init(
                     terminalTitle: "old shell",
+                    activityAt: Date(timeIntervalSince1970: 10),
                     latestMessageText: "No activity yet",
                     recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "2m",
@@ -116,6 +121,7 @@ struct RepoExplorerPaneProjectionTests {
                 ),
                 newerPaneId: .init(
                     terminalTitle: "tests running",
+                    activityAt: Date(timeIntervalSince1970: 20),
                     latestMessageText: "Tests passed",
                     recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
@@ -135,8 +141,8 @@ struct RepoExplorerPaneProjectionTests {
         #expect(rows[0].isDrawerPane)
     }
 
-    @Test("All Panes orders never-focused panes by the recency date used for display")
-    func allPanesOrdersNeverFocusedPanesByDisplayedRecency() throws {
+    @Test("activity sorting never falls back to focus recency")
+    func activitySortingNeverFallsBackToFocusRecency() throws {
         let repoId = UUIDv7.generate()
         let worktree = makeWorktree(repoId: repoId)
         let neverFocusedPaneId = UUIDv7.generate()
@@ -146,7 +152,11 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
+                sortField: .activity,
+                referenceDate: Date(timeIntervalSince1970: 30),
+                sortOrder: .descending,
                 query: "",
                 paneLocationsByWorktreeId: [
                     worktree.id: [
@@ -187,7 +197,7 @@ struct RepoExplorerPaneProjectionTests {
 
         let group = try #require(projection.resolvedGroups.first)
         let rows = try #require(projection.paneRowsByGroupId[group.id])
-        #expect(rows.map(\.destination.paneId) == [neverFocusedPaneId, previouslyFocusedPaneId])
+        #expect(rows.map(\.destination.paneId) == [previouslyFocusedPaneId, neverFocusedPaneId])
     }
 
     @Test("By Tab uses display titles, pane counts, tab order, and exact pane rows")
@@ -203,6 +213,7 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 paneLocationsByWorktreeId: [
@@ -261,7 +272,7 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         #expect(projection.resolvedGroups.map(\.repoTitle) == ["Implementation", "Tests"])
-        #expect(projection.resolvedGroups.map(\.organizationName) == ["2 panes", "1 pane"])
+        #expect(projection.resolvedGroups.map(\.organizationName) == [nil, nil])
         #expect(projection.worktreeRowsByGroupId.isEmpty)
         let firstTabRows = try #require(projection.paneRowsByGroupId[projection.resolvedGroups[0].id])
         #expect(firstTabRows.map(\.destination.paneId) == [firstPaneId, thirdPaneId])
@@ -281,11 +292,11 @@ struct RepoExplorerPaneProjectionTests {
         let unassociatedOnlyPaneId = fixture.unassociatedOnlyPaneId
 
         #expect(projection.resolvedGroups.map(\.repoTitle) == ["Mixed", "Unassociated"])
-        #expect(projection.resolvedGroups.map(\.organizationName) == ["2 panes", "1 pane"])
-        let mixedRows = try #require(projection.paneRowsByGroupId["tab:\(mixedTabId.uuidString)"])
+        #expect(projection.resolvedGroups.map(\.organizationName) == [nil, nil])
+        let mixedRows = try #require(projection.paneRowsByGroupId["panes:panes:tab:\(mixedTabId.uuidString)"])
         #expect(mixedRows.map(\.destination.paneId) == [associatedPaneId, mixedUnassociatedPaneId])
         let unassociatedRows = try #require(
-            projection.paneRowsByGroupId["tab:\(unassociatedTabId.uuidString)"]
+            projection.paneRowsByGroupId["panes:panes:tab:\(unassociatedTabId.uuidString)"]
         )
         #expect(unassociatedRows.map(\.destination.paneId) == [unassociatedOnlyPaneId])
 
@@ -323,13 +334,13 @@ struct RepoExplorerPaneProjectionTests {
 
         let collapsed = RepoExplorerRowIndex(
             projection: projection,
-            collapsedGroupIds: ["tab:\(mixedTabId.uuidString)"],
+            collapsedGroupIds: ["panes:panes:tab:\(mixedTabId.uuidString)"],
             isFiltering: false
         )
         #expect(
             !collapsed.entries.contains { entry in
                 guard case .resolvedPaneRow(let groupId, _, _) = entry else { return false }
-                return groupId == "tab:\(mixedTabId.uuidString)"
+                return groupId == "panes:panes:tab:\(mixedTabId.uuidString)"
             }
         )
     }
@@ -352,6 +363,7 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [repository],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 paneLocationsByWorktreeId: [worktree.id: [location]]
@@ -363,6 +375,7 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [repository],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 unassociatedPaneLocations: [location]
@@ -370,8 +383,8 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         #expect(associated.resolvedGroups.map(\.id) == unassociated.resolvedGroups.map(\.id))
-        #expect(associated.resolvedGroups.map(\.organizationName) == ["1 pane"])
-        #expect(unassociated.resolvedGroups.map(\.organizationName) == ["1 pane"])
+        #expect(associated.resolvedGroups.map(\.organizationName) == [nil])
+        #expect(unassociated.resolvedGroups.map(\.organizationName) == [nil])
         let associatedIndex = RepoExplorerRowIndex(
             projection: associated,
             collapsedGroupIds: [],
@@ -395,9 +408,10 @@ struct RepoExplorerPaneProjectionTests {
             }.first
         )
         #expect(associatedRowID == unassociatedRowID)
-        #expect(associatedRowID == .tabPane(groupID: "tab:\(tabId.uuidString)", paneID: paneId))
-        let associatedRow = try #require(associated.paneRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
-        let unassociatedRow = try #require(unassociated.paneRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
+        let expectedGroupID = "panes:panes:tab:\(tabId.uuidString)"
+        #expect(associatedRowID == .tabPane(groupID: expectedGroupID, paneID: paneId))
+        let associatedRow = try #require(associated.paneRowsByGroupId[expectedGroupID]?.first)
+        let unassociatedRow = try #require(unassociated.paneRowsByGroupId[expectedGroupID]?.first)
         #expect(associatedRow.repoId == repoId)
         #expect(associatedRow.worktreeId == worktree.id)
         #expect(associatedRow.branchContextText == "agent-studio · main")
@@ -420,7 +434,8 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [repo],
                 repoEnrichmentByRepoId: enrichment,
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
                 query: ""
             )
         )
@@ -428,6 +443,7 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [repo],
                 repoEnrichmentByRepoId: enrichment,
+                surface: .panes,
                 groupingMode: .tab,
                 query: ""
             )
@@ -435,7 +451,7 @@ struct RepoExplorerPaneProjectionTests {
 
         #expect(emptyRepoProjection.emptyState == .noRepositories)
         #expect(emptyPaneProjection.emptyState == .noPanes)
-        #expect(emptyTabProjection.emptyState == .noTabs)
+        #expect(emptyTabProjection.emptyState == .noPanes)
     }
 
     @Test("recency text changes only at minute boundaries")
@@ -467,7 +483,8 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
                 query: "",
                 paneLocationsByWorktreeId: [
                     worktree.id: [
@@ -500,11 +517,14 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         #expect(projection.paneDestinationsByWorktreeId[worktree.id]?.map(\.paneId) == [associatedPaneId])
-        #expect(projection.sections.map(\.kind) == [.panes, .ungrouped])
-        let ungroupedSection = try #require(projection.sections.last)
-        #expect(ungroupedSection.title == "No Repositories")
+        #expect(projection.sections.map(\.kind) == [.panes])
+        let unassociatedGroupID = "panes:panes:repo:unassociated"
+        let unassociatedGroup = try #require(
+            projection.resolvedGroups.first { $0.id == unassociatedGroupID }
+        )
+        #expect(unassociatedGroup.repoTitle == "No Repository")
         #expect(
-            Set(ungroupedSection.unassociatedPaneDestinations.map(\.paneId))
+            Set(projection.paneRowsByGroupId[unassociatedGroupID, default: []].map { $0.destination.paneId })
                 == [nilAssociationPaneId, danglingAssociationPaneId]
         )
 
@@ -516,8 +536,8 @@ struct RepoExplorerPaneProjectionTests {
         #expect(
             Set(
                 rowIndex.entries.compactMap { entry -> UUID? in
-                    guard case .unassociatedPaneRow(let destination) = entry else { return nil }
-                    return destination.paneId
+                    guard case .resolvedPaneRow(_, let identity, _) = entry else { return nil }
+                    return identity.repoId == nil ? identity.paneId : nil
                 }) == [nilAssociationPaneId, danglingAssociationPaneId]
         )
     }
@@ -546,7 +566,8 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
                 query: "",
                 paneLocationsByWorktreeId: [
                     worktree.id: [
@@ -626,13 +647,14 @@ struct RepoExplorerPaneProjectionTests {
         )
     }
 
-    @Test("pane search filters Ungrouped rows by their projected location label")
-    func paneSearchFiltersUngroupedRows() throws {
+    @Test("pane search filters No Repository rows by their projected location label")
+    func paneSearchFiltersNoRepositoryRows() throws {
         let paneId = UUIDv7.generate()
         let baseSnapshot = RepoExplorerSnapshot(
             repos: [],
             repoEnrichmentByRepoId: [:],
-            groupingMode: .pane,
+            surface: .panes,
+            groupingMode: .repo,
             query: "not-present",
             unassociatedPaneLocations: [
                 WorkspacePaneLocation(
@@ -646,20 +668,23 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         let noMatch = RepoExplorerProjection.project(baseSnapshot)
-        #expect(noMatch.sections.contains { $0.kind == .ungrouped } == false)
+        #expect(noMatch.sections.isEmpty)
         #expect(noMatch.emptyState == .searchNoResults)
 
         let matching = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: [],
                 repoEnrichmentByRepoId: [:],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
                 query: "pane 2",
                 unassociatedPaneLocations: baseSnapshot.unassociatedPaneLocations
             )
         )
-        let ungrouped = try #require(matching.sections.first { $0.kind == .ungrouped })
-        #expect(ungrouped.unassociatedPaneDestinations.map(\.paneId) == [paneId])
+        #expect(matching.sections.map(\.kind) == [.panes])
+        let groupID = "panes:panes:repo:unassociated"
+        #expect(matching.resolvedGroups.map(\.id) == [groupID])
+        #expect(matching.paneRowsByGroupId[groupID]?.map { $0.destination.paneId } == [paneId])
     }
 
     private func makeRepo(id: UUID, worktrees: [Worktree]) -> RepoPresentationItem {
@@ -684,6 +709,7 @@ struct RepoExplorerPaneProjectionTests {
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 paneLocationsByWorktreeId: [
