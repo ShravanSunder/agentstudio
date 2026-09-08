@@ -75,7 +75,7 @@ test('renders identical control states inside the real shell and outside it in a
 			expect(portalStyle[property], `${index}: ${property}`).toBe(shellStyle[property]);
 		}
 		expect(portalStyle.height).toBe('24px');
-		expect(portalStyle.fontSize).toBe('11px');
+		expect(portalStyle.fontSize).toBe(portalControl.tagName === 'INPUT' ? '12px' : '11px');
 		expect(portalStyle.opacity).toBe('1');
 	}
 });

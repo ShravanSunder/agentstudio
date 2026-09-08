@@ -5,13 +5,15 @@ import type { ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const toggleVariants = cva(
-	'group/toggle inline-flex items-center justify-center gap-1 border border-transparent bg-transparent text-xs font-medium whitespace-nowrap text-muted-foreground transition-all outline-none hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-faint-foreground disabled:opacity-100 disabled:hover:bg-transparent disabled:hover:text-faint-foreground aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-pressed:bg-primary/15 aria-pressed:text-primary disabled:aria-pressed:bg-transparent disabled:aria-pressed:text-faint-foreground data-pressed:bg-primary/15 data-pressed:text-primary disabled:data-pressed:bg-transparent disabled:data-pressed:text-faint-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current',
+	'group/toggle inline-flex items-center justify-center gap-1 border border-transparent bg-transparent text-xs font-medium whitespace-nowrap text-foreground transition-all outline-none hover:bg-control-hover hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-faint-foreground disabled:opacity-100 disabled:hover:bg-transparent disabled:hover:text-faint-foreground aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-invalid:focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary/15 aria-pressed:text-foreground disabled:aria-pressed:border-faint-foreground disabled:aria-pressed:bg-transparent disabled:aria-pressed:text-faint-foreground data-pressed:border-primary data-pressed:bg-primary/15 data-pressed:text-foreground disabled:data-pressed:border-faint-foreground disabled:data-pressed:bg-transparent disabled:data-pressed:text-faint-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current',
 	{
 		variants: {
 			variant: {
 				default: 'bg-transparent',
 				outline: 'border-input bg-transparent disabled:border-input',
 				segmented: 'bg-transparent',
+				disclosure:
+					'aria-pressed:border-transparent aria-pressed:bg-control-hover aria-pressed:text-foreground data-pressed:border-transparent data-pressed:bg-control-hover data-pressed:text-foreground disabled:aria-pressed:border-transparent disabled:data-pressed:border-transparent',
 			},
 			size: {
 				default:

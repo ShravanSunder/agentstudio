@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/input-group.js';
 import { cn } from '@/lib/utils.js';
 
+import { ItemDescription } from './item-content.js';
+
 const Combobox = ComboboxPrimitive.Root;
 
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.ReactElement {
@@ -108,7 +110,7 @@ function ComboboxContent({
 					data-slot="combobox-content"
 					data-chips={!!anchor}
 					className={cn(
-						'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg border border-popover-border bg-popover text-xs text-popover-foreground shadow-popover duration-[var(--motion-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:border-none *:data-[slot=input-group]:bg-input/30 *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+						'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg border border-popover-border bg-popover text-xs text-popover-foreground shadow-popover duration-[var(--motion-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:bg-control-fill *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
 						className,
 					)}
 					{...props}
@@ -144,7 +146,7 @@ function ComboboxItem({
 			data-slot="combobox-item"
 			data-presentation={presentation}
 			className={cn(
-				"group/combobox-item relative flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:gap-0 data-[presentation=descriptive]:py-px data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				"group/combobox-item relative flex h-[var(--row-height-default)] w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none data-highlighted:bg-control-hover data-highlighted:inset-ring-1 data-highlighted:inset-ring-ring data-highlighted:text-accent-foreground data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:h-[var(--row-height-descriptive)] data-[presentation=descriptive]:gap-0.5 data-[presentation=descriptive]:py-1 data-[presentation=descriptive]:pr-8 data-[presentation=descriptive]:text-base data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
 				className,
 			)}
 			{...props}
@@ -166,12 +168,9 @@ function ComboboxItemDescription({
 	...props
 }: React.ComponentProps<'span'>): React.ReactElement {
 	return (
-		<span
+		<ItemDescription
 			data-slot="combobox-item-description"
-			className={cn(
-				'text-2xs text-muted-foreground group-data-highlighted/combobox-item:text-current',
-				className,
-			)}
+			className={cn('', className)}
 			{...props}
 		/>
 	);
@@ -235,7 +234,7 @@ function ComboboxChips({
 		<ComboboxPrimitive.Chips
 			data-slot="combobox-chips"
 			className={cn(
-				'flex min-h-7 flex-wrap items-center gap-1 rounded-md border border-input bg-input/30 bg-clip-padding px-2 py-0.5 text-xs transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 has-aria-invalid:border-destructive has-aria-invalid:ring-2 has-aria-invalid:ring-destructive/20 has-disabled:bg-transparent has-disabled:text-faint-foreground has-data-[slot=combobox-chip]:px-1',
+				'flex min-h-7 flex-wrap items-center gap-1 rounded-md border border-input bg-control-fill bg-clip-padding px-2 py-0.5 text-xs transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring has-aria-invalid:border-destructive has-aria-invalid:ring-2 has-aria-invalid:ring-destructive/20 has-disabled:bg-transparent has-disabled:text-faint-foreground has-data-[slot=combobox-chip]:px-1',
 				className,
 			)}
 			{...props}

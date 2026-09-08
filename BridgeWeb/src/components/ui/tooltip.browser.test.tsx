@@ -18,7 +18,7 @@ test('renders native-parity tooltip paint from an anchored control', async () =>
 	expect(tooltip.classList).toContain('pointer-events-none');
 	expect(tooltip.closest('[data-slot="tooltip-trigger"]')).toBeNull();
 	const style = getComputedStyle(tooltip);
-	expect(style.backgroundColor).toBe('rgb(41, 41, 41)');
+	expect(style.backgroundColor).toBe('rgb(48, 49, 54)');
 	expect(style.borderColor).toBe('rgb(88, 88, 92)');
 	expect(style.borderRadius).toBe('8px');
 	expect(style.fontSize).toBe('11px');

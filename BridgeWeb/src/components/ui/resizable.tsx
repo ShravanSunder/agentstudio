@@ -39,7 +39,7 @@ function ResizableHandle({
 		<ResizableHandlePrimitive
 			data-slot="resizable-handle"
 			className={cn(
-				'relative flex w-px shrink-0 items-center justify-center bg-border outline-none transition-colors hover:bg-ring focus-visible:bg-ring focus-visible:ring-2 focus-visible:ring-ring/30 data-[resize-handle-state=drag]:bg-ring data-[panel-group-direction=vertical]:h-px data-[panel-group-direction=vertical]:w-full',
+				'relative flex w-px shrink-0 items-center justify-center bg-border outline-none transition-colors hover:bg-ring focus-visible:bg-ring focus-visible:ring-2 focus-visible:ring-ring data-[resize-handle-state=drag]:bg-ring data-[panel-group-direction=vertical]:h-px data-[panel-group-direction=vertical]:w-full',
 				className,
 			)}
 			{...props}

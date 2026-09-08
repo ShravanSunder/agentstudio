@@ -34,12 +34,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 
 const transparentBackground = 'rgba(0, 0, 0, 0)';
 const floatingBorderColor = 'rgb(88, 88, 92)';
-const floatingSurfaceColor = 'rgb(41, 41, 41)';
+const floatingSurfaceColor = 'rgb(48, 49, 54)';
 
 test('keeps lighter chrome and navigation separate from the reading canvas', () => {
 	const style = getComputedStyle(document.documentElement);
 	expect(style.getPropertyValue('--palette-neutral-n0').trim()).toBe('#272727');
-	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#27282b');
+	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#27282d');
 	expect(style.getPropertyValue('--palette-neutral-n1').trim()).toBe('#282c34');
 });
 const popoverElevation = ['black/0.45 0px 10px 24px -8px', 'black/0.35 0px 3px 8px -2px'] as const;
@@ -175,7 +175,7 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	const disabledToggleStyle = getComputedStyle(disabledToggle);
 	expect(disabledToggleStyle.opacity).toBe('1');
 	expect(disabledToggleStyle.backgroundColor).toBe(transparentBackground);
-	expect(disabledToggleStyle.borderColor).toBe(transparentBackground);
+	expect(disabledToggleStyle.borderColor).toBe(faintForeground);
 	expect(disabledToggleStyle.color).toBe(faintForeground);
 	expect(getComputedStyle(requiredSvg(disabledToggle)).color).toBe(faintForeground);
 
@@ -200,16 +200,17 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	expect(getComputedStyle(requiredSvg(disabledPrimary)).color).toBe(faintForeground);
 
 	expect(openStyle.backgroundColor).not.toBe(transparentBackground);
-	expect(pressedStyle.backgroundColor).toBe(openStyle.backgroundColor);
+	expect(openStyle.backgroundColor).toBe('rgba(255, 255, 255, 0.04)');
+	expect(pressedStyle.backgroundColor).toBe('rgba(255, 255, 255, 0.08)');
 	expect(pressedStyle.color).toBe(openStyle.color);
 	expect(selectedStyle.backgroundColor).not.toBe(openStyle.backgroundColor);
-	expect(selectedStyle.color).not.toBe(openStyle.color);
+	expect(selectedStyle.color).toBe(openStyle.color);
 });
 
 test('owns focus, invalid, field, and editor presentation at the primitive boundary', async () => {
 	const rendered = await render(
 		<div>
-			<span className="bg-ring/30" data-testid="focus-ring-color" />
+			<span className="bg-ring" data-testid="focus-ring-color" />
 			<span className="border border-ring" data-testid="focus-border-color" />
 			<span className="bg-destructive/20" data-testid="invalid-ring-color" />
 			<Button data-testid="focused-button" variant="outline">
@@ -275,8 +276,8 @@ test('owns focus, invalid, field, and editor presentation at the primitive bound
 
 	const inputStyle = getComputedStyle(rendered.getByTestId('small-input').element());
 	expect(inputStyle.height).toBe('28px');
-	expect(inputStyle.fontSize).toBe('11px');
-	expect(inputStyle.lineHeight).toBe('14px');
+	expect(inputStyle.fontSize).toBe('12px');
+	expect(inputStyle.lineHeight).toBe('16px');
 
 	const editorStyle = getComputedStyle(rendered.getByTestId('editor').element());
 	expect(editorStyle.minHeight).toBe('48px');

@@ -39,7 +39,7 @@ function Toaster({ ...props }: ToasterProps): ReactElement {
 					description: 'text-2xs! text-muted-foreground!',
 					title: 'text-xs! font-medium',
 					toast:
-						'rounded-lg border-popover-border bg-popover text-popover-foreground shadow-popover! focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30',
+						'rounded-lg border-popover-border bg-popover text-popover-foreground shadow-popover! focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring',
 				},
 			}}
 			{...props}

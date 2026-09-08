@@ -20,6 +20,8 @@ import type { ComponentProps, ReactElement } from 'react';
 
 import { cn } from '@/lib/utils';
 
+import { ItemDescription } from './item-content.js';
+
 type DropdownMenuRootProps = MenuRootProps;
 type DropdownMenuPortalProps = MenuPortalProps;
 type DropdownMenuTriggerProps = MenuTriggerProps;
@@ -82,6 +84,33 @@ function DropdownMenuGroup({ ...props }: DropdownMenuGroupProps): ReactElement {
 	return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
 
+function DropdownMenuHeader({
+	className,
+	title,
+	...props
+}: ComponentProps<'header'> & { readonly title: string }): ReactElement {
+	return (
+		<header
+			data-slot="dropdown-menu-header"
+			className={cn('flex flex-col gap-1 px-2 py-1.5', className)}
+			{...props}
+		>
+			<p className="text-xs font-medium text-foreground">{title}</p>
+			{props.children}
+		</header>
+	);
+}
+
+function DropdownMenuDescription({ className, ...props }: ComponentProps<'p'>): ReactElement {
+	return (
+		<p
+			data-slot="dropdown-menu-description"
+			className={cn('text-sm font-normal text-muted-foreground', className)}
+			{...props}
+		/>
+	);
+}
+
 function DropdownMenuLabel({
 	className,
 	inset,
@@ -117,7 +146,7 @@ function DropdownMenuItem({
 			data-presentation={presentation}
 			data-variant={variant}
 			className={cn(
-				"group/dropdown-menu-item relative flex h-7 cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7.5 data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:gap-0 data-[presentation=descriptive]:py-px data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 data-[variant=destructive]:*:[svg]:text-destructive",
+				"group/dropdown-menu-item relative flex h-[var(--row-height-default)] cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-inset:pl-7.5 data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:h-[var(--row-height-descriptive)] data-[presentation=descriptive]:gap-0.5 data-[presentation=descriptive]:py-1 data-[presentation=descriptive]:text-base data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 data-[variant=destructive]:*:[svg]:text-destructive",
 				className,
 			)}
 			{...props}
@@ -130,12 +159,9 @@ function DropdownMenuItemDescription({
 	...props
 }: ComponentProps<'span'>): ReactElement {
 	return (
-		<span
+		<ItemDescription
 			data-slot="dropdown-menu-item-description"
-			className={cn(
-				'text-2xs text-muted-foreground group-focus/dropdown-menu-item:text-current',
-				className,
-			)}
+			className={cn('', className)}
 			{...props}
 		/>
 	);
@@ -158,7 +184,7 @@ function DropdownMenuSubTrigger({
 			data-slot="dropdown-menu-sub-trigger"
 			data-inset={inset}
 			className={cn(
-				"flex h-7 cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7.5 data-popup-open:bg-accent data-popup-open:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground data-disabled:pointer-events-none data-disabled:text-faint-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				"flex h-[var(--row-height-default)] cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-inset:pl-7.5 data-popup-open:bg-accent data-popup-open:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground data-disabled:pointer-events-none data-disabled:text-faint-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
 				className,
 			)}
 			{...props}
@@ -210,7 +236,7 @@ function DropdownMenuCheckboxItem({
 			data-inset={inset}
 			data-presentation={presentation}
 			className={cn(
-				"group/dropdown-menu-item relative flex h-7 cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7.5 data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:gap-0 data-[presentation=descriptive]:py-px data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				"group/dropdown-menu-item relative flex h-[var(--row-height-default)] cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-inset:pl-7.5 data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:h-[var(--row-height-descriptive)] data-[presentation=descriptive]:gap-0.5 data-[presentation=descriptive]:py-1 data-[presentation=descriptive]:text-base data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
 				className,
 			)}
 			checked={checked}
@@ -246,7 +272,7 @@ function DropdownMenuRadioItem({
 			data-slot="dropdown-menu-radio-item"
 			data-inset={inset}
 			className={cn(
-				"relative flex h-7 cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7.5 data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				"relative flex h-[var(--row-height-default)] cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-inset:pl-7.5 data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
 				className,
 			)}
 			{...props}
@@ -293,6 +319,8 @@ export {
 	DropdownMenuTrigger,
 	DropdownMenuContent,
 	DropdownMenuGroup,
+	DropdownMenuHeader,
+	DropdownMenuDescription,
 	DropdownMenuLabel,
 	DropdownMenuItem,
 	DropdownMenuItemDescription,

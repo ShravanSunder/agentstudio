@@ -53,6 +53,8 @@
 	--color-primary: var(--primary);
 	--color-primary-foreground: var(--primary-foreground);
 	--color-secondary: var(--secondary);
+	--color-control-fill: var(--control-fill);
+	--color-control-hover: var(--control-hover);
 	--color-secondary-foreground: var(--secondary-foreground);
 	--color-muted: var(--muted);
 	--color-muted-foreground: var(--muted-foreground);
@@ -64,6 +66,7 @@
 	--color-ring: var(--ring);
 	--color-surface: var(--surface);
 	--color-surface-foreground: var(--surface-foreground);
+	--color-file-header: var(--file-header);
 	--color-selection: var(--selection);
 	--color-success: var(--success);
 	--color-warning: var(--warning);
@@ -102,13 +105,15 @@
 	/* Neutral ramp: darkest chrome through strongest selected surface. */
 	--palette-neutral-n0: #272727;
 	--palette-neutral-n1: #282c34;
-	--palette-neutral-n2: #27282b;
-	--palette-neutral-n3: #292929;
+	--palette-neutral-n2: #27282d;
+	--palette-neutral-n3: #303136;
+	--palette-surface-card: #393a3f;
 	--palette-neutral-n4: #363636;
 	--palette-neutral-n5: #454545;
 	/* Text tiers: primary through deliberately faint supporting text. */
 	--palette-text-primary: #ffffff;
 	--palette-text-secondary: #eaeaea;
+	--palette-text-supporting: #b8bcc4;
 	--palette-text-muted: #c5c8c6;
 	--palette-text-faint: #9ba1ad;
 	/* Accent hues: product identity, status, syntax, and focus colors. */
@@ -158,16 +163,18 @@
 
 	/* App and code canvas base. */
 	--background: var(--palette-neutral-n1);
+	/* Code and annotation text retain their reading-context foreground. */
+	--code-foreground: var(--palette-text-primary);
 	/* Primary text. */
-	--foreground: var(--palette-text-primary);
+	--foreground: var(--palette-text-secondary);
 	/* Floating and raised panel surface. */
-	--card: var(--palette-neutral-n3);
+	--card: var(--palette-surface-card);
 	/* Primary text on cards. */
-	--card-foreground: var(--palette-text-primary);
+	--card-foreground: var(--palette-text-secondary);
 	/* Floating popover surface. */
-	--popover: var(--card);
+	--popover: var(--palette-neutral-n3);
 	/* Primary text on popovers. */
-	--popover-foreground: var(--palette-text-primary);
+	--popover-foreground: var(--palette-text-secondary);
 	/* Visible neutral outline around floating popover frames. */
 	--popover-border: var(--palette-stroke-floating);
 	/* Modal backdrop color; opacity is owned by the floating primitive. */
@@ -179,16 +186,19 @@
 	--primary-foreground: var(--palette-ansi-black);
 	/* Filled secondary controls. */
 	--secondary: var(--palette-neutral-n4);
+	/* Shared controls compose with their containing surface, not the code ramp. */
+	--control-fill: var(--palette-wash-subtle);
+	--control-hover: var(--palette-wash-hover);
 	/* High-contrast text on secondary controls. */
 	--secondary-foreground: var(--palette-text-secondary);
 	/* De-emphasized fills. */
 	--muted: var(--palette-neutral-n4);
 	/* Secondary text. */
-	--muted-foreground: var(--palette-text-muted);
+	--muted-foreground: var(--palette-text-supporting);
 	/* Hover and active wash on rows and controls. */
 	--accent: var(--palette-neutral-n5);
 	/* Primary text on accent fills. */
-	--accent-foreground: var(--palette-text-primary);
+	--accent-foreground: var(--palette-text-secondary);
 	/* Errors, deletions, and destructive actions. */
 	--destructive: var(--palette-red);
 	/* Hairline separators. */
@@ -196,11 +206,13 @@
 	/* Control outlines. */
 	--input: var(--palette-stroke-hover);
 	/* Focus indication. */
-	--ring: var(--palette-lavender);
+	--ring: var(--primary);
 	/* Floating chrome and rail surface. */
 	--surface: var(--palette-neutral-n0);
 	/* Primary text on surfaces. */
-	--surface-foreground: var(--palette-text-primary);
+	--surface-foreground: var(--palette-text-secondary);
+	/* File identity chrome shares the tree's color, not its semantic role. */
+	--file-header: var(--palette-neutral-n2);
 	/* Selected rows and strong selection fills. */
 	--selection: var(--palette-neutral-n5);
 	/* Successful and added states. */
@@ -217,17 +229,20 @@
 	--chart-5: var(--palette-red);
 	/* File-tree and rail chrome. */
 	--sidebar: var(--palette-neutral-n2);
-	--sidebar-foreground: var(--palette-text-primary);
+	--sidebar-foreground: var(--palette-text-secondary);
 	--sidebar-primary: var(--primary);
 	--sidebar-primary-foreground: var(--palette-ansi-black);
 	--sidebar-accent: var(--palette-neutral-n2);
-	--sidebar-accent-foreground: var(--palette-text-primary);
+	--sidebar-accent-foreground: var(--palette-text-secondary);
 	--sidebar-border: var(--palette-neutral-n5);
-	--sidebar-ring: var(--palette-lavender);
+	--sidebar-ring: var(--ring);
 
 	/* Motion scale mirrors AppStyles.General.Animation. */
 	--motion-fast: 120ms;
 	--motion-standard: 200ms;
+	/* Row metrics: mirrored only for virtualizer estimates; CSS owns rendering. */
+	--row-height-default: 28px;
+	--row-height-descriptive: 44px;
 	/* System shadows preserve the approved chrome elevations. */
 	--elevation-popover:
 		0 10px 24px -8px color-mix(in srgb, var(--palette-black) 45%, transparent),
@@ -261,7 +276,7 @@
 	/* Inline-comment surface blended into the code canvas. */
 	--annotation-surface: color-mix(in srgb, var(--muted) 42%, var(--background));
 	/* Primary comment text. */
-	--annotation-foreground: var(--foreground);
+	--annotation-foreground: var(--code-foreground);
 	/* Muted comment metadata and supporting text. */
 	--annotation-muted: var(--faint-foreground);
 	/* Comment container outline. */
@@ -400,6 +415,7 @@ button:disabled,
 }
 
 .bridge-code-view-scroll-owner {
+	--scrollbar-track: var(--file-header);
 	scrollbar-gutter: auto;
 }
 

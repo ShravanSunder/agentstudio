@@ -5,7 +5,7 @@ import type { ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const buttonVariants = cva(
-	'group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding text-xs font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-100 disabled:text-faint-foreground disabled:aria-expanded:bg-transparent disabled:aria-expanded:text-faint-foreground disabled:aria-pressed:bg-transparent disabled:aria-pressed:text-faint-foreground disabled:data-popup-open:bg-transparent disabled:data-popup-open:text-faint-foreground aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current',
+	'group/button [&_[data-busy=true]]:animate-spin motion-reduce:[&_[data-busy=true]]:animate-none [&_[data-disclosure=true]]:transition-transform [&_[data-disclosure=true]]:duration-[var(--motion-fast)] [&_[data-disclosure=true][data-expanded=true]]:rotate-180 motion-reduce:[&_[data-disclosure=true]]:transition-none inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding text-xs font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-100 disabled:text-faint-foreground disabled:aria-expanded:bg-transparent disabled:aria-expanded:text-faint-foreground disabled:aria-pressed:bg-transparent disabled:aria-pressed:text-faint-foreground disabled:data-popup-open:bg-transparent disabled:data-popup-open:text-faint-foreground aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-invalid:focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current',
 	{
 		variants: {
 			shape: {
@@ -15,15 +15,15 @@ const buttonVariants = cva(
 			variant: {
 				default:
 					'bg-primary text-primary-foreground hover:border-ring disabled:border-input disabled:bg-muted disabled:hover:border-input',
-				tint: 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary disabled:border-transparent disabled:bg-muted',
+				tint: 'bg-primary/15 text-foreground hover:bg-primary/15 hover:text-foreground disabled:border-transparent disabled:bg-muted [&_svg]:text-primary disabled:[&_svg]:text-faint-foreground',
 				'success-outline':
 					'border-success/50 bg-success/10 text-success hover:border-success/70 hover:bg-success/15 hover:text-success disabled:border-input disabled:bg-transparent disabled:hover:border-input disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
 				outline:
-					'border-input bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground data-popup-open:bg-accent data-popup-open:text-accent-foreground disabled:border-input disabled:bg-transparent disabled:hover:border-input disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
+					'border-input bg-transparent text-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-hover aria-expanded:text-accent-foreground aria-pressed:bg-control-hover aria-pressed:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-input disabled:bg-transparent disabled:hover:border-input disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
 				secondary:
-					'bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground data-popup-open:bg-accent data-popup-open:text-accent-foreground disabled:border-input disabled:bg-muted',
+					'bg-control-fill text-secondary-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-hover aria-expanded:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-input disabled:bg-muted',
 				ghost:
-					'bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground data-popup-open:bg-accent data-popup-open:text-accent-foreground disabled:border-transparent disabled:bg-transparent disabled:hover:border-transparent disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
+					'bg-transparent text-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-fill aria-expanded:hover:bg-control-hover aria-expanded:text-accent-foreground aria-pressed:bg-control-hover aria-pressed:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-transparent disabled:bg-transparent disabled:hover:border-transparent disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
 				destructive:
 					'bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:border-input disabled:bg-muted disabled:hover:border-input disabled:hover:bg-muted disabled:hover:text-faint-foreground',
 				link: 'bg-transparent text-primary underline-offset-4 hover:underline disabled:bg-transparent',
