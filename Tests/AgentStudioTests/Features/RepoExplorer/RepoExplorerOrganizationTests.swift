@@ -325,13 +325,13 @@ extension RepoExplorerReadModelTests {
             firstSubgroup.layout.metrics.fallbackHeight
                 == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
                 + AppStyles.Shell.Sidebar.nativeItemSpacing - headerBottomPadding
-                + subgroupBottomPadding
+                + subgroupBottomPadding + AppStyles.General.Spacing.tight
         )
         #expect(
             laterSubgroup.layout.metrics.fallbackHeight
                 == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
                 + AppStyles.Shell.Sidebar.nativeGroupSpacing - AppStyles.Shell.Sidebar.nativeRowVerticalInset
-                + subgroupBottomPadding
+                + subgroupBottomPadding + AppStyles.General.Spacing.tight
         )
         for row in materialization.rows where row.layout.rowClass == .pane {
             #expect(row.layout.metrics.primaryLineHeight >= AppStyles.General.Button.compact)

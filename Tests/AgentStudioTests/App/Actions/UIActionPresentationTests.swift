@@ -106,7 +106,9 @@ struct UIActionPresentationTests {
 
         #expect(group.label == "Group")
         #expect(group.helpText == "Choose how sidebar items are grouped")
-        #expect(group.icon == .system(.sliderHorizontal3))
+        #expect(group.icon == .system(.rectangle3Group))
+        #expect(LocalActionSpec.showRepoExplorerOrganization.actionSpec.icon == .system(.sliderHorizontal3))
+        #expect(subgroup.icon == .system(.listBulletIndent))
         #expect(subgroup.label == "Subgroup")
         #expect(subgroup.helpText == "Choose how sidebar items are subgrouped")
     }

@@ -42,14 +42,15 @@ extension RepoExplorerView {
             : [.setReposGroupingRepo, .setReposGroupingActivity]
         return HStack(spacing: AppStyles.General.Spacing.tight) {
             Spacer(minLength: 0)
-            sortDirectionButton(
-                isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
-                presentation: presentation
-            )
-            sortFieldSelector(commands: sortCommands, presentation: presentation)
             commandToggle(
                 isPanes ? .togglePanesShowsPinned : .toggleReposShowsPinned,
                 selected: repoExplorerPrefs.showsPinned, presentation: presentation
+            )
+            SidebarToolbarDivider()
+            sortFieldSelector(commands: sortCommands, presentation: presentation)
+            sortDirectionButton(
+                isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
+                presentation: presentation
             )
             SidebarToolbarDivider()
             groupingSelector(commands: groupingCommands, presentation: presentation)
@@ -100,19 +101,20 @@ extension RepoExplorerView {
         commands: [AppCommand],
         presentation: RepoExplorerToolbarCommandPresentation
     ) -> some View {
+        let organizationAction = LocalActionSpec.showRepoExplorerOrganization.actionSpec
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let subgroupAction = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
         let subgroupCommand = currentSubgroupCommand
         return SidebarToolbarPickerButton(
-            label: groupingAction.label,
+            label: organizationAction.label,
             selectionLabel: groupingSelectionLabel,
             accessibilityIdentifier: "repoSidebarGroupingButton",
-            tooltipValue: groupingAction.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: groupingAction.label)
+            tooltipValue: organizationAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: organizationAction.label)
             ),
             isOpen: openOrganizationSelector == .grouping,
             icon: {
-                groupingAction.icon.swiftUIImage(
+                organizationAction.icon.swiftUIImage(
                     loader: octiconLoader, size: AppStyles.General.Icon.compact
                 )
             },
@@ -140,6 +142,10 @@ extension RepoExplorerView {
                         command.definition.icon.swiftUIImage(
                             loader: octiconLoader, size: AppStyles.General.Icon.compact
                         )
+                    },
+                    headerIcon: { level in
+                        let action = level == .group ? groupingAction : subgroupAction
+                        action.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
                     },
                     onSelect: { item in
                         guard presentation.command(item.value)?.isEnabled == true else { return }

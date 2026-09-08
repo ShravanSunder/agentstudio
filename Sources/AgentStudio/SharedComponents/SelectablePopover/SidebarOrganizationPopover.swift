@@ -67,9 +67,10 @@ package struct SidebarOrganizationPopoverModel<Item: Hashable> {
 }
 
 @MainActor
-package struct SidebarOrganizationPopover<Item: Hashable, Icon: View>: View {
+package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon: View>: View {
     let model: SidebarOrganizationPopoverModel<Item>
     @ViewBuilder let icon: (Item) -> Icon
+    @ViewBuilder let headerIcon: (SidebarOrganizationLevel) -> HeaderIcon
     let onSelect: (SidebarOrganizationPopoverItem<Item>) -> Void
     let onDismiss: () -> Void
     @State private var highlightedItem: SidebarOrganizationPopoverItem<Item>?
@@ -78,25 +79,26 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View>: View {
         group: SidebarOrganizationPopoverSection<Item>,
         subgroup: SidebarOrganizationPopoverSection<Item>?,
         @ViewBuilder icon: @escaping (Item) -> Icon,
+        @ViewBuilder headerIcon: @escaping (SidebarOrganizationLevel) -> HeaderIcon,
         onSelect: @escaping (SidebarOrganizationPopoverItem<Item>) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.model = SidebarOrganizationPopoverModel(group: group, subgroup: subgroup)
         self.icon = icon
+        self.headerIcon = headerIcon
         self.onSelect = onSelect
         self.onDismiss = onDismiss
     }
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+        HStack(alignment: .top, spacing: AppStyles.Components.SidebarOrganizationPanel.columnSpacing) {
             section(model.group, level: .group)
             if let subgroup = model.subgroup {
-                Divider()
                 section(subgroup, level: .subgroup)
             }
         }
-        .frame(minWidth: AppStyles.Shell.Sidebar.ToolbarControl.popoverMinimumWidth)
-        .padding(AppStyles.General.Spacing.tight)
+        .padding(AppStyles.Components.SidebarOrganizationPanel.contentPadding)
+        .fixedSize(horizontal: false, vertical: true)
         .background(
             SelectablePopoverKeyboardBridge(
                 items: model.keyboardItems,
@@ -114,54 +116,67 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View>: View {
         .onExitCommand(perform: onDismiss)
     }
 
-    @ViewBuilder
     private func section(
         _ section: SidebarOrganizationPopoverSection<Item>,
         level: SidebarOrganizationLevel
     ) -> some View {
-        Text(section.title)
-            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.popoverRowHorizontalPadding)
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
+            HStack(spacing: AppStyles.General.Spacing.standard) {
+                headerIcon(level)
+                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
+                    .accessibilityHidden(true)
+                Text(section.title)
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                    .textCase(.uppercase)
+            }
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
+            .accessibilityAddTraits(.isHeader)
 
-        ForEach(section.options.filter(\.isEnabled)) { option in
-            let item = SidebarOrganizationPopoverItem(level: level, value: option.value)
-            Button {
-                select(item)
-            } label: {
-                HStack(spacing: AppStyles.General.Spacing.standard) {
-                    Image(systemName: "checkmark")
-                        .opacity(section.selection == option.value ? 1 : 0)
-                        .frame(width: AppStyles.General.Icon.compact)
-                    icon(option.value)
-                        .frame(width: AppStyles.General.Icon.compact)
-                    Text(option.label)
-                        .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: AppStyles.General.Spacing.tight) {
+                ForEach(section.options.filter(\.isEnabled)) { option in
+                    optionButton(option, section: section, level: level)
                 }
-                .foregroundStyle(Color.primary)
-                .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.popoverRowHorizontalPadding)
-                .padding(.vertical, AppStyles.Shell.Sidebar.ToolbarControl.popoverRowVerticalPadding)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(
-                        cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.popoverRowCornerRadius
-                    )
-                    .fill(
-                        Color.primary.opacity(
-                            highlightedItem == item ? AppStyles.General.Fill.hover : 0
+            }
+        }
+        .frame(width: AppStyles.Components.SidebarOrganizationPanel.columnWidth, alignment: .topLeading)
+    }
+
+    private func optionButton(
+        _ option: SidebarToolbarSegment<Item>,
+        section: SidebarOrganizationPopoverSection<Item>,
+        level: SidebarOrganizationLevel
+    ) -> some View {
+        let item = SidebarOrganizationPopoverItem(level: level, value: option.value)
+        let isSelected = section.selection == option.value
+        return Button {
+            select(item)
+        } label: {
+            HStack(spacing: AppStyles.General.Spacing.standard) {
+                icon(option.value)
+                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
+                Text(option.label)
+                    .font(
+                        .system(
+                            size: AppStyles.General.Typography.textXs,
+                            weight: isSelected ? .semibold : .regular
                         )
                     )
-                )
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(option.label)
-            .accessibilityIdentifier(option.accessibilityIdentifier)
-            .accessibilityAddTraits(section.selection == option.value ? .isSelected : [])
-            .controlHelp(option.tooltipValue)
-            .onHover { isHovered in
-                if isHovered { highlightedItem = item }
-            }
+        }
+        .buttonStyle(
+            SidebarOrganizationOptionStyle(
+                isSelected: isSelected, isHighlighted: highlightedItem == item
+            )
+        )
+        .accessibilityLabel(option.label)
+        .accessibilityIdentifier(option.accessibilityIdentifier)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .controlHelp(option.tooltipValue)
+        .onHover { isHovered in
+            if isHovered { highlightedItem = item }
         }
     }
 
@@ -196,5 +211,29 @@ package struct SidebarPopoverReveal<Content: View>: View {
                     isVisible = true
                 }
             }
+    }
+}
+
+private struct SidebarOrganizationOptionStyle: ButtonStyle {
+    let isSelected: Bool
+    let isHighlighted: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isEmphasized = isSelected || isHighlighted || configuration.isPressed
+        let fillOpacity =
+            configuration.isPressed
+            ? AppStyles.General.Fill.pressed
+            : isSelected
+                ? AppStyles.General.Fill.active
+                : isHighlighted ? AppStyles.General.Fill.hover : AppStyles.General.Fill.subtle
+        configuration.label
+            .foregroundStyle(isEmphasized ? .primary : .secondary)
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
+            .padding(.vertical, AppStyles.General.Spacing.tight)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
+                    .fill(Color.white.opacity(fillOpacity))
+            )
+            .contentShape(Rectangle())
     }
 }

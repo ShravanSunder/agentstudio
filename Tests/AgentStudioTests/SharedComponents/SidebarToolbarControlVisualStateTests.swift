@@ -60,7 +60,7 @@ struct SidebarToolbarControlVisualStateTests {
 
         #expect(controlSource.contains(".controlHelp(segment.tooltipValue)"))
         #expect(repoExplorerSource.contains("tooltipValue: command.definition.controlTooltipRenderValue("))
-        #expect(repoExplorerSource.contains("groupingAction.controlTooltipRenderValue("))
+        #expect(repoExplorerSource.contains("organizationAction.controlTooltipRenderValue("))
         #expect(repoExplorerSource.contains("selected.definition.controlTooltipRenderValue()"))
     }
 

@@ -15,6 +15,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case arrowTriangleBranch = "arrow.triangle.branch"
     case arrowUp = "arrow.up"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
+    case listBulletIndent = "list.bullet.indent"
     case arrowUpArrowDown = "arrow.up.arrow.down"
     case arrowUpRightSquare = "arrow.up.right.square"
     case arrowUturnBackward = "arrow.uturn.backward"

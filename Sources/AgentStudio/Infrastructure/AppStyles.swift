@@ -139,9 +139,9 @@ package enum AppStyles {
             package static let nativeGroupHeaderBottomPadding: CGFloat =
                 nativeItemSpacing - groupRowVerticalPadding - nativeRowVerticalInset
             package static let nativeFirstSubgroupTopPadding: CGFloat =
-                nativeItemSpacing - groupRowVerticalPadding - nativeGroupHeaderBottomPadding
+                nativeItemSpacing - groupRowVerticalPadding - nativeGroupHeaderBottomPadding + General.Spacing.tight
             package static let nativeSubsequentSubgroupTopPadding: CGFloat =
-                nativeGroupSpacing - nativeRowVerticalInset
+                nativeGroupSpacing - nativeRowVerticalInset + General.Spacing.tight
             package static let nativeSubgroupBottomPadding: CGFloat =
                 nativeItemSpacing - nativeRowVerticalInset
             package static let countBadgeHorizontalPadding: CGFloat = 6
@@ -453,11 +453,17 @@ package enum AppStyles {
     }
 
     package enum Components {
+        package enum SidebarOrganizationPanel {
+            package static let contentPadding: CGFloat = 16
+            package static let columnWidth: CGFloat = 160
+            package static let columnSpacing: CGFloat = 16
+        }
+
         package enum SectionSubheading {
             package static let fontSize: CGFloat = AppStyles.General.Typography.textBase
             package static let foregroundOpacity: Double = AppStyles.General.Foreground.secondary
             package static let horizontalPadding: CGFloat = 12
-            package static let topPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let topPadding: CGFloat = AppStyles.General.Spacing.loose + AppStyles.General.Spacing.tight
             package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight
         }
 

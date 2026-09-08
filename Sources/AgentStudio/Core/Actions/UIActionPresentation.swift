@@ -116,6 +116,7 @@ package enum LocalActionSpec {
     case clearAllHistory
     case groupInboxNotifications
     case deleteInboxNotifications
+    case showRepoExplorerOrganization
     case groupRepoExplorerWorktrees
     case subgroupRepoExplorerWorktrees
     case cancel
@@ -264,17 +265,23 @@ package enum LocalActionSpec {
                 helpText: "Open delete actions for inbox notifications",
                 icon: .system(.deleteLeft)
             )
+        case .showRepoExplorerOrganization:
+            return ActionSpec(
+                label: "Organization",
+                helpText: "Choose how sidebar items are grouped",
+                icon: .system(.sliderHorizontal3)
+            )
         case .groupRepoExplorerWorktrees:
             return ActionSpec(
                 label: "Group",
                 helpText: "Choose how sidebar items are grouped",
-                icon: .system(.sliderHorizontal3)
+                icon: .system(.rectangle3Group)
             )
         case .subgroupRepoExplorerWorktrees:
             return ActionSpec(
                 label: "Subgroup",
                 helpText: "Choose how sidebar items are subgrouped",
-                icon: .system(.squareStack3dUp)
+                icon: .system(.listBulletIndent)
             )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))
