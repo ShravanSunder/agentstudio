@@ -163,7 +163,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         }
         _ = productAdmission.withValidAdmission {
             contextBySubscriptionId[subscription.subscriptionId] = SubscriptionContext(
-                contextId: UUID(),
+                // Interest changes do not replace the subscription or retire its in-flight publication.
+                contextId: activeContext.contextId,
                 deliveredPublication: activeContext.deliveredPublication,
                 subscription: subscription,
                 emit: emit

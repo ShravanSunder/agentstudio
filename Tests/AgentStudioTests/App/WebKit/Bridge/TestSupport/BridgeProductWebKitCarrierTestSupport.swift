@@ -282,6 +282,7 @@ struct BridgeProductWebKitCarrierReviewMetadataSnapshot: Equatable, Sendable {
     let deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt]
     let openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity]
     let replayIsBlocked: Bool
+    let successorEventKinds: [String]
 }
 
 actor BridgeWebKitFailingReviewMetadataSource:
@@ -296,6 +297,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
     private var replayIsBlocked = false
     private var replayIsReleased = false
+    private var successorEventKinds: [String] = []
     private var replayRelease: CheckedContinuation<Void, Never>?
     private var nextReplayFailureStateWaiterID: UInt64 = 0
     private var replayFailureStateWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
@@ -408,7 +410,8 @@ actor BridgeWebKitFailingReviewMetadataSource:
             didCorruptFinalWindow: didCorruptFinalWindow,
             deliveryAttempts: deliveryAttempts,
             openedSubscriptions: openedSubscriptions,
-            replayIsBlocked: replayIsBlocked
+            replayIsBlocked: replayIsBlocked,
+            successorEventKinds: successorEventKinds
         )
     }
 
@@ -418,6 +421,16 @@ actor BridgeWebKitFailingReviewMetadataSource:
         emit: BridgePaneProductReviewMetadataEventSink
     ) async throws -> BridgeProductProducerEnqueueResult {
         let event = sealedEvent.event
+        if event.publicationId == corruptedPublicationId {
+            switch event {
+            case .sourceAccepted: successorEventKinds.append("sourceAccepted")
+            case .snapshot: successorEventKinds.append("snapshot")
+            case .window: successorEventKinds.append("window")
+            case .delta: successorEventKinds.append("delta")
+            case .invalidated: successorEventKinds.append("invalidated")
+            case .reset: successorEventKinds.append("reset")
+            }
+        }
         guard event.publicationId == corruptedPublicationId,
             !didCorruptFinalWindow,
             case .window(let window) = event,

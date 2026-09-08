@@ -493,7 +493,7 @@ extension WebKitSerializedTests {
                     corrupted=\(reviewFailure.didCorruptFinalWindow), held=\(reviewFailure.replayIsBlocked), \
                     opens=\(reviewFailure.openedSubscriptions.count), cancels=\(reviewFailure.cancelledSubscriptionIds.count), \
                     deliveryGenerations=\(reviewFailure.deliveryAttempts.map { $0.package.reviewGeneration.rawValue }), \
-                    native=\(nativeFailure)
+                    successorEvents=\(reviewFailure.successorEventKinds), native=\(nativeFailure)
                     """
                 )
                 await harness.reviewMetadataSource.releaseReplay()
