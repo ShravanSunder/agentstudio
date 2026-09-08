@@ -170,9 +170,8 @@ extension AppCommand {
                 .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
                 .clearReadInboxNotifications, .clearAllInboxNotifications,
                 .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
-                .setReposGroupingRepo,
+                .setReposGroupingRepo, .setReposGroupingActivity,
                 .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                .setReposSubgroupNone, .setReposSubgroupActivity,
                 .setPanesSubgroupNone, .setPanesSubgroupActivity,
                 .setReposSortFieldName, .setReposSortFieldActivity,
                 .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -218,9 +217,8 @@ extension AppCommand {
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .setReposGroupingRepo,
+            case .setReposGroupingRepo, .setReposGroupingActivity,
                 .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                .setReposSubgroupNone, .setReposSubgroupActivity,
                 .setPanesSubgroupNone, .setPanesSubgroupActivity,
                 .setReposSortFieldName, .setReposSortFieldActivity,
                 .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -320,9 +318,8 @@ extension AppCommand {
             .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showReposSidebar, .showPanesSidebar,
-            .setReposGroupingRepo,
+            .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setReposSubgroupNone, .setReposSubgroupActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -348,9 +345,8 @@ extension AppCommand {
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return .terminalInputWrite
         case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
-            .setReposGroupingRepo,
+            .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setReposSubgroupNone, .setReposSubgroupActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,

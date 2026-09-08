@@ -291,7 +291,7 @@ struct RepoExplorerCommandPresentationBatchTests {
     func toolbarCapabilityRequestsKeepEveryDirectDestinationMounted() {
         let requests = RepoExplorerToolbarCommandPresentation.requests()
 
-        #expect(requests.count == 18)
+        #expect(requests.count == 17)
         #expect(requests.allSatisfy { $0.arguments == .noArguments })
         #expect(requests.contains { $0.command == .setReposSortFieldName })
         #expect(requests.contains { $0.command == .setPanesSortFieldActivity })

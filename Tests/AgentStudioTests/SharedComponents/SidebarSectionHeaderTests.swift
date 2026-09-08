@@ -10,6 +10,9 @@ struct SidebarSectionHeaderTests {
     func sharedSubheadingNormalizesEverySurfaceTitleForUniformSmallCaps() {
         #expect(SectionSubheadingLabel.displayTitle(for: "Recent Repositories") == "recent repositories")
         #expect(SectionSubheadingLabel.displayTitle(for: "Favorites") == "favorites")
+        #expect(SectionSubheadingLabel.displayTitle(for: "Pinned repos", casing: .initialSmallCaps) == "Pinned Repos")
+        #expect(SectionSubheadingLabel.displayTitle(for: "OPEN REPOS", casing: .initialSmallCaps) == "Open Repos")
+        #expect(SectionSubheadingLabel.displayTitle(for: "last 7 days", casing: .initialSmallCaps) == "Last 7 Days")
     }
 
     @Test("header row accepts custom content without owning action")

@@ -231,7 +231,7 @@ struct WorkspaceLocalRepositoryTests {
             isFilterVisible: true,
             sidebarCollapsed: true,
             sidebarSurface: .panes,
-            repoGroupingMode: .repo,
+            repoGroupingMode: .activity,
             paneGroupingMode: .tab,
             repoSubgroupMode: .ungrouped,
             paneSubgroupMode: .activity,

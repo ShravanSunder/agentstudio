@@ -39,6 +39,13 @@ struct RepoExplorerCommandPresentationTests {
             targetType: nil,
             arguments: .noArguments
         )
+        let groupingActivity = RepoExplorerCommandPresentationRequest(
+            command: .setReposGroupingActivity,
+            surface: .inlineControl,
+            target: nil,
+            targetType: nil,
+            arguments: .noArguments
+        )
         let groupingPane = RepoExplorerCommandPresentationRequest(
             command: .setPanesGroupingRepo,
             surface: .inlineControl,
@@ -61,7 +68,7 @@ struct RepoExplorerCommandPresentationTests {
             arguments: .noArguments
         )
 
-        #expect(Set([groupingRepo, groupingPane, sortName, sortRecent]).count == 4)
+        #expect(Set([groupingRepo, groupingActivity, groupingPane, sortName, sortRecent]).count == 5)
     }
 
     @Test("one visible worktree row produces one bounded request set")

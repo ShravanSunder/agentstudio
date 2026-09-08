@@ -111,6 +111,7 @@ package struct RepoExplorerView: View {
         atom(\.sidebarCache)
     }
 
+    @State var openOrganizationSelector: RepoExplorerOrganizationSelector?
     @State private var filterText = ""
     @State private var hasReportedInitialProjection = false
     @FocusState private var focusedField: RepoExplorerFocus?
@@ -194,6 +195,7 @@ package struct RepoExplorerView: View {
         SidebarHeaderLayout {
             HStack(spacing: AppStyles.General.Spacing.tight) {
                 sidebarSurfaceSelector
+                SidebarToolbarDivider()
                 SidebarSearchField(
                     placeholder: "Filter...",
                     text: $filterText,

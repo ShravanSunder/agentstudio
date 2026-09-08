@@ -286,11 +286,10 @@ try:
         "showReposSidebar",
         "showPanesSidebar",
         "setReposGroupingRepo",
+        "setReposGroupingActivity",
         "setPanesGroupingRepo",
         "setPanesGroupingTab",
         "setPanesGroupingActivity",
-        "setReposSubgroupNone",
-        "setReposSubgroupActivity",
         "setPanesSubgroupNone",
         "setPanesSubgroupActivity",
         "setReposSortFieldName",
@@ -428,8 +427,7 @@ try:
 
     sidebar_command_expectations = [
         (13, "setReposGroupingRepo"),
-        (14, "setReposSubgroupNone"),
-        (15, "setReposSubgroupActivity"),
+        (14, "setReposGroupingActivity"),
         (16, "setReposSortFieldName"),
         (17, "setReposSortFieldActivity"),
         (18, "toggleReposShowsPinned"),

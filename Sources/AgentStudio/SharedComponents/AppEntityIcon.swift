@@ -82,6 +82,25 @@ package enum AppEntityIcon: Equatable {
         }
     }
 
+    /// Font-sized SF Symbols have different intrinsic bounds. Group headers use
+    /// the same bounded glyph box for both symbol and Octicon sources.
+    @ViewBuilder
+    func groupHeaderImage(loader: OcticonLoader) -> some View {
+        let size = AppStyles.Shell.Sidebar.groupIconSize
+        switch symbol {
+        case .system(let symbol):
+            Image(systemName: symbol.rawValue)
+                .resizable()
+                .scaledToFit()
+                .font(.system(size: size, weight: .medium))
+                .frame(width: size, height: size)
+                .foregroundStyle(foregroundStyle)
+        case .octicon:
+            swiftUIImage(loader: loader, size: size)
+                .frame(width: size, height: size)
+        }
+    }
+
     var foregroundStyle: Color {
         switch self {
         case .coloredRepo(let colorHex), .checkout(let colorHex, _):

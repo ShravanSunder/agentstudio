@@ -32,12 +32,18 @@ struct RepoExplorerMaterializedRowView: View {
     @ViewBuilder
     private var content: some View {
         switch row.presentation {
-        case .activitySubgroup(let bucket):
-            SectionSubheadingLabel(bucket.title, isSecondary: true)
-                .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
+        case .activitySubgroup(let bucket, let isFirstInGroup):
+            SidebarSubgroupHeading(bucket.title)
+                .padding(
+                    .top,
+                    isFirstInGroup
+                        ? AppStyles.Shell.Sidebar.nativeFirstSubgroupTopPadding
+                        : AppStyles.Shell.Sidebar.nativeSubsequentSubgroupTopPadding
+                )
+                .padding(.bottom, AppStyles.Shell.Sidebar.nativeSubgroupBottomPadding)
                 .accessibilityAddTraits(.isHeader)
         case .sectionHeader(let kind, let isFirstRow):
-            SectionSubheadingLabel(kind.title)
+            SidebarEntitySectionHeading(kind.title, icon: kind.sectionIcon, octiconLoader: octiconLoader)
                 .padding(.leading, AppStyles.Shell.Sidebar.listRowLeadingInset)
                 .padding(.trailing, AppStyles.Components.SectionSubheading.horizontalPadding)
                 .padding(.top, isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
@@ -57,7 +63,7 @@ struct RepoExplorerMaterializedRowView: View {
             SidebarRepoGroupHeader(
                 isCollapsed: !group.isExpanded,
                 octiconLoader: octiconLoader,
-                icon: group.icon,
+                icon: nil,
                 repoTitle: group.title,
                 organizationName: group.organizationName,
                 onToggle: { onToggleGroup(group.groupID) },
@@ -180,7 +186,7 @@ struct RepoExplorerMaterializedRowView: View {
 
     static func accessibilityLabel(for row: RepoExplorerMaterializedRow) -> String {
         switch row.presentation {
-        case .activitySubgroup(let bucket):
+        case .activitySubgroup(let bucket, _):
             bucket.title
         case .sectionHeader(let kind, _):
             kind.title

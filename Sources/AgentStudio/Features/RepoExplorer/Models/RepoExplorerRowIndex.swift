@@ -244,9 +244,11 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                 worktreeRows: worktreeRows,
                 entries: &entries
             )
+            let paneRows = projectedPaneRowsByGroupId[group.id] ?? []
+            let showsActivitySubgroups = Set(paneRows.compactMap(\.activitySubgroup)).count > 1
             var previousBucket: RepoExplorerActivityBucket?
-            for row in projectedPaneRowsByGroupId[group.id] ?? [] {
-                if let bucket = row.activitySubgroup, bucket != previousBucket {
+            for row in paneRows {
+                if showsActivitySubgroups, let bucket = row.activitySubgroup, bucket != previousBucket {
                     entries.append(.activitySubgroup(groupId: group.id, bucket: bucket))
                     previousBucket = bucket
                 }
@@ -272,9 +274,10 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         worktreeRows: [RepoExplorerProjectedWorktreeRow],
         entries: inout [RepoExplorerListEntry]
     ) {
+        let showsActivitySubgroups = Set(worktreeRows.compactMap(\.activitySubgroup)).count > 1
         var previousBucket: RepoExplorerActivityBucket?
         for row in worktreeRows {
-            if let bucket = row.activitySubgroup, bucket != previousBucket {
+            if showsActivitySubgroups, let bucket = row.activitySubgroup, bucket != previousBucket {
                 entries.append(.activitySubgroup(groupId: groupId, bucket: bucket))
                 previousBucket = bucket
             }

@@ -43,17 +43,21 @@ package final class RepoExplorerSidebarPrefsAtom {
         case .panes:
             sidebarState.paneGroupingMode
         case .repos, .inbox:
-            sidebarState.repoGroupingMode
+            switch sidebarState.repoGroupingMode {
+            case .repo, .activity:
+                sidebarState.repoGroupingMode
+            case .tab:
+                .repo
+            }
         }
     }
 
     package func subgroupMode(for surface: SidebarSurface) -> SidebarSubgroupMode {
-        guard groupingMode(for: surface) != .activity else { return .ungrouped }
-        return switch surface {
+        switch surface {
         case .panes:
-            sidebarState.paneSubgroupMode
+            groupingMode(for: surface) == .activity ? .ungrouped : sidebarState.paneSubgroupMode
         case .repos, .inbox:
-            sidebarState.repoSubgroupMode
+            .ungrouped
         }
     }
 
@@ -89,7 +93,7 @@ package final class RepoExplorerSidebarPrefsAtom {
         case .panes:
             sidebarState.setPaneGroupingMode(groupingMode)
         case .repos, .inbox:
-            sidebarState.setRepoGroupingMode(groupingMode)
+            sidebarState.setRepoGroupingMode(groupingMode == .tab ? .repo : groupingMode)
         }
     }
 
@@ -98,7 +102,7 @@ package final class RepoExplorerSidebarPrefsAtom {
         case .panes:
             sidebarState.setPaneSubgroupMode(subgroupMode)
         case .repos, .inbox:
-            sidebarState.setRepoSubgroupMode(subgroupMode)
+            break
         }
     }
 

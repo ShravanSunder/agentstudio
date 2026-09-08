@@ -196,7 +196,7 @@ extension RepoExplorerReadModelTests {
 
         #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
         #expect(repoProjection.sections.map(\.kind) == [.pinnedRepositories, .repositories])
-        #expect(repoProjection.sections.map(\.title) == ["Pinned Repositories", "Other Repositories"])
+        #expect(repoProjection.sections.map(\.title) == ["Pinned repos", "Available repos"])
         #expect(repoProjection.sections[0].resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
         #expect(repoProjection.sections[1].resolvedGroups.map(\.repoTitle) == ["alpha-normal"])
         #expect(

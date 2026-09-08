@@ -34,7 +34,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                     )
                     await eventually("initial Repos command capabilities") {
                         toolbarCapability(
-                            .setReposSubgroupActivity,
+                            .setReposGroupingActivity,
                             in: batch.snapshot
                         ) == true
                             && toolbarCapability(
@@ -49,7 +49,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                     await eventually("Panes command capabilities after screen switch") {
                         batch.snapshot.generation > reposGeneration
                             && toolbarCapability(
-                                .setReposSubgroupActivity,
+                                .setReposGroupingActivity,
                                 in: batch.snapshot
                             ) == false
                             && toolbarCapability(

@@ -10,7 +10,7 @@ import Testing
 struct RepoExplorerMaterializationSnapshotTests {
     @Test("activity subgroup materializes as a section-style row aligned to the child icon column")
     func activitySubgroupUsesSectionStyleAndChildIconAlignment() {
-        let presentation = RepoExplorerMaterializedRowPresentation.activitySubgroup(.justNow)
+        let presentation = RepoExplorerMaterializedRowPresentation.activitySubgroup(.justNow, isFirstInGroup: true)
         let layout = RepoExplorerRowLayout.make(for: presentation)
 
         #expect(layout.rowClass == .sectionHeader)

@@ -56,9 +56,8 @@ extension AppDelegate: ShellCommandHandling {
             .setInboxGroupingNone,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
-            .setReposGroupingRepo,
+            .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setReposSubgroupNone, .setReposSubgroupActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -165,9 +164,8 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
-            .setReposGroupingRepo,
+            .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setReposSubgroupNone, .setReposSubgroupActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -214,9 +212,8 @@ extension AppDelegate: ShellCommandHandling {
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
-            .setReposGroupingRepo,
+            .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setReposSubgroupNone, .setReposSubgroupActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
@@ -407,7 +404,7 @@ extension AppDelegate: ShellCommandHandling {
 
     private func sidebarSettingSurface(for command: AppCommand) -> SidebarSurface? {
         switch command {
-        case .setReposGroupingRepo, .setReposSubgroupNone, .setReposSubgroupActivity,
+        case .setReposGroupingRepo, .setReposGroupingActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection, .toggleReposShowsPinned:
             .repos
@@ -452,15 +449,17 @@ extension AppDelegate: ShellCommandHandling {
         switch command {
         case .setReposGroupingRepo:
             prefs.setGroupingMode(.repo, for: surface)
+        case .setReposGroupingActivity:
+            prefs.setGroupingMode(.activity, for: surface)
         case .setPanesGroupingRepo:
             prefs.setGroupingMode(.repo, for: surface)
         case .setPanesGroupingTab:
             prefs.setGroupingMode(.tab, for: surface)
         case .setPanesGroupingActivity:
             prefs.setGroupingMode(.activity, for: surface)
-        case .setReposSubgroupNone, .setPanesSubgroupNone:
+        case .setPanesSubgroupNone:
             prefs.setSubgroupMode(.ungrouped, for: surface)
-        case .setReposSubgroupActivity, .setPanesSubgroupActivity:
+        case .setPanesSubgroupActivity:
             prefs.setSubgroupMode(.activity, for: surface)
         case .setReposSortFieldName, .setPanesSortFieldName:
             prefs.setSortField(.name, for: surface)

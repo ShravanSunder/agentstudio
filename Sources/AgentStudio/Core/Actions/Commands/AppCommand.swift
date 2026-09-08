@@ -89,11 +89,10 @@ package enum AppCommand: String, CaseIterable {
     case showReposSidebar
     case showPanesSidebar
     case setReposGroupingRepo
+    case setReposGroupingActivity
     case setPanesGroupingRepo
     case setPanesGroupingTab
     case setPanesGroupingActivity
-    case setReposSubgroupNone
-    case setReposSubgroupActivity
     case setPanesSubgroupNone
     case setPanesSubgroupActivity
     case setReposSortFieldName

@@ -84,6 +84,8 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case scope = "scope"
     case sidebarLeft = "sidebar.left"
     case squareArrowTriangle4Outward = "square.arrowtriangle.4.outward"
+    case squareSplit2x1 = "square.split.2x1"
+    case squareStackFill = "square.stack.fill"
     case squareStack3dUp = "square.stack.3d.up"
     case star = "star"
     case starFill = "star.fill"
@@ -101,6 +103,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
 }
 
 package enum OcticonSymbol: String, CaseIterable, Equatable, Sendable {
+    case repo = "octicon-repo"
     case codeSquare = "octicon-code-square"
     case gitPullRequest = "octicon-git-pull-request"
     case gitPullRequestDraft = "octicon-git-pull-request-draft"

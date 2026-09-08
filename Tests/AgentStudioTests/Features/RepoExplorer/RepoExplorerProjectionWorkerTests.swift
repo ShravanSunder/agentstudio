@@ -330,8 +330,8 @@ extension RepoExplorerProjectionWorkerTests {
             repos: [],
             repoEnrichmentByRepoId: [:],
             surface: .repos,
-            groupingMode: .repo,
-            subgroupMode: .activity,
+            groupingMode: .activity,
+            subgroupMode: .ungrouped,
             referenceDate: now,
             query: ""
         )

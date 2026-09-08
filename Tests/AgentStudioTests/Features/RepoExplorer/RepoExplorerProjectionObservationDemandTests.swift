@@ -406,8 +406,8 @@ extension RepoExplorerProjectionDemandTests {
         let registration = RepoExplorerObservationRegistration.make(
             isVisible: true,
             surface: .repos,
-            groupingMode: .repo,
-            subgroupMode: .activity,
+            groupingMode: .activity,
+            subgroupMode: .ungrouped,
             sortField: .name,
             repositoryIDs: [],
             worktreeIDs: [],

@@ -39,7 +39,7 @@ struct RepoExplorerObservationRegistration: Equatable, Sendable {
 
         switch surface {
         case .repos, .inbox:
-            let observesPaneActivity = subgroupMode == .activity || sortField == .activity
+            let observesPaneActivity = groupingMode == .activity || sortField == .activity
             return Self(
                 repositoryIDs: repositoryIDs,
                 worktreeIDs: worktreeIDs,

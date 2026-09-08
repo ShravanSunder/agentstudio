@@ -140,7 +140,7 @@ extension RepoExplorerProjectionInputCapture {
         if request.snapshot.surface == .panes {
             tokens.formUnion(presentedPaneIDs.map(RepoExplorerObservationToken.pane))
             tokens.insert(.attention)
-        } else if request.snapshot.subgroupMode == .activity || request.snapshot.sortField == .activity {
+        } else if request.snapshot.groupingMode == .activity || request.snapshot.sortField == .activity {
             tokens.formUnion(presentedPaneIDs.map(RepoExplorerObservationToken.paneActivity))
         }
         if request.snapshot.surface == .panes && request.snapshot.groupingMode == .tab {

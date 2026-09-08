@@ -179,8 +179,8 @@ struct RepoExplorerProjectionDemandTests {
     }
 
     @MainActor
-    @Test("Repos activity subgroup carries the settled output Date through the detached worker")
-    func reposActivitySubgroupCarriesSettledOutputDate() async throws {
+    @Test("Repos activity grouping carries the settled output Date through the detached worker")
+    func reposActivityGroupingCarriesSettledOutputDate() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -204,7 +204,7 @@ struct RepoExplorerProjectionDemandTests {
             let referenceDate = Date(timeIntervalSince1970: 100_000)
             let observedAt = referenceDate.addingTimeInterval(-30)
             let preferences = makeProjectionPreferences(atoms: atoms)
-            preferences.setSubgroupMode(.activity, for: .repos)
+            preferences.setGroupingMode(.activity, for: .repos)
             let capture = RepoExplorerProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -237,7 +237,7 @@ struct RepoExplorerProjectionDemandTests {
                 Issue.record("Expected repository content")
                 return
             }
-            #expect(content.worktreeRowsByGroupId.values.flatMap { $0 }.first?.activitySubgroup == .active)
+            #expect(content.sections.map(\.kind) == [.activeRepos])
         }
     }
 

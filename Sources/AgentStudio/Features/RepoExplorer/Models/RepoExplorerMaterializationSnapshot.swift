@@ -75,7 +75,7 @@ struct RepoExplorerUnassociatedPanePresentation: Equatable, Sendable {
 }
 
 enum RepoExplorerMaterializedRowPresentation: Equatable, Sendable {
-    case activitySubgroup(RepoExplorerActivityBucket)
+    case activitySubgroup(RepoExplorerActivityBucket, isFirstInGroup: Bool)
     case sectionHeader(kind: RepoExplorerSidebarSectionKind, isFirstRow: Bool)
     case loadingSectionHeader(
         kind: RepoExplorerSidebarSectionKind,
@@ -168,14 +168,8 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
 
     private static func facts(for presentation: RepoExplorerMaterializedRowPresentation) -> Facts {
         switch presentation {
-        case .activitySubgroup:
-            var facts = Facts(
-                rowClass: .sectionHeader, primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight)
-            facts.leadingInset =
-                AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
-                + AppStyles.Shell.Sidebar.rowHorizontalInset
-            facts.additionalVerticalPadding = AppStyles.Components.SectionSubheading.bottomPadding
-            return facts
+        case .activitySubgroup(_, let isFirstInGroup):
+            return activitySubgroupFacts(isFirstInGroup: isFirstInGroup)
         case .sectionHeader(_, let isFirstRow):
             var facts = Facts(
                 rowClass: .sectionHeader,
@@ -236,7 +230,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
         case .pane(let pane):
             var facts = Facts(
                 rowClass: .pane,
-                primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+                primaryLineHeight: AppStyles.Shell.Sidebar.nativeInlineControlLineHeight
             )
             facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
             facts.metadataLineCount =
@@ -267,6 +261,20 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             facts.requiresVisibleWidthMeasurement = true
             return facts
         }
+    }
+
+    private static func activitySubgroupFacts(isFirstInGroup: Bool) -> Facts {
+        var facts = Facts(
+            rowClass: .sectionHeader, primaryLineHeight: AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight)
+        facts.leadingInset =
+            AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            + AppStyles.Shell.Sidebar.rowHorizontalInset
+        facts.additionalVerticalPadding =
+            (isFirstInGroup
+                ? AppStyles.Shell.Sidebar.nativeFirstSubgroupTopPadding
+                : AppStyles.Shell.Sidebar.nativeSubsequentSubgroupTopPadding)
+            + AppStyles.Shell.Sidebar.nativeSubgroupBottomPadding
+        return facts
     }
 
     private static func metrics(_ facts: Facts) -> RepoExplorerRowLayoutMetrics {
@@ -481,7 +489,13 @@ extension RepoExplorerMaterializationSnapshot {
     ) -> RepoExplorerMaterializedRowPresentation {
         switch entry {
         case .activitySubgroup(_, let bucket):
-            return .activitySubgroup(bucket)
+            let isFirstInGroup: Bool
+            if index > 0, case .resolvedGroupHeader = rowIndex.entries[index - 1] {
+                isFirstInGroup = true
+            } else {
+                isFirstInGroup = false
+            }
+            return .activitySubgroup(bucket, isFirstInGroup: isFirstInGroup)
         case .sectionHeader(let kind):
             return .sectionHeader(kind: kind, isFirstRow: index == 0)
         case .loadingSectionHeader(let kind):

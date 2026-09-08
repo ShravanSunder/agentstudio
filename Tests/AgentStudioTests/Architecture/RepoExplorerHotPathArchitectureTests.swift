@@ -718,7 +718,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(featureSource.contains(".toggleReposSortDirection"))
         #expect(featureSource.contains(".togglePanesSortDirection"))
         #expect(featureSource.contains(".setPanesGroupingActivity"))
-        #expect(featureSource.contains(".setReposSubgroupActivity"))
+        #expect(featureSource.contains(".setReposGroupingActivity"))
         #expect(featureSource.contains("presentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!featureSource.contains("AppCommandDispatcher.shared"))

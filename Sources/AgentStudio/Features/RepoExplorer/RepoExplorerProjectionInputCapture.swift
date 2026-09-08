@@ -721,7 +721,8 @@ final class RepoExplorerProjectionInputCapture {
 
     private func shouldCapturePaneFacts(for snapshot: RepoExplorerSnapshot) -> Bool {
         snapshot.surface == .panes
-            || snapshot.subgroupMode == .activity
+            || snapshot.groupingMode == .activity
+            || (snapshot.surface == .panes && snapshot.subgroupMode == .activity)
             || snapshot.sortField == .activity
     }
 

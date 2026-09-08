@@ -27,16 +27,32 @@ struct AppDelegateRepoSidebarCommandsTests {
         #expect(atoms.repoExplorerSidebarPrefs.sortDirection(for: .panes) == .descending)
         #expect(!atoms.repoExplorerSidebarPrefs.showsPinned(for: .panes))
 
-        #expect(!delegate.canExecute(.setReposSubgroupActivity))
-        #expect(!delegate.execute(.setReposSubgroupActivity))
+        #expect(!delegate.canExecute(.setReposGroupingActivity))
+        #expect(!delegate.execute(.setReposGroupingActivity))
         #expect(atoms.repoExplorerSidebarPrefs.subgroupMode(for: .repos) == .ungrouped)
 
         #expect(delegate.execute(.showReposSidebar))
-        #expect(delegate.execute(.setReposSubgroupActivity))
+        #expect(delegate.execute(.setReposGroupingActivity))
         #expect(delegate.execute(.setReposSortFieldActivity))
-        #expect(atoms.repoExplorerSidebarPrefs.subgroupMode(for: .repos) == .activity)
+        #expect(atoms.repoExplorerSidebarPrefs.groupingMode(for: .repos) == .activity)
+        #expect(atoms.repoExplorerSidebarPrefs.subgroupMode(for: .repos) == .ungrouped)
         #expect(atoms.repoExplorerSidebarPrefs.sortField(for: .repos) == .activity)
         #expect(atoms.repoExplorerSidebarPrefs.groupingMode(for: .panes) == .tab)
+    }
+
+    @Test("Repos preferences expose only Repo or Activity grouping and no subgroup")
+    func reposPreferencesConstrainGroupingAndSubgroup() {
+        let atoms = AtomRegistry()
+        let prefs = atoms.repoExplorerSidebarPrefs
+
+        prefs.setGroupingMode(.activity, for: .repos)
+        prefs.setSubgroupMode(.activity, for: .repos)
+        #expect(prefs.groupingMode(for: .repos) == .activity)
+        #expect(prefs.subgroupMode(for: .repos) == .ungrouped)
+
+        prefs.setGroupingMode(.tab, for: .repos)
+        #expect(prefs.groupingMode(for: .repos) == .repo)
+        #expect(atoms.core.workspaceSidebarState.repoGroupingMode == .repo)
     }
 
     @Test("activity grouping rejects subgroup mutations without overwriting saved choice")

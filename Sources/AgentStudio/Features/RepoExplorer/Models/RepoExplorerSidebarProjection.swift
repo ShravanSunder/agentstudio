@@ -15,14 +15,50 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
     case pinnedRepositories
     case openRepositories
     case repositories
+    case activeRepos
+    case justNowRepos
+    case lastHourRepos
+    case todayRepos
+    case lastSevenDaysRepos
+    case olderRepos
+    case noActivityRepos
     case pinnedPanes
     case panes
 
+    static func activitySection(_ bucket: RepoExplorerActivityBucket) -> Self {
+        switch bucket {
+        case .active: .activeRepos
+        case .justNow: .justNowRepos
+        case .lastHour: .lastHourRepos
+        case .today: .todayRepos
+        case .lastSevenDays: .lastSevenDaysRepos
+        case .older: .olderRepos
+        case .noActivity: .noActivityRepos
+        }
+    }
+
+    var sectionIcon: AppEntityIcon {
+        switch self {
+        case .pinnedRepositories, .openRepositories, .repositories: .repo
+        case .pinnedPanes, .panes: .pane
+        case .activeRepos, .justNowRepos, .lastHourRepos, .todayRepos, .lastSevenDaysRepos, .olderRepos,
+            .noActivityRepos:
+            .activity
+        }
+    }
+
     var title: String {
         switch self {
-        case .pinnedRepositories: "Pinned Repositories"
-        case .openRepositories: "Open Repositories"
-        case .repositories: "Other Repositories"
+        case .pinnedRepositories: "Pinned repos"
+        case .openRepositories: "Open repos"
+        case .repositories: "Available repos"
+        case .activeRepos: "Active"
+        case .justNowRepos: "Just now"
+        case .lastHourRepos: "Last hour"
+        case .todayRepos: "Today"
+        case .lastSevenDaysRepos: "Last 7 days"
+        case .olderRepos: "Older"
+        case .noActivityRepos: "No activity"
         case .pinnedPanes: "Pinned Panes"
         case .panes: "Other Panes"
         }

@@ -39,7 +39,7 @@ extension AppCommand {
         sidebarScreenDefinition(
             shortcut: .showReposSidebar,
             label: "Repos",
-            icon: .system(.folder),
+            icon: .octicon(.repo),
             helpText: "Show repositories and worktrees in the sidebar"
         )
     }
@@ -47,7 +47,7 @@ extension AppCommand {
     func showPanesSidebarDefinition() -> AppCommandSpec {
         sidebarScreenDefinition(
             label: "Panes",
-            icon: .system(.rectangleSplit2x1),
+            icon: .system(.squareSplit2x1),
             helpText: "Show pane destinations in the sidebar"
         )
     }
@@ -55,15 +55,23 @@ extension AppCommand {
     func setReposGroupingRepoDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Repo",
-            icon: .system(.folder),
+            icon: .octicon(.repo),
             helpText: "Group the Repos sidebar by repository"
+        )
+    }
+
+    func setReposGroupingActivityDefinition() -> AppCommandSpec {
+        sidebarSettingDefinition(
+            label: "Activity",
+            icon: .system(.clock),
+            helpText: "Group the Repos sidebar by terminal activity"
         )
     }
 
     func setPanesGroupingRepoDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Repo",
-            icon: .system(.folder),
+            icon: .octicon(.repo),
             helpText: "Group the Panes sidebar by repository"
         )
     }
@@ -71,7 +79,7 @@ extension AppCommand {
     func setPanesGroupingTabDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Tab",
-            icon: .system(.rectangleStack),
+            icon: .system(.squareStackFill),
             helpText: "Group the Panes sidebar by tab"
         )
     }
@@ -81,22 +89,6 @@ extension AppCommand {
             label: "Activity",
             icon: .system(.clock),
             helpText: "Group the Panes sidebar by terminal activity"
-        )
-    }
-
-    func setReposSubgroupNoneDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "None",
-            icon: .system(.circle),
-            helpText: "Do not subgroup worktrees in the Repos sidebar"
-        )
-    }
-
-    func setReposSubgroupActivityDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Activity",
-            icon: .system(.clock),
-            helpText: "Subgroup worktrees by terminal activity in the Repos sidebar"
         )
     }
 
@@ -151,7 +143,7 @@ extension AppCommand {
     func toggleReposSortDirectionDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Direction",
-            icon: .system(.arrowUp),
+            icon: .system(.arrowUpArrowDown),
             helpText: "Reverse the Repos sidebar leaf sort direction"
         )
     }
@@ -159,7 +151,7 @@ extension AppCommand {
     func togglePanesSortDirectionDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Direction",
-            icon: .system(.arrowUp),
+            icon: .system(.arrowUpArrowDown),
             helpText: "Reverse the Panes sidebar leaf sort direction"
         )
     }
@@ -168,7 +160,7 @@ extension AppCommand {
         sidebarSettingDefinition(
             label: "Show Pinned",
             icon: .system(.pinFill),
-            helpText: "Show or merge the Pinned Repositories section"
+            helpText: "Show or merge the Pinned repos section"
         )
     }
 

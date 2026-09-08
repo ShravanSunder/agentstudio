@@ -149,15 +149,39 @@ extension RepoExplorerProjection {
         let destinationsByWorktreeId = input.destinationsByWorktreeId
         let destinationsByRepoId = input.destinationsByRepoId
         let paneFacts = input.paneFacts
-        func section(for repo: RepoPresentationItem) -> RepoExplorerSidebarSectionKind {
-            if snapshot.showsPinned && repo.isPinned { return .pinnedRepositories }
-            return destinationsByRepoId[repo.id, default: []].isEmpty ? .repositories : .openRepositories
-        }
         let activityByWorktreeId = destinationsByWorktreeId.compactMapValues { destinations in
             destinations.compactMap { validActivity(paneFacts[$0.paneId]?.activityAt, snapshot: snapshot) }.max()
         }
+        var activitySectionByRepoId: [UUID: RepoExplorerSidebarSectionKind] = [:]
+        if snapshot.groupingMode == .activity {
+            let identityGroups = remoteIdentityGroups(
+                repos: snapshot.repos,
+                metadataByRepoId: RepoPresentationColoring.buildRepoMetadata(
+                    repos: snapshot.repos, repoEnrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId
+                ), sortOrder: .ascending
+            )
+            for group in identityGroups {
+                let latestActivity = group.repos.flatMap(\.worktrees).compactMap { activityByWorktreeId[$0.id] }.max()
+                let kind = RepoExplorerSidebarSectionKind.activitySection(
+                    RepoExplorerActivityBucket.classify(
+                        activityAt: latestActivity, now: snapshot.referenceDate, calendar: snapshot.calendar
+                    )
+                )
+                for repo in group.repos { activitySectionByRepoId[repo.id] = kind }
+            }
+        }
+        func section(for repo: RepoPresentationItem) -> RepoExplorerSidebarSectionKind {
+            if snapshot.showsPinned && repo.isPinned { return .pinnedRepositories }
+            if snapshot.groupingMode == .activity { return activitySectionByRepoId[repo.id] ?? .noActivityRepos }
+            return destinationsByRepoId[repo.id, default: []].isEmpty ? .repositories : .openRepositories
+        }
+        let sectionKinds: [RepoExplorerSidebarSectionKind] =
+            snapshot.groupingMode == .activity
+            ? [.pinnedRepositories]
+                + RepoExplorerActivityBucket.allCases.map(RepoExplorerSidebarSectionKind.activitySection)
+            : [.pinnedRepositories, .openRepositories, .repositories]
         var result = RepoExplorerOrganizedContent()
-        for kind in [RepoExplorerSidebarSectionKind.pinnedRepositories, .openRepositories, .repositories] {
+        for kind in sectionKinds {
             let members = eligibleRepositories.filter { section(for: $0) == kind }
             let loading = loadingRepos.filter { section(for: $0) == kind }
             guard !members.isEmpty || !loading.isEmpty else { continue }
@@ -170,21 +194,9 @@ extension RepoExplorerProjection {
                 }
             let rowsByGroup = worktreeRowsByGroupId(from: groups, checkoutColorHexByRepoId: checkoutColors)
             for (groupId, unsortedRows) in rowsByGroup {
-                var rows = unsortedRows.map { original in
-                    var row = original
-                    if snapshot.subgroupMode == .activity {
-                        row.activitySubgroup = RepoExplorerActivityBucket.classify(
-                            activityAt: activityByWorktreeId[row.worktree.id],
-                            now: snapshot.referenceDate, calendar: snapshot.calendar
-                        )
-                    }
-                    return row
-                }
+                var rows = unsortedRows
                 rows.sort { lhs, rhs in
-                    if lhs.activitySubgroup != rhs.activitySubgroup {
-                        return (lhs.activitySubgroup?.rawValue ?? 0) < (rhs.activitySubgroup?.rawValue ?? 0)
-                    }
-                    return leafPrecedes(
+                    leafPrecedes(
                         .init(
                             name: lhs.worktree.name, activityAt: activityByWorktreeId[lhs.worktree.id],
                             identity: lhs.worktree.id),

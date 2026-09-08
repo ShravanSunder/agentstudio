@@ -6,6 +6,54 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
+    @Test("Repos activity sections keep checkouts together and pinned repos exclusive")
+    func reposActivitySectionsKeepRepositoriesTogether() {
+        let now = Date(timeIntervalSince1970: 1_788_804_000)
+        let activeID = UUIDv7.generate()
+        let pinnedID = UUIDv7.generate()
+        let quietID = UUIDv7.generate()
+        let activeCheckout = worktree(repoId: activeID, name: "active-checkout")
+        let quietCheckout = worktree(repoId: activeID, name: "quiet-checkout")
+        let pinnedCheckout = worktree(repoId: pinnedID)
+        let repositories = [
+            repo(id: activeID, name: "active-repo", worktrees: [activeCheckout, quietCheckout]),
+            repo(id: pinnedID, name: "pinned-repo", isPinned: true, worktrees: [pinnedCheckout]),
+            repo(id: quietID, name: "quiet-repo", worktrees: [worktree(repoId: quietID)]),
+        ]
+        let paneID = UUIDv7.generate()
+        let snapshot = RepoExplorerSnapshot(
+            repos: repositories,
+            repoEnrichmentByRepoId: Dictionary(
+                uniqueKeysWithValues: repositories.map {
+                    ($0.id, resolvedRemote(repoId: $0.id, displayName: $0.name))
+                }),
+            surface: .repos, groupingMode: .activity, showsPinned: true,
+            referenceDate: now, calendar: organizationCalendar, query: "",
+            paneLocationsByWorktreeId: [activeCheckout.id: [paneLocation(paneID: paneID, tabID: UUIDv7.generate())]]
+        )
+        let facts = [paneID: paneFacts(title: "output", activityAt: now.addingTimeInterval(-30))]
+        let projection = RepoExplorerProjection.project(snapshot, paneRowFactsByPaneId: facts)
+        #expect(projection.sections.map(\.kind) == [.pinnedRepositories, .activeRepos, .noActivityRepos])
+        #expect(projection.sections[0].resolvedGroups.flatMap(\.repos).map(\.id) == [pinnedID])
+        #expect(projection.sections[1].resolvedGroups.flatMap(\.repos).flatMap(\.worktrees).count == 2)
+        let index = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
+        #expect(
+            index.entries.allSatisfy {
+                if case .activitySubgroup = $0 { return false }
+                return true
+            })
+        let filtered = RepoExplorerProjection.project(
+            snapshot.replacing(query: "quiet-checkout"), paneRowFactsByPaneId: facts
+        )
+        #expect(filtered.sections.map(\.kind) == [.activeRepos])
+        let merged = RepoExplorerProjection.project(snapshot.replacing(showsPinned: false), paneRowFactsByPaneId: facts)
+        #expect(merged.sections.map(\.kind) == [.activeRepos, .noActivityRepos])
+        #expect(merged.sections.flatMap(\.resolvedGroups).flatMap(\.repos).count == 3)
+        let repoMode = RepoExplorerProjection.project(
+            snapshot.replacing(groupingMode: .repo), paneRowFactsByPaneId: facts)
+        #expect(repoMode.sections.map(\.title) == ["Pinned repos", "Open repos", "Available repos"])
+    }
+
     @Test("whitespace-only query preserves collapsed groups through the worker")
     func whitespaceQueryPreservesCollapsedGroups() throws {
         let repoID = UUIDv7.generate()
@@ -253,6 +301,42 @@ extension RepoExplorerReadModelTests {
             ]
         )
 
+        let materialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: subgroupIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: base, projection: subgroupProjection,
+                branchStatusByWorktreeID: [:], branchNameByWorktreeID: [:],
+                bridgeCommandResolutionByWorktreeID: [:], paneRowFactsByPaneID: facts
+            )
+        )
+        let subgroupRows = materialization.rows.filter {
+            if case .activitySubgroup = $0.presentation { return true }
+            return false
+        }
+        let firstSubgroup = try #require(subgroupRows.first)
+        let laterSubgroup = try #require(subgroupRows.last)
+        let headerBottomPadding =
+            AppStyles.Shell.Sidebar.groupRowVerticalPadding
+            + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
+        let subgroupBottomPadding =
+            AppStyles.Shell.Sidebar.nativeItemSpacing
+            - AppStyles.Shell.Sidebar.nativeRowVerticalInset
+        #expect(
+            firstSubgroup.layout.metrics.fallbackHeight
+                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+                + AppStyles.Shell.Sidebar.nativeItemSpacing - headerBottomPadding
+                + subgroupBottomPadding
+        )
+        #expect(
+            laterSubgroup.layout.metrics.fallbackHeight
+                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+                + AppStyles.Shell.Sidebar.nativeGroupSpacing - AppStyles.Shell.Sidebar.nativeRowVerticalInset
+                + subgroupBottomPadding
+        )
+        for row in materialization.rows where row.layout.rowClass == .pane {
+            #expect(row.layout.metrics.primaryLineHeight >= AppStyles.General.Button.compact)
+        }
+
         let mainActivityProjection = RepoExplorerProjection.project(
             base.replacing(groupingMode: .activity),
             paneRowFactsByPaneId: facts
@@ -339,7 +423,7 @@ extension RepoExplorerReadModelTests {
                 repos: [repository],
                 repoEnrichmentByRepoId: [repoID: resolvedRemote(repoId: repoID, displayName: repository.name)],
                 surface: .repos,
-                subgroupMode: .activity,
+                groupingMode: .activity,
                 referenceDate: now,
                 calendar: organizationCalendar,
                 query: "",
@@ -366,7 +450,64 @@ extension RepoExplorerReadModelTests {
 
         let groupID = try #require(projection.resolvedGroups.first?.id)
         let row = try #require(projection.worktreeRowsByGroupId[groupID]?.first)
-        #expect(row.activitySubgroup == .active)
+        #expect(row.activitySubgroup == nil)
+        #expect(projection.sections.map(\.kind) == [.activeRepos])
+    }
+
+    @Test(
+        "activity headings require multiple non-empty buckets within a parent after filtering",
+        arguments: [SidebarSurface.repos, .panes], [false, true]
+    )
+    func activityHeadingsRequireMultipleBuckets(surface: SidebarSurface, hasDifferentActivity: Bool) throws {
+        let now = Date(timeIntervalSince1970: 1_788_804_000)
+        let repoID = UUIDv7.generate()
+        let firstWorktree = worktree(repoId: repoID, name: "uniquealpha")
+        let secondWorktree = worktree(repoId: repoID, name: "uniquebeta")
+        let firstPaneID = UUIDv7.generate()
+        let secondPaneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let repository = repo(id: repoID, name: "repository", worktrees: [firstWorktree, secondWorktree])
+        let facts = [
+            firstPaneID: paneFacts(title: "uniquealpha", activityAt: now.addingTimeInterval(-30)),
+            secondPaneID: paneFacts(
+                title: "uniquebeta", activityAt: hasDifferentActivity ? nil : now.addingTimeInterval(-30)
+            ),
+        ]
+        let groupingModes: [RepoExplorerGroupingMode] = surface == .repos ? [.repo] : [.repo, .tab]
+        for groupingMode in groupingModes {
+            for query in ["", "uniquealpha"] {
+                let projection = RepoExplorerProjection.project(
+                    RepoExplorerSnapshot(
+                        repos: [repository],
+                        repoEnrichmentByRepoId: [repoID: resolvedRemote(repoId: repoID, displayName: repository.name)],
+                        surface: surface, groupingMode: groupingMode, subgroupMode: .activity,
+                        referenceDate: now, calendar: organizationCalendar, query: query,
+                        paneLocationsByWorktreeId: [
+                            firstWorktree.id: [paneLocation(paneID: firstPaneID, tabID: tabID, paneIndex: 0)],
+                            secondWorktree.id: [paneLocation(paneID: secondPaneID, tabID: tabID, paneIndex: 1)],
+                        ]
+                    ),
+                    paneRowFactsByPaneId: facts
+                )
+                let index = RepoExplorerRowIndex(
+                    projection: projection, collapsedGroupIds: [], isFiltering: !query.isEmpty
+                )
+                let headings = index.entries.compactMap { entry -> RepoExplorerActivityBucket? in
+                    if case .activitySubgroup(_, let bucket) = entry { return bucket }
+                    return nil
+                }
+                let expected: [RepoExplorerActivityBucket] =
+                    surface == .panes && hasDifferentActivity && query.isEmpty ? [.active, .noActivity] : []
+                #expect(headings == expected)
+                let leafCount = index.entries.filter { entry in
+                    switch entry {
+                    case .resolvedPaneRow, .resolvedWorktreeRow: true
+                    default: false
+                    }
+                }.count
+                #expect(leafCount == (query.isEmpty ? 2 : 1))
+            }
+        }
     }
 
     private func paneLocation(
