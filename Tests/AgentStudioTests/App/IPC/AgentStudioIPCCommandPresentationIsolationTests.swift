@@ -19,9 +19,10 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
             .map { String(format: "%02x", $0) }
             .joined()
 
+        // Repo Activity replaces the retired Repo subgroup commands in the public catalog.
         #expect(
             encodedCommandListSHA256
-                == "78dfcc37cc0cc484ce56f6a21e5758c67ba4d8b441e3f06ce29937d9a940f973"
+                == "472b4544c63e4f64a00d260b60ad33b6510334570d63895b1cbb2bc637f09600"
         )
     }
 

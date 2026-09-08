@@ -113,7 +113,7 @@ struct SidebarSurfaceConvergenceTests {
         #expect(repoSource.contains("} toolbarRow: {"))
         #expect(repoSource.contains("sidebarSurfaceSelector"))
         #expect(repoSource.contains("repoToolbarRow"))
-        #expect(commandToolbarSource.contains("organizationControls(showsSelectedLabels:"))
+        #expect(commandToolbarSource.contains("SidebarDropdownSelector("))
         #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
         #expect(commandToolbarSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
         #expect(commandToolbarSource.contains("label: command.definition.label"))
