@@ -108,6 +108,8 @@ fi
 [tasks.format]
 description = "Format Swift sources with swift-format"
 run = """
+#!/usr/bin/env bash
+set -euo pipefail
 swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
 echo "Formatted all Swift sources"
 """
@@ -180,6 +182,7 @@ run = "pnpm run test:e2e"
 
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
+depends = ["bridge-web-install"]
 run = """
 #!/usr/bin/env bash
 set -uo pipefail
@@ -251,7 +254,7 @@ else
   if [[ "$role" == "primary" ]]; then
     mise run copy-xcframework
     mise run --skip-deps setup-dev-resources
-    mise run build-zmx
+    mise run --skip-deps build-zmx
   else
     bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" setup-shared
   fi
@@ -320,12 +323,13 @@ mise run test:architecture
 mise run test:atomlib-compile-negative
 mise run test:bridge-web
 mise run test:web
-mise run bridge-web-build
+mise run verify-vendors
+mise run --skip-deps bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
 SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
-mise run test:swift
+mise run --skip-deps test:swift
 git diff --check
 """
 
@@ -340,7 +344,14 @@ run = "pnpm --dir web install --frozen-lockfile"
 
 [tasks."test:architecture"]
 description = "Run the AgentStudio architecture lint tool package tests"
-run = "swift test --package-path Tools/AgentStudioArchitectureLint"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift test --package-path Tools/AgentStudioArchitectureLint \
+  --build-path "${PROJECT_ROOT}/${SWIFT_BUILD_DIR}/architecture-lint"
+"""
+
 
 [tasks."test:atomlib-compile-negative"]
 description = "Verify AtomLib compile-time transfer constraints"
@@ -447,8 +458,8 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --b
 """
 
 [tasks."test:swift:benchmark"]
-description = "Run benchmark-only bridge push tests"
-depends = ["build"]
+description = "Run global preferences and native sidebar benchmarks"
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -481,7 +492,7 @@ rm -rf "${PROJECT_ROOT}/Frameworks/GhosttyKit.xcframework"
 rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/ghostty"
 rm -f "${PROJECT_ROOT}/Sources/AgentStudio/Resources/terminfo/67/ghostty"
 mise run copy-xcframework
-mise run setup-dev-resources
+mise run --skip-deps setup-dev-resources
 echo "Refreshed vendor-derived resources"
 """
 

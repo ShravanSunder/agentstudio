@@ -935,7 +935,7 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func debouncedAutosaveReportsPreparedLocalUnavailabilityWhileContinuingCoreSaves()
         async throws
     {
@@ -976,6 +976,12 @@ final class WorkspaceStoreTests {
         }
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let failureReports = AsyncStream.makeStream(
+            of: PaneTopologyPersistenceReason.self,
+            bufferingPolicy: .unbounded
+        )
+        defer { failureReports.continuation.finish() }
+        var failureReportIterator = failureReports.stream.makeAsyncIterator()
         let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         identityAtom.replaceIdentity(
             workspaceId: workspaceId,
@@ -987,22 +993,27 @@ final class WorkspaceStoreTests {
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: .milliseconds(10),
             clock: clock,
-            recoveryReporter: { event in recoveryEvents.append(event) }
+            recoveryReporter: { event in recoveryEvents.append(event) },
+            persistenceReasonReporter: { reason in
+                failureReports.continuation.yield(reason)
+            }
         )
 
-        func advanceNextDebouncedSave(after mutation: () -> Void) async {
+        func advanceNextDebouncedSave(after mutation: () -> Void) async throws {
             let nextSleepGeneration = clock.scheduledSleepGeneration
             mutation()
             await clock.waitForPendingSleepGeneration(nextSleepGeneration)
             clock.advance(by: .milliseconds(10))
+            // The datastore probe precedes the throw back to WorkspaceStore.
+            // This report and any recovery callback run synchronously on MainActor,
+            // so this MainActor test resumes after both, including damped failures.
+            _ = try #require(await failureReportIterator.next(isolation: #isolation))
         }
 
         for attempt in 1...3 {
-            await advanceNextDebouncedSave {
+            try await advanceNextDebouncedSave {
                 store.setSidebarWidth(CGFloat(300 + attempt))
             }
-            await saveProbe.waitForSaveCount(atLeast: attempt)
-            await saveProbe.waitForFailedSaveCount(atLeast: attempt)
             #expect(store.isDirty)
         }
         #expect(await saveProbe.saveCount == 3)
@@ -1013,11 +1024,9 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.allSatisfy { $0.store == .workspace && $0.recovery == .saveFailed })
         #expect(store.isDirty)
 
-        await advanceNextDebouncedSave {
+        try await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
-        await saveProbe.waitForSaveCount(atLeast: 4)
-        await saveProbe.waitForFailedSaveCount(atLeast: 4)
 
         #expect(await saveProbe.saveCount == 4)
         #expect(await saveProbe.failedSaveCount == 4)
@@ -1026,11 +1035,9 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.count == 3)
         #expect(store.isDirty)
 
-        await advanceNextDebouncedSave {
+        try await advanceNextDebouncedSave {
             store.setSidebarWidth(305)
         }
-        await saveProbe.waitForSaveCount(atLeast: 5)
-        await saveProbe.waitForFailedSaveCount(atLeast: 5)
 
         #expect(await saveProbe.saveCount == 5)
         #expect(await saveProbe.succeededSaveCount == 0)
@@ -1899,9 +1906,6 @@ private actor WorkspaceSQLiteSaveProbe {
     private var saveEvents: Int = 0
     private var succeededSaveEvents: Int = 0
     private var failedSaveEvents: Int = 0
-    private var waiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var succeededWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var failedWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     var saveCount: Int {
         saveEvents
@@ -1919,80 +1923,15 @@ private actor WorkspaceSQLiteSaveProbe {
         switch event {
         case .saveWorkspaceSnapshot:
             saveEvents += 1
-            resumeSatisfiedWaiters()
         case .saveWorkspaceSnapshotSucceeded:
             succeededSaveEvents += 1
-            resumeSatisfiedSucceededWaiters()
         case .saveWorkspaceSnapshotFailed:
             failedSaveEvents += 1
-            resumeSatisfiedFailedWaiters()
         case .loadWorkspaceSnapshot:
             break
         }
     }
 
-    func waitForSaveCount(atLeast minimum: Int) async {
-        if saveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    func waitForSucceededSaveCount(atLeast minimum: Int) async {
-        if succeededSaveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            succeededWaiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    func waitForFailedSaveCount(atLeast minimum: Int) async {
-        if failedSaveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            failedWaiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    private func resumeSatisfiedWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in waiters {
-            if saveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        waiters = remaining
-    }
-
-    private func resumeSatisfiedSucceededWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in succeededWaiters {
-            if succeededSaveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        succeededWaiters = remaining
-    }
-
-    private func resumeSatisfiedFailedWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in failedWaiters {
-            if failedSaveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        failedWaiters = remaining
-    }
 }
 
 private final class FailingThenSucceedingLocalRepositoryFactory: @unchecked Sendable {
