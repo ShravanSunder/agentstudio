@@ -647,17 +647,48 @@ strict_sidebar_fixture_ready_query() {
   printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count,agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count,agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count,agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
 }
 
+strict_sidebar_fixture_blocked_query() {
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.blocked agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.skip_reason | limit 1'
+}
+
+report_strict_sidebar_fixture_blocked() {
+  local response="${1:?missing blocked fixture response}"
+  local reason
+  reason="$(/usr/bin/python3 - "$response" <<'PY'
+import json
+import sys
+
+records = [json.loads(line) for line in sys.argv[1].splitlines() if line.strip()]
+if len(records) != 1:
+    raise SystemExit(f"strict fixture blocked response requires exactly one record, got {len(records)}")
+reason = records[0].get("agentstudio.startup_diagnostic.skip_reason")
+if not isinstance(reason, str) or not reason:
+    raise SystemExit("strict fixture blocked response is missing its reason")
+print(reason)
+PY
+  )"
+  echo "strict sidebar fixture blocked for marker $TRACE_MARKER: $reason" >&2
+  return 1
+}
+
 load_strict_sidebar_fixture_ready() {
   local fixture_file="${1:?missing fixture output file}"
-  local timeout_seconds response query
+  local blocked_query blocked_response timeout_seconds response query
   timeout_seconds="$(/usr/bin/python3 -c 'import sys; print(max(1, int(float(sys.argv[1]) / 1000)))' \
     "$STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS")"
   query="$(strict_sidebar_fixture_ready_query)"
+  blocked_query="$(strict_sidebar_fixture_blocked_query)"
   for _ in $(seq 1 "$timeout_seconds"); do
     response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
     if [ -n "$response" ]; then
       printf '%s\n' "$response" >"$fixture_file"
       return 0
+    fi
+    blocked_response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" \
+      --data-urlencode "query=$blocked_query")"
+    if [ -n "$blocked_response" ]; then
+      report_strict_sidebar_fixture_blocked "$blocked_response"
+      return 1
     fi
     /bin/sleep 1
   done
@@ -3154,6 +3185,14 @@ mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "blocked fixture response test requires canned test-response authorization" >&2
+      exit 2
+    }
+    report_strict_sidebar_fixture_blocked "$AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE"
+    exit $?
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "continuity control test requires canned test-response authorization" >&2

@@ -8,8 +8,8 @@ import Testing
 extension RepoExplorerReadModelTests {
     @Test("repo mode combines distinct local checkouts with the same canonical remote identity")
     func repoModeGroupsByCanonicalRemoteIdentity() throws {
-        let firstRepoId = UUID()
-        let secondRepoId = UUID()
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
         let firstRepo = repo(
             id: firstRepoId,
             name: "agent-studio-a",
@@ -40,11 +40,11 @@ extension RepoExplorerReadModelTests {
 
     @Test("pane mode groups exact pane leaves by repo and omits inactive worktrees")
     func paneModeGroupsExactPaneLeavesByRepoAndOmitsInactiveWorktrees() throws {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let activeWorktree = worktree(repoId: repoId, name: "feature")
         let inactiveWorktree = worktree(repoId: repoId, name: "inactive")
-        let paneId = UUID()
-        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: [repo(id: repoId, name: "agent-studio", worktrees: [activeWorktree, inactiveWorktree])],
@@ -167,11 +167,11 @@ extension RepoExplorerReadModelTests {
 
     @Test("By Tab preserves one pane row per pane on the same worktree")
     func tabModePreservesPaneRowsOnSameWorktree() throws {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let duplicateWorktree = worktree(repoId: repoId, name: "feature")
-        let firstPaneId = UUID()
-        let secondPaneId = UUID()
-        let tabId = UUID()
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: [repo(id: repoId, name: "agent-studio", worktrees: [duplicateWorktree])],
@@ -235,12 +235,12 @@ extension RepoExplorerReadModelTests {
 
     @Test("pane groups preserve repository order independently from pane location order")
     func paneGroupsPreserveRepositoryOrder() {
-        let firstRepoId = UUID()
-        let secondRepoId = UUID()
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
         let laterWorktree = worktree(repoId: firstRepoId, name: "later")
         let earlierWorktree = worktree(repoId: secondRepoId, name: "earlier")
-        let laterPaneId = UUID()
-        let earlierPaneId = UUID()
+        let laterPaneId = UUIDv7.generate()
+        let earlierPaneId = UUIDv7.generate()
 
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
@@ -259,7 +259,7 @@ extension RepoExplorerReadModelTests {
                     laterWorktree.id: [
                         WorkspacePaneLocation(
                             paneId: laterPaneId,
-                            tabId: UUID(),
+                            tabId: UUIDv7.generate(),
                             tabIndex: 1,
                             paneIndexInTab: 0,
                             isActiveInTab: true
@@ -268,7 +268,7 @@ extension RepoExplorerReadModelTests {
                     earlierWorktree.id: [
                         WorkspacePaneLocation(
                             paneId: earlierPaneId,
-                            tabId: UUID(),
+                            tabId: UUIDv7.generate(),
                             tabIndex: 0,
                             paneIndexInTab: 0,
                             isActiveInTab: true
@@ -288,11 +288,11 @@ extension RepoExplorerReadModelTests {
 
     @Test("pane destinations and tab headers preserve stored workspace indices")
     func paneDestinationsAndTabHeadersPreserveStoredWorkspaceIndices() throws {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let worktree = worktree(repoId: repoId, name: "feature")
         let location = WorkspacePaneLocation(
-            paneId: UUID(),
-            tabId: UUID(),
+            paneId: UUIDv7.generate(),
+            tabId: UUIDv7.generate(),
             tabIndex: 6,
             paneIndexInTab: 3,
             isActiveInTab: true
@@ -328,11 +328,11 @@ extension RepoExplorerReadModelTests {
 
     @Test("tab groups follow descending workspace location order")
     func tabGroupsFollowDescendingWorkspaceLocationOrder() {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let earlierWorktree = worktree(repoId: repoId, name: "earlier")
         let laterWorktree = worktree(repoId: repoId, name: "later")
-        let earlierTabId = UUID()
-        let laterTabId = UUID()
+        let earlierTabId = UUIDv7.generate()
+        let laterTabId = UUIDv7.generate()
 
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
@@ -344,7 +344,7 @@ extension RepoExplorerReadModelTests {
                 paneLocationsByWorktreeId: [
                     earlierWorktree.id: [
                         WorkspacePaneLocation(
-                            paneId: UUID(),
+                            paneId: UUIDv7.generate(),
                             tabId: earlierTabId,
                             tabIndex: 0,
                             paneIndexInTab: 0,
@@ -353,7 +353,7 @@ extension RepoExplorerReadModelTests {
                     ],
                     laterWorktree.id: [
                         WorkspacePaneLocation(
-                            paneId: UUID(),
+                            paneId: UUIDv7.generate(),
                             tabId: laterTabId,
                             tabIndex: 1,
                             paneIndexInTab: 0,
@@ -374,14 +374,14 @@ extension RepoExplorerReadModelTests {
 
     @Test("repo rows preserve checkout colors while pane modes preserve repo containment")
     func repoRowsPreserveColorsAndPaneModesPreserveContainment() throws {
-        let firstRepoId = UUID()
-        let secondRepoId = UUID()
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
         let firstWorktree = worktree(repoId: firstRepoId, name: "first")
         let secondWorktree = worktree(repoId: secondRepoId, name: "second")
         let firstRepo = repo(id: firstRepoId, name: "actual-a", worktrees: [firstWorktree])
         let secondRepo = repo(id: secondRepoId, name: "actual-b", worktrees: [secondWorktree])
-        let paneId = UUID()
-        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
         let enrichmentByRepoId = [
             firstRepoId: resolvedRemote(repoId: firstRepoId, displayName: "actual"),
             secondRepoId: resolvedRemote(repoId: secondRepoId, displayName: "actual"),

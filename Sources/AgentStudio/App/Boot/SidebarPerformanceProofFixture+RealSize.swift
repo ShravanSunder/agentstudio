@@ -34,7 +34,8 @@ import Foundation
         @discardableResult
         static func populateStrictPaneFleet(
             store: WorkspaceStore,
-            viewRegistry: ViewRegistry
+            viewRegistry: ViewRegistry,
+            placeholderFileURL: URL
         ) -> Bool {
             let requiredTabCount = AppPolicies.SidebarPerformanceProof.strictTabCount
             let requiredPaneCount = AppPolicies.SidebarPerformanceProof.strictPaneModelCount
@@ -43,11 +44,8 @@ import Foundation
             else { return false }
 
             while store.tabLayoutAtom.tabs.count < requiredTabCount {
-                let pane = store.paneAtom.createPane(
-                    title: "Load Pane",
-                    lifetime: .temporary,
-                    zmxSessionID: .generateUUIDv7()
-                )
+                guard let pane = makeStrictNonterminalPane(store: store, fileURL: placeholderFileURL)
+                else { return false }
                 viewRegistry.ensureSlot(for: pane.id)
                 store.tabLayoutAtom.appendTab(Tab(paneId: pane.id, name: "Load Tab"))
             }
@@ -59,11 +57,8 @@ import Foundation
                 let tab = tabs[nextTabIndex % tabs.count]
                 nextTabIndex += 1
                 guard let targetPaneID = tab.activePaneIds.first else { return false }
-                let pane = store.paneAtom.createPane(
-                    title: "Load Pane",
-                    lifetime: .temporary,
-                    zmxSessionID: .generateUUIDv7()
-                )
+                guard let pane = makeStrictNonterminalPane(store: store, fileURL: placeholderFileURL)
+                else { return false }
                 viewRegistry.ensureSlot(for: pane.id)
                 guard
                     store.tabLayoutAtom.insertPane(
@@ -79,6 +74,18 @@ import Foundation
 
             return store.tabLayoutAtom.tabs.count == requiredTabCount
                 && store.paneAtom.graphAtom.paneIDs.count == requiredPaneCount
+        }
+
+        private static func makeStrictNonterminalPane(
+            store: WorkspaceStore,
+            fileURL: URL
+        ) -> Pane? {
+            store.paneAtom.createPane(
+                content: .codeViewer(
+                    CodeViewerState(filePath: fileURL, scrollToLine: nil)
+                ),
+                metadata: PaneMetadata(contentType: .codeViewer, title: "Load Pane")
+            )
         }
 
         static func populateRealSizeTopology(

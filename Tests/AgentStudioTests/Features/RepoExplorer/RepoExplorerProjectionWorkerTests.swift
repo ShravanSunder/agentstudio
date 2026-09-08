@@ -469,7 +469,7 @@ extension RepoExplorerProjectionWorkerTests {
     func keyedEagerSequenceMatchesUngatedReference() async throws {
         let repoId = UUID()
         let initialRepo = repo(id: repoId, name: "agent-studio")
-        let addedRepo = repo(id: UUID(), name: "agent-vm", isPinned: true)
+        let addedRepo = repo(id: UUIDv7.generate(), name: "agent-vm", isPinned: true)
         let snapshots = [
             RepoExplorerSnapshot(
                 repos: [initialRepo],

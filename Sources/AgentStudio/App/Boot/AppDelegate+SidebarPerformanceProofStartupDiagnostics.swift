@@ -402,7 +402,8 @@ import Observation
             guard
                 SidebarPerformanceProofFixture.populateStrictPaneFleet(
                     store: store,
-                    viewRegistry: viewRegistry
+                    viewRegistry: viewRegistry,
+                    placeholderFileURL: controlRootURL.appendingPathComponent("baseline.txt")
                 )
             else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
@@ -489,7 +490,12 @@ import Observation
                 let worktree = repository.worktrees.first(where: \.isMainWorktree)
             else { return nil }
             let beforeActivity = await strictSidebarRepositoryActivityClassification()
-            guard beforeActivity.locallyInactiveRepositoryIDs.contains(repository.id) else { return nil }
+            guard
+                Self.strictColdRepositoryControlIsEligible(
+                    repositoryID: repository.id,
+                    activity: beforeActivity
+                )
+            else { return nil }
             let coldMutationURL = controlRootURL.appendingPathComponent(
                 "sidebar-cold-proof-change.txt")
             guard await Self.writeStrictColdMutation(at: coldMutationURL) else { return nil }
@@ -535,6 +541,13 @@ import Observation
                 remoteAdmittedCount: settledProgress.applicableSources.contains(.remoteReferences) ? 1 : 0,
                 forgeAdmittedCount: settledProgress.applicableSources.contains(.forge) ? 1 : 0
             )
+        }
+
+        static func strictColdRepositoryControlIsEligible(
+            repositoryID: UUID,
+            activity: RepositoryActivityClassification
+        ) -> Bool {
+            activity.unknownRepositoryIDs.contains(repositoryID)
         }
 
         private func waitForStrictColdLocalCompletion(

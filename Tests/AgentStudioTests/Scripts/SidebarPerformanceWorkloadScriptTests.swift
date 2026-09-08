@@ -156,6 +156,22 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(sampler.contains("$APP_PID"))
         #expect(!sampler.contains("/usr/bin/top"))
     }
+
+    @Test("strict fixture wait fails immediately with the marker blocked reason")
+    func strictFixtureWaitFailsImmediatelyWithBlockedReason() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE":
+                    #"{"agentstudio.startup_diagnostic.skip_reason":"cold_repository_control_failed"}"#,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("strict sidebar fixture blocked for marker"))
+        #expect(result.stderr.contains(": cold_repository_control_failed"))
+    }
 }
 
 extension SidebarPerformanceWorkloadScriptTests {
