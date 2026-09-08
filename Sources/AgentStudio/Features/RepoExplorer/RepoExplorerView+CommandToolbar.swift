@@ -47,11 +47,11 @@ extension RepoExplorerView {
                 selected: repoExplorerPrefs.showsPinned, presentation: presentation
             )
             SidebarToolbarDivider()
-            sortFieldSelector(commands: sortCommands, presentation: presentation)
             sortDirectionButton(
                 isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
                 presentation: presentation
             )
+            sortFieldSelector(commands: sortCommands, presentation: presentation)
             SidebarToolbarDivider()
             groupingSelector(commands: groupingCommands, presentation: presentation)
         }
@@ -138,6 +138,8 @@ extension RepoExplorerView {
                             selection: selectedSubgroupCommand
                         )
                     },
+                    subgroupTitle: subgroupAction.label,
+                    unavailableSubgroupText: LocalActionSpec.noRepoExplorerSubgroups.actionSpec.label,
                     icon: { command in
                         command.definition.icon.swiftUIImage(
                             loader: octiconLoader, size: AppStyles.General.Icon.compact

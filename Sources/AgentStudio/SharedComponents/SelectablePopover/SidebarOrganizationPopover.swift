@@ -69,6 +69,8 @@ package struct SidebarOrganizationPopoverModel<Item: Hashable> {
 @MainActor
 package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon: View>: View {
     let model: SidebarOrganizationPopoverModel<Item>
+    let subgroupTitle: String
+    let unavailableSubgroupText: String
     @ViewBuilder let icon: (Item) -> Icon
     @ViewBuilder let headerIcon: (SidebarOrganizationLevel) -> HeaderIcon
     let onSelect: (SidebarOrganizationPopoverItem<Item>) -> Void
@@ -78,12 +80,16 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
     package init(
         group: SidebarOrganizationPopoverSection<Item>,
         subgroup: SidebarOrganizationPopoverSection<Item>?,
+        subgroupTitle: String,
+        unavailableSubgroupText: String,
         @ViewBuilder icon: @escaping (Item) -> Icon,
         @ViewBuilder headerIcon: @escaping (SidebarOrganizationLevel) -> HeaderIcon,
         onSelect: @escaping (SidebarOrganizationPopoverItem<Item>) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.model = SidebarOrganizationPopoverModel(group: group, subgroup: subgroup)
+        self.subgroupTitle = subgroupTitle
+        self.unavailableSubgroupText = unavailableSubgroupText
         self.icon = icon
         self.headerIcon = headerIcon
         self.onSelect = onSelect
@@ -95,6 +101,8 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
             section(model.group, level: .group)
             if let subgroup = model.subgroup {
                 section(subgroup, level: .subgroup)
+            } else {
+                unavailableSubgroupSection
             }
         }
         .padding(AppStyles.Components.SidebarOrganizationPanel.contentPadding)
@@ -121,23 +129,39 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
         level: SidebarOrganizationLevel
     ) -> some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                headerIcon(level)
-                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
-                    .accessibilityHidden(true)
-                Text(section.title)
-                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                    .textCase(.uppercase)
-            }
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, AppStyles.General.Spacing.loose)
-            .accessibilityAddTraits(.isHeader)
+            sectionHeader(section.title, level: level)
 
             VStack(spacing: AppStyles.General.Spacing.tight) {
                 ForEach(section.options.filter(\.isEnabled)) { option in
                     optionButton(option, section: section, level: level)
                 }
             }
+        }
+        .frame(width: AppStyles.Components.SidebarOrganizationPanel.columnWidth, alignment: .topLeading)
+    }
+
+    private func sectionHeader(_ title: String, level: SidebarOrganizationLevel) -> some View {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
+            headerIcon(level)
+                .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                .textCase(.uppercase)
+        }
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, AppStyles.General.Spacing.loose)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var unavailableSubgroupSection: some View {
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
+            sectionHeader(subgroupTitle, level: .subgroup)
+            Text(unavailableSubgroupText)
+                .font(.system(size: AppStyles.General.Typography.textXs))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, AppStyles.General.Spacing.loose)
+                .padding(.vertical, AppStyles.General.Spacing.tight)
         }
         .frame(width: AppStyles.Components.SidebarOrganizationPanel.columnWidth, alignment: .topLeading)
     }

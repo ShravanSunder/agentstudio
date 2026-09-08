@@ -119,6 +119,7 @@ package enum LocalActionSpec {
     case showRepoExplorerOrganization
     case groupRepoExplorerWorktrees
     case subgroupRepoExplorerWorktrees
+    case noRepoExplorerSubgroups
     case cancel
     case add
     case rename
@@ -277,6 +278,9 @@ package enum LocalActionSpec {
                 helpText: "Choose how sidebar items are grouped",
                 icon: .system(.rectangle3Group)
             )
+        case .noRepoExplorerSubgroups:
+            return ActionSpec(
+                label: "No subgroups", helpText: "Subgrouping is unavailable for this grouping", icon: .system(.circle))
         case .subgroupRepoExplorerWorktrees:
             return ActionSpec(
                 label: "Subgroup",
