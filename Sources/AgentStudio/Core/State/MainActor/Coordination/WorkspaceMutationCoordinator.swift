@@ -96,13 +96,20 @@ package final class WorkspaceMutationCoordinator {
         return true
     }
 
-    func applyCommittedTerminalTab(_ proposal: WorkspaceTerminalCreationProposal) {
+    func applyCommittedTerminalCreation(_ proposal: WorkspaceTerminalCreationProposal) {
         workspacePaneAtom.insertCommittedTerminalPane(proposal.pane, associationOutcome: proposal.associationOutcome)
-        workspaceTabShellAtom.appendTabShell(
-            .init(id: proposal.tab.id, name: proposal.tab.name, colorHex: proposal.tab.colorHex))
-        workspaceTabArrangementAtom.insertState(
-            Self.arrangementState(from: proposal.tab), at: workspaceTabShellAtom.tabShells.count - 1)
-        workspaceTabShellAtom.setActiveTab(proposal.tab.id)
+        switch proposal.placement {
+        case .newTab:
+            workspaceTabShellAtom.appendTabShell(
+                .init(id: proposal.tab.id, name: proposal.tab.name, colorHex: proposal.tab.colorHex))
+            workspaceTabArrangementAtom.appendState(Self.arrangementState(from: proposal.tab))
+            workspaceTabShellAtom.setActiveTab(proposal.tab.id)
+        case .split, .drawer:
+            workspaceTabArrangementAtom.replaceArrangementStates(
+                workspaceTabArrangementAtom.arrangementStates.map {
+                    $0.tabId == proposal.tab.id ? Self.arrangementState(from: proposal.tab) : $0
+                })
+        }
     }
 
     func applyCommittedDiscard(_ proposal: WorkspacePaneDiscardProposal) {

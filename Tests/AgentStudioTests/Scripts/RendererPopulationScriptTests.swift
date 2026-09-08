@@ -11,6 +11,26 @@ struct RendererPopulationScriptTests {
     private static let scriptPath = "scripts/verify-renderer-population.sh"
     private static let productionAppPath = "/Applications/AgentStudio.app/Contents/MacOS/AgentStudio"
 
+    @Test("heap counts exclude keypaths and similarly named classes")
+    func heapCountsExcludeKeypathsAndSimilarlyNamedClasses() async throws {
+        let fixture = """
+            1 640 640.0 PaneHostView Swift AgentStudio
+            2 1280 640.0 PaneHostView Swift AgentStudio
+            1 80 80.0 Swift.ReferenceWritableKeyPath<AgentStudio.ViewRegistry.PaneViewSlot, Swift.Optional<AgentStudio.PaneHostView>> Swift libswiftCore.dylib
+            4 256 64.0 PaneHostViewWrapper Swift AgentStudio
+            """
+        let file = try writeFixture(fixture, named: "heap-classes.txt")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/bin/bash",
+            args: [Self.scriptPath, "--count-heap-class", file.path, "PaneHostView"],
+            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: nil
+        )
+        #expect(result.exitCode == 0, "\(result.stderr)")
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
+    }
+
     @Test("script has valid syntax and refuses the production executable")
     func scriptHasValidSyntaxAndRefusesTheProductionExecutable() async throws {
         // Arrange: the script must exist and parse as valid bash.

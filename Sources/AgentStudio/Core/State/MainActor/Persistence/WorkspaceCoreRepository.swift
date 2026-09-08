@@ -262,6 +262,11 @@ package struct WorkspaceCoreRepository: Sendable {
     func deleteWorkspace(_ workspaceId: UUID, updatedAt: Date) throws -> UUID? {
         try databaseWriter.write { database in
             try requireWorkspaceExists(database, id: workspaceId)
+            guard updatedAt.timeIntervalSince1970.isFinite else { throw WorkspaceUndoJournalFailure.invalidClock }
+            let affectedSessions = try terminalSessionsOwnedByWorkspace(workspaceId, database: database)
+            try database.execute(
+                sql: "UPDATE workspace_undo_close SET state = 'evicted' WHERE workspace_id = ? AND state = 'available'",
+                arguments: [workspaceId.uuidString])
             let activeWorkspaceIdStringAfterDelete = try prepareActiveWorkspaceSelectionForDelete(
                 database,
                 deletingWorkspaceId: workspaceId,
@@ -274,6 +279,11 @@ package struct WorkspaceCoreRepository: Sendable {
                     """,
                 arguments: [workspaceId.uuidString]
             )
+            for sessionID in affectedSessions {
+                try markUnownedTerminalSessionsForCleanup(
+                    database, finishedUndoWorkspaceID: nil, sessionID: sessionID, requestedAt: updatedAt)
+            }
+            try pruneFinishedUndoRows(workspaceID: workspaceId, database: database)
             guard let activeWorkspaceIdStringAfterDelete else { return nil }
             return UUID(uuidString: activeWorkspaceIdStringAfterDelete)
         }

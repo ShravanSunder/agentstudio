@@ -110,7 +110,7 @@ struct ZmxSessionInventorySnapshot: Equatable, Sendable {
 /// on first `zmx attach`. This means `createPaneSession` only builds a handle
 /// (zero CLI calls), and the actual process starts when the Ghostty surface
 /// executes the attach command.
-package final class ZmxBackend: SessionBackend {
+package final class ZmxBackend: SessionBackend, ZmxSessionControlling {
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
         AppDataPaths.zmxDirectory().path
@@ -164,6 +164,11 @@ package final class ZmxBackend: SessionBackend {
     }
 
     // MARK: - Availability
+
+    package convenience init?(configuration: SessionConfiguration) {
+        guard let zmxPath = configuration.zmxPath else { return nil }
+        self.init(zmxPath: zmxPath, zmxDir: configuration.zmxDir)
+    }
 
     var isAvailable: Bool {
         get async {
@@ -314,6 +319,33 @@ package final class ZmxBackend: SessionBackend {
     }
 
     // MARK: - Helpers
+
+    @concurrent nonisolated package func observeSessionIdentity(_ sessionID: ZmxSessionID) async throws -> Data? {
+        let path = "\(zmxDir)/\(sessionID.rawValue)"
+        if try ZmxSessionControl.endpointIsAbsent(path: path) { return nil }
+        let time = try await WorkspaceUndoJournalClock.current()
+        do {
+            return try ZmxSessionControl.observe(path: path, bootID: time.bootID).encoded()
+        } catch ZmxSessionControlFailure.unavailable {
+            if try ZmxSessionControl.endpointIsAbsent(path: path) { return nil }
+            throw ZmxSessionControlFailure.unavailable
+        }
+    }
+
+    /// Call only after durable last-owner admission and native attachment retirement.
+    @concurrent nonisolated package func retireVerifiedSession(
+        _ sessionID: ZmxSessionID, expectedIdentity: Data
+    ) async throws -> ZmxSessionCleanupStatus {
+        let identity: ZmxSessionIdentity
+        do {
+            identity = try ZmxSessionIdentity.decode(expectedIdentity)
+        } catch {
+            throw ZmxSessionControlFailure.invalidIdentity
+        }
+        let time = try await WorkspaceUndoJournalClock.current()
+        return try ZmxSessionControl.retire(
+            path: "\(zmxDir)/\(sessionID.rawValue)", expected: identity, bootID: time.bootID)
+    }
 
     private static func extractSessionIDs(from listOutput: String) -> Set<ZmxSessionID> {
         Set(

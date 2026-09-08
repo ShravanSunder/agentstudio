@@ -9,7 +9,7 @@ extension WorkspaceSurfaceCoordinator {
         targetPaneId: UUID,
         direction: SplitNewDirection,
         sizingMode: DropSizingMode
-    ) {
+    ) async throws {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
 
@@ -54,7 +54,7 @@ extension WorkspaceSurfaceCoordinator {
             }
 
         case .newTerminal, .newTerminalAtDirectory:
-            executeInsertTerminalPane(
+            try await executeInsertTerminalPane(
                 source: source,
                 targetTabId: targetTabId,
                 targetPaneId: targetPaneId,
@@ -81,93 +81,47 @@ extension WorkspaceSurfaceCoordinator {
         layoutDirection: Layout.SplitDirection,
         position: Layout.Position,
         sizingMode: DropSizingMode
-    ) {
+    ) async throws {
         let targetPane = store.paneAtom.pane(targetPaneId)
-        let explicitDirectory: URL? = {
-            if case .newTerminalAtDirectory(let directory) = source {
-                return directory
-            }
-            return nil
-        }()
+        let explicitDirectory: URL?
+        if case .newTerminalAtDirectory(let directory) = source {
+            explicitDirectory = directory
+        } else {
+            explicitDirectory = nil
+        }
         let resolvedContext: (repo: Repo, worktree: Worktree)?
         if let explicitDirectory {
             resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: explicitDirectory)
         } else {
             resolvedContext = resolvedWorktreeContext(for: targetPane)
         }
-
-        if let resolved = resolvedContext {
-            let launchDirectory =
-                explicitDirectory
-                ?? targetPane?.metadata.cwd
-                ?? targetPane?.metadata.launchDirectory
-                ?? resolved.worktree.path
-            let inheritedFacets =
-                explicitDirectory == nil
-                ? targetPane?.metadata.facets ?? .empty
-                : .empty
-            let pane = store.paneAtom.createPane(
-                launchDirectory: launchDirectory,
-                provider: .zmx, zmxSessionID: .generateUUIDv7(),
-                facets: inheritedFacets.fillingNilFields(
-                    from: PaneContextFacets(
-                        repoId: resolved.repo.id,
-                        repoName: resolved.repo.name,
-                        worktreeId: resolved.worktree.id,
-                        worktreeName: resolved.worktree.name,
-                        cwd: launchDirectory
-                    )
-                )
-            )
-            prepareTerminalPaneSlot(pane)
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-
-            guard
-                store.tabLayoutAtom.insertPane(
-                    pane.id, inTab: targetTabId, at: targetPaneId,
-                    direction: layoutDirection, position: position, sizingMode: sizingMode
-                )
-            else {
-                Self.logger.error("insertPane newTerminal: failed inserting pane \(pane.id) into tab \(targetTabId)")
-                store.mutationCoordinator.removePane(pane.id)
-                viewRegistry.removeSlot(for: pane.id)
-                return
-            }
-            traceTerminalLayoutInsertedAndViewCreateStarted(pane)
-            ensureTerminalPaneView(pane)
-            return
-        }
-
         let launchDirectory =
             explicitDirectory
             ?? targetPane?.metadata.cwd
             ?? targetPane?.metadata.launchDirectory
+            ?? resolvedContext?.worktree.path
             ?? FileManager.default.homeDirectoryForCurrentUser
-        let inheritedFacets =
-            explicitDirectory.map { PaneContextFacets(cwd: $0) }
-            ?? targetPane?.metadata.facets
-            ?? .empty
-        let pane = store.paneAtom.createPane(
-            launchDirectory: launchDirectory,
-            provider: .zmx, zmxSessionID: .generateUUIDv7(),
-            facets: inheritedFacets.fillingNilFields(
-                from: PaneContextFacets(cwd: launchDirectory)
-            )
-        )
-        prepareTerminalPaneSlot(pane)
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-
-        guard
-            store.tabLayoutAtom.insertPane(
-                pane.id, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position, sizingMode: sizingMode
-            )
-        else {
-            Self.logger.error("insertPane newTerminal: failed inserting pane \(pane.id) into tab \(targetTabId)")
-            store.mutationCoordinator.removePane(pane.id)
-            viewRegistry.removeSlot(for: pane.id)
-            return
+        let inheritedFacets = explicitDirectory == nil ? targetPane?.metadata.facets ?? .empty : .empty
+        let resolvedFacets: PaneContextFacets
+        if let resolved = resolvedContext {
+            resolvedFacets = PaneContextFacets(
+                repoId: resolved.repo.id, repoName: resolved.repo.name,
+                worktreeId: resolved.worktree.id, worktreeName: resolved.worktree.name,
+                cwd: launchDirectory)
+        } else {
+            resolvedFacets = PaneContextFacets(cwd: launchDirectory)
         }
+        let pane = try await store.createTerminalPane(
+            metadata: PaneMetadata(
+                launchDirectory: launchDirectory, title: "Terminal",
+                facets: inheritedFacets.fillingNilFields(from: resolvedFacets)),
+            placement: .split(
+                .init(
+                    tabID: targetTabId, anchorID: targetPaneId, direction: layoutDirection,
+                    position: position, sizingMode: sizingMode)),
+            nameForPane: { [self] in tabNameForPane($0) },
+            willPublish: { [self] in prepareTerminalPaneSlot($0) })
+        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
     }

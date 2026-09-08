@@ -17,7 +17,8 @@ func makeWorkspaceLocalSQLiteStoreFixture(
 
 @MainActor
 func preparedWorkspaceSQLiteDatastore(
-    from backend: WorkspaceSQLiteStoreBackend
+    from backend: WorkspaceSQLiteStoreBackend,
+    probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
 ) throws -> WorkspaceSQLiteDatastore {
     let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
     let preparedApplicationLocalRepository: WorkspaceLocalRepository?
@@ -34,7 +35,8 @@ func preparedWorkspaceSQLiteDatastore(
     return WorkspaceSQLiteDatastore(
         preparedCoreRepository: backend.coreRepository,
         preparationReceipt: .init(core: preparedCore, local: preparedLocal),
-        preparedApplicationLocalRepository: preparedApplicationLocalRepository
+        preparedApplicationLocalRepository: preparedApplicationLocalRepository,
+        probe: probe
     )
 }
 

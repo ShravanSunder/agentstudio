@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AppKit
 import Foundation
 import Testing
 
@@ -26,6 +27,26 @@ struct GhosttySurfaceViewLifecycleTests {
 
         // Assert
         #expect(weakSurface == nil)
+    }
+
+    @Test("retirement detaches a retained view and clears its host callbacks")
+    func retirementDetachesRetainedView() {
+        let parent = NSView()
+        let surface = Ghostty.SurfaceView(
+            managedSurfaceID: UUIDv7.generate(),
+            appCommandDispatcher: LifecycleNoOpAppCommandDispatcher())
+        surface.wantsLayer = true
+        parent.addSubview(surface)
+        surface.onCloseRequested = { _ in }
+
+        surface.retireNativeSurface()
+        surface.retireNativeSurface()
+
+        #expect(surface.superview == nil)
+        #expect(surface.layer == nil)
+        #expect(surface.onCloseRequested == nil)
+        #expect(surface.surface == nil)
+        withExtendedLifetime(surface) {}
     }
 
     @Test("live delivery reports no side effect for a bare surface")

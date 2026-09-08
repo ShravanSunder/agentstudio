@@ -12,7 +12,8 @@ import Testing
 final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
     private(set) var retainedUndoPaneIDs = Set<UUID>()
     func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) { retainedUndoPaneIDs.formUnion(paneIDs) }
-    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+    private(set) var retiredActivePaneIDs = Set<UUID>()
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) { retiredActivePaneIDs.formUnion(paneIDs) }
 
     private(set) var releasedUndoPaneIDs = Set<UUID>()
     func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) { releasedUndoPaneIDs.formUnion(paneIDs) }

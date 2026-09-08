@@ -37,6 +37,66 @@ enum TabArrangementMutationRules {
         return updated
     }
 
+    struct DrawerInsertion {
+        let parentPaneId: UUID
+        let drawerId: UUID
+        let targetDrawerPaneId: UUID?
+        let direction: SplitNewDirection
+        let sizingMode: DropSizingMode
+    }
+
+    static func insertingDrawerPane(
+        _ drawerPaneId: UUID, in state: TabArrangementState, insertion: DrawerInsertion
+    ) -> TabArrangementState? {
+        let parentPaneId = insertion.parentPaneId
+        let drawerId = insertion.drawerId
+        let targetDrawerPaneId = insertion.targetDrawerPaneId
+        let direction = insertion.direction
+        let sizingMode = insertion.sizingMode
+        var updated = state
+        var didPlaceDrawerPane = false
+        for arrangementIndex in updated.arrangements.indices {
+            guard updated.arrangements[arrangementIndex].layout.contains(parentPaneId) else {
+                continue
+            }
+            var drawerView =
+                updated.arrangements[arrangementIndex].drawerViews[drawerId]
+                ?? DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)))
+
+            if drawerView.layout.contains(drawerPaneId) {
+                drawerView.activeChildId = drawerPaneId
+                didPlaceDrawerPane = true
+            } else if drawerView.layout.isEmpty {
+                drawerView.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPaneId))
+                drawerView.activeChildId = drawerPaneId
+                didPlaceDrawerPane = true
+            } else {
+                let targetPaneId = targetDrawerPaneId ?? drawerView.layout.paneIds.last
+                if let targetPaneId,
+                    let updatedLayout = drawerView.layout.inserting(
+                        paneId: drawerPaneId,
+                        at: targetPaneId,
+                        direction: direction,
+                        sizingMode: sizingMode
+                    )
+                {
+                    drawerView.layout = updatedLayout
+                    if arrangementIndex == activeArrangementIndex(in: updated) {
+                        drawerView.activeChildId = drawerPaneId
+                    }
+                    didPlaceDrawerPane = true
+                }
+            }
+
+            updated.arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        }
+
+        if didPlaceDrawerPane, !updated.allPaneIds.contains(drawerPaneId) {
+            updated.allPaneIds.append(drawerPaneId)
+        }
+        return didPlaceDrawerPane ? updated : nil
+    }
+
     static func createArrangement(
         name: String,
         from state: TabArrangementState

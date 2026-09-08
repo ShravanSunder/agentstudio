@@ -3,10 +3,11 @@
 This corrects the attention delivery structure against the existing requirements and
 specification. It changes no definition of attention, notification policy, or atom ownership.
 
-Requirements: `/Users/shravansunder/Documents/dev/project-dev/agent-studio.perf-residuals/docs/specs/2026-09-05-observation-rearm-gap-sweep/2026-09-05-observation-rearm-gap-sweep-requirements.md`.
-Specification: the adjacent `2026-09-05-observation-rearm-gap-sweep-specification.md`.
-This realization covers R1–R3 and R5–R6. R4's complete observation-site inventory remains a
-separate uncompleted obligation; this bounded correction does not claim that sweep is finished.
+This is the historical rationale for the implemented attention correction, not a new delivery
+plan. Current preservation requirements live in [App-only wrap-up tree](../2026-09-08-app-only-reliability-wrapup.md).
+The R1–R6 identifiers below refer to the original attention slice, not that newer specification.
+The separate full observation-site sweep was not claimed complete by this bounded correction.
+Defect descriptions below are anchored to the stated old commit; they are not current findings.
 
 ## Current call paths
 
@@ -137,11 +138,14 @@ start queued during stop cannot be reset by old cleanup; tracker settles same-tu
 Use bounded condition/event waits and join/cancel all tasks. A failed prerequisite stops that
 test after cleanup rather than cascading into unbounded waits.
 
-The existing projector integration must still prove that attended changes cancel only the
-correct unseen-activity window. The synthetic sink proves ordering; it is not native smoke.
+The original proof obligation included projector integration showing that attended changes cancel
+only the correct unseen-activity window. Those interaction regressions now exist; the current
+wrap-up tree owns their final validation. The synthetic sink alone was not native smoke.
 
 ## Limits
 
-This fixes neither the remaining Ghostty view retainer nor atom-family reclamation. The broad
-site audit is still required for R4. Performance work stays one deferred task per settled tracker
-turn and one active router drain; raw terminal samples remain contracted before MainActor.
+This historical attention slice did not establish native reclamation or the original broader
+observation-site audit. It authorizes no new sweep, vendor work or atom-family redesign. The
+retained design uses one deferred task per settled tracker turn and one active router drain;
+raw terminal samples remain contracted before MainActor. Only the current wrap-up tree owns
+remaining delivery work.

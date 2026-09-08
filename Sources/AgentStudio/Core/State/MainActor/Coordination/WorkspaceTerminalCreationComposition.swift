@@ -1,17 +1,80 @@
 import AgentStudioInfrastructure
 import Foundation
 
+package enum WorkspaceTerminalPlacement: Sendable {
+    case newTab
+    case split(Split)
+    case drawer(DrawerInsertion)
+
+    package struct Split: Sendable {
+        let tabID: UUID
+        let anchorID: UUID
+        let direction: Layout.SplitDirection
+        let position: Layout.Position
+        let sizingMode: DropSizingMode
+
+        package init(
+            tabID: UUID, anchorID: UUID, direction: Layout.SplitDirection, position: Layout.Position,
+            sizingMode: DropSizingMode
+        ) {
+            self.tabID = tabID
+            self.anchorID = anchorID
+            self.direction = direction
+            self.position = position
+            self.sizingMode = sizingMode
+        }
+    }
+
+    package struct DrawerInsertion: Sendable {
+        let tabID: UUID
+        let parentID: UUID
+        let anchorID: UUID?
+        let direction: SplitNewDirection
+        let sizingMode: DropSizingMode
+
+        package init(
+            tabID: UUID, parentID: UUID, anchorID: UUID?, direction: SplitNewDirection, sizingMode: DropSizingMode
+        ) {
+            self.tabID = tabID
+            self.parentID = parentID
+            self.anchorID = anchorID
+            self.direction = direction
+            self.sizingMode = sizingMode
+        }
+    }
+}
+
 struct WorkspaceTerminalCreationProposal: Sendable {
     let bundle: WorkspaceSQLiteSaveBundle
     let pane: Pane
     let tab: Tab
     let associationOutcome: PaneAssociationOutcome
+    let placement: WorkspaceTerminalPlacement
 }
 
 enum WorkspaceTerminalCreationComposition {
     @concurrent nonisolated static func preparePaneOffMain(
-        metadata: PaneMetadata, topology: RepositoryTopologyReadSnapshot
-    ) async -> (pane: Pane, outcome: PaneAssociationOutcome) {
+        metadata proposedMetadata: PaneMetadata, topology: RepositoryTopologyReadSnapshot,
+        source: WorkspaceSQLiteSaveBundle, placement: WorkspaceTerminalPlacement
+    ) async throws -> (pane: Pane, outcome: PaneAssociationOutcome) {
+        let metadata: PaneMetadata
+        let kind: PaneKind?
+        if case .drawer(let insertion) = placement {
+            let parentID = insertion.parentID
+            let anchorID = insertion.anchorID
+            guard let parent = source.workspace.panes.first(where: { $0.id == parentID }),
+                let drawer = parent.drawer,
+                anchorID.map({ drawer.paneIds.contains($0) }) ?? true
+            else { throw WorkspaceUndoCompositionFailure.missingTarget }
+            let cwd = parent.metadata.facets.cwd ?? parent.metadata.launchDirectory ?? proposedMetadata.launchDirectory
+            metadata = PaneMetadata(
+                launchDirectory: cwd, title: "Drawer",
+                facets: parent.metadata.facets.fillingNilFields(from: PaneContextFacets(cwd: cwd)))
+            kind = .drawerChild(parentPaneId: parentID)
+        } else {
+            metadata = proposedMetadata
+            kind = nil
+        }
         var facets = metadata.facets
         let outcome: PaneAssociationOutcome
         if let repoID = facets.repoId, let worktreeID = facets.worktreeId,
@@ -35,23 +98,81 @@ enum WorkspaceTerminalCreationComposition {
         facets.cwd = cwd
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
-            metadata: PaneMetadata(launchDirectory: cwd, title: metadata.title, facets: facets))
+            metadata: PaneMetadata(launchDirectory: cwd, title: metadata.title, facets: facets),
+            kind: kind)
         return (pane, outcome)
     }
 
-    @concurrent nonisolated static func prepareTabOffMain(
+    @concurrent nonisolated static func preparePlacementOffMain(
         in source: WorkspaceSQLiteSaveBundle,
         pane: Pane,
         name: String,
-        associationOutcome: PaneAssociationOutcome
-    ) async -> WorkspaceTerminalCreationProposal {
-        let tab = Tab(paneId: pane.id, name: name)
+        associationOutcome: PaneAssociationOutcome,
+        placement: WorkspaceTerminalPlacement
+    ) async throws -> WorkspaceTerminalCreationProposal {
+        let tab: Tab
         var updated = source.workspace
+        switch placement {
+        case .newTab:
+            tab = Tab(paneId: pane.id, name: name)
+            updated.tabs.append(tab)
+            updated.activeTabId = tab.id
+        case .split(let insertion):
+            let tabID = insertion.tabID
+            let anchorID = insertion.anchorID
+            let direction = insertion.direction
+            let position = insertion.position
+            let sizingMode = insertion.sizingMode
+            guard let index = updated.tabs.firstIndex(where: { $0.id == tabID }) else {
+                throw WorkspaceUndoCompositionFailure.missingTarget
+            }
+            let original = updated.tabs[index]
+            let state = TabArrangementState(
+                tabId: original.id, allPaneIds: original.allPaneIds,
+                arrangements: original.arrangements, activeArrangementId: original.activeArrangementId)
+            guard
+                let inserted = TabArrangementMutationRules.insertingPane(
+                    pane.id, in: state, at: anchorID, direction: direction, position: position, sizingMode: sizingMode)
+            else { throw WorkspaceUndoCompositionFailure.invalidComposition }
+            tab = Tab(
+                id: original.id, name: original.name, allPaneIds: inserted.allPaneIds,
+                arrangements: inserted.arrangements, activeArrangementId: inserted.activeArrangementId,
+                colorHex: original.colorHex)
+            updated.tabs[index] = tab
+        case .drawer(let insertion):
+            let tabID = insertion.tabID
+            let parentID = insertion.parentID
+            let anchorID = insertion.anchorID
+            let direction = insertion.direction
+            let sizingMode = insertion.sizingMode
+            guard let tabIndex = updated.tabs.firstIndex(where: { $0.id == tabID }),
+                let parentIndex = updated.panes.firstIndex(where: { $0.id == parentID }),
+                let drawerID = updated.panes[parentIndex].drawer?.drawerId
+            else { throw WorkspaceUndoCompositionFailure.missingTarget }
+            let original = updated.tabs[tabIndex]
+            let state = TabArrangementState(
+                tabId: original.id, allPaneIds: original.allPaneIds,
+                arrangements: original.arrangements, activeArrangementId: original.activeArrangementId)
+            guard
+                let inserted = TabArrangementMutationRules.insertingDrawerPane(
+                    pane.id, in: state,
+                    insertion: .init(
+                        parentPaneId: parentID, drawerId: drawerID,
+                        targetDrawerPaneId: anchorID, direction: direction, sizingMode: sizingMode))
+            else { throw WorkspaceUndoCompositionFailure.invalidComposition }
+            tab = Tab(
+                id: original.id, name: original.name, allPaneIds: inserted.allPaneIds,
+                arrangements: inserted.arrangements, activeArrangementId: inserted.activeArrangementId,
+                colorHex: original.colorHex)
+            updated.tabs[tabIndex] = tab
+            updated.panes[parentIndex].withDrawer {
+                $0.paneIds.append(pane.id)
+                $0.isExpanded = true
+            }
+        }
         updated.panes.append(pane)
-        updated.tabs.append(tab)
-        updated.activeTabId = tab.id
         return .init(
             bundle: .init(workspace: updated, captureRevision: source.captureRevision),
-            pane: pane, tab: tab, associationOutcome: associationOutcome)
+            pane: pane, tab: tab, associationOutcome: associationOutcome, placement: placement)
     }
 }

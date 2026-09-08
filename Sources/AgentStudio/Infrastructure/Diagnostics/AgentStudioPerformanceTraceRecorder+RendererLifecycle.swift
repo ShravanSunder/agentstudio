@@ -51,11 +51,11 @@ extension AgentStudioPerformanceTraceRecorder {
         record(.rendererLifecycle, attributes: attributes)
     }
 
-    /// Records the renderer's native deallocation, emitted from `Ghostty.SurfaceView.deinit`
+    /// Records native deallocation from the surface's explicit retirement path
     /// after `ghostty_surface_free` returns. Carries no active/hidden/closeUndo update — by the
     /// time this fires the surface has already left every manager collection.
-    package func recordRendererFreed() {
-        let attributes = withRendererLifecycleState { state -> [String: AgentStudioTraceValue] in
+    package func recordRendererFreed(elapsed: Duration? = nil) {
+        var attributes = withRendererLifecycleState { state -> [String: AgentStudioTraceValue] in
             state.freedTotal &+= 1
             state.sampleSequence &+= 1
             return Self.rendererLifecycleAttributes(
@@ -65,6 +65,9 @@ extension AgentStudioPerformanceTraceRecorder {
                 releasedDelta: 0,
                 freedDelta: 1
             )
+        }
+        if let elapsed {
+            attributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: elapsed))
         }
         record(.rendererLifecycle, attributes: attributes)
     }

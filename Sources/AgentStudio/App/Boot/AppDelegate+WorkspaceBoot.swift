@@ -381,6 +381,11 @@ extension AppDelegate {
             }
         )
         workspaceSurfaceCoordinator.installUndoJournalRecovery(undoRecovery)
+        if let backend = ZmxBackend(configuration: workspaceSurfaceCoordinator.sessionConfig) {
+            workspaceSurfaceCoordinator.startTerminalSessionCleanup(
+                using: backend,
+                canRetire: { sessionID in !SurfaceManager.shared.hasNativeAttachments(for: sessionID) })
+        }
         bootInstallPreparedContentMountOwners(coordinator: workspaceSurfaceCoordinator)
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,

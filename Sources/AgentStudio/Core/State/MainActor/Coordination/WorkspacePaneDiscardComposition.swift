@@ -1,5 +1,16 @@
 import Foundation
 
+package enum WorkspacePaneDiscardTarget: Sendable {
+    case backgroundedPane(paneID: UUID)
+    case drawerPane(parentID: UUID, paneID: UUID)
+
+    var paneID: UUID {
+        switch self {
+        case .backgroundedPane(let paneID), .drawerPane(_, let paneID): paneID
+        }
+    }
+}
+
 struct WorkspacePaneDiscardProposal: Sendable {
     let bundle: WorkspaceSQLiteSaveBundle
     let paneID: UUID
@@ -8,12 +19,18 @@ struct WorkspacePaneDiscardProposal: Sendable {
 }
 
 enum WorkspacePaneDiscardComposition {
-    @concurrent nonisolated static func prepareBackgroundedPaneOffMain(
-        in source: WorkspaceSQLiteSaveBundle, paneID: UUID
+    @concurrent nonisolated static func prepareOffMain(
+        in source: WorkspaceSQLiteSaveBundle, target: WorkspacePaneDiscardTarget
     ) async throws -> WorkspacePaneDiscardProposal {
-        guard let pane = source.workspace.panes.first(where: { $0.id == paneID }),
-            pane.residency == .backgrounded
+        let paneID = target.paneID
+        guard let pane = source.workspace.panes.first(where: { $0.id == paneID })
         else { throw WorkspaceUndoCompositionFailure.missingTarget }
+        switch target {
+        case .backgroundedPane:
+            guard pane.residency == .backgrounded else { throw WorkspaceUndoCompositionFailure.missingTarget }
+        case .drawerPane(let parentID, _):
+            guard pane.parentPaneId == parentID else { throw WorkspaceUndoCompositionFailure.missingTarget }
+        }
         let removedIDs = Set([paneID] + (pane.drawer?.paneIds ?? []))
         let drawerIDs = Set([pane.drawer?.drawerId].compactMap { $0 })
         var updated = source.workspace

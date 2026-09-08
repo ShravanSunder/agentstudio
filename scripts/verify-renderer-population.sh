@@ -12,6 +12,7 @@ usage() {
 Usage: verify-renderer-population.sh <pid> [label] [sample_seconds=1]
        verify-renderer-population.sh --parse-footprint <file>
        verify-renderer-population.sh --parse-vmmap <file>
+       verify-renderer-population.sh --count-heap-class <file> <class>
        verify-renderer-population.sh --parse-system-memory <vm_stat file> <swap file>
        verify-renderer-population.sh --help
 
@@ -177,11 +178,11 @@ print(json.dumps(payload))
 PY
 }
 
-# `heap` prints one row per class: COUNT BYTES AVG CLASS_NAME ...; sum the count column of every
-# row naming the class so the result is live instances, not matching rows.
+# `heap` prints COUNT BYTES AVG CLASS_NAME ... . Match the class field exactly:
+# keypath generic arguments and similarly named wrappers are not instances of the target.
 count_heap_class() {
   local heap_path="$1" class_name="$2"
-  awk -v class_name="$class_name" 'index($0, class_name) && $1 ~ /^[0-9]+$/ { total += $1 } END { print total + 0 }' "$heap_path"
+  awk -v class_name="$class_name" '$4 == class_name && $1 ~ /^[0-9]+$/ { total += $1 } END { print total + 0 }' "$heap_path"
 }
 
 # Read the whole ps stream (no early awk exit): under `pipefail` an early exit makes ps die of
@@ -390,6 +391,10 @@ main() {
       ;;
     --parse-system-memory)
       parse_system_memory_values "${2:?missing vm_stat file argument}" "${3:?missing swap file argument}"
+      exit 0
+      ;;
+    --count-heap-class)
+      count_heap_class "${2:?missing heap file argument}" "${3:?missing class argument}"
       exit 0
       ;;
   esac

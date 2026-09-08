@@ -14,6 +14,97 @@ import Testing
 extension E2ESerializedTests {
     @Suite(.serialized)
     struct ZmxE2ETests {
+        @Test("inspection failures are not reported as absence", arguments: [false, true])
+        func inspectionFailureIsNotAbsence(permissionDenied: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                defer {
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: harness.zmxDir)
+                }
+                if permissionDenied {
+                    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: harness.zmxDir)
+                } else {
+                    try Data().write(to: URL(fileURLWithPath: "\(harness.zmxDir)/\(sessionID.rawValue)"))
+                }
+                await #expect(throws: ZmxSessionControlFailure.unavailable) {
+                    try await backend.observeSessionIdentity(sessionID)
+                }
+            }
+        }
+
+        @Test("an already absent session needs no kill", arguments: [false, true])
+        func absentSessionNeedsNoKill(wasRunning: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                if wasRunning {
+                    _ = try harness.spawnZmxSession(
+                        zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                        commandArgs: ["/bin/sleep", "300"])
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                    try await backend.destroySessionByID(sessionID)
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                }
+                let evidence: Data? = try await backend.observeSessionIdentity(sessionID)
+                #expect(evidence == nil)
+            }
+        }
+
+        @Test("observed identity addresses one real daemon and rejects a mismatched cleanup")
+        func observedIdentityProtectsTheRunningSession() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                _ = try harness.spawnZmxSession(
+                    zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                    commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+
+                let encoded = try #require(try await backend.observeSessionIdentity(sessionID))
+                let identity = try ZmxSessionIdentity.decode(encoded)
+                #expect(identity.daemon.pid != identity.terminalLeader.pid)
+                #expect(identity.processGroupID == identity.terminalLeader.pid)
+                let mismatch = ZmxSessionIdentity(
+                    version: identity.version, bootID: identity.bootID, daemon: identity.daemon,
+                    terminalLeader: identity.terminalLeader, processGroupID: identity.processGroupID,
+                    sessionCreatedAt: identity.sessionCreatedAt + 1)
+                await #expect(throws: ZmxSessionControlFailure.identityMismatch) {
+                    try await backend.retireVerifiedSession(sessionID, expectedIdentity: mismatch.encoded())
+                }
+                #expect(await backend.sessionExists(.init(id: sessionID)))
+            }
+        }
+
+        @Test("verified cleanup ends the exact real session and reconciles a repeated attempt")
+        func verifiedCleanupEndsTheOriginalSession() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                _ = try harness.spawnZmxSession(
+                    zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                    commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let identity = try #require(try await backend.observeSessionIdentity(sessionID))
+
+                _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: identity)
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                // Socket removal precedes final process reaping. Wait for the stronger
+                // completion observation, rather than treating unlink as termination.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var completed = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        completed =
+                            try await backend.retireVerifiedSession(sessionID, expectedIdentity: identity) == .completed
+                        if completed { break }
+                    } catch ZmxSessionControlFailure.processUnverifiable {
+                        // Kernel inspection can race final process reaping.
+                    } catch ZmxSessionControlFailure.unavailable {
+                        // The endpoint can disappear between inspection and connection.
+                    }
+                    await Task.yield()
+                }
+                #expect(completed, "Original processes and process group must exit, not just remove their socket")
+            }
+        }
+
         @Test("full lifecycle create healthCheck kill verify")
         func test_fullLifecycle_create_healthCheck_kill_verify() async throws {
             try await withRealBackend { harness, backend in

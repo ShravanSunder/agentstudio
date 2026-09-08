@@ -22,7 +22,7 @@ The key architectural decision is **separation of ownership from display**:
 │  │ activeSurfaces  │ │ hiddenSurfaces  │ │   undoStack     │       │
 │  │  [UUID: Surf]   │ │  [UUID: Surf]   │ │ [UndoEntry]     │       │
 │  │                 │ │                 │ │                 │       │
-│  │  Rendering: ON  │ │  Rendering: OFF │ │ TTL: 5 minutes  │       │
+│  │  Rendering: ON  │ │  Rendering: OFF │ │ Journal owned  │       │
 │  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘       │
 │           │                   │                   │                 │
 │           └───────────────────┴───────────────────┘                 │
@@ -46,7 +46,7 @@ The key architectural decision is **separation of ownership from display**:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Pane-to-surface join key:** `SurfaceMetadata.paneId` links a surface to its `Pane`. This is used during undo restore to verify the correct surface is reattached to the correct pane (multi-pane safety).
+**Pane-to-surface join key:** the current or most recent attachment ID binds a surface to its pane. Undo uses `previousPaneAttachmentId` with the retained attachment as fallback; creation metadata is not a live binding.
 
 ---
 
@@ -106,7 +106,7 @@ through the same seam. Nothing else in the app calls `ghostty_surface_set_occlus
   manager's exact population and the conservation view `live = created − freed`,
   `manager_owned = active + hidden + close_undo`, `orphan_candidate = live − manager_owned`.
   `released` is emitted before the manager drops its last reference; `freed` from
-  `Ghostty.SurfaceView.deinit` after `ghostty_surface_free`. Only bounded aggregates are exported.
+  `Ghostty.SurfaceView.retireNativeSurface` after the existing `ghostty_surface_free` returns. Only bounded aggregates are exported.
 
 ---
 
@@ -122,7 +122,7 @@ stateDiagram-v2
     ACTIVE --> PENDING_UNDO: detach(.close)
     HIDDEN --> PENDING_UNDO: detach(.close)
     PENDING_UNDO --> HIDDEN: undoClose(forPaneId:)
-    PENDING_UNDO --> DESTROYED: TTL expires / destroy()
+    PENDING_UNDO --> DESTROYED: committed journal retirement / destroy()
     HIDDEN --> DESTROYED: destroy()
     DESTROYED --> [*]
 ```
@@ -131,74 +131,38 @@ stateDiagram-v2
 |-------|-----------|-----------|-------|
 | HIDDEN | `hiddenSurfaces` | OFF | Alive but not displayed; `detach(.close)` from here enters PENDING_UNDO (closing a background tab) |
 | ACTIVE | `activeSurfaces` | ON only while effective visibility is true | Attached to a pane; rendering follows the reconciled visibility, not attachment |
-| PENDING_UNDO | `undoStack` | OFF | Closed, awaiting undo (5 min TTL); `released` telemetry precedes expiry removal |
-| DESTROYED | (freed) | N/A | Surface removed from all collections, ARC deallocated |
+| PENDING_UNDO | `undoStack` | OFF | Retained for an available durable Undo owner; the journal owns the 300-second deadline |
+| DESTROYED | (freed) | N/A | Native handle explicitly freed; an inert view may still be retained by AppKit |
 
 ---
 
 ## Tab Close → Undo Flow
 
-The close/undo flow is coordinated through `WorkspaceSurfaceCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
+The journal in `core.sqlite` is the durable Undo authority. SurfaceManager's retained surfaces
+are a cache of that ownership, with no independent expiration task.
 
-```
-User closes tab
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceSurfaceCoordinator.executeCloseTab(tabId)                        │
-│   ├─► store.snapshotForClose() → TabCloseSnapshot            │
-│   ├─► Push to undo stack (max 10 entries)                    │
-│   │                                                          │
-│   ├─► For each paneId in tab:                               │
-│   │     coordinator.teardownView(paneId)                    │
-│   │       ├─► SurfaceManager.detach(surfaceId, reason: .close)│
-│   │       │     ├─► setFocus(false); deliverVisibility(false)│
-│   │       │     │   (surface still attached)                 │
-│   │       │     ├─► Remove from activeSurfaces / hiddenSurfaces│
-│   │       │     ├─► Create SurfaceUndoEntry with TTL         │
-│   │       │     ├─► Schedule expiration Task                 │
-│   │       │     ├─► Append to undoStack                      │
-│   │       │     └─► emit lifecycle `closed_for_undo`         │
-│   │       └─► unregisterHostedView(paneId)                   │
-│   │             ├─► ViewRegistry.unregister(paneId)          │
-│   │             └─► PaneHostView.retire()                    │
-│   │                   ├─► content.paneHostWillRetire()       │
-│   │                   │   (TerminalPaneMountView.removeSurface)│
-│   │                   ├─► unmountContentView()               │
-│   │                   └─► removeFromSuperview()              │
-│   │                                                          │
-│   └─► store.removeTab(tabId)                                 │
-└──────────────────────────────────────────────────────────────┘
+```text
+Close command
+  -> prepare complete snapshot
+  -> commit pane/layout removal and Undo entry in one serialized write
+  -> publish committed state
+  -> hide/detach the exact surface and retain it for Undo
 
-User presses Cmd+Shift+T
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceSurfaceCoordinator.undoCloseTab()                                │
-│   ├─► Pop CloseEntry from undo stack                        │
-│   ├─► store.restoreFromSnapshot() → re-insert tab            │
-│   │                                                          │
-│   └─► For each pane (reversed, matching LIFO order):         │
-│         coordinator.restoreUndoPane(pane, worktree?, repo?)   │
-│           └─► remountRetainedSurfaceIfAvailable(...)         │
-│                 (every undo path, with or without worktree/repo)│
-│                 ├─► SurfaceManager.undoClose(forPaneId:)     │
-│                 │     ├─► Remove the entry whose            │
-│                 │     │   metadata.paneId == pane.id (nil →  │
-│                 │     │   create fresh)                      │
-│                 │     ├─► Cancel expiration Task             │
-│                 │     └─► Move to hiddenSurfaces             │
-│                 │                                            │
-│                 ├─► SurfaceManager.attach(surfaceId, paneId) │
-│                 │     ├─► Move to activeSurfaces             │
-│                 │     ├─► deliverVisibility(true) + focus    │
-│                 │     │   if first responder                 │
-│                 │     └─► Return surfaceView                 │
-│                 │                                            │
-│                 └─► registerHostedView(view, paneId)         │
-│                       └─► retires any replaced PaneHostView  │
-└──────────────────────────────────────────────────────────────┘
+Undo command
+  -> validate the newest restorable entry without consuming invalid placement
+  -> commit restored composition and consume the entry atomically
+  -> prepare/publish host placement
+  -> remount retained surface by pane attachment ID when available
+
+Deadline / oldest-first eviction / permanent discard
+  -> commit ownership transition and query remaining owners
+  -> retire only unowned pane surfaces
+  -> mark unowned sessions pending for verified process cleanup
 ```
+
+The journal keeps at most ten available operations per workspace and uses a 300-second deadline.
+Restart recovers durable deadlines before runtime admission. Missing cleanup execution remains an
+unfinished implementation item; a pending row is not evidence that its process has terminated.
 
 ---
 
@@ -367,7 +331,7 @@ This document defines surface lifecycle primitives. Scheduling policy belongs to
 | Reason | Target | Expires | Rendering | Use Case |
 |--------|--------|---------|-----------|----------|
 | `.hide` | hiddenSurfaces | No | Hidden delivered before removal | Background terminal / view switch (no-op if already hidden) |
-| `.close` | undoStack | Yes (5 min) | Hidden delivered before removal | Tab or pane closed (undo-able); also from hiddenSurfaces |
+| `.close` | undoStack | Journal-owned 300-second deadline | Hidden delivered before removal | Tab or pane closed (undo-able); also from hiddenSurfaces |
 | `.move` | hiddenSurfaces | No | Hidden delivered before removal | Tab drag reorder (no-op if already hidden) |
 
 ---
@@ -425,7 +389,7 @@ All three initializers require `paneId:`. The view never creates its own surface
 | File | Purpose |
 |------|---------|
 | [`Ghostty/SurfaceManager.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift) | Singleton owner, lifecycle, health monitoring, CWD propagation |
-| [`Ghostty/SurfaceManager+RendererState.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager+RendererState.swift) | Visibility/focus delivery, reconciliation, lifecycle emission, undo expiry |
+| [`Ghostty/SurfaceManager+RendererState.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager+RendererState.swift) | Visibility/focus delivery, reconciliation, lifecycle emission |
 | [`Ghostty/SurfaceRendererStateDelivery.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceRendererStateDelivery.swift) | The only seam to `ghostty_surface_set_occlusion` / `set_focus` |
 | [`App/Coordination/WorkspaceSurfaceCoordinator+RendererVisibility.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RendererVisibility.swift) | Joins window facts and visibility tier; drives reconciliation |
 | [`Infrastructure/Diagnostics/RendererLifecyclePerformanceState.swift`](../../../Sources/AgentStudio/Infrastructure/Diagnostics/RendererLifecyclePerformanceState.swift) | `performance.renderer.lifecycle` conservation counters |

@@ -53,6 +53,7 @@ package struct SurfaceMetadata: Codable, Equatable {
     var command: String?
     var title: String
     package private(set) var paneId: UUID?
+    package let zmxSessionID: ZmxSessionID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -63,7 +64,8 @@ package struct SurfaceMetadata: Codable, Equatable {
         worktreeId: UUID? = nil,
         repoId: UUID? = nil,
         contextFacets: PaneContextFacets = .empty,
-        paneId: UUID? = nil
+        paneId: UUID? = nil,
+        zmxSessionID: ZmxSessionID? = nil
     ) {
         let sourceFacets = PaneContextFacets(
             repoId: repoId,
@@ -74,6 +76,7 @@ package struct SurfaceMetadata: Codable, Equatable {
         self.command = command
         self.title = title
         self.paneId = paneId
+        self.zmxSessionID = zmxSessionID
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }

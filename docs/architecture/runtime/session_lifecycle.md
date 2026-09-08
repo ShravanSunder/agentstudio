@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `WorkspaceSurfaceCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `WorkspaceSurfaceCoordinator` bridges panes to surfaces. Closed panes can be restored from the durable SQLite Undo journal. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -106,7 +106,7 @@ terminal activation
 | `paneId -> Pane` | `WorkspaceStore.panes` | `store.pane(paneId)` / dictionary lookup |
 | `paneId -> View` | `ViewRegistry` | `viewRegistry.view(for: paneId)` |
 | `paneId -> RuntimeStatus` | `SessionRuntime.statuses` | `runtime.status(for: paneId)` |
-| `paneId -> Surface` | `SurfaceManager` metadata/state | `SurfaceMetadata.paneId`, attach/detach paths |
+| `paneId -> Surface` | `SurfaceManager` attachment state | Current/most-recent attachment ID; retained Undo attachment |
 | `paneId -> zmx session name` | required `TerminalState.zmxSessionID` | strict SQLite decode and immutable terminal activation input |
 | `zmx session name -> live daemon` | zmx process state in `ZMX_DIR` | `zmx list` parse |
 
@@ -172,7 +172,8 @@ Pane
 
 ### Residency (Persisted)
 
-`SessionResidency` tracks application placement. Filesystem availability and
+`SessionResidency` tracks application placement. Closed pane snapshots now live in the Undo journal;
+the pendingUndo node below denotes durable Undo ownership, not an authoritative live pane row. Filesystem availability and
 repository/worktree association are separate dimensions and never transition a
 pane between residency states. `.active` means eligible for workspace
 presentation and content mounting; an active pane may still be in an inactive
@@ -181,7 +182,7 @@ tab, minimized, or otherwise not currently visible.
 ```mermaid
 stateDiagram-v2
     [*] --> active: createPane()
-    active --> pendingUndo: closeTab (enters undo window)
+    active --> pendingUndo: commit close snapshot to journal
     active --> backgrounded: explicit background action
     pendingUndo --> active: undoCloseTab()
     pendingUndo --> [*]: undo expires / GC
@@ -256,12 +257,11 @@ sequenceDiagram
         PC->>VR: register(view, paneId)
         PC->>RT: markRunning(paneId)
 
+        Note over Store,PC: Pane and placement commit before native creation
         alt Surface creation failed
-            PC->>Store: removePane(pane.id)
-            Note over PC: Rollback — no orphan pane
+            Note over PC: Keep committed pane ownership; report rendering failure for retry
         else Success
-            PC->>Store: appendTab(Tab(paneId))
-            PC->>Store: setActiveTab(tab.id)
+            Note over PC: Surface mounted in already committed placement
         end
     end
 ```
@@ -270,36 +270,33 @@ sequenceDiagram
 
 ## Close & Undo Flow
 
-### Close Tab
+### Close pane or tab
 
-1. `WorkspaceSurfaceCoordinator.executeCloseTab(tabId)`:
-   - `store.snapshotForClose(tabId)` → `TabCloseSnapshot` (tab, panes, tabIndex)
-   - Push to `undoStack` (LIFO, max 10 entries)
-   - For each pane in the tab: `coordinator.teardownView(paneId)`
-     - `ViewRegistry.unregister(paneId)`
-     - `SurfaceManager.detach(surfaceId, reason: .close)` → surface enters SurfaceManager undo stack with TTL (5 min)
-   - `store.removeTab(tabId)` — panes remain in `store.panes` (not deleted)
-   - `expireOldUndoEntries()` — GC entries beyond max, remove orphaned sessions
+The coordinator prepares a complete close snapshot and commits the composition change plus
+`workspace_undo_close` and its members in the existing serialized SQLite writer. Only after
+commit does it publish placement and detach native views. The last pane uses the tab-close path.
+Available entries retain native surfaces through SurfaceManager; the manager has no independent TTL.
 
-### Undo Close Tab (`Cmd+Shift+T`)
+The durable journal owns the 300-second deadline and ten-entry oldest-first capacity per workspace.
+Expiry/eviction commits the ownership transition before retiring unowned pane resources. Session
+cleanup eligibility checks both live terminal rows and available Undo members across workspaces.
+After boot recovery, the cleanup consumer waits five minutes before reading pending work.
+This startup delay does not renew individual Undo deadlines. Buffered expiry/discard wakeups
+cannot bypass the delay. The consumer reads only journal-known pending session IDs, verifies
+native attachments are gone, and records process evidence before conditional retirement.
+A failed attempt remains pending for bounded retry. Previously recorded process evidence
+must match before Kill; completion reconciles the original processes and PTY group. For an
+unobserved session, a positively absent endpoint can complete its NULL-evidence pending row;
+permission and transport failures are not absence. This does not claim extinction of an
+unobserved historical process group. Completed history is pruned in bounded batches.
 
-2. `WorkspaceSurfaceCoordinator.undoCloseTab()`:
-   - Pop `WorkspaceStore.CloseEntry` from undo stack
-   - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
-   - For each pane in **reversed** order (matching SurfaceManager LIFO):
-     - `coordinator.restoreView(pane, worktree, repo)`
-     - `SurfaceManager.undoClose(forPaneId:)` → take the pane's retained surface from the undo stack
-     - Verify `metadata.paneId` matches (multi-pane safety)
-     - Reattach surface (no recreation)
+### Undo (`Cmd+Shift+T`)
 
-### Close Pane (With Undo)
-
-`executeClosePane(tabId, paneId)`:
-- `store.snapshotForPaneClose(paneId, inTab: tabId)` creates a pane-level undo snapshot
-- Push `.pane(PaneCloseSnapshot)` to `undoStack`
-- `coordinator.teardownView(paneId)` detaches/destroys runtime view state
-- `store.removePaneFromLayout(paneId, inTab: tabId)`; if last pane, close escalates to tab-close path
-- Undo via `undoCloseTab()` restores the pane snapshot when its tab/parent context is still valid
+Inspect newest-first available entries, skipping invalid placement without consuming them. Commit
+restored composition and consumed Undo state together, then publish and materialize. Reuse the
+retained surface by current/most-recent pane attachment ID when available. Rendering failure keeps
+the restored logical ownership so the pane can be retried. Restore does not pop an in-memory
+entry before validation and does not rely on matching creation metadata or global surface LIFO.
 
 ---
 
@@ -376,7 +373,7 @@ and per-workspace local sidecars are not read. Global preferences remain in
 for the full write strategy, filtering, and schema details.
 
 Key points:
-- All mutations debounced at 500ms via `markDirty()`
+- Ordinary autosaves are debounced; terminal creation and close/Undo ownership transitions commit before publication
 - `flush()` on termination for immediate write
 - Temporary panes never persisted
 - Window frame saved only on quit

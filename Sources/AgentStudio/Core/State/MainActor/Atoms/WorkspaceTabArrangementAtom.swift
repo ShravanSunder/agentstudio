@@ -435,46 +435,15 @@ package final class WorkspaceTabArrangementAtom {
             return
         }
 
-        var didPlaceDrawerPane = false
-        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
-            guard arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(parentPaneId) else {
-                continue
-            }
-            var drawerView =
-                arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
-                ?? DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)))
-
-            if drawerView.layout.contains(drawerPaneId) {
-                drawerView.activeChildId = drawerPaneId
-                didPlaceDrawerPane = true
-            } else if drawerView.layout.isEmpty {
-                drawerView.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPaneId))
-                drawerView.activeChildId = drawerPaneId
-                didPlaceDrawerPane = true
-            } else {
-                let targetPaneId = targetDrawerPaneId ?? drawerView.layout.paneIds.last
-                if let targetPaneId,
-                    let updatedLayout = drawerView.layout.inserting(
-                        paneId: drawerPaneId,
-                        at: targetPaneId,
-                        direction: direction,
-                        sizingMode: sizingMode
-                    )
-                {
-                    drawerView.layout = updatedLayout
-                    if arrangementIndex == activeArrangementIndex(for: tabIndex) {
-                        drawerView.activeChildId = drawerPaneId
-                    }
-                    didPlaceDrawerPane = true
-                }
-            }
-
-            arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
-        }
-
-        if didPlaceDrawerPane, !arrangementStates[tabIndex].allPaneIds.contains(drawerPaneId) {
-            arrangementStates[tabIndex].allPaneIds.append(drawerPaneId)
-        }
+        guard
+            let updated = TabArrangementMutationRules.insertingDrawerPane(
+                drawerPaneId, in: arrangementStates[tabIndex],
+                insertion: .init(
+                    parentPaneId: parentPaneId,
+                    drawerId: drawerId, targetDrawerPaneId: targetDrawerPaneId,
+                    direction: direction, sizingMode: sizingMode))
+        else { return }
+        arrangementStates[tabIndex] = updated
     }
 
     func restoreDrawerPaneViews(

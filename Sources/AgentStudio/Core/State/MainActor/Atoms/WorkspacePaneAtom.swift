@@ -171,7 +171,12 @@ package final class WorkspacePaneAtom {
     }
 
     func insertCommittedTerminalPane(_ pane: Pane, associationOutcome: PaneAssociationOutcome) {
-        precondition(insertRestoredPane(pane), "Committed new pane must have a fresh identity")
+        precondition(graphAtom.paneState(pane.id) == nil, "Committed new pane must have a fresh identity")
+        if let parentID = pane.parentPaneId {
+            precondition(restoreDrawerPane(pane, to: parentID), "Committed drawer parent must remain available")
+        } else {
+            precondition(insertRestoredPane(pane), "Committed new pane must publish")
+        }
         associationOutcomeRecorder?(associationOutcome)
     }
 

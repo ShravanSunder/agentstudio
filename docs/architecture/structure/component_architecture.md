@@ -551,18 +551,19 @@ The `WorkspaceSurfaceCoordinator` is the canonical App orchestration boundary fo
 - `openWebview(url:)` — Open a webview pane and append it as a new tab
 - `openContextualWebviewInPane/InDrawer` — Open contextual browser panes with inherited worktree context
 - `openFloatingTerminal(launchDirectory:title:)` — Open a standalone terminal without repo/worktree context
-- `undoCloseTab()` — Pop `CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
+- `undoCloseTab()` — Validate and atomically consume a durable Undo entry, publish restored placement, and remount retained surfaces by pane attachment
 - `createViewForContent(pane:)` — Dispatch to terminal, webview, code viewer, or bridge panel view factory; mount inside `PaneHostView`; register host in `ViewRegistry`
 - `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
 - `restoreView(for:worktree:repo:)` — Take the pane's retained surface via `SurfaceManager.undoClose(forPaneId:)` → reattach
 - `restoreAllViews()` — App launch: staged restore (visible panes first, then hidden cooperatively)
 - `syncFilesystemRootsAndActivity()` — Keep `FilesystemGitPipeline` registrations in sync with workspace topology
 
-**Undo stack:**
-- `undoStack: [WorkspaceMutationCoordinator.CloseEntry]` — in-memory LIFO, max 10 entries
-- `.tab(TabCloseSnapshot)` captures: `tab`, `panes`, `tabIndex`
-- `.pane(PaneCloseSnapshot)` captures: `pane`, `drawerChildPanes`, `tabId`, `anchorPaneId`
-- Oldest entries GC'd when stack exceeds limit; orphaned panes cleaned up
+**Durable Undo:**
+- `core.sqlite` stores close operations, pane/session members and snapshots.
+- One serialized writer commits ownership and composition before publication.
+- At most ten operations remain available per workspace, with 300-second deadlines.
+- Expiry and oldest-first eviction query other owners before releasing pane resources.
+- SurfaceManager retains native content as a cache of available journal ownership.
 
 **Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: WorkspaceActionCommand)`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
@@ -672,7 +673,7 @@ Coordinator owns sequencing, not domain decisions:
 Singleton managing Ghostty surface lifecycle. Detailed in [Surface Architecture](../runtime/ghostty_surface_architecture.md).
 
 Key points relevant here:
-- Surfaces are keyed by their own UUID, joined to panes via `SurfaceMetadata.paneId`
+- Surfaces are keyed by their own UUID, joined to panes through current/most-recent attachment identity
 - Three collections: `activeSurfaces`, `hiddenSurfaces`, `undoStack`
 - `attach()` / `detach(reason:)` / `undoClose(forPaneId:)` / `destroy()`
 
@@ -917,17 +918,14 @@ sequenceDiagram
 ### 4.3 Undo Close Flow
 
 1. **Close**: `WorkspaceSurfaceCoordinator.executeCloseTab(tabId)`
-   - `store.snapshotForClose()` → `TabCloseSnapshot` (tab + panes + tabIndex)
-   - Push snapshot to `undoStack` (max 10)
-   - `coordinator.teardownView()` for each pane → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
-   - `store.removeTab(tabId)` — panes stay in `store.panes`
-   - GC oldest undo entries if stack > 10
+   - Prepare a full tab/pane snapshot and commit removal plus durable Undo atomically.
+   - Publish committed placement, then detach retained native content for Undo.
+   - The journal applies the 300-second deadline and ten-operation capacity.
 
 2. **Undo** (`Cmd+Shift+T`): `WorkspaceSurfaceCoordinator.undoCloseTab()`
-   - Pop `WorkspaceMutationCoordinator.CloseEntry` from undo stack
-   - `store.restoreFromSnapshot()` → re-insert tab at original position
-   - `coordinator.restoreView()` for each pane (reversed order, matching SurfaceManager LIFO)
-   - `SurfaceManager.undoClose()` pops surface → reattach (no recreation)
+   - Validate newest-first available entries, skipping invalid placement without consuming it.
+   - Commit restored composition and consumed entry before publication.
+   - Remount native content by pane attachment identity; renderer failure preserves ownership.
 
 ### 4.4 Command Bar Execution Flow
 
@@ -965,7 +963,8 @@ The command bar records the selected item ID in `recentItemIds` (persisted to `U
 
 ### 5.1 Write Strategy
 
-All mutations call `markDirty()`, which:
+Ownership-changing terminal create/close/Undo commands commit through the serialized SQLite writer
+before UI publication. Ordinary autosaves call `markDirty()`, which:
 1. Sets `isDirty = true`
 2. Calls `ProcessInfo.disableSuddenTermination()` (prevents macOS kill during write)
 3. Schedules debounced save (500ms window, cancels previous)

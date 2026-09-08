@@ -12,6 +12,82 @@ import Testing
 struct WorkspaceSurfaceCoordinatorDurableUndoTests {
     init() { installTestCoreAtomsIfNeeded() }
 
+    @Test("discarding one pane preserves another pane's undo and shared session")
+    func discardPreservesUndoSessionOwner() async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore, startsObserving: false)
+        let sessionID = ZmxSessionID.generateUUIDv7()
+        let undoPane = store.createPane(zmxSessionID: sessionID)
+        let discardedPane = store.createPane(zmxSessionID: sessionID, residency: .backgrounded)
+        let tab = Tab(paneId: undoPane.id)
+        store.appendTab(tab)
+        #expect(await store.flushAsync() == .persisted)
+        let manager = HarnessSurfaceManager()
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
+            surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+
+        try await coordinator.execute(.closeTab(tabId: tab.id))
+        try await coordinator.execute(.purgeOrphanedPane(paneId: discardedPane.id))
+
+        #expect(manager.retainedUndoPaneIDs == [undoPane.id])
+        #expect(manager.releasedUndoPaneIDs.isEmpty)
+        #expect(manager.retiredActivePaneIDs == [discardedPane.id])
+        #expect(try fixture.coreRepository.pendingTerminalSessionIDs().isEmpty)
+        #expect(try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).count == 1)
+        await coordinator.shutdown()
+    }
+
+    @Test("permanent drawer discard commits before teardown", arguments: [false, true])
+    func drawerDiscardRequiresDurability(rejectWrite: Bool) async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore, startsObserving: false)
+        let parent = store.createPane()
+        store.appendTab(Tab(paneId: parent.id))
+        let child = try #require(store.addDrawerPane(to: parent.id))
+        #expect(await store.flushAsync() == .persisted)
+        let manager = HarnessSurfaceManager()
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
+            surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+        if rejectWrite {
+            try await fixture.coreRepository.databaseWriter.write { database in
+                try database.execute(
+                    sql: """
+                        CREATE TRIGGER reject_drawer_discard BEFORE DELETE ON pane
+                        BEGIN SELECT RAISE(ABORT, 'injected drawer discard failure'); END
+                        """)
+            }
+            await #expect(throws: (any Error).self) {
+                try await coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+            }
+            #expect(store.paneAtom.pane(child.id) != nil)
+            #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds == [child.id])
+            #expect(manager.retiredActivePaneIDs.isEmpty)
+        } else {
+            try await coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+            #expect(store.paneAtom.pane(child.id) == nil)
+            #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds.isEmpty == true)
+            #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.count == 1)
+            #expect(
+                try fixture.coreRepository.pendingTerminalSessionIDs() == [
+                    try #require(child.terminalState?.zmxSessionID)
+                ])
+            #expect(manager.retiredActivePaneIDs == [child.id])
+        }
+        await coordinator.shutdown()
+    }
+
     @Test("discard preserves another pane owning the same session")
     func discardPreservesSharedSession() async throws {
         let workspaceID = UUIDv7.generate()
@@ -25,8 +101,8 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         let retained = store.createPane(zmxSessionID: sessionID, residency: .backgrounded)
         #expect(await store.flushAsync() == .persisted)
 
-        try await store.discardBackgroundedPane(
-            paneID: discarded.id, time: try await WorkspaceUndoJournalClock.current(),
+        try await store.discardPane(
+            target: .backgroundedPane(paneID: discarded.id), time: try await WorkspaceUndoJournalClock.current(),
             willPublish: { _ in }, didPublish: { _ in })
 
         #expect(store.paneAtom.pane(retained.id) != nil)
@@ -50,8 +126,8 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         store.setResidency(.backgrounded, for: child.id)
         #expect(await store.flushAsync() == .persisted)
 
-        try await store.discardBackgroundedPane(
-            paneID: childOnly ? child.id : parent.id,
+        try await store.discardPane(
+            target: .backgroundedPane(paneID: childOnly ? child.id : parent.id),
             time: try await WorkspaceUndoJournalClock.current(),
             willPublish: { _ in }, didPublish: { _ in })
 

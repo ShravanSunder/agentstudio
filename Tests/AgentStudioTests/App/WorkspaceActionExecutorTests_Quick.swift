@@ -553,7 +553,7 @@ extension WebKitSerializedTests {
             let slotPaneIdsBeforeInsertion = viewRegistry.slotPaneIdsForTesting
             let runtimeCountBeforeInsertion = coordinator.runtimeRegistry.count
 
-            coordinator.executeInsertPane(
+            try await coordinator.executeInsertPane(
                 source: .newWebview(
                     WebviewState(url: URL(string: "https://example.com/failed-layout-insertion")!)
                 ),

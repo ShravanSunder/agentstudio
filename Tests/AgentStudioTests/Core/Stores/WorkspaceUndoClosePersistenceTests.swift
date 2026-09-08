@@ -7,6 +7,52 @@ import Testing
 
 @Suite("Workspace durable close persistence")
 struct WorkspaceUndoClosePersistenceTests {
+    @Test(
+        "workspace deletion ends live and undo ownership while preserving other workspaces", arguments: [false, true])
+    func workspaceDeletionRetiresOnlyItsOwners(sharedOwner: Bool) throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let workspaceID = UUIDv7.generate()
+        let createdAt = Date(timeIntervalSince1970: 100)
+        let liveSessionID = ZmxSessionID.generateUUIDv7()
+        let undoSessionID = ZmxSessionID.generateUUIDv7()
+        try fixture.repository.upsertWorkspace(
+            .init(id: workspaceID, name: "Deleted", createdAt: createdAt, updatedAt: createdAt))
+        let livePane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: liveSessionID)),
+            metadata: PaneMetadata(), residency: .backgrounded)
+        try fixture.repository.replacePaneGraph(
+            workspaceId: workspaceID,
+            graph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: .init(id: workspaceID, panes: [livePane])))
+        let undoPane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: undoSessionID)),
+            metadata: PaneMetadata())
+        let snapshot = WorkspaceUndoCloseSnapshot.tab(tab: Tab(paneId: undoPane.id), panes: [undoPane], tabIndex: 0)
+        let request = WorkspaceUndoCloseWrite(
+            closeID: UUIDv7.generate(), workspaceID: workspaceID, kind: .tab,
+            closedAt: createdAt, expiresAt: Date(timeIntervalSince1970: 400),
+            deadlineBootID: "boot-fixture", deadlineUptimeNanoseconds: 400_000_000_000,
+            snapshotVersion: 1, snapshotPayload: try JSONEncoder().encode(snapshot), members: snapshot.members)
+        try fixture.databaseQueue.write { database in _ = try writeUndoClose(request, in: database) }
+        if sharedOwner {
+            let otherID = UUIDv7.generate()
+            try fixture.repository.upsertWorkspace(
+                .init(id: otherID, name: "Retained", createdAt: createdAt, updatedAt: createdAt))
+            let otherPane = Pane(
+                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: liveSessionID)),
+                metadata: PaneMetadata(), residency: .backgrounded)
+            try fixture.repository.replacePaneGraph(
+                workspaceId: otherID,
+                graph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: .init(id: otherID, panes: [otherPane])))
+        }
+
+        _ = try fixture.repository.deleteWorkspace(workspaceID, updatedAt: Date(timeIntervalSince1970: 200))
+
+        #expect(try fixture.repository.fetchAvailableUndoCloses(workspaceID: workspaceID).isEmpty)
+        let pending = try fixture.repository.pendingTerminalSessionIDs()
+        #expect(pending.contains(undoSessionID))
+        #expect(pending.contains(liveSessionID) == !sharedOwner)
+    }
+
     @Test("retirement effects exclude panes still owned by another undo entry")
     func retirementEffectsPreserveAnotherUndoOwner() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()

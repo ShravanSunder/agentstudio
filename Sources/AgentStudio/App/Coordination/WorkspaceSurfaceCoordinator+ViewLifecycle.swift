@@ -128,6 +128,8 @@ extension WorkspaceSurfaceCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
+        guard isCurrentTerminalPane(pane) else { return nil }
+        if let existing = viewRegistry.terminalView(for: pane.id), existing.surfaceId != nil { return existing }
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
                 "createView deferred pane=\(pane.id) reason=missingInitialFrame"
@@ -164,7 +166,8 @@ extension WorkspaceSurfaceCoordinator {
             worktreeId: worktree.id,
             repoId: repo.id,
             contextFacets: pane.metadata.facets,
-            paneId: pane.id
+            paneId: pane.id,
+            zmxSessionID: pane.provider == .zmx ? pane.terminalState?.zmxSessionID : nil
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
@@ -241,6 +244,10 @@ extension WorkspaceSurfaceCoordinator {
         treatAsRestoredSessionStart: Bool = false,
         authority: TerminalSurfaceCreationAuthority
     ) -> TopologyIndependentTerminalMountResult {
+        guard isCurrentTerminalPane(pane) else { return .failed(.startupPreparationFailed) }
+        if let existing = viewRegistry.terminalView(for: pane.id), let surfaceID = existing.surfaceId {
+            return .mounted(.init(view: existing, surfaceID: surfaceID))
+        }
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
                 "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
@@ -279,7 +286,8 @@ extension WorkspaceSurfaceCoordinator {
             command: startupPreparation.strategy.startupCommandForSurface,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
-            paneId: pane.id
+            paneId: pane.id,
+            zmxSessionID: pane.provider == .zmx ? pane.terminalState?.zmxSessionID : nil
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
@@ -339,11 +347,7 @@ extension WorkspaceSurfaceCoordinator {
                 startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
                 environmentVariableCount: startupPreparation.environmentVariables.count
             )
-            RestoreTrace.log(
-                "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
-            )
-            Self.logger.error(
-                "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            logFloatingSurfaceCreationFailure(for: pane, error: error)
             rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return .failed(.surfaceCreationFailed)
@@ -369,6 +373,15 @@ extension WorkspaceSurfaceCoordinator {
         }
         traceSurfaceAttached(pane: pane, surfaceID: surfaceID)
         return attachedSurface
+    }
+
+    /// A cached creation witness cannot authorize a deleted or replaced logical terminal.
+    /// This check and native construction execute without an intervening MainActor suspension.
+    func isCurrentTerminalPane(_ pane: Pane) -> Bool {
+        guard let current = store.paneAtom.pane(pane.id), case .terminal = current.content,
+            current.provider == pane.provider
+        else { return false }
+        return current.terminalState?.zmxSessionID == pane.terminalState?.zmxSessionID
     }
 
     private func prepareTerminalSurfaceStartup(
@@ -405,8 +418,8 @@ extension WorkspaceSurfaceCoordinator {
                 "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
             )
             if treatAsRestoredSessionStart {
-                // Initial restore activates the exact durable session or presents failure.
-                // It must not rewrite composition or silently launch a replacement shell.
+                // If attach preparation fails, preserve the restored pane and show failure
+                // rather than falling back to an ephemeral shell.
                 registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
                 return nil
             }

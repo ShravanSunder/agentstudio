@@ -441,7 +441,7 @@ final class WorkspaceActionExecutorTests {
         store.setActiveTab(tab.id)
         let tabBeforeMove = try #require(store.tab(tab.id))
 
-        coordinator.executeInsertPane(
+        try await coordinator.executeInsertPane(
             source: .existingPane(paneId: p1.id, sourceTabId: tab.id),
             targetTabId: tab.id,
             targetPaneId: p1.id,

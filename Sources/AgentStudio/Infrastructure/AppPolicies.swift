@@ -218,6 +218,11 @@ package enum AppPolicies {
         package static let completedUndoHistoryLimit: Int = 100
         package static let completedUndoPruneBatchSize: Int = 100
         package static let undoDeadlineRetryDelay: Duration = .seconds(5)
+        package static let sessionControlTimeout: Duration = .milliseconds(1500)
+        package static let maximumSessionControlPayloadBytes: UInt32 = 65_536
+        package static let sessionCleanupBatchSize: Int = 32
+        package static let sessionCleanupStartupDelay: Duration = .seconds(300)
+        package static let sessionCleanupRetryDelay: Duration = .seconds(5)
     }
 
     package enum TerminalActivation {

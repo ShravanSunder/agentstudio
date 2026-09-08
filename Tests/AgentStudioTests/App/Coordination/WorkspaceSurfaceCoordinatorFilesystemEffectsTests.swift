@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -229,13 +230,15 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600),
             authority: .released(PaneId(existingUUID: pane.id))
         )
-        coordinator.executeInsertPane(
-            source: .newTerminal,
-            targetTabId: UUID(),
-            targetPaneId: UUID(),
-            direction: .right,
-            sizingMode: .halveTarget
-        )
+        await #expect(throws: WorkspaceUndoCompositionFailure.missingTarget) {
+            try await coordinator.executeInsertPane(
+                source: .newTerminal,
+                targetTabId: UUIDv7.generate(),
+                targetPaneId: UUIDv7.generate(),
+                direction: .right,
+                sizingMode: .halveTarget
+            )
+        }
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         #expect(mountedView == nil)

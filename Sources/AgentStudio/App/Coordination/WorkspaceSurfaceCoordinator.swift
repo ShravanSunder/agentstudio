@@ -69,6 +69,9 @@ final class WorkspaceSurfaceCoordinator {
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     var undoDeadlineTask: Task<Void, Never>?
+    let terminalSessionCleanupWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    var terminalSessionCleanupTask: Task<Void, Never>?
+    var terminalSessionCleanupStopped = false
     var workspaceActionSubmission: (@MainActor (WorkspaceActionCommand) -> Void)?
     let viewRegistry: ViewRegistry
     let runtime: SessionRuntime
@@ -300,6 +303,8 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     isolated deinit {
+        terminalSessionCleanupWakeups.continuation.finish()
+        terminalSessionCleanupTask?.cancel()
         undoDeadlineWakeups.continuation.finish()
         undoDeadlineTask?.cancel()
         paneEventIngressTask?.cancel()
@@ -326,6 +331,11 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
+        terminalSessionCleanupStopped = true
+        terminalSessionCleanupWakeups.continuation.finish()
+        terminalSessionCleanupTask?.cancel()
+        await terminalSessionCleanupTask?.value
+        terminalSessionCleanupTask = nil
         undoDeadlineWakeups.continuation.finish()
         undoDeadlineTask?.cancel()
         await undoDeadlineTask?.value
@@ -424,6 +434,7 @@ final class WorkspaceSurfaceCoordinator {
         let unownedPaneIDs = Set(retirements.flatMap(\.unownedPaneIDs))
         surfaceManager.releaseUndoSurfaces(forPaneIDs: unownedPaneIDs)
         for paneID in unownedPaneIDs { viewRegistry.retireSlot(for: paneID) }
+        signalTerminalSessionCleanup()
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {

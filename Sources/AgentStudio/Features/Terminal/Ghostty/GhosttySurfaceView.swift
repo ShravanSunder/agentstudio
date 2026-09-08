@@ -275,7 +275,7 @@ extension Ghostty {
         nonisolated let managedSurfaceID: UUID
 
         /// The ghostty app reference
-        private weak var ghosttyApp: App?
+        private var ghosttyApp: App?
         private(set) var hostScrollbarState: ScrollbarState?
         private(set) var hostConfigSnapshot: GhosttyHostConfigSnapshot
         var onHostScrollbarStateChanged: (@MainActor @Sendable (ScrollbarState) -> Void)?
@@ -482,7 +482,39 @@ extension Ghostty {
             fatalError("init(coder:) has not been implemented")
         }
 
+        /// End native ownership while this NSView may still be retained by AppKit.
+        /// Ghostty's existing free API runs on its supported host thread.
+        package func retireNativeSurface() {
+            let retirementStarted = ContinuousClock.now
+            let nativeSurface = surface
+            surface = nil
+            terminalRuntime = nil
+            onWorkingDirectoryChanged = nil
+            onRendererHealthChanged = nil
+            onCloseRequested = nil
+            onHostScrollbarStateChanged = nil
+            GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
+
+            let retiringLayer = layer
+            removeFromSuperview()
+            retiringLayer?.removeFromSuperlayer()
+            layer = nil
+            wantsLayer = false
+            if let nativeSurface {
+                withExtendedLifetime(ghosttyApp) {
+                    ghostty_surface_free(nativeSurface)
+                }
+            }
+            retiringLayer?.contents = nil
+            ghosttyApp = nil
+            if nativeSurface != nil {
+                performanceTraceRecorder?.recordRendererFreed(
+                    elapsed: retirementStarted.duration(to: ContinuousClock.now))
+            }
+        }
+
         deinit {
+            precondition(surface == nil, "SurfaceManager must retire native ownership before releasing its view")
             let mouseVisibilityToken = self.mouseVisibilityToken
             if Thread.isMainThread {
                 MainActor.assumeIsolated {
@@ -492,10 +524,6 @@ extension Ghostty {
                 Task { @MainActor in
                     GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
                 }
-            }
-            if let surface {
-                ghostty_surface_free(surface)
-                performanceTraceRecorder?.recordRendererFreed()
             }
         }
 

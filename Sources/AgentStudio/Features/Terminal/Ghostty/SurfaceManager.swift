@@ -76,6 +76,7 @@ package final class SurfaceManager {
 
     /// The only boundary through which renderer visibility/focus reaches libghostty.
     let rendererStateDelivery: any SurfaceRendererStateDelivery
+    private let nativeSurfaceRetirement: @MainActor (Ghostty.SurfaceView) -> Void
 
     /// Fires when attach/detach/move/swap/destroy changes `activeSurfaces` membership.
     @ObservationIgnored package var onAttachedBindingsChanged: (() -> Void)?
@@ -124,12 +125,14 @@ package final class SurfaceManager {
         healthCheckInterval: TimeInterval = 2.0,
         delayScheduler: AsyncDelay = .taskSleep,
         rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        nativeSurfaceRetirement: @escaping @MainActor (Ghostty.SurfaceView) -> Void = { $0.retireNativeSurface() }
     ) {
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
         self.delayScheduler = delayScheduler
         self.rendererStateDelivery = rendererStateDelivery
+        self.nativeSurfaceRetirement = nativeSurfaceRetirement
         self.performanceTraceRecorder = performanceTraceRecorder
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
@@ -146,6 +149,12 @@ package final class SurfaceManager {
         healthCheckTimer?.invalidate()
         healthCheckTimer = nil
         cwdChangeContinuation.finish()
+        let remainingSurfaces =
+            Array(activeSurfaces.values) + Array(hiddenSurfaces.values)
+            + undoStack.map(\.surface)
+        for managed in remainingSurfaces {
+            nativeSurfaceRetirement(managed.surface)
+        }
     }
 
     package var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
@@ -231,6 +240,7 @@ package final class SurfaceManager {
                 logger.info("Surface created: \(managed.id)")
                 return .success(managed)
             case .failure(let error):
+                nativeSurfaceRetirement(surfaceView)
                 logger.error("Surface creation could not accept the surface into manager ownership")
                 if attempt == maxCreationRetries {
                     return .failure(error)
@@ -502,6 +512,10 @@ package final class SurfaceManager {
 
     /// Permanently destroy a surface
     package func destroy(_ surfaceId: UUID) {
+        let surfaceToRetire =
+            activeSurfaces[surfaceId]?.surface ?? hiddenSurfaces[surfaceId]?.surface
+            ?? undoStack.first(where: { $0.surface.id == surfaceId })?.surface.surface
+        _ = deliverVisibility(surfaceId, visible: false)
         emitRendererLifecycleReleasedBeforeRemoval(surfaceId)
         detachTerminalLocalActions(surfaceID: surfaceId, paneID: paneId(for: surfaceId))
         // Remove from all collections
@@ -524,16 +538,25 @@ package final class SurfaceManager {
 
         // Remove health tracking
         surfaceHealth.removeValue(forKey: surfaceId)
+        if let surfaceToRetire {
+            nativeSurfaceRetirement(surfaceToRetire)
+        }
 
         updateCounts()
         if removedFromActive {
             onAttachedBindingsChanged?()
         }
         logger.info("Surface destroyed: \(surfaceId)")
-        // Surface.deinit will clean up PTY when ARC releases it
+        // External AppKit owners may retain the inert view after native retirement.
     }
 
     // MARK: - Surface Queries
+
+    package func hasNativeAttachments(for sessionID: ZmxSessionID) -> Bool {
+        activeSurfaces.values.contains { $0.metadata.zmxSessionID == sessionID }
+            || hiddenSurfaces.values.contains { $0.metadata.zmxSessionID == sessionID }
+            || undoStack.contains { $0.surface.metadata.zmxSessionID == sessionID }
+    }
 
     /// Get surface view by ID
     func surface(for id: UUID) -> Ghostty.SurfaceView? {

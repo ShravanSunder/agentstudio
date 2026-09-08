@@ -168,6 +168,34 @@ package final class WorkspaceStore {
 
     // MARK: - Persistence
 
+    package func pruneCompletedHistoryBatch() async throws -> Bool {
+        guard let sqliteDatastore else { throw WorkspaceStoreLoadFailure.missingSQLiteDatastore }
+        return try await sqliteDatastore.pruneCompletedHistoryBatch()
+    }
+
+    package func terminalSessionCleanupBatch(after sessionID: ZmxSessionID?) async throws
+        -> [WorkspaceTerminalSessionCleanupWork]
+    {
+        guard let sqliteDatastore else { throw WorkspaceStoreLoadFailure.missingSQLiteDatastore }
+        return try await sqliteDatastore.terminalSessionCleanupBatch(after: sessionID)
+    }
+
+    package func observePendingTerminalSession(
+        sessionID: ZmxSessionID, observation: @escaping @Sendable () async throws -> Data?
+    ) async throws {
+        guard let sqliteDatastore else { throw WorkspaceStoreLoadFailure.missingSQLiteDatastore }
+        try await sqliteDatastore.observePendingTerminalSession(sessionID: sessionID, observation: observation)
+    }
+
+    package func retirePendingTerminalSession(
+        sessionID: ZmxSessionID, identity: Data,
+        operation: @escaping @Sendable () async throws -> ZmxSessionCleanupStatus
+    ) async throws -> ZmxSessionCleanupStatus? {
+        guard let sqliteDatastore else { throw WorkspaceStoreLoadFailure.missingSQLiteDatastore }
+        return try await sqliteDatastore.retirePendingTerminalSession(
+            sessionID: sessionID, identity: identity, operation: operation)
+    }
+
     package func expireUndoCloses(time: WorkspaceUndoJournalTime) async throws -> [WorkspaceUndoCloseRetirement] {
         guard let sqliteDatastore else { throw WorkspaceStoreLoadFailure.missingSQLiteDatastore }
         return try await sqliteDatastore.expireAllUndoCloses(time: time)
@@ -220,30 +248,36 @@ package final class WorkspaceStore {
         )
     }
 
-    package func discardBackgroundedPane(
-        paneID: UUID,
+    package func discardPane(
+        target: WorkspacePaneDiscardTarget,
         time: WorkspaceUndoJournalTime,
         willPublish: @escaping @MainActor @Sendable (Set<UUID>) -> Void,
         didPublish: @escaping @MainActor @Sendable (Set<UUID>) -> Void
     ) async throws {
         guard let sqliteSaveCoordinator else { throw WorkspaceStoreError.missingSQLiteSaveCoordinator }
-        try await sqliteSaveCoordinator.commitBackgroundedPaneDiscard(paneID: paneID, time: time) { [self] proposal in
+        try await sqliteSaveCoordinator.commitPaneDiscard(target: target, time: time) { [self] proposal in
             willPublish(proposal.removedPaneIDs)
             mutationCoordinator.applyCommittedDiscard(proposal)
             didPublish(proposal.removedPaneIDs)
         }
     }
 
-    package func createTerminalTab(
+    package func createTerminalPane(
         metadata: PaneMetadata,
-        nameForPane: @escaping @MainActor @Sendable (Pane) -> String
+        placement: WorkspaceTerminalPlacement,
+        nameForPane: @escaping @MainActor @Sendable (Pane) -> String,
+        willPublish: @escaping @MainActor @Sendable (Pane) -> Void
     ) async throws -> Pane {
         guard let sqliteSaveCoordinator else { throw WorkspaceStoreError.missingSQLiteSaveCoordinator }
-        return try await sqliteSaveCoordinator.commitTerminalTab(
+        return try await sqliteSaveCoordinator.commitTerminalCreation(
             metadata: metadata,
+            placement: placement,
             topology: repositoryTopologyAtom.captureReadSnapshot(),
             nameForPane: nameForPane,
-            publish: { [self] in mutationCoordinator.applyCommittedTerminalTab($0) })
+            publish: { [self] proposal in
+                willPublish(proposal.pane)
+                mutationCoordinator.applyCommittedTerminalCreation(proposal)
+            })
     }
 
     package func loadCanonicalComposition() async -> WorkspaceStoreLoadResult {

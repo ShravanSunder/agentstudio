@@ -133,7 +133,8 @@ extension RepoExplorerProjectionAdapter {
                 await Task.yield()
                 guard let self, !self.hasStopped, self.isDemanded,
                     self.observationGeneration == generation,
-                    self.observationTokens.contains(token)
+                    self.observationTokens.contains(token),
+                    let inputCapture = self.inputCapture
                 else { return }
                 if token == .demand, !inputCapture.isRepoSurfaceVisible {
                     self.suspendDemand()

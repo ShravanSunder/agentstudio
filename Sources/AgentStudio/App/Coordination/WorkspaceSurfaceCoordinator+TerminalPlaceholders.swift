@@ -44,7 +44,7 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         mode: TerminalStatusPlaceholderMode
     ) -> TerminalStatusPlaceholderView? {
-        guard case .terminal = pane.content, pane.provider == .zmx else { return nil }
+        guard case .terminal = pane.content, pane.provider == .zmx, isCurrentTerminalPane(pane) else { return nil }
 
         let retryHandler: (UUID) -> Void = { [weak self] paneId in
             self?.submitWorkspaceAction(.repair(.createMissingView(paneId: paneId)))
@@ -54,6 +54,9 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         if let terminalView = viewRegistry.terminalView(for: pane.id) {
+            // A delayed creation caller must not cover a terminal that layout
+            // restoration already mounted. Failure/deferred states remain explicit.
+            if mode == .preparing, terminalView.surfaceId != nil { return nil }
             return terminalView.showPlaceholder(
                 mode: mode,
                 onRetryRequested: retryHandler,

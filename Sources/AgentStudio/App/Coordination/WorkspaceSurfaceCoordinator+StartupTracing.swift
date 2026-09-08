@@ -145,6 +145,14 @@ extension WorkspaceSurfaceCoordinator {
         finishStartupOperation(for: pane.id)
     }
 
+    func logFloatingSurfaceCreationFailure(for pane: Pane, error: SurfaceError) {
+        RestoreTrace.log(
+            "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
+        )
+        Self.logger.error(
+            "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+    }
+
     func traceTerminalStartup(
         _ body: String,
         pane: Pane,

@@ -204,8 +204,9 @@ package final class WorkspaceSQLiteSaveCoordinator {
         }
     }
 
-    func commitTerminalTab(
+    func commitTerminalCreation(
         metadata: PaneMetadata,
+        placement: WorkspaceTerminalPlacement,
         topology: RepositoryTopologyReadSnapshot,
         nameForPane: @escaping @MainActor @Sendable (Pane) -> String,
         publish: @escaping @MainActor @Sendable (WorkspaceTerminalCreationProposal) -> Void
@@ -213,11 +214,11 @@ package final class WorkspaceSQLiteSaveCoordinator {
         try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
             let capture = await captureCurrentSaveState(persistedAt: Date())
             let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
-            let prepared = await WorkspaceTerminalCreationComposition.preparePaneOffMain(
-                metadata: metadata, topology: topology)
+            let prepared = try await WorkspaceTerminalCreationComposition.preparePaneOffMain(
+                metadata: metadata, topology: topology, source: source, placement: placement)
             let name = await nameForPane(prepared.pane)
-            let proposal = await WorkspaceTerminalCreationComposition.prepareTabOffMain(
-                in: source, pane: prepared.pane, name: name, associationOutcome: prepared.outcome)
+            let proposal = try await WorkspaceTerminalCreationComposition.preparePlacementOffMain(
+                in: source, pane: prepared.pane, name: name, associationOutcome: prepared.outcome, placement: placement)
             switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
             case .prepared: break
             case .rejected(let rejection):
@@ -233,16 +234,16 @@ package final class WorkspaceSQLiteSaveCoordinator {
         }
     }
 
-    func commitBackgroundedPaneDiscard(
-        paneID: UUID,
+    func commitPaneDiscard(
+        target: WorkspacePaneDiscardTarget,
         time: WorkspaceUndoJournalTime,
         publish: @escaping @MainActor @Sendable (WorkspacePaneDiscardProposal) -> Void
     ) async throws {
         try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
             let capture = await captureCurrentSaveState(persistedAt: time.utc)
             let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
-            let proposal = try await WorkspacePaneDiscardComposition.prepareBackgroundedPaneOffMain(
-                in: source, paneID: paneID)
+            let proposal = try await WorkspacePaneDiscardComposition.prepareOffMain(
+                in: source, target: target)
             switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
             case .prepared: break
             case .rejected(let rejection):

@@ -29,7 +29,7 @@ struct WorkspacePaneAssociationCreationPathTests {
     }
 
     @Test("ordinary and explicit-directory terminal splits persist inherited or resolved association")
-    func terminalSplitCreationPathsPersistAssociation() throws {
+    func terminalSplitCreationPathsPersistAssociation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -44,7 +44,7 @@ struct WorkspacePaneAssociationCreationPathTests {
         harness.store.setActiveTab(tab.id)
 
         let paneIdsBeforeOrdinarySplit = harness.store.paneAtom.graphAtom.paneIDs
-        harness.coordinator.executeInsertPane(
+        try await harness.coordinator.executeInsertPane(
             source: .newTerminal,
             targetTabId: tab.id,
             targetPaneId: sourcePane.id,
@@ -57,7 +57,7 @@ struct WorkspacePaneAssociationCreationPathTests {
         expectDurableAssociation(ordinarySplitId, repo: repo, worktree: worktree, store: harness.store)
 
         let paneIdsBeforeDirectorySplit = harness.store.paneAtom.graphAtom.paneIDs
-        harness.coordinator.executeInsertPane(
+        try await harness.coordinator.executeInsertPane(
             source: .newTerminalAtDirectory(nestedDirectory),
             targetTabId: tab.id,
             targetPaneId: ordinarySplitId,
@@ -146,7 +146,7 @@ struct WorkspacePaneAssociationCreationPathTests {
     }
 
     @Test("existing-pane insertion and cross-tab move preserve durable association")
-    func existingPaneCrossTabMovePreservesAssociation() throws {
+    func existingPaneCrossTabMovePreservesAssociation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -160,7 +160,7 @@ struct WorkspacePaneAssociationCreationPathTests {
         harness.store.appendTab(sourceTab)
         harness.store.appendTab(targetTab)
 
-        harness.coordinator.executeInsertPane(
+        try await harness.coordinator.executeInsertPane(
             source: .existingPane(paneId: movingPane.id, sourceTabId: sourceTab.id),
             targetTabId: targetTab.id,
             targetPaneId: targetPane.id,
