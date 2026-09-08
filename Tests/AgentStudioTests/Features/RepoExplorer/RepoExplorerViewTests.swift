@@ -40,8 +40,8 @@ struct RepoExplorerViewTests {
         #expect(sharedChipsSource.contains("SidebarPullRequestChipSpec.chip(count:"))
     }
 
-    @Test("selected organization segments inherit accent ownership from the shared control")
-    func selectedOrganizationSegmentsUseSharedAccentOwnership() throws {
+    @Test("organization controls use shared picker chrome without persistent pin fill")
+    func organizationControlsUseSharedPickerChrome() throws {
         let toolbarSource = try String(
             contentsOfFile:
                 "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
@@ -49,14 +49,14 @@ struct RepoExplorerViewTests {
         )
         let sharedControlSource = try String(
             contentsOfFile:
-                "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
+                "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift",
             encoding: .utf8
         )
 
-        #expect(toolbarSource.contains("SidebarToolbarSegmentedControl("))
-        #expect(!toolbarSource.contains("foregroundOverride:"))
-        #expect(sharedControlSource.contains("ChromeToolbarControlPalette.foregroundColor("))
-        #expect(sharedControlSource.contains("ChromeToolbarControlPalette.fillColor("))
+        #expect(toolbarSource.contains("SidebarToolbarPickerButton("))
+        #expect(toolbarSource.contains("showsActiveBackground: false"))
+        #expect(sharedControlSource.contains("SidebarToolbarButtonStyle(isOpen: isOpen)"))
+        #expect(sharedControlSource.contains("isActive: isActive && showsActiveBackground"))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

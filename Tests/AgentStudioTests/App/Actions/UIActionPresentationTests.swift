@@ -99,6 +99,18 @@ struct UIActionPresentationTests {
         #expect(toolTip == "Group (⌥G)")
     }
 
+    @Test("repo explorer organization roles use local-action display metadata")
+    func repoExplorerOrganizationRolesUseLocalActionDisplayMetadata() {
+        let group = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        let subgroup = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
+
+        #expect(group.label == "Group")
+        #expect(group.helpText == "Choose how sidebar items are grouped")
+        #expect(group.icon == .system(.sliderHorizontal3))
+        #expect(subgroup.label == "Subgroup")
+        #expect(subgroup.helpText == "Choose how sidebar items are subgrouped")
+    }
+
     @Test
     func drawerChooserToolTip_usesOverrideWithShortcut() {
         let toolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(

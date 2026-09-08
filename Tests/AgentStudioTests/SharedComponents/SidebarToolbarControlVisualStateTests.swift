@@ -47,8 +47,8 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(source.contains(".combined(with: .opacity)"))
     }
 
-    @Test("segmented control renders command-catalog tooltips")
-    func segmentedControlRendersCommandCatalogTooltips() throws {
+    @Test("organization popovers render command-catalog tooltips")
+    func organizationPopoversRenderCommandCatalogTooltips() throws {
         let controlSource = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
             encoding: .utf8
@@ -60,8 +60,8 @@ struct SidebarToolbarControlVisualStateTests {
 
         #expect(controlSource.contains(".controlHelp(segment.tooltipValue)"))
         #expect(repoExplorerSource.contains("tooltipValue: command.definition.controlTooltipRenderValue("))
-        #expect(repoExplorerSource.contains("textOverride: isSortDirectionCommand(command)"))
-        #expect(!repoExplorerSource.contains("textOverride: groupingMode.title"))
+        #expect(repoExplorerSource.contains("groupingAction.controlTooltipRenderValue("))
+        #expect(repoExplorerSource.contains("selected.definition.controlTooltipRenderValue()"))
     }
 
     @Test("interaction state precedence is disabled pressed open active hovered idle")
@@ -103,7 +103,6 @@ struct SidebarToolbarControlVisualStateTests {
             isOpen: isOpen
         )
     }
-
     @MainActor
     private func mountedSegmentedControlWidth(selection: Int) -> CGFloat {
         let segments = [

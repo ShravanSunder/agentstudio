@@ -87,6 +87,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case squareSplit2x1 = "square.split.2x1"
     case squareStackFill = "square.stack.fill"
     case squareStack3dUp = "square.stack.3d.up"
+    case sliderHorizontal3 = "slider.horizontal.3"
     case star = "star"
     case starFill = "star.fill"
     case terminal = "terminal"

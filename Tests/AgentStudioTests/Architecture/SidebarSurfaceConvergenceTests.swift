@@ -113,8 +113,8 @@ struct SidebarSurfaceConvergenceTests {
         #expect(repoSource.contains("} toolbarRow: {"))
         #expect(repoSource.contains("sidebarSurfaceSelector"))
         #expect(repoSource.contains("repoToolbarRow"))
-        #expect(commandToolbarSource.contains("SidebarDropdownSelector("))
-        #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
+        #expect(commandToolbarSource.contains("SidebarToolbarPickerButton("))
+        #expect(commandToolbarSource.contains("SidebarOrganizationPopover("))
         #expect(commandToolbarSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
         #expect(commandToolbarSource.contains("label: command.definition.label"))
         #expect(commandToolbarSource.contains("commandDispatcher.dispatch(command)"))
@@ -142,7 +142,8 @@ struct SidebarSurfaceConvergenceTests {
             encoding: .utf8
         )
 
-        #expect(repoSource.contains("SidebarToolbarSegmentedControl("))
+        #expect(repoSource.contains("SidebarToolbarPickerButton("))
+        #expect(repoSource.contains("SidebarToolbarSortButton("))
         #expect(inboxSource.contains("SidebarToolbarSortButton("))
         #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
         #expect(!sharedSource.contains("CommandIcon"))
@@ -168,8 +169,8 @@ struct SidebarSurfaceConvergenceTests {
         #expect(toolbarSource.contains(".tint(Color.secondary)"))
     }
 
-    @Test("repo grouping uses shared segments while inbox keeps its selectable popover")
-    func repoGroupingUsesSharedSegmentsAndInboxKeepsSelectablePopover() throws {
+    @Test("repo grouping uses one shared two-level popover while inbox keeps its selectable popover")
+    func repoGroupingUsesOneSharedTwoLevelPopover() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let commandToolbarSource = try String(
             contentsOf: projectRoot.appending(
@@ -188,20 +189,23 @@ struct SidebarSurfaceConvergenceTests {
         )
         let popoverSource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/SharedComponents/SelectablePopover/SidebarGroupingPopover.swift"),
+                path: "Sources/AgentStudio/SharedComponents/SelectablePopover/SidebarOrganizationPopover.swift"),
             encoding: .utf8
         )
 
-        #expect(commandToolbarSource.contains("SidebarToolbarSegmentedControl("))
+        #expect(commandToolbarSource.contains("SidebarOrganizationPopover("))
+        #expect(commandToolbarSource.contains("LocalActionSpec.groupRepoExplorerWorktrees"))
+        #expect(commandToolbarSource.contains("LocalActionSpec.subgroupRepoExplorerWorktrees"))
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
-        #expect(!commandToolbarSource.contains("SidebarGroupingPopover("))
+        #expect(commandToolbarSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
         #expect(commandToolbarSource.contains("command.definition.icon.swiftUIImage("))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
         #expect(commandToolbarSource.contains("label: command.definition.label"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
-        #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))
+        #expect(toolbarSource.contains("struct SidebarToolbarPickerButton"))
         #expect(popoverSource.contains("SelectablePopoverKeyboardBridge("))
+        #expect(popoverSource.components(separatedBy: "SelectablePopoverKeyboardBridge(").count == 2)
     }
 }

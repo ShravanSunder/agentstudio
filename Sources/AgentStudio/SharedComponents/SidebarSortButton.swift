@@ -297,6 +297,7 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
     let tooltipValue: ControlTooltipRenderValue
     @ViewBuilder let icon: () -> Icon
     let isActive: Bool
+    let showsActiveBackground: Bool
     let tooltipTarget: TooltipTarget?
     let tooltipCoordinateSpaceName: String?
     let frameAccessibilityIdentifier: String?
@@ -309,6 +310,7 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
         tooltipValue: ControlTooltipRenderValue,
         @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
+        showsActiveBackground: Bool = true,
         tooltipTarget: TooltipTarget,
         tooltipCoordinateSpaceName: String,
         frameAccessibilityIdentifier: String? = nil,
@@ -320,6 +322,7 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
         self.tooltipValue = tooltipValue
         self.icon = icon
         self.isActive = isActive
+        self.showsActiveBackground = showsActiveBackground
         self.tooltipTarget = tooltipTarget
         self.tooltipCoordinateSpaceName = tooltipCoordinateSpaceName
         self.frameAccessibilityIdentifier = frameAccessibilityIdentifier
@@ -333,6 +336,7 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
         tooltipValue: ControlTooltipRenderValue,
         @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
+        showsActiveBackground: Bool = true,
         tooltipTarget: TooltipTarget?,
         tooltipCoordinateSpaceName: String?,
         frameAccessibilityIdentifier: String?,
@@ -344,6 +348,7 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
         self.tooltipValue = tooltipValue
         self.icon = icon
         self.isActive = isActive
+        self.showsActiveBackground = showsActiveBackground
         self.tooltipTarget = tooltipTarget
         self.tooltipCoordinateSpaceName = tooltipCoordinateSpaceName
         self.frameAccessibilityIdentifier = frameAccessibilityIdentifier
@@ -355,7 +360,11 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
         Button(action: action) {
             SidebarToolbarIcon(icon: icon, isActive: isActive)
         }
-        .buttonStyle(SidebarToolbarButtonStyle(isActive: isActive))
+        .buttonStyle(
+            SidebarToolbarButtonStyle(
+                isActive: isActive && showsActiveBackground
+            )
+        )
         .accessibilityLabel(label)
         .accessibilityIdentifier(accessibilityIdentifier)
         .modifier(
@@ -368,6 +377,71 @@ package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: 
                 onHover: onHover
             )
         )
+    }
+}
+
+@MainActor
+package struct SidebarToolbarPickerButton<Icon: View>: View {
+    let label: String
+    let selectionLabel: String
+    let accessibilityIdentifier: String
+    let tooltipValue: ControlTooltipRenderValue
+    let isOpen: Bool
+    let showsIcon: Bool
+    @ViewBuilder let icon: () -> Icon
+    let action: () -> Void
+
+    package init(
+        label: String,
+        selectionLabel: String,
+        accessibilityIdentifier: String,
+        tooltipValue: ControlTooltipRenderValue,
+        isOpen: Bool,
+        showsIcon: Bool = true,
+        @ViewBuilder icon: @escaping () -> Icon,
+        action: @escaping () -> Void
+    ) {
+        self.label = label
+        self.selectionLabel = selectionLabel
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.tooltipValue = tooltipValue
+        self.isOpen = isOpen
+        self.showsIcon = showsIcon
+        self.icon = icon
+        self.action = action
+    }
+
+    package var body: some View {
+        Button(action: action) {
+            HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
+                if showsIcon {
+                    icon()
+                        .frame(
+                            width: AppStyles.General.Button.compact,
+                            height: AppStyles.General.Button.compact
+                        )
+                }
+                Text(selectionLabel)
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(
+                        .system(
+                            size: AppStyles.Shell.Sidebar.ToolbarControl.groupingChevronSize,
+                            weight: .semibold
+                        )
+                    )
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+            }
+            .foregroundStyle(isOpen ? AppStyles.General.Accent.primaryColor : Color.secondary)
+            .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding)
+            .frame(height: AppStyles.General.Button.compact)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SidebarToolbarButtonStyle(isOpen: isOpen))
+        .accessibilityLabel("\(label): \(selectionLabel)")
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .controlHelp(tooltipValue)
     }
 }
 
@@ -451,6 +525,7 @@ extension SidebarToolbarActionButton where TooltipTarget == SidebarToolbarNoTool
         tooltipValue: ControlTooltipRenderValue,
         @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
+        showsActiveBackground: Bool = true,
         action: @escaping () -> Void
     ) {
         self.init(
@@ -459,6 +534,7 @@ extension SidebarToolbarActionButton where TooltipTarget == SidebarToolbarNoTool
             tooltipValue: tooltipValue,
             icon: icon,
             isActive: isActive,
+            showsActiveBackground: showsActiveBackground,
             tooltipTarget: nil,
             tooltipCoordinateSpaceName: nil,
             frameAccessibilityIdentifier: nil,

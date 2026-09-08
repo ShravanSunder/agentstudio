@@ -117,6 +117,7 @@ package enum LocalActionSpec {
     case groupInboxNotifications
     case deleteInboxNotifications
     case groupRepoExplorerWorktrees
+    case subgroupRepoExplorerWorktrees
     case cancel
     case add
     case rename
@@ -265,8 +266,14 @@ package enum LocalActionSpec {
             )
         case .groupRepoExplorerWorktrees:
             return ActionSpec(
-                label: "Group Repo Worktrees",
-                helpText: "Group repo worktrees by repo, pane, or tab",
+                label: "Group",
+                helpText: "Choose how sidebar items are grouped",
+                icon: .system(.sliderHorizontal3)
+            )
+        case .subgroupRepoExplorerWorktrees:
+            return ActionSpec(
+                label: "Subgroup",
+                helpText: "Choose how sidebar items are subgrouped",
                 icon: .system(.squareStack3dUp)
             )
         case .cancel:
