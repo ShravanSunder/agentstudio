@@ -2,110 +2,52 @@
 
 Basis: [Requirements](2026-09-07-sidebar-organization-requirements.md). Realization: [Program Design](2026-09-07-sidebar-organization-program-design.md).
 
-## Scope of each delivery
+## Scope
 
-The three scopes follow U16. C1–C4 and pin migration are the first sidebar change. The zmx update is a separate preservation contract C7. C5 contains the terminal target completed through the third scope; it is not evidence that PR 1 can already observe all terminal output.
-
-PR 1 must use the existing runtime-only `PaneActivityStatusFact.observedAt` associated with a changed settled output line for activity grouping/subgrouping and sorting. The timestamp is captured when settled-line recording is accepted; publication may be deferred. It is not exact last-byte time, identical lines suppress timestamp-only updates, and surface retirement clears it. These are the accepted current-source limits of PR 1, not permission to omit activity organization or use focus recency. A recent-evidence bucket is not a claim that the terminal process is still running.
-
-## Finding a pane without losing its context
-
-The sidebar separates what is browsed from how it is organized. Repos browses repository/worktree structure. Panes browses existing pane destinations. Grouping changes where rows are placed; sorting changes their order inside that placement.
-
-```text
-Person managing parallel work
-    → chooses Repos or Panes
-    → filters and selects group/subgroup
-    → sorts rows without changing the hierarchy
-    → identifies and opens the intended destination
-
-Today: mixed object/group controls and long undivided lists
-Desired: explicit screens, independent pins and activity organization
-Basis: U1–U8, U11
-```
-
-```text
-Pointer / keyboard user ── sidebar controls ──┐
-                                            │ Sidebar organization
-Same user ── pane rows / tab indicators ──────┤ (opaque product surface)
-                                            │
-Restart ── restored choices / activity ages ─┘
-
-Outside: provider-session archive and new agent-completion detection
-```
+This contract covers the current sidebar organization branch. It excludes unseen dots, running animations, zmx IPC, vendor/toolchain updates, and complete or restart-persistent terminal activity. U9 and U12–U15 remain retained later needs. Existing R identities keep their original meaning.
 
 ## C1. Two-row controls
 
-**R1 (U1, U2):** The header must use exactly two rows. Row one contains the Repos/Panes selector followed by the filter consuming remaining space. Row two contains group, subgroup, sort field/direction and the current screen's pinned-section visibility control. Organization controls must not be relocated into a catch-all options menu.
+**R1 (U1, U2):** The header MUST have exactly two rows. Row one contains Repos/Panes and Filter. Row two contains, in order, pinned visibility, divider, sort direction, sort type, divider, and one grouping summary.
 
 ```text
 Row 1   [ Repos | Panes ] │ Filter…
-Row 2   Group │ Subgroup │ Sort field │ Direction │ Show Pinned
+Row 2   Pin │ ↑/↓  Name/Activity │ Repo → Activity
 ```
 
-At the current 250–450 point widths, row two exposes compact icon segments for every option; selected state is visible. It adds selected-option text only when the natural width fits. There are no Group/Subgroup/Sort caption labels, overflow menus, hidden alternatives or third row. Row one keeps Repos/Panes text and gives remaining width to the filter. Tooltips/accessibility names come from the surface-specific command spec. Native fit and accessibility are implementation proof obligations; the conceptual diagram does not claim a captured rendering.
+Show Pinned defaults on. Selected is blue without persistent fill; unselected is neutral. The original animated arrow toggles direction only. The Name/Activity picker changes sort type only. The grouping summary appends `→ Subgroup` only when effective.
 
-**R2 (U7):** Grouping, subgrouping, sort field and direction must have command-spec-backed, surface-context keyboard actions that produce the same selections and outcomes as the visible controls. Pin visibility likewise uses the command spec system. Labels, icons, help and shortcut display must come from the existing command presentation pipeline. Commands must not steal typing from the filter or unrelated terminal/editor surfaces. The owner explicitly defers exact key chords; no bindings are implied by this diagram, and chord selection is not a blocker to this design.
+The grouping `.popover` MUST use 16-point padding and two equal, top-aligned columns. Group/Subgroup headers use catalog-owned icons; options use compact neutral Arrangement-style rows. When unavailable, the Subgroup column/header/icon/width remain with lighter noninteractive “No subgroups”. Valid None remains selectable.
 
-All sidebar organization commands are surface-specific, including screen selection, grouping, subgrouping, sort field, sort direction and pinned-section visibility. Repos and Panes have separately classified command exposure, targeting and enablement in the existing spec system. A Repos action must not mutate Panes preferences or pins, and vice versa. Pointer controls and later keyboard bindings consume that same classification and dispatcher; a shared icon or chord never supplies authority to affect the other screen.
+**R2 (U7):** Every state-changing organization choice MUST use its surface-specific command spec, presentation preflight, and dispatcher. Selector open/dismiss is presentation-only local view state, with display metadata projected from LocalActionSpec; it does not create an AppCommand or IPC action. Option selection and pin/sort toggles recheck command enablement and dispatch. Exact chords are deferred. Unavailable/disabled commands MUST NOT dispatch or steal Filter/terminal/editor typing.
 
-## C2. Repos sections and independent repository pins
+## C2. Repos and independent repository pins
 
-**R3 (U3, U5, U10):** Repos must display repository groups containing their worktrees. When the pinned section is shown, a pinned repository belongs to Pinned Repositories, a remaining repository with an open pane belongs to Open Repositories, and every remaining repository belongs to Other Repositories. Each repository appears in one section. Open denotes pane presence, not output activity or process execution.
+**R3 (U3, U5, U10):** Repos MUST offer exactly Repo and Activity and MUST NOT offer a subgroup. Repo assigns each registered repository once to Pinned Repos, Open Repos, or Available Repos before grouping remote identities within each section. Registrations sharing a remote may therefore have section-local headers in different sections when their pin/open states differ; no registered repository or checkout is duplicated. Activity keeps Pinned Repos first and replaces Open/Available with fixed, noncollapsible activity sections. One remote-identity group uses the newest eligible timestamp among all represented repositories/worktrees. Repository headers remain expandable to checkouts.
 
-```text
-Show Pinned on                  Show Pinned off
-Pinned Repositories             Open Repositories
-Open Repositories               Other Repositories
-Other Repositories
-```
+**R4 (U5):** Hiding Pinned Repos MUST preserve pins and return items to Open/Available in Repo mode or their activity bucket in Activity mode. Pinned remains first and exclusive when shown. Pane pins have no effect.
 
-**R4 (U5):** Turning Show Pinned off must preserve pin state and return pinned repositories to the ordinary Open Repositories/Other Repositories partition. It must not exclude them. Pane pins must have no effect on this partition.
+## C3. Panes and independent pane pins
 
-Open uses the current sidebar's canonical destination population: active-residency panes owned by a tab, traversing that tab's allPaneIds and validating repository/worktree association. A pane need not be in the currently selected arrangement to count. Pending-close undo records and orphan records without a tab destination do not count. Do not add drawer-child traversal beyond the current canonical destination population merely because a drawer is expanded. This preserves existing navigation membership; arrangement visibility and terminal activity do not define Open. Current basis: WorkspaceLookupDerived.paneLocationsByWorktreeId and RepoExplorerProjectionInputCapture.unassociatedPaneLocations.
+**R5 (U4, U5):** Panes MUST partition individual pane pins into Pinned Panes and Other Panes. Hiding Pinned Panes merges all panes into Other Panes without clearing or duplicating pins. Repository pins have no effect.
 
-## C3. Panes sections, grouping and independent pane pins
+**R6 (U4):** Panes MUST offer Repo, Tab, and Activity. Repo/Tab headers remain expandable and allow None or Activity subgroups. Activity allows no subgroup.
 
-**R5 (U4, U5):** Panes must partition individually pinned panes into Pinned Panes and remaining panes into Other Panes when Show Pinned is enabled. When disabled, all panes return to Other Panes without clearing pins. Repository pins must not influence this screen, including Repository grouping. Each pane appears once in the selected screen.
+**R6a (U17):** Saved None/Activity MUST restore for Panes Repo/Tab. Activity main grouping suppresses the effective subgroup without overwriting it. Repos ignores its retained legacy subgroup value.
 
-**R6 (U4):** Panes must offer Repository, Tab and Terminal activity grouping. Repository grouping must retain a place for panes without a repository. Tab grouping must preserve canonical tab ownership independently of repository association. Changing pin sections or grouping must not change the destination activated by a row.
-
-The subgroup inventory is:
-
-| Screen / group | Subgroup options | Meaning |
-| --- | --- | --- |
-| Repos / Repository | None, Terminal activity | Divide worktrees within their repository |
-| Panes / Repository | None, Terminal activity | Divide panes within their repository |
-| Panes / Tab | None, Terminal activity | Divide panes within their tab |
-| Panes / Terminal activity | None | Activity buckets already provide the grouping |
-
-These are the complete subgroup choices. Do not add repository-under-tab or tab-under-repository nesting. Defaults and saved-state migration are defined below.
-
-**R6b (U18):** Activity subgroup headings start at the existing row-icon column. Pane/worktree and metadata rows retain their current horizontal alignment; subgrouping does not indent them further. Use the same font, size, weight and casing treatment as the existing top-level section headings, with secondary gray instead of the sections' existing blue. No separate subgroup icon or disclosure arrow is added. Spacing separates subgroups; empty subgroups are omitted and the repository/tab's existing collapse hides its whole content. The display name Just Now replaces the numeric ten-minute label without changing its time predicate.
-
-
-**R6a (U17):** Restore saved sidebar selections before applying defaults. Panes grouped by Repository or Tab defaults to Activity subgroup only when no saved subgroup choice exists; a saved None remains None. When Activity is the main grouping, no extra activity subgroup is rendered. Retain the saved Repository/Tab subgroup preference across that switch rather than overwriting it with an inapplicable None.
+**R6b (U18):** An activity subgroup heading appears only when its parent contains more than one nonempty bucket. Section headings use entity icons, blue word-initial/lowercase-small-caps labels, and increased noninitial top spacing. Expandable headers use chevron and title without an entity icon. Subgroups use the same casing, secondary color, trailing divider, and increased top spacing without adding leaf indentation.
 
 ## C4. Sort field and direction
 
 **R7 (U11):** Both screens must offer Name and Terminal activity sort fields and separate ascending/descending direction. Name ascending means A–Z; descending means Z–A. Activity ascending means oldest first; descending means newest first. Arrangement/layout order is not a sort option.
 
-**R8 (U11):** Changing either sort control must only reorder leaf rows within the currently selected section/group/subgroup. It must not change section membership, group membership, group order, activity-bucket order or collapse state. Name ordering acts on worktree names in Repos and pane display names in Panes; secondary displayed terminal output does not become a name key.
+**R8 (U11):** Changing either sort control must only reorder leaf rows within the currently selected section/group/subgroup. It must not change section membership, group membership, group order, activity-bucket order or collapse state. Name ordering acts on worktree names in Repos. In Panes it uses the trimmed resolved pane title (the title portion after the positional Pane number), with zsh for an empty title; the Pane number, notes, and secondary terminal output are not name keys. Unknown activity sorts after known activity in both directions; deterministic ties prevent churn.
 
-```text
-Pinned Panes                  unchanged section
-  repository                  unchanged group
-    Last hour                 unchanged subgroup
-      pane B / pane A         only these rows reorder
-```
+## C5. Terminal activity and retained indicators
 
-Equal sort keys must have deterministic identity-based tie breaking so arrival order does not cause visible churn. Missing activity must not be fabricated from focus time. Unknown activity sorts after known timestamps in either direction; name and canonical identity break ties. Defaults and migration are defined below.
+**R9 (U4, U6, U9, U14):** Terminal-activity organization must use qualifying terminal activity from the product's zmx-backed terminal path, not user focus, scrollbar movement alone, or restoring old display content. Historical activity timestamps must survive restart. A persisted active flag must not establish current activity after restart. A separate direct-Ghostty activity provider is not added by this change. **Deferred to PR3; not implemented in PR1.**
 
-## C5. Terminal activity and unseen indicators
-
-**R9 (U4, U6, U9, U14):** Terminal-activity organization must use qualifying terminal activity from the product's zmx-backed terminal path, not user focus, scrollbar movement alone, or restoring old display content. Historical activity timestamps must survive restart. A persisted active flag must not establish current activity after restart. A separate direct-Ghostty activity provider is not added by this change.
-
-**R9a (U4,U6,U16), PR 1:** Activity sort uses the existing settled-output timestamp. Time grouping/subgrouping evaluates the bucket table below from this timestamp, with Active meaning an existing runtime fact less than 60 seconds old. It must not read outputBurst.accumulating as current activity. No new source detector, persistence, raw-output observer or vendor change is introduced. After source clear/restart, absence is No activity rather than a focus/creation-time fallback. The current title/latest-line presentation remains unchanged by this data-source wiring.
+**R9a (U4, U6, U16):** This branch MUST classify the existing settled-output timestamp into Active, Just Now, Last Hour, Today, Last 7 Days, Older, or No Activity. It MUST NOT use focus, click, creation time, scrolling alone, or accumulating burst state as fallback. Current evidence is runtime-only, may miss output outside admission, and may suppress equal lines; the branch MUST NOT claim complete PTY coverage or restart persistence.
 
 PR 3 improves qualifying evidence: immediate Active on admitted source output, refreshed for a sliding one-minute interval. At 60 seconds without another qualifying event the row leaves Active. No inference of command or agent completion follows from either scope's bucket transition.
 
@@ -123,62 +65,40 @@ Mutually exclusive time predicates, evaluated in order:
 
 The first-match rule avoids duplicates across midnight. Exactly 60 seconds leaves Active; exactly ten minutes enters Last hour; exactly one hour uses Today/Last 7 days/Older as appropriate. A missing, invalid or future wall timestamp is unknown, not recent. PR 1 worktree activity is the newest available timestamp among that worktree's existing eligible pane destinations; no remaining evidence means No activity. Closing/retiring the last source does not retain synthetic worktree history. PR3 durable aggregation/lifecycle remains later work. The tail categories keep every destination visible.
 
-**R10 (U12):** When qualifying activity has stopped and remains unseen, its pane row and owning tab must be able to display a blue dot. The same activity must not acquire independent acknowledgement state in the tab and sidebar. Which pane visits acknowledge the activity, quiet delay, multiple-pane aggregation, behavior on renewed output, and unseen-state persistence remain the later indicator contract.
+**R10 (U12):** When qualifying activity has stopped and remains unseen, its pane row and owning tab must be able to display a blue dot. The same activity must not acquire independent acknowledgement state in the tab and sidebar. Which pane visits acknowledge the activity, quiet delay, multiple-pane aggregation, behavior on renewed output, and unseen-state persistence remain the later indicator contract. **Deferred to PR3; not implemented in PR1.**
 
-**R11 (U13, U8):** Active pane animation must not require per-frame domain writes, projection recomputation, or pane-view work. It must stop when its row is offscreen or reused and respect Reduce Motion. A small layer-animated rotating arc is proposed; exact appearance and whether tabs animate remain the later indicator contract. Repository refresh animation retains its existing meaning.
+**R11 (U13, U8):** Active pane animation must not require per-frame domain writes, projection recomputation, or pane-view work. It must stop when its row is offscreen or reused and respect Reduce Motion. A small layer-animated rotating arc is proposed; exact appearance and whether tabs animate remain the later indicator contract. Repository refresh animation retains its existing meaning. **Deferred to PR3; not implemented in PR1.**
 
-## C6. Persistence, invalidation and proof
+## C6. Persistence, invalidation, and proof
 
 **R12 (U10):** Favorite-to-Pinned migration must preserve existing repository selections and introduce independent pane pin values with existing panes initially unpinned. The migration must not copy repository pins into panes. Failure must follow existing database preparation/recovery behavior; no silent data reset or simultaneous old/new write path.
 
-**R13 (U8):** Search, filtering, group/subgroup derivation, sorting, activity classification, time-boundary calculation and row-index work must run through the existing off-MainActor systems. UI state mutation and thin keyed capture/publication may occur on MainActor. Views must consume prepared values; no per-row polling, sorting, or timers. A stale result must not overwrite a newer query, preference selection, pin mutation or topology change.
+**R13 (U8):** Search, filtering, membership, grouping, activity classification/deadlines, sorting, and row-index derivation MUST execute in the detached projection. MainActor is limited to keyed capture, command state, and binding/rendering prepared results.
 
-**R14 (U1–U13):** Existing selection, keyboard navigation, collapse state and row identity must remain coherent across section moves and asynchronous publication. Changing a view preference must not mutate topology or terminal execution. Missing local activity data must not be represented as recent activity or completion.
+**R14 (U1–U13):** Organization and asynchronous publication MUST preserve canonical activation identity, avoid duplicates, reject stale candidates, and leave existing selection/navigation/collapse/chips coherent. Preferences MUST NOT mutate topology or terminal execution.
 
-## C7. zmx update and staged preservation
+## C7. Staged preservation boundary
 
-**R15 (U16):** PR 1 must not require a zmx version/toolchain update or a new daemon protocol. Its output detection remains limited to admitted current evidence; improving that evidence belongs to PR 3.
+**R15 (U16):** This branch MUST NOT require a zmx version/toolchain update, new daemon protocol, dot, or running animation.
 
-**R16 (U16):** PR 2 must preserve existing stored zmx session identities, attach/restore behavior and the fork's prompt-redraw fix. New-client/old-daemon operation and any supported rollback direction require explicit proof; a successful build alone does not establish compatibility with live sessions. The update must not silently kill or recreate existing sessions. A zmx upgrade alone must not be described as delivering activity metadata or blue-dot acknowledgement.
+**R16 (U16):** PR 2 must preserve existing stored zmx session identities, attach/restore behavior and the fork's prompt-redraw fix. New-client/old-daemon operation and any supported rollback direction require explicit proof; a successful build alone does not establish compatibility with live sessions. The update must not silently kill or recreate existing sessions. A zmx upgrade alone must not be described as delivering activity metadata or blue-dot acknowledgement. **Deferred to PR2; not implemented in PR1.**
 
-**R17 (U9,U14–U16):** PR 3 must keep the selected zmx IPC boundary internal and reuse the existing runtime owners. The metadata source must distinguish live PTY reads from attach replay, and provide sufficient identity/currentness to reject stale observations after session replacement. No public zmx methods or raw terminal payload export is introduced for sidebar activity.
-
-| Need | Problem → outcome | Contract / requirements | Proof |
-| --- | --- | --- | --- |
-| U1, U2 | Dense ambiguous header → explicit compact controls | C1 / R1 | V1: real native layout at supported widths; inspect selected values and icon meaning |
-| U3, U5, U10 | Mixed membership → independent pins and complete lists | C2,C3,C6 / R3–R6,R12 | V2: partition invariants, navigation, restart and migration with existing data |
-| U4, U6, U9, U14 | Focus time masquerades as activity → truthful recency on the zmx path | C3,C5 / R6,R9 | V3: real zmx terminal output versus scrolling, focus, redraw, restore; injected-clock boundaries; restart |
-| U7 | Pointer-only organization → contextual keyboard parity | C1 / R2 | V4: actual shortcut routing in sidebar, filter, terminal and other surfaces |
-| U8 | Frequent events cause jank → bounded off-main work | C6 / R13,R14 | V5: source isolation, cancellation races, marker-scoped runtime performance under many active panes |
-| U11 | Sort changes location model → stable groups with sortable rows | C4 / R7,R8 | V6: each field/direction across each grouping, equal keys, membership invariance |
-| U12, U13 | Unseen changes hard to locate → dot and activity feedback | C5 / R10,R11 | V7: real pane/tab interaction, offscreen reuse, Reduce Motion and animation CPU proof; the later indicator contract limits |
-| U15,U16 | One large dependency chain → bounded sidebar, update and IPC scopes | C7 / R15–R17 | V8: each delivery's behavior and exclusions, preserved session identities, mixed-version attach/restore; no later-scope proof credited to PR 1 |
-| U18 | Extra nesting obscures scanning → aligned heading hierarchy | C3 / R6b | V10: native icon-column alignment, unchanged row positions, shared heading typography and contrasting section/subgroup colors |
-| U17 | Repeated setup → restored selections with useful initial pane subgroup | C3 / R6a | V9: saved None/Activity round trip, missing-setting default, Activity main-group round trip without overwriting the saved subgroup |
+**R17 (U9,U14–U16):** PR 3 must keep the selected zmx IPC boundary internal and reuse the existing runtime owners. The metadata source must distinguish live PTY reads from attach replay, and provide sufficient identity/currentness to reject stale observations after session replacement. No public zmx methods or raw terminal payload export is introduced for sidebar activity. **Deferred to PR3; not implemented in PR1.**
 
 ## C8. Saved settings and defaults
 
-**R18 (U17):** Persist every selected screen/group/subgroup/sort field/direction and each screen's Show Pinned value using the existing owners. Hydration must not rewrite a saved None to Activity or reset choices when the screen changes.
+**R18 (U17):** Existing settings restore before defaults. Without saved values, Repos defaults to Repo grouping, Panes defaults to Repo grouping with Activity subgrouping, and both surfaces default to Name ascending. Repos reuses `repoGroupingMode`; legacy Repos subgroup storage remains compatible but unused. Valid Panes None remains None. Both Show Pinned values default on. Exact shortcut chords remain deferred and unavailable subgroup selection produces no command.
 
-| Setting | Missing-value default | Existing owner scope |
+## Coverage and proof
+
+| Needs | Contract | Evidence obligation |
 | --- | --- | --- |
-| Screen | Repos | Main-window local sidebar memory |
-| Panes group | Repository | Main-window local sidebar memory |
-| Repos subgroup | None | Main-window local sidebar memory |
-| Panes subgroup | Activity | Main-window local sidebar memory |
-| Show Pinned | On independently for each screen | Main-window local sidebar memory |
-| Sort field | Name independently for each screen | Workspace-local RepoExplorer preferences |
-| Sort direction | Ascending independently for each screen | Workspace-local RepoExplorer preferences |
+| U1,U2,U7 | R1,R2 | Native layout/popover and pointer/keyboard/invalid-command routing |
+| U3,U5,U10 | R3,R4,R12 | Partitions, pin merge-back, remote-identity aggregation, migration |
+| U4,U5,U17,U18 | R5,R6,R6a,R6b,R18 | Panes matrix, independent pins, conditional headings, restoration, visual hierarchy |
+| U11 | R7,R8 | Sort independence and hierarchy invariants |
+| U4,U6,U9,U12,U13,U16 | R9,R9a,R10,R11 | Current-source limit, no focus fallback, unchanged indicators |
+| U8 | R13,R14 | Off-main workload, currentness, identity, preserved presentation |
+| U14–U16 | R15–R17 | No zmx/vendor/IPC expansion |
 
-Migrate old repo mode to Repos, pane mode to Panes/Repository, and tab mode to Panes/Tab. Initialize both screen directions from the old saved direction; after migration they are independent. Existing filter text/visibility memory and collapse state are retained. The new always-present filter input ignores the old visibility flag for layout; it does not erase stored filter text. Name/group pin controls use their actual screen identity.
-
-Repository group headers use stable ascending display identity with canonical ID tie-break; tab headers use existing tab-shell order; activity headers use the bucket table. Leaf sorting never changes those orders. A repository pin/open partition is evaluated before remote-identity grouping: the same logical origin may have a header in different sections when distinct registered repositories have different pin/open state, but a registered repository or leaf is never duplicated. Scope collapse keys by screen, section, group and optional subgroup to avoid shared-header collisions. Existing collapse keys are migrated to their equivalent initial placement; new subgroup keys start expanded.
-
-Empty Pinned/Open sections are omitted; the ordinary Other Repositories/Other Panes section remains the standard collection heading. Existing loading/unavailable placeholders and errors remain; no unknown repository origin is reclassified as a terminal activity or new agent state. Filtering preserves existing searchable fields and selection/navigation behavior. Search does not change whether an underlying repository is Open.
-
-## Later-scope and proof boundaries
-
-- Exact keyboard chords remain owner-deferred. The surface-specific command contract is complete without choosing the physical key combinations now.
-- PR2's target/update preservation design and PR3's metadata/acknowledgement mechanics remain later scopes. They are not requirements for implementing PR1.
-- PR1 retains the current indicator presentation. New blue unseen dots and active animation remain in the later terminal-enhancement scope, with quiet/acknowledgement details to settle there.
-- Native two-row fit, keyboard typing safety and measured off-main performance require implementation evidence. No runtime proof is claimed by these documents.
+The aggregate gate, native evidence, and marker-scoped performance workload remain required. This specification records obligations; it claims no current pass, review, or PR readiness.

@@ -629,7 +629,7 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=\"$KEY_MUTATION_TRACE_TAGS\""))
         #expect(source.contains("AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER"))
         #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=\"$STRICT_DISPOSABLE_DATA_ROOT\""))
-        #expect(source.contains("STRICT_DISPOSABLE_DATA_ROOT=\"$ARTIFACT/disposable-debug-data\""))
+        #expect(source.contains("STRICT_DISPOSABLE_DATA_ROOT=\"$ARTIFACT/d\""))
         #expect(source.contains("refusing reset for non-proof data root"))
         #expect(source.contains("refusing reset outside proof artifact"))
         #expect(source.contains("refusing to reset persistent debug data root"))
@@ -836,6 +836,21 @@ extension SidebarPerformanceWorkloadScriptTests {
 
         #expect(result.exitCode == 2)
         #expect(result.stderr.contains("refuses AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"))
+    }
+
+    @Test("proof rejects a zmx socket path that exceeds the macOS byte limit before launch")
+    func rejectsOverlongZmxSocketPathBeforeLaunch() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--sidebar-proof"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_PROOF_ROOT": "/tmp/" + String(repeating: "long", count: 30),
+                "AGENTSTUDIO_TRACE_NAME": "socket-path-test",
+            ]
+        )
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("zmx proof socket path"))
+        #expect(result.stderr.contains("macOS maximum is 103"))
+        #expect(!result.stdout.contains("launching debug"))
     }
 
     private var settledGitVectorFields: String {

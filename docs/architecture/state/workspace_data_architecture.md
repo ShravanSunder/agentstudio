@@ -560,73 +560,78 @@ Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` be
 
 ## Sidebar Data Flow
 
-The sidebar is a pure reader. It reads structure from one store, display data from another.
+The sidebar is a pure reader. It combines canonical structure, keyed display
+facts, and persisted presentation choices through the existing projection.
 
 ```
-RepositoryTopologyAtom             → canonical global repo/worktree structure (what exists)
-RepoCacheAtom.repoEnrichmentByRepoId           → org name, display name, groupKey
-RepoCacheAtom.worktreeEnrichmentByWorktreeId   → branch, git status
-RepoCacheAtom.pullRequestFacts(for:)           → PR badges (facts by RepoBranchKey)
-WorkspaceSidebarState          → filter and sidebar shell composition
-                                 (collapsed / surface / runtime focus)
+RepositoryTopologyAtom                       → global repo/worktree structure
+RepoCacheAtom keyed enrichment and PR facts  → prepared display facts
+WorkspaceSidebarState                        → filter, surface, grouping, subgroup,
+                                               Show Pinned, collapse, runtime focus
+RepoExplorerSidebarPrefsAtom                 → per-surface sort field and direction
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
-Repo Explorer captures only the declared repo/worktree membership and keyed
-topology, cache, pane-placement, zoom, capability, and Bridge-attendance
-facts needed by its rendered rows. The immutable capture is admitted to the
-existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
-projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
-Cancellation, supersession, removal, and generation checks prevent stale work
-from binding. MainActor owns only keyed capture, current-generation result
-binding, and command-presentation snapshot publication. Whole dictionaries and
-topology snapshots remain persistence/cold-batch bridges, not hot sidebar
-observation inputs.
+Repo Explorer captures only declared membership and keyed facts. The immutable
+capture enters the existing `EagerDerivedAtomFamily`;
+`RepoExplorerProjectionWorker` builds the projection and row index off
+MainActor. Cancellation, supersession, removal, and generation checks prevent
+stale binding. MainActor owns keyed capture, current-result binding, and command
+presentation publication only.
 
-Repos renders worktrees under Pinned Repositories, Open Repositories, and Other
-Repositories. Open means an existing eligible pane destination belongs to that
-repository. Panes renders Pinned Panes and Other Panes, grouped by Repository,
-Tab, or Activity. These pin choices are independent: repository pins never
-partition Panes. Hiding a pinned section merges its members into ordinary
-sections without clearing their flags or duplicating rows.
+Repos offers Repo and Activity grouping only and has no effective subgroup.
+Repo renders remote-identity groups under Pinned Repos, Open Repos, and
+Available Repos. Activity keeps Pinned Repos first and replaces Open/Available
+with fixed, noncollapsible activity sections. One remote-identity group uses the
+newest eligible output timestamp across every represented repository and
+worktree. Repository headers remain expandable to checkout rows.
+
+Panes renders independent Pinned Panes and Other Panes, grouped by Repo, Tab,
+or Activity. Repo and Tab may subgroup by None or Activity; subgroup headings
+appear only when the parent contains more than one nonempty bucket. Activity as
+the main group has no redundant subgroup. Hiding a pinned section merges its
+members into ordinary membership without clearing flags or duplicating rows.
 
 Panes membership comes from canonical active-residency `allPaneIds`, including
-panes retained across arrangements. Repository association and enrichment add
-context but do not decide membership. Repository grouping gives unassociated
-panes a No Repository group; Tab and Activity grouping include them directly.
-Repository headers keep stable display-name order, tab headers keep shell order,
-and activity buckets keep their fixed time order. Name/Activity and direction
-sort only leaves within their section, group, and optional activity subgroup.
+panes retained across arrangements. Repository association adds context but does
+not decide membership. Unassociated panes retain a No Repository group.
+Repository headers keep display-name order, tab headers keep shell order, and
+activity buckets keep fixed time order. Name/Activity and direction sort only
+leaves within their section, group, and optional subgroup.
 
-Window-local screen, grouping, subgroup, Show Pinned, and collapse choices live
-in the existing sidebar memory/local-window persistence lane. Workspace-local
-per-screen sort choices live in `RepoExplorerSidebarPrefsAtom` and
-`WorkspaceSettingsStore`. Core migration 017 renames repository `is_favorite`
-to `is_pinned` and adds independent pane `is_pinned`; local migration 007 carries
-old modes, sort direction, and all legacy collapse-key types into the new
-screen-scoped state. Panes defaults to Activity subgrouping; both screens
-default to Name ascending. Main Activity grouping suppresses the effective
-subgroup while preserving its saved choice.
+Existing window-local persistence owns surface, grouping, subgroup, Show Pinned,
+and collapse. Workspace-local persistence owns per-surface sort. Repos reuses
+`repoGroupingMode`; its legacy subgroup field remains persisted but has no
+presentation effect. Local migration 007 already owns per-screen organization.
+Core migration 017 already renamed repository `is_favorite` to `is_pinned` and
+added independent pane `is_pinned`. This correction adds no schema. Both
+surfaces default to Name ascending and Show Pinned on. Activity main grouping
+suppresses Panes subgrouping without overwriting the saved choice.
 
-The worker classifies `PaneActivityStatusFact.observedAt` into Active (under one
-minute), Just Now, Last hour, Today, Last 7 days, Older, or No activity. This is
-runtime-only settled-output evidence with its existing coverage and equal-line
-suppression; missing evidence never falls back to focus time. The detached
-worker also prepares the earliest presentation deadline and affected IDs.
-`ApplicationLifecycleMonitor` forwards system clock/time-zone changes to the
-existing adapter. Its MainActor side publishes or applies prepared results;
-remaining wait duration is calculated in the concurrent wait.
+The worker classifies `PaneActivityStatusFact.observedAt` into Active, Just Now,
+Last Hour, Today, Last 7 Days, Older, or No Activity and prepares presentation
+deadlines. This runtime-only settled-output fact retains existing coverage and
+equal-line limitations. Missing evidence never falls back to focus time.
 
-The header has two rows: Repos/Panes plus Filter, then directly exposed group,
-subgroup, sort field, direction, and Show Pinned controls. Each action uses its
-surface-specific command identity and dispatcher. Activity subgroup headings
-reuse `SectionSubheadingLabel` with secondary gray, aligned to the existing row
-icon column; they do not add indentation or disclosure state.
+The header has two rows: Repos/Panes plus Filter, then Show Pinned, animated
+sort-direction arrow, Name/Activity picker, and one grouping summary. The
+summary opens one native `.popover` with 16-point padding and equal Group and
+Subgroup columns. Catalog icons label both headers. An unavailable subgroup
+retains its column with lighter `No Subgroups`; valid None remains selectable.
+Presentation filtering and dispatch guards reject invalid commands.
 
-This is not a broad live "join" problem — each store has one clear job and the
-capture declares the exact keys being combined. The bus keeps owners current;
-the sidebar performs no imperative fetches or mutations.
+Section headings use entity icons and blue word-initial lowercase-small-caps
+labels. Expandable repository/tab headers use chevron and title without an
+entity icon. Activity subgroup headings use the same casing in secondary color
+with a trailing divider. Shared `AppStyles` increases noninitial section and
+subgroup top spacing without changing leaf alignment.
+
+This is not a broad live join: each store has one job and capture declares the
+keys being combined. MainActor binds prepared results; grouping, activity
+aggregation, sorting, deadline selection, and row derivation stay detached.
+Existing focus/recency chips remain. Unseen dots, running animations, zmx IPC,
+and vendor changes are outside this sidebar slice.
 
 Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detached HEAD"`. No branch field on the `Worktree` model itself.
 

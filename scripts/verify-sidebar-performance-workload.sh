@@ -8,7 +8,7 @@ DEBUG_RUNNER="${AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER:-$PROJECT_ROOT/scripts/run-debu
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
-DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
+DEFAULT_PROOF_ROOT="/tmp/as-sp"
 WORKLOAD_TRACE_TAGS="performance,app.startup,terminal.startup"
 KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
@@ -3115,14 +3115,14 @@ validate_controls
 validate_workload_cycles
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
-TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
+TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-s-$(date +%s)-$$}")"
 TRACE_NONCE="$(/usr/bin/uuidgen)"
 TRACE_MARKER_W="$(opaque_trace_marker "${TRACE_NAME}-w" "$TRACE_NONCE")"
 TRACE_MARKER_K="$(opaque_trace_marker "${TRACE_NAME}-k" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER_I="$(opaque_trace_marker "${TRACE_NAME}-i" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER="$TRACE_MARKER_W"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
-STRICT_DISPOSABLE_DATA_ROOT="$ARTIFACT/disposable-debug-data"
+STRICT_DISPOSABLE_DATA_ROOT="$ARTIFACT/d"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
@@ -3131,8 +3131,25 @@ KEYED_WAKE_VALUES_FILE="$ARTIFACT/keyed-wake-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 WORKTREE_FIXTURE_KEY="$(hashed_identity "repos=$REQUIRED_REPOSITORY_COUNT:worktrees=$REQUIRED_WORKTREE_COUNT:tabs=$REQUIRED_TAB_COUNT:panes=$REQUIRED_PANE_COUNT:active_ptys=$REQUIRED_ACTIVE_PTY_COUNT")"
 WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES:tags=$WORKLOAD_TRACE_TAGS:backend=otlp")"
-mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 validate_compare_baseline_fixture
+
+# macOS sockaddr_un allows 103 pathname bytes. Fresh proof sessions use 36-byte UUIDv7 names.
+# Validate the canonical path before launch/reset; /tmp may resolve to /private/tmp.
+if [ "$mode" != "prepare-only" ]; then
+  /usr/bin/python3 - "$STRICT_DISPOSABLE_DATA_ROOT/z" <<'PY_SOCKET_PATH'
+import os
+import sys
+
+socket_path = os.path.realpath(sys.argv[1]) + "/" + "0" * 36
+path_bytes = len(os.fsencode(socket_path))
+if path_bytes > 103:
+    raise SystemExit(
+        f"zmx proof socket path requires {path_bytes} bytes; macOS maximum is 103. "
+        "Use a shorter AGENTSTUDIO_SIDEBAR_PROOF_ROOT or AGENTSTUDIO_TRACE_NAME."
+    )
+PY_SOCKET_PATH
+fi
+mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
