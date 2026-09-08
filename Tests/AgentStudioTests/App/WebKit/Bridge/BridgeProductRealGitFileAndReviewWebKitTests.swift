@@ -7,190 +7,6 @@ import Testing
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
-private struct BridgeProductWebKitCarrierApplicationReceipt: Equatable, Sendable {
-    let accepted: Bool
-    let publicationId: UUID
-}
-
-@MainActor
-private final class BridgeProductWebKitCarrierControllerTarget {
-    private struct ApplicationReceiptWaiter {
-        let publicationId: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
-    weak var controller: BridgePaneController?
-    private(set) var applicationReceipts: [BridgeProductWebKitCarrierApplicationReceipt] = []
-    private(set) var reviewContentSource: BridgePaneProductReviewContentSource?
-    private var nextApplicationReceiptWaiterID: UInt64 = 0
-    private var applicationReceiptWaiters: [UInt64: ApplicationReceiptWaiter] = [:]
-
-    func install(_ controller: BridgePaneController) {
-        self.controller = controller
-        reviewContentSource = BridgePaneProductReviewContentSource(
-            loaderCache: controller.reviewContentLoaderCache,
-            acquireContentLease: { [weak controller] descriptor, productAdmission in
-                controller?.reviewPublicationCoordinator.acquireContentLease(
-                    handleId: descriptor.descriptorId,
-                    packageId: descriptor.packageId,
-                    requestedGeneration: BridgeReviewGeneration(descriptor.reviewGeneration),
-                    sourceIdentity: descriptor.sourceIdentity,
-                    productAdmission: productAdmission
-                )
-            },
-            settleContentLease: { [weak controller] lease in
-                controller?.reviewPublicationCoordinator.settleContentLease(lease) == true
-            }
-        )
-    }
-
-    func committedPublication(
-        productAdmission: BridgeProductAdmissionContext
-    ) -> BridgeReviewCommittedPublication? {
-        controller?.reviewPublicationCoordinator.committedPublicationForReplay(
-            productAdmission: productAdmission
-        )
-    }
-
-    func isCurrentPublication(
-        _ publicationId: UUID,
-        productAdmission: BridgeProductAdmissionContext
-    ) -> Bool {
-        controller?.reviewPublicationCoordinator.isCurrentPublication(
-            publicationId: publicationId,
-            productAdmission: productAdmission
-        ) == true
-    }
-
-    func recordApplication(
-        _ publicationId: UUID,
-        workerInstanceId: String,
-        productAdmission: BridgeProductAdmissionContext
-    ) -> BridgeReviewDisplayedApplicationResult {
-        let result =
-            controller?.reviewPublicationCoordinator.recordDisplayedApplication(
-                publicationId: publicationId,
-                workerInstanceId: workerInstanceId,
-                productAdmission: productAdmission
-            ) ?? .rejected
-        applicationReceipts.append(
-            BridgeProductWebKitCarrierApplicationReceipt(
-                accepted: result != .rejected,
-                publicationId: publicationId
-            )
-        )
-        resumeApplicationReceiptWaitersIfReady()
-        return result
-    }
-
-    func waitForAcceptedApplication(
-        publicationId: UUID,
-        timeout: Duration
-    ) async -> Bool {
-        guard !hasAcceptedApplication(for: publicationId) else { return true }
-        let waiterID = nextApplicationReceiptWaiterID
-        nextApplicationReceiptWaiterID += 1
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { [weak self] in
-                guard let self else { return nil }
-                return await self.waitForAcceptedApplicationEvent(
-                    publicationId: publicationId,
-                    waiterID: waiterID
-                )
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return nil
-                }
-            }
-            let result = await group.next()
-            group.cancelAll()
-            guard let result else { return false }
-            return result ?? false
-        }
-    }
-
-    private func hasAcceptedApplication(for publicationId: UUID) -> Bool {
-        applicationReceipts.contains {
-            $0.accepted && $0.publicationId == publicationId
-        }
-    }
-
-    private func waitForAcceptedApplicationEvent(
-        publicationId: UUID,
-        waiterID: UInt64
-    ) async -> Bool {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if hasAcceptedApplication(for: publicationId) {
-                    continuation.resume(returning: true)
-                } else if Task.isCancelled {
-                    continuation.resume(returning: false)
-                } else {
-                    applicationReceiptWaiters[waiterID] = ApplicationReceiptWaiter(
-                        publicationId: publicationId,
-                        continuation: continuation
-                    )
-                }
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.cancelApplicationReceiptWaiter(waiterID: waiterID)
-            }
-        }
-    }
-
-    private func cancelApplicationReceiptWaiter(waiterID: UInt64) {
-        applicationReceiptWaiters.removeValue(forKey: waiterID)?.continuation.resume(
-            returning: false
-        )
-    }
-
-    private func resumeApplicationReceiptWaitersIfReady() {
-        let readyIDs = applicationReceiptWaiters.compactMap { waiterID, waiter in
-            hasAcceptedApplication(for: waiter.publicationId) ? waiterID : nil
-        }
-        for waiterID in readyIDs {
-            applicationReceiptWaiters.removeValue(forKey: waiterID)?.continuation.resume(
-                returning: true
-            )
-        }
-    }
-}
-
-private struct BridgeProductWebKitCarrierReviewContentRelay:
-    BridgePaneProductReviewContentProducing
-{
-    let target: BridgeProductWebKitCarrierControllerTarget
-
-    func authoritativeItemId(
-        for request: BridgeProductReviewContentRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async -> String? {
-        guard let source = await target.reviewContentSource else { return nil }
-        return await source.authoritativeItemId(
-            for: request,
-            productAdmission: productAdmission
-        )
-    }
-
-    func contentBody(
-        for request: BridgeProductReviewContentRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> BridgePaneProductReviewContentBody {
-        guard let source = await target.reviewContentSource else {
-            throw BridgePaneProductReviewContentSourceError.unavailablePackage
-        }
-        return try await source.contentBody(
-            for: request,
-            productAdmission: productAdmission
-        )
-    }
-}
-
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
@@ -669,6 +485,18 @@ extension WebKitSerializedTests {
             )
             controller.scheduleReviewPackageReloadForProductResync(reason: .productResync)
             guard await harness.reviewMetadataSource.waitForReplayFailureState(timeout: .seconds(15)) else {
+                let reviewFailure = await harness.reviewMetadataSource.snapshot()
+                let nativeFailure = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
+                Issue.record(
+                    """
+                    Review replay wait failed: status=\(controller.paneState.diff.status), \
+                    corrupted=\(reviewFailure.didCorruptFinalWindow), held=\(reviewFailure.replayIsBlocked), \
+                    opens=\(reviewFailure.openedSubscriptions.count), cancels=\(reviewFailure.cancelledSubscriptionIds.count), \
+                    deliveryGenerations=\(reviewFailure.deliveryAttempts.map { $0.package.reviewGeneration.rawValue }), \
+                    native=\(nativeFailure)
+                    """
+                )
+                await harness.reviewMetadataSource.releaseReplay()
                 throw TransactionalPublicationTestError.publicationFailureDidNotReopenReview
             }
             guard
@@ -676,6 +504,8 @@ extension WebKitSerializedTests {
                     productAdmission: harness.productAdmission
                 ), secondPublication.publicationId != firstCheckpoint.publication.publicationId
             else {
+                Issue.record("Review replay was held but its committed successor was missing")
+                await harness.reviewMetadataSource.releaseReplay()
                 throw TransactionalPublicationTestError.publicationFailureDidNotReopenReview
             }
             let receiptsBeforeReplay = harness.controllerTarget.applicationReceipts
