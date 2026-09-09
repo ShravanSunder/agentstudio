@@ -114,7 +114,17 @@ required by terminal creation/discard/close. It now uses the existing prepared-j
 fixture and joins executor/coordinator shutdown on success, early return and throw.
 All 20 original scenario bodies, 46 expectations and 12 requirements remain; Astra
 found no issue in the bounded correction. Focused proof passed 20 tests / one suite,
-exit 0: `/tmp/agentstudio-pr335-drawer-fixture-proof.log`. Large-lane follow-up is running.
+exit 0: `/tmp/agentstudio-pr335-drawer-fixture-proof.log`. Drawer correction committed
+as `f06fdcdc9` through normal hooks. The large-lane follow-up passed the drawer suite
+and then found two prepared terminal restore scenarios failing with five issues. Their
+standalone accepted panes had never been installed in the canonical pane graph; production
+applies that graph before returning accepted composition. The existing currentness guard
+correctly rejects absent/deleted panes. First-three fixture setup now inserts the exact
+accepted panes, preserving empty repository/tab topology and frozen descriptor/frame/session
+assertions; joined shutdown is local to those tests. No production guard changed.
+Astra independently verified the cause and correction. Focused restore/durability/architecture
+proof passed 30 tests / three suites, exit 0:
+`/tmp/agentstudio-pr335-restore-fixture-proof.log`. Large-lane follow-up is running.
 Final aggregate on the final committed correction remains required; no aggregate success is claimed.
 
 ## Prior bounded proof retained
