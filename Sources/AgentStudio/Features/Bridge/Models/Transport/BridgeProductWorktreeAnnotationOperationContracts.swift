@@ -263,7 +263,7 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
         }
         return .flushDraft(
             DraftMutationBody(
-                body: try validatedBody(container, decoder),
+                body: try validatedBody(container, decoder, allowsEmptyDraft: true),
                 editToken: try validatedIdentifier(container, .editToken, decoder),
                 expectedDraftRevision: expectedDraftRevision,
                 expectedMessageRevision: try nonnegative(container, .expectedMessageRevision, decoder),
@@ -412,12 +412,18 @@ enum BridgeProductWorktreeAnnotationOperation: Codable, Equatable, Sendable {
 
     private static func validatedBody(
         _ container: KeyedDecodingContainer<CodingKeys>,
-        _ decoder: Decoder
+        _ decoder: Decoder,
+        allowsEmptyDraft: Bool = false
     ) throws -> String {
         do {
-            return try WorktreeAnnotationMessagePolicy.validate(
-                container.decode(String.self, forKey: .body)
-            )
+            let body = try container.decode(String.self, forKey: .body)
+            // Clearing an editor is a draft mutation; Save/create still require content.
+            if allowsEmptyDraft, body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                body.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes
+            {
+                return body
+            }
+            return try WorktreeAnnotationMessagePolicy.validate(body)
         } catch {
             throw BridgeProductContractDecoding.invalidValue(
                 "Annotation body is invalid",

@@ -9,6 +9,20 @@ import Testing
 @testable import AgentStudioBridgeDevelopmentServer
 @testable import AgentStudioCore
 
+func requireHTTPAnnotationMessage(
+    _ outcome: BridgeProductWorktreeAnnotationCommandOutcomeDTO
+) throws -> BridgeProductWorktreeAnnotationMessageEntry {
+    let receipt = try #require(outcome.receipt)
+    let message: BridgeProductWorktreeAnnotationMessageEntry?
+    if case .message(let context, let canonicalMessage) = receipt {
+        #expect(context.threadId == canonicalMessage.threadId)
+        message = canonicalMessage
+    } else {
+        message = nil
+    }
+    return try #require(message, "Expected a canonical message, not a removal receipt")
+}
+
 @MainActor
 struct HTTPDevelopmentProductRuntime {
     let composition: BridgeDevelopmentServerCoreComposition

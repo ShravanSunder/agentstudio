@@ -17,11 +17,11 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
         -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     func saveDraft(_ props: WorktreeAnnotationSQLiteRepository.SaveDraftProps) async throws
         -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     func acquireEditToken(_ props: WorktreeAnnotationSQLiteRepository.AcquireEditTokenProps) async throws
         -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     func releaseEditToken(_ props: WorktreeAnnotationSQLiteRepository.ReleaseEditTokenProps) async throws
@@ -241,7 +241,7 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
     }
 
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try await mutate { try $0.flushDraft(props) }
     }
@@ -253,7 +253,7 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
     }
 
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try await mutate { try $0.revertDraft(props) }
     }

@@ -103,8 +103,8 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
         )
         #expect(createOutcome.status == .committed)
         let sessionID = try #require(createOutcome.sessionId)
-        let createReceipt = try #require(createOutcome.receipt)
-        let draftRevision = try #require(createReceipt.draftRevision)
+        let createReceipt = try requireHTTPAnnotationMessage(createOutcome)
+        let draftRevision = try #require(createReceipt.draft?.revision)
         _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
             connection: connection,

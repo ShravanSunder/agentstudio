@@ -297,6 +297,7 @@ enum BridgeProductStrictJSON {
             "refreshingLanes",
             "fileRefreshFailure",
             "removeItemIds",
+            "removedMessageRevision",
             "removePathScope",
             "removePaths",
             "replacementDescriptor",

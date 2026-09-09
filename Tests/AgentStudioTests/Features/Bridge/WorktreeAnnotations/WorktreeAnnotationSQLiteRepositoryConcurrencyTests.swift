@@ -60,7 +60,7 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
                 body: "First independent edit",
                 now: Date(timeIntervalSince1970: 5)
             )
-        ).canonicalResult
+        ).canonicalResult.detail
         #expect(detail.threads.first?.messages.first?.draft?.body == "First independent edit")
 
         detail = try repository.createReplyDraft(

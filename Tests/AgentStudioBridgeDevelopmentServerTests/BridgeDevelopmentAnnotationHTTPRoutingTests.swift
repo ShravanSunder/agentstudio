@@ -47,7 +47,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 requestID: "annotation-output-result-create",
                 requestSequence: 6
             )
-            let createReceipt = try #require(createOutcome.receipt)
+            let createReceipt = try requireHTTPAnnotationMessage(createOutcome)
             let sessionID = try #require(createOutcome.sessionId)
             _ = try await waitForHTTPAnnotationCatalogCommit(
                 client: client,
@@ -59,7 +59,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 connection: connection,
                 operation: [
                     "editToken": "two-pane-editor",
-                    "expectedDraftRevision": try #require(createReceipt.draftRevision),
+                    "expectedDraftRevision": try #require(createReceipt.draft?.revision),
                     "expectedMessageRevision": createReceipt.messageRevision,
                     "kind": "draft.save",
                     "messageId": createReceipt.messageId.uuidString.lowercased(),
