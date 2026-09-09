@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioInfrastructure
 
-@Suite
+@Suite(.serialized)
 struct SidebarPerformanceWorkloadScriptTests {
     private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
 
