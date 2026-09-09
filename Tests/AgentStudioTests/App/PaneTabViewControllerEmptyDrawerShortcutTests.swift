@@ -18,7 +18,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestCoreAtoms { _ in
+                try await withAsyncTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -40,6 +40,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                             allowsModifiedEmptyDrawerShortcutWithTextFocus: false
                         )
                     )
+                    _ = await harness.executor.submitGesture { _ in true }.value
                     #expect(harness.store.pane(parent.id)?.drawer?.paneIds.count == 1)
                 }
             })
@@ -185,7 +186,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestCoreAtoms { _ in
+                try await withAsyncTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -221,6 +222,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     )
 
                     #expect(harness.controller.performKeyEquivalent(with: event))
+                    _ = await harness.executor.submitGesture { _ in true }.value
                     #expect(harness.store.pane(parent.id)?.drawer?.paneIds.count == 1)
                 }
             })
@@ -231,7 +233,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestCoreAtoms { _ in
+                try await withAsyncTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -254,6 +256,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                         )
                     )
 
+                    _ = await harness.executor.submitGesture { _ in true }.value
                     let firstDrawerPaneId = try #require(harness.store.drawerView(forParent: parent.id)?.activeChildId)
                     #expect(
                         atom(\.workspaceFocusOwner).owner
