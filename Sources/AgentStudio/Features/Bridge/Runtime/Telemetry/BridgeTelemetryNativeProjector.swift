@@ -18,7 +18,7 @@ struct BridgeTelemetryNativeProjector: Sendable {
 
     func project(_ request: BridgeTelemetryBatchRequest) async throws -> BridgeTelemetryNativeProjectionResult {
         for stampedSample in request.samples {
-            let projection = try projectedSample(stampedSample.sample)
+            let projection = try await projectedSample(stampedSample.sample)
             await recorder.record(
                 sample: projection.sample,
                 receivedAtUnixNano: projection.eventTimeUnixNano
@@ -37,7 +37,7 @@ struct BridgeTelemetryNativeProjector: Sendable {
 
     private func projectedSample(
         _ compactSample: BridgeTelemetryCompactSample
-    ) throws -> (sample: BridgeTelemetrySample, eventTimeUnixNano: UInt64) {
+    ) async throws -> (sample: BridgeTelemetrySample, eventTimeUnixNano: UInt64) {
         switch compactSample {
         case .lifecycle(let value):
             return (
@@ -108,7 +108,15 @@ struct BridgeTelemetryNativeProjector: Sendable {
                 eventTimeUnixNano(value.timestampMilliseconds)
             )
         case .requiredEvent(let value), .optionalEvent(let value):
-            guard case .accepted = eventValidator.validate(value.sample) else {
+            if case .dropped(let reason) = eventValidator.validate(value.sample) {
+                await recorder.recordDrop(
+                    reason: reason,
+                    droppedCount: 1,
+                    firstRejectedEventName:
+                        reason == .unsafeEventName || reason == .disabledScope
+                        ? BridgeTelemetryWireSchema.unknownRejectedEventName : value.sample.name,
+                    receivedAtUnixNano: eventTimeUnixNano(value.timestampMilliseconds)
+                )
                 throw BridgeTelemetryNativeProjectorError.invalidSample
             }
             return (value.sample, eventTimeUnixNano(value.timestampMilliseconds))
