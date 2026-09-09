@@ -195,3 +195,61 @@ full sequential gates → final independent review → one unmerged PR and testa
   contained in this branch. No merge or tag is authorized by this draft checkpoint.
 - Current debug-runtime memory proof, remaining failure investigation, final independent
   implementation review and CI remain required before readiness.
+
+## PR #335 continuation: current evidence
+
+Draft URL: https://github.com/ShravanSunder/agentstudio/pull/335. Head `863b3bd7b`.
+Only two test files currently differ: tab-drag and targeted pane-inbox command tests now await
+the existing command queue and use required MainActor suite isolation. Production is unchanged.
+Isolated reproduction: Bridge verifier 7 passed; drag 14 tests with 1 failure; inbox 11 tests
+with 3 issues. Awaited-command correction: 25 tests / 2 suites passed, exit 0 at
+`/tmp/agentstudio-command-completion-green.log`. Full aggregate rerun remains in progress at
+`/tmp/agentstudio-pr335-aggregate-command-waits.log`.
+
+Fresh debug proof uses PID 32315, standard lbim bundle, marker
+`debug-observability-lbim-1788911249-31215`. Existing build launched with `--skip-build`
+after verifying no app instance; authenticated IPC, shared OTLP verifier passed.
+- Four journal sessions were pending at 4:41 after startup and completed with process evidence
+  by 5:13. All eight recorded daemon/terminal PIDs were absent on read-only checks.
+- The live test terminal remained owned. Pane `01A0836E-C055-7C26-B54B-C70A4642F130`,
+  session `01A0836E-C055-7553-A753-9E2F5123EA34` survived six close/Undo cycles unchanged.
+- Initial real close produced an available 300-second Undo entry; Undo restored it.
+- Renderer sampler before/after six cycles: one surface, one mount, one host, one renderer
+  thread and one I/O thread; graphics fields unchanged; footprint 565 -> 575 MiB.
+  `/tmp/agentstudio-pr335-renderer-baseline.json`,
+  `/tmp/agentstudio-pr335-renderer-after-undo.json`. This is bounded evidence, not zero-leak proof.
+- Final test pane closed again for actual 300-second expiry; outcome pending.
+- Full independent implementation reviewer `pr335_implementation_review` is inspecting the
+  exact diff with no parent history. No final acceptance result exists yet.
+
+### Actual expiry and restart proof completed
+
+- After the real 300-second close deadline, the entry became expired and the session completed.
+  Both recorded original processes were absent. `/tmp/agentstudio-pr335-renderer-after-expiry.json`
+  reports renderer/I/O/PTY/mount/host counts all zero, owned graphics 0 MiB, footprint 165 MiB.
+  One inert SurfaceView wrapper remained; native resources were released.
+- A new test session was created, a shell variable set, and the pane closed. Normal app quit
+  completed, then standard isolated launcher restarted as PID22151, marker
+  `debug-observability-lbim-1788912226-20619`.
+- Before/after deadline records compare identically at
+  `/tmp/agentstudio-pr335-restart-deadline-{before,after}.txt`. Real UI Undo restored pane
+  `01A08378-FD26-75B7-BD26-1F4F4E283D7E` and session
+  `01A08378-FD26-7362-A7A5-9426B6E9BF37`; terminal printed `AFTER_RESTART=retained`.
+- Independent complete reviewer returned no supported product-code finding, one documentation
+  finding D1: cleanup availability, async command ordering, and commit/prepublication teardown
+  diagram were stale. Parent verified and corrected those exact docs. Final correction recheck
+  pending; reviewer did not grant PR readiness.
+- Remaining proof includes final aggregate/CI, real detached-service/replacement/crash-retry,
+  extended native transition/capacity/shared-owner and busy-shutdown scenarios.
+
+### Aggregate shutdown blocker
+
+The aggregate passed the browser integration tests (211 passed, 5 existing skips) but Vitest
+did not exit for over eleven minutes. Parent verified exact issues-perf process PID87641
+under aggregate59595 at 0%CPU; it retained no TCP listener. Parent sent TERM only to that
+verified process to release the stalled run. The gate is failed/incomplete, not passed.
+No BridgeWeb runner/source/test policy changes were made. Other worktree test processes
+were untouched. Aggregate log: `/tmp/agentstudio-pr335-aggregate-command-waits.log`.
+Independent implementation review D1 documentation finding is resolved by source-backed recheck;
+no product finding was reported. Remaining proof gaps listed above still prevent readiness.
+Current testable debug app is PID22151 under the lbim app path; normal restart/Undo proof passed.

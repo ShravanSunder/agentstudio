@@ -145,8 +145,8 @@ are a cache of that ownership, with no independent expiration task.
 Close command
   -> prepare complete snapshot
   -> commit pane/layout removal and Undo entry in one serialized write
-  -> publish committed state
   -> hide/detach the exact surface and retain it for Undo
+  -> publish committed state
 
 Undo command
   -> validate the newest restorable entry without consuming invalid placement
@@ -155,14 +155,16 @@ Undo command
   -> remount retained surface by pane attachment ID when available
 
 Deadline / oldest-first eviction / permanent discard
-  -> commit ownership transition and query remaining owners
+  -> commit ownership transition, query remaining owners, mark unowned sessions pending
   -> retire only unowned pane surfaces
-  -> mark unowned sessions pending for verified process cleanup
+  -> wake verified session cleanup (subject to the startup gate)
 ```
 
 The journal keeps at most ten available operations per workspace and uses a 300-second deadline.
-Restart recovers durable deadlines before runtime admission. Missing cleanup execution remains an
-unfinished implementation item; a pending row is not evidence that its process has terminated.
+Restart recovers durable Undo deadlines before runtime admission. The session cleanup consumer
+waits five minutes after boot before processing journal-known pending sessions, and rechecks native
+attachments before retirement. Failed work stays pending; completion requires the applicable
+endpoint or recorded-process evidence described in [Session Lifecycle](session_lifecycle.md).
 
 ---
 

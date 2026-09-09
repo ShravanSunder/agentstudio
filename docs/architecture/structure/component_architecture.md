@@ -565,7 +565,14 @@ The `WorkspaceSurfaceCoordinator` is the canonical App orchestration boundary fo
 - Expiry and oldest-first eviction query other owners before releasing pane resources.
 - SurfaceManager retains native content as a cache of available journal ownership.
 
-**Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: WorkspaceActionCommand)`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
+**Ordering invariant:** `WorkspaceActionExecutor` serializes submitted gestures, including their
+resolution and dependent asynchronous effects. Durable create, close, discard and Undo operations
+use the existing SQLite persistence order: commit succeeds before synchronous MainActor publication
+and native effects. MainActor isolation alone does not serialize work across suspension points.
+Runtime-event handling may interleave while an operation awaits, so callers validate current
+ownership and composition through the owning command/persistence boundary. A submitted command
+is not a completed mutation; callers and tests that need its result await the returned task.
+
 
 > **Files:** [`App/Coordination/WorkspaceSurfaceCoordinator.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift), [`App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift)
 
