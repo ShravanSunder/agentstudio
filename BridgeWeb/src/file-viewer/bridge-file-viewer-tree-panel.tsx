@@ -114,7 +114,6 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				bodyOnClick: treeRuntime.handleTreeClick,
 				bodyTestId: 'bridge-file-viewer-pierre-file-tree',
 				bodyTabIndex: -1,
-				border: 'subtle',
 				headerTestId: 'bridge-file-viewer-toolbar',
 				layout: 'grid',
 				rootDataAttributes: { 'data-pierre-file-tree-owner': 'FileTree' },

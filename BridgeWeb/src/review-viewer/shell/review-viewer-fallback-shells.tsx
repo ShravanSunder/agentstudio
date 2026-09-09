@@ -238,7 +238,6 @@ function BridgeReviewFallbackFrame(props: {
 					),
 					bodyClassName: 'min-h-0 flex-1 overflow-hidden overscroll-contain p-3',
 					bodyTestId: 'bridge-review-rail-scroll',
-					border: 'opaque',
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
 					toolbar: BridgeViewerRailToolbar({
