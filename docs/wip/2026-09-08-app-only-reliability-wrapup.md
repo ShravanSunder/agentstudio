@@ -2,14 +2,12 @@
 
 **Goal:** one independently reviewed Agent Studio PR, ready to merge but unmerged,
 with an isolated debug app the user can test. Worktree: `agent-studio.issues-perf`;
-branch: `takeover/remaining-performance-memory`; draft PR:
+branch: `takeover/remaining-performance-memory`; PR:
 https://github.com/ShravanSunder/agentstudio/pull/335.
 
-Relevance audit HEAD: `95f3c3e44`; audit base: `6cbbee4a4`. Reviewed cleanup and
-fixture corrections committed as `40495b2ec` through normal format/lint hooks.
-Reviewed cleanup and command-test completion corrections have focused proof and independent
-review; full aggregate verification remains required. Refresh remote main before final integration; these are recorded refs,
-not a claim that the remote has remained unchanged.
+Relevance audit HEAD: `95f3c3e44`; audit base: `6cbbee4a4`. Final product corrections
+through `d087c8338` have passing mandatory aggregate and bounded independent review.
+Always refresh external PR state before merge readiness; recorded refs are not live status.
 
 ## Fixed boundaries
 
@@ -34,121 +32,103 @@ not a claim that the remote has remained unchanged.
 - Preserve unrelated worktrees/backups/untracked documents. Agentstudio-git review-comment work
   and the resolved disk incident remain out of scope.
 
-## Current tree
+## Execution tree and delivery gates
 
-DONE means bounded evidence exists; APPLIED means awaiting fresh proof; OPEN remains required.
-No child result grants whole-PR readiness.
+Product code and tests are committed and pushed through `d087c8338`. The required local
+aggregate passed on that head. GitHub checks and review-thread state must always be
+re-fetched for the current PR head before declaring merge readiness; the PR is the live
+CI status source, not this dated proof record.
 
 ```text
-ONE APP-ONLY PR, READY BUT UNMERGED
-├── Scope and contents
-│   ├── DONE: unauthorized vendor/prototype material removed; shared inputs restored
-│   ├── DONE: obsolete reliability specs/plans removed; this tree owns execution scope
-│   ├── DONE: 210-file / 779-hunk relevance inventory and fresh no-history Astra verification
-│   ├── DONE: broad test deletion and reversal of preserved fixes rejected
-│   └── DONE: reviewed unused-member/default/comment/copy cleanup; no scenarios removed
-├── Application behavior retained
-│   ├── Immediate durable pane/session identity and ordered command/publication path
-│   ├── Three-table durable close/Undo, deadlines, restart recovery, capacity and shared owners
-│   ├── Pending-only cleanup, five-minute startup gate, bounded retries and history pruning
-│   ├── Recorded-incarnation zmx control with replacement/unknown/detached protection
-│   └── App-owned native retirement, host cleanup, visibility/focus and observation corrections
-├── Current corrections and proof
-│   ├── DONE: five controller suites await command completion; focused gates passed
-│   ├── DONE: corrected tests clean up asynchronous harnesses on success or thrown failure
-│   ├── DONE: prepared-journal/executor fixtures and joined shutdown; focused gates passed
-│   ├── DONE: first-open blank drawer root cause, controlled red/green and native attachment proof
-│   ├── OPEN: resolve or explicitly bound busy-session cleanup and native-free responsiveness
-│   └── OPEN: final aggregate rerun, current shared-input runtime proof and native decisions
+ONE APP-ONLY PR — STOP READY TO MERGE, UNMERGED
+├── Scope and contents — verified
+│   ├── Shared vendor inputs restored; no Ghostty/zmx source, pins or setup changes
+│   ├── Superseded branch-local design material pruned; historical evidence preserved
+│   ├── Frozen 210-file / 779-hunk relevance inventory independently checked
+│   └── Unused members/defaults/copy removed; existing test scenarios preserved
+├── Product behavior — implemented and reviewed
+│   ├── Immediate durable pane/session IDs before publication and launch
+│   ├── Three-table close/Undo journal, 300s deadlines, capacity 10, restart/shared owners
+│   ├── Five-minute startup gate, identity-verified cleanup, retry and history pruning
+│   ├── Extinct-process reconciliation leaves stale/replacement endpoints untouched
+│   ├── Native retirement, visibility/focus and observation/attention corrections
+│   └── First-open drawer host publication keeps stable SwiftUI pane identity
+├── Proof — evidence below, with limits stated
+│   ├── Full mandatory mise run test passed; normal commit hooks passed
+│   ├── Controlled drawer red/green, early/late registration and real host replacement
+│   ├── Actual unlocked first drawer mounts without collapse/reopen
+│   ├── Final-build Undo retains original pane/session IDs and shell variable
+│   ├── Actual 300s expiry removes test daemon/shell/socket and returns native counts
+│   └── Optional full zmx suite has a separate test-harness cleanup-timeout limitation
 └── Delivery
-    ├── DONE: fresh Astra review and bounded fixture rechecks; no remaining findings
-    ├── DONE: initial cleanup committed; remote main 6cbbee4a4 remains integrated
-    ├── OPEN: final fixture correction commit/push
-    ├── OPEN: PR checks, review comments/threads and mergeability
-    ├── OPEN: current debug app, source/input identity and short user test checklist
-    └── STOP: ready to merge, unmerged; no release/tag/merge implied
+    ├── Scoped commits pushed to PR #335; main 6cbbee4a4 integrated
+    ├── Current shared-input debug app verified and available for user testing
+    ├── Required final gate: matching-head CI, comments/threads, mergeability and quiet re-fetch
+    └── No merge, tag or release performed or implied
 ```
 
-## Current correction and audit evidence
+## Final proof record
 
-The completed audit supports retaining the application behavior and test pyramid. It identified
-unused `SurfaceManager.delayScheduler`, an unused visibility accessor and an unused datastore
-recovery wrapper; these have been removed with inert test arguments. Required renderer protocol
-methods remain, while mock defaults now live in test support. Stale ownership/TTL/future-UndoEngine
-comments and close-order descriptions are corrected. The sampler now names all direct child
-processes accurately; this is not a zmx process-group census. Parser test naming no longer claims
-it executed production-process refusal; meaningful parser scenarios remain.
+- Required `mise run test` on `d087c8338`: exit 0. Includes Swift lint (zero violations),
+  architecture, BridgeWeb, marketing site, fast/isolated/large Swift, 244 WebKit tests
+  and six aggregate E2E tests. Log: `tmp/pr335-wrapup-proof/merge-candidate-aggregate.log`.
+- Existing command fixtures now await their real queue; durable fixtures use prepared
+  SQLite and join shutdown. The default test convenience store allocated an **unprepared**
+  datastore, not absent SQLite. No assertions or runner isolation rules were weakened.
+- First-open drawer root cause: outer identity changed with slot.host availability while
+  the child also observed that slot and returned the same cached AppKit container.
+  Removing the redundant outer identity preserves stable pane identity and the existing
+  host-instance replacement identity. Actual DrawerPanel/window regression: early host
+  registration passed and late registration failed before; both passed after. Replacement
+  and retirement/slot coverage passed 26 tests / 4 suites. Earlier inconclusive controller
+  harness experiments were discarded. Native first-open drawer attached and displayed
+  terminal content without an agent collapse/reopen. Astra reviewed the final delta.
+- Extinct-session regression: observe a real zmx daemon/leader, retire normally, verify
+  process-family extinction, leave a bound-then-closed Unix socket, reopen pending SQLite,
+  retry cleanup. Old code threw unavailable; corrected code completes and preserves
+  socket inode. Identity, ownership, native-attachment and replacement guards remain.
+  Initial identity fixtures wait for an actual daemon response rather than socket existence.
+- Optional real-zmx suite limitation: scenario assertions passed, but some full-suite exits
+  failed in the unchanged harness's0.5-second CLI cleanup timeout, including an empty root.
+  These runs are not claimed green. Exact leftovers were inspected; the one remaining
+  test session received normal zmx kill in its isolated root, followed by empty inventory
+  and absent PID. No timeout inflation, gate change or vendor workaround was made.
+  Relevant logs: `stale-socket-red-compiled.log`, `stale-socket-green.log`,
+  `stale-socket-final-focused.log`, `verified-cleanup-scoped-proof.log` under the proof folder.
+- Final debug PID 47414: standard isolated launch, observability and signature verification
+  passed. Tested executable and app bundle UUID: 435467AD-60C2-3BC1-8A87-8B60664397BC.
+  Marker: debug-observability-lbim-1788953664-46748. Source/input identity is frozen to
+  the tested build; later documentation changes do not require replacing its executable.
+- Final native cycle used a newly created test-only tab. Undo restored the original pane
+  and session IDs, and the shell printed `PR335_UNDO=retained`. Second close recorded an
+  exact 300s deadline. Before expiry: available/owned. After expiry: expired/completed,
+  original daemon 60448 and shell 60449 absent, socket absent. Other five sessions stayed owned.
+  Evidence: `real-expiry-start.json`, `undo-restored-identity.json`, `undo-retained-shell.png`,
+  `real-expiry-result.json` in the proof folder.
+- Native counts during grace→after expiry: surfaces6→5, renderer/I/O6→5, mounts5→5,
+  hosts5→5. Footprint 1099→919 MiB, compared with 918 MiB before the extra pane. This proves
+  the measured cycle, not zero leaks in every workload. Graphics residency remains vendor
+  dependent. Captures: `before-expiry-renderers.json`, `after-expiry-renderers.json`.
+- The historical wedged debug daemon/child disappeared during external cleanup; its
+  journal row later completed on the prior build. Do not attribute that event to the new
+  reconciliation fix. No forced-retirement mechanism was added. Unverifiable live sessions
+  continue pending under the accepted safety policy.
 
-Preserved: the dual turn/time wait correction, small helpers in their existing owners, all journal
-and renderer tests, the null-native view seam, and the hidden→visible→tab-switch sequence that
-proves dynamic observation registration. No suite consolidation, scheduler abstraction or live
-behavior redesign is authorized by this cleanup.
+## Debug app and short user checklist
 
-Full local audit artifacts remain ignored under `tmp/pr335-relevance-audit/`, including
-`summary.md`, the exact manifest/diff, final per-hunk dispositions and `astra-inventory-review.md`.
-They do not enlarge the PR. The first generated ledgers contained semantic classification errors;
-parent and fresh Astra rejected those entries before any pruning. The recurring failure was logged
-in the workflow failure log. Scope accounting is not a current correctness or runtime proof claim.
+App: `~/.agentstudio-db/lbim/apps/AgentStudio Debug lbim.app`.
+Bundle ID:`com.agentstudio.app.debug.dlbim`; data:`~/.agentstudio-db/lbim`;
+zmx root:`~/.agentstudio-db/lbim/z`. Production and beta remain isolated.
 
-The latest pre-correction aggregate on `95f3c3e44` exited 1:
-`/tmp/agentstudio-pr335-aggregate-final.log`. BridgeWeb checks and the Swift main lane
-(4,484 tests / 638 suites) passed. `PaneTabViewControllerRepoFavoriteCommandTests` had one issue;
-`PaneTabViewControllerQuickOpenDirectoryTests` had three. Both read state immediately after
-queued dispatch; their assertions now join the existing queue. Later aggregate phases were not
-reached. Focused correction log: `/tmp/agentstudio-pr335-pruning-command-tests.log`: exit 0, 50 tests / 10 suites.
-A subsequent aggregate passed lint, architecture and BridgeWeb, then found 18 issues in the
-unchanged TabContextMenu/TargetedPane command suites. Their 12 failing tests now await the
-existing queue with outcomes preserved; focused rerun passed 33 tests / 2 suites, exit 0:
-`/tmp/agentstudio-pr335-targeted-command-completion.log`. That full rerun found two remaining Zoom command consumers; their queue joins passed 22/1.
-Further fast-lane failures exposed unprepared journal fixtures and missing executor composition;
-these now use the existing real objects, retain original assertions, and join shutdown. Focused
-terminal-exit 11/1, runtime-dispatch 16/1, and slot/topology 9/2 selections passed. The runtime-dispatch
-no-op/boundary tests now wait for an observable ordered result instead of passing before delivery.
-The final isolated direct-close suites also needed standard Core atom scope initialization;
-both now pass 6 tests / 2 suites, exit 0, in
-`/tmp/agentstudio-pr335-publication-scope-proof.log`. No test body or SQL failure trigger changed.
-The committed-HEAD aggregate on `40495b2ec` reached the large Swift lane and exited 1:
-`/tmp/agentstudio-pr335-committed-aggregate.log`. DrawerCommandIntegrationTests had five
-failing scenarios / 11 issues: its default test store allocated an unprepared SQLite datastore,
-which cannot perform terminal creation/discard/close. The test-target convenience initializer
-in WorkspaceStoreTestAccess supplies that datastore; it is not an absent save coordinator. It now uses the existing prepared-journal
-fixture and joins executor/coordinator shutdown on success, early return and throw.
-All 20 original scenario bodies, 46 expectations and 12 requirements remain; Astra
-found no issue in the bounded correction. Focused proof passed 20 tests / one suite,
-exit 0: `/tmp/agentstudio-pr335-drawer-fixture-proof.log`. Drawer correction committed
-as `f06fdcdc9` through normal hooks. The large-lane follow-up passed the drawer suite
-and then found two prepared terminal restore scenarios failing with five issues. Their
-standalone accepted panes had never been installed in the canonical pane graph; production
-applies that graph before returning accepted composition. The existing currentness guard
-correctly rejects absent/deleted panes. First-three fixture setup now inserts the exact
-accepted panes, preserving empty repository/tab topology and frozen descriptor/frame/session
-assertions; joined shutdown is local to those tests. No production guard changed.
-Astra independently verified the cause and correction. Focused restore/durability/architecture
-proof passed 30 tests / three suites, exit 0:
-`/tmp/agentstudio-pr335-restore-fixture-proof.log`. The large lane passed all619 tests;
-restore correction committed as `d2a659756`. The subsequent full aggregate passed fast,
-isolated and large Swift phases, then failed one Bridge topology replay WebKit case
-(seven issues; nine sibling cases passed). PR routing uses the workspace command queue,
-but that case had no executor. Its local fixture now installs the real executor, joins
-the queue before each existing retirement drain, and cleans up on success/throw.
-Astra verified all assertions and the other nine cases are unchanged. Correctly scoped
-WebKit proof passed ten tests / two suites, exit0:
-`/tmp/agentstudio-pr335-bridge-nested-authorized.log`. Earlier attempts selected zero tests
-or failed SwiftPM sandbox setup; neither counts as passing proof. Full WebKit follow-up
-and final committed aggregate remain required. The following WebKit pass found one
-close/Undo activity case with unprepared storage. Its existing shared fixture now accepts
-an injected store with default behavior unchanged; only the durable scenario opts into
-the prepared journal. A targeted last-pane close/Undo case additionally exposed an active
-spare pane outside all tabs. The case now removes that unused fixture pane and supplies
-prepared storage. Its former no-yield/synchronous-Undo wording was obsolete: the test now
-holds a task through the controller's existing retirement join, asserts retirement is
-still pending after durable Undo, then releases and verifies the original replacement/
-authority/runtime replay outcomes. No production hook, clock delay or provider claim
-was introduced. The unused single-pane convenience helper was removed. Astra verified
-the bounded corrections; combined WebKit proof passed12 tests / three suites, exit0:
-`/tmp/agentstudio-pr335-bridge-retirement-gate-proof.log`. Full WebKit and aggregate follow.
+Standard launch from this worktree: `mise run run-debug-observability -- --detach`.
+The existing shared collector must be available; the launcher refuses duplicate instances.
+For a prepared current build, the verified invocation used `--skip-build --build-path .build-agent-1`.
 
-Final aggregate on the final committed correction remains required; no aggregate success is claimed.
+1. Open a new terminal and add its first drawer: prompt/content should appear immediately.
+2. Switch tabs, toggle drawer, Zoom and minimize/restore: existing terminal state should survive.
+3. Set a shell variable, close its tab, then Undo within five minutes: same session and variable.
+4. Close a disposable tab and leave it closed beyond five minutes: its processes should end;
+   live/backgrounded/Undo-owned panes remain protected.
 
 ## Prior bounded proof retained
 
@@ -174,111 +154,19 @@ These are prior observations, not a substitute for final-source proof:
   pane closes preserve main's Undo eligibility, whole-tab/last-pane Undo remains available, and
   unavailable closes do not consume capacity. `/tmp/agentstudio-pr335-close-policy-parity.log`.
 
-## Open native observations
+## Historical limits and preserved records
 
-The busy drawer journey retired native surfaces after its real close grace. Renderer/I/O/direct
-child/mount/host counts reached zero; footprint 186 MiB, owned graphics 5.672 MiB, two inert
-wrappers. Native free durations were 162.29 ms and 34.752 ms. The 162 ms MainActor pause is a
-measured limitation, not a worst-case responsiveness guarantee.
-`/tmp/agentstudio-pr335-renderer-after-busy.json` and `...-busy-native-free.jsonl`.
+Earlier busy native frees measured162.29 ms and34.752 ms; this is not a worst-case latency
+bound. A shutdown-stalled vendor daemon was observed historically; no vendor change or
+forced process mechanism is part of this PR. Old `/tmp` captures may have been removed by
+user disk cleanup; current proof is retained under checkout-local ignored
+`tmp/pr335-wrapup-proof/`. Disk cleanup was performed by the user, not attributed to an
+inferred agent cause.
 
-One recorded session remained `pending/processUnverifiable`. The sampled unchanged zmx daemon
-was in `main.Daemon.ensureSession → __wait4` with an exiting shell; process inspection returned
-ESRCH for the shell while it was still listed. `/tmp/agentstudio-pr335-pending-daemon-sample.txt`.
-Revalidate current process identities before further observation. Do not mark completion from
-uncertainty, introduce process supervision, or alter vendors to resolve it.
-
-First Add Drawer Pane showed a blank overlay despite a created child surface/socket and initial
-output. Collapse/reopen displayed the prompt and focus. Creation had nonempty geometry; the cause
-remains unproven. Compare actual first-open host/window/frame/visibility/focus using existing restore
-trace and an isolated current debug app. A later locked GUI observation does not explain the earlier
-blank drawer. Candidate 98546 retired gracefully. Candidate 94273 launched from the newly compiled shared-input
-build, marker `debug-observability-lbim-1788919635-93643`; its standard observability verifier passed.
-Current empty baseline: 103 MiB, zero surfaces/mounts/hosts/renderer/I/O/direct children/owned graphics.
-This is not a cycle proof. Subsequent aggregate work relinked the build output, so refresh the final
-candidate after gates. Exact PID/window capture explicitly reports the macOS GUI session locked;
-unlock request is pending. Target exact PID/path, never production by name.
-Fresh capture on 2026-09-09 at 03:52Z still reports locked GUI. The same candidate's
-03:54Z idle sampler reports 97 MiB, zero surfaces/mounts/hosts/renderer/I/O/direct children
-and owned graphics, with no capture errors: `/tmp/agentstudio-pr335-empty-idle-followup.json`.
-This is an idle follow-up, not final-source cycle or drawer proof.
-
-## Current process-mechanism boundary
-
-Fresh sampling at 22:13 confirms the same daemon still in wait4 with PTY master fd6 open;
-the child remains in exiting state. Pinned zmx shutdown calls handleKill, then waits for the
-child before closing that descriptor. The daemon has left its protocol loop, so normal retries
-cannot finish this state. The exact child/kernel dependency is unproven. Do not relax process
-inspection and call this resolved. A verified out-of-band retirement fallback is a new mechanism;
-user concurrence was requested and remains pending. No such fallback, PID signal or vendor
-change has been applied. Local evidence: `tmp/debug-workflows/2026-09-08-pr335-native-wrapup/`.
-
-## Execution discipline and history
-
-Fresh Astra verified the applied cleanup and subsequent fixture corrections in
-`tmp/pr335-relevance-audit/applied-cleanup-review.md`; original scenarios/assertions and suite
-identities remain. The user explicitly resumed applying/resolving the audited candidates and remaining proof issues.
-This is continuation of the reviewed tree, not a new design cycle. Historical implementation
-remediation count remains unknown; do not invent a zero count or rely on superseded plans.
-Use scenario-led tests, preserve assertions and suite isolation, use one build slot sequentially,
-and run `mise run test` before PR updates. Diagnose source/log evidence before changing behavior.
-A genuine ownership/contract break returns to the user; ordinary scoped corrections continue.
-
-Historical requested records remain:
+Four requested historical records remain unchanged:
 [initial review](2026-09-07-app-only-reliability-audit/astra-full-review.md),
 [pruning review](2026-09-07-app-only-reliability-audit/astra-pruning-review.md),
 [takeover history](2026-09-07-app-only-reliability-audit/takeover-state.md), and
 [tree review](2026-09-07-app-only-reliability-audit/astra-wrapup-tree-review.md).
-They record earlier errors and proof boundaries; they do not override this scope or current source.
-
-## 2026-09-09 first-open drawer correction
-
-Unlocked foreground proof reproduced a blank first drawer on41520b3c3. The native
-surface existed, but two SwiftUI representables requested its one cached AppKit
-container and the host did not attach until later UI transitions. The redundant
-registration-dependent outer identity in FlatPaneStripContent changed concurrently
-with the child observing slot.host. Removing it leaves stable pane identity in
-ForEach and preserves host-instance replacement identity in PaneLeafContainer.
-
-The first broad controller regression was inconclusive because it did not establish
-the drawer's preference-driven presentation. Those exploratory edits were discarded.
-The retained small real-window DrawerPanel test requires panel appearance and compares
-early/late registration: early passed and late failed before the fix; both passed
-afterward. Both cases also prove real host replacement and retire temporary hosts.
-Focused hosting/retention/slot proof:26 tests/4 suites, exit0,
-/tmp/pr335-drawer-host-final-focused.log. Astra reviewed the final two-file delta
-without findings.
-
-Corrected debug58773/window241682 launched through the standard shared-input helper;
-observability passed. Fresh terminal tab then first Add Drawer Pane attached and
-displayed terminal content without an agent collapse/reopen. Trace shows one
-makeNSView followed by window=true in the same second10:25:07Z. Screenshots:
-/tmp/pr335-fixed-first-drawer.png and /tmp/pr335-fixed-first-drawer-settled.png.
-Additional user input/second drawer appeared during this proof; later interactions
-are not attributed to the agent. Final full aggregate/CI on this correction remain
-required. Stalled zmx retirement policy remains unanswered; no vendor change.
-
-## Extinct-process reconciliation correction
-
-After recorded daemon/terminal incarnation extinction and process-group absence,
-cleanup now completes the original obligation even if an endpoint remains. It never
-connects to, unlinks or signals that endpoint on this completed path. Pending identity,
-owner and native-attachment guards remain unchanged. This is existing reconciliation,
-not forced retirement or a new cleanup policy. Astra reviewed the two-file delta with
-no findings.
-
-Real regression uses an observed zmx identity, normal process exit, a bound-then-closed
-Unix socket and reopened SQLite. Old code fails unavailable; new code completes with
-the socket inode unchanged. Existing initial-identity fixtures now wait for daemon
-identity readiness, not just file existence; their mismatch assertions stay direct.
-Logs are under tmp/pr335-wrapup-proof after user temporary-file cleanup. The new stale
-socket regression and other cleanup assertions passed in broad runs; suite exits
-remain red because the existing ZmxTestHarness0.5s CLI cleanup wrapper timed out on
-other cases, including an empty root. No timeout/gate weakened. Test leftovers were
-inspected; the one remaining test session received normal zmx kill in its isolated
-root, then no sessions/PID remained. Approval to repair that separate harness is
-pending; required aggregate continues independently.
-
-The old native debug pending row is now completed (eight completed, five owned, no
-pending), observed on the prior build and not attributed to this unlaunched change.
-No forced signal or vendor change was made.
+They do not override the current scope. The 14 unrelated untracked historical WIPs remain
+untouched. Relevance accounting is not a whole-PR correctness or leak-free certification.
