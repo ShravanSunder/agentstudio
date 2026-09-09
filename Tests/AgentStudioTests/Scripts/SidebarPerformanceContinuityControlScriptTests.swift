@@ -53,11 +53,30 @@ struct SidebarPerformanceContinuityControlScriptTests {
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("continuity_control_clean=true"))
         #expect(FileManager.default.fileExists(atPath: controlRoot.appending(path: ".git/HEAD").path))
+        let originRoot = URL(fileURLWithPath: controlRoot.path + ".origin.git", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: originRoot.appending(path: "HEAD").path))
+        let configuredOrigin = try String(
+            contentsOf: controlRoot.appending(path: ".git/config"),
+            encoding: .utf8
+        )
+        #expect(configuredOrigin.contains("url = \(originRoot.path)"))
+        let controlStatus = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/usr/bin/git",
+            args: ["-C", controlRoot.path, "status", "--porcelain=v1", "--untracked-files=all"],
+            cwd: nil,
+            environment: nil
+        )
+        #expect(controlStatus.exitCode == 0)
+        #expect(controlStatus.stdout.isEmpty)
         #expect(
             FileManager.default.fileExists(
                 atPath: controlRoot.appending(path: ".continuity-proof-ignored").path
             )
         )
+
+        try FileManager.default.removeItem(at: fixtureRoot)
+        #expect(!FileManager.default.fileExists(atPath: controlRoot.path))
+        #expect(!FileManager.default.fileExists(atPath: originRoot.path))
     }
 
     @Test("continuity delta contract rejects missing recovery outcomes")

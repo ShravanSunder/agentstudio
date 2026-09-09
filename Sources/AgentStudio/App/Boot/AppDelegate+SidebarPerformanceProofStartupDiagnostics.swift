@@ -521,16 +521,14 @@ import Observation
                     executionContext: .interactive
                 )
             else { return nil }
-            guard repoCache?.repositoryFactUpdateProgress(for: repository.id)?.phase == .captured,
+            guard
                 let settledProgress = await waitForStrictRepositoryUpdateSettlement(
                     progressStream: progressObserver.stream
-                )
+                ),
+                Self.strictRemoteRepositoryUpdateCompleted(settledProgress)
             else { return nil }
             let afterActivity = await strictSidebarRepositoryActivityClassification()
-            guard afterActivity.warmRepositoryIDs.contains(repository.id),
-                settledProgress.phase == .settled,
-                settledProgress.unsettledSources.isEmpty,
-                settledProgress.settledResultsBySource.count == RepositoryFactSource.allCases.count
+            guard afterActivity.warmRepositoryIDs.contains(repository.id)
             else { return nil }
             return StrictColdRepositoryProof(
                 localCompletionCount: 1,
@@ -548,6 +546,15 @@ import Observation
             activity: RepositoryActivityClassification
         ) -> Bool {
             activity.unknownRepositoryIDs.contains(repositoryID)
+        }
+
+        static func strictRemoteRepositoryUpdateCompleted(
+            _ progress: RepositoryFactUpdateProgress
+        ) -> Bool {
+            progress.phase == .settled
+                && progress.applicableSources == [.remoteReferences]
+                && progress.unsettledSources.isEmpty
+                && progress.settledResultsBySource == [.remoteReferences: .completed]
         }
 
         private func waitForStrictColdLocalCompletion(
@@ -604,16 +611,15 @@ import Observation
         ) async -> RepositoryFactUpdateProgress? {
             await withTaskGroup(of: RepositoryFactUpdateProgress?.self) { group in
                 group.addTask {
-                    var observedLoading = false
                     for await progress in progressStream {
                         guard let progress else { continue }
                         switch progress.phase {
                         case .captured:
                             continue
                         case .inProgress:
-                            observedLoading = progress.isLoading
+                            continue
                         case .settled:
-                            return observedLoading ? progress : nil
+                            return progress
                         }
                     }
                     return nil

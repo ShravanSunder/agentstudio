@@ -38,6 +38,47 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         )
     }
 
+    @Test("strict cold control accepts only completed remote refresh settlement")
+    func strictColdControlAcceptsOnlyCompletedRemoteRefreshSettlement() {
+        let repositoryID = UUIDv7.generate()
+        let attemptID = UUIDv7.generate()
+        let accepted = RepositoryFactUpdateProgress.admitted(
+            repoId: repositoryID,
+            attemptId: attemptID,
+            applicableSources: [.remoteReferences],
+            terminalResultsBySource: [:]
+        ).settled([.remoteReferences: .completed])
+        #expect(AppDelegate.strictRemoteRepositoryUpdateCompleted(accepted))
+
+        let noApplicable = RepositoryFactUpdateProgress.admitted(
+            repoId: repositoryID,
+            attemptId: attemptID,
+            applicableSources: [],
+            terminalResultsBySource: [.remoteReferences: .notApplicable]
+        )
+        #expect(!AppDelegate.strictRemoteRepositoryUpdateCompleted(noApplicable))
+
+        let threeSources = RepositoryFactUpdateProgress.admitted(
+            repoId: repositoryID,
+            attemptId: attemptID,
+            applicableSources: Set(RepositoryFactSource.allCases),
+            terminalResultsBySource: [:]
+        ).settled(
+            Dictionary(
+                uniqueKeysWithValues: RepositoryFactSource.allCases.map { ($0, .completed) }
+            )
+        )
+        #expect(!AppDelegate.strictRemoteRepositoryUpdateCompleted(threeSources))
+
+        let failedRemote = RepositoryFactUpdateProgress.admitted(
+            repoId: repositoryID,
+            attemptId: attemptID,
+            applicableSources: [.remoteReferences],
+            terminalResultsBySource: [:]
+        ).settled([.remoteReferences: .failed])
+        #expect(!AppDelegate.strictRemoteRepositoryUpdateCompleted(failedRemote))
+    }
+
     @Test("strict pane fixture creates five tabs and twenty nonterminal pane models")
     func strictPaneFixtureCreatesOnlyNonterminalPaneModels() throws {
         withTestCoreAtoms { _ in

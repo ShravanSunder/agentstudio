@@ -172,6 +172,22 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("strict sidebar fixture blocked for marker"))
         #expect(result.stderr.contains(": cold_repository_control_failed"))
     }
+
+    @Test("implicit script proof root is removed after prepare-only completion")
+    func implicitScriptProofRootIsRemovedAfterCompletion() async throws {
+        let result = try await runSidebarScript(arguments: [scriptPath, "--prepare-only"])
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        let summaryPath = try #require(
+            result.stdout.components(separatedBy: ": ").last
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(!FileManager.default.fileExists(atPath: summaryPath))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: URL(fileURLWithPath: summaryPath).deletingLastPathComponent().path
+            )
+        )
+    }
 }
 
 extension SidebarPerformanceWorkloadScriptTests {
@@ -943,6 +959,21 @@ func runSidebarScript(
     environment: [String: String] = [:]
 ) async throws -> ProcessResult {
     var mergedEnvironment = ProcessInfo.processInfo.environment
+    let implicitProofRoot: URL?
+    if environment["AGENTSTUDIO_SIDEBAR_PROOF_ROOT"] == nil {
+        implicitProofRoot = FileManager.default.temporaryDirectory.appending(
+            path: "agentstudio-sidebar-script-test-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        mergedEnvironment["AGENTSTUDIO_SIDEBAR_PROOF_ROOT"] = implicitProofRoot?.path
+    } else {
+        implicitProofRoot = nil
+    }
+    defer {
+        if let implicitProofRoot {
+            try? FileManager.default.removeItem(at: implicitProofRoot)
+        }
+    }
     mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
     mergedEnvironment["AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"] = "http://127.0.0.1:13133/"
     for (key, value) in environment {

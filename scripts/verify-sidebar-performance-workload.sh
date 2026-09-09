@@ -214,6 +214,7 @@ reset_disposable_debug_root() {
 
 prepare_strict_git_continuity_control() {
   local control_root="${1:?missing continuity control root}"
+  local origin_root="${control_root}.origin.git"
   case "$control_root" in
     "$RESET_DATA_DIR/"*) ;;
     *) echo "refusing continuity control outside isolated debug root" >&2; return 1 ;;
@@ -232,6 +233,9 @@ prepare_strict_git_continuity_control() {
     -c user.name='Agent Studio Performance Proof' \
     -c user.email='performance-proof@invalid.local' \
     commit --quiet -m 'establish continuity control baseline'
+  /usr/bin/git clone --quiet --bare "$control_root" "$origin_root"
+  /usr/bin/git -C "$control_root" remote add origin "$origin_root"
+  /usr/bin/git -C "$control_root" push --quiet --set-upstream origin HEAD
   [ -z "$(/usr/bin/git -C "$control_root" status --porcelain=v1 --untracked-files=all)" ] || {
     echo "continuity control repository is not exactly clean" >&2
     return 1
@@ -765,12 +769,12 @@ if cold_automatic_deadline_count != 0 or cold_local_automatic_source_start_count
     raise SystemExit("strict fixture contains cold automatic work")
 if cold_fsevent_local_completion_count != 1:
     raise SystemExit("strict fixture did not prove one cold FSEvent local completion")
-if explicit_source_admitted_count <= 0 or explicit_source_terminal_count != 3:
-    raise SystemExit("strict fixture did not prove complete explicit source admission and settlement")
+if explicit_source_admitted_count != 1 or explicit_source_terminal_count != 1:
+    raise SystemExit("strict fixture did not prove one remote-only explicit source settlement")
 if explicit_progress_settled_count != 1:
     raise SystemExit("strict fixture did not prove one settled composite progress lifetime")
-if sum((explicit_local_admitted_count, explicit_remote_admitted_count, explicit_forge_admitted_count)) != explicit_source_admitted_count:
-    raise SystemExit("strict fixture explicit source admission accounting is inconsistent")
+if (explicit_local_admitted_count, explicit_remote_admitted_count, explicit_forge_admitted_count) != (0, 1, 0):
+    raise SystemExit("strict fixture explicit source admission is not remote-only")
 if tab_count != int(float(raw_tabs)) or pane_count != int(float(raw_panes)):
     raise SystemExit(f"strict fixture expected 5/20-compatible policy counts, got {tab_count}/{pane_count}")
 expected_sessions = int(float(raw_zero))

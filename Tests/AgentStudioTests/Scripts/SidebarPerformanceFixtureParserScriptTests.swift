@@ -23,10 +23,10 @@ struct SidebarPerformanceFixtureParserScriptTests {
             prefix + "cold_local_automatic_source_start_count": "0",
             prefix + "cold_fsevent_local_completion_count": "1",
             prefix + "explicit_source_admitted_count": "1",
-            prefix + "explicit_source_terminal_count": "3",
+            prefix + "explicit_source_terminal_count": "1",
             prefix + "explicit_progress_settled_count": "1",
-            prefix + "explicit_local_admitted_count": "1",
-            prefix + "explicit_remote_admitted_count": "0",
+            prefix + "explicit_local_admitted_count": "0",
+            prefix + "explicit_remote_admitted_count": "1",
             prefix + "explicit_forge_admitted_count": "0",
             prefix + "topology_fingerprint": String(repeating: "a", count: 64),
             prefix + "tab_count": "5",
@@ -59,6 +59,23 @@ struct SidebarPerformanceFixtureParserScriptTests {
         #expect(missingUnknown.exitCode == 1)
         #expect(missingUnknown.stderr.contains("strict fixture requires positive unknown membership"))
 
+        var zeroSourceRecord = record
+        zeroSourceRecord[prefix + "explicit_source_admitted_count"] = "0"
+        zeroSourceRecord[prefix + "explicit_source_terminal_count"] = "0"
+        zeroSourceRecord[prefix + "explicit_remote_admitted_count"] = "0"
+        let zeroSource = try await runFixtureRecordContract(try encodedRecord(zeroSourceRecord))
+        #expect(zeroSource.exitCode == 1)
+        #expect(zeroSource.stderr.contains("one remote-only explicit source settlement"))
+
+        var threeSourceRecord = record
+        threeSourceRecord[prefix + "explicit_source_admitted_count"] = "3"
+        threeSourceRecord[prefix + "explicit_source_terminal_count"] = "3"
+        threeSourceRecord[prefix + "explicit_local_admitted_count"] = "1"
+        threeSourceRecord[prefix + "explicit_forge_admitted_count"] = "1"
+        let threeSource = try await runFixtureRecordContract(try encodedRecord(threeSourceRecord))
+        #expect(threeSource.exitCode == 1)
+        #expect(threeSource.stderr.contains("one remote-only explicit source settlement"))
+
         var rejectedRecord = record
         rejectedRecord[prefix + "open_source_root_present"] = "false"
         let rejectedData = try JSONSerialization.data(withJSONObject: rejectedRecord, options: [.sortedKeys])
@@ -68,20 +85,21 @@ struct SidebarPerformanceFixtureParserScriptTests {
         #expect(rejected.stderr.contains("strict fixture missing open-source root"))
     }
 
+    private func encodedRecord(_ record: [String: String]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
     private func runFixtureRecordContract(_ record: String) async throws -> ProcessResult {
-        var environment = ProcessInfo.processInfo.environment
-        environment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
-        environment["AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"] = "http://127.0.0.1:13133/"
-        environment["AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES"] = "1"
-        environment["AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_RECORD"] = record
-        environment["STRICT_POLICY_FIXTURE_TAB_COUNT"] = "5"
-        environment["STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT"] = "20"
-        environment["STRICT_POLICY_ZERO_PTY_SESSION_COUNT"] = "0"
-        return try await DefaultProcessExecutor(timeout: 10).execute(
-            command: "/bin/bash",
-            args: ["scripts/verify-sidebar-performance-workload.sh", "--prepare-only"],
-            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-            environment: environment
+        try await runSidebarScript(
+            arguments: ["scripts/verify-sidebar-performance-workload.sh", "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_FIXTURE_RECORD": record,
+                "STRICT_POLICY_FIXTURE_TAB_COUNT": "5",
+                "STRICT_POLICY_FIXTURE_PANE_MODEL_COUNT": "20",
+                "STRICT_POLICY_ZERO_PTY_SESSION_COUNT": "0",
+            ]
         )
     }
 }
