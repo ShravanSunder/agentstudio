@@ -600,7 +600,35 @@ import Observation
                         AppPolicies.SidebarPerformanceProof.fixtureStateObservationInterval)
                 } catch { return false }
             }
+            recordStrictColdActivityTimeout(repositoryID: repositoryID, worktreeID: worktreeID)
             return false
+        }
+
+        private func recordStrictColdActivityTimeout(repositoryID: UUID, worktreeID: UUID) {
+            guard let action = AgentStudioStartupDiagnosticAction.fromEnvironment() else { return }
+            let topology = store.repositoryTopologyAtom
+            let activity = atomStore.core.repositoryLocalActivity
+            let storedKey = topology.repositoryStableKey(for: repositoryID)
+            let computedKey = topology.repo(repositoryID)?.stableKey
+            let record = storedKey.flatMap { activity.activity(for: $0) }
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.blocked",
+                phase: "startup_diagnostic_action",
+                outcome: "blocked",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                    "agentstudio.startup_diagnostic.skip_reason": .string("cold_activity_publication_timeout"),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_keys_match": .bool(storedKey == computedKey),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_activity_authoritative": .bool(
+                        activity.hydrationDisposition == .authoritative),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_activity_present": .bool(record != nil),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_qualifying_activity_present": .bool(
+                        record?.lastQualifyingActivityAt != nil),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_promotion_unsettled": .bool(
+                        record?.ownedPromotionUnsettled == true),
+                    "agentstudio.startup_diagnostic.sidebar_proof.control_untracked_present": .bool(
+                        Self.strictColdLocalCompletionObserved(repoCache?.worktreeEnrichment(for: worktreeID))),
+                ]) { _, newValue in newValue }
+            )
         }
 
         @concurrent nonisolated private static func writeStrictColdMutation(
