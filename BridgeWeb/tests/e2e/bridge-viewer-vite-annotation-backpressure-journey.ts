@@ -33,10 +33,16 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
 import { bridgeViewerViteProductFileUrl } from './bridge-viewer-vite-product-url.ts';
+import { readReplyFailureObservation } from './bridge-viewer-vite-reply-failure-observation.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
 	type BrowserRuntimeDiagnostics,
 } from './bridge-viewer-vite-review-comparison-observation.ts';
+import {
+	installReviewRenderObservation,
+	requireReviewRenderObservationStarted,
+} from './bridge-viewer-vite-review-render-observation.ts';
+import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
 
 const stressReviewItemCount = 1_699;
 const stressAnnotationCatalogCloneCount = 2_000;
@@ -146,7 +152,7 @@ class AnnotationBackpressureMilestones {
 			currentElapsedMilliseconds: Math.round(performance.now() - this.currentMilestoneStartedAt),
 			currentMilestone: this.currentMilestone,
 			errorKind: error instanceof Error ? error.name : typeof error,
-			errorMessage: error instanceof Error ? error.message.slice(0, 8_000) : String(error),
+			errorMessage: error instanceof Error ? error.message : String(error),
 			recentMilestones: this.completedMilestones.slice(-16),
 			...(this.telemetryDiagnostic === null ? {} : { telemetry: this.telemetryDiagnostic }),
 		};
@@ -390,6 +396,10 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
+		const observedReviewFile = props.oracle.reviewFiles[0];
+		if (observedReviewFile === undefined) throw new Error('Expected a Review fixture file.');
+		await installReviewRenderObservation({ itemId: observedReviewFile.itemId, page: createdPage });
 		let bootstrapRequestCount = 0;
 		createdPage.on('request', (request: Request): void => {
 			if (new URL(request.url()).pathname === '/__bridge-product/bootstrap') {
@@ -472,13 +482,16 @@ async function runAnnotationBackpressureJourney(props: {
 			after: 'review.range.selected',
 			before: 'review.range.selecting',
 			milestones: props.milestones,
-			operation: async () =>
-				selectRangeForAnnotation({
+			operation: async () => {
+				await selectedItemApplyObservation.install(reviewFile.itemId);
+				await requireReviewRenderObservationStarted(createdPage);
+				return selectRangeForAnnotation({
 					endLine: 5,
 					page: createdPage,
 					startLine: 2,
 					surface: 'review',
-				}),
+				});
+			},
 		});
 
 		const rootBody = 'Backpressure root body.';
@@ -788,7 +801,18 @@ async function createAndSaveReply(props: {
 }): Promise<string> {
 	props.milestones.transition(`reply.${props.replyOrdinal}.composer.opening`);
 	const replyButton = props.page.getByRole('button', { name: 'Reply to annotation thread' }).last();
-	await replyButton.click();
+	try {
+		await replyButton.click();
+	} catch (error: unknown) {
+		const observation = await withBoundedTimeout(
+			readReplyFailureObservation(props.page),
+			stressDiagnosticTimeoutMilliseconds,
+		).catch(() => null);
+		throw new Error(
+			`Reply click failed: ${error instanceof Error ? error.message : String(error)}; presentation=${JSON.stringify(observation)}`,
+			{ cause: error },
+		);
+	}
 	const composer = props.page.getByRole('textbox', { name: 'Reply with Markdown' });
 	await withBoundedTimeout(
 		composer.waitFor({ state: 'visible', timeout: stressJourneyTimeoutMilliseconds }),

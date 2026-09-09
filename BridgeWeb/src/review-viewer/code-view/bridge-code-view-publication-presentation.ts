@@ -6,6 +6,7 @@ import { isBridgeCodeViewItem } from './bridge-code-view-panel-support.js';
 import {
 	bridgeCodeViewReanchorBoundFinalItem,
 	bridgeCodeViewReanchorContentEquivalentPresentationItem,
+	bridgeCodeViewPresentationItemWithExactSource,
 	reconcileBridgeCodeViewRenderFulfillment,
 	type BridgeCodeViewRenderFulfillmentCoordinator,
 } from './bridge-code-view-render-fulfillment.js';
@@ -17,7 +18,23 @@ export function prepareBridgeCodeViewPublicationPresentationItem(props: {
 	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;
 }): BridgeCodeViewItem {
 	if (props.renderFulfillmentCoordinator.isBoundFinalItem(props.metadataItem)) {
-		return bridgeCodeViewReanchorBoundFinalItem(props.metadataItem);
+		const exactSourceItem = bridgeCodeViewReanchorBoundFinalItem(props.metadataItem);
+		const presentation = prepareBridgeMainPierreItemForPresentation({
+			currentItem: props.currentItem,
+			presentationItem: exactSourceItem,
+		});
+		// Publication binding proves source authority, not the live CodeView invalidation version.
+		if (presentation.residency === 'reusedPainted') {
+			bridgeCodeViewReanchorContentEquivalentPresentationItem({
+				presentationItem: presentation.item,
+				sourceItem: exactSourceItem,
+			});
+			return presentation.item;
+		}
+		return bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: presentation.item,
+			sourceItem: exactSourceItem,
+		});
 	}
 	const preparedItem = prepareBridgeMainPierreItemForPresentation({
 		currentItem: props.currentItem,
