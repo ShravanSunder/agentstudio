@@ -102,8 +102,10 @@ struct WorkspaceUndoClosePersistenceTests {
         #expect(expired.first?.unownedPaneIDs == [sharedPane.id])
     }
 
-    @Test("eleventh committed close evicts oldest and retires only unowned sessions", arguments: [true, false])
-    func eleventhCloseEvictsOldestWithoutRetiringSharedSession(shareSession: Bool) throws {
+    @Test(
+        "only available closes consume capacity and shared sessions remain owned",
+        arguments: [true, false], [true, false])
+    func eleventhCloseEvictsOldestWithoutRetiringSharedSession(shareSession: Bool, lastCloseOffersUndo: Bool) throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let workspaceID = UUIDv7.generate()
         let sharedSessionID = ZmxSessionID.generateUUIDv7()
@@ -137,7 +139,8 @@ struct WorkspaceUndoClosePersistenceTests {
                 deadlineUptimeNanoseconds: Int64(400 + index) * 1_000_000_000,
                 snapshotVersion: 1,
                 snapshotPayload: try JSONEncoder().encode(snapshot),
-                members: snapshot.members
+                members: snapshot.members,
+                isUndoAvailable: index < 10 || lastCloseOffersUndo
             )
             let receipt = try fixture.repository.replaceWorkspaceSnapshot(
                 workspace: workspace,
@@ -148,7 +151,7 @@ struct WorkspaceUndoClosePersistenceTests {
             )
             if index == 10 {
                 #expect(receipt?.availableCloseIDs.count == 10)
-                #expect(receipt?.retiredCloses.map(\.closeID) == [closeIDs[0]])
+                #expect(receipt?.retiredCloses.map(\.closeID) == [closeIDs[lastCloseOffersUndo ? 0 : 10]])
             }
         }
 
@@ -157,20 +160,21 @@ struct WorkspaceUndoClosePersistenceTests {
                 database,
                 sql: "SELECT close_id FROM workspace_undo_close WHERE state = 'available' ORDER BY close_sequence"
             )
-            #expect(available == closeIDs.dropFirst().map(\.uuidString))
+            let expectedAvailable = lastCloseOffersUndo ? Array(closeIDs.dropFirst()) : Array(closeIDs.prefix(10))
+            #expect(available == expectedAvailable.map(\.uuidString))
             #expect(
                 try String.fetchOne(
                     database,
                     sql: "SELECT state FROM workspace_undo_close WHERE close_id = ?",
                     arguments: [closeIDs[0].uuidString]
-                ) == "evicted"
+                ) == (lastCloseOffersUndo ? "evicted" : "available")
             )
             #expect(
                 try String.fetchOne(
                     database,
                     sql: "SELECT cleanup_state FROM workspace_terminal_session_ownership WHERE session_id = ?",
                     arguments: [sessionIDs[0].rawValue]
-                ) == (shareSession ? "owned" : "pending")
+                ) == (shareSession || !lastCloseOffersUndo ? "owned" : "pending")
             )
         }
     }

@@ -33,6 +33,7 @@ package struct WorkspaceUndoCloseWrite: Sendable {
     package let snapshotVersion: Int
     package let snapshotPayload: Data
     package let members: [Member]
+    package let isUndoAvailable: Bool
 
     package init(
         closeID: UUID,
@@ -44,7 +45,8 @@ package struct WorkspaceUndoCloseWrite: Sendable {
         deadlineUptimeNanoseconds: Int64,
         snapshotVersion: Int,
         snapshotPayload: Data,
-        members: [Member]
+        members: [Member],
+        isUndoAvailable: Bool = true
     ) {
         self.closeID = closeID
         self.workspaceID = workspaceID
@@ -56,6 +58,7 @@ package struct WorkspaceUndoCloseWrite: Sendable {
         self.snapshotVersion = snapshotVersion
         self.snapshotPayload = snapshotPayload
         self.members = members
+        self.isUndoAvailable = isUndoAvailable
     }
 }
 

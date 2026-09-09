@@ -13,13 +13,13 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
     }
 
     @Test("targeted switchArrangement applies an arrangement owned by the active tab")
-    func switchArrangement_activeTabArrangement_usesOwningTab() throws {
+    func switchArrangement_activeTabArrangement_usesOwningTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let target = try makeTabWithCustomArrangement(in: harness, name: "Active")
         harness.store.setActiveTab(target.tab.id)
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .switchArrangement,
             target: target.defaultArrangementId,
             targetType: .tab
@@ -33,7 +33,7 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
     }
 
     @Test("targeted switchArrangement selects an inactive arrangement's owning tab before switching")
-    func switchArrangement_inactiveTabArrangement_selectsOwningTab() throws {
+    func switchArrangement_inactiveTabArrangement_selectsOwningTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let active = try makeTabWithCustomArrangement(in: harness, name: "Active")
@@ -44,7 +44,7 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
             inTab: target.tab.id
         )
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .switchArrangement,
             target: target.customArrangementId,
             targetType: .tab
@@ -58,13 +58,13 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
     }
 
     @Test("targeted deleteArrangement removes an arrangement owned by the active tab")
-    func deleteArrangement_activeTabArrangement_usesOwningTab() throws {
+    func deleteArrangement_activeTabArrangement_usesOwningTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let target = try makeTabWithCustomArrangement(in: harness, name: "Active")
         harness.store.setActiveTab(target.tab.id)
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .deleteArrangement,
             target: target.customArrangementId,
             targetType: .tab
@@ -79,14 +79,14 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
     }
 
     @Test("targeted deleteArrangement selects an inactive arrangement's owning tab before removal")
-    func deleteArrangement_inactiveTabArrangement_selectsOwningTab() throws {
+    func deleteArrangement_inactiveTabArrangement_selectsOwningTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let active = try makeTabWithCustomArrangement(in: harness, name: "Active")
         let target = try makeTabWithCustomArrangement(in: harness, name: "Target")
         harness.store.setActiveTab(active.tab.id)
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .deleteArrangement,
             target: target.customArrangementId,
             targetType: .tab
@@ -101,7 +101,7 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
     }
 
     @Test("targeted arrangement commands reject stale arrangement identifiers")
-    func arrangementCommands_staleArrangement_rejectWithoutActiveTabFallback() throws {
+    func arrangementCommands_staleArrangement_rejectWithoutActiveTabFallback() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let active = try makeTabWithCustomArrangement(in: harness, name: "Active")
@@ -123,12 +123,12 @@ struct PaneTabViewControllerArrangementTargetCommandTests {
             )
         )
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .switchArrangement,
             target: staleArrangementId,
             targetType: .tab
         )
-        harness.controller.execute(
+        await harness.executeCommand(
             .deleteArrangement,
             target: staleArrangementId,
             targetType: .tab

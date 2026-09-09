@@ -24,7 +24,8 @@ extension WorkspaceSurfaceCoordinator {
             },
             didPublish: { [self] proposal, receipt in
                 for paneID in proposal.removedPaneIDs { viewRegistry.retireSlot(for: paneID) }
-                publishUndoReceipt(receipt, adding: .init(proposal: proposal))
+                publishUndoReceipt(
+                    receipt, adding: proposal.write.isUndoAvailable ? .init(proposal: proposal) : nil)
             }
         )
     }

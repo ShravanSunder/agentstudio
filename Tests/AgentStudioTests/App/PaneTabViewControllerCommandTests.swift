@@ -17,7 +17,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("execute newTab uses first watched folder as cwd fallback")
-    func executeNewTab_usesFirstWatchedFolderAsFallback() {
+    func executeNewTab_usesFirstWatchedFolderAsFallback() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -27,7 +27,7 @@ struct PaneTabViewControllerCommandTests {
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
-        harness.controller.execute(.newTab)
+        await harness.executeCommand(.newTab)
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
@@ -38,14 +38,14 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("execute newTab falls back to user home when no watched folder exists")
-    func executeNewTab_fallsBackToUserHome() {
+    func executeNewTab_fallsBackToUserHome() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
-        harness.controller.execute(.newTab)
+        await harness.executeCommand(.newTab)
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
@@ -56,7 +56,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("targeted renameTab presents the anchored popover after command surfaces unwind")
-    func executeRenameTab_targetedTab_defersRenamePopoverPresentation() {
+    func executeRenameTab_targetedTab_defersRenamePopoverPresentation() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -69,12 +69,12 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(firstTab.id)
 
         harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
-
-        #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)
 
+        _ = await harness.executor.submitGesture { _ in true }.value
         runMainRunLoop(mode: .default)
 
+        #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
         #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
     }
@@ -93,21 +93,22 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(firstTab.id)
 
         harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
-
-        #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)
 
         runMainRunLoop(mode: .eventTracking)
 
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)
 
+        _ = await harness.executor.submitGesture { _ in true }.value
         runMainRunLoop(mode: .default)
+
+        #expect(harness.store.activeTabId == secondTab.id)
 
         #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
     }
 
     @Test("targeted renameTab ignores stale tab targets")
-    func executeRenameTab_missingTarget_doesNotPresentRenamePopover() {
+    func executeRenameTab_missingTarget_doesNotPresentRenamePopover() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -117,14 +118,14 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(tab.id)
         let missingTabId = UUID()
 
-        harness.controller.execute(.renameTab, target: missingTabId, targetType: .tab)
+        await harness.executeCommand(.renameTab, target: missingTabId, targetType: .tab)
 
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)
         #expect(harness.store.activeTabId == tab.id)
     }
 
     @Test("targeted renameTab rejects wrong target type instead of falling back to active tab")
-    func executeRenameTab_wrongTargetType_doesNotRenameActiveTab() {
+    func executeRenameTab_wrongTargetType_doesNotRenameActiveTab() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -138,7 +139,7 @@ struct PaneTabViewControllerCommandTests {
 
         #expect(!harness.controller.canExecute(.renameTab, target: secondTab.id, targetType: .pane))
 
-        harness.controller.execute(.renameTab, target: secondTab.id, targetType: .pane)
+        await harness.executeCommand(.renameTab, target: secondTab.id, targetType: .pane)
         runMainRunLoop(mode: .default)
 
         #expect(harness.store.activeTabId == firstTab.id)
@@ -146,7 +147,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("targeted renameArrangement begins inline edit on arrangement in the active tab")
-    func executeRenameArrangement_activeTabArrangement_beginsInlineEdit() {
+    func executeRenameArrangement_activeTabArrangement_beginsInlineEdit() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -172,7 +173,7 @@ struct PaneTabViewControllerCommandTests {
             return
         }
 
-        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+        await harness.executeCommand(.renameArrangement, target: customArrangementId, targetType: .tab)
 
         #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
         #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
@@ -180,7 +181,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("targeted renameArrangement switches to the owning tab before beginning inline edit")
-    func executeRenameArrangement_crossTabArrangement_switchesTabFirst() {
+    func executeRenameArrangement_crossTabArrangement_switchesTabFirst() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -209,7 +210,7 @@ struct PaneTabViewControllerCommandTests {
             return
         }
 
-        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+        await harness.executeCommand(.renameArrangement, target: customArrangementId, targetType: .tab)
 
         #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
@@ -217,7 +218,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("cycleArrangement switches active tab to next arrangement and wraps")
-    func executeCycleArrangement_cyclesActiveTabArrangement() throws {
+    func executeCycleArrangement_cyclesActiveTabArrangement() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -237,17 +238,17 @@ struct PaneTabViewControllerCommandTests {
         let defaultArrangementId = tab.activeArrangementId
         let customArrangementId = try #require(harness.store.createArrangement(name: "Focus", inTab: tab.id))
 
-        harness.controller.execute(.cycleArrangement)
+        await harness.executeCommand(.cycleArrangement)
 
         #expect(harness.store.tab(tab.id)?.activeArrangementId == defaultArrangementId)
 
-        harness.controller.execute(.cycleArrangement)
+        await harness.executeCommand(.cycleArrangement)
 
         #expect(harness.store.tab(tab.id)?.activeArrangementId == customArrangementId)
     }
 
     @Test("switchArrangement requests arrangement panel for active tab")
-    func executeSwitchArrangement_requestsArrangementPanel() throws {
+    func executeSwitchArrangement_requestsArrangementPanel() async throws {
         let presentation = ArrangementPanelPresentationAtom()
         let harness = makeHarness(arrangementPanelPresentation: presentation)
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -257,27 +258,27 @@ struct PaneTabViewControllerCommandTests {
         harness.windowLifecycleStore.recordWindowRegistered(windowId)
         harness.windowLifecycleStore.recordWindowBecameKey(windowId)
 
-        harness.controller.execute(.switchArrangement)
+        await harness.executeCommand(.switchArrangement)
 
         #expect(presentation.pendingRequest?.tabId == tab.id)
         #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
     }
 
     @Test("switchArrangement does not request arrangement panel without a workspace window")
-    func executeSwitchArrangement_withoutWorkspaceWindow_doesNotRequestArrangementPanel() throws {
+    func executeSwitchArrangement_withoutWorkspaceWindow_doesNotRequestArrangementPanel() async throws {
         let presentation = ArrangementPanelPresentationAtom()
         let harness = makeHarness(arrangementPanelPresentation: presentation)
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.switchArrangement)
+        await harness.executeCommand(.switchArrangement)
 
         #expect(presentation.pendingRequest == nil)
     }
 
     @Test("switchArrangement uses the controller workspace window before lifecycle fallback")
-    func executeSwitchArrangement_prefersControllerWorkspaceWindow() throws {
+    func executeSwitchArrangement_prefersControllerWorkspaceWindow() async throws {
         let presentation = ArrangementPanelPresentationAtom()
         let windowId = UUID()
         let harness = makeHarness(
@@ -288,29 +289,29 @@ struct PaneTabViewControllerCommandTests {
         let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.switchArrangement)
+        await harness.executeCommand(.switchArrangement)
 
         #expect(presentation.pendingRequest?.tabId == tab.id)
         #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
     }
 
     @Test("previous and next arrangement switch active tab arrangement")
-    func executePreviousAndNextArrangement_switchesCurrentTabArrangement() throws {
+    func executePreviousAndNextArrangement_switchesCurrentTabArrangement() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
         let secondArrangementId = try #require(harness.store.tab(tab.id)?.arrangements.last?.id)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.nextArrangement)
+        await harness.executeCommand(.nextArrangement)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == secondArrangementId)
 
-        harness.controller.execute(.previousArrangement)
+        await harness.executeCommand(.previousArrangement)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == tab.defaultArrangement.id)
     }
 
     @Test("openPaneLocationInBookmarkedEditor without bookmark uses the implicit default order")
-    func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() {
+    func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -332,7 +333,7 @@ struct PaneTabViewControllerCommandTests {
 
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
 
-        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        await harness.executeCommand(.openPaneLocationInBookmarkedEditor)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
         #expect(
@@ -342,7 +343,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("openPaneLocationInBookmarkedEditor with stale bookmark clears bookmark and uses default order")
-    func executeOpenPaneLocationInBookmarkedEditor_staleBookmark_clearsBookmarkAndUsesDefaultOrder() {
+    func executeOpenPaneLocationInBookmarkedEditor_staleBookmark_clearsBookmarkAndUsesDefaultOrder() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -365,7 +366,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
         harness.atomRegistry.editorChooser.setBookmarkedEditor("missing-editor")
 
-        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        await harness.executeCommand(.openPaneLocationInBookmarkedEditor)
         #expect(harness.atomRegistry.editorChooser.bookmarkedEditorId == nil)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
@@ -376,7 +377,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("openPaneLocationInEditorMenu uses the selected drawer pane for ownership")
-    func executeOpenPaneLocationInEditorMenu_usesDrawerPaneForOwnership() {
+    func executeOpenPaneLocationInEditorMenu_usesDrawerPaneForOwnership() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -397,13 +398,13 @@ struct PaneTabViewControllerCommandTests {
 
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
 
-        harness.controller.execute(.openPaneLocationInEditorMenu)
+        await harness.executeCommand(.openPaneLocationInEditorMenu)
 
         #expect(harness.atomRegistry.editorChooser.openForPaneId == drawerPane.id)
     }
 
     @Test("targeted focusPane opens owning drawer and selects drawer child")
-    func executeFocusPane_targetedDrawerChildOpensOwningDrawer() throws {
+    func executeFocusPane_targetedDrawerChildOpensOwningDrawer() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -418,7 +419,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.toggleDrawer(for: parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
 
-        harness.controller.execute(.focusPane, target: drawerPane.id, targetType: .pane)
+        await harness.executeCommand(.focusPane, target: drawerPane.id, targetType: .pane)
 
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
@@ -428,7 +429,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
-    func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
+    func executeOpenPaneLocationInFinder_revealsSelectedPanePath() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -444,7 +445,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.openPaneLocationInFinder)
+        await harness.executeCommand(.openPaneLocationInFinder)
 
         #expect(harness.launchRecorder.revealedPaths == [selectedPaneDirectory])
     }
@@ -460,7 +461,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("targeted renameArrangement ignores the default arrangement")
-    func executeRenameArrangement_defaultArrangement_isIgnored() {
+    func executeRenameArrangement_defaultArrangement_isIgnored() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -470,14 +471,14 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(tab.id)
         let defaultArrangementId = harness.store.tab(tab.id)?.defaultArrangement.id ?? UUID()
 
-        harness.controller.execute(.renameArrangement, target: defaultArrangementId, targetType: .tab)
+        await harness.executeCommand(.renameArrangement, target: defaultArrangementId, targetType: .tab)
 
         #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
         #expect(harness.arrangementInlineRenameState.draftName.isEmpty)
     }
 
     @Test("targeted renameArrangement ignores a stale arrangement id")
-    func executeRenameArrangement_unknownArrangement_isIgnored() {
+    func executeRenameArrangement_unknownArrangement_isIgnored() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -486,14 +487,14 @@ struct PaneTabViewControllerCommandTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.renameArrangement, target: UUID(), targetType: .tab)
+        await harness.executeCommand(.renameArrangement, target: UUID(), targetType: .tab)
 
         #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
         #expect(harness.store.activeTabId == tab.id)
     }
 
     @Test("terminated pane closes only the matching split pane")
-    func handleTerminalProcessTerminated_closesOnlyMatchingSplitPane() {
+    func handleTerminalProcessTerminated_closesOnlyMatchingSplitPane() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -521,6 +522,7 @@ struct PaneTabViewControllerCommandTests {
         )
 
         harness.controller.handleTerminalProcessTerminated(paneId: terminatingPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.tab(tab.id)?.paneIds == [primaryPane.id])
         #expect(harness.store.pane(primaryPane.id) != nil)
@@ -529,7 +531,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("terminated pane closes only the matching tab when multiple tabs share a worktree")
-    func handleTerminalProcessTerminated_closesOnlyMatchingTab() {
+    func handleTerminalProcessTerminated_closesOnlyMatchingTab() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -553,6 +555,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(terminatingTab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: terminatingPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.tab(survivingTab.id) != nil)
         #expect(harness.store.tab(terminatingTab.id) == nil)
@@ -560,7 +563,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("terminated hidden pane closes without removing visible sibling or creating undo")
-    func handleTerminalProcessTerminated_hiddenPaneClosesWithoutUndoEntry() {
+    func handleTerminalProcessTerminated_hiddenPaneClosesWithoutUndoEntry() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -594,6 +597,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
 
         harness.controller.handleTerminalProcessTerminated(paneId: hiddenPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.pane(visiblePane.id) != nil)
         #expect(harness.store.pane(hiddenPane.id) == nil)
@@ -602,7 +606,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("terminated pane in a background tab does not create undo")
-    func handleTerminalProcessTerminated_backgroundTabPaneClosesWithoutUndoEntry() {
+    func handleTerminalProcessTerminated_backgroundTabPaneClosesWithoutUndoEntry() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -632,6 +636,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(foregroundTab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: firstPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.pane(firstPane.id) == nil)
         #expect(harness.store.tab(backgroundTab.id) != nil)
@@ -639,7 +644,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("terminated drawer child under a hidden parent does not create undo")
-    func handleTerminalProcessTerminated_hiddenDrawerChildClosesWithoutUndoEntry() {
+    func handleTerminalProcessTerminated_hiddenDrawerChildClosesWithoutUndoEntry() async {
         atom(\.managementLayer).activate()
         let harness = makeHarness()
         defer {
@@ -677,6 +682,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.minimizePane(parentPane.id, inTab: tab.id))
 
         harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.pane(drawerPane.id) == nil)
         #expect(harness.store.pane(parentPane.id) != nil)
@@ -684,7 +690,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("terminated drawer child is ignored while close transition is already in flight")
-    func handleTerminalProcessTerminated_drawerChildClosingTransitionInFlight_isIgnored() {
+    func handleTerminalProcessTerminated_drawerChildClosingTransitionInFlight_isIgnored() async {
         let closeClock = TestPushClock()
         let closeTransitionCoordinator = PaneCloseTransitionCoordinator(clock: closeClock)
         let harness = makeHarness(closeTransitionCoordinator: closeTransitionCoordinator)
@@ -704,6 +710,7 @@ struct PaneTabViewControllerCommandTests {
         closeTransitionCoordinator.beginClosingPane(drawerPane.id, delay: .seconds(10)) {}
 
         harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.pane(drawerPane.id) != nil)
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds == [drawerPane.id])
@@ -720,7 +727,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("toggleManagementLayer preserves drawer scope while exiting management layer")
-    func executeToggleManagementLayer_preservesDrawerScopeOnExit() {
+    func executeToggleManagementLayer_preservesDrawerScopeOnExit() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -738,7 +745,7 @@ struct PaneTabViewControllerCommandTests {
         atom(\.managementLayer).activate()
         harness.controller.setManagementNavigationScopeToDrawerForTesting(parentPaneId: parentPane.id)
 
-        harness.controller.execute(.toggleManagementLayer)
+        await harness.executeCommand(.toggleManagementLayer)
 
         #expect(!atom(\.managementLayer).isActive)
         #expect(
@@ -748,7 +755,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("managementLayerCreateTerminal targets drawer after drawer pane selection")
-    func executeManagementCreateTerminal_selectedDrawerTargetsDrawer() throws {
+    func executeManagementCreateTerminal_selectedDrawerTargetsDrawer() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -774,7 +781,7 @@ struct PaneTabViewControllerCommandTests {
         let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
         let drawerPaneIdsBefore = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
 
-        harness.controller.execute(.managementLayerCreateTerminal)
+        await harness.executeCommand(.managementLayerCreateTerminal)
 
         let paneIdsAfter = Set(harness.store.panes.keys)
         let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
@@ -793,7 +800,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("managementLayerCreateTerminal in main row adds a split pane to the active tab")
-    func executeManagementCreateTerminal_mainRowTargetsActiveTab() throws {
+    func executeManagementCreateTerminal_mainRowTargetsActiveTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -805,12 +812,12 @@ struct PaneTabViewControllerCommandTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
 
-        harness.controller.execute(.toggleManagementLayer)
+        await harness.executeCommand(.toggleManagementLayer)
 
         let paneIdsBefore = Set(harness.store.panes.keys)
         let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
 
-        harness.controller.execute(.managementLayerCreateTerminal)
+        await harness.executeCommand(.managementLayerCreateTerminal)
 
         let paneIdsAfter = Set(harness.store.panes.keys)
         let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
@@ -824,7 +831,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("option-j and option-l stay main-row movement outside drawers")
-    func executeFocusPaneLeftRight_outsideDrawerStaysInMainRow() {
+    func executeFocusPaneLeftRight_outsideDrawerStaysInMainRow() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -837,57 +844,57 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(second.id, inTab: tab.id)
 
-        harness.controller.execute(.focusPaneLeft)
+        await harness.executeCommand(.focusPaneLeft)
 
         #expect(harness.store.tab(tab.id)?.activePaneId == first.id)
     }
 
     @Test("focusPane1 focuses first active arrangement pane")
-    func executeFocusPane1_focusesFirstActiveArrangementPane() throws {
+    func executeFocusPane1_focusesFirstActiveArrangementPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
         harness.store.setActivePane(panes[2].id, inTab: tab.id)
 
-        harness.controller.execute(.focusPane1)
+        await harness.executeCommand(.focusPane1)
 
         #expect(harness.store.tab(tab.id)?.activePaneId == panes[0].id)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: panes[0].id))
     }
 
     @Test("focusPane3 focuses third active arrangement pane")
-    func executeFocusPane3_focusesThirdActiveArrangementPane() throws {
+    func executeFocusPane3_focusesThirdActiveArrangementPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
 
-        harness.controller.execute(.focusPane3)
+        await harness.executeCommand(.focusPane3)
 
         #expect(harness.store.tab(tab.id)?.activePaneId == panes[2].id)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: panes[2].id))
     }
 
     @Test("out-of-range focusPane ordinal is unavailable and no-ops")
-    func executeFocusPane4_outOfRangeIsUnavailableAndNoOps() throws {
+    func executeFocusPane4_outOfRangeIsUnavailableAndNoOps() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
 
         #expect(harness.controller.canExecute(.focusPane4) == false)
 
-        harness.controller.execute(.focusPane4)
+        await harness.executeCommand(.focusPane4)
 
         #expect(harness.store.tab(tab.id)?.activePaneId == panes[0].id)
     }
 
     @Test("focusPane ordinal targets only expanded panes")
-    func executeFocusPane2_targetsSecondExpandedPaneWithoutRestoringMinimizedPane() throws {
+    func executeFocusPane2_targetsSecondExpandedPaneWithoutRestoringMinimizedPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
         _ = harness.store.tabLayoutAtom.minimizePane(panes[1].id, inTab: tab.id)
 
-        harness.controller.execute(.focusPane2)
+        await harness.executeCommand(.focusPane2)
 
         let updatedTab = try #require(harness.store.tab(tab.id))
         #expect(updatedTab.activePaneId == panes[2].id)
@@ -896,7 +903,7 @@ struct PaneTabViewControllerCommandTests {
     }
 
     @Test("focusPane ordinal retargets active Zoom to requested pane")
-    func executeFocusPane2_retargetsActiveZoomToRequestedPane() throws {
+    func executeFocusPane2_retargetsActiveZoomToRequestedPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
@@ -906,7 +913,7 @@ struct PaneTabViewControllerCommandTests {
             viewerPresentation: .unavailable
         )
 
-        harness.controller.execute(.focusPane2)
+        await harness.executeCommand(.focusPane2)
 
         let updatedTab = try #require(harness.store.tab(tab.id))
         #expect(

@@ -55,6 +55,14 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
         )
     }
 
+    if !close.isUndoAvailable {
+        // Membership is established under the existing available-owner guard,
+        // then retired inside this same transaction before capacity admission.
+        try database.execute(
+            sql: "UPDATE workspace_undo_close SET state = 'expired', snapshot_payload = NULL WHERE close_id = ?",
+            arguments: [close.closeID.uuidString])
+    }
+
     let evictedIDs = try String.fetchAll(
         database,
         sql: """
@@ -77,7 +85,8 @@ func writeUndoClose(_ close: WorkspaceUndoCloseWrite, in database: Database) thr
             """,
         arguments: [close.workspaceID.uuidString, AppPolicies.WorkspacePersistence.maximumAvailableUndoCloses]
     )
-    let retiredCloses = try evictedIDs.map { try readUndoCloseRetirement(rawCloseID: $0, database: database) }
+    let retiredIDs = evictedIDs + (close.isUndoAvailable ? [] : [close.closeID.uuidString])
+    let retiredCloses = try retiredIDs.map { try readUndoCloseRetirement(rawCloseID: $0, database: database) }
     try markFinishedUndoSessionsForCleanup(
         database,
         workspaceID: close.workspaceID,

@@ -1,4 +1,6 @@
+import AgentStudioInfrastructure
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -14,6 +16,89 @@ import Testing
 extension E2ESerializedTests {
     @Suite(.serialized)
     struct ZmxE2ETests {
+        @Test(
+            "pending cleanup recovers from a reopened database and preserves a replacement", arguments: [false, true])
+        func pendingCleanupRecoversAfterProcessExit(withReplacement: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("proof.sqlite")
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let evidence = try #require(try await backend.observeSessionIdentity(sessionID))
+                do {
+                    let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+                    try WorkspaceCoreMigrations.migrate(database)
+                    try await database.write { connection in
+                        try connection.execute(
+                            sql: """
+                                INSERT INTO workspace_terminal_session_ownership(
+                                    session_id, cleanup_state, cleanup_requested_at, process_identity)
+                                VALUES (?, 'pending', 100, ?)
+                                """, arguments: [sessionID.rawValue, evidence])
+                    }
+                    // Deliberately omit completion persistence, as if shutdown interrupted
+                    // the application after its external effect but before its final write.
+                    _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                    try database.close()
+                }
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                let datastore = try await reopenedCleanupDatastore(at: databaseURL)
+                let pending = try await datastore.terminalSessionCleanupBatch(after: nil)
+                try #require(pending.count == 1)
+                guard case .retire(let recoveredSessionID, let recoveredEvidence) = pending[0] else {
+                    Issue.record("Reopened journal must retain pending process evidence")
+                    return
+                }
+                #expect(recoveredSessionID == sessionID)
+                #expect(recoveredEvidence == evidence)
+                var replacementEvidence: Data?
+                if withReplacement {
+                    _ = try harness.spawnZmxSession(
+                        zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                    replacementEvidence = try #require(try await backend.observeSessionIdentity(sessionID))
+                    #expect(replacementEvidence != evidence)
+                }
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var completed = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        completed =
+                            try await datastore.retirePendingTerminalSession(
+                                sessionID: recoveredSessionID, identity: recoveredEvidence
+                            ) {
+                                try await backend.retireVerifiedSession(sessionID, expectedIdentity: recoveredEvidence)
+                            } == .completed
+                        if completed { break }
+                    } catch is ZmxSessionControlFailure {
+                        // A replaced endpoint is never signalled; old process reaping may still be in flight.
+                    }
+                    await Task.yield()
+                }
+                #expect(completed)
+                #expect(try await datastore.terminalSessionCleanupBatch(after: nil).isEmpty)
+                if let replacementEvidence {
+                    #expect(try await backend.observeSessionIdentity(sessionID) == replacementEvidence)
+                    #expect(await backend.sessionExists(.init(id: sessionID)))
+                }
+            }
+        }
+
+        @MainActor
+        private func reopenedCleanupDatastore(at databaseURL: URL) throws -> WorkspaceSQLiteDatastore {
+            let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+            let repository = WorkspaceCoreRepository(databaseWriter: database)
+            let localDatabase = try SQLiteDatabaseFactory.makeInMemoryQueue()
+            try WorkspaceLocalMigrations.migrate(localDatabase)
+            return try preparedWorkspaceSQLiteDatastore(
+                from: WorkspaceSQLiteStoreBackend(
+                    coreRepository: repository,
+                    makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localDatabase) },
+                    coreDatabaseStartupProvenance: .createdDuringCurrentStartup))
+        }
+
         @Test("inspection failures are not reported as absence", arguments: [false, true])
         func inspectionFailureIsNotAbsence(permissionDenied: Bool) async throws {
             try await withRealBackend { harness, backend in

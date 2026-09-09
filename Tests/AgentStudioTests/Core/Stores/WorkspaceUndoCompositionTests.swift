@@ -11,6 +11,24 @@ struct WorkspaceUndoCompositionTests {
         utc: Date(timeIntervalSince1970: 100), bootID: "boot-fixture", uptimeNanoseconds: 100_000_000_000
     )
 
+    @Test(
+        "single-pane Undo follows active residency and management visibility",
+        arguments: [false, true], [false, true])
+    func paneUndoMatchesVisibility(isBackgrounded: Bool, isManagementLayerActive: Bool) throws {
+        var first = makePane(id: UUIDv7.generate())
+        first.residency = isBackgrounded ? .backgrounded : .active
+        let second = makePane(id: UUIDv7.generate())
+        var tab = makeTab(paneIds: [first.id, second.id], activePaneId: second.id)
+        tab.arrangements[0].minimizedPaneIds = [first.id]
+        let original = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(), panes: [first, second], tabs: [tab], activeTabId: tab.id)
+        let proposal = try WorkspaceUndoComposition.prepareClose(
+            in: .init(workspace: original), tabID: tab.id, paneID: first.id,
+            closeID: UUIDv7.generate(), time: time, isManagementLayerActive: isManagementLayerActive)
+        #expect(proposal.write.isUndoAvailable == (!isBackgrounded && isManagementLayerActive))
+        #expect(proposal.bundle.workspace.panes.map(\.id) == [second.id])
+    }
+
     @Test("drawer-child close removes live ownership while preserving its parent", arguments: [true, false])
     func drawerChildClosePreservesParent(expanded: Bool) throws {
         var parent = makePane(id: UUIDv7.generate())
@@ -25,13 +43,15 @@ struct WorkspaceUndoCompositionTests {
         tab.arrangements[0].drawerViews[drawerID] = DrawerView(
             layout: DrawerGridLayout(topRow: Layout(paneId: child.id)), activeChildId: child.id
         )
-        let original = WorkspaceSQLiteSnapshot(id: UUIDv7.generate(), panes: [parent, child], tabs: [tab])
+        let original = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(), panes: [parent, child], tabs: [tab], activeTabId: tab.id)
 
         let proposal = try WorkspaceUndoComposition.prepareClose(
             in: .init(workspace: original), tabID: tab.id, paneID: child.id, closeID: UUIDv7.generate(), time: time
         )
 
         #expect(proposal.removedPaneIDs == [child.id])
+        #expect(proposal.write.isUndoAvailable)
         #expect(proposal.bundle.workspace.panes.map(\.id) == [parent.id])
         #expect(proposal.bundle.workspace.panes.first?.drawer?.paneIds.isEmpty == true)
         #expect(proposal.bundle.workspace.tabs.first?.arrangements.first?.drawerViews[drawerID] == nil)

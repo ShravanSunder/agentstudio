@@ -20,9 +20,12 @@ enum WorkspaceUndoComposition {
         tabID: UUID,
         paneID: UUID?,
         closeID: UUID,
-        time: WorkspaceUndoJournalTime
+        time: WorkspaceUndoJournalTime,
+        isManagementLayerActive: Bool = false
     ) async throws -> WorkspaceUndoCloseProposal {
-        try prepareClose(in: source, tabID: tabID, paneID: paneID, closeID: closeID, time: time)
+        try prepareClose(
+            in: source, tabID: tabID, paneID: paneID, closeID: closeID, time: time,
+            isManagementLayerActive: isManagementLayerActive)
     }
 
     static func prepareClose(
@@ -30,7 +33,8 @@ enum WorkspaceUndoComposition {
         tabID: UUID,
         paneID: UUID?,
         closeID: UUID,
-        time: WorkspaceUndoJournalTime
+        time: WorkspaceUndoJournalTime,
+        isManagementLayerActive: Bool = false
     ) throws -> WorkspaceUndoCloseProposal {
         try validateUndoJournalTime(time)
         let original = source.workspace
@@ -82,7 +86,9 @@ enum WorkspaceUndoComposition {
             deadlineUptimeNanoseconds: deadline,
             snapshotVersion: WorkspaceUndoCloseSnapshot.currentVersion,
             snapshotPayload: try JSONEncoder().encode(snapshot),
-            members: snapshot.members
+            members: snapshot.members,
+            isUndoAvailable: offersUndo(
+                snapshot: snapshot, tab: tab, workspace: original, isManagementLayerActive: isManagementLayerActive)
         )
         return .init(
             bundle: .init(workspace: updated, captureRevision: source.captureRevision),
@@ -91,6 +97,29 @@ enum WorkspaceUndoComposition {
             removedPaneIDs: removedIDs,
             tabID: tabID
         )
+    }
+
+    /// Preserve the existing close policy: whole tabs are undoable; a single
+    /// hidden/background-tab pane closes without offering an Undo operation.
+    private static func offersUndo(
+        snapshot: WorkspaceUndoCloseSnapshot, tab: Tab, workspace: WorkspaceSQLiteSnapshot,
+        isManagementLayerActive: Bool
+    ) -> Bool {
+        guard case .pane(let close) = snapshot else { return true }
+        guard workspace.activeTabId == tab.id else { return false }
+        let pane = close.pane
+        let parentID = pane.parentPaneId ?? pane.id
+        guard pane.residency.isActive,
+            let parent = workspace.panes.first(where: { $0.id == parentID }), parent.residency.isActive,
+            tab.activePaneIds.contains(parentID),
+            isManagementLayerActive || !tab.activeMinimizedPaneIds.contains(parentID)
+        else { return false }
+        guard let drawerParentID = pane.parentPaneId else { return true }
+        guard parent.id == drawerParentID, let drawer = parent.drawer,
+            let view = tab.activeArrangement.drawerViews[drawer.drawerId]
+        else { return false }
+        return view.layout.paneIds.contains(pane.id)
+            && (isManagementLayerActive || !view.minimizedPaneIds.contains(pane.id))
     }
 
     private static func closeSnapshot(

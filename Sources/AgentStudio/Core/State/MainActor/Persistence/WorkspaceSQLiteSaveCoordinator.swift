@@ -177,10 +177,13 @@ package final class WorkspaceSQLiteSaveCoordinator {
         publish: @escaping @MainActor @Sendable (WorkspaceUndoCloseProposal, WorkspaceUndoJournalReceipt) -> Void
     ) async throws -> WorkspaceUndoJournalReceipt {
         try await sqliteDatastore.withWorkspacePersistenceOrder { [self] datastore in
-            let capture = await captureCurrentSaveState(persistedAt: time.utc)
+            let (capture, isManagementLayerActive) = await MainActor.run {
+                (captureCurrentSaveState(persistedAt: time.utc), atom(\.managementLayer).isActive)
+            }
             let source = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
             let proposal = try await WorkspaceUndoComposition.prepareCloseOffMain(
-                in: source, tabID: tabID, paneID: paneID, closeID: closeID, time: time
+                in: source, tabID: tabID, paneID: paneID, closeID: closeID, time: time,
+                isManagementLayerActive: isManagementLayerActive
             )
             switch await WorkspaceCompositionPreparer.prepareOffMain(proposal.bundle.workspace) {
             case .prepared:

@@ -55,7 +55,7 @@ struct DraggableTabBarHostingViewTests {
     }
 
     @Test("the tab bar insertion slot reaches the controller action and store")
-    func tabBarInsertionSlotReordersThroughControllerActionPath() throws {
+    func tabBarInsertionSlotReordersThroughControllerActionPath() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -89,6 +89,7 @@ struct DraggableTabBarHostingViewTests {
         #expect(insertionIndex == 3)
 
         hostingView.onReorder?(firstTab.id, insertionIndex, UUIDv7.generate())
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.tabs.map(\.id) == [secondTab.id, thirdTab.id, firstTab.id])
     }
@@ -135,7 +136,7 @@ struct DraggableTabBarHostingViewTests {
     }
 
     @Test("pane extraction before a rightward target preserves the insertion slot")
-    func paneExtractionBeforeRightwardTargetReordersFinalTabOrder() throws {
+    func paneExtractionBeforeRightwardTargetReordersFinalTabOrder() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -152,6 +153,7 @@ struct DraggableTabBarHostingViewTests {
             paneId: source.extractedPane.id,
             targetTabInsertionIndex: 2
         )
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         let extractedTab = try #require(harness.store.tabContaining(paneId: source.extractedPane.id))
         #expect(
@@ -161,7 +163,7 @@ struct DraggableTabBarHostingViewTests {
     }
 
     @Test("pane extraction to the final slot preserves the insertion slot")
-    func paneExtractionToFinalSlotReordersFinalTabOrder() throws {
+    func paneExtractionToFinalSlotReordersFinalTabOrder() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -178,6 +180,7 @@ struct DraggableTabBarHostingViewTests {
             paneId: source.extractedPane.id,
             targetTabInsertionIndex: 3
         )
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         let extractedTab = try #require(harness.store.tabContaining(paneId: source.extractedPane.id))
         #expect(

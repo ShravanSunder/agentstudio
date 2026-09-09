@@ -253,3 +253,61 @@ were untouched. Aggregate log: `/tmp/agentstudio-pr335-aggregate-command-waits.l
 Independent implementation review D1 documentation finding is resolved by source-backed recheck;
 no product finding was reported. Remaining proof gaps listed above still prevent readiness.
 Current testable debug app is PID22151 under the lbim app path; normal restart/Undo proof passed.
+
+## Bounded proof follow-up
+
+- Diagnostic aggregate on HEAD54ff9352e used only `DEBUG=vitest:browser:playwright`.
+  Both browser providers logged completed shutdown; original local hang did not reproduce.
+  Fast Swift4483tests/638suites passed. Later isolated DraggableTabBarHostingViewTests failed
+  three immediate assertions after asynchronous reorder/extract. Existing queue joins correct
+  those assertions; no outcome assertion or runner changed.
+- Added a real-zmx/file-backed SQLite recovery test with and without an actual replacement
+  daemon at the same endpoint. It saves pending evidence, deliberately omits completion after
+  Kill, closes/reopens the database, reconciles through the datastore, and confirms the
+  replacement stays alive. Combined hosting+recovery7tests/3suites passed, exit0, at
+  `/tmp/agentstudio-pr335-recovery-and-tabproof.log`.
+- Detached-service proof passed: original daemon/terminal gone and session completed while
+  dedicated sleepPID14006 (separate session/group, exact start time recorded) remained alive.
+  Parent then terminated only that test process after revalidating PID/start time.
+- Busy drawer workload printed50lines/sec with a bounded400s run. Normal tab close/300s grace
+  retired its native surfaces. `/tmp/agentstudio-pr335-renderer-after-busy.json` reports
+  renderer/io/PTY/mount/host0, footprint186MiB, two inert wrappers; owned graphics5.672MiB.
+  Current-marker native-free durations were162.29ms and34.752ms for parent/drawer. This includes
+  a real162ms MainActor pause; it is not a worst-case latency guarantee.
+- One busy session remains pending/processUnverifiable with recorded evidence. Exact daemon
+  PID26032 is blocked in `main.Daemon.ensureSession -> __wait4` reaping shellPID26033 (`?Es`).
+  proc_pidinfo succeeded for daemon and returned0/ESRCH for shell. Socket still exists.
+  Read-only sample `/tmp/agentstudio-pr335-pending-daemon-sample.txt`. Do not mark this completed
+  or modify vendors; protocol retry cannot interrupt a daemon already in wait4.
+- Native drawer first-add observation: initially blank overlay with existing child session
+  socket; collapse/reopen produced prompt and focus. Advisor traced source but found no proven
+  cause; a first-open host geometry/attachment/visibility comparison remains required.
+- Current existing Swift fast+isolation lane is running at
+  `/tmp/agentstudio-pr335-swift-fast-isolation.log` before another aggregate attempt.
+
+## Existing-policy correction and current blockers
+
+The remaining controller isolation failures revealed one real compatibility regression: the
+unconditional durable close offered Undo for single hidden/background-tab panes where main did
+not. The correction captures management mode with workspace state, reproduces main's active-tab,
+residency/layout/management visibility predicate, and marks non-Undo closes finished inside the
+same journal transaction before available-capacity calculation. Whole-tab/last-pane Undo remains.
+Membership guards and schema remain unchanged; the initially attempted expired-before-members
+ordering was rejected by the existing trigger and corrected, not bypassed.
+
+Fresh parity proof `/tmp/agentstudio-pr335-close-policy-parity.log`:66tests/5suites passed, exit0.
+Includes management/residency combinations, collapsed/expanded drawer eligibility, available vs
+non-Undo eleventh close, shared sessions, controller completion and durable close ownership.
+Advisor independently verified both predicate and transaction parity. Rename tests retain their
+pre-yield deferred-presentation assertions and await command completion only for final state.
+
+Full aggregate with corrected source running at `/tmp/agentstudio-pr335-aggregate-close-parity.log`.
+New diagnostic debug app PID98546, marker`debug-observability-lbim-1788914670-97882`, launched through
+standard helper with existing `AGENTSTUDIO_RESTORE_TRACE=1`. Previous debug candidate retired
+gracefully using the exact-candidate helper. Native proof now blocked: Peekaboo explicitly reports
+the macOS GUI session is locked (2026-09-09T00:45Z). Unlock is required for first-open drawer
+reproduction; do not infer its earlier blank state was caused by this later lock.
+
+Busy process limitation remains: recorded zmxdaemon26032 waiting in wait4 for exiting shell26033;
+app-owned native resources released, journal correctly remains pending. No vendor changes or
+force-completion fallback authorized or implemented. These limits still prevent a readiness claim.
