@@ -257,3 +257,28 @@ makeNSView followed by window=true in the same second10:25:07Z. Screenshots:
 Additional user input/second drawer appeared during this proof; later interactions
 are not attributed to the agent. Final full aggregate/CI on this correction remain
 required. Stalled zmx retirement policy remains unanswered; no vendor change.
+
+## Extinct-process reconciliation correction
+
+After recorded daemon/terminal incarnation extinction and process-group absence,
+cleanup now completes the original obligation even if an endpoint remains. It never
+connects to, unlinks or signals that endpoint on this completed path. Pending identity,
+owner and native-attachment guards remain unchanged. This is existing reconciliation,
+not forced retirement or a new cleanup policy. Astra reviewed the two-file delta with
+no findings.
+
+Real regression uses an observed zmx identity, normal process exit, a bound-then-closed
+Unix socket and reopened SQLite. Old code fails unavailable; new code completes with
+the socket inode unchanged. Existing initial-identity fixtures now wait for daemon
+identity readiness, not just file existence; their mismatch assertions stay direct.
+Logs are under tmp/pr335-wrapup-proof after user temporary-file cleanup. The new stale
+socket regression and other cleanup assertions passed in broad runs; suite exits
+remain red because the existing ZmxTestHarness0.5s CLI cleanup wrapper timed out on
+other cases, including an empty root. No timeout/gate weakened. Test leftovers were
+inspected; the one remaining test session received normal zmx kill in its isolated
+root, then no sessions/PID remained. Approval to repair that separate harness is
+pending; required aggregate continues independently.
+
+The old native debug pending row is now completed (eight completed, five owned, no
+pending), observed on the prior build and not attributed to this unlaunched change.
+No forced signal or vendor change was made.

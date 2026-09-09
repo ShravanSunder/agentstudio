@@ -55,8 +55,10 @@ enum ZmxSessionControl {
             daemon?.incarnation != expected.daemon
             && terminal?.incarnation != expected.terminalLeader
             && originalGroupGone
+        // Completion concerns the recorded process family. A stale or replacement
+        // endpoint cannot keep an extinct family alive; leave that endpoint untouched.
+        if originalProcessesGone { return .completed }
         let endpointExists = FileManager.default.fileExists(atPath: path)
-        if originalProcessesGone, !endpointExists { return .completed }
         guard endpointExists else { return .pending }
 
         return try withConnection(path: path) { connection in
@@ -65,7 +67,6 @@ enum ZmxSessionControl {
             let peer = try processSnapshot(peerPID)
             if peer?.incarnation != expected.daemon {
                 // A distinct replacement is protected. It does not own the original obligation.
-                if originalProcessesGone { return .completed }
                 throw ZmxSessionControlFailure.identityMismatch
             }
             guard info.terminalPID == expected.terminalLeader.pid,

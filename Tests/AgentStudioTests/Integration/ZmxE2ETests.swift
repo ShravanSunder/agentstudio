@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import Darwin
 import Foundation
 import GRDB
 import Testing
@@ -26,7 +27,7 @@ extension E2ESerializedTests {
                 _ = try harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let evidence = try #require(try await backend.observeSessionIdentity(sessionID))
+                let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
                 do {
                     let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
                     try WorkspaceCoreMigrations.migrate(database)
@@ -58,7 +59,7 @@ extension E2ESerializedTests {
                     _ = try harness.spawnZmxSession(
                         zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                     try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                    replacementEvidence = try #require(try await backend.observeSessionIdentity(sessionID))
+                    replacementEvidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
                     #expect(replacementEvidence != evidence)
                 }
                 let deadline = ContinuousClock.now.advanced(by: .seconds(5))
@@ -84,6 +85,99 @@ extension E2ESerializedTests {
                     #expect(await backend.sessionExists(.init(id: sessionID)))
                 }
             }
+        }
+
+        @Test("verified extinct processes complete despite an untouched stale socket")
+        func extinctProcessesCompleteWithStaleSocket() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var extinct = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        extinct =
+                            try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence) == .completed
+                        if extinct { break }
+                    } catch is ZmxSessionControlFailure {
+                        // Normal shutdown can still be reaping the recorded original processes.
+                    }
+                    await Task.yield()
+                }
+                try #require(extinct)
+                let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
+                let socketInode = try makeStaleCleanupSocket(at: socketPath)
+                let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("stale-socket.sqlite")
+                do {
+                    let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+                    try WorkspaceCoreMigrations.migrate(database)
+                    try await database.write { connection in
+                        try connection.execute(
+                            sql: """
+                                INSERT INTO workspace_terminal_session_ownership(
+                                    session_id, cleanup_state, cleanup_requested_at, process_identity)
+                                VALUES (?, 'pending', 100, ?)
+                                """, arguments: [sessionID.rawValue, evidence])
+                    }
+                    try database.close()
+                }
+                let datastore = try await reopenedCleanupDatastore(at: databaseURL)
+                let result = try await datastore.retirePendingTerminalSession(sessionID: sessionID, identity: evidence)
+                {
+                    try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                }
+                #expect(result == .completed)
+                #expect(try await datastore.terminalSessionCleanupBatch(after: nil).isEmpty)
+                var remainingSocket = stat()
+                #expect(lstat(socketPath, &remainingSocket) == 0)
+                #expect(remainingSocket.st_ino == socketInode)
+            }
+        }
+
+        private func waitForObservedSessionIdentity(_ sessionID: ZmxSessionID, backend: ZmxBackend) async throws -> Data
+        {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while ContinuousClock.now < deadline {
+                try Task.checkCancellation()
+                do {
+                    if let identity = try await backend.observeSessionIdentity(sessionID) { return identity }
+                } catch ZmxSessionControlFailure.unavailable {
+                    // Socket creation precedes the daemon accepting control requests.
+                } catch ZmxSessionControlFailure.processUnverifiable {
+                    // The daemon/terminal fork may still be settling.
+                } catch ZmxSessionControlFailure.timeout {
+                    // A busy startup may not answer within one bounded request.
+                }
+                await Task.yield()
+            }
+            throw ZmxSessionControlFailure.timeout
+        }
+
+        private func makeStaleCleanupSocket(at path: String) throws -> ino_t {
+            let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard descriptor >= 0 else { throw POSIXError(.EIO) }
+            defer { Darwin.close(descriptor) }
+            var address = sockaddr_un()
+            let bytes = Array(path.utf8)
+            guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw POSIXError(.ENAMETOOLONG) }
+            address.sun_family = sa_family_t(AF_UNIX)
+            address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes + [0]) }
+            let bound = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            guard bound == 0 else { throw POSIXError(.EIO) }
+            var information = stat()
+            guard lstat(path, &information) == 0 else { throw POSIXError(.EIO) }
+            return information.st_ino
         }
 
         @MainActor
@@ -143,7 +237,7 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
 
-                let encoded = try #require(try await backend.observeSessionIdentity(sessionID))
+                let encoded = try await waitForObservedSessionIdentity(sessionID, backend: backend)
                 let identity = try ZmxSessionIdentity.decode(encoded)
                 #expect(identity.daemon.pid != identity.terminalLeader.pid)
                 #expect(identity.processGroupID == identity.terminalLeader.pid)
@@ -166,7 +260,7 @@ extension E2ESerializedTests {
                     zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let identity = try #require(try await backend.observeSessionIdentity(sessionID))
+                let identity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
 
                 _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: identity)
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
