@@ -288,7 +288,7 @@ only under [`archive/`](archive/README.md).
 | [Bridge Product Transport](bridge/bridge_product_transport_architecture.md) | Native/web product transport |
 | [Bridge Native Runtime](bridge/bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime |
 | [Bridge Web Runtime](bridge/bridge_web_runtime_architecture.md) | BridgeWeb runtime |
-| [BridgeWeb Design Tokens](bridge/bridgeweb_design_token_architecture.md) | Token layer ownership |
+| [BridgeWeb Design Tokens and Component Language](bridge/bridgeweb_design_token_architecture.md#component-language-contract) | Visual hierarchy, composition, token ownership and proof |
 
 ### observability/
 
