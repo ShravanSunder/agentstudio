@@ -466,7 +466,13 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 						this.#metadataStreamHealthDiagnostics.failureCode === 'truncated_frame') ||
 					(this.#metadataStreamHealthDiagnostics.failureStage === 'acknowledgement' &&
 						error instanceof BridgeProductFrameAcknowledgementFailure &&
-						(error.failureCode === 'request_failed' || error.failureCode === 'request_timeout'))) &&
+						(error.failureCode === 'request_failed' ||
+							error.failureCode === 'request_timeout' ||
+							// A disconnect can retire the producer before its last observation arrives.
+							// Reconcile established streams; never treat the rejected receipt as accepted.
+							(error.failureCode === 'rejected_status' &&
+								error.status === 409 &&
+								this.#lastRoutedStreamSequence > 0)))) &&
 				this.#subscriptions.size > 0 &&
 				!this.#metadataRecoveryAttemptedSinceProgress
 			) {

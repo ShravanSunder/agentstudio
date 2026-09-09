@@ -112,7 +112,7 @@ describe('Bridge product transport recovery edges', () => {
 		await harness.server.waitForFrameAcknowledgementCount(4);
 	});
 
-	test.each(['network error', 'timeout'] as const)(
+	test.each(['network error', 'timeout', 'retired stream conflict'] as const)(
 		'reconnects after acknowledgement %s using the locally committed frame cursor',
 		async (failure): Promise<void> => {
 			// Arrange
@@ -122,6 +122,8 @@ describe('Bridge product transport recovery edges', () => {
 			harness.server.nextAcknowledgementHandler = (): Promise<Response> => {
 				if (failure === 'network error')
 					return Promise.reject(new Error('acknowledgement connection lost'));
+				if (failure === 'retired stream conflict')
+					return Promise.resolve(new Response(null, { status: 409 }));
 				return heldAcknowledgement.promise;
 			};
 			if (failure === 'timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
