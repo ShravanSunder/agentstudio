@@ -5,6 +5,7 @@ export type StyleSystemRuleId =
 	| 'bridge-alias'
 	| 'control-style-override'
 	| 'evaluation-failure'
+	| 'metric-parity'
 	| 'palette-direct-read'
 	| 'palette-parity'
 	| 'raw-color'

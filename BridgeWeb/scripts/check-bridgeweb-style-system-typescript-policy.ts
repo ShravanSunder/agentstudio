@@ -158,6 +158,7 @@ function checkUnsafeCssPolicy(
 			sourceText: result.fragments.join(''),
 			relativePath: record.relativePath,
 			isCanonicalCss: false,
+			context: 'renderer-shadow',
 		}).findings;
 		const sourceFinding = findingAtNode({
 			ruleId: 'evaluation-failure',

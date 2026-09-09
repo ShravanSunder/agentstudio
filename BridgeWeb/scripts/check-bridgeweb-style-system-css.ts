@@ -1,4 +1,12 @@
-import { type AtRule, type Declaration, type Node, parse, type Root, type Rule } from 'postcss';
+import {
+	type AtRule,
+	type Declaration,
+	list,
+	type Node,
+	parse,
+	type Root,
+	type Rule,
+} from 'postcss';
 
 import {
 	isColorBearingCssProperty,
@@ -12,6 +20,7 @@ export interface CssAnalysisResult {
 	readonly primitiveEntries: ReadonlyMap<string, string>;
 	readonly duplicatePrimitiveNames: readonly string[];
 	readonly customClassStyleProperties: ReadonlyMap<string, ReadonlySet<string>>;
+	readonly customClassDescendantStyleProperties: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 const bridgeAliasPattern = /--bridge-[\w-]+/gu;
@@ -20,16 +29,25 @@ const controlSelectorPattern =
 const controlStylePropertyPattern =
 	/^(?:background(?:-color)?|border(?:-.+)?|box-shadow|color|font(?:-.+)?|height|line-height|max-height|min-height|opacity|outline(?:-.+)?|padding(?:-.+)?|width)$/u;
 
+const ownedContentSelectorPattern =
+	/\[data-slot\s*=\s*['"]?(?:item-(?:content|label|description|metadata)|combobox-item(?:-description)?|dropdown-menu-(?:item(?:-description)?|label|description|header)|status-badge|input-group(?:-addon|-control)?|field-(?:label|description|error)|alert-(?:title|description|action))['"]?\]/iu;
+
+function targetsOwnedRecipe(selector: string): boolean {
+	return controlSelectorPattern.test(selector) || ownedContentSelectorPattern.test(selector);
+}
+
 export function analyzeCssSource(props: {
 	readonly sourceText: string;
 	readonly relativePath: string;
 	readonly isCanonicalCss: boolean;
+	readonly context?: 'document' | 'renderer-shadow';
 }): CssAnalysisResult {
 	const root = parse(props.sourceText, { from: props.relativePath });
 	const findings: StyleSystemFinding[] = [];
 	const primitiveEntries = new Map<string, string>();
 	const duplicatePrimitiveNames: string[] = [];
 	const customClassStyleProperties = new Map<string, Set<string>>();
+	const customClassDescendantStyleProperties = new Map<string, Set<string>>();
 	const primitiveBounds = findPrimitiveBounds(props.sourceText);
 
 	root.walkDecls((declaration: Declaration): void => {
@@ -96,7 +114,7 @@ export function analyzeCssSource(props: {
 		const parentRule = declaration.parent;
 		if (
 			parentRule?.type === 'rule' &&
-			controlSelectorPattern.test((parentRule as Rule).selector) &&
+			targetsOwnedRecipe((parentRule as Rule).selector) &&
 			declaration.prop === 'font' &&
 			!hasLayerBaseAncestor(declaration)
 		) {
@@ -114,9 +132,31 @@ export function analyzeCssSource(props: {
 			props.isCanonicalCss && hasLayerBaseAncestor(declaration) && declaration.prop === 'font';
 		if (
 			!isPrimitiveSourcePath(props.relativePath) &&
+			parentRule?.type === 'rule' &&
+			!isKeyframeDeclaration(declaration) &&
+			(parentRule as Rule).selectors.some(
+				(selector) =>
+					!targetsOwnedRecipe(selector) &&
+					!selectorHasClassAnchor(selector) &&
+					!(props.context === 'renderer-shadow' && isRendererInternalSelector(selector)) &&
+					!(props.isCanonicalCss && [':root', '#root', 'html', 'body'].includes(selector)),
+			) &&
+			controlStylePropertyPattern.test(declaration.prop)
+		) {
+			findings.push(
+				findingForPostCssNode(
+					'control-style-override',
+					props.relativePath,
+					declaration,
+					`Cannot prove selector destination for declaration "${declaration.prop}"; anchor semantic content with a class or use an owned content slot.`,
+				),
+			);
+		}
+		if (
+			!isPrimitiveSourcePath(props.relativePath) &&
 			!isAllowedCanonicalBaseReset &&
 			parentRule?.type === 'rule' &&
-			controlSelectorPattern.test((parentRule as Rule).selector) &&
+			targetsOwnedRecipe((parentRule as Rule).selector) &&
 			controlStylePropertyPattern.test(declaration.prop)
 		) {
 			findings.push(
@@ -130,10 +170,17 @@ export function analyzeCssSource(props: {
 		}
 
 		if (parentRule?.type === 'rule') {
-			for (const className of cssClassNames((parentRule as Rule).selector)) {
+			const selector = (parentRule as Rule).selector;
+			for (const className of cssClassNames(selector)) {
 				const styleProperties = customClassStyleProperties.get(className) ?? new Set<string>();
 				styleProperties.add(declaration.prop);
 				customClassStyleProperties.set(className, styleProperties);
+				if (classOwnsDescendantSelector(selector, className)) {
+					const descendantProperties =
+						customClassDescendantStyleProperties.get(className) ?? new Set<string>();
+					descendantProperties.add(declaration.prop);
+					customClassDescendantStyleProperties.set(className, descendantProperties);
+				}
 			}
 		}
 	});
@@ -164,11 +211,53 @@ export function analyzeCssSource(props: {
 		}
 	});
 
-	return { findings, primitiveEntries, duplicatePrimitiveNames, customClassStyleProperties };
+	return {
+		findings,
+		primitiveEntries,
+		duplicatePrimitiveNames,
+		customClassStyleProperties,
+		customClassDescendantStyleProperties,
+	};
 }
 
 function cssClassNames(selector: string): readonly string[] {
 	return [...selector.matchAll(/\.([_a-zA-Z][\w-]*)/gu)].map((match) => match[1] ?? '');
+}
+
+function classOwnsDescendantSelector(selector: string, className: string): boolean {
+	const escapedClassName = className.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+	const classPattern = new RegExp(`\\.${escapedClassName}(?![\\w-])`, 'gu');
+	return list.comma(selector).some((selectorBranch) => {
+		for (const match of selectorBranch.matchAll(classPattern)) {
+			const suffix = selectorBranch.slice((match.index ?? 0) + match[0].length);
+			if (/(?:\s|[>+~])+[^\s>+~]/u.test(suffix)) return true;
+		}
+		return false;
+	});
+}
+
+function selectorHasClassAnchor(selector: string): boolean {
+	// A class in an attribute value or :is() alternative is not a proven anchor.
+	// More complex selector forms remain unsupported rather than inferred safe.
+	return /^(?:[a-z][\w-]*)?\.[_a-zA-Z][\w-]*/iu.test(selector);
+}
+
+function isRendererInternalSelector(selector: string): boolean {
+	// Pierre injects unsafeCSS into its shadow root. Its data attributes name
+	// renderer internals; slotted React content and owned slots are not that scope.
+	return (
+		/^(?:\[data-[\w-]+|:host(?:\b|\())/u.test(selector) &&
+		!/(?:::slotted|\[data-slot)/u.test(selector)
+	);
+}
+
+function isKeyframeDeclaration(declaration: Declaration): boolean {
+	let ancestor: Node | undefined = declaration.parent;
+	while (ancestor !== undefined) {
+		if (ancestor.type === 'atrule' && (ancestor as AtRule).name.endsWith('keyframes')) return true;
+		ancestor = ancestor.parent;
+	}
+	return false;
 }
 
 function findPrimitiveBounds(
