@@ -110,7 +110,7 @@ function ComboboxContent({
 					data-slot="combobox-content"
 					data-chips={!!anchor}
 					className={cn(
-						'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg border border-popover-border bg-popover text-xs text-popover-foreground shadow-popover duration-[var(--motion-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:bg-control-fill *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+						'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg border border-popover-border bg-popover text-xs text-popover-foreground shadow-popover duration-[var(--motion-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:bg-field-background *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
 						className,
 					)}
 					{...props}
@@ -234,7 +234,7 @@ function ComboboxChips({
 		<ComboboxPrimitive.Chips
 			data-slot="combobox-chips"
 			className={cn(
-				'flex min-h-7 flex-wrap items-center gap-1 rounded-md border border-input bg-control-fill bg-clip-padding px-2 py-0.5 text-xs transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring has-aria-invalid:border-destructive has-aria-invalid:ring-2 has-aria-invalid:ring-destructive/20 has-disabled:bg-transparent has-disabled:text-faint-foreground has-data-[slot=combobox-chip]:px-1',
+				'flex min-h-7 flex-wrap items-center gap-1 rounded-md border border-input bg-field-background bg-clip-padding px-2 py-0.5 text-xs transition-colors focus-within:border-input focus-within:ring-2 focus-within:ring-ring has-aria-invalid:border-destructive has-aria-invalid:ring-2 has-aria-invalid:ring-destructive/20 has-aria-invalid:focus-within:border-destructive has-disabled:bg-transparent has-disabled:text-faint-foreground has-data-[slot=combobox-chip]:px-1',
 				className,
 			)}
 			{...props}

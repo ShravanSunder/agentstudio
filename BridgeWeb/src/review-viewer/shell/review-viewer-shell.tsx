@@ -525,7 +525,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 					),
 					bodyClassName: 'min-h-0 flex-1 overflow-hidden overscroll-contain',
 					bodyTestId: 'bridge-review-rail-scroll',
-					border: 'opaque',
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
 					toolbarBelow: (

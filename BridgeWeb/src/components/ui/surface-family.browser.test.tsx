@@ -35,8 +35,8 @@ test('coordinates floating and tree search without changing their protected canv
 	);
 	const style = (id: string): CSSStyleDeclaration =>
 		getComputedStyle(rendered.getByTestId(id).element());
-	expect(style('floating').backgroundColor).toBe('rgb(48, 49, 54)');
-	expect(style('card').backgroundColor).toBe('rgb(57, 58, 63)');
+	expect(style('floating').backgroundColor).toBe('rgb(28, 32, 38)');
+	expect(style('card').backgroundColor).toBe('rgb(39, 44, 52)');
 	await act(async (): Promise<void> => {
 		(rendered.getByTestId('floating').element() as HTMLElement).style.setProperty(
 			'--card',
@@ -44,19 +44,19 @@ test('coordinates floating and tree search without changing their protected canv
 		);
 	});
 	expect(style('card').backgroundColor).toBe('rgb(70, 71, 76)');
-	expect(style('floating').backgroundColor).toBe('rgb(48, 49, 54)');
+	expect(style('floating').backgroundColor).toBe('rgb(28, 32, 38)');
 	await act(async (): Promise<void> => {
 		(rendered.getByTestId('floating').element() as HTMLElement).style.removeProperty('--card');
 	});
-	expect(style('standalone').backgroundColor).toBe('rgba(255, 255, 255, 0.04)');
+	expect(style('standalone').backgroundColor).toBe('rgb(20, 24, 30)');
 	expect(style('tree-search').backgroundColor).toBe(style('standalone').backgroundColor);
-	expect(style('tree').backgroundColor).toBe('rgb(39, 40, 45)');
+	expect(style('tree').backgroundColor).toBe('rgb(28, 32, 38)');
 	expect(style('canvas').backgroundColor).toBe('rgb(40, 44, 52)');
 	await act(async () => {
 		await rendered.getByRole('textbox', { name: 'Search files' }).click();
 	});
-	await expect.poll(() => style('tree-search').borderColor).toBe('rgb(64, 156, 255)');
-	expect(style('tree-search').boxShadow).toContain('rgb(64, 156, 255)');
+	await expect.poll(() => style('tree-search').borderColor).toBe('rgb(110, 119, 135)');
+	expect(style('tree-search').boxShadow).toContain('rgb(143, 152, 168)');
 	await act(async () => {
 		await rendered.getByRole('combobox', { name: 'Search branches' }).click();
 	});
@@ -75,7 +75,7 @@ test('coordinates floating and tree search without changing their protected canv
 		.element()
 		.querySelector('svg');
 	expect(selectedIndicator?.getBoundingClientRect().width).toBeGreaterThan(0);
-	expect(getComputedStyle(highlighted).backgroundColor).toBe('rgba(255, 255, 255, 0.08)');
-	expect(getComputedStyle(highlighted).boxShadow).toContain('rgb(64, 156, 255)');
+	expect(getComputedStyle(highlighted).backgroundColor).toBe('rgb(62, 70, 82)');
+	expect(getComputedStyle(highlighted).boxShadow).toContain('rgb(143, 152, 168)');
 	await page.screenshot({ path: '../../../../tmp/bridgeweb-surface-family-trial.png' });
 });

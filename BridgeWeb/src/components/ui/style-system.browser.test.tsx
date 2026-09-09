@@ -33,14 +33,23 @@ import { Toggle } from './toggle.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 
 const transparentBackground = 'rgba(0, 0, 0, 0)';
-const floatingBorderColor = 'rgb(88, 88, 92)';
-const floatingSurfaceColor = 'rgb(48, 49, 54)';
+const floatingBorderColor = 'rgb(86, 97, 113)';
+const floatingSurfaceColor = 'rgb(28, 32, 38)';
 
 test('keeps lighter chrome and navigation separate from the reading canvas', () => {
 	const style = getComputedStyle(document.documentElement);
-	expect(style.getPropertyValue('--palette-neutral-n0').trim()).toBe('#272727');
-	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#27282d');
+	expect(style.getPropertyValue('--palette-neutral-n0').trim()).toBe('#191b1f');
+	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#1c2026');
 	expect(style.getPropertyValue('--palette-neutral-n1').trim()).toBe('#282c34');
+	expect(style.getPropertyValue('--palette-neutral-n3').trim()).toBe('#1c2026');
+	expect(style.getPropertyValue('--palette-surface-card').trim()).toBe('#272c34');
+	expect(style.getPropertyValue('--palette-control-fill').trim()).toBe('#343a44');
+	expect(style.getPropertyValue('--palette-control-hover').trim()).toBe('#3e4652');
+	expect(style.getPropertyValue('--palette-field-background').trim()).toBe('#14181e');
+	expect(style.getPropertyValue('--palette-stroke-input').trim()).toBe('#6e7787');
+	expect(style.getPropertyValue('--palette-stroke-border').trim()).toBe('#434b57');
+	expect(style.getPropertyValue('--palette-stroke-floating').trim()).toBe('#566171');
+	expect(style.getPropertyValue('--palette-stroke-focus').trim()).toBe('#8f98a8');
 });
 const popoverElevation = ['black/0.45 0px 10px 24px -8px', 'black/0.35 0px 3px 8px -2px'] as const;
 const contextPanelElevation = [
@@ -200,8 +209,8 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	expect(getComputedStyle(requiredSvg(disabledPrimary)).color).toBe(faintForeground);
 
 	expect(openStyle.backgroundColor).not.toBe(transparentBackground);
-	expect(openStyle.backgroundColor).toBe('rgba(255, 255, 255, 0.04)');
-	expect(pressedStyle.backgroundColor).toBe('rgba(255, 255, 255, 0.08)');
+	expect(openStyle.backgroundColor).toBe('rgb(52, 58, 68)');
+	expect(pressedStyle.backgroundColor).toBe('rgb(62, 70, 82)');
 	expect(pressedStyle.color).toBe(openStyle.color);
 	expect(selectedStyle.backgroundColor).not.toBe(openStyle.backgroundColor);
 	expect(selectedStyle.color).toBe(openStyle.color);

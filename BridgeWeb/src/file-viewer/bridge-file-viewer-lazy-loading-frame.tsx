@@ -38,7 +38,6 @@ export function BridgeFileViewerLazyLoadingFrame(props: {
 					body: <div className="h-full min-h-0" />,
 					bodyClassName: 'min-h-0 flex-1 overflow-hidden',
 					bodyTestId: 'bridge-file-viewer-lazy-loading-sidebar-body',
-					border: 'subtle',
 					layout: 'grid',
 					testId: 'bridge-file-viewer-lazy-loading-sidebar',
 					toolbar: BridgeViewerRailToolbar({
