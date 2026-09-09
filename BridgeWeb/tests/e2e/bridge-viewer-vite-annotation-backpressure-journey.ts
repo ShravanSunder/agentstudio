@@ -32,10 +32,7 @@ import {
 	type BridgeViewerOwnedViteProductServer,
 	type BridgeViewerViteProductFixtureOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
-import {
-	bridgeViewerViteProductFileUrl,
-	bridgeViewerViteProductReviewUrl,
-} from './bridge-viewer-vite-product-url.ts';
+import { bridgeViewerViteProductFileUrl } from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
 	type BrowserRuntimeDiagnostics,
@@ -393,6 +390,12 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		let bootstrapRequestCount = 0;
+		createdPage.on('request', (request: Request): void => {
+			if (new URL(request.url()).pathname === '/__bridge-product/bootstrap') {
+				bootstrapRequestCount += 1;
+			}
+		});
 		const projectionQueries = observeAnnotationProjectionQueries(createdPage);
 		const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(createdPage);
 		await runMilestone({
@@ -430,11 +433,12 @@ async function runAnnotationBackpressureJourney(props: {
 			after: 'review.item-count.waiting',
 			before: 'review.loading',
 			milestones: props.milestones,
+			// Mode switching reuses the live session; document navigation starts a new one.
 			operation: async () =>
-				createdPage.goto(bridgeViewerViteProductReviewUrl(props.server.origin), {
-					timeout: stressJourneyTimeoutMilliseconds,
-					waitUntil: 'domcontentloaded',
-				}),
+				createdPage
+					.getByTestId('bridge-viewer-mode-host-file')
+					.getByTestId('bridge-viewer-context-review')
+					.click(),
 		});
 		await runMilestone({
 			after: 'review.item-count.ready',
@@ -448,6 +452,7 @@ async function runAnnotationBackpressureJourney(props: {
 					page: createdPage,
 				}),
 		});
+		expect(bootstrapRequestCount).toBe(1);
 		const reviewFile = props.oracle.reviewFiles[0];
 		if (reviewFile === undefined) throw new Error('Stress Review fixture has no changed file.');
 		await runMilestone({
@@ -569,12 +574,15 @@ async function runAnnotationBackpressureJourney(props: {
 					viewer: 'review',
 				}),
 		});
-		const fileModeUpdateRequest = createdPage.waitForRequest(
-			fileActiveViewerModeUpdateRequestMatches,
-			{ timeout: stressOperationTimeoutMilliseconds },
-		);
-		await createdPage.getByTestId('bridge-viewer-context-file').click();
-		await fileModeUpdateRequest;
+		await Promise.all([
+			createdPage.waitForRequest(fileActiveViewerModeUpdateRequestMatches, {
+				timeout: stressOperationTimeoutMilliseconds,
+			}),
+			createdPage
+				.getByTestId('bridge-viewer-mode-host-review')
+				.getByTestId('bridge-viewer-context-file')
+				.click(),
+		]);
 		await expect
 			.poll(
 				async (): Promise<string | null> =>
@@ -617,6 +625,18 @@ async function runAnnotationBackpressureJourney(props: {
 					waitUntil: 'domcontentloaded',
 				}),
 		});
+		// Reload reopens the original File-target URL. Re-enter Review through its control.
+		await runMilestone({
+			after: 'file.ready',
+			before: 'file.ready.waiting',
+			milestones: props.milestones,
+			operation: async () => waitForSelectedFileReady({ oracle: props.oracle, page: createdPage }),
+		});
+		expect(bootstrapRequestCount).toBe(2);
+		await createdPage
+			.getByTestId('bridge-viewer-mode-host-file')
+			.getByTestId('bridge-viewer-context-review')
+			.click();
 		await runMilestone({
 			after: 'review.item-count.ready',
 			before: 'review.item-count.waiting',
@@ -629,6 +649,8 @@ async function runAnnotationBackpressureJourney(props: {
 					page: createdPage,
 				}),
 		});
+		expect(bootstrapRequestCount).toBe(2);
+		await selectReviewFile({ page: createdPage, path: reviewFile.path });
 		await runMilestone({
 			after: 'review.selected.ready',
 			before: 'review.selected.waiting',
@@ -842,10 +864,14 @@ async function waitForCommittedAnnotationOutcome(
 	if (!isRecord(outcome['status']) || outcome['status']['kind'] !== 'committed') {
 		throw new Error(`Non-committed ${operationKind} outcome.`);
 	}
-	if (!isRecord(outcome['receipt']) || outcome['receipt']['kind'] !== 'message') {
+	if (
+		!isRecord(outcome['receipt']) ||
+		outcome['receipt']['kind'] !== 'message' ||
+		!isRecord(outcome['receipt']['message'])
+	) {
 		throw new Error(`Committed ${operationKind} outcome is missing its message receipt.`);
 	}
-	const messageId = outcome['receipt']['messageId'];
+	const messageId = outcome['receipt']['message']['messageId'];
 	const requestId = outcome['requestId'];
 	const sessionId = outcome['sessionId'];
 	if (
