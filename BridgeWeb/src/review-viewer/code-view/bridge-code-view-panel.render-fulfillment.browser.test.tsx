@@ -406,7 +406,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			const surroundingNavigationFontSize = Number.parseFloat(
 				getComputedStyle(pierreHeaderTitle).fontSize,
 			);
-			expect(surroundingNavigationFontSize).toBe(13);
+			expect(surroundingNavigationFontSize).toBe(12);
 			for (const metadataCount of metadataCounts) {
 				const metadataCountStyle = getComputedStyle(metadataCount);
 				const metadataCountFontSize = Number.parseFloat(metadataCountStyle.fontSize);
