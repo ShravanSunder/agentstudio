@@ -24,21 +24,17 @@ test('quiets expanded ghost buttons without changing hover or other button varia
 		</div>,
 	);
 	const expanded = rendered.getByTestId('expanded-ghost').element();
-	expect(getComputedStyle(expanded).backgroundColor).toBe('rgba(255, 255, 255, 0.04)');
+	expect(getComputedStyle(expanded).backgroundColor).toBe('rgb(52, 58, 68)');
 	expect(getComputedStyle(rendered.getByTestId('expanded-outline').element()).backgroundColor).toBe(
-		'rgba(255, 255, 255, 0.08)',
+		'rgb(62, 70, 82)',
 	);
 	expect(getComputedStyle(rendered.getByTestId('idle-ghost').element()).backgroundColor).toBe(
 		'rgba(0, 0, 0, 0)',
 	);
 	await userEvent.hover(expanded);
-	await expect
-		.poll(() => getComputedStyle(expanded).backgroundColor)
-		.toBe('rgba(255, 255, 255, 0.08)');
+	await expect.poll(() => getComputedStyle(expanded).backgroundColor).toBe('rgb(62, 70, 82)');
 	await userEvent.unhover(expanded);
-	await expect
-		.poll(() => getComputedStyle(expanded).backgroundColor)
-		.toBe('rgba(255, 255, 255, 0.04)');
+	await expect.poll(() => getComputedStyle(expanded).backgroundColor).toBe('rgb(52, 58, 68)');
 });
 
 test('matches only the code-view scrollbar track to file chrome and preserves its thumb', async () => {
@@ -50,9 +46,9 @@ test('matches only the code-view scrollbar track to file chrome and preserves it
 	);
 	const codeScroll = rendered.getByTestId('code-scroll').element();
 	const otherScroll = rendered.getByTestId('other-scroll').element();
-	expect(getComputedStyle(codeScroll).scrollbarColor).toContain('rgb(39, 40, 45)');
+	expect(getComputedStyle(codeScroll).scrollbarColor).toContain('rgb(28, 32, 38)');
 	expect(getComputedStyle(codeScroll, '::-webkit-scrollbar-track').backgroundColor).toBe(
-		'rgb(39, 40, 45)',
+		'rgb(28, 32, 38)',
 	);
 	expect(getComputedStyle(otherScroll, '::-webkit-scrollbar-track').backgroundColor).toBe(
 		'rgba(0, 0, 0, 0)',
@@ -91,7 +87,7 @@ test('uses coherent control roles without recoloring protected annotation and co
 		getComputedStyle(rendered.getByTestId(testId).element());
 	expect.soft(style('action').color).toBe('rgb(234, 234, 234)');
 	expect.soft(style('selected').color).toBe('rgb(234, 234, 234)');
-	expect.soft(style('input').backgroundColor).toBe('rgba(255, 255, 255, 0.04)');
+	expect.soft(style('input').backgroundColor).toBe('rgb(20, 24, 30)');
 	expect.soft(style('track').backgroundColor).toBe('rgba(0, 0, 0, 0)');
 	expect.soft(style('disabled-selected').opacity).toBe('1');
 	expect.soft(style('disabled-selected').borderColor).not.toBe('rgba(0, 0, 0, 0)');
@@ -152,6 +148,7 @@ test.each(['standalone', 'grouped'] as const)(
 		expect(document.activeElement).toBe(input);
 		const frame = layout === 'grouped' ? rendered.getByTestId('invalid-group').element() : input;
 		const style = getComputedStyle(frame);
+		expect(style.borderColor).toBe('rgb(243, 139, 168)');
 		expect(style.boxShadow).toContain('2px');
 		expect(
 			renderedContrast(frame, style.getPropertyValue('--tw-ring-color')),

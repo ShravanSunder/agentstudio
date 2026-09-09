@@ -257,7 +257,9 @@ package enum AppStyles {
             /// the native toolbar controls. The value is pixel-measured in the
             /// unified-compact toolbar after the custom item resolves to 40 points.
             package static let stripCenterlineOffset: CGFloat = 1
-            package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
+            package static let titlebarBackground = NSColor(
+                srgbRed: 25.0 / 255.0, green: 27.0 / 255.0, blue: 31.0 / 255.0, alpha: 1.0
+            )
         }
 
         package enum Chrome {
@@ -313,6 +315,11 @@ package enum AppStyles {
         }
 
         package enum DrawerToolbar {
+            /// Slightly raised opaque surface for bottom-pane chrome above the app titlebar.
+            package static let background = Color(
+                nsColor: NSColor(
+                    srgbRed: 29.0 / 255.0, green: 31.0 / 255.0, blue: 35.0 / 255.0, alpha: 1.0
+                ))
             package static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             package static let labeledActionTrailingPadding: CGFloat = AppStyles.General.Spacing.standard
             package static let dividerHeight: CGFloat = 16

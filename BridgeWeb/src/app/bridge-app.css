@@ -55,12 +55,14 @@
 	--color-secondary: var(--secondary);
 	--color-control-fill: var(--control-fill);
 	--color-control-hover: var(--control-hover);
+	--color-field-background: var(--field-background);
 	--color-secondary-foreground: var(--secondary-foreground);
 	--color-muted: var(--muted);
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
 	--color-accent-foreground: var(--accent-foreground);
 	--color-destructive: var(--destructive);
+	--color-separator: var(--separator);
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
@@ -103,13 +105,17 @@
 
 	/* @design-primitives:start */
 	/* Neutral ramp: darkest chrome through strongest selected surface. */
-	--palette-neutral-n0: #272727;
+	--palette-neutral-n0: #191b1f;
 	--palette-neutral-n1: #282c34;
-	--palette-neutral-n2: #27282d;
-	--palette-neutral-n3: #303136;
-	--palette-surface-card: #393a3f;
+	--palette-neutral-n2: #1c2026;
+	--palette-neutral-n3: #1c2026;
+	--palette-surface-card: #272c34;
 	--palette-neutral-n4: #363636;
 	--palette-neutral-n5: #454545;
+	/* Opaque control surfaces: general controls, hover feedback, and recessed fields. */
+	--palette-control-fill: #343a44;
+	--palette-control-hover: #3e4652;
+	--palette-field-background: #14181e;
 	/* Text tiers: primary through deliberately faint supporting text. */
 	--palette-text-primary: #ffffff;
 	--palette-text-secondary: #eaeaea;
@@ -139,7 +145,10 @@
 	--palette-stroke-muted: rgb(255 255 255 / 0.15);
 	--palette-stroke-hover: rgb(255 255 255 / 0.2);
 	--palette-stroke-visible: rgb(255 255 255 / 0.25);
-	--palette-stroke-floating: #58585c;
+	--palette-stroke-border: #434b57;
+	--palette-stroke-input: #6e7787;
+	--palette-stroke-floating: #566171;
+	--palette-stroke-focus: #8f98a8;
 	/* ANSI palette: Pierre's fixed 16-color terminal contract. */
 	--palette-ansi-black: #1d1f21;
 	--palette-ansi-red: #cc6666;
@@ -186,9 +195,10 @@
 	--primary-foreground: var(--palette-ansi-black);
 	/* Filled secondary controls. */
 	--secondary: var(--palette-neutral-n4);
-	/* Shared controls compose with their containing surface, not the code ramp. */
-	--control-fill: var(--palette-wash-subtle);
-	--control-hover: var(--palette-wash-hover);
+	/* Shared controls use opaque neutral fills distinct from recessed field wells. */
+	--control-fill: var(--palette-control-fill);
+	--control-hover: var(--palette-control-hover);
+	--field-background: var(--palette-field-background);
 	/* High-contrast text on secondary controls. */
 	--secondary-foreground: var(--palette-text-secondary);
 	/* De-emphasized fills. */
@@ -201,12 +211,14 @@
 	--accent-foreground: var(--palette-text-secondary);
 	/* Errors, deletions, and destructive actions. */
 	--destructive: var(--palette-red);
-	/* Hairline separators. */
-	--border: var(--palette-stroke-subtle);
+	/* Quiet layout separators remain distinct from visible component borders. */
+	--separator: var(--palette-stroke-subtle);
+	/* Visible component and card borders. */
+	--border: var(--palette-stroke-border);
 	/* Control outlines. */
-	--input: var(--palette-stroke-hover);
+	--input: var(--palette-stroke-input);
 	/* Focus indication. */
-	--ring: var(--primary);
+	--ring: var(--palette-stroke-focus);
 	/* Floating chrome and rail surface. */
 	--surface: var(--palette-neutral-n0);
 	/* Primary text on surfaces. */
@@ -264,8 +276,8 @@
 	/* Annotation lane: subtle white wash over the code canvas. */
 	--annotation-lane-background: color-mix(
 		in srgb,
-		var(--background) 96%,
-		var(--palette-text-primary) 4%
+		var(--background) 97%,
+		var(--palette-text-primary) 3%
 	);
 	/* Selected lane stays subdued; text and nested panels retain their own paint. */
 	--annotation-lane-active-background: color-mix(
@@ -280,9 +292,9 @@
 	/* Muted comment metadata and supporting text. */
 	--annotation-muted: var(--faint-foreground);
 	/* Comment container outline. */
-	--annotation-border: color-mix(in srgb, var(--input) 70%, transparent);
+	--annotation-border: color-mix(in srgb, var(--palette-stroke-hover) 70%, transparent);
 	/* Dividers within a comment surface. */
-	--annotation-divider: color-mix(in srgb, var(--border) 72%, transparent);
+	--annotation-divider: color-mix(in srgb, var(--palette-stroke-subtle) 72%, transparent);
 	/* Hover feedback aligned with the code canvas. */
 	--annotation-hover: color-mix(in srgb, var(--accent) 64%, transparent);
 	/* Product identity for active annotation actions. */
