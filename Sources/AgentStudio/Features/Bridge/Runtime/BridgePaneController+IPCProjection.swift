@@ -571,6 +571,14 @@ extension BridgePaneController {
             rawProductMetadataStreamDiagnostic?.kind === 'productMetadataStream'
               ? {
                   kind: 'productMetadataStream',
+                  routeFailureSubscriptionId: clip(rawProductMetadataStreamDiagnostic.routeFailureSubscriptionId, 128) || null,
+                  lastSubscriptionTermination: objectOrNull(rawProductMetadataStreamDiagnostic.lastSubscriptionTermination) === null
+                    ? null
+                    : {
+                        subscriptionId: clip(rawProductMetadataStreamDiagnostic.lastSubscriptionTermination.subscriptionId, 128) || null,
+                        outcome: enumStringOrNull(rawProductMetadataStreamDiagnostic.lastSubscriptionTermination.outcome, ['terminal', 'failed']),
+                        reason: clip(rawProductMetadataStreamDiagnostic.lastSubscriptionTermination.reason, 80) || null
+                      },
                   acknowledgedFrameCount: nonnegativeIntegerOrNull(
                     rawProductMetadataStreamDiagnostic.acknowledgedFrameCount
                   ),
