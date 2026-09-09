@@ -5,7 +5,8 @@ with an isolated debug app the user can test. Worktree: `agent-studio.issues-per
 branch: `takeover/remaining-performance-memory`; draft PR:
 https://github.com/ShravanSunder/agentstudio/pull/335.
 
-Last reviewed implementation HEAD: `95f3c3e44`; audit base: `6cbbee4a4`.
+Relevance audit HEAD: `95f3c3e44`; audit base: `6cbbee4a4`. Reviewed cleanup and
+fixture corrections committed as `40495b2ec` through normal format/lint hooks.
 Reviewed cleanup and command-test completion corrections have focused proof and independent
 review; full aggregate verification remains required. Refresh remote main before final integration; these are recorded refs,
 not a claim that the remote has remained unchanged.
@@ -61,7 +62,8 @@ ONE APP-ONLY PR, READY BUT UNMERGED
 │   └── OPEN: final aggregate rerun, current shared-input runtime proof and native decisions
 └── Delivery
     ├── DONE: fresh Astra review and bounded fixture rechecks; no remaining findings
-    ├── OPEN: scoped commits/push and current main integration
+    ├── DONE: initial cleanup committed; remote main 6cbbee4a4 remains integrated
+    ├── OPEN: final fixture correction commit/push
     ├── OPEN: PR checks, review comments/threads and mergeability
     ├── OPEN: current debug app, source/input identity and short user test checklist
     └── STOP: ready to merge, unmerged; no release/tag/merge implied
@@ -105,8 +107,15 @@ no-op/boundary tests now wait for an observable ordered result instead of passin
 The final isolated direct-close suites also needed standard Core atom scope initialization;
 both now pass 6 tests / 2 suites, exit 0, in
 `/tmp/agentstudio-pr335-publication-scope-proof.log`. No test body or SQL failure trigger changed.
-Final aggregate on the committed correction remains required.
-No current aggregate success is claimed.
+The committed-HEAD aggregate on `40495b2ec` reached the large Swift lane and exited 1:
+`/tmp/agentstudio-pr335-committed-aggregate.log`. DrawerCommandIntegrationTests had five
+failing scenarios / 11 issues: its fixture used a store without the SQLite save coordinator
+required by terminal creation/discard/close. It now uses the existing prepared-journal
+fixture and joins executor/coordinator shutdown on success, early return and throw.
+All 20 original scenario bodies, 46 expectations and 12 requirements remain; Astra
+found no issue in the bounded correction. Focused proof passed 20 tests / one suite,
+exit 0: `/tmp/agentstudio-pr335-drawer-fixture-proof.log`. Large-lane follow-up is running.
+Final aggregate on the final committed correction remains required; no aggregate success is claimed.
 
 ## Prior bounded proof retained
 
@@ -156,6 +165,10 @@ Current empty baseline: 103 MiB, zero surfaces/mounts/hosts/renderer/I/O/direct 
 This is not a cycle proof. Subsequent aggregate work relinked the build output, so refresh the final
 candidate after gates. Exact PID/window capture explicitly reports the macOS GUI session locked;
 unlock request is pending. Target exact PID/path, never production by name.
+Fresh capture on 2026-09-09 at 03:52Z still reports locked GUI. The same candidate's
+03:54Z idle sampler reports 97 MiB, zero surfaces/mounts/hosts/renderer/I/O/direct children
+and owned graphics, with no capture errors: `/tmp/agentstudio-pr335-empty-idle-followup.json`.
+This is an idle follow-up, not final-source cycle or drawer proof.
 
 ## Current process-mechanism boundary
 
