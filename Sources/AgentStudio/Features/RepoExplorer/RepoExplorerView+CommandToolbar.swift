@@ -77,22 +77,30 @@ extension RepoExplorerView {
         )
         .popover(isPresented: organizationSelectorBinding(.sortField), arrowEdge: .top) {
             SidebarPopoverReveal {
-                SidebarGroupingPopover(
-                    items: options.filter(\.isEnabled).map(\.value),
-                    selectedItem: selected,
-                    icon: { command in
-                        command.definition.icon.swiftUIImage(
-                            loader: octiconLoader, size: AppStyles.General.Icon.compact
-                        )
-                    },
-                    label: { command in command.definition.label },
-                    onSelect: { command in
-                        guard presentation.command(command)?.isEnabled == true else { return }
-                        commandDispatcher.dispatch(command)
-                        openOrganizationSelector = nil
-                    },
-                    onDismiss: { openOrganizationSelector = nil }
-                )
+                let sortAction = LocalActionSpec.sortRepoExplorerItems.actionSpec
+                VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
+                    SidebarPopoverSectionHeader(sortAction.label) {
+                        sortAction.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
+                    }
+                    SidebarGroupingPopover(
+                        items: options.filter(\.isEnabled).map(\.value),
+                        selectedItem: selected,
+                        icon: { command in
+                            command.definition.icon.swiftUIImage(
+                                loader: octiconLoader, size: AppStyles.General.Icon.compact
+                            )
+                        },
+                        label: { command in command.definition.label },
+                        onSelect: { command in
+                            guard presentation.command(command)?.isEnabled == true else { return }
+                            commandDispatcher.dispatch(command)
+                            openOrganizationSelector = nil
+                        },
+                        onDismiss: { openOrganizationSelector = nil }
+                    )
+                }
+                .padding(AppStyles.Components.SidebarOrganizationPanel.contentPadding)
+
             }
         }
     }
@@ -140,6 +148,11 @@ extension RepoExplorerView {
                     },
                     subgroupTitle: subgroupAction.label,
                     unavailableSubgroupText: LocalActionSpec.noRepoExplorerSubgroups.actionSpec.label,
+                    unavailableSubgroupIcon: {
+                        LocalActionSpec.noRepoExplorerSubgroups.actionSpec.icon.swiftUIImage(
+                            loader: octiconLoader, size: AppStyles.General.Icon.compact
+                        )
+                    },
                     icon: { command in
                         command.definition.icon.swiftUIImage(
                             loader: octiconLoader, size: AppStyles.General.Icon.compact

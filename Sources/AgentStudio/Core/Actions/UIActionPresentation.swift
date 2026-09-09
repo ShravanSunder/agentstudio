@@ -117,6 +117,7 @@ package enum LocalActionSpec {
     case groupInboxNotifications
     case deleteInboxNotifications
     case showRepoExplorerOrganization
+    case sortRepoExplorerItems
     case groupRepoExplorerWorktrees
     case subgroupRepoExplorerWorktrees
     case noRepoExplorerSubgroups
@@ -266,6 +267,9 @@ package enum LocalActionSpec {
                 helpText: "Open delete actions for inbox notifications",
                 icon: .system(.deleteLeft)
             )
+        case .sortRepoExplorerItems:
+            return ActionSpec(
+                label: "Sort", helpText: "Choose how sidebar items are sorted", icon: .system(.arrowUpArrowDown))
         case .showRepoExplorerOrganization:
             return ActionSpec(
                 label: "Organization",

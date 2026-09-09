@@ -67,10 +67,11 @@ package struct SidebarOrganizationPopoverModel<Item: Hashable> {
 }
 
 @MainActor
-package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon: View>: View {
+package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon: View, UnavailableIcon: View>: View {
     let model: SidebarOrganizationPopoverModel<Item>
     let subgroupTitle: String
     let unavailableSubgroupText: String
+    @ViewBuilder let unavailableSubgroupIcon: () -> UnavailableIcon
     @ViewBuilder let icon: (Item) -> Icon
     @ViewBuilder let headerIcon: (SidebarOrganizationLevel) -> HeaderIcon
     let onSelect: (SidebarOrganizationPopoverItem<Item>) -> Void
@@ -82,6 +83,7 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
         subgroup: SidebarOrganizationPopoverSection<Item>?,
         subgroupTitle: String,
         unavailableSubgroupText: String,
+        @ViewBuilder unavailableSubgroupIcon: @escaping () -> UnavailableIcon,
         @ViewBuilder icon: @escaping (Item) -> Icon,
         @ViewBuilder headerIcon: @escaping (SidebarOrganizationLevel) -> HeaderIcon,
         onSelect: @escaping (SidebarOrganizationPopoverItem<Item>) -> Void,
@@ -90,6 +92,7 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
         self.model = SidebarOrganizationPopoverModel(group: group, subgroup: subgroup)
         self.subgroupTitle = subgroupTitle
         self.unavailableSubgroupText = unavailableSubgroupText
+        self.unavailableSubgroupIcon = unavailableSubgroupIcon
         self.icon = icon
         self.headerIcon = headerIcon
         self.onSelect = onSelect
@@ -141,27 +144,24 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
     }
 
     private func sectionHeader(_ title: String, level: SidebarOrganizationLevel) -> some View {
-        HStack(spacing: AppStyles.General.Spacing.standard) {
-            headerIcon(level)
-                .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                .textCase(.uppercase)
-        }
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, AppStyles.General.Spacing.loose)
-        .accessibilityAddTraits(.isHeader)
+        SidebarPopoverSectionHeader(title) { headerIcon(level) }
     }
 
     private var unavailableSubgroupSection: some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
             sectionHeader(subgroupTitle, level: .subgroup)
-            Text(unavailableSubgroupText)
-                .font(.system(size: AppStyles.General.Typography.textXs))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, AppStyles.General.Spacing.loose)
-                .padding(.vertical, AppStyles.General.Spacing.tight)
+            HStack(spacing: AppStyles.General.Spacing.standard) {
+                unavailableSubgroupIcon()
+                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
+                    .accessibilityHidden(true)
+                Text(unavailableSubgroupText)
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .regular))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
+            .padding(.vertical, AppStyles.General.Spacing.tight)
         }
         .frame(width: AppStyles.Components.SidebarOrganizationPanel.columnWidth, alignment: .topLeading)
     }
