@@ -3,7 +3,7 @@ import Testing
 
 @testable import AgentStudioInfrastructure
 
-@Suite
+@Suite(.serialized)
 struct SidebarPerformanceWorkloadSettlementScriptTests {
     @Test("strict quiescence accepts bounded future Git eligibility")
     func strictQuiescenceAcceptsBoundedFutureGitEligibility() async throws {
