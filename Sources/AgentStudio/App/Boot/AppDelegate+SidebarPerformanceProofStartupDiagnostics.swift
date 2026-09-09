@@ -373,8 +373,20 @@ import Observation
             action: AgentStudioStartupDiagnosticAction,
             population: SidebarPerformanceProofPopulation
         ) async -> StrictSidebarPerformanceFixtureEvidence? {
-            guard let (controlRootURL, watchedPaths) = strictSidebarWatchedFixtureInputs(action: action)
+            guard let (controlRootURL, coldProof) = await prepareStrictSidebarControl(action: action)
             else { return nil }
+            guard
+                let watchedPaths = SidebarPerformanceProofFixture.registerStrictWatchedRoots(
+                    store: store,
+                    controlRootURL: controlRootURL
+                )
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "required_watched_roots_unavailable"
+                )
+                return nil
+            }
             guard let summary = await refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(watchedPaths)
             else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
@@ -409,16 +421,6 @@ import Observation
                 recordBlockedSidebarPerformanceProofDiagnostic(
                     action: action,
                     reason: "pane_fleet_failed"
-                )
-                return nil
-            }
-            atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
-            mainWindowController?.expandSidebar()
-
-            guard let coldProof = await proveStrictColdRepositoryControl(controlRootURL) else {
-                recordBlockedSidebarPerformanceProofDiagnostic(
-                    action: action,
-                    reason: "cold_repository_control_failed"
                 )
                 return nil
             }
@@ -692,9 +694,9 @@ import Observation
             RepositoryActivityClassifier.classify(input)
         }
 
-        private func strictSidebarWatchedFixtureInputs(
+        private func prepareStrictSidebarControl(
             action: AgentStudioStartupDiagnosticAction
-        ) -> (controlRootURL: URL, watchedPaths: [WatchedPath])? {
+        ) async -> (controlRootURL: URL, coldProof: StrictColdRepositoryProof)? {
             guard let controlRootURL = action.sidebarPerformanceControlRootURL() else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
                     action: action,
@@ -703,18 +705,37 @@ import Observation
                 return nil
             }
             guard
-                let watchedPaths = SidebarPerformanceProofFixture.registerStrictWatchedRoots(
-                    store: store,
-                    controlRootURL: controlRootURL
-                )
+                let watchedPath = store.mutationCoordinator.addWatchedPath(controlRootURL)
             else {
                 recordBlockedSidebarPerformanceProofDiagnostic(
                     action: action,
-                    reason: "required_watched_roots_unavailable"
+                    reason: "continuity_control_root_unavailable"
                 )
                 return nil
             }
-            return (controlRootURL, watchedPaths)
+            // Prove the control before fleet registration queues background Git work.
+            // Registration establishes coverage; only the real mutation supplies activity.
+            guard
+                let controlSummary = await refreshStrictWatchedRootsAndAwaitZeroLogicalDebt([watchedPath]),
+                controlSummary.repoPaths(in: controlRootURL) == [controlRootURL],
+                controlSummary.filesystemLogicalDebtCount == 0
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "continuity_control_scan_incomplete"
+                )
+                return nil
+            }
+            atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
+            mainWindowController?.expandSidebar()
+            guard let coldProof = await proveStrictColdRepositoryControl(controlRootURL) else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "cold_repository_control_failed"
+                )
+                return nil
+            }
+            return (controlRootURL, coldProof)
         }
 
         private func refreshStrictWatchedRootsAndAwaitZeroLogicalDebt(

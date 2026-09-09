@@ -175,18 +175,25 @@ struct SidebarPerformanceWorkloadScriptTests {
 
     @Test("implicit script proof root is removed after prepare-only completion")
     func implicitScriptProofRootIsRemovedAfterCompletion() async throws {
-        let result = try await runSidebarScript(arguments: [scriptPath, "--prepare-only"])
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_METRICS_RESPONSE":
+                    #"{"status":"success","data":{"result":[{"value":[0,"1"]}]}}"#,
+            ]
+        )
 
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        try #require(result.exitCode == 0, Comment(rawValue: result.stderr))
         let summaryPath = try #require(
             result.stdout.components(separatedBy: ": ").last
         ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let summaryURL = URL(fileURLWithPath: summaryPath)
+        try #require(summaryURL.lastPathComponent == "summary.txt")
+        let proofRoot = summaryURL.deletingLastPathComponent().deletingLastPathComponent()
+        try #require(proofRoot.lastPathComponent.hasPrefix("agentstudio-sidebar-script-test-"))
         #expect(!FileManager.default.fileExists(atPath: summaryPath))
-        #expect(
-            !FileManager.default.fileExists(
-                atPath: URL(fileURLWithPath: summaryPath).deletingLastPathComponent().path
-            )
-        )
+        #expect(!FileManager.default.fileExists(atPath: proofRoot.path))
     }
 }
 

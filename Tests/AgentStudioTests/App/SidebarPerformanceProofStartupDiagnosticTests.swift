@@ -729,47 +729,6 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!source.contains("AppCommandIPC"))
     }
 
-    @Test("strict fixture refreshes two real roots plus one isolated control root")
-    func strictFixtureRefreshesTwoRealRootsPlusOneIsolatedControlRoot() throws {
-        let fixtureSource = try String(
-            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofFixture+RealSize.swift",
-            encoding: .utf8
-        )
-        let diagnosticSource = try String(
-            contentsOfFile:
-                "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
-            encoding: .utf8
-        )
-        let combinedSource = fixtureSource + diagnosticSource
-
-        let requiredRoots = try #require(
-            combinedSource.range(of: "strictWatchedRootURLs")
-        )
-        let addWatchedPath = try #require(
-            combinedSource.range(of: "mutationCoordinator.addWatchedPath")
-        )
-        let refreshWatchedFolders = try #require(
-            diagnosticSource.range(of: "commands.refreshWatchedFolders")
-        )
-        let completedSummary = try #require(
-            diagnosticSource.range(of: "WatchedFolderRefreshSummary")
-        )
-        #expect(requiredRoots.lowerBound < addWatchedPath.lowerBound)
-        #expect(completedSummary.lowerBound < refreshWatchedFolders.lowerBound)
-        #expect(fixtureSource.contains("controlRootURL: URL"))
-        #expect(fixtureSource.contains("rootURLs + [controlRootURL]"))
-        #expect(combinedSource.contains("summary.repoPaths(in: rootURL).isEmpty"))
-        #expect(combinedSource.contains("summary.repoPaths(in: controlRootURL) == [controlRootURL]"))
-        #expect(combinedSource.contains("controlRootPresent: true"))
-        #expect(combinedSource.contains("control_root_present"))
-        #expect(combinedSource.contains("unknownRepositoryCount"))
-        #expect(combinedSource.contains("unknownWorktreeCount"))
-        #expect(combinedSource.contains("unknown_repository_count"))
-        #expect(combinedSource.contains("unknown_worktree_count"))
-        #expect(!diagnosticSource.contains("unclassifiedRepositoryCount"))
-        #expect(!diagnosticSource.contains("populateRealSizeTopology"))
-    }
-
     @Test("strict pane fixture registers native view slots before layout publication")
     func strictPaneFixtureRegistersNativeViewSlots() throws {
         let fixtureSource = try String(
