@@ -41,6 +41,12 @@ export function completeReviewContentMessages(
 					displayPath: file.path,
 					itemId: file.itemId,
 					lineCount: file.lineCount * 2,
+					sourceDescriptorIdsByRole: {
+						base: file.sourceDescriptorIdsByRole?.base ?? null,
+						diff: null,
+						file: null,
+						head: file.sourceDescriptorIdsByRole?.head ?? null,
+					},
 				},
 				fileDiff: parseBridgeCodeViewDiffForBrowserTest(
 					{ cacheKey: baseCacheKey, contents: baseContents, name: file.path },
