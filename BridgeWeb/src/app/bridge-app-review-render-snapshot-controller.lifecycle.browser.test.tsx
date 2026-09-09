@@ -378,12 +378,8 @@ describe('useBridgeReviewRenderSnapshotController lifecycle Browser Mode', () =>
 			await Promise.resolve();
 		});
 		await act(async (): Promise<void> => {
-			const wordWrapRow = [
-				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
-			].find(
-				(row): boolean =>
-					row.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
-					'Word wrap',
+			const wordWrapRow = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find(
+				(row): boolean => row.getAttribute('aria-label') === 'Word wrap',
 			);
 			if (wordWrapRow === undefined) throw new Error('Missing Review Word wrap setting');
 			wordWrapRow.click();

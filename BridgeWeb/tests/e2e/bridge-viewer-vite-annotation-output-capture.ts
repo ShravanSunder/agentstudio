@@ -27,7 +27,7 @@ export async function verifyAnnotationOutputCaptures(
 	const outputDirectory = join(props.dataRootPath, 'annotation-output-captures');
 	const markdownNamesBefore = await outputCaptureNames(outputDirectory, '.md');
 
-	await props.page.getByRole('button', { name: 'Share comments' }).click();
+	await props.page.getByRole('button', { name: 'Annotations', exact: true }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 	const copyButton = props.page.getByRole('button', { name: 'Copy Markdown' });
 	await waitForEnabledOutputButton(copyButton, props.timeoutMilliseconds);
@@ -46,7 +46,7 @@ export async function verifyAnnotationOutputCaptures(
 	expect(markdown).not.toContain(props.worktreeRoot);
 	expect(markdown.match(/^# /gmu)).toHaveLength(1);
 
-	await props.page.getByRole('button', { name: 'Share comments' }).click();
+	await props.page.getByRole('button', { name: 'Annotations', exact: true }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const history = props.page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/u });
 	await history.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
@@ -128,7 +128,7 @@ export async function verifyAnnotationOutputCaptures(
 		throw new Error('Annotation JSON capture omitted the saved message identity.');
 	}
 
-	await props.page.getByRole('button', { name: 'Share comments' }).click();
+	await props.page.getByRole('button', { name: 'Annotations', exact: true }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const completedHistory = props.page.getByRole('button', { name: /^History \([2-9][0-9]*\)$/u });
 	await completedHistory.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
