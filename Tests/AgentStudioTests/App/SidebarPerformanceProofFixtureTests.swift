@@ -260,7 +260,12 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
             controlPreparationSource.range(of: "controlSummary.repoPaths(in: controlRootURL)"))
         let coldProof = try #require(
             controlPreparationSource.range(of: "await proveStrictColdRepositoryControl(controlRootURL)"))
+        let sourceRegistration = try #require(
+            controlPreparationSource.range(
+                of: "await workspaceSurfaceCoordinator.syncFilesystemRootsAndActivityUntilIdle()"))
         #expect(controlScan.lowerBound < coldProof.lowerBound)
+        #expect(controlScan.lowerBound < sourceRegistration.lowerBound)
+        #expect(sourceRegistration.lowerBound < coldProof.lowerBound)
     }
 
     @Test("fresh strict cold control starts unknown before real FSEvent promotion")

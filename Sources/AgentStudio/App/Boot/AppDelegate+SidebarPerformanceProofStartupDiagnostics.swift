@@ -414,6 +414,7 @@ import Observation
                 return nil
             }
 
+            await workspaceSurfaceCoordinator.syncFilesystemRootsAndActivityUntilIdle()
             guard prepareStrictSidebarPaneFleet(action: action, controlRootURL: controlRootURL) else { return nil }
             await workspaceSurfaceCoordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
             guard
@@ -719,6 +720,9 @@ import Observation
                 )
                 return nil
             }
+            // A completed inventory scan does not join the separate source-registration lane.
+            // Its participants and stable-key bindings must exist before the stimulus is written.
+            await workspaceSurfaceCoordinator.syncFilesystemRootsAndActivityUntilIdle()
             atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
             mainWindowController?.expandSidebar()
             guard let coldProof = await proveStrictColdRepositoryControl(controlRootURL) else {
