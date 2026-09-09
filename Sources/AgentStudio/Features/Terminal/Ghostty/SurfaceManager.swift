@@ -74,6 +74,8 @@ package final class SurfaceManager {
 
     /// Fires when attach/detach/move/swap/destroy changes `activeSurfaces` membership.
     @ObservationIgnored package var onAttachedBindingsChanged: (() -> Void)?
+    @ObservationIgnored private var attachedBindingsBatchDepth = 0
+    @ObservationIgnored private var attachedBindingsChangePending = false
 
     // MARK: - Private State
     //
@@ -164,6 +166,27 @@ package final class SurfaceManager {
     /// Registers (or clears, passing `nil`) the `onAttachedBindingsChanged` handler.
     package func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?) {
         onAttachedBindingsChanged = handler
+    }
+
+    /// Per-surface hide/focus delivery stays immediate; publish the final attached set once.
+    func withAttachedBindingsBatch(_ operation: () -> Void) {
+        attachedBindingsBatchDepth += 1
+        defer {
+            attachedBindingsBatchDepth -= 1
+            if attachedBindingsBatchDepth == 0, attachedBindingsChangePending {
+                attachedBindingsChangePending = false
+                onAttachedBindingsChanged?()
+            }
+        }
+        operation()
+    }
+
+    private func notifyAttachedBindingsChanged() {
+        if attachedBindingsBatchDepth > 0 {
+            attachedBindingsChangePending = true
+        } else {
+            onAttachedBindingsChanged?()
+        }
     }
 
     // MARK: - Surface Creation
@@ -308,7 +331,7 @@ package final class SurfaceManager {
 
             updateCounts()
             emitRendererLifecycleAttached()
-            onAttachedBindingsChanged?()
+            notifyAttachedBindingsChanged()
             logger.info("Surface attached: \(surfaceId) to pane \(paneId)")
             RestoreTrace.log("SurfaceManager.attach fromHidden surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
@@ -327,7 +350,7 @@ package final class SurfaceManager {
 
             updateCounts()
             emitRendererLifecycleAttached()
-            onAttachedBindingsChanged?()
+            notifyAttachedBindingsChanged()
             logger.info("Surface restored from undo: \(surfaceId)")
             RestoreTrace.log("SurfaceManager.attach fromUndo surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
@@ -340,7 +363,7 @@ package final class SurfaceManager {
             updated.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = updated
             emitRendererLifecycleAttached()
-            onAttachedBindingsChanged?()
+            notifyAttachedBindingsChanged()
             RestoreTrace.log("SurfaceManager.attach alreadyActive surface=\(surfaceId) pane=\(paneId)")
             return managed.surface
         }
@@ -419,7 +442,7 @@ package final class SurfaceManager {
 
         updateCounts()
         if wasActive {
-            onAttachedBindingsChanged?()
+            notifyAttachedBindingsChanged()
         }
         RestoreTrace.log("SurfaceManager.detach end surface=\(surfaceId) reason=\(String(describing: reason))")
     }
@@ -443,7 +466,7 @@ package final class SurfaceManager {
 
         _ = deliverVisibility(surfaceId, visible: true)
         updateCounts()
-        onAttachedBindingsChanged?()
+        notifyAttachedBindingsChanged()
 
         logger.info("Surface moved: \(surfaceId) to \(targetPaneId)")
     }
@@ -465,7 +488,7 @@ package final class SurfaceManager {
         activeSurfaces[surfaceA] = managedA
         activeSurfaces[surfaceB] = managedB
 
-        onAttachedBindingsChanged?()
+        notifyAttachedBindingsChanged()
         logger.info("Surfaces swapped: \(surfaceA) <-> \(surfaceB)")
     }
 
@@ -536,7 +559,7 @@ package final class SurfaceManager {
 
         updateCounts()
         if removedFromActive {
-            onAttachedBindingsChanged?()
+            notifyAttachedBindingsChanged()
         }
         logger.info("Surface destroyed: \(surfaceId)")
         // External AppKit owners may retain the inert view after native retirement.

@@ -15,21 +15,27 @@ extension SurfaceManager {
         let ids = (Array(activeSurfaces.values) + Array(hiddenSurfaces.values)).filter {
             $0.attachmentPaneId.map(paneIDs.contains) ?? false
         }.map(\.id)
-        for surfaceID in ids { detach(surfaceID, reason: .close) }
+        withAttachedBindingsBatch {
+            for surfaceID in ids { detach(surfaceID, reason: .close) }
+        }
     }
 
     package func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {
         let ids = (Array(activeSurfaces.values) + Array(hiddenSurfaces.values)).filter {
             $0.attachmentPaneId.map(paneIDs.contains) ?? false
         }.map(\.id)
-        for surfaceID in ids { destroy(surfaceID) }
+        withAttachedBindingsBatch {
+            for surfaceID in ids { destroy(surfaceID) }
+        }
     }
 
     package func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {
         let surfaceIDs = undoStack.filter { entry in
             (entry.previousPaneAttachmentId ?? entry.surface.attachmentPaneId).map(paneIDs.contains) ?? false
         }.map(\.surface.id)
-        for surfaceID in surfaceIDs { destroy(surfaceID) }
+        withAttachedBindingsBatch {
+            for surfaceID in surfaceIDs { destroy(surfaceID) }
+        }
     }
 
     /// Outcome of one `deliverVisibility` call.

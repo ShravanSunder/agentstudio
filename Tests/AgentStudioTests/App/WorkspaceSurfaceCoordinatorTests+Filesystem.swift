@@ -305,37 +305,22 @@ extension WorkspaceSurfaceCoordinatorTests {
 
     private func waitUntilFilesystemState(
         source: CoordinatorRecordingFilesystemSource,
-        timeout _: Duration,
+        timeout: Duration,
         condition: @escaping @Sendable (CoordinatorFilesystemSourceSnapshot) -> Bool
     ) async {
-        for _ in 0..<200 {
-            let snapshot = await source.snapshot()
-            if condition(snapshot) {
-                return
-            }
-            await Task.yield()
+        await assertEventuallyAsync("filesystem sync state", minimumTurns: 200, timeout: timeout) {
+            condition(await source.snapshot())
         }
-
-        let finalSnapshot = await source.snapshot()
-        Issue.record("Timed out waiting for filesystem sync state. Snapshot: \(String(describing: finalSnapshot))")
     }
 
     private func waitUntilFilesystemState(
         source: CoordinatorDelayingFilesystemSource,
-        timeout _: Duration,
+        timeout: Duration,
         condition: @escaping @Sendable (CoordinatorFilesystemSourceSnapshot) -> Bool
     ) async {
-        for _ in 0..<200 {
-            let snapshot = await source.snapshot()
-            if condition(snapshot) {
-                return
-            }
-            await Task.yield()
+        await assertEventuallyAsync("filesystem sync state", minimumTurns: 200, timeout: timeout) {
+            condition(await source.snapshot())
         }
-
-        let finalSnapshot = await source.snapshot()
-        Issue.record(
-            "Timed out waiting for delayed filesystem sync state. Snapshot: \(String(describing: finalSnapshot))")
     }
 }
 

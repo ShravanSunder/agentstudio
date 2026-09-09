@@ -50,6 +50,16 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
         return isVisible(paneId) ? .p0Visible : .p1Hidden
     }
 
+    /// Reuse one tab composition during a synchronous attached-surface reconciliation.
+    /// Pane structural reads stay inside the caller's observation scope.
+    package func captureRendererVisibility() -> (UUID) -> Bool {
+        guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return { _ in false } }
+        return { paneID in
+            let paneId = PaneId(existingUUID: paneID)
+            return self.hasActiveResidency(paneId) && self.isVisible(paneId, in: store, activeTab: activeTab)
+        }
+    }
+
     package func isActive(_ paneId: PaneId) -> Bool {
         guard hasActiveResidency(paneId) else { return false }
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
@@ -62,7 +72,10 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
 
     private func isVisible(_ paneId: PaneId) -> Bool {
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
+        return isVisible(paneId, in: store, activeTab: activeTab)
+    }
 
+    private func isVisible(_ paneId: PaneId, in store: WorkspaceStore, activeTab: Tab) -> Bool {
         if let sourcePaneId = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId {
             if sourcePaneId == paneId.uuid {
                 return true
@@ -93,7 +106,8 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
             activeTab.activePaneIds.contains(parentPaneId),
             !activeTab.activeMinimizedPaneIds.contains(parentPaneId),
             store.paneAtom.isDrawerExpanded(for: parentPaneId),
-            let drawerView = drawerView(forParent: parentPaneId, in: store),
+            let drawerID = store.paneAtom.graphAtom.paneStructuralFacts(parentPaneId)?.ownedDrawerID,
+            let drawerView = activeTab.activeArrangement.drawerViews[drawerID],
             drawerView.layout.contains(paneId),
             !drawerView.minimizedPaneIds.contains(paneId)
         else {

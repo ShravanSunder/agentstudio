@@ -9,6 +9,55 @@ Relevance audit HEAD: `95f3c3e44`; audit base: `6cbbee4a4`. Final product correc
 through `d087c8338` have passing mandatory aggregate and bounded independent review.
 Always refresh external PR state before merge readiness; recorded refs are not live status.
 
+## Current MainActor correction (2026-09-09)
+
+Read-only inventory of base `6cbbee4a4` through `6d822123a` enumerated all 85 changed
+source files and traced the high-risk paths. Parent verified repeated full visibility
+reconciliation after each bulk detach, repeated active-tab composition per surface,
+and attention FIFO head shifting. Native Ghostty calls retain their supported
+MainActor contract; no vendor/API change is authorized. SQLite/zmx I/O and both
+deadline sleepers already run off-main. Await duration is not actor occupancy.
+
+Correction: preserve immediate per-surface hide/focus-off while batching bulk membership
+publication; compose the active tab once per reconciliation; transfer ordered attention
+batches without shifting the array per control. No new worker, persistence boundary,
+ownership policy or framework. The historical 162.29 ms sample covers the whole
+retirement wrapper, not isolated `ghostty_surface_free` time.
+
+Final-head CI run `34349794864` failed in the Swift fast lane: the filesystem fixture
+at `WorkspaceSurfaceCoordinatorTests+Filesystem.swift:320` exhausted a private
+200-yield loop after 28 ms. Both overloads ignored their timeout argument. They now use
+the existing shared bounded state wait with the exact predicates preserved. Detailed log:
+`tmp/pr335-wrapup-proof/final-head-ci-failed.log`. All other jobs passed. Local
+aggregate on `6d822123a` passed before these corrections; fresh gates remain required.
+
+Correction proof:
+
+- Bulk red: 20 notifications instead of one. Green: one final notification, all 20
+  immediate hide/focus-off deliveries, repeated no-op close emits nothing.
+- Six separate focused Swift processes passed, exit 0: 56 tests (3 integration,
+  6 visibility, 16 delivery, 2 retirement, 10 attention, 19 coordinator). Includes a
+  257-transition blocked attention backlog, later batch, cancellation and restart.
+  `mise run lint` passed, exit 0; fresh no-history Astra review found no findings.
+- Corrected debug PID 62159, marker `debug-observability-lbim-1788959709-61543`,
+  executable UUID `9B745931-5FF4-3F8F-B3AE-583B0F3DA97C` matches tested build and bundle.
+  Standard debug observability verifier passed. Same isolated data/session roots.
+- Native comparison: same disposable four-pane tab, ten close/Undo pairs and ten
+  tab-switch pairs on each build. Every Undo restored four panes. Both windows ended
+  with 13 live/managed renderers and no orphan candidate. Across 40 emitted reconciliations
+  per build, p95 improved 0.284125→0.02025 ms; maximum 0.318792→0.022167 ms.
+  Tab-bar totals were 19.36→18.99 ms; sidebar capture totals 22.86→22.79 ms.
+- Broad CPU windows were 15.10 CPU seconds/41.04 wall seconds before and 30.76/60.28
+  afterward. They include unequal automation gaps and background work and do not prove
+  whole-app CPU regression freedom. The sampled switch workload spent 10,727/12,350
+  MainActor samples in its event-loop wait; 1,102 traversed accessibility hierarchy
+  copying. The changed visibility functions were not sampled. This does not erase the
+  CPU observation or establish a universal latency bound.
+
+Evidence: `tmp/pr335-wrapup-proof/mainactor-*` logs, native windows, comparison,
+population, and independent-review receipts. Final mandatory aggregate and hosted gates
+must be evaluated against the eventual pushed head; the PR owns current delivery status.
+
 ## Fixed boundaries
 
 - App code only. No Ghostty/zmx source, pins, build scripts, local vendor builds, patches or

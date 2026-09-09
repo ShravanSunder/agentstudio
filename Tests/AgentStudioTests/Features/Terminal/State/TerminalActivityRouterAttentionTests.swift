@@ -72,6 +72,36 @@ struct TerminalActivityRouterAttentionTests {
             ])
     }
 
+    @Test("a backlog of settled transitions drains in order and accepts a later batch")
+    func settledBacklogDrainsBeforeLaterBatch() async {
+        let fixture = AttentionFixture()
+        fixture.recorder.blocksFirstControl = true
+        await fixture.start()
+        fixture.selectPane(at: 1)
+        await assertEventuallyMain("first control entered") { fixture.recorder.isBlocked }
+        var expected = [fixture.event(0, false), fixture.event(1, true)]
+        var previous = 1
+        for transition in 2...257 {
+            let next = transition % fixture.paneIDs.count
+            fixture.selectPane(at: next)
+            await fixture.router.waitForPendingAttentionSettlement()
+            expected.append(contentsOf: [fixture.event(previous, false), fixture.event(next, true)])
+            previous = next
+        }
+        #expect(fixture.recorder.events == [fixture.event(0, false)])
+        fixture.recorder.releaseBlockedControl()
+        await fixture.router.waitForPendingAttentionDelivery()
+        #expect(fixture.recorder.events == expected)
+
+        let next = (previous + 1) % fixture.paneIDs.count
+        fixture.selectPane(at: next)
+        await fixture.router.waitForPendingAttentionDelivery()
+        expected.append(contentsOf: [fixture.event(previous, false), fixture.event(next, true)])
+        await fixture.stop()
+        #expect(fixture.recorder.events == expected)
+        #expect(fixture.recorder.maximumConcurrentControls == 1)
+    }
+
     @Test("stop ignores attention changes and a later start arms again")
     func stopAndRestartPreserveAttentionLifecycle() async {
         // Arrange

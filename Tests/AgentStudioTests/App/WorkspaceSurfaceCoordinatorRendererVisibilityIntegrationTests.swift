@@ -90,6 +90,37 @@ struct SurfaceRendererVisibilityIntegrationTests {
 
     // MARK: - Tests
 
+    @Test("bulk close hides every surface before publishing one attached-set change")
+    func bulkClosePublishesOneAttachedSetChange() throws {
+        let delivery = RecordingSurfaceRendererStateDelivery()
+        let manager = makeManager(delivery: delivery)
+        let paneIDs = (0..<20).map { _ in UUIDv7.generate() }
+        var surfaceIDs: [UUID] = []
+        for paneID in paneIDs {
+            let managed = try acceptedSurface(makeBareSurface(), in: manager)
+            manager.attach(managed.id, to: paneID)
+            surfaceIDs.append(managed.id)
+        }
+        delivery.reset()
+        var attachedSetChanges = 0
+        manager.setAttachedBindingsChangeHandler {
+            attachedSetChanges += 1
+            #expect(delivery.visibilityCalls.count == paneIDs.count)
+            #expect(delivery.focusCalls.count == paneIDs.count)
+        }
+
+        manager.retainSurfacesForUndo(forPaneIDs: Set(paneIDs))
+
+        #expect(attachedSetChanges == 1)
+        #expect(Set(delivery.visibilityCalls.map(\.surfaceID)) == Set(surfaceIDs))
+        #expect(delivery.visibilityCalls.allSatisfy { !$0.visible })
+        #expect(delivery.focusCalls.allSatisfy { !$0.focused })
+        manager.retainSurfacesForUndo(forPaneIDs: Set(paneIDs))
+        #expect(attachedSetChanges == 1)
+        manager.setAttachedBindingsChangeHandler(nil)
+        manager.releaseUndoSurfaces(forPaneIDs: Set(paneIDs))
+    }
+
     @Test("tab switch delivers exactly the changed surfaces")
     func tabSwitchDeliversExactlyTheChangedSurfaces() async throws {
         try await withAsyncTestCoreAtoms { _ in

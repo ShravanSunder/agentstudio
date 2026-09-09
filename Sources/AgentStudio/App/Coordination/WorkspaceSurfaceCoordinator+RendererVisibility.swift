@@ -34,8 +34,14 @@ extension WorkspaceSurfaceCoordinator {
         let clock = ContinuousClock()
         let start = clock.now
         let reconciliationResult = withObservationTracking {
-            surfaceManager.reconcileAttachedVisibility { paneID in
-                self.effectiveRendererVisibility(forAttachedPaneID: paneID)
+            let windowFacts =
+                rendererVisibilityOwningWindowId
+                .flatMap(windowLifecycleStore.presentationFacts(for:)) ?? .hidden
+            let windowIsVisible = windowFacts.isVisible && !windowFacts.isMiniaturized && !windowFacts.isOccluded
+            guard windowIsVisible else { return surfaceManager.reconcileAttachedVisibility { _ in false } }
+            let visibilityForPaneID = visibilityTierResolver.captureRendererVisibility()
+            return surfaceManager.reconcileAttachedVisibility { paneID in
+                visibilityForPaneID(paneID)
             }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

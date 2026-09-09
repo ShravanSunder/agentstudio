@@ -539,15 +539,21 @@ extension TerminalActivityRouter {
         while !Task.isCancelled, attentionLifecycleEpoch == epoch, busTask != nil,
             !pendingAttentionControls.isEmpty
         {
-            let delivery = pendingAttentionControls.removeFirst()
-            guard surfaceIDForPaneID(delivery.paneID) == delivery.surfaceID else { continue }
-            await Ghostty.ActionRouter.applyOrderedActivityControl(
-                surfaceID: delivery.surfaceID,
-                paneID: delivery.paneID,
-                control: .contextChanged(delivery.after),
-                contextBeforeControl: delivery.before,
-                contextAfterControl: delivery.after
-            )
+            // Transfer the pending batch without shifting its remaining elements per control.
+            // New settled transitions append to the next batch while this one is suspended.
+            var deliveries: [AttentionControlDelivery] = []
+            swap(&deliveries, &pendingAttentionControls)
+            for delivery in deliveries {
+                guard !Task.isCancelled, attentionLifecycleEpoch == epoch, busTask != nil else { return }
+                guard surfaceIDForPaneID(delivery.paneID) == delivery.surfaceID else { continue }
+                await Ghostty.ActionRouter.applyOrderedActivityControl(
+                    surfaceID: delivery.surfaceID,
+                    paneID: delivery.paneID,
+                    control: .contextChanged(delivery.after),
+                    contextBeforeControl: delivery.before,
+                    contextAfterControl: delivery.after
+                )
+            }
         }
     }
 
