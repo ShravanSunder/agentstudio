@@ -25,6 +25,7 @@ struct BridgeTelemetryWireSchemaTests {
             "agentstudio.bridge.annotation.catalog.window.count": 3.0,
             "agentstudio.bridge.presentation.revision.after": 8.0,
             "agentstudio.bridge.presentation.revision.before": 7.0,
+            "agentstudio.bridge.source.monotonic_ms": 123.5,
             "agentstudio.bridge.stage.attempt": 0.0,
         ]
 
