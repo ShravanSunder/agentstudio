@@ -197,10 +197,15 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	expect(getComputedStyle(requiredSvg(disabledOpenButton)).color).toBe(faintForeground);
 
 	const disabledPrimary = rendered.getByTestId('disabled-primary-button').element();
-	await userEvent.hover(rendered.getByTestId('disabled-primary-hover-region').element());
-	await Promise.all(
-		disabledPrimary.getAnimations().map((animation: Animation) => animation.finished),
-	);
+	await act(async (): Promise<void> => {
+		await userEvent.hover(rendered.getByTestId('disabled-primary-hover-region').element());
+		// Pointer relocation also ends hover on any previously covered control.
+		await Promise.all(
+			rendered.container
+				.getAnimations({ subtree: true })
+				.map((animation: Animation) => animation.finished),
+		);
+	});
 	const disabledPrimaryStyle = getComputedStyle(disabledPrimary);
 	expect(disabledPrimaryStyle.opacity).toBe('1');
 	expect(disabledPrimaryStyle.backgroundColor).not.toBe(selectedStyle.backgroundColor);

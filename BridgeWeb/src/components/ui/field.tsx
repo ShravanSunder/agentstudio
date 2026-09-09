@@ -97,7 +97,7 @@ function FieldLabel({ className, ...props }: ComponentProps<typeof Label>): Reac
 		<Label
 			data-slot="field-label"
 			className={cn(
-				'group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:text-faint-foreground has-data-checked:bg-primary/15 has-data-checked:text-primary has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border *:data-[slot=field]:p-2',
+				'group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:text-faint-foreground has-data-checked:bg-primary/15 has-data-checked:text-primary has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border *:data-[slot=field]:p-2 [&>svg]:size-3.5 [&>svg]:shrink-0',
 				'has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col',
 				className,
 			)}
