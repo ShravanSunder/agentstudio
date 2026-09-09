@@ -246,6 +246,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 "agentstudio.performance.tabbar.mainactor_held_ms": .double(0.75),
                 "agentstudio.performance.trace_queue.dropped_record.count": .int(0),
                 "agentstudio.performance.trace_queue.high_watermark": .int(7),
+                "agentstudio.performance.trace_queue.pending_request.count": .int(3),
                 "agentstudio.performance.tabbar.tab.id": .string("01987654-3210-7abc-8def-0123456789ab"),
                 "agentstudio.performance.tabbar.title": .string("private title"),
                 "agentstudio.performance.tabbar.path": .string("/Users/private/repository"),
@@ -284,6 +285,9 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             projection.attributes["agentstudio.performance.trace_queue.dropped_record.count"] == .int(0)
         )
         #expect(projection.attributes["agentstudio.performance.trace_queue.high_watermark"] == .int(7))
+        #expect(
+            projection.attributes["agentstudio.performance.trace_queue.pending_request.count"] == .int(3)
+        )
         #expect(projection.attributes["agentstudio.performance.tabbar.tab.id"] == nil)
         #expect(projection.attributes["agentstudio.performance.tabbar.title"] == nil)
         #expect(projection.attributes["agentstudio.performance.tabbar.path"] == nil)

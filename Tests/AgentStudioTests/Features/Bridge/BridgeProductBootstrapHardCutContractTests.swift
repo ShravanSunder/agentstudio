@@ -45,7 +45,8 @@ struct BridgeProductBootstrapHardCutContractTests {
             fileMetadataSource: BridgePaneProductFileMetadataSource(
                 authority: .init(paneId: UUIDv7.generate(), worktree: worktree),
                 gitReadContext: makeBridgeGitReadContext(rootURL: worktree.path),
-                constructionCoordinator: BridgeWorktreeProductConstructionCoordinator()
+                constructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                statusProvider: ProductFileSourceStatusProvider()
             ),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),

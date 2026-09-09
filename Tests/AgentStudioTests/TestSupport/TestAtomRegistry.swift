@@ -6,7 +6,10 @@ import Foundation
 @MainActor
 package func makeInstalledTestCoreAtoms() -> CoreAtoms {
     CoreAtoms(
-        workspaceIdentity: WorkspaceIdentityAtom(workspaceId: UUID())
+        workspaceIdentity: WorkspaceIdentityAtom(workspaceId: UUID()),
+        applicationEntityRecency: ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 1000) }
+        )
     )
 }
 

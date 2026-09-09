@@ -63,13 +63,6 @@ struct WorkspaceStatusChipRow: View {
                 text: model.branchStatus.prCount.map(String.init),
                 style: (model.branchStatus.prCount ?? 0) > 0 ? .accent(accentColor) : .neutral
             )
-
-            SidebarChip(
-                icon: .octicon("octicon-bell"),
-                octiconLoader: octiconLoader,
-                text: "\(model.notificationCount)",
-                style: model.notificationCount > 0 ? .accent(accentColor) : .neutral
-            )
         }
     }
 }

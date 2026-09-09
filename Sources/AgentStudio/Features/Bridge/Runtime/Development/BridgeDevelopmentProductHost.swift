@@ -49,6 +49,7 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult
@@ -58,10 +59,12 @@ package actor BridgeDevelopmentProductHost {
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
             contributionTargetCommit: contributionTargetCommit,
+            statusPhysicalGate: statusPhysicalGate,
             makeReviewProvider: { repositoryPath, gitReadContext in
                 BridgeReviewSourceProviderFactory.gitProvider(
                     repositoryPath: repositoryPath,
-                    gitReadContext: gitReadContext
+                    gitReadContext: gitReadContext,
+                    statusPhysicalGate: statusPhysicalGate
                 )
             }
         )
@@ -74,6 +77,7 @@ package actor BridgeDevelopmentProductHost {
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
         makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider
     ) async throws {
         let source = try Self.validatedFilesystemSource(source)
@@ -97,6 +101,7 @@ package actor BridgeDevelopmentProductHost {
                 reviewInitialization: reviewInitialization,
                 reviewProvider: reviewProvider,
                 source: source,
+                statusPhysicalGate: statusPhysicalGate,
                 worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
                 worktreeAnnotationStore: worktreeAnnotationStore
             )

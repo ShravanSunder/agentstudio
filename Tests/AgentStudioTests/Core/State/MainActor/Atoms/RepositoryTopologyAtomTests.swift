@@ -608,18 +608,22 @@ struct RepositoryTopologyAtomTests {
         let repo = coordinator.addRepo(at: repoPath)
         let existingMainWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
         let traceId = UUIDv7.generate()
+        let preparedMainStableKey = atom.repositoryStableKey(for: repo.id) ?? "prepared-main-key"
+        let preparedLinkedStableKey = "prepared-linked-key"
 
         let result = coordinator.reconcileScannedWorktrees(
             repo.id,
             scannedWorktrees: RepositoryScannedWorktrees(
                 main: RepositoryScannedMainWorktree(
                     name: repoPath.lastPathComponent,
-                    path: repoPath
+                    path: repoPath,
+                    stableKey: preparedMainStableKey
                 ),
                 linked: [
                     RepositoryScannedLinkedWorktree(
                         name: repoPath.lastPathComponent,
-                        path: linkedPath
+                        path: linkedPath,
+                        stableKey: preparedLinkedStableKey
                     )
                 ]
             ),
@@ -635,6 +639,8 @@ struct RepositoryTopologyAtomTests {
         #expect(Set(reconciledWorktrees.map(\.id)).count == 2)
         #expect(reconciledWorktrees[0].id == existingMainWorktree.id)
         #expect(UUIDv7.isV7(reconciledWorktrees[1].id))
+        #expect(atom.worktreeStableKey(for: reconciledWorktrees[0].id) == preparedMainStableKey)
+        #expect(atom.worktreeStableKey(for: reconciledWorktrees[1].id) == preparedLinkedStableKey)
         #expect(acceptance.delta.preservedWorktreeIds == [existingMainWorktree.id])
         #expect(acceptance.delta.addedWorktreeIds == [reconciledWorktrees[1].id])
         #expect(acceptance.delta.removedWorktrees.isEmpty)

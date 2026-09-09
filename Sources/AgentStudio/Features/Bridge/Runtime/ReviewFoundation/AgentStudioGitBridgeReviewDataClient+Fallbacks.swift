@@ -117,6 +117,8 @@ extension AgentStudioGitBridgeReviewDataClient {
             return providerFailureReason(from: message)
         case .providerUnavailable:
             return "providerUnavailable"
+        case .sourceCapacityDeferred:
+            return "sourceCapacityDeferred"
         case .unavailableEndpoint(let endpointId):
             return "unavailableEndpoint:\(endpointId)"
         case .missingContent(let handleId):

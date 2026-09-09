@@ -421,6 +421,7 @@ reject_canned_query_responses_outside_tests() {
   local response_names=()
   [ -n "${AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE+x}" ] && response_names+=("AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE")
   [ -n "${AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE+x}" ] && response_names+=("AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE")
+  [ -n "${AGENTSTUDIO_PERF_TEST_COMMON_DEBT_SNAPSHOT+x}" ] && response_names+=("AGENTSTUDIO_PERF_TEST_COMMON_DEBT_SNAPSHOT")
   [ "${#response_names[@]}" -eq 0 ] && return 0
   if test_responses_enabled; then
     return 0
@@ -1128,19 +1129,39 @@ fresh_common_debt_metric_query() {
 
 common_debt_metric_query() {
   local minimum_timestamp="$1"
-  printf '(%s) or (%s) or (%s)' \
+  local queries=(
     "$(fresh_common_debt_metric_query \
       agentstudio_performance_filesystem_logical_debt_count \
       performance.filesystem.logical_debt \
-      "$minimum_timestamp")" \
-    "$(fresh_common_debt_metric_query \
-      agentstudio_performance_git_logical_debt_count \
-      performance.git.logical_debt \
-      "$minimum_timestamp")" \
+      "$minimum_timestamp")"
     "$(fresh_common_debt_metric_query \
       agentstudio_performance_runtime_delivery_total_pending_count \
       performance.runtime_delivery.snapshot \
       "$minimum_timestamp")"
+  )
+  local field metric_name fresh_query
+  while IFS=$'\t' read -r field metric_name; do
+    fresh_query="$(fresh_common_debt_metric_query \
+      "$metric_name" performance.git.logical_debt "$minimum_timestamp")"
+    queries+=("label_set(($fresh_query),\"settlement_field\",\"$field\")")
+  done <<'EOF'
+logical_debt	agentstudio_performance_git_logical_debt_count
+future_automatic	agentstudio_performance_git_future_automatic_count
+future_failure	agentstudio_performance_git_future_failure_count
+ready_pending	agentstudio_performance_git_ready_pending_count
+capacity_pending	agentstudio_performance_git_capacity_pending_count
+active_follow_up	agentstudio_performance_git_active_follow_up_count
+unclassified_pending	agentstudio_performance_git_unclassified_pending_count
+overdue_deadline	agentstudio_performance_git_overdue_deadline_count
+running	agentstudio_performance_git_logical_running_count
+oldest_preparation_ms	agentstudio_performance_git_oldest_preparation_ms
+next_deadline_ms	agentstudio_performance_git_next_deadline_ms
+EOF
+  local joined="" query
+  for query in "${queries[@]}"; do
+    joined="${joined}${joined:+ or }(${query})"
+  done
+  printf '%s' "$joined"
 }
 
 common_debt_snapshot() {
@@ -1159,41 +1180,54 @@ import math
 import sys
 
 expected = {
-    "agentstudio_performance_filesystem_logical_debt_count": (
-        "filesystem", "performance.filesystem.logical_debt"
-    ),
-    "agentstudio_performance_git_logical_debt_count": (
-        "git", "performance.git.logical_debt"
-    ),
-    "agentstudio_performance_runtime_delivery_total_pending_count": (
-        "runtime", "performance.runtime_delivery.snapshot"
-    ),
+    "filesystem": ("agentstudio_performance_filesystem_logical_debt_count", "performance.filesystem.logical_debt", True),
+    "runtime": ("agentstudio_performance_runtime_delivery_total_pending_count", "performance.runtime_delivery.snapshot", True),
+    "git_logical_debt": ("agentstudio_performance_git_logical_debt_count", "performance.git.logical_debt", False),
+    "git_future_automatic": ("agentstudio_performance_git_future_automatic_count", "performance.git.logical_debt", False),
+    "git_future_failure": ("agentstudio_performance_git_future_failure_count", "performance.git.logical_debt", False),
+    "git_ready_pending": ("agentstudio_performance_git_ready_pending_count", "performance.git.logical_debt", True),
+    "git_capacity_pending": ("agentstudio_performance_git_capacity_pending_count", "performance.git.logical_debt", True),
+    "git_active_follow_up": ("agentstudio_performance_git_active_follow_up_count", "performance.git.logical_debt", True),
+    "git_unclassified_pending": ("agentstudio_performance_git_unclassified_pending_count", "performance.git.logical_debt", True),
+    "git_overdue_deadline": ("agentstudio_performance_git_overdue_deadline_count", "performance.git.logical_debt", True),
+    "git_running": ("agentstudio_performance_git_logical_running_count", "performance.git.logical_debt", True),
+    "git_oldest_preparation_ms": ("agentstudio_performance_git_oldest_preparation_ms", "performance.git.logical_debt", False),
+    "git_next_deadline_ms": ("agentstudio_performance_git_next_deadline_ms", "performance.git.logical_debt", False),
 }
-observed = {metric_name: [] for metric_name in expected}
+observed = {name: [] for name in expected}
 try:
     payload = json.load(sys.stdin)
     for item in payload["data"]["result"]:
         metric = item.get("metric", {})
         metric_name = metric.get("__name__")
-        if metric_name not in expected or metric.get("event") != expected[metric_name][1]:
+        settlement_field = metric.get("settlement_field")
+        name = f"git_{settlement_field}" if settlement_field else next(
+            (candidate for candidate, (expected_metric, _, _) in expected.items() if expected_metric == metric_name),
+            None,
+        )
+        if name not in expected:
+            continue
+        expected_metric, expected_event, _ = expected[name]
+        if metric_name != expected_metric or metric.get("event") != expected_event:
             continue
         value = float(item["value"][1])
-        if math.isfinite(value):
-            observed[metric_name].append(value)
+        if math.isfinite(value) and value >= 0:
+            observed[name].append(value)
 except Exception:
     pass
 
 ready = True
 parts = []
-for metric_name, (short_name, _) in expected.items():
-    samples = observed[metric_name]
+for name, (_, _, requires_zero) in expected.items():
+    samples = observed[name]
     if not samples:
         ready = False
-        parts.append(f"{short_name}=missing")
+        parts.append(f"{name}=missing")
         continue
     total = sum(samples)
-    ready = ready and total == 0
-    parts.append(f"{short_name}={total:g}")
+    if requires_zero:
+        ready = ready and total == 0
+    parts.append(f"{name}={total:g}")
 
 print(f"ready={str(ready).lower()} " + " ".join(parts))
 ' <<<"$response"
@@ -1994,6 +2028,11 @@ summarize_traces() {
     echo "performance.commandbar.filter.query_character.max=$query_character_max"
   } | tee "$SUMMARY_FILE"
 }
+
+if test_responses_enabled && [ "${AGENTSTUDIO_PERF_TEST_COMMON_DEBT_SNAPSHOT:-0}" = "1" ]; then
+  common_debt_snapshot "${AGENTSTUDIO_PERF_TEST_COMMON_DEBT_MINIMUM_TIMESTAMP:-0}"
+  exit 0
+fi
 
 mkdir -p "$ARTIFACT" "$FIXTURE_ROOT" "$PID_DIR"
 : >"$COMMAND_LOG"

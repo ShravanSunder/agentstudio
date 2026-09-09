@@ -5,10 +5,10 @@ import Foundation
 /// from disk keeps failing its git status compute (`sdk_error`) forever, burning
 /// the global concurrent-status budget that live worktrees need. Instead of
 /// deleting such a worktree, the projector quarantines it: the worktree is skipped
-/// at admission and at periodic re-enqueue without any further per-tick stat call,
-/// and it is re-armed only by an event that implies the path may have returned
-/// (a file-change from the watcher, or a registration/context-change). Split from
-/// the projector actor body to keep it under the type/file length caps.
+/// at admission and at periodic re-enqueue, then one bounded background deadline
+/// checks whether the path returned. A file-change or registration/context change
+/// may still re-arm it sooner. Split from the projector actor body to keep it under
+/// the type/file length caps.
 extension GitWorkingDirectoryProjector {
     /// Live filesystem probe wired at the production composition root and reused by
     /// quarantine tests against real temp directories. The projector's own default
@@ -17,33 +17,56 @@ extension GitWorkingDirectoryProjector {
         FileManager.default.fileExists(atPath: rootPath.path)
     }
 
-    /// Quarantines any pending worktree whose root path no longer exists. Runs at
-    /// the top of the admission cycle so dead worktrees never reach a drain task.
-    /// Already-quarantined worktrees are excluded from the candidate set, so they
-    /// incur no repeated stat calls; each dead worktree is stat-checked exactly
-    /// once per admission it would otherwise have been eligible for.
-    func quarantineDeadPathPendingWorktrees() {
-        // Materialize candidates before mutating `pendingByWorktreeId` to avoid
-        // mutating the dictionary while iterating its keys.
-        let candidateWorktreeIds = pendingByWorktreeId.keys.filter { worktreeId in
-            worktreeTasks[worktreeId] == nil
-                && !suppressedWorktreeIds.contains(worktreeId)
-                && !quarantinedWorktreeIds.contains(worktreeId)
+    /// Checks one worktree only after projector task capacity, demand, tier
+    /// capacity, and process pacing have otherwise selected it. Shared physical
+    /// capacity is acquired later by the provider; a capacity-only rejection keeps
+    /// this exact-root validation for retry. A missing root is quarantined without
+    /// consuming the projector slot so selection can continue.
+    func admitPendingWorktreeAfterPathCheck(worktreeId: UUID) -> Bool {
+        guard let rootPath = pendingByWorktreeId[worktreeId]?.rootPath else { return false }
+        guard !quarantinedWorktreeIds.contains(worktreeId) else { return false }
+        if validatedRootPathByWorktreeId[worktreeId] == rootPath {
+            return true
         }
-        for worktreeId in candidateWorktreeIds {
-            guard let rootPath = pendingByWorktreeId[worktreeId]?.rootPath else { continue }
-            guard !pathExistenceProbe(rootPath) else { continue }
+        guard pathExistenceProbe(rootPath) else {
             quarantineWorktreePath(worktreeId: worktreeId)
+            return false
         }
+        validatedRootPathByWorktreeId[worktreeId] = rootPath
+        return true
+    }
+
+    func clearValidatedRootPath(worktreeId: UUID) {
+        validatedRootPathByWorktreeId.removeValue(forKey: worktreeId)
     }
 
     /// Marks a worktree quarantined: drops its pending refresh so the pending map
-    /// does not retain dead entries, and emits a single open fact.
+    /// does not retain dead entries, keeps one bounded self-heal deadline, and emits
+    /// a single open fact.
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
+        capacityRearmedWorktreeIds.remove(worktreeId)
+        clearValidatedRootPath(worktreeId: worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         clearImmediateRefreshIntent(worktreeId: worktreeId)
+        clearRequiredIntent(worktreeId: worktreeId)
+        scheduleQuarantineRecheck(worktreeId: worktreeId)
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
+        rescheduleDeadlineTask()
+    }
+
+    /// Rechecks one quarantined root at its existing automatic deadline. A missing
+    /// root retains quarantine and one successor deadline; a restored root closes
+    /// quarantine and may proceed through ordinary refresh preparation/admission.
+    func admitAutomaticRefreshAfterQuarantine(worktreeId: UUID) -> Bool {
+        guard quarantinedWorktreeIds.contains(worktreeId) else { return true }
+        guard let context = registeredContext(for: worktreeId) else { return false }
+        guard pathExistenceProbe(context.rootPath) else {
+            scheduleQuarantineRecheck(worktreeId: worktreeId)
+            return false
+        }
+        clearQuarantineEmittingClose(worktreeId: worktreeId)
+        return true
     }
 
     /// Event-driven re-arm gate for a file-change on a possibly-quarantined
@@ -72,6 +95,18 @@ extension GitWorkingDirectoryProjector {
     /// no close fact is warranted. Mirrors the non-emitting `clearStatusBackoffState`.
     func clearQuarantineState(worktreeId: UUID) {
         quarantinedWorktreeIds.remove(worktreeId)
+    }
+
+    private func scheduleQuarantineRecheck(worktreeId: UUID) {
+        guard isAutomaticEligible(worktreeId: worktreeId) else {
+            automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            return
+        }
+        setRefreshDeadline(
+            deadlineClock.now + refreshPolicy.backgroundCadence,
+            kind: .automatic,
+            worktreeId: worktreeId
+        )
     }
 
     private func emitPathQuarantineTelemetry(worktreeId: UUID, quarantined: Bool) {

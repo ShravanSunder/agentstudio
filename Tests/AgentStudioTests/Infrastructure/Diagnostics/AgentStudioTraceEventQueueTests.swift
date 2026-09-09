@@ -42,6 +42,7 @@ struct AgentStudioTraceEventQueueTests {
         let completenessSnapshot = queue.completenessSnapshot()
         #expect(completenessSnapshot.droppedRecordCount == 1)
         #expect(completenessSnapshot.highWaterMark == 1)
+        #expect(completenessSnapshot.pendingRequestCount == 1)
 
         await blockingSink.resumeRecords()
         try await queue.drain()
@@ -54,6 +55,9 @@ struct AgentStudioTraceEventQueueTests {
         )
         #expect(
             retainedAttributes["agentstudio.performance.trace_queue.high_watermark"] == .int(1)
+        )
+        #expect(
+            retainedAttributes["agentstudio.performance.trace_queue.pending_request.count"] == .int(0)
         )
     }
 
@@ -88,6 +92,9 @@ struct AgentStudioTraceEventQueueTests {
         )
         #expect(
             completenessAttributes["agentstudio.performance.trace_queue.high_watermark"] == .int(1)
+        )
+        #expect(
+            completenessAttributes["agentstudio.performance.trace_queue.pending_request.count"] == .int(0)
         )
     }
 

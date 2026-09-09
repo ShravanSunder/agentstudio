@@ -6,6 +6,7 @@ import Testing
 actor GatedForgeStatusProvider: ForgeStatusProvider {
     private struct PendingCall {
         let origin: String
+        let demandedBranches: Set<String>
         let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
     }
 
@@ -16,13 +17,28 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
 
     private var calls: [PendingCall] = []
     private var callCountWaiters: [CallCountWaiter] = []
+    private var activeCallCount = 0
+    private(set) var maximumActiveCallCount = 0
 
     var callCount: Int { calls.count }
     var origins: [String] { calls.map(\.origin) }
+    var demandedBranchSets: [Set<String>] { calls.map(\.demandedBranches) }
 
-    func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
-        await withCheckedContinuation { continuation in
-            calls.append(PendingCall(origin: origin, continuation: continuation))
+    func pullRequests(
+        origin: String,
+        demandedBranches: Set<String>
+    ) async -> ForgePullRequestQueryOutcome {
+        activeCallCount += 1
+        maximumActiveCallCount = max(maximumActiveCallCount, activeCallCount)
+        defer { activeCallCount -= 1 }
+        return await withCheckedContinuation { continuation in
+            calls.append(
+                PendingCall(
+                    origin: origin,
+                    demandedBranches: demandedBranches,
+                    continuation: continuation
+                )
+            )
             resumeSatisfiedCallCountWaiters()
         }
     }

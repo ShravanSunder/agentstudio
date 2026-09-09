@@ -6,6 +6,7 @@ usage() {
 Usage:
   scripts/cleanup-debug-zmx-sessions.sh --dry-run
   scripts/cleanup-debug-zmx-sessions.sh --execute
+  scripts/cleanup-debug-zmx-sessions.sh --inventory-exact-root <root> --zmx-bin <binary>
 
 Inventories zmx sessions under ~/.agentstudio-db/*/z. --dry-run prints the
 corresponding `zmx kill` commands for review. --execute runs those commands
@@ -15,6 +16,113 @@ Stable production (~/.agentstudio/z), beta (~/.agent-studio-b/z), and zmx
 roots outside ~/.agentstudio-db/*/z are outside this script's scope.
 USAGE
 }
+
+canonical_path() {
+  /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+parse_session_rows() {
+  awk -F '\t' '
+    {
+      name = ""
+      clients = ""
+      start_dir = ""
+      for (field = 1; field <= NF; field++) {
+        value = $field
+        sub(/^[[:space:]]+/, "", value)
+        if (value ~ /^name=/) {
+          name = value
+          sub(/^name=/, "", name)
+        } else if (value ~ /^clients=/) {
+          clients = value
+          sub(/^clients=/, "", clients)
+        } else if (value ~ /^start_dir=/) {
+          start_dir = value
+          sub(/^start_dir=/, "", start_dir)
+        }
+      }
+      if (name != "") {
+        printf "%s\t%s\t%s\n", name, clients, start_dir
+      }
+    }
+  '
+}
+
+if [[ $# -eq 4 && "$1" == "--inventory-exact-root" && "$3" == "--zmx-bin" ]]; then
+  exact_root="$2"
+  exact_zmx_bin="$4"
+  canonical_home="$(canonical_path "$HOME")"
+  canonical_root="$(canonical_path "$exact_root")"
+  canonical_zmx_bin="$(canonical_path "$exact_zmx_bin")"
+  canonical_proof_root=""
+  if [[ -n "${AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT:-}" ]]; then
+    canonical_proof_root="$(canonical_path "$AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT")"
+  fi
+  if ! /usr/bin/python3 - "$canonical_home" "$canonical_root" "$canonical_proof_root" <<'PY'
+import os
+import re
+import sys
+
+home, root, proof_root = sys.argv[1:]
+expected_base = os.path.join(home, ".agentstudio-db")
+relative = os.path.relpath(root, expected_base)
+if re.fullmatch(r"[0-9a-z]{4}/z", relative):
+    sys.exit(0)
+if not proof_root:
+    sys.exit(1)
+temporary_proof_base = os.path.realpath("/tmp/agentstudio-sidebar-performance")
+if os.path.commonpath([proof_root, temporary_proof_base]) != temporary_proof_base:
+    sys.exit(1)
+if os.path.basename(proof_root) != "disposable-debug-data":
+    sys.exit(1)
+if root != os.path.join(proof_root, "z"):
+    sys.exit(1)
+PY
+  then
+    echo "exact inventory root is outside isolated debug or disposable proof root: $exact_root" >&2
+    exit 2
+  fi
+  debug_data_root="${canonical_root%/z}"
+  expected_zmx_bin="$debug_data_root/bin/zmx"
+  if [[ ! -d "$canonical_root" || ! -x "$canonical_zmx_bin" ||
+    "$canonical_zmx_bin" != "$(canonical_path "$expected_zmx_bin")" ]]; then
+    echo "exact inventory zmx binary must be the isolated debug root copy: $expected_zmx_bin" >&2
+    exit 2
+  fi
+
+  exact_listing=""
+  if ! exact_listing="$(ZMX_DIR="$canonical_root" "$canonical_zmx_bin" list 2>/dev/null)"; then
+    printf 'inventory_root=%s status=list_failed\n' "$canonical_root" >&2
+    exit 1
+  fi
+  if [[ "$exact_listing" == "no sessions found in $canonical_root" ]]; then
+    exact_listing=""
+  fi
+  exact_rows="$(printf '%s\n' "$exact_listing" | parse_session_rows)"
+  if [[ -n "$exact_listing" ]]; then
+    listing_line_count="$(printf '%s\n' "$exact_listing" | awk 'NF { count++ } END { print count + 0 }')"
+    row_count="$(printf '%s\n' "$exact_rows" | awk 'NF { count++ } END { print count + 0 }')"
+    if [[ "$listing_line_count" -ne "$row_count" ]] ||
+      ! printf '%s\n' "$exact_rows" | awk -F '\t' '
+        NF && ($1 == "" || $2 !~ /^[0-9]+$/ || $3 == "" || seen[$1]++) { invalid = 1 }
+        END { exit invalid ? 1 : 0 }
+      '
+    then
+      printf 'inventory_root=%s status=malformed_listing\n' "$canonical_root" >&2
+      exit 1
+    fi
+  fi
+
+  session_count="$(printf '%s\n' "$exact_rows" | awk 'NF { count++ } END { print count + 0 }')"
+  printf 'inventory_root=%s status=ok session_count=%s\n' "$canonical_root" "$session_count"
+  if [[ -n "$exact_rows" ]]; then
+    while IFS=$'\t' read -r session_name clients start_dir; do
+      [[ -n "$session_name" ]] || continue
+      printf 'session=%s clients=%s start_dir=%s\n' "$session_name" "$clients" "$start_dir"
+    done <<< "$exact_rows"
+  fi
+  exit 0
+fi
 
 if [[ $# -eq 1 && "$1" == "--help" ]]; then
   usage
@@ -49,33 +157,6 @@ failed_root_count=0
 kill_attempt_count=0
 kill_success_count=0
 kill_failure_count=0
-
-parse_session_rows() {
-  awk -F '\t' '
-    {
-      name = ""
-      clients = ""
-      start_dir = ""
-      for (field = 1; field <= NF; field++) {
-        value = $field
-        sub(/^[[:space:]]+/, "", value)
-        if (value ~ /^name=/) {
-          name = value
-          sub(/^name=/, "", name)
-        } else if (value ~ /^clients=/) {
-          clients = value
-          sub(/^clients=/, "", clients)
-        } else if (value ~ /^start_dir=/) {
-          start_dir = value
-          sub(/^start_dir=/, "", start_dir)
-        }
-      }
-      if (name != "") {
-        printf "%s\t%s\t%s\n", name, clients, start_dir
-      }
-    }
-  '
-}
 
 for debug_root in "$debug_root_base"/*/z; do
   [[ -d "$debug_root" ]] || continue

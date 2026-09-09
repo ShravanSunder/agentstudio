@@ -70,7 +70,7 @@ struct ActionValidatorVisiblePanePairTests {
     }
 
     @Test
-    func adjacentVisiblePairFails() {
+    func adjacentRenderedPairSucceeds() {
         let tabId = UUID()
         let paneIds = [UUIDv7.generate(), UUIDv7.generate()]
         let tab = TabSnapshot(
@@ -86,8 +86,33 @@ struct ActionValidatorVisiblePanePairTests {
             state: makeSnapshot(tabs: [tab])
         )
 
-        if case .failure(.invalidVisiblePanePair) = result { return }
-        Issue.record("Expected invalidVisiblePanePair error")
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+    func backgroundedCanonicalRunSucceeds() {
+        let tabId = UUIDv7.generate()
+        let paneIds = [UUIDv7.generate(), UUIDv7.generate(), UUIDv7.generate()]
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneIds[0], paneIds[2]],
+            layoutPaneIds: paneIds,
+            ownedPaneIds: paneIds,
+            activePaneId: paneIds[0],
+            isLayoutSplit: true
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: paneIds[0],
+                rightPaneId: paneIds[2],
+                ratio: 0.5
+            ),
+            state: makeSnapshot(tabs: [tab])
+        )
+
+        #expect((try? result.get()) != nil)
     }
 
     @Test

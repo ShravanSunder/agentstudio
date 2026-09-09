@@ -178,41 +178,29 @@ struct AgentStudioIPCCommandAdapterTests {
             ])
     }
 
-    @Test("executes typed inbox filter commands through injected shell owner")
-    func executesTypedInboxFilterCommandsThroughInjectedShellOwner() throws {
+    @Test("retired typed Inbox commands are rejected before shell dispatch")
+    func retiredTypedInboxCommandsAreRejectedBeforeShellDispatch() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
 
-        let rowFilter = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setInboxRowStateFilter.rawValue),
-                targetHandle: nil,
-                arguments: ["filter": "all"]
-            )
-        )
-        let contentMode = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setInboxContentMode.rawValue),
-                targetHandle: nil,
-                arguments: ["mode": "activity"]
-            )
-        )
-
-        #expect(rowFilter.applied)
-        #expect(contentMode.applied)
-        #expect(
-            shellCommandHandler.handledRequests == [
-                AppCommandExecutionRequest(
-                    command: .setInboxRowStateFilter,
-                    arguments: .inboxRowStateFilter(.all),
-                    executionContext: .headlessIPC
-                ),
-                AppCommandExecutionRequest(
-                    command: .setInboxContentMode,
-                    arguments: .inboxContentMode(.activity),
-                    executionContext: .headlessIPC
-                ),
-            ])
+        for (command, arguments) in [
+            (AppCommand.setInboxRowStateFilter, ["filter": "all"]),
+            (AppCommand.setInboxContentMode, ["mode": "activity"]),
+        ] {
+            do {
+                _ = try harness.adapter.executeCommand(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(rawValue: command.rawValue),
+                        targetHandle: nil,
+                        arguments: arguments
+                    )
+                )
+                Issue.record("retired Inbox command unexpectedly executed")
+            } catch let error as AppIPCCommandError {
+                #expect([.requiresParameters, .unsupportedCommand].contains(error.reason))
+            }
+        }
+        #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
     @Test("rejects invalid repo sort order before active window lookup")

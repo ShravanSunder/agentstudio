@@ -1,7 +1,6 @@
 import AgentStudioBridge
 import AgentStudioCore
 import AgentStudioEditorChooser
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AgentStudioSharedComponents
@@ -14,7 +13,6 @@ import SwiftUI
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var toolbarItems: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
-    private var inboxAtom: InboxNotificationAtom!
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var hasShutdown = false
@@ -36,15 +34,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         viewRegistry: ViewRegistry,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         editorChooser: EditorChooserState,
-        inboxAtom: InboxNotificationAtom,
-        inboxPrefsAtom: InboxNotificationPrefsAtom,
-        inboxSidebarState: InboxSidebarState,
-        paneInboxPresentationState: PaneInboxPresentationAtom,
         repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
-        paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
+        onRepositoryFactUpdateProgressPresented:
+            @escaping @MainActor @Sendable (UUID, UUID) -> Void = { _, _ in },
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -81,7 +78,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.windowId = workspaceWindowId
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.workspaceWindowMemoryAtom = store.windowMemoryAtom
-        self.inboxAtom = inboxAtom
         window.delegate = self
         applicationLifecycleMonitor.installFirstDisplayCommitScheduler { [weak window] completion in
             guard let window else { return }
@@ -105,17 +101,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            inboxAtom: inboxAtom,
-            inboxPrefsAtom: inboxPrefsAtom,
-            inboxSidebarState: inboxSidebarState,
-            paneInboxPresentationState: paneInboxPresentationState,
             repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
-            paneInboxPresenter: paneInboxPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
+            onPerformanceProofReadback: onPerformanceProofReadback,
+            onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC
@@ -264,20 +257,16 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.showSidebarFilter()
     }
 
-    func showInboxNotifications(commandBarIsKey: Bool) {
-        splitViewController?.showInboxNotifications(commandBarIsKey: commandBarIsKey)
-    }
-
-    func showRollUpInboxNotifications(commandBarIsKey: Bool) {
-        splitViewController?.showRollUpInboxNotifications(commandBarIsKey: commandBarIsKey)
-    }
-
     func showWorktreeSidebar() {
         splitViewController?.showWorktreeSidebar()
     }
 
     func expandSidebar() {
         splitViewController?.expandSidebar()
+    }
+
+    func sidebarPerformanceProofShellReadback() -> SidebarPerformanceProofShellReadback? {
+        splitViewController?.sidebarPerformanceProofShellReadback(window: window)
     }
 
     func refocusActivePane() {
@@ -336,13 +325,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    @objc private func showInboxToolbarAction() {
-        AppCommandDispatcher.shared.dispatch(.showInboxNotifications)
-        Task { @MainActor [weak self] in
-            self?.refreshToolbarToggleState()
-        }
-    }
-
 }
 
 // MARK: - NSToolbarDelegate
@@ -351,7 +333,6 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .worktreeSidebar,
-            .inboxSidebar,
             .sidebarDivider,
             .watchFolder,
             .managementLayer,
@@ -387,18 +368,6 @@ extension MainWindowController: NSToolbarDelegate {
                 isBordered: false,
                 action: #selector(showWorktreeSidebarToolbarAction)
             )
-        case .inboxSidebar:
-            let inboxItem = makeNativeToolbarItem(
-                identifier: itemIdentifier,
-                label: "Inbox",
-                command: .showInboxNotifications,
-                symbolName: "bell",
-                isBordered: false,
-                action: #selector(showInboxToolbarAction)
-            )
-            let unread = inboxAtom.globalRollUpAlertCount
-            inboxItem.badge = unread > 0 ? .count(unread) : nil
-            item = inboxItem
         case .sidebarDivider:
             item = makeToolbarDividerItem(identifier: itemIdentifier, label: "Sidebar Divider")
         case .watchFolder:
@@ -522,15 +491,6 @@ extension MainWindowController: NSToolbarDelegate {
             label: "Repositories",
             isSelected: sidebarOpen && sidebarState.sidebarSurface == .repos
         )
-        setToggleImage(
-            identifier: .inboxSidebar,
-            baseSymbol: "bell",
-            selectedSymbol: "bell.fill",
-            label: "Inbox",
-            isSelected: sidebarOpen && sidebarState.sidebarSurface == .inbox
-        )
-        let unread = inboxAtom.globalRollUpAlertCount
-        toolbarItems[.inboxSidebar]?.badge = unread > 0 ? .count(unread) : nil
     }
 
     private func observeToolbarPresentationState() {
@@ -539,7 +499,6 @@ extension MainWindowController: NSToolbarDelegate {
             let sidebarState = atom(\.workspaceSidebarState)
             _ = sidebarState.sidebarCollapsed
             _ = sidebarState.sidebarSurface
-            _ = inboxAtom.globalRollUpAlertCount
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.hasShutdown else { return }

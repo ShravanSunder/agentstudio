@@ -1,3 +1,4 @@
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
@@ -12,6 +13,15 @@ private final class PaneActivityStatusObservationCounter: @unchecked Sendable {
     func record() {
         didFire = true
         count += 1
+    }
+}
+
+@MainActor
+private final class PaneActivityStatusOutcomeRecorder {
+    private(set) var outcomes: [PaneActivityStatusAtom.PublicationOutcome] = []
+
+    func record(_ outcome: PaneActivityStatusAtom.PublicationOutcome) {
+        outcomes.append(outcome)
     }
 }
 
@@ -57,12 +67,16 @@ struct PaneActivityStatusAtomTests {
         #expect(atom.status(for: paneId) == nil)
     }
 
-    @Test("a settle within the 10s window is dropped, not deferred")
-    func settleWithinWindowIsDropped() {
+    @Test("a distinct settle within the window publishes at the exact deadline without another settle")
+    func settleWithinWindowPublishesAtDeadline() async {
         var currentDate = Date(timeIntervalSince1970: 1000)
+        var monotonicNow = Duration.zero
+        let clock = TestPushClock()
         let atom = PaneActivityStatusAtom(
             minimumPublishInterval: .seconds(10),
-            now: { currentDate }
+            clock: clock,
+            now: { currentDate },
+            monotonicNow: { monotonicNow }
         )
         let paneId = UUID()
 
@@ -71,21 +85,161 @@ struct PaneActivityStatusAtomTests {
         let didPublishWithinWindow = atom.recordSettledActivity(paneId: paneId, lastOutputLine: "second line")
 
         #expect(!didPublishWithinWindow)
-        // The dropped update never lands: the fact still reads the first line, not the second.
         #expect(atom.status(for: paneId)?.lastOutputLine == "first line")
+
+        await clock.waitForPendingSleepCount(exactly: 1)
+        currentDate = Date(timeIntervalSince1970: 1010)
+        monotonicNow = .seconds(10)
+        clock.advance(by: .seconds(10))
+        for _ in 0..<1000 where atom.status(for: paneId)?.lastOutputLine != "second line" {
+            await Task.yield()
+        }
+
+        #expect(atom.status(for: paneId)?.lastOutputLine == "second line")
+        #expect(atom.status(for: paneId)?.observedAt == Date(timeIntervalSince1970: 1009.999))
+    }
+
+    @Test("multiple deferred settles retain only the latest pane value and one deadline")
+    func multipleDeferredSettlesRetainLatestValue() async {
+        var currentDate = Date(timeIntervalSince1970: 1000)
+        var monotonicNow = Duration.zero
+        let clock = TestPushClock()
+        let outcomeRecorder = PaneActivityStatusOutcomeRecorder()
+        let atom = PaneActivityStatusAtom(
+            minimumPublishInterval: .seconds(10),
+            clock: clock,
+            now: { currentDate },
+            monotonicNow: { monotonicNow },
+            onPublicationOutcome: outcomeRecorder.record
+        )
+        let paneId = UUID()
+
+        #expect(atom.recordSettledActivity(paneId: paneId, lastOutputLine: "first"))
+        currentDate = Date(timeIntervalSince1970: 1001)
+        #expect(!atom.recordSettledActivity(paneId: paneId, lastOutputLine: "second"))
+        currentDate = Date(timeIntervalSince1970: 1002)
+        #expect(!atom.recordSettledActivity(paneId: paneId, lastOutputLine: "third"))
+        await clock.waitForPendingSleepCount(exactly: 1)
+
+        currentDate = Date(timeIntervalSince1970: 1010)
+        monotonicNow = .seconds(10)
+        clock.advance(by: .seconds(10))
+        for _ in 0..<1000 where atom.status(for: paneId)?.lastOutputLine != "third" {
+            await Task.yield()
+        }
+
+        #expect(atom.status(for: paneId)?.lastOutputLine == "third")
+        #expect(atom.status(for: paneId)?.observedAt == Date(timeIntervalSince1970: 1002))
+        #expect(outcomeRecorder.outcomes == [.published, .deferred, .replaced, .deadlineFired])
+    }
+
+    @Test("clear removes pending state and restores immediate publication eligibility")
+    func clearRemovesPendingAndRestoresEligibility() async {
+        var currentDate = Date(timeIntervalSince1970: 1000)
+        let monotonicNow = Duration.zero
+        let clock = TestPushClock()
+        let atom = PaneActivityStatusAtom(
+            minimumPublishInterval: .seconds(10),
+            clock: clock,
+            now: { currentDate },
+            monotonicNow: { monotonicNow }
+        )
+        let paneId = UUID()
+
+        #expect(atom.recordSettledActivity(paneId: paneId, lastOutputLine: "first"))
+        currentDate = Date(timeIntervalSince1970: 1001)
+        #expect(!atom.recordSettledActivity(paneId: paneId, lastOutputLine: "pending"))
+        await clock.waitForPendingSleepCount(exactly: 1)
+
+        atom.clear(paneId: paneId)
+        await clock.waitForPendingSleepCount(exactly: 0)
+        #expect(atom.status(for: paneId) == nil)
+
+        #expect(atom.recordSettledActivity(paneId: paneId, lastOutputLine: "after clear"))
+        #expect(atom.status(for: paneId)?.lastOutputLine == "after clear")
+    }
+
+    @Test("a deferred value is cancelled when the latest input returns to the committed value")
+    func deferredValueIsCancelledByCommittedValue() async {
+        var currentDate = Date(timeIntervalSince1970: 1000)
+        var monotonicNow = Duration.zero
+        let clock = TestPushClock()
+        let atom = PaneActivityStatusAtom(
+            minimumPublishInterval: .seconds(10),
+            clock: clock,
+            now: { currentDate },
+            monotonicNow: { monotonicNow }
+        )
+        let paneId = UUID()
+
+        #expect(atom.recordSettledActivity(paneId: paneId, lastOutputLine: "committed"))
+        currentDate = Date(timeIntervalSince1970: 1001)
+        #expect(!atom.recordSettledActivity(paneId: paneId, lastOutputLine: "pending"))
+        await clock.waitForPendingSleepCount(exactly: 1)
+
+        currentDate = Date(timeIntervalSince1970: 1002)
+        #expect(!atom.recordSettledActivity(paneId: paneId, lastOutputLine: "committed"))
+        await clock.waitForPendingSleepCount(exactly: 0)
+
+        currentDate = Date(timeIntervalSince1970: 1010)
+        monotonicNow = .seconds(10)
+        clock.advance(by: .seconds(10))
+        await Task.yield()
+        #expect(atom.status(for: paneId)?.lastOutputLine == "committed")
+    }
+
+    @Test("clearing the earliest pending pane reschedules the one deadline to the next pane")
+    func clearingEarliestPendingPaneReschedulesNextDeadline() async {
+        var currentDate = Date(timeIntervalSince1970: 1000)
+        var monotonicNow = Duration.zero
+        let clock = TestPushClock()
+        let atom = PaneActivityStatusAtom(
+            minimumPublishInterval: .seconds(10),
+            clock: clock,
+            now: { currentDate },
+            monotonicNow: { monotonicNow }
+        )
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+
+        #expect(atom.recordSettledActivity(paneId: firstPaneId, lastOutputLine: "first committed"))
+        currentDate = Date(timeIntervalSince1970: 1001)
+        monotonicNow = .seconds(1)
+        #expect(atom.recordSettledActivity(paneId: secondPaneId, lastOutputLine: "second committed"))
+        currentDate = Date(timeIntervalSince1970: 1002)
+        monotonicNow = .seconds(2)
+        #expect(!atom.recordSettledActivity(paneId: firstPaneId, lastOutputLine: "first pending"))
+        #expect(!atom.recordSettledActivity(paneId: secondPaneId, lastOutputLine: "second pending"))
+        await clock.waitForPendingSleepGeneration(0)
+
+        atom.clear(paneId: firstPaneId)
+        await clock.waitForPendingSleepGeneration(1)
+
+        currentDate = Date(timeIntervalSince1970: 1011)
+        monotonicNow = .seconds(11)
+        clock.advance(by: .seconds(9))
+        for _ in 0..<1000 where atom.status(for: secondPaneId)?.lastOutputLine != "second pending" {
+            await Task.yield()
+        }
+
+        #expect(atom.status(for: firstPaneId) == nil)
+        #expect(atom.status(for: secondPaneId)?.lastOutputLine == "second pending")
     }
 
     @Test("a settle at or after the 10s window publishes the latest line")
     func settleAfterWindowPublishes() {
         var currentDate = Date(timeIntervalSince1970: 1000)
+        var monotonicNow = Duration.zero
         let atom = PaneActivityStatusAtom(
             minimumPublishInterval: .seconds(10),
-            now: { currentDate }
+            now: { currentDate },
+            monotonicNow: { monotonicNow }
         )
         let paneId = UUID()
 
         #expect(atom.recordSettledActivity(paneId: paneId, lastOutputLine: "first line"))
         currentDate = currentDate.addingTimeInterval(10)
+        monotonicNow = .seconds(10)
         let didPublishAfterWindow = atom.recordSettledActivity(paneId: paneId, lastOutputLine: "second line")
 
         #expect(didPublishAfterWindow)

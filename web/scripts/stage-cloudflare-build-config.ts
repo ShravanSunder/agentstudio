@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, symlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const projectDirectory = process.cwd();
@@ -14,7 +14,13 @@ const rootPublicAssets = [
   "sitemap.xml",
 ];
 
-await copyFile(sourceConfigPath, stagedConfigPath);
+const sourceConfig = await readFile(sourceConfigPath, "utf8");
+const sourceWorkerImport = '"./src/campaign-attribution/campaign-request-worker.ts"';
+const stagedWorkerImport = '"../src/campaign-attribution/campaign-request-worker.ts"';
+if (!sourceConfig.includes(sourceWorkerImport)) {
+  throw new Error("Cloudflare config does not contain the expected Worker entrypoint import");
+}
+await writeFile(stagedConfigPath, sourceConfig.replace(sourceWorkerImport, stagedWorkerImport));
 await mkdir(stagedPublicDirectory, { recursive: true });
 await Promise.all(
   rootPublicAssets.map((assetName): Promise<void> =>

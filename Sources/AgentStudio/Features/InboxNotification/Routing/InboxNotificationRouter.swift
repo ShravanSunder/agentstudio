@@ -9,6 +9,9 @@ private let inboxNotificationRouterLogger = Logger(
     subsystem: "com.agentstudio",
     category: "InboxNotificationRouter"
 )
+/// Inbox presentation and ingestion are intentionally retired.
+/// Source and persisted rows remain only for a later data-safe removal.
+/// Do not reconnect these owners to App, command, toolbar, shortcut, IPC, or runtime-bus composition without a new product decision.
 @MainActor
 package final class InboxNotificationRouter {
     private struct ObservedPaneClearOutcome: Sendable, Equatable {

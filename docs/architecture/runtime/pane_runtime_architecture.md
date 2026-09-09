@@ -196,7 +196,11 @@ detail. This document does not restate them.
 1. **Raw samples on the bus** — Contract 7 failed; MainActor and subscribers wake on noise.
 2. **Commands on the bus** — breaks request-response and mixes planes.
 3. **`@MainActor` as derivation license** — atoms and runtimes publish there; admit/contract/derive off-main.
-4. **Catch-all event cases** — disposition and Inbox classification must stay exhaustive without silent defaults.
+4. **Catch-all event cases** — active runtime disposition must stay exhaustive
+   without silent defaults. Inbox classification is not an active runtime contract.
+   Retained Inbox reducer and router source is dormant historical implementation
+   and must not be reconnected to App or runtime-bus
+   composition without a new product decision.
 5. **God-bus domain policy** — EventBus matches topics and accounts for drops; it does not decide product meaning.
 
 ## Related

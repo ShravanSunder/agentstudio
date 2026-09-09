@@ -24,7 +24,8 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
             shouldAcceptDrop: { _, _, _ in true },
             handleDrop: { payload, target, sizingMode in
                 handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
-            }
+            },
+            modifierFlagsProvider: { [] }
         )
         coordinator.updateLayout(
             paneFrames: [targetPaneId: CGRect(x: 0, y: 0, width: 100, height: 80)],
@@ -60,6 +61,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
         var latchedTarget: DrawerRearrangeTarget? = .paneSplit(paneId: targetPaneId, side: .right)
         var validatedSizingModes: [DropSizingMode] = []
         var handledSizingModes: [DropSizingMode] = []
+        var modifierFlagsRequestCount = 0
 
         let coordinator = DrawerSplitContainerDropCaptureOverlay.Coordinator(
             targetBinding: Binding(
@@ -73,6 +75,10 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
             },
             handleDrop: { _, _, sizingMode in
                 handledSizingModes.append(sizingMode)
+            },
+            modifierFlagsProvider: {
+                modifierFlagsRequestCount += 1
+                return modifierFlagsRequestCount == 1 ? [] : [.shift]
             }
         )
         coordinator.updateLayout(
@@ -90,6 +96,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
 
         #expect(validatedSizingModes == [.halveTarget])
         #expect(handledSizingModes == validatedSizingModes)
+        #expect(modifierFlagsRequestCount == 1)
     }
 
     @Test
@@ -109,7 +116,8 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
             shouldAcceptDrop: { _, _, _ in true },
             handleDrop: { payload, target, sizingMode in
                 handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
-            }
+            },
+            modifierFlagsProvider: { [] }
         )
         coordinator.updateLayout(
             paneFrames: [
@@ -164,7 +172,8 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
             shouldAcceptDrop: { _, _, _ in true },
             handleDrop: { payload, target, sizingMode in
                 handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
-            }
+            },
+            modifierFlagsProvider: { [] }
         )
         coordinator.updateLayout(
             paneFrames: [

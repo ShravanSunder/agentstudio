@@ -26,6 +26,9 @@ extension AppDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        #if DEBUG
+            sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
+        #endif
         mainWindowController?.shutdown()
         managementLayerMonitor?.stopMonitoring()
         guard let applicationLifecycleMonitor else {

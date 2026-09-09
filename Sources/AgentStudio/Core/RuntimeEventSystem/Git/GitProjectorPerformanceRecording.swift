@@ -21,6 +21,16 @@ package protocol GitProjectorPerformanceRecording: Sendable {
         duration: Duration,
         attributes: @autoclosure () -> [String: AgentStudioTraceValue]
     )
+
+    func recordGitWorkingDirectoryPerformanceSnapshot(
+        _ snapshot: GitWorkingDirectoryPerformanceSnapshot
+    )
+}
+
+extension GitProjectorPerformanceRecording {
+    package func recordGitWorkingDirectoryPerformanceSnapshot(
+        _: GitWorkingDirectoryPerformanceSnapshot
+    ) {}
 }
 
 extension AgentStudioPerformanceTraceRecorder: GitProjectorPerformanceRecording {}

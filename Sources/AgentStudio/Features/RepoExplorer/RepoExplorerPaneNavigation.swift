@@ -3,13 +3,6 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
-package struct RepoExplorerPanePresentation: Identifiable {
-    let destination: RepoExplorerPaneDestination
-    let label: String
-
-    package var id: UUID { destination.paneId }
-}
-
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
@@ -64,7 +57,7 @@ struct RepoExplorerPaneRowContent: View {
     let octiconLoader: OcticonLoader
 
     var body: some View {
-        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 AppEntityIcon.pane.swiftUIImage(
                     loader: octiconLoader,
@@ -72,7 +65,7 @@ struct RepoExplorerPaneRowContent: View {
                 )
                 .frame(
                     width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
-                    alignment: .trailing
+                    alignment: .leading
                 )
                 Text(primaryText)
                     .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
@@ -83,7 +76,6 @@ struct RepoExplorerPaneRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .sidebarIconLineTextColumnGuide()
             if let secondaryLine {
                 SidebarMetadataLine(
                     icon: .systemName(secondaryLine.iconSystemName),
@@ -103,7 +95,11 @@ struct RepoExplorerPaneRowContent: View {
 
     @ViewBuilder
     private var chipRow: some View {
-        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+        SidebarStatusChipRow(
+            isPendingPullRequestFacts: branchStatus.map {
+                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
+            } ?? false
+        ) {
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
             {
@@ -125,20 +121,13 @@ struct RepoExplorerPaneRowContent: View {
             )
             if isActive {
                 SidebarChip(
-                    icon: .system(.circleFill),
+                    icon: .system(.playCircleFill),
                     octiconLoader: octiconLoader,
-                    text: "Active",
+                    text: nil,
                     style: .accent(.accentColor)
                 )
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .sidebarChipRowTextColumnGuide()
-        .sidebarPendingPullRequestIndicator(
-            isVisible: branchStatus.map {
-                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
-            } ?? false
-        )
     }
 
     private var recencyChipStyle: SidebarChip.Style {
@@ -187,50 +176,5 @@ struct RepoExplorerUnassociatedPaneRow: View {
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )
-    }
-}
-
-struct RepoExplorerPaneDestinationMenuContent: View {
-    let presentations: [RepoExplorerPanePresentation]
-    let onFocusPane: (UUID) -> Void
-
-    var body: some View {
-        ForEach(presentations) { presentation in
-            Button(presentation.label) {
-                onFocusPane(presentation.destination.paneId)
-            }
-        }
-    }
-}
-
-struct RepoExplorerRepoHeaderContextMenuModifier: ViewModifier {
-    let repo: RepoPresentationItem?
-    let panePresentations: [RepoExplorerPanePresentation]
-    let onFocusPane: (UUID) -> Void
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let repo {
-            content.contextMenu {
-                if !panePresentations.isEmpty {
-                    Menu(LocalActionSpec.goToPane.actionSpec.label) {
-                        RepoExplorerPaneDestinationMenuContent(
-                            presentations: panePresentations,
-                            onFocusPane: onFocusPane
-                        )
-                    }
-                }
-
-                Button(LocalActionSpec.revealInFinder.actionSpec.label) {
-                    PathActions.revealInFinder(repo.repoPath)
-                }
-
-                Button(LocalActionSpec.copyPath.actionSpec.label) {
-                    PathActions.copyPath(repo.repoPath)
-                }
-            }
-        } else {
-            content
-        }
     }
 }

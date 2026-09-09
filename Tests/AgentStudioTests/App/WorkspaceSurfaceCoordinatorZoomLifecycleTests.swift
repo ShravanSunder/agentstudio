@@ -317,7 +317,7 @@ extension WebKitSerializedTests {
 
             // Assert
             #expect(harness.store.pane(sourcePane.id)?.residency == .backgrounded)
-            #expect(harness.store.tab(sourceTab.id) == nil)
+            #expect(harness.store.tab(sourceTab.id)?.allPaneIds == [sourcePane.id])
             expectZoomLifecycleCompanionRetired(
                 ZoomLifecycleCompanionCleanupExpectation(
                     sourcePaneId: sourcePane.id,

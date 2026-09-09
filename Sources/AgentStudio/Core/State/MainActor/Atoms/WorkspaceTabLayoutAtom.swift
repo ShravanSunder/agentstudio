@@ -76,6 +76,24 @@ package final class WorkspaceTabLayoutAtom {
         return arrangementAtom.cursorAtom.activePaneId(forArrangement: arrangementID)
     }
 
+    package func canonicalActiveLayout(forTab tabID: UUID) -> Layout? {
+        activeArrangementGraphState(forTab: tabID)?.layout
+    }
+
+    package func canonicalActiveMinimizedPaneIDs(forTab tabID: UUID) -> Set<UUID> {
+        activeArrangementGraphState(forTab: tabID)?.minimizedPaneIds ?? []
+    }
+
+    package func canonicalActiveDrawerLayout(
+        drawerID: UUID,
+        forTab tabID: UUID
+    ) -> (layout: DrawerGridLayout, minimizedPaneIDs: Set<UUID>)? {
+        guard let drawerView = activeArrangementGraphState(forTab: tabID)?.drawerViews[drawerID] else {
+            return nil
+        }
+        return (drawerView.layout, drawerView.minimizedPaneIds)
+    }
+
     package func containsTab(_ tabID: UUID) -> Bool {
         arrangementAtom.graphAtom.containsTab(tabID)
     }
@@ -235,12 +253,19 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
 
-    package func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    package func resizeVisiblePanePair(
+        tabId: UUID,
+        leftPaneId: UUID,
+        rightPaneId: UUID,
+        ratio: Double,
+        residencyExcludedPaneIds: Set<UUID> = []
+    ) {
         arrangementAtom.resizeVisiblePanePair(
             tabId: tabId,
             leftPaneId: leftPaneId,
             rightPaneId: rightPaneId,
-            ratio: ratio
+            ratio: ratio,
+            residencyExcludedPaneIds: residencyExcludedPaneIds
         )
     }
 

@@ -338,46 +338,50 @@ final class PaneRemovalCascadeTests {
         #expect((store.pane(pane.id)) == nil)
     }
 
-    // MARK: - Orphan pool + removal interaction
+    // MARK: - Background residency + canonical retention
 
     @Test
 
-    func test_backgroundedPane_notInTabLayouts_removedByPurge() {
+    func test_backgroundedPane_remainsInCanonicalLayoutAndIsExcludedFromActiveProjection() {
         let (tab, paneIds) = createTabWithPanes(2)
         let targetPaneId = paneIds[1]
 
-        // Background the pane (removes from layout, keeps in store)
+        // Backgrounding defers the pane without removing its durable location.
         store.backgroundPane(targetPaneId)
 
         // Pane should still exist in store but backgrounded
         #expect((store.pane(targetPaneId)) != nil)
         #expect(store.pane(targetPaneId)!.residency == .backgrounded)
 
-        // Should not be in tab's active layout
+        // The canonical tab graph retains the pane for a later reactivation.
         let updatedTab = store.tab(tab.id)!
-        #expect(!(updatedTab.paneIds.contains(targetPaneId)))
+        #expect(updatedTab.paneIds.contains(targetPaneId))
 
-        // Purge should remove it
-        store.purgeOrphanedPane(targetPaneId)
-        #expect((store.pane(targetPaneId)) == nil)
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: ManagementLayerAtom()
+        )
+        #expect(arrangementView.activeVisiblePaneIds(forTab: tab.id) == [paneIds[0]])
     }
 
     @Test
 
-    func test_reactivatePane_restoresIntoLayout() {
+    func test_reactivatePane_usesRetainedLayoutLocationWithoutDuplicateInsertion() {
         let (tab, paneIds) = createTabWithPanes(2)
         let targetPaneId = paneIds[1]
 
         store.backgroundPane(targetPaneId)
-        #expect(!(store.tab(tab.id)!.paneIds.contains(targetPaneId)))
+        #expect(store.tab(tab.id)!.paneIds == paneIds)
 
-        // Reactivate by inserting next to the remaining pane
+        // The insertion target is ignored because the canonical layout already
+        // retains the pane at its existing location.
         store.reactivatePane(
             targetPaneId, inTab: tab.id,
             at: paneIds[0], direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
-        #expect(store.tab(tab.id)!.paneIds.contains(targetPaneId))
+        #expect(store.tab(tab.id)!.paneIds == paneIds)
         #expect(store.pane(targetPaneId)!.residency == .active)
     }
 

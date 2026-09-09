@@ -102,6 +102,8 @@ final class TabBarAdapterProjectionController: Sendable {
         var projectedGenerations: [UInt64] = []
         var projectedTabIDs: [UUID] = []
         var firstProjectionByTabID: [UUID: TabBarProjection] = [:]
+        var activeProjectionCount = 0
+        var maximumConcurrentProjectionCount = 0
     }
 
     private let gatesByGeneration: [UInt64: TabBarAdapterProjectionGate]
@@ -131,11 +133,28 @@ final class TabBarAdapterProjectionController: Sendable {
         state.withLock { $0.projectedTabIDs }
     }
 
+    var maximumConcurrentProjectionCount: Int {
+        state.withLock { $0.maximumConcurrentProjectionCount }
+    }
+
     func project(
         _ request: TabBarProjectionRequest
     ) throws(CancellationError) -> TabBarProjection {
         let generation = request.generation.value
-        state.withLock { $0.projectedGenerations.append(generation) }
+        state.withLock { state in
+            state.projectedGenerations.append(generation)
+            state.activeProjectionCount += 1
+            state.maximumConcurrentProjectionCount = max(
+                state.maximumConcurrentProjectionCount,
+                state.activeProjectionCount
+            )
+        }
+        defer {
+            state.withLock { state in
+                precondition(state.activeProjectionCount > 0)
+                state.activeProjectionCount -= 1
+            }
+        }
         try gatesByGeneration[generation]?.hold()
         let candidate = try TabBarProjector.project(request)
         return state.withLock { state in

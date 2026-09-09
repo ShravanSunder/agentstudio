@@ -12,22 +12,6 @@ struct RepoExplorerViewTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("row body proxy spans content resolution and keeps row kind bounded")
-    func rowBodyProxySpansContentResolutionAndKeepsRowKindBounded() {
-        var clockValues: [UInt64] = [2_000_000, 7_000_000]
-
-        let measurement = RepoExplorerView.measureRowBodyEvaluationProxy(
-            rowKind: .resolvedWorktree,
-            nowNanoseconds: { clockValues.removeFirst() },
-            resolve: { "resolved-content" }
-        )
-
-        #expect(measurement.content == "resolved-content")
-        #expect(measurement.duration == .milliseconds(5))
-        #expect(measurement.rowKind.rawValue == "resolved_worktree")
-        #expect(measurement.outcome == .success)
-    }
-
     @Test("By Repo and pane rows render Git status through the shared chip owner")
     func gitStatusRenderSitesUseTheSharedOwner() throws {
         // Owner-reported defect: pane rows built their PR chip with `.accent(.accentColor)` (system
@@ -58,15 +42,9 @@ struct RepoExplorerViewTests {
 
     @Test("selected grouping segment icon call site passes the accent foregroundOverride")
     func selectedGroupingSegmentIconUsesAccentOverride() throws {
-        // AppEntityIcon.swiftUIImage bakes its own `.foregroundStyle(.secondary)` directly onto the
-        // image; SwiftUI resolves that innermost style regardless of what an outer wrapper applies, so
-        // a foregroundStyle chained only from the call site never reaches the leaf (confirmed by live
-        // pixel measurement: the selected icon rendered grey (164,164,164), not accent). The override
-        // must be threaded into swiftUIImage's own foregroundOverride parameter instead; see
-        // AppEntityIconTests for the pixel-level proof that the parameter itself paints correctly. This
-        // test only verifies the call site wires the parameter to the real selection state.
         let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
             encoding: .utf8
         )
         let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))

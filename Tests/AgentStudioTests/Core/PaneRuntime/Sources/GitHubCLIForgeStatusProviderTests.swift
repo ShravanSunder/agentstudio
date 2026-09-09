@@ -7,25 +7,16 @@ import Testing
 @MainActor
 @Suite("GitHub CLI Forge status provider")
 struct GitHubCLIForgeStatusProviderTests {
-    @Test("queries one compact repository-wide page with PR readiness scalars")
-    func queriesOneRepositoryWidePage() async {
+    @Test("queries only demanded branches through stable aliases")
+    func queriesOnlyDemandedBranchesThroughStableAliases() async {
         let processExecutor = MockProcessExecutor()
         processExecutor.enqueueSuccess(
             """
             {
               "data": {
                 "repository": {
-                  "pullRequests": {
+                  "branch0": {
                     "nodes": [
-                      {
-                        "headRefName": "feature/toolbar",
-                        "url": "https://github.com/acme/studio/pull/42",
-                        "isDraft": false,
-                        "reviewDecision": "APPROVED",
-                        "mergeable": "MERGEABLE",
-                        "mergeStateStatus": "CLEAN",
-                        "statusCheckRollup": {"state": "SUCCESS"}
-                      },
                       {
                         "headRefName": "feature/sidebar",
                         "url": "https://github.com/acme/studio/pull/43",
@@ -37,6 +28,20 @@ struct GitHubCLIForgeStatusProviderTests {
                       }
                     ],
                     "pageInfo": {"hasNextPage": false, "endCursor": null}
+                  },
+                  "branch1": {
+                    "nodes": [
+                      {
+                        "headRefName": "feature/toolbar",
+                        "url": "https://github.com/acme/studio/pull/42",
+                        "isDraft": false,
+                        "reviewDecision": "APPROVED",
+                        "mergeable": "MERGEABLE",
+                        "mergeStateStatus": "CLEAN",
+                        "statusCheckRollup": {"state": "SUCCESS"}
+                      }
+                    ],
+                    "pageInfo": {"hasNextPage": false, "endCursor": null}
                   }
                 }
               }
@@ -45,7 +50,10 @@ struct GitHubCLIForgeStatusProviderTests {
         )
         let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
 
-        let outcome = await provider.pullRequests(origin: "git@github.com:acme/studio.git")
+        let outcome = await provider.pullRequests(
+            origin: "git@github.com:acme/studio.git",
+            demandedBranches: ["feature/toolbar", "feature/sidebar"]
+        )
 
         #expect(processExecutor.calls.count == 1)
         guard let call = processExecutor.calls.first else {
@@ -56,7 +64,13 @@ struct GitHubCLIForgeStatusProviderTests {
         #expect(call.args.prefix(2) == ["api", "graphql"])
         #expect(call.args.contains("owner=acme"))
         #expect(call.args.contains("name=studio"))
+        #expect(call.args.contains("branch0=feature/sidebar"))
+        #expect(call.args.contains("branch1=feature/toolbar"))
         let queryArgument = call.args.first(where: { $0.hasPrefix("query=") }) ?? ""
+        #expect(queryArgument.contains("branch0: pullRequests"))
+        #expect(queryArgument.contains("branch1: pullRequests"))
+        #expect(queryArgument.contains("headRefName: $branch0"))
+        #expect(!queryArgument.contains("repository-wide"))
         #expect(queryArgument.contains("statusCheckRollup"))
         #expect(queryArgument.contains("isDraft"))
         #expect(queryArgument.contains("reviewDecision"))
@@ -64,17 +78,6 @@ struct GitHubCLIForgeStatusProviderTests {
         #expect(
             outcome
                 == .complete([
-                    ForgePullRequest(
-                        headRefName: "feature/toolbar",
-                        url: URL(string: "https://github.com/acme/studio/pull/42")!,
-                        readiness: PullRequestReadiness(
-                            isDraft: false,
-                            checkStatus: .passed,
-                            reviewStatus: .approved,
-                            mergeability: .mergeable,
-                            mergeState: .clean
-                        )
-                    ),
                     ForgePullRequest(
                         headRefName: "feature/sidebar",
                         url: URL(string: "https://github.com/acme/studio/pull/43")!,
@@ -84,6 +87,17 @@ struct GitHubCLIForgeStatusProviderTests {
                             reviewStatus: .changesRequested,
                             mergeability: .conflicting,
                             mergeState: .dirty
+                        )
+                    ),
+                    ForgePullRequest(
+                        headRefName: "feature/toolbar",
+                        url: URL(string: "https://github.com/acme/studio/pull/42")!,
+                        readiness: PullRequestReadiness(
+                            isDraft: false,
+                            checkStatus: .passed,
+                            reviewStatus: .approved,
+                            mergeability: .mergeable,
+                            mergeState: .clean
                         )
                     ),
                 ])
@@ -110,7 +124,10 @@ struct GitHubCLIForgeStatusProviderTests {
         )
         let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
 
-        let outcome = await provider.pullRequests(origin: "https://github.com/acme/studio.git")
+        let outcome = await provider.pullRequests(
+            origin: "https://github.com/acme/studio.git",
+            demandedBranches: ["feature/unknown"]
+        )
 
         #expect(
             outcome
@@ -130,63 +147,54 @@ struct GitHubCLIForgeStatusProviderTests {
         )
     }
 
-    @Test("follows one bounded second page and treats a full cap as truncated")
-    func boundedSecondPageAtCapIsTruncated() async {
+    @Test("paginates one demanded branch through its stable cursor variable")
+    func paginatesDemandedBranch() async {
         let processExecutor = MockProcessExecutor()
-        let firstPageRows = (0..<100).map { index in
-            pullRequestNode(index: index)
-        }
-        let secondPageRows = (100..<AppPolicies.Forge.pullRequestResultLimit).map { index in
-            pullRequestNode(index: index)
-        }
         processExecutor.enqueueSuccess(
             graphqlResponse(
-                nodes: firstPageRows.joined(separator: ","),
+                nodes: pullRequestNode(branch: "feature/paginated", index: 0),
                 hasNextPage: true,
-                endCursor: "cursor-100"
+                endCursor: "cursor-1"
             )
         )
-        processExecutor.enqueueSuccess(
-            graphqlResponse(
-                nodes: secondPageRows.joined(separator: ","),
-                hasNextPage: true,
-                endCursor: "cursor-200"
-            )
-        )
+        processExecutor.enqueueSuccess(graphqlResponse(nodes: ""))
         let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
 
-        let outcome = await provider.pullRequests(origin: "https://github.com/acme/studio.git")
+        let outcome = await provider.pullRequests(
+            origin: "https://github.com/acme/studio.git",
+            demandedBranches: ["feature/paginated"]
+        )
 
-        #expect(outcome == .truncated)
+        guard case .complete(let pullRequests) = outcome else {
+            Issue.record("Expected a complete demanded-branch result")
+            return
+        }
+        #expect(pullRequests.count == 1)
         #expect(processExecutor.calls.count == 2)
-        #expect(processExecutor.calls[1].args.contains("after=cursor-100"))
+        #expect(processExecutor.calls[1].args.contains("after0=cursor-1"))
     }
 
-    @Test("treats exactly the configured result cap as potentially truncated")
-    func exactResultCapIsTruncated() async {
+    @Test("rejects a demanded branch that exceeds the declared page bound")
+    func excessiveDemandedBranchPaginationIsTruncated() async {
         let processExecutor = MockProcessExecutor()
-        let firstPageRows = (0..<100).map { index in
-            pullRequestNode(index: index)
-        }
-        let secondPageRows = (100..<AppPolicies.Forge.pullRequestResultLimit).map { index in
-            pullRequestNode(index: index)
-        }
-        processExecutor.enqueueSuccess(
-            graphqlResponse(
-                nodes: firstPageRows.joined(separator: ","),
-                hasNextPage: true,
-                endCursor: "cursor-100"
+        for pageIndex in 0..<AppPolicies.ForgeRefresh.maximumPagesPerBranch {
+            processExecutor.enqueueSuccess(
+                graphqlResponse(
+                    nodes: pullRequestNode(branch: "feature/unbounded", index: pageIndex),
+                    hasNextPage: true,
+                    endCursor: "cursor-\(pageIndex + 1)"
+                )
             )
-        )
-        processExecutor.enqueueSuccess(
-            graphqlResponse(nodes: secondPageRows.joined(separator: ","))
-        )
+        }
         let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
 
-        let outcome = await provider.pullRequests(origin: "https://github.com/acme/studio.git")
+        let outcome = await provider.pullRequests(
+            origin: "https://github.com/acme/studio.git",
+            demandedBranches: ["feature/unbounded"]
+        )
 
         #expect(outcome == .truncated)
-        #expect(processExecutor.calls.count == 2)
+        #expect(processExecutor.calls.count == AppPolicies.ForgeRefresh.maximumPagesPerBranch)
     }
 
     @Test("GitHub rate limiting is a typed result with retry-after")
@@ -201,9 +209,37 @@ struct GitHubCLIForgeStatusProviderTests {
         )
         let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
 
-        let outcome = await provider.pullRequests(origin: "git@github.com:acme/studio.git")
+        let outcome = await provider.pullRequests(
+            origin: "git@github.com:acme/studio.git",
+            demandedBranches: ["main"]
+        )
 
         #expect(outcome == .rateLimited(retryAfterSeconds: 75))
+    }
+
+    @Test("a later alias batch failure rejects the complete repository plan")
+    func laterAliasBatchFailureRejectsCompletePlan() async {
+        let processExecutor = MockProcessExecutor()
+        processExecutor.enqueueSuccess(
+            emptyGraphQLResponse(aliasCount: AppPolicies.ForgeRefresh.maximumBranchAliasesPerBatch)
+        )
+        processExecutor.enqueue(
+            ProcessResult(exitCode: 1, stdout: "", stderr: "offline")
+        )
+        let provider = GitHubCLIForgeStatusProvider(processExecutor: processExecutor)
+        let demandedBranches = Set(
+            (0...AppPolicies.ForgeRefresh.maximumBranchAliasesPerBatch).map { index in
+                "feature/branch-\(index)"
+            }
+        )
+
+        let outcome = await provider.pullRequests(
+            origin: "git@github.com:acme/studio.git",
+            demandedBranches: demandedBranches
+        )
+
+        #expect(outcome == .failed(message: "offline"))
+        #expect(processExecutor.calls.count == 2)
     }
 
     private func graphqlResponse(
@@ -216,7 +252,7 @@ struct GitHubCLIForgeStatusProviderTests {
             {
               "data": {
                 "repository": {
-                  "pullRequests": {
+                  "branch0": {
                     "nodes": [\(nodes)],
                     "pageInfo": {
                       "hasNextPage": \(hasNextPage),
@@ -229,10 +265,10 @@ struct GitHubCLIForgeStatusProviderTests {
             """
     }
 
-    private func pullRequestNode(index: Int) -> String {
+    private func pullRequestNode(branch: String, index: Int) -> String {
         """
         {
-          "headRefName": "branch-\(index)",
+          "headRefName": "\(branch)",
           "url": "https://github.com/acme/studio/pull/\(index + 1)",
           "isDraft": false,
           "reviewDecision": null,
@@ -241,5 +277,25 @@ struct GitHubCLIForgeStatusProviderTests {
           "statusCheckRollup": null
         }
         """
+    }
+
+    private func emptyGraphQLResponse(aliasCount: Int) -> String {
+        let connections = (0..<aliasCount).map { index in
+            """
+            "branch\(index)": {
+              "nodes": [],
+              "pageInfo": {"hasNextPage": false, "endCursor": null}
+            }
+            """
+        }.joined(separator: ",")
+        return """
+            {
+              "data": {
+                "repository": {
+                  \(connections)
+                }
+              }
+            }
+            """
     }
 }

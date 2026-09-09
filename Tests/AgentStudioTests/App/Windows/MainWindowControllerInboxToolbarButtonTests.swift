@@ -35,7 +35,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
 
             let expectedItemIdentifiers = [
                 "worktreeSidebar",
-                "inboxSidebar",
                 "sidebarDivider",
                 "watchFolder",
                 "managementLayer",
@@ -66,7 +65,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 #expect(!item.isBordered)
             }
 
-            for itemIdentifier in ["worktreeSidebar", "inboxSidebar"] {
+            for itemIdentifier in ["worktreeSidebar"] {
                 let item = try #require(
                     toolbar.items.first(where: {
                         $0.itemIdentifier.rawValue == itemIdentifier
@@ -162,20 +161,13 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(!layoutSource.contains(".arrangement"))
     }
 
-    @Test("native sidebar toolbar icons follow programmatic sidebar state changes")
-    func nativeSidebarToolbarIconsFollowProgrammaticSidebarStateChanges() async throws {
+    @Test("native toolbar omits the retired Inbox surface")
+    func nativeToolbarOmitsRetiredInboxSurface() async throws {
         try await withMainWindowControllerHarness { harness in
             let toolbar = try #require(harness.window.toolbar)
-            let inboxItem = try #require(
-                toolbar.items.first(where: { $0.itemIdentifier.rawValue == "inboxSidebar" })
-            )
-            let initialImage = try #require(inboxItem.image)
-
             harness.atoms.core.workspaceSidebarState.setSidebarSurface(.inbox)
-
-            await assertEventuallyMain("inbox toolbar icon should follow sidebar atom changes") {
-                inboxItem.image !== initialImage
-            }
+            #expect(harness.atoms.core.workspaceSidebarState.sidebarSurface == .repos)
+            #expect(!toolbar.items.contains(where: { $0.itemIdentifier.rawValue == "inboxSidebar" }))
         }
     }
 
@@ -206,9 +198,9 @@ struct MainWindowControllerInboxToolbarButtonTests {
         expectAppToolbarPresentationFiltering(for: .showWorktreeSidebar)
     }
 
-    @Test("inbox presentation is filtered by app toolbar surface and command context")
-    func inboxPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
-        expectAppToolbarPresentationFiltering(for: .showInboxNotifications)
+    @Test("Inbox has no app-toolbar presentation")
+    func inboxHasNoAppToolbarPresentation() {
+        #expect(AppCommand.showInboxNotifications.definition.surfacePolicy == .notPresented)
     }
 
     @Test("watch folder presentation is filtered by app toolbar surface and command context")
@@ -379,9 +371,6 @@ private final class RecordingAppToolbarCommandDispatcher: AppCommandDispatching 
 
 @MainActor
 private func withMainWindowControllerHarness<T>(
-    inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
-    inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
-    paneInboxPresenter: PaneInboxNotificationPresenter = PaneInboxNotificationPresenter(),
     body: @MainActor (MainWindowControllerHarness) async throws -> T
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
@@ -413,8 +402,7 @@ private func withMainWindowControllerHarness<T>(
     )
     let tabBarAdapter = TabBarAdapter(
         store: store,
-        repoCache: atoms.core.repoCache,
-        inboxAtom: inboxAtom
+        repoCache: atoms.core.repoCache
     )
 
     var controller: MainWindowController?
@@ -430,15 +418,10 @@ private func withMainWindowControllerHarness<T>(
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atoms.bridgePaneAttendance,
             editorChooser: atoms.editorChooser,
-            inboxAtom: inboxAtom,
-            inboxPrefsAtom: inboxPrefsAtom,
-            inboxSidebarState: InboxSidebarState(),
-            paneInboxPresentationState: atoms.paneInboxPresentationState,
             repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
             bridgeAttendanceSnapshot: { paneId in
                 atoms.bridgePaneAttendance.ordinal(for: paneId)
-            },
-            paneInboxPresenter: paneInboxPresenter
+            }
         )
         controller = windowController
         windowController.showWindow(nil)

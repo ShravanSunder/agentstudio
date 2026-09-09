@@ -19,8 +19,8 @@ struct TerminalPlaceholderPublication: Equatable, Sendable {
     let disposition: Disposition
 }
 
-/// Joins the independently scheduled terminal and nonterminal startup lanes for
-/// one accepted composition generation.
+/// Joins the single-scheduler terminal lane and the phase-ordered nonterminal
+/// startup lane for one accepted composition generation.
 @MainActor
 final class WorkspacePreparedContentMountCoordinator {
     private enum Lifecycle {
@@ -31,36 +31,64 @@ final class WorkspacePreparedContentMountCoordinator {
 
     private let cohort: WorkspacePreparedContentMountCohort
     private let viewRegistry: ViewRegistry
-    private let terminalScheduler: TerminalActivationScheduler
     private let terminalActivationReleaseGate: TerminalActivationReleaseGate
-    private let nonterminalOwner: NonterminalContentMountOwner
+    /// One scheduler owns the complete terminal cohort — foreground and
+    /// hidden, main and drawer alike. Its private `QueueRank` reproduces the
+    /// former four-phase admission order without four scheduler instances, so
+    /// the whole-cohort concurrency bound (R4) can no longer be exceeded by
+    /// summing several schedulers' individual bounds.
+    private let terminalScheduler: TerminalActivationScheduler
+    /// Held so `handleVisibilitySignals` can record the complete current
+    /// visible queued set synchronously (R3, G2) instead of the retired
+    /// fire-and-forget per-pane promotion task.
+    private let terminalAdmissionPort: any TerminalActivationAdmissionPort
+    /// Placement lookup for classifying a signaled pane into the four
+    /// promotion tiers. Built once from the accepted cohort's descriptors,
+    /// which never change for the life of this generation.
+    private let terminalDescriptorsByPaneID: [PaneId: TerminalActivationDescriptor]
+    /// Nonterminal startup keeps its existing two-phase order (main before
+    /// drawer) and ledger semantics, unchanged by this slice. Hidden
+    /// nonterminal panes are excluded before this array is built.
+    private let nonterminalPhaseOwners: [NonterminalContentMountOwner]
     private var lifecycle = Lifecycle.idle
     private var didPublishTerminalPlaceholders = false
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
     private var deferredVisibilityIntentPaneIDs: Set<PaneId> = []
     private var deferredVisibilityIntentOrder: [PaneId] = []
+    /// The sole path this coordinator has to reach
+    /// `WorkspaceSurfaceCoordinator.registerTerminalPlaceholderIfNeeded(for:mode:)`,
+    /// which remains the only actual placeholder writer — this closure never
+    /// writes a view itself. Defaults to a no-op so existing fakes and
+    /// harnesses that construct this coordinator without a real surface
+    /// coordinator keep compiling unchanged; production wiring is assigned
+    /// at construction in `AppDelegate+WorkspaceBoot.swift`.
+    private let placeholderTransitionHandler: (Pane, TerminalStatusPlaceholderMode) -> Void
 
     init(
         cohort: WorkspacePreparedContentMountCohort,
         viewRegistry: ViewRegistry,
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
-        nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort
+        nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort,
+        placeholderTransitionHandler: @escaping (Pane, TerminalStatusPlaceholderMode) -> Void = { _, _ in }
     ) {
-        // Hidden Bridge panes stay outside the startup ledger so a later reveal
-        // falls through to the existing steady-state content mount owner.
+        // Hidden nonterminal panes stay outside the startup ledger so later
+        // demand falls through to the existing steady-state content mount
+        // owner. Terminals remain in the startup cohort — foreground and
+        // hidden alike — and the scheduler's own rank orders them.
         let startupCohort = WorkspacePreparedContentMountCohort(
             generation: cohort.generation,
             terminalActivationInput: cohort.terminalActivationInput,
             nonterminalContentMountInput: NonterminalContentMountInput(
-                entries: cohort.nonterminalContentMountInput.entries.filter {
-                    guard $0.visibilityPriority == .hidden else { return true }
-                    guard case .bridgePanel = $0.content else { return true }
-                    return false
-                }
+                entries: cohort.nonterminalContentMountInput.entries.filter { $0.visibilityPriority != .hidden }
             )
         )
         self.cohort = startupCohort
         self.viewRegistry = viewRegistry
+        self.terminalAdmissionPort = terminalAdmissionPort
+        self.placeholderTransitionHandler = placeholderTransitionHandler
+        terminalDescriptorsByPaneID = Dictionary(
+            uniqueKeysWithValues: startupCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
+        )
         let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
         self.terminalActivationReleaseGate = terminalActivationReleaseGate
         terminalScheduler = TerminalActivationScheduler(
@@ -71,11 +99,17 @@ final class WorkspacePreparedContentMountCoordinator {
             admissionPort: terminalAdmissionPort,
             releaseSignal: terminalActivationReleaseGate
         )
-        nonterminalOwner = NonterminalContentMountOwner(
-            generation: startupCohort.generation,
-            input: startupCohort.nonterminalContentMountInput,
-            admissionPort: nonterminalAdmissionPort
-        )
+        nonterminalPhaseOwners = [false, true].map { selectingDrawerEntries in
+            NonterminalContentMountOwner(
+                generation: startupCohort.generation,
+                input: NonterminalContentMountInput(
+                    entries: startupCohort.nonterminalContentMountInput.entries.filter {
+                        Self.isDrawerPlacement($0.hostPlacement) == selectingDrawerEntries
+                    }
+                ),
+                admissionPort: nonterminalAdmissionPort
+            )
+        }
         viewRegistry.installPreparedContentMountCohort(startupCohort)
     }
 
@@ -91,6 +125,43 @@ final class WorkspacePreparedContentMountCoordinator {
         await terminalScheduler.recordedActivationDeferralOutcome()
     }
 
+    /// Forwards the port's launch-time eligible pane set to the one
+    /// scheduler, unlocking exactly those still-waiting members for
+    /// admission. The port has already performed its own `deferredGeometry`
+    /// custody bookkeeping for everything not in this set; this call only
+    /// carries the eligible set into the scheduler and awaits its
+    /// acknowledgement of the waiting-to-queued move. Must be called before
+    /// `mount()`'s terminal lane activates, so `installGeometryEligibility`'s
+    /// single-shot, pre-`activate()` contract is honored (SPEC R5, R1's
+    /// deferral half).
+    func installTerminalGeometryAvailability(_ eligiblePaneIDs: Set<PaneId>) async {
+        _ = await terminalScheduler.installGeometryEligibility(eligiblePaneIDs)
+    }
+
+    /// SPEC R5 retry: forwards a port's later-arriving eligible pane set to
+    /// the one scheduler, requeuing exactly the still-waiting members it
+    /// names. Safe to call at any point after `mount()` — including long
+    /// after its settlement — since the scheduler starts its own
+    /// supplemental drain when it has already gone quiescent.
+    func acceptTerminalGeometry(_ paneIDs: Set<PaneId>) async {
+        let requeuedPaneIDs = await terminalScheduler.acceptLaterGeometry(for: paneIDs)
+        for paneID in requeuedPaneIDs {
+            guard let pane = terminalDescriptorsByPaneID[paneID]?.pane else { continue }
+            // A pane this requeue accepted can already have been mounted or
+            // failed by the time this `await` resumes — a concurrent drain
+            // on the same scheduler can finish it first. Re-read live
+            // custody immediately before writing so a `.preparing`
+            // placeholder is never overlaid on an already-settled pane's
+            // live terminal view, which nothing ever clears.
+            switch viewRegistry.preparedContentMountState(for: paneID, generation: cohort.generation) {
+            case .pending(owner: .terminal), .mounting(owner: .terminal):
+                placeholderTransitionHandler(pane, .preparing)
+            case .deferredGeometry, .completed, .pending(owner: .nonterminal), .mounting(owner: .nonterminal), nil:
+                continue
+            }
+        }
+    }
+
     func mount() async -> WorkspacePreparedContentMountSettlement {
         switch lifecycle {
         case .settled(let settlement):
@@ -103,14 +174,26 @@ final class WorkspacePreparedContentMountCoordinator {
             lifecycle = .mounting
         }
 
-        async let terminal = terminalScheduler.activate()
-        async let nonterminal = nonterminalOwner.mount()
+        async let terminalSettlement = terminalScheduler.activate()
+
+        var nonterminalOutcomesByPaneID: [PaneId: NonterminalContentMountOutcome] = [:]
+        for nonterminalOwner in nonterminalPhaseOwners {
+            let phaseNonterminal = await nonterminalOwner.mount()
+            nonterminalOutcomesByPaneID.merge(phaseNonterminal.outcomesByPaneID) { _, _ in
+                preconditionFailure("nonterminal pane admitted by multiple restore phases")
+            }
+        }
+
         let settlement = WorkspacePreparedContentMountSettlement(
             generation: cohort.generation,
-            terminal: await terminal,
-            nonterminal: await nonterminal
+            terminal: await terminalSettlement,
+            nonterminal: NonterminalContentMountSettlement(
+                generation: cohort.generation,
+                outcomesByPaneID: nonterminalOutcomesByPaneID
+            )
         )
         requireCompleteSettlement(settlement)
+        notifyWaitingForGeometryPlaceholders(in: settlement)
         viewRegistry.completeInitialRestore()
         lifecycle = .settled(settlement)
 
@@ -151,17 +234,14 @@ final class WorkspacePreparedContentMountCoordinator {
         )
     }
 
-    func promoteTerminal(
-        paneID: PaneId,
-        to priority: TerminalActivationVisibilityPriority
-    ) async -> TerminalActivationPromotionResult {
-        await terminalScheduler.promote(paneID: paneID, to: priority)
-    }
-
-    func handleVisibilitySignals(for paneIDs: [PaneId]) -> Set<PaneId> {
+    /// Records the complete current visible queued set synchronously, then
+    /// returns which signaled panes the prepared lane still owns. Replaces
+    /// the retired fire-and-forget per-pane promotion task: acknowledgement
+    /// now happens inline, before this call returns, with no `Task` hop.
+    func handleVisibilitySignals(for visibleQueuedSet: PreparedContentVisibleQueuedSet) -> Set<PaneId> {
         var handledPaneIDs: Set<PaneId> = []
-        var terminalPaneIDsToPromote: [PaneId] = []
-        for paneID in paneIDs {
+        var queuedTerminalPaneIDs: Set<PaneId> = []
+        for paneID in visibleQueuedSet.visiblePaneIDs {
             guard
                 let state = viewRegistry.preparedContentMountState(
                     for: paneID,
@@ -171,11 +251,16 @@ final class WorkspacePreparedContentMountCoordinator {
                 continue
             }
             switch state {
-            case .pending(owner: .terminal):
+            case .pending(owner: .terminal), .deferredGeometry(owner: .terminal):
+                // A pane waiting on geometry is treated exactly like a pending
+                // pane here: the prepared lane still owns it, and this signal
+                // records intent and enters the current visible queued set
+                // this scheduler will apply its four-tier promotion from.
                 handledPaneIDs.insert(paneID)
                 recordDeferredVisibilityIntent(for: paneID)
-                terminalPaneIDsToPromote.append(paneID)
-            case .mounting(owner: .terminal), .pending(owner: .nonterminal), .mounting(owner: .nonterminal):
+                queuedTerminalPaneIDs.insert(paneID)
+            case .mounting(owner: .terminal), .pending(owner: .nonterminal), .mounting(owner: .nonterminal),
+                .deferredGeometry(owner: .nonterminal):
                 handledPaneIDs.insert(paneID)
                 recordDeferredVisibilityIntent(for: paneID)
             case .completed(owner: _, disposition: .failed):
@@ -185,14 +270,54 @@ final class WorkspacePreparedContentMountCoordinator {
                 handledPaneIDs.insert(paneID)
             }
         }
-        if !terminalPaneIDsToPromote.isEmpty {
-            Task { [terminalScheduler] in
-                for paneID in terminalPaneIDsToPromote {
-                    _ = await terminalScheduler.promote(paneID: paneID, to: .activeVisible)
-                }
+        // Recorded unconditionally, including an empty queued-terminal subset:
+        // the port's own equality suppression already collapses repeats, and
+        // discarding an empty observation here would strand a previously
+        // promoted member at its stale rank instead of letting it demote.
+        terminalAdmissionPort.recordCurrentVisibleQueuedTerminals(
+            classifyVisibleQueuedTerminals(visibleQueuedSet, queuedTerminalPaneIDs: queuedTerminalPaneIDs)
+        )
+        return handledPaneIDs
+    }
+
+    /// Classifies `visibleQueuedSet` into the four promotion tiers. "Active"
+    /// is membership in `visibleQueuedSet.activePaneIDs` — never list
+    /// position — so a caller may pass its visible panes in any order. Only
+    /// members still in `queuedTerminalPaneIDs` (pending or deferred-geometry
+    /// custody) enter a tier, so an already-mounted active pane cannot cause
+    /// a sibling to be misclassified as active.
+    private func classifyVisibleQueuedTerminals(
+        _ visibleQueuedSet: PreparedContentVisibleQueuedSet,
+        queuedTerminalPaneIDs: Set<PaneId>
+    ) -> TerminalVisibleQueuedTerminals {
+        var activeMainPaneIDs: [PaneId] = []
+        var visibleMainSiblingPaneIDs: [PaneId] = []
+        var activeDrawerPaneIDs: [PaneId] = []
+        var visibleDrawerSiblingPaneIDs: [PaneId] = []
+        for paneID in visibleQueuedSet.visiblePaneIDs {
+            guard queuedTerminalPaneIDs.contains(paneID), let descriptor = terminalDescriptorsByPaneID[paneID] else {
+                continue
+            }
+            let isDrawer = Self.isDrawerPlacement(descriptor.hostPlacement)
+            let isActive = visibleQueuedSet.activePaneIDs.contains(paneID)
+            switch (isDrawer, isActive) {
+            case (false, true):
+                activeMainPaneIDs.append(paneID)
+            case (false, false):
+                visibleMainSiblingPaneIDs.append(paneID)
+            case (true, true):
+                activeDrawerPaneIDs.append(paneID)
+            case (true, false):
+                visibleDrawerSiblingPaneIDs.append(paneID)
             }
         }
-        return handledPaneIDs
+        return TerminalVisibleQueuedTerminals(
+            generation: cohort.generation,
+            activeMainPaneIDs: activeMainPaneIDs,
+            visibleMainSiblingPaneIDs: visibleMainSiblingPaneIDs,
+            activeDrawerPaneIDs: activeDrawerPaneIDs,
+            visibleDrawerSiblingPaneIDs: visibleDrawerSiblingPaneIDs
+        )
     }
 
     func takeDeferredSteadyStateRepairPaneIDs() -> [PaneId] {
@@ -216,7 +341,10 @@ final class WorkspacePreparedContentMountCoordinator {
             switch outcome {
             case .failedTerminal:
                 return paneID
-            case .ready, .cancelledReplaced:
+            case .ready, .cancelledReplaced, .waitingForGeometry:
+                // A waiting member has no outcome yet — it is not a failure,
+                // and `acceptLaterGeometry` can still requeue it in this same
+                // generation and scheduler (SPEC R5).
                 return nil
             }
         }
@@ -236,6 +364,32 @@ final class WorkspacePreparedContentMountCoordinator {
         deferredVisibilityIntentOrder.append(paneID)
     }
 
+    /// Requests the `.preparing -> .waitingForGeometry` placeholder
+    /// transition for every member the first drain settled as waiting (SPEC
+    /// R5 presentation). `acceptTerminalGeometry` requests the reverse
+    /// transition on requeue; this is the only other placeholder-transition
+    /// request site, and neither ever writes a view directly.
+    private func notifyWaitingForGeometryPlaceholders(in settlement: WorkspacePreparedContentMountSettlement) {
+        for (paneID, outcome) in settlement.terminal.outcomesByPaneID {
+            guard case .waitingForGeometry = outcome, let pane = terminalDescriptorsByPaneID[paneID]?.pane else {
+                continue
+            }
+            // The frozen settlement snapshot can already be stale by the
+            // time this loop runs: a concurrent `acceptTerminalGeometry` on
+            // the same scheduler can have already admitted and mounted (or
+            // failed) this exact pane. Re-read live custody immediately
+            // before writing so `.waitingForGeometry` is never published
+            // over an already-settled pane's live terminal view.
+            guard
+                viewRegistry.preparedContentMountState(for: paneID, generation: cohort.generation)
+                    == .deferredGeometry(owner: .terminal)
+            else {
+                continue
+            }
+            placeholderTransitionHandler(pane, .waitingForGeometry)
+        }
+    }
+
     private func requireCompleteSettlement(_ settlement: WorkspacePreparedContentMountSettlement) {
         precondition(settlement.terminal.generation == cohort.generation)
         precondition(settlement.nonterminal.generation == cohort.generation)
@@ -247,5 +401,10 @@ final class WorkspacePreparedContentMountCoordinator {
             Set(settlement.nonterminal.outcomesByPaneID.keys)
                 == Set(cohort.nonterminalContentMountInput.entries.map(\.paneID))
         )
+    }
+
+    private static func isDrawerPlacement(_ placement: TerminalHostPlacementIdentity) -> Bool {
+        if case .drawer = placement { return true }
+        return false
     }
 }

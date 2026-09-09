@@ -121,6 +121,11 @@ extension WorkspaceSQLiteDatastoreActor {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
+    enum RepositoryLocalActivityLoadResult: Equatable, Sendable {
+        case loaded(RepositoryLocalActivitySnapshot)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
+    }
+
     enum WorkspaceEntityRecencyLoadResult: Equatable, Sendable {
         case loaded([WorkspaceEntityRecency])
         case unavailable(WorkspaceSQLiteDatastoreFailure)
@@ -154,10 +159,6 @@ extension WorkspaceSQLiteDatastoreActor {
         package private(set) var repoExplorer:
             LocalSettingsValue<
                 WorkspaceLocalRepository.RepoExplorerPreferencesRecord
-            >
-        package private(set) var inboxNotification:
-            LocalSettingsValue<
-                WorkspaceLocalRepository.InboxNotificationPreferencesRecord
             >
     }
 

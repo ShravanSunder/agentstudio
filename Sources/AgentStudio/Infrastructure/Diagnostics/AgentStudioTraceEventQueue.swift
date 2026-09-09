@@ -5,11 +5,13 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
     package struct CompletenessSnapshot: Equatable, Sendable {
         package let droppedRecordCount: Int
         package let highWaterMark: Int
+        package let pendingRequestCount: Int
     }
 
     private struct CompletenessState: Sendable {
         var droppedRecordCount = 0
         var highWaterMark = 0
+        var pendingRequestCount = 0
     }
 
     private final class CompletenessTracker: Sendable {
@@ -74,21 +76,42 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
             eventTimeUnixNano: eventTimeUnixNano,
             attributes: attributes
         )
-        guard let continuation = continuationForEnqueue() else { return }
-        let yieldResult = continuation.yield(.record(request))
+        lock.lock()
+        guard !isClosed else {
+            lock.unlock()
+            return
+        }
+        ensureWorkerStartedLocked()
+        accountForEnqueueAttempt()
+        let yieldResult = continuation?.yield(.record(request))
+        lock.unlock()
+        guard let yieldResult else { return }
         let droppedFlushContinuation = accountForYieldResult(yieldResult)
         droppedFlushContinuation?.resume(throwing: CancellationError())
     }
 
     package func flush() async throws {
-        guard let continuation = continuationForEnqueue() else {
+        let isOpen: Bool = lock.withLock {
+            guard !isClosed else { return false }
+            ensureWorkerStartedLocked()
+            return true
+        }
+        guard isOpen else {
             try await traceRuntime.flush()
             return
         }
 
         try await withUnsafeThrowingContinuation { (flushContinuation: UnsafeContinuation<Void, Error>) in
+            lock.lock()
+            guard !isClosed, let continuation else {
+                lock.unlock()
+                flushContinuation.resume(throwing: CancellationError())
+                return
+            }
+            accountForEnqueueAttempt()
             let yieldResult = continuation.yield(.flush(flushContinuation))
-            let droppedFlushContinuation = accountForYieldResult(yieldResult)
+            lock.unlock()
+            let droppedFlushContinuation = accountForYieldResult(yieldResult, isRecord: false)
             let didTerminate: Bool
             switch yieldResult {
             case .terminated:
@@ -128,7 +151,8 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         completenessTracker.state.withLock { state in
             CompletenessSnapshot(
                 droppedRecordCount: state.droppedRecordCount,
-                highWaterMark: state.highWaterMark
+                highWaterMark: state.highWaterMark,
+                pendingRequestCount: state.pendingRequestCount
             )
         }
     }
@@ -159,21 +183,26 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         // swiftlint:disable:next no_task_detached
         workerTask = Task.detached(priority: .utility) {
             for await request in stream {
+                let requestBacklogSnapshot = completenessTracker.state.withLock { state in
+                    state.pendingRequestCount = max(0, state.pendingRequestCount - 1)
+                    return CompletenessSnapshot(
+                        droppedRecordCount: state.droppedRecordCount,
+                        highWaterMark: state.highWaterMark,
+                        pendingRequestCount: state.pendingRequestCount
+                    )
+                }
                 switch request {
                 case .record(let request):
                     var attributes = request.attributes
                     if request.tag == .performance {
-                        let completenessSnapshot = completenessTracker.state.withLock { state in
-                            CompletenessSnapshot(
-                                droppedRecordCount: state.droppedRecordCount,
-                                highWaterMark: state.highWaterMark
-                            )
-                        }
                         attributes["agentstudio.performance.trace_queue.dropped_record.count"] = .int(
-                            completenessSnapshot.droppedRecordCount
+                            requestBacklogSnapshot.droppedRecordCount
                         )
                         attributes["agentstudio.performance.trace_queue.high_watermark"] = .int(
-                            completenessSnapshot.highWaterMark
+                            requestBacklogSnapshot.highWaterMark
+                        )
+                        attributes["agentstudio.performance.trace_queue.pending_request.count"] = .int(
+                            requestBacklogSnapshot.pendingRequestCount
                         )
                     }
                     let completeAttributes = attributes
@@ -188,21 +217,18 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
                     )
                 case .flush(let continuation):
                     do {
-                        let completenessSnapshot = completenessTracker.state.withLock { state in
-                            CompletenessSnapshot(
-                                droppedRecordCount: state.droppedRecordCount,
-                                highWaterMark: state.highWaterMark
-                            )
-                        }
                         await traceRuntime.record(
                             tag: .performance,
                             body: "performance.trace_queue.completeness",
                             attributes: [
                                 "agentstudio.performance.trace_queue.dropped_record.count": .int(
-                                    completenessSnapshot.droppedRecordCount
+                                    requestBacklogSnapshot.droppedRecordCount
                                 ),
                                 "agentstudio.performance.trace_queue.high_watermark": .int(
-                                    completenessSnapshot.highWaterMark
+                                    requestBacklogSnapshot.highWaterMark
+                                ),
+                                "agentstudio.performance.trace_queue.pending_request.count": .int(
+                                    requestBacklogSnapshot.pendingRequestCount
                                 ),
                             ]
                         )
@@ -216,16 +242,9 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         }
     }
 
-    private func continuationForEnqueue() -> AsyncStream<TraceRequest>.Continuation? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isClosed else { return nil }
-        ensureWorkerStartedLocked()
-        return continuation
-    }
-
     private func accountForYieldResult(
-        _ yieldResult: AsyncStream<TraceRequest>.Continuation.YieldResult
+        _ yieldResult: AsyncStream<TraceRequest>.Continuation.YieldResult,
+        isRecord: Bool = true
     ) -> UnsafeContinuation<Void, Error>? {
         switch yieldResult {
         case .enqueued(let remainingCapacity):
@@ -236,6 +255,7 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         case .dropped(let droppedRequest):
             completenessTracker.state.withLock { state in
                 state.highWaterMark = bufferLimit
+                state.pendingRequestCount = max(0, state.pendingRequestCount - 1)
                 if case .record = droppedRequest {
                     state.droppedRecordCount += 1
                 }
@@ -247,9 +267,24 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
                 return continuation
             }
         case .terminated:
+            completenessTracker.state.withLock { state in
+                state.pendingRequestCount = max(0, state.pendingRequestCount - 1)
+                if isRecord {
+                    state.droppedRecordCount += 1
+                }
+            }
             return nil
         @unknown default:
+            completenessTracker.state.withLock { state in
+                state.pendingRequestCount = max(0, state.pendingRequestCount - 1)
+            }
             return nil
+        }
+    }
+
+    private func accountForEnqueueAttempt() {
+        completenessTracker.state.withLock { state in
+            state.pendingRequestCount += 1
         }
     }
 }

@@ -19,6 +19,16 @@ package struct TerminalActivationAdmission: Equatable, Sendable {
     package let generation: WorkspaceContentMountGeneration
     package let descriptor: TerminalActivationDescriptor
     package let attempt: Int
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        descriptor: TerminalActivationDescriptor,
+        attempt: Int
+    ) {
+        self.generation = generation
+        self.descriptor = descriptor
+        self.attempt = attempt
+    }
 }
 
 package enum TerminalActivationFailure: Equatable, Sendable {
@@ -46,6 +56,11 @@ package enum TerminalActivationRetry: Equatable, Sendable {
 }
 
 package enum TerminalActivationMemberState: Equatable, Sendable {
+    /// Held before this pane's geometry eligibility is installed (SPEC R5,
+    /// the R1 deferral half). Not a candidate for admission and not
+    /// promotable — distinct from `queued`, which has already entered the
+    /// rank-ordered candidate pool.
+    case waitingForGeometry
     case queued(priority: TerminalActivationVisibilityPriority)
     case attaching
     case ready(surfaceID: UUID)
@@ -57,7 +72,7 @@ package enum TerminalActivationMemberState: Equatable, Sendable {
 
     var isTerminal: Bool {
         switch self {
-        case .queued, .attaching:
+        case .waitingForGeometry, .queued, .attaching:
             return false
         case .ready, .failedTerminal, .cancelledReplaced:
             return true
@@ -66,6 +81,10 @@ package enum TerminalActivationMemberState: Equatable, Sendable {
 }
 
 package enum TerminalActivationTerminalOutcome: Equatable, Sendable {
+    /// A terminal outcome for the settlement that produced it, but not a
+    /// terminal state for the pane's later eligibility: `acceptLaterGeometry`
+    /// can still requeue this pane in the same generation and scheduler.
+    case waitingForGeometry
     case ready(surfaceID: UUID)
     case failedTerminal(
         failure: TerminalActivationFailure,
@@ -77,6 +96,14 @@ package enum TerminalActivationTerminalOutcome: Equatable, Sendable {
 package struct TerminalActivationSettlement: Equatable, Sendable {
     package let generation: WorkspaceContentMountGeneration
     package let outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
+    ) {
+        self.generation = generation
+        self.outcomesByPaneID = outcomesByPaneID
+    }
 }
 
 struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {
@@ -167,9 +194,4 @@ package enum TerminalActivationPromotionResult: Equatable, Sendable {
     case unchanged(priority: TerminalActivationVisibilityPriority)
     case paneNotFound
     case memberNotQueued(state: TerminalActivationMemberState)
-}
-
-@MainActor
-package protocol TerminalActivationAdmissionPort: AnyObject, Sendable {
-    func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult
 }

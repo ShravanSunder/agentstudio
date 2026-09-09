@@ -24,7 +24,7 @@ extension RepoExplorerReadModelTests {
             collapsedGroupIds: [],
             isFiltering: false
         )
-        #expect(rowIndex.entries.map(\.id) == ["section-header:tabs"])
+        #expect(rowIndex.entries.map(\.id) == [.sectionHeader(.tabs)])
     }
 
     @Test("repository-owned modes keep empty normal sections while By Tab keeps stored tab order")
@@ -138,8 +138,13 @@ extension RepoExplorerReadModelTests {
         )
 
         #expect(projection.sections.map(\.kind) == [.tabs])
-        #expect(rowIndex.entries.first?.id == "section-header:tabs")
-        #expect(rowIndex.entries.allSatisfy { !$0.id.hasPrefix("group-section-header:") })
+        #expect(rowIndex.entries.first?.id == .sectionHeader(.tabs))
+        #expect(
+            rowIndex.entries.dropFirst().allSatisfy { entry in
+                if case .sectionHeader = entry.id { return false }
+                return true
+            }
+        )
         #expect(
             rowIndex.entries.compactMap { entry -> UUID? in
                 guard case .resolvedPaneRow(_, let identity, _) = entry else { return nil }
@@ -274,10 +279,14 @@ extension RepoExplorerReadModelTests {
         let groupId = "remote:askluna/\(favoriteRepo.name)"
         #expect(
             rowIndex.entries.map(\.id) == [
-                "section-header:favorites",
-                "group:\(groupId)",
-                "worktree:\(groupId):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
-                "section-header:repositories",
+                .sectionHeader(.favorites),
+                .group(groupID: groupId),
+                .worktree(
+                    groupID: groupId,
+                    repoID: favoriteId,
+                    worktreeID: favoriteWorktree.id
+                ),
+                .sectionHeader(.repositories),
             ])
     }
 
@@ -323,8 +332,8 @@ extension RepoExplorerReadModelTests {
         let paneRowIndex = RepoExplorerRowIndex(
             projection: paneProjection, collapsedGroupIds: [], isFiltering: false)
 
-        #expect(tabRowIndex.entries.map(\.id) == ["section-header:tabs"])
-        #expect(paneRowIndex.entries.map(\.id) == ["section-header:panes"])
+        #expect(tabRowIndex.entries.map(\.id) == [.sectionHeader(.tabs)])
+        #expect(paneRowIndex.entries.map(\.id) == [.sectionHeader(.panes)])
         for entry in tabRowIndex.entries + paneRowIndex.entries {
             if case .loadingRepoRow = entry {
                 Issue.record("By Tab/All Panes must never render a loading repo row: \(entry)")
@@ -366,12 +375,12 @@ extension RepoExplorerReadModelTests {
 
         #expect(
             rowIndex.entries.map(\.id) == [
-                "section-header:favorites",
-                "loading-header:favorites",
-                "loading-repo:favorites:\(favoriteId.uuidString)",
-                "section-header:repositories",
-                "loading-header:repositories",
-                "loading-repo:repositories:\(repositoryId.uuidString)",
+                .sectionHeader(.favorites),
+                .loadingSectionHeader(.favorites),
+                .loadingRepository(section: .favorites, repoID: favoriteId),
+                .sectionHeader(.repositories),
+                .loadingSectionHeader(.repositories),
+                .loadingRepository(section: .repositories, repoID: repositoryId),
             ])
     }
 }

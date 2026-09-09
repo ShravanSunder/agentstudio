@@ -45,6 +45,29 @@ struct RepositoryTopologyHotPathArchitectureTests {
         #expect(body.components(separatedBy: ".standardizedFileURL").count - 1 == 1)
     }
 
+    @Test("topology stable-key indexes install sealed identity facts")
+    func topologyStableKeyIndexesInstallSealedIdentityFacts() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift"
+            ),
+            encoding: .utf8
+        )
+        let rebuildBody = try #require(
+            source.slice(
+                from: "private func rebuildEntityIndexes(from replacement: RepositoryTopologyReplacement)",
+                to: "private func synchronizeEntityFamilies()"
+            )
+        )
+
+        #expect(rebuildBody.contains("replacement.repositoryStableKeysByID"))
+        #expect(rebuildBody.contains("replacement.worktreeStableKeysByID"))
+        #expect(!rebuildBody.contains(".stableKey"))
+        #expect(!rebuildBody.contains("StableKey.fromPath"))
+        #expect(!rebuildBody.contains("resolvingSymlinksInPath"))
+    }
+
     @Test("pane management context validates stored identity without CWD resolution")
     func paneManagementContextValidatesStoredIdentityWithoutCWDResolution() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

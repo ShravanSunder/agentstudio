@@ -16,12 +16,17 @@ actor BridgeDevelopmentSeededWorktreeObservation {
         let filesystemActor: FilesystemActor
         let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
 
-        static func production() -> Self {
+        static func production(
+            statusPhysicalGate: AgentStudioGitStatusPhysicalGate
+        ) -> Self {
             let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentSeededWorktree")
             return Self(
                 bus: bus,
                 filesystemActor: FilesystemActor(bus: bus),
-                gitWorkingDirectoryProjector: .production(bus: bus)
+                gitWorkingDirectoryProjector: .production(
+                    bus: bus,
+                    statusPhysicalGate: statusPhysicalGate
+                )
             )
         }
 
@@ -74,7 +79,7 @@ actor BridgeDevelopmentSeededWorktreeObservation {
 
     init(
         source: BridgeDevelopmentProductSource,
-        dependencies: Dependencies = .production(),
+        dependencies: Dependencies,
         invalidationSink: @escaping InvalidationSink
     ) {
         self.source = source

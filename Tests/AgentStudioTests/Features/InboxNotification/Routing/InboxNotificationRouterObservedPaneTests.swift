@@ -1,9 +1,9 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
 
+@testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 
 @MainActor
@@ -473,11 +473,14 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 4
             )
         )
-        await fixture.router.flushTraceRecords()
-        await assertEventuallyMain("barrier event should prove pane observation events were consumed") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"agentstudio.envelope.seq\":4") == true
-        }
+        try #require(
+            await waitForEnvelopeTrace(
+                sequence: 4,
+                router: fixture.router,
+                outputFileURL: outputFileURL
+            ),
+            "router should handle and trace the ordering sentinel"
+        )
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         await stop(fixture)
 
@@ -621,7 +624,7 @@ struct InboxNotificationRouterObservedPaneTests {
     }
 
     @Test("observed auto-clearable event appends read dismissed history row")
-    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async {
+    func observedAutoClearableEventAppendsReadDismissedHistoryRow() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -639,15 +642,19 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
 
-        await assertEventuallyMain("observed auto-clearable event should append history") {
-            fixture.inboxAtom.notifications.count == 1
+        // Scheduler turns can expire before the bus consumer runs on a busy runner.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while fixture.inboxAtom.notifications.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
         }
-        #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        await stop(fixture)
+        #expect(fixture.inboxAtom.notifications.count == 1)
+        let notification = try #require(fixture.inboxAtom.notifications.first)
+        #expect(notification.kind == .agentRpc)
+        #expect(notification.isRead == true)
+        #expect(notification.isDismissedFromPaneInbox == true)
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
-        await stop(fixture)
     }
 
     @Test("retention drop is emitted to JSONL trace")
@@ -673,13 +680,14 @@ struct InboxNotificationRouterObservedPaneTests {
                 event: .agentNotificationRequested(title: "Overflow", body: nil)
             )
         )
+        await assertEventuallyMain("overflow notification should be applied before trace flush") {
+            fixture.inboxAtom.notifications.contains { $0.title == "Overflow" }
+        }
+        await fixture.router.flushTraceRecords()
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("retention drop should be traced") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.retention.dropped\"") == true
-        }
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"inbox.retention.dropped\""))
         #expect(contents.contains("\"agentstudio.inbox.dropped_count\":1"))
         #expect(contents.contains("\"agentstudio.notification.dropped_ids\""))
         await stop(fixture)
@@ -840,6 +848,28 @@ struct InboxNotificationRouterObservedPaneTests {
 
     private static func countOccurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
+    }
+
+    private func waitForEnvelopeTrace(
+        sequence: Int,
+        router: InboxNotificationRouter,
+        outputFileURL: URL
+    ) async -> Bool {
+        let expectedSequence = "\"agentstudio.envelope.seq\":\(sequence)"
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            await router.flushTraceRecords()
+            if (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains(expectedSequence) == true
+            {
+                return true
+            }
+            await Task.yield()
+        }
+        await router.flushTraceRecords()
+        return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+            .contains(expectedSequence) == true
     }
 
     func stop(_ fixture: Fixture) async {

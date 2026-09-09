@@ -315,7 +315,7 @@ struct TerminalActivityProjectorTests {
         )
         let recorder = OutcomeRecorder()
         await projector.configure(
-            lastOutputLineReader: { _ in "same output line" },
+            lastOutputLineReader: { _ in .value("same output line") },
             outcomeSink: { outcomes in recorder.record(outcomes) }
         )
         let context = TerminalActivityProjectionContext(

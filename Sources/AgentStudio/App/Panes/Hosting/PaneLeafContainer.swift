@@ -38,7 +38,6 @@ struct PaneLeafContainer: View {
     let commandDispatcher: any AppCommandDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let paneInboxPresentation: PaneInboxPresentation?
@@ -78,7 +77,6 @@ struct PaneLeafContainer: View {
         commandDispatcher: any AppCommandDispatching = AppCommandDispatcher.shared,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil,
@@ -102,7 +100,6 @@ struct PaneLeafContainer: View {
         self.commandDispatcher = commandDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.paneInboxPresentation = paneInboxPresentation
@@ -206,7 +203,6 @@ struct PaneLeafContainer: View {
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
                 store: store,
-                notificationCountForWorktree: notificationCountForWorktree
             )
             let locationTargetPaneId = currentLocationTargetPaneId
             let minimizePresentation = commandPresentation(

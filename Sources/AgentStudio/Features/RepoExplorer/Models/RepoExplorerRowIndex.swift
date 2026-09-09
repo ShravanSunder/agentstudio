@@ -4,7 +4,7 @@ import AgentStudioSharedComponents
 import Foundation
 
 struct RepoExplorerResolvedWorktreeContext: Sendable {
-    let rowId: String
+    let rowId: RepoExplorerRowID
     let group: RepoPresentationGroup
     let repo: RepoPresentationItem
     let worktree: Worktree
@@ -13,10 +13,10 @@ struct RepoExplorerResolvedWorktreeContext: Sendable {
 }
 
 struct RepoExplorerResolvedPaneContext: Sendable {
-    let rowId: String
+    let rowId: RepoExplorerRowID
     let group: RepoPresentationGroup
     let row: RepoExplorerProjectedPaneRow
-    let destination: RepoExplorerPaneDestination
+    let destination: RepoExplorerProjectedPaneDestination
 }
 
 struct RepoExplorerWorktreeIdentityClaim: Equatable, Sendable {
@@ -50,7 +50,7 @@ struct RepoExplorerTopologyFaultDetector {
             claimsByWorktreeId[worktree.id, default: []].append(
                 RepoExplorerWorktreeIdentityClaim(
                     repoId: repo.id,
-                    stableKey: worktree.stableKey,
+                    stableKey: repo.worktreeStableKeysByID[worktree.id] ?? "",
                     path: worktree.path
                 )
             )
@@ -97,10 +97,12 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
     let entries: [RepoExplorerListEntry]
     let state: RepoExplorerRowIndexState
     let worktreeIds: [UUID]
+    let collapsedGroupIds: Set<String>
+    let isFiltering: Bool
 
     private let groupsById: [String: RepoPresentationGroup]
-    private let projectedRowsByRowId: [String: RepoExplorerProjectedWorktreeRow]
-    private let projectedPaneRowsByRowId: [String: RepoExplorerProjectedPaneRow]
+    private let projectedRowsByRowId: [RepoExplorerRowID: RepoExplorerProjectedWorktreeRow]
+    private let projectedPaneRowsByRowId: [RepoExplorerRowID: RepoExplorerProjectedPaneRow]
 
     init(
         projection: RepoExplorerSidebarProjection,
@@ -109,6 +111,8 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
     ) {
         let projectedRowsByGroupId = Self.projectedRowsByGroupId(for: projection)
         self.projection = projection
+        self.collapsedGroupIds = collapsedGroupIds
+        self.isFiltering = isFiltering
 
         if case .degraded(let topologyFault) = projection {
             self.entries = [.topologyFault(topologyFault)]
@@ -131,23 +135,40 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         self.groupsById = Dictionary(uniqueKeysWithValues: projection.resolvedGroups.map { ($0.id, $0) })
         self.projectedRowsByRowId = Dictionary(
             uniqueKeysWithValues: projectedRowsByGroupId.values.flatMap { rows in
-                rows.map { ($0.rowId, $0) }
+                rows.map { row in
+                    (
+                        RepoExplorerRowID.worktree(
+                            groupID: row.groupId,
+                            repoID: row.repo.id,
+                            worktreeID: row.worktree.id
+                        ),
+                        row
+                    )
+                }
             })
         self.projectedPaneRowsByRowId = Dictionary(
             uniqueKeysWithValues: projection.paneRowsByGroupId.values.flatMap { rows in
-                rows.map { ($0.rowId, $0) }
+                rows.map { row in
+                    (
+                        Self.paneRowID(for: row),
+                        row
+                    )
+                }
             })
         self.worktreeIds =
             projectedRowsByGroupId.values.flatMap { rows in
                 rows.map(\.worktree.id)
-            } + projection.paneRowsByGroupId.values.flatMap { rows in rows.map(\.destination.worktreeId) }
+            }
+            + projection.paneRowsByGroupId.values.flatMap { rows in
+                rows.compactMap(\.worktreeId)
+            }
     }
 
     func resolvePane(
         groupId: String,
-        repoId: UUID,
+        repoId: UUID?,
         paneId: UUID,
-        rowId: String
+        rowId: RepoExplorerRowID
     ) -> RepoExplorerResolvedPaneContext? {
         guard
             let group = groupsById[groupId],
@@ -170,7 +191,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         groupId: String,
         repoId: UUID,
         worktreeId: UUID,
-        rowId: String
+        rowId: RepoExplorerRowID
     ) -> RepoExplorerResolvedWorktreeContext? {
         guard
             let group = groupsById[groupId],
@@ -229,10 +250,10 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                         groupId: group.id,
                         identity: RepoExplorerPaneListEntryIdentity(
                             repoId: row.repoId,
-                            worktreeId: row.destination.worktreeId,
+                            worktreeId: row.worktreeId,
                             paneId: row.destination.paneId
                         ),
-                        rowId: row.rowId
+                        rowId: paneRowID(for: row)
                     )
                 )
             }
@@ -252,10 +273,33 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                     groupId: groupId,
                     repoId: row.repo.id,
                     worktreeId: row.worktree.id,
-                    rowId: row.rowId
+                    rowId: .worktree(
+                        groupID: row.groupId,
+                        repoID: row.repo.id,
+                        worktreeID: row.worktree.id
+                    )
                 )
             }
         )
+    }
+
+    private static func paneRowID(
+        for row: RepoExplorerProjectedPaneRow
+    ) -> RepoExplorerRowID {
+        switch row.membershipOwner {
+        case .tab:
+            return .tabPane(groupID: row.groupId, paneID: row.destination.paneId)
+        case .association:
+            guard let repoId = row.repoId, let worktreeId = row.worktreeId else {
+                preconditionFailure("Association-owned pane row requires repository enrichment")
+            }
+            return .associatedPane(
+                groupID: row.groupId,
+                repoID: repoId,
+                worktreeID: worktreeId,
+                paneID: row.destination.paneId
+            )
+        }
     }
 
     private static func buildSectionedListEntries(
@@ -300,6 +344,10 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+    }
+
+    func isGroupExpanded(_ groupID: String) -> Bool {
+        isFiltering || !collapsedGroupIds.contains(groupID)
     }
 
     private static func projectedRowsByGroupId(

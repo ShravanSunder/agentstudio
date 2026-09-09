@@ -11,17 +11,20 @@ enum AgentStudioBridgeDevelopmentServerMain {
             let coreComposition = try await BridgeDevelopmentServerCoreComposition.prepare(
                 configuration: configuration
             )
+            let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
             let host = try await BridgeDevelopmentProductHost(
                 source: coreComposition.productSource,
                 worktreeAnnotationStore: coreComposition.worktreeAnnotationStore,
                 worktreeAnnotationOutputCoordinator:
                     coreComposition.worktreeAnnotationOutputCoordinator,
+                statusPhysicalGate: statusPhysicalGate,
                 contributionTargetCommit: { target in
                     coreComposition.applyContributionTarget(target)
                 }
             )
             let observation = BridgeDevelopmentSeededWorktreeObservation(
                 source: coreComposition.productSource,
+                dependencies: .production(statusPhysicalGate: statusPhysicalGate),
                 invalidationSink: { invalidation in
                     await host.handleObservedWorktreeInvalidation(invalidation)
                 }

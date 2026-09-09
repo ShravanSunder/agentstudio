@@ -3,9 +3,12 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import Foundation
 
-enum RepoExplorerScopedProjectionChange: Equatable, Sendable {
+enum RepoExplorerScopedProjectionChange: Equatable, Hashable, Sendable {
     case repo(UUID)
+    case repositoryActivity(UUID)
     case worktreeFact(UUID)
+    case pane(UUID)
+    case tab(UUID)
 }
 
 struct RepoExplorerProjectionRequest: Equatable, Sendable {
@@ -25,6 +28,10 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     /// explicitly — otherwise that transition compares equal and silently skips re-projection.
     let unavailablePullRequestRepoIds: Set<UUID>
     let loadingPullRequestRepoIds: Set<UUID>
+    let localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition
+    let repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity]
+    let repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]
+    let activityReferenceDate: Date
 
     init(
         generation: Int,
@@ -37,7 +44,11 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
         tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:],
         unavailablePullRequestRepoIds: Set<UUID> = [],
-        loadingPullRequestRepoIds: Set<UUID> = []
+        loadingPullRequestRepoIds: Set<UUID> = [],
+        localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition = .pending,
+        repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity] = [:],
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress] = [:],
+        activityReferenceDate: Date = .distantPast
     ) {
         self.generation = generation
         self.snapshot = snapshot
@@ -50,6 +61,10 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         self.tabGroupFactsByTabId = tabGroupFactsByTabId
         self.unavailablePullRequestRepoIds = unavailablePullRequestRepoIds
         self.loadingPullRequestRepoIds = loadingPullRequestRepoIds
+        self.localActivityHydrationDisposition = localActivityHydrationDisposition
+        self.repositoryLocalActivityByStableKey = repositoryLocalActivityByStableKey
+        self.repositoryFactUpdateProgressByRepoId = repositoryFactUpdateProgressByRepoId
+        self.activityReferenceDate = activityReferenceDate
     }
 
     func generated(
@@ -67,7 +82,49 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             paneRowFactsByPaneId: paneRowFactsByPaneId,
             tabGroupFactsByTabId: tabGroupFactsByTabId,
             unavailablePullRequestRepoIds: unavailablePullRequestRepoIds,
-            loadingPullRequestRepoIds: loadingPullRequestRepoIds
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds,
+            localActivityHydrationDisposition: localActivityHydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate
+        )
+    }
+
+    func replacing(
+        snapshot: RepoExplorerSnapshot? = nil,
+        collapsedGroupIds: Set<String>? = nil,
+        isFiltering: Bool? = nil,
+        worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]? = nil,
+        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]? = nil,
+        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]? = nil,
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]? = nil,
+        unavailablePullRequestRepoIds: Set<UUID>? = nil,
+        loadingPullRequestRepoIds: Set<UUID>? = nil,
+        localActivityHydrationDisposition: RepositoryLocalActivityHydrationDisposition? = nil,
+        repositoryLocalActivityByStableKey: [String: RepositoryLocalActivity]? = nil,
+        repositoryFactUpdateProgressByRepoId: [UUID: RepositoryFactUpdateProgress]? = nil,
+        activityReferenceDate: Date? = nil
+    ) -> Self {
+        Self(
+            generation: generation,
+            snapshot: snapshot ?? self.snapshot,
+            collapsedGroupIds: collapsedGroupIds ?? self.collapsedGroupIds,
+            isFiltering: isFiltering ?? self.isFiltering,
+            trigger: trigger,
+            worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot ?? self.worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: pullRequestFactsSnapshot ?? self.pullRequestFactsSnapshot,
+            paneRowFactsByPaneId: paneRowFactsByPaneId ?? self.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: tabGroupFactsByTabId ?? self.tabGroupFactsByTabId,
+            unavailablePullRequestRepoIds: unavailablePullRequestRepoIds
+                ?? self.unavailablePullRequestRepoIds,
+            loadingPullRequestRepoIds: loadingPullRequestRepoIds ?? self.loadingPullRequestRepoIds,
+            localActivityHydrationDisposition: localActivityHydrationDisposition
+                ?? self.localActivityHydrationDisposition,
+            repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey
+                ?? self.repositoryLocalActivityByStableKey,
+            repositoryFactUpdateProgressByRepoId: repositoryFactUpdateProgressByRepoId
+                ?? self.repositoryFactUpdateProgressByRepoId,
+            activityReferenceDate: activityReferenceDate ?? self.activityReferenceDate
         )
     }
 
@@ -88,7 +145,23 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
                 && previous.paneRowFactsByPaneId == paneRowFactsByPaneId
                 && previous.tabGroupFactsByTabId == tabGroupFactsByTabId
+                && previous.localActivityHydrationDisposition == localActivityHydrationDisposition
+                && previous.repositoryLocalActivityByStableKey == repositoryLocalActivityByStableKey
+                && previous.activityReferenceDate == activityReferenceDate
         else { return nil }
+
+        let changedProgressRepositoryIDs = Set(previous.repositoryFactUpdateProgressByRepoId.keys)
+            .union(repositoryFactUpdateProgressByRepoId.keys)
+            .filter {
+                previous.repositoryFactUpdateProgressByRepoId[$0]
+                    != repositoryFactUpdateProgressByRepoId[$0]
+            }
+        if changedProgressRepositoryIDs.count == 1,
+            let repositoryID = changedProgressRepositoryIDs.first
+        {
+            return .repo(repositoryID)
+        }
+        guard changedProgressRepositoryIDs.isEmpty else { return nil }
 
         if previous.snapshot.repos == snapshot.repos {
             let changedWorktreeIds = Set(previous.worktreeEnrichmentSnapshot.keys)
@@ -142,6 +215,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let trigger: AppPolicies.SidebarProjection.Trigger
     let projection: RepoExplorerSidebarProjection
     let rowIndex: RepoExplorerRowIndex
+    let materializationSnapshot: RepoExplorerMaterializationSnapshot
     let workerDuration: Duration
     let projectionDuration: Duration
     let rowIndexDuration: Duration
@@ -150,6 +224,13 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
     let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
     let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
+    let repositoryActivityDispositionByRepoId: [UUID: RepositoryActivityDisposition]
+    let repositoryActivityTransitionAtByRepoId: [UUID: Date]
+    let semanticBaselineSequence: UInt64?
+
+    var nextRepositoryActivityTransitionAt: Date? {
+        repositoryActivityTransitionAtByRepoId.values.min()
+    }
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -177,6 +258,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
                 collapsedGroupIds: [],
                 isFiltering: false
             ),
+            materializationSnapshot: .empty,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
@@ -184,12 +266,119 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             branchNameByWorktreeId: [:],
             bridgeCommandResolutionByWorktreeId: [:],
             paneRowFactsByPaneId: [:],
-            tabGroupFactsByTabId: [:]
+            tabGroupFactsByTabId: [:],
+            repositoryActivityDispositionByRepoId: [:],
+            repositoryActivityTransitionAtByRepoId: [:],
+            semanticBaselineSequence: nil
         )
     }()
 }
 
 actor RepoExplorerProjectionWorker {
+    static func project(
+        _ work: RepoExplorerProjectionWork
+    ) throws -> RepoExplorerProjectionResult {
+        switch work {
+        case .full(let fullWork):
+            return try project(fullWork.targetRequest)
+        case .delta(let delta):
+            guard var result = delta.context.semanticBaselineResult,
+                RepoExplorerProjectionStructuralTarget(result: result) == delta.structuralTarget
+            else {
+                return try project(delta.targetRequest)
+            }
+            let repositoryChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .repo(let repositoryID) = change else { return nil }
+                return repositoryID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let repositoryActivityChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .repositoryActivity(let repositoryID) = change else { return nil }
+                return repositoryID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let worktreeChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .worktreeFact(let worktreeID) = change else { return nil }
+                return worktreeID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let paneChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .pane(let paneID) = change else { return nil }
+                return paneID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+            let tabChanges = delta.changes.compactMap { change -> UUID? in
+                guard case .tab(let tabID) = change else { return nil }
+                return tabID
+            }
+            .sorted { $0.uuidString < $1.uuidString }
+
+            for repositoryID in repositoryChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedRepoChange(
+                        repoId: repositoryID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            if !repositoryActivityChanges.isEmpty {
+                guard
+                    let updated = try applyScopedRepositoryActivityChanges(
+                        repositoryActivityChanges,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else { return try project(delta.targetRequest) }
+                result = updated
+            }
+            for worktreeID in worktreeChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedWorktreeFactChange(
+                        worktreeId: worktreeID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            for paneID in paneChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedPaneChange(
+                        paneId: paneID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            for tabID in tabChanges {
+                try Task.checkCancellation()
+                guard
+                    let updated = applyScopedTabChange(
+                        tabId: tabID,
+                        request: delta.targetRequest,
+                        previous: result
+                    )
+                else {
+                    return try project(delta.targetRequest)
+                }
+                result = updated
+            }
+            return result.withSemanticBaselineSequence(delta.context.semanticBaselineSequence)
+        }
+    }
+
     static func applyScopedChange(
         _ change: RepoExplorerScopedProjectionChange,
         request: RepoExplorerProjectionRequest,
@@ -198,12 +387,22 @@ actor RepoExplorerProjectionWorker {
         switch change {
         case .repo(let repoId):
             return applyScopedRepoChange(repoId: repoId, request: request, previous: previous)
+        case .repositoryActivity(let repositoryID):
+            return applyScopedRepositoryActivityChange(
+                repositoryID: repositoryID,
+                request: request,
+                previous: previous
+            )
         case .worktreeFact(let worktreeId):
             return applyScopedWorktreeFactChange(
                 worktreeId: worktreeId,
                 request: request,
                 previous: previous
             )
+        case .pane(let paneId):
+            return applyScopedPaneChange(paneId: paneId, request: request, previous: previous)
+        case .tab(let tabId):
+            return applyScopedTabChange(tabId: tabId, request: request, previous: previous)
         }
     }
 
@@ -240,6 +439,22 @@ actor RepoExplorerProjectionWorker {
             worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
             cancellationCheck: { try Task.checkCancellation() }
         )
+        let activity = RepositoryActivityClassifier.classify(
+            RepositoryActivityClassificationInput(
+                repositories: request.snapshot.repos.map { repository in
+                    RepositoryActivityTopology(
+                        repositoryID: repository.id,
+                        repositoryStableKey: repository.stableKey,
+                        worktreeStableKeysByID: repository.worktreeStableKeysByID
+                    )
+                },
+                openWorktreeIDs: Set(request.snapshot.paneLocationsByWorktreeId.keys),
+                localActivityHydrationDisposition: request.localActivityHydrationDisposition,
+                repositoryLocalActivityByStableKey: request.repositoryLocalActivityByStableKey,
+                referenceDate: request.activityReferenceDate,
+                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+            )
+        )
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(
             request.snapshot,
@@ -264,6 +479,20 @@ actor RepoExplorerProjectionWorker {
             cancellationCheck: { try Task.checkCancellation() }
         )
         try Task.checkCancellation()
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: projection,
+                branchStatusByWorktreeID: branchStatusByWorktreeId,
+                branchNameByWorktreeID: branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: activity.dispositionByRepositoryID,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
+            )
+        )
+        try Task.checkCancellation()
         return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
@@ -272,6 +501,7 @@ actor RepoExplorerProjectionWorker {
             trigger: request.trigger,
             projection: projection,
             rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: workerStart.duration(to: clock.now),
             projectionDuration: projectionDuration,
             rowIndexDuration: rowIndexDuration,
@@ -279,7 +509,10 @@ actor RepoExplorerProjectionWorker {
             branchNameByWorktreeId: branchNameByWorktreeId,
             bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: activity.dispositionByRepositoryID,
+            repositoryActivityTransitionAtByRepoId: activity.transitionAtByRepositoryID,
+            semanticBaselineSequence: nil
         )
     }
 
@@ -340,7 +573,7 @@ actor RepoExplorerProjectionWorker {
     }
 
     private static func branchName(enrichment: WorktreeEnrichment?) -> String {
-        guard let enrichment else { return "Unknown branch" }
+        guard let enrichment else { return "" }
         let cachedBranch = enrichment.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cachedBranch.isEmpty {
             return cachedBranch
@@ -380,7 +613,10 @@ actor RepoExplorerProjectionWorker {
             }
         let favoriteGroups = updatedGroups.filter { !$0.repos.isEmpty && $0.repos.allSatisfy(\.isFavorite) }
         let regularGroups = updatedGroups.filter { $0.repos.contains { !$0.isFavorite } }
-        let updatedLoadingRepos = previousContent.loadingRepos.map { replacingRepo(in: $0) }
+        let updatedLoadingRepos = RepoExplorerProjection.sortedRepos(
+            previousContent.loadingRepos.map { replacingRepo(in: $0) },
+            sortOrder: request.snapshot.sortOrder
+        )
         let favoriteLoadingRepos = updatedLoadingRepos.filter(\.isFavorite)
         let regularLoadingRepos = updatedLoadingRepos.filter { !$0.isFavorite }
         var sections: [RepoExplorerSidebarSection] = []
@@ -439,6 +675,7 @@ actor RepoExplorerProjectionWorker {
         else { return nil }
         var branchStatuses = previous.branchStatusByWorktreeId
         var branchNames = previous.branchNameByWorktreeId
+        var bridgeCommandResolutions = previous.bridgeCommandResolutionByWorktreeId
         let enrichment = request.worktreeEnrichmentSnapshot[worktreeId]
         let pullRequestFacts =
             enrichment
@@ -453,6 +690,23 @@ actor RepoExplorerProjectionWorker {
                 ?? false
         )
         branchNames[worktreeId] = branchName(enrichment: enrichment)
+        bridgeCommandResolutions[worktreeId] = BridgePaneCommandResolver.resolve(
+            worktreeId: worktreeId,
+            candidates: request.snapshot.bridgePaneCommandCandidatesByWorktreeId[worktreeId, default: []]
+        )
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: previous.rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: previous.projection,
+                branchStatusByWorktreeID: branchStatuses,
+                branchNameByWorktreeID: branchNames,
+                bridgeCommandResolutionByWorktreeID: bridgeCommandResolutions,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: previous.repositoryActivityDispositionByRepoId,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
+            )
+        )
         return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
@@ -461,15 +715,174 @@ actor RepoExplorerProjectionWorker {
             trigger: request.trigger,
             projection: previous.projection,
             rowIndex: previous.rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: branchStatuses,
             branchNameByWorktreeId: branchNames,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
+            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutions,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
+            repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
+            semanticBaselineSequence: nil
         )
+    }
+
+    private static func applyScopedPaneChange(
+        paneId: UUID,
+        request: RepoExplorerProjectionRequest,
+        previous: RepoExplorerProjectionResult
+    ) -> RepoExplorerProjectionResult? {
+        guard request.snapshot.groupingMode != .repo,
+            request.paneRowFactsByPaneId[paneId] != nil,
+            case .ready(let previousContent) = previous.projection
+        else { return nil }
+        var foundPaneRow = false
+        let updatedPaneRows = previousContent.paneRowsByGroupId.mapValues { rows in
+            let updatedRows = rows.map { row in
+                guard row.destination.paneId == paneId else { return row }
+                foundPaneRow = true
+                return updatedPaneRow(
+                    row,
+                    request: request,
+                    branchNames: previous.branchNameByWorktreeId,
+                    branchStatuses: previous.branchStatusByWorktreeId
+                )
+            }
+            guard foundPaneRow else { return updatedRows }
+            return updatedRows.sorted { lhs, rhs in
+                RepoExplorerProjection.paneRowPrecedes(
+                    lhs.destination,
+                    rhs.destination,
+                    paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+                    usesRecency: request.snapshot.groupingMode == .pane
+                )
+            }
+        }
+        let isUnassociatedPane = request.snapshot.unassociatedPaneLocations.contains { $0.paneId == paneId }
+        guard foundPaneRow || isUnassociatedPane else { return nil }
+        let projection = RepoExplorerSidebarProjection.ready(
+            RepoExplorerSidebarContent(
+                sections: previousContent.sections,
+                resolvedGroups: previousContent.resolvedGroups,
+                worktreeRowsByGroupId: previousContent.worktreeRowsByGroupId,
+                paneRowsByGroupId: updatedPaneRows,
+                paneDestinationsByWorktreeId: previousContent.paneDestinationsByWorktreeId,
+                paneDestinationsByRepoId: previousContent.paneDestinationsByRepoId,
+                loadingRepos: previousContent.loadingRepos,
+                emptyState: previousContent.emptyState
+            )
+        )
+        return scopedResult(request: request, previous: previous, projection: projection)
+    }
+
+    private static func updatedPaneRow(
+        _ row: RepoExplorerProjectedPaneRow,
+        request: RepoExplorerProjectionRequest,
+        branchNames: [UUID: String],
+        branchStatuses: [UUID: GitBranchStatus]
+    ) -> RepoExplorerProjectedPaneRow {
+        let paneFacts = request.paneRowFactsByPaneId[row.destination.paneId]
+        let normalizedBranchName = RepoExplorerProjection.normalizedBranchName(
+            row.worktreeId.flatMap { branchNames[$0] }
+        )
+        let branchContextText: String?
+        if request.snapshot.groupingMode == .tab {
+            branchContextText = normalizedBranchName.map { branchName in
+                let repositoryName =
+                    row.repoId.flatMap { repoId in
+                        request.snapshot.repos.first(where: { $0.id == repoId })?.name
+                    }
+                    ?? "Repository"
+                return "\(repositoryName) · \(branchName)"
+            }
+        } else {
+            branchContextText = normalizedBranchName
+        }
+        switch row.destination {
+        case .associated(let destination):
+            return RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                repoId: destination.repoId,
+                destination: destination,
+                membershipOwner: row.membershipOwner,
+                rowId: row.rowId,
+                primaryText: RepoExplorerProjection.panePrimaryText(
+                    row.destination,
+                    terminalTitle: paneFacts?.sidebarTerminalTitle
+                ),
+                secondaryLine: paneFacts?.secondaryLine,
+                branchContextText: branchContextText,
+                branchStatus: branchStatuses[destination.worktreeId],
+                recencyText: paneFacts?.recencyText ?? "Now",
+                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
+                isActive: paneFacts?.isActive ?? false,
+                isDrawerPane: paneFacts?.isDrawerPane ?? false
+            )
+        case .unassociated(let destination):
+            return RepoExplorerProjectedPaneRow(
+                groupId: row.groupId,
+                destination: destination,
+                rowId: row.rowId,
+                primaryText: RepoExplorerProjection.panePrimaryText(
+                    row.destination,
+                    terminalTitle: paneFacts?.sidebarTerminalTitle
+                ),
+                secondaryLine: paneFacts?.secondaryLine,
+                recencyText: paneFacts?.recencyText ?? "Now",
+                recencyTier: paneFacts?.recencyTier ?? .strongBlue,
+                isActive: paneFacts?.isActive ?? false,
+                isDrawerPane: paneFacts?.isDrawerPane ?? false
+            )
+        }
+    }
+
+    private static func applyScopedTabChange(
+        tabId: UUID,
+        request: RepoExplorerProjectionRequest,
+        previous: RepoExplorerProjectionResult
+    ) -> RepoExplorerProjectionResult? {
+        guard request.snapshot.groupingMode == .tab,
+            let tabFacts = request.tabGroupFactsByTabId[tabId],
+            case .ready(let previousContent) = previous.projection
+        else { return nil }
+        let groupID = "tab:\(tabId.uuidString)"
+        var foundGroup = false
+        func updatedGroup(_ group: RepoPresentationGroup) -> RepoPresentationGroup {
+            guard group.id == groupID else { return group }
+            foundGroup = true
+            return RepoPresentationGroup(
+                id: group.id,
+                repoTitle: tabFacts.displayTitle,
+                organizationName: group.organizationName,
+                repos: group.repos
+            )
+        }
+        let resolvedGroups = previousContent.resolvedGroups.map(updatedGroup)
+        let sections = previousContent.sections.map { section in
+            RepoExplorerSidebarSection(
+                kind: section.kind,
+                resolvedGroups: section.resolvedGroups.map(updatedGroup),
+                loadingRepos: section.loadingRepos,
+                unassociatedPaneDestinations: section.unassociatedPaneDestinations
+            )
+        }
+        guard foundGroup else { return nil }
+        let projection = RepoExplorerSidebarProjection.ready(
+            RepoExplorerSidebarContent(
+                sections: sections,
+                resolvedGroups: resolvedGroups,
+                worktreeRowsByGroupId: previousContent.worktreeRowsByGroupId,
+                paneRowsByGroupId: previousContent.paneRowsByGroupId,
+                paneDestinationsByWorktreeId: previousContent.paneDestinationsByWorktreeId,
+                paneDestinationsByRepoId: previousContent.paneDestinationsByRepoId,
+                loadingRepos: previousContent.loadingRepos,
+                emptyState: previousContent.emptyState
+            )
+        )
+        return scopedResult(request: request, previous: previous, projection: projection)
     }
 
     private static func scopedResult(
@@ -477,18 +890,33 @@ actor RepoExplorerProjectionWorker {
         previous: RepoExplorerProjectionResult,
         projection: RepoExplorerSidebarProjection
     ) -> RepoExplorerProjectionResult {
-        RepoExplorerProjectionResult(
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: request.collapsedGroupIds,
+            isFiltering: request.isFiltering
+        )
+        let materializationSnapshot = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: request.snapshot,
+                projection: projection,
+                branchStatusByWorktreeID: previous.branchStatusByWorktreeId,
+                branchNameByWorktreeID: previous.branchNameByWorktreeId,
+                bridgeCommandResolutionByWorktreeID: previous.bridgeCommandResolutionByWorktreeId,
+                paneRowFactsByPaneID: request.paneRowFactsByPaneId,
+                repositoryActivityDispositionByRepoID: previous.repositoryActivityDispositionByRepoId,
+                repositoryFactUpdateProgressByRepoID: request.repositoryFactUpdateProgressByRepoId
+            )
+        )
+        return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             trigger: request.trigger,
             projection: projection,
-            rowIndex: RepoExplorerRowIndex(
-                projection: projection,
-                collapsedGroupIds: request.collapsedGroupIds,
-                isFiltering: request.isFiltering
-            ),
+            rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
             workerDuration: .zero,
             projectionDuration: .zero,
             rowIndexDuration: .zero,
@@ -496,7 +924,36 @@ actor RepoExplorerProjectionWorker {
             branchNameByWorktreeId: previous.branchNameByWorktreeId,
             bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
             paneRowFactsByPaneId: request.paneRowFactsByPaneId,
-            tabGroupFactsByTabId: request.tabGroupFactsByTabId
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: previous.repositoryActivityDispositionByRepoId,
+            repositoryActivityTransitionAtByRepoId: previous.repositoryActivityTransitionAtByRepoId,
+            semanticBaselineSequence: nil
+        )
+    }
+}
+
+extension RepoExplorerProjectionResult {
+    fileprivate func withSemanticBaselineSequence(_ semanticBaselineSequence: UInt64) -> Self {
+        Self(
+            generation: generation,
+            snapshot: snapshot,
+            collapsedGroupIds: collapsedGroupIds,
+            isFiltering: isFiltering,
+            trigger: trigger,
+            projection: projection,
+            rowIndex: rowIndex,
+            materializationSnapshot: materializationSnapshot,
+            workerDuration: workerDuration,
+            projectionDuration: projectionDuration,
+            rowIndexDuration: rowIndexDuration,
+            branchStatusByWorktreeId: branchStatusByWorktreeId,
+            branchNameByWorktreeId: branchNameByWorktreeId,
+            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
+            tabGroupFactsByTabId: tabGroupFactsByTabId,
+            repositoryActivityDispositionByRepoId: repositoryActivityDispositionByRepoId,
+            repositoryActivityTransitionAtByRepoId: repositoryActivityTransitionAtByRepoId,
+            semanticBaselineSequence: semanticBaselineSequence
         )
     }
 }

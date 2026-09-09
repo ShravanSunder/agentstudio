@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import Foundation
 import Observation
@@ -8,6 +7,8 @@ import Synchronization
 typealias TabBarMaterializedProjection = EagerDerivedAtom<
     TabBarProjectionRequest,
     TabBarProjectionGeneration,
+    TabBarProjectionRequest,
+    TabBarProjection,
     TabBarProjection
 >
 
@@ -15,6 +16,8 @@ typealias TabBarMaterializedProjectionFamily = EagerDerivedAtomFamily<
     UUID,
     TabBarProjectionRequest,
     TabBarProjectionGeneration,
+    TabBarProjectionRequest,
+    TabBarProjection,
     TabBarProjection
 >
 
@@ -83,7 +86,6 @@ final class TabBarAdapter {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
-    private let inboxAtom: InboxNotificationAtom
     private let projectionTelemetry: TabBarProjectionTelemetry
     @ObservationIgnored private let onProjectionCompletion:
         @MainActor @Sendable (TabBarMaterializedProjection.ProjectionCompletion) -> Void
@@ -109,7 +111,6 @@ final class TabBarAdapter {
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        inboxAtom: InboxNotificationAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         project: @escaping @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection =
             { try TabBarProjector.project($0) },
@@ -125,13 +126,18 @@ final class TabBarAdapter {
             }
         self.store = store
         self.repoCache = repoCache
-        self.inboxAtom = inboxAtom
         self.projectionTelemetry = projectionTelemetry
         self.onProjectionCompletion = onProjectionCompletion
         self.materializedProjectionFamily = TabBarMaterializedProjectionFamily(
-            requestIdentity: \.generation,
-            isValueEqual: ==,
+            intentIdentity: \.generation,
+            combinePendingIntents: { _, latestRequest in latestRequest },
+            prepare: { request, _ in .prepared(request) },
             project: measuredProject,
+            classify: { candidate, currentValue in
+                currentValue == candidate
+                    ? .equalCurrent(candidate)
+                    : .immediateAccepted(candidate)
+            },
             onProjectionCompletion: { [weak self] tabId, completion in
                 self?.handleProjectionCompletion(completion, for: tabId)
             }
@@ -224,9 +230,7 @@ final class TabBarAdapter {
                     request: TabBarProjectionRequest(
                         generation: generation,
                         coreRequest: coreRequest,
-                        inboxAttentionLane: inboxAtom.attentionLane(
-                            forPaneIds: coreRequest.paneIds
-                        )
+                        inboxAttentionLane: nil
                     )
                 )
             }
@@ -255,7 +259,7 @@ final class TabBarAdapter {
         switch completion {
         case .published, .equal:
             break
-        case .superseded, .cancelled:
+        case .rejected, .superseded, .cancelled:
             return
         }
         guard orderedTabIds.contains(tabId) else { return }
@@ -470,6 +474,10 @@ private final class TabBarProjectionTelemetry: Sendable {
         case .equal(let generation):
             sequence = generation.value
             outcome = "equal"
+            didPublish = false
+        case .rejected(let generation):
+            sequence = generation.value
+            outcome = "rejected"
             didPublish = false
         case .superseded(let generation):
             sequence = generation.value

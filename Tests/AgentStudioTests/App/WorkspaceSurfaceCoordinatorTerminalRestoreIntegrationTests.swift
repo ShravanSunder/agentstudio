@@ -96,7 +96,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
                 generation: generation,
                 initialFramesByPaneID: [:],
                 viewRegistry: registry,
-                mountHandler: harness.coordinator
+                mountHandler: harness.coordinator,
+                descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
             ),
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: generation,
@@ -132,7 +133,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         // Act
         let result = harness.coordinator.mountPreparedTerminalContent(
             admission: admission,
-            initialFrame: nil
+            initialFrame: nil,
+            authority: .released(admission.descriptor.paneID)
         )
 
         // Assert
@@ -158,7 +160,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         // Act
         let result = harness.coordinator.mountPreparedTerminalContent(
             admission: admission,
-            initialFrame: frozenFrame
+            initialFrame: frozenFrame,
+            authority: .released(admission.descriptor.paneID)
         )
 
         // Assert
@@ -258,7 +261,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func preparedContentOwner_restoresHiddenZmxWithoutConsultingDaemonInventory() async throws {
+    func preparedContentOwnerRestoresHiddenZmxAfterForegroundWithoutSelection() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -290,45 +293,6 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             ],
             trustedBounds: trustedBounds
         )
-
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
-        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2)
-    }
-
-    @Test
-    func preparedContentOwner_attemptsVisibleAndHiddenZmxAttachDuringInitialRestore() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let hiddenPane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        try await mountPreparedTerminalCohort(
-            coordinator: harness.coordinator,
-            viewRegistry: harness.viewRegistry,
-            entries: [
-                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
-                (hiddenPane, .hidden, .tab(tabID: hiddenTab.id)),
-            ],
-            trustedBounds: trustedBounds
-        )
-
         let visiblePlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: visiblePane.id))
         let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
         #expect(visiblePlaceholder.mode == .failedToStart)
@@ -336,41 +300,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2)
         #expect(harness.viewRegistry.isInitialRestorePending == false)
-    }
 
-    @Test
-    func selectTabReusesHiddenPaneRestoredDuringStartup() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let hiddenPane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        try await mountPreparedTerminalCohort(
-            coordinator: harness.coordinator,
-            viewRegistry: harness.viewRegistry,
-            entries: [
-                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
-                (hiddenPane, .hidden, .tab(tabID: hiddenTab.id)),
-            ],
-            trustedBounds: trustedBounds
-        )
         let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds
 
         harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
@@ -406,6 +336,9 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let acceptedHiddenParent = try #require(harness.store.pane(hiddenParentPane.id))
         let hiddenDrawer = try #require(harness.store.pane(hiddenDrawerPane.id))
         let hiddenDrawerID = try #require(acceptedHiddenParent.drawer?.drawerId)
+        let drawerViewBeforePreparedMount = try #require(
+            harness.store.drawerView(forParent: hiddenParentPane.id)
+        )
         try await mountPreparedTerminalCohort(
             coordinator: harness.coordinator,
             viewRegistry: harness.viewRegistry,
@@ -428,6 +361,11 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenParentPane.id) == nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) != nil)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenParentPane.id]?.initialFrame != nil)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenDrawerPane.id]?.initialFrame != nil)
+        #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
     }
 
     @Test
@@ -458,6 +396,9 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let acceptedHiddenParent = try #require(harness.store.pane(hiddenParentPane.id))
         let hiddenDrawer = try #require(harness.store.pane(hiddenDrawerPane.id))
         let hiddenDrawerID = try #require(acceptedHiddenParent.drawer?.drawerId)
+        let drawerViewBeforePreparedMount = try #require(
+            harness.store.drawerView(forParent: hiddenParentPane.id)
+        )
         try await mountPreparedTerminalCohort(
             coordinator: harness.coordinator,
             viewRegistry: harness.viewRegistry,
@@ -480,6 +421,11 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
         #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenParentPane.id) != nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenDrawerPane.id) != nil)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenParentPane.id]?.initialFrame != nil)
+        #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenDrawerPane.id]?.initialFrame != nil)
+        #expect(harness.store.drawerView(forParent: hiddenParentPane.id) == drawerViewBeforePreparedMount)
     }
 
     @Test
@@ -825,6 +771,79 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(harness.surfaceManager.lastConfig == nil)
         #expect(harness.surfaceManager.createdPaneIds.isEmpty)
     }
+
+    @Test
+    func aRevealOfAPaneUnderPreparedCustodyCreatesNothing() throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(launchDirectory: harness.tempDir)
+        let tab = Tab(paneId: pane.id, name: "Reveal")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        let generation = try preparedTerminalCohortGeneration()
+        let descriptor = try preparedTerminalCohortDescriptor(
+            pane: pane,
+            visibilityPriority: .activeVisible,
+            hostPlacement: .tab(tabID: tab.id)
+        )
+        let registry = harness.viewRegistry
+        registry.beginInitialRestore()
+        // Constructing the owner alone installs the cohort into ViewRegistry
+        // (pane custody becomes `.pending(owner: .terminal)`); `.mount()` is
+        // never called, so the pane is never claimed.
+        _ = WorkspacePreparedContentMountCoordinator(
+            cohort: WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            ),
+            viewRegistry: registry,
+            terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+                generation: generation,
+                initialFramesByPaneID: [:],
+                viewRegistry: registry,
+                mountHandler: harness.coordinator,
+                descriptorsByPaneID: [descriptor.paneID: descriptor]
+            ),
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: generation,
+                coordinator: harness.coordinator
+            )
+        )
+        harness.coordinator.acceptedPreparedContentMountGeneration = generation
+
+        // Act
+        harness.coordinator.restoreVisiblePaneIfNeeded(pane.id, forceWhenBoundsExist: true)
+
+        // Assert: the prepared lane still owns this pane, so the steady-state
+        // reveal path creates nothing.
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+    }
+
+    @Test
+    func aRevealOfAReleasedPaneStillCreatesNormally() throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(launchDirectory: harness.tempDir)
+        let tab = Tab(paneId: pane.id, name: "Reveal")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        // Act: no cohort has ever been installed for any generation, so this
+        // pane's custody is absent — `terminalSurfaceCreationAuthority`
+        // returns `.released` and steady-state creation proceeds.
+        harness.coordinator.restoreVisiblePaneIfNeeded(pane.id, forceWhenBoundsExist: true)
+
+        // Assert
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+    }
 }
 
 @MainActor
@@ -850,20 +869,21 @@ private func mountPreparedTerminalCohort(
         nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
     )
     viewRegistry.beginInitialRestore()
+    let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+        generation: generation,
+        viewRegistry: viewRegistry,
+        mountHandler: coordinator,
+        descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+    )
     let owner = WorkspacePreparedContentMountCoordinator(
         cohort: cohort,
         viewRegistry: viewRegistry,
-        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
-            generation: generation,
-            initialFramesByPaneID: initialFramesByPaneID,
-            viewRegistry: viewRegistry,
-            mountHandler: coordinator
-        ),
+        terminalAdmissionPort: terminalAdmissionPort,
         nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
-            generation: generation,
-            coordinator: coordinator
-        )
+            generation: generation, coordinator: coordinator)
     )
+    await owner.installTerminalGeometryAvailability(
+        terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID))
     _ = await owner.mount()
 }
 

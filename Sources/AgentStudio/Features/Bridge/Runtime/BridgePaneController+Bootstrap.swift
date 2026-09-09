@@ -34,6 +34,7 @@ struct BridgeProductSessionDependencyInput {
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
+    let gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -612,7 +613,8 @@ extension BridgePaneController {
                 runtime: input.runtime,
                 state: input.state
             ), let gitReadContext = input.gitReadContext,
-            let constructionCoordinator = input.worktreeProductConstructionCoordinator
+            let constructionCoordinator = input.worktreeProductConstructionCoordinator,
+            let gitWorkingTreeStatusProvider = input.gitWorkingTreeStatusProvider
         else {
             return BridgeUnavailablePaneProductFileMetadataSource()
         }
@@ -620,7 +622,8 @@ extension BridgePaneController {
             authority: authority,
             gitReadContext: gitReadContext,
             constructionCoordinator: constructionCoordinator,
-            sourceAcceptedObserver: sourceAcceptedObserver
+            sourceAcceptedObserver: sourceAcceptedObserver,
+            statusProvider: gitWorkingTreeStatusProvider
         )
     }
 

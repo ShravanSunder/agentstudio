@@ -300,7 +300,9 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 && snapshot.reviewHostRetained
         }
         guard ready, let observed else {
-            throw JourneyError.conditionFailed("File display snapshot did not become complete")
+            throw JourneyError.conditionFailed(
+                "File display snapshot did not become complete; lastObserved=\(String(describing: observed))"
+            )
         }
         return observed
     }
@@ -433,6 +435,9 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
             ),
             gitReadContext: gitReadContext,
             worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+            gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                physicalGate: AgentStudioGitStatusPhysicalGate()
+            ),
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             initialPaneActivity: .foreground

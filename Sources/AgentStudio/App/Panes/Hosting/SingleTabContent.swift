@@ -19,7 +19,6 @@ struct SingleTabContent: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     let zoomPaneSurfaceToolbarPresentation: (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation
@@ -41,7 +40,6 @@ struct SingleTabContent: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         paneNotePresentation: PaneNotePresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation,
         zoomPaneSurfaceToolbarPresentation:
@@ -63,7 +61,6 @@ struct SingleTabContent: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.paneNotePresentation = paneNotePresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
         self.zoomPaneSurfaceToolbarPresentation = zoomPaneSurfaceToolbarPresentation
@@ -80,6 +77,7 @@ struct SingleTabContent: View {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
+        let arrangementView = atom(\.arrangementView)
         let tab = workspaceTab.tab(tabId)
         let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tabId)
         // swiftlint:disable:next redundant_discardable_let
@@ -93,14 +91,14 @@ struct SingleTabContent: View {
                     )
                     .background(AppStyles.Shell.PaneChrome.background)
                     .transition(.identity)
-                } else {
+                } else if let activeLayout = arrangementView.activeLayout(forTab: tabId) {
                     FlatTabStripContainer(
-                        layout: tab.layout,
+                        layout: activeLayout,
                         octiconLoader: octiconLoader,
                         tabId: tabId,
-                        activePaneId: tab.activePaneId,
-                        minimizedPaneIds: tab.activeMinimizedPaneIds,
-                        visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: tabId),
+                        activePaneId: arrangementView.activePaneId(forTab: tabId),
+                        minimizedPaneIds: arrangementView.activeMinimizedPaneIds(forTab: tabId),
+                        visiblePaneIds: arrangementView.activeVisiblePaneIds(forTab: tabId),
                         arrangementInlineRenameState: arrangementInlineRenameState,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
@@ -114,12 +112,13 @@ struct SingleTabContent: View {
                         paneInboxPresentation: paneInboxPresentation,
                         paneNotePresentation: paneNotePresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub,
-                        notificationCountForWorktree: notificationCountForWorktree,
                         workspaceWindowId: workspaceWindowId,
                         paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
                     )
                     .background(AppStyles.Shell.PaneChrome.background)
                     .transition(.identity)
+                } else {
+                    EmptyArrangementPlaceholderView()
                 }
             }
         }
@@ -185,7 +184,6 @@ struct SingleTabContent: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onFocusPane: onFocusPane,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom:\(tabId)",
                 renderedPaneIds: Set(renderState.children.map(\.paneId))
@@ -221,7 +219,6 @@ struct SingleTabContent: View {
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 dropTargetCoordinateSpace: "tabContainer",
                 paneInboxPresentation: child.paneId == sourcePaneId ? paneInboxPresentation : nil,
                 paneNotePresentation: child.paneId == sourcePaneId ? paneNotePresentation : nil,

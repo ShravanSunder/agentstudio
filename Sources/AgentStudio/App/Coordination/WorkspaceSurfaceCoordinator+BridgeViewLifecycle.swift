@@ -24,6 +24,7 @@ extension WorkspaceSurfaceCoordinator {
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
             traceRuntime: traceRuntime,
             viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor,
             initialPaneActivity: .dormant,

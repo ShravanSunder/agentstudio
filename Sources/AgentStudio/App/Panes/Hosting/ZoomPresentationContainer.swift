@@ -64,7 +64,6 @@ struct ZoomPresentationContainer: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let viewRegistry: ViewRegistry
     let surfaceId: String
     let renderedPaneIds: Set<UUID>
@@ -102,7 +101,6 @@ struct ZoomPresentationContainer: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusPane: @escaping (UUID) -> Void = { _ in },
         onOpenPaneGitHub: @escaping (UUID) -> Void = { _ in },
-        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         viewRegistry: ViewRegistry,
         surfaceId: String,
         renderedPaneIds: Set<UUID>,
@@ -129,7 +127,6 @@ struct ZoomPresentationContainer: View {
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusPane = onFocusPane
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.notificationCountForWorktree = notificationCountForWorktree
         self.viewRegistry = viewRegistry
         self.surfaceId = surfaceId
         self.renderedPaneIds = renderedPaneIds
@@ -364,7 +361,6 @@ struct ZoomPresentationContainer: View {
         PaneManagementContext.project(
             paneId: sourcePaneId,
             store: store,
-            notificationCountForWorktree: notificationCountForWorktree
         )
     }
 
@@ -416,7 +412,6 @@ struct ZoomPresentationContainer: View {
                 onFocusPane: onFocusPane,
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
                 drawerDropTarget: nil,
                 dismissCoordinateView: drawerDismissCoordinateView,
                 workspaceWindowId: workspaceWindowId,

@@ -49,13 +49,14 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     struct StatusFallbackSnapshot: Sendable {
-        let status: GitStatusSnapshot
+        let status: GitStatusFactsSnapshot
         let fullStatusFailure: BridgeProviderFailure?
     }
 
     let repositoryPath: URL
     let client: LocalClient
     let gitReadContext: BridgeGitReadContext
+    let statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let gitDataPlaneReadTimeout: Duration
     var liveLocatorByIdentity: [ContentLocatorIdentity: ContentLocator] = [:]
     var sharedLocatorStackByIdentity: [ContentLocatorIdentity: [ContentLocator]] = [:]
@@ -64,11 +65,13 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         repositoryPath: URL,
         client: LocalClient,
         gitReadContext: BridgeGitReadContext,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate,
         gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout
     ) {
         self.repositoryPath = repositoryPath
         self.client = client
         self.gitReadContext = gitReadContext
+        self.statusPhysicalGate = statusPhysicalGate
         self.gitDataPlaneReadTimeout = gitDataPlaneReadTimeout
     }
 
@@ -834,11 +837,16 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 }
 
 extension AgentStudioGitBridgeReviewDataClient where LocalClient == LibGit2AgentStudioGitLocalClient {
-    init(repositoryPath: URL, gitReadContext: BridgeGitReadContext) {
+    init(
+        repositoryPath: URL,
+        gitReadContext: BridgeGitReadContext,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
+    ) {
         self.init(
             repositoryPath: repositoryPath,
             client: LibGit2AgentStudioGitLocalClient(),
-            gitReadContext: gitReadContext
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: statusPhysicalGate
         )
     }
 }

@@ -18,7 +18,7 @@ package struct TerminalActivationDescriptor: Equatable, Sendable {
     /// Activation must not reconstruct or reread this value from live state.
     package let pane: Pane
     package let visibilityPriority: TerminalActivationVisibilityPriority
-    let hostPlacement: TerminalHostPlacementIdentity
+    package let hostPlacement: TerminalHostPlacementIdentity
 
     package init(
         pane: Pane,
@@ -51,7 +51,7 @@ package struct NonterminalContentMountInput: Equatable, Sendable {
 package struct NonterminalContentMountDescriptor: Equatable, Sendable {
     package let content: NonterminalContentMountContent
     package let visibilityPriority: TerminalActivationVisibilityPriority
-    let hostPlacement: TerminalHostPlacementIdentity
+    package let hostPlacement: TerminalHostPlacementIdentity
 
     package var pane: Pane {
         content.pane

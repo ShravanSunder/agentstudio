@@ -7,10 +7,10 @@ import os
 /// The actor owns filesystem path ingestion, deepest-root ownership routing for nested roots,
 /// priority-aware flush ordering, and envelope emission onto `EventBus`.
 package actor FilesystemActor {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
+    static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
 
-    private struct SchedulingClock: Sendable {
+    struct SchedulingClock: Sendable {
         let now: @Sendable () -> Duration
         let sleep: @Sendable (Duration) async throws -> Void
 
@@ -37,7 +37,7 @@ package actor FilesystemActor {
         }
     }
 
-    private struct RootState: Sendable {
+    struct RootState: Sendable {
         let repoId: UUID
         let rootPath: URL
         let canonicalRootPath: String
@@ -46,7 +46,7 @@ package actor FilesystemActor {
         var pathFilter: FilesystemPathFilter
     }
 
-    private struct PendingWorktreeChanges: Sendable {
+    struct PendingWorktreeChanges: Sendable {
         var projectedPaths: Set<String> = []
         var containsGitInternalChanges = false
         var suppressedIgnoredPathCount = 0
@@ -70,15 +70,22 @@ package actor FilesystemActor {
 
     let runtimeBus: EventBus<RuntimeEnvelope>
     let fseventStreamClient: any FSEventStreamClient
+    let repositoryLocalActivityProjector: RepositoryLocalActivityProjector?
     let envelopeClock = ContinuousClock()
-    private let schedulingClock: SchedulingClock
+    let schedulingClock: SchedulingClock
     let watchedFolderScanScheduler: WatchedFolderScanScheduler
-    private let debounceWindow: Duration
-    private let maxFlushLatency: Duration
+    let debounceWindow: Duration
+    let maxFlushLatency: Duration
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
-    private var roots: [UUID: RootState] = [:]
-    private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
+    var roots: [UUID: RootState] = [:]
+    var repositoryStableKeysByWorktreeId: [UUID: String] = [:]
+    var rootOwnership = FilesystemRootOwnership(canonicalRootsByWorktree: [:])
+    var rootOwnershipRevision: UInt64 = 0
+    var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
+    var pendingActivityCheckpoint = FilesystemPendingActivityCheckpoint()
+    var activityCheckpointRevision: UInt64 = 0
+    var pendingCoarseActivityCoverageLossRepositoryStableKeys: Set<String> = []
     private var activePaneWorktreeId: UUID?
     var nextEnvelopeSequence: UInt64 = 0
 
@@ -91,11 +98,13 @@ package actor FilesystemActor {
     private var drainTask: Task<Void, Never>?
     var lastRecordedLogicalDebtSnapshot: FilesystemLogicalDebtSnapshot?
     var logicalDebtSnapshotPublicationRevision: UInt64 = 0
-    private var hasShutdown = false
+    var hasBegunShutdown = false
+    private var isPreparingActivityShutdown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
@@ -107,6 +116,7 @@ package actor FilesystemActor {
             )
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
+        self.repositoryLocalActivityProjector = repositoryLocalActivityProjector
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
@@ -119,6 +129,7 @@ package actor FilesystemActor {
     init<C: Clock>(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         sleepClock: C,
         debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
@@ -131,6 +142,7 @@ package actor FilesystemActor {
             )
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
+        self.repositoryLocalActivityProjector = repositoryLocalActivityProjector
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
@@ -146,7 +158,7 @@ package actor FilesystemActor {
         watchedFolderScanState.resultDrainState.task?.cancel()
         watchedFolderScanState.fallbackTask?.cancel()
         watchedFolderScanState.manualRefreshState.task?.cancel()
-        if !hasShutdown {
+        if !hasBegunShutdown {
             Self.logger.warning("FilesystemActor deinitialized without explicit shutdown()")
         }
     }
@@ -164,7 +176,22 @@ package actor FilesystemActor {
         repoId: UUID,
         rootPath: URL
     ) async -> FSEventStreamRegistrationOutcome {
-        guard !hasShutdown else {
+        await register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            revokesActivityAuthority: true
+        )
+    }
+
+    @discardableResult
+    func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL,
+        revokesActivityAuthority: Bool
+    ) async -> FSEventStreamRegistrationOutcome {
+        guard !hasBegunShutdown else {
             return .unavailable(.clientShutdown)
         }
         startIngressTaskIfNeeded()
@@ -178,7 +205,7 @@ package actor FilesystemActor {
         }
         let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
 
-        guard !hasShutdown else {
+        guard !hasBegunShutdown else {
             return .unavailable(.clientShutdown)
         }
         let existing = roots[worktreeId]
@@ -190,6 +217,17 @@ package actor FilesystemActor {
         guard registrationOutcome == .observing else {
             return registrationOutcome
         }
+        if revokesActivityAuthority,
+            existing?.repoId != repoId || existing?.rootPath != rootPath,
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId]
+        {
+            await repositoryLocalActivityProjector?.revokeAuthority(
+                for: [repositoryStableKey]
+            )
+            guard !hasBegunShutdown else {
+                return .unavailable(.clientShutdown)
+            }
+        }
         roots[worktreeId] = RootState(
             repoId: repoId,
             rootPath: rootPath,
@@ -198,6 +236,9 @@ package actor FilesystemActor {
             nextBatchSeq: existing?.nextBatchSeq ?? 0,
             pathFilter: pathFilter
         )
+        if existing?.canonicalRootPath != canonicalRootPath {
+            rebuildRootOwnership()
+        }
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
         await emitFilesystemEvent(
             worktreeId: worktreeId,
@@ -210,6 +251,21 @@ package actor FilesystemActor {
     }
 
     package func unregister(worktreeId: UUID) async {
+        await unregister(worktreeId: worktreeId, revokesActivityAuthority: true)
+    }
+
+    func unregister(
+        worktreeId: UUID,
+        revokesActivityAuthority: Bool
+    ) async {
+        if revokesActivityAuthority,
+            roots[worktreeId] != nil,
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[worktreeId]
+        {
+            await repositoryLocalActivityProjector?.revokeAuthority(
+                for: [repositoryStableKey]
+            )
+        }
         let removedRoot = roots.removeValue(forKey: worktreeId)
         pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -217,6 +273,7 @@ package actor FilesystemActor {
         }
         fseventStreamClient.unregister(worktreeId: worktreeId)
         guard let removedRoot else { return }
+        rebuildRootOwnership()
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: removedRoot.repoId,
@@ -226,29 +283,13 @@ package actor FilesystemActor {
         )
     }
 
-    package func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
-        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
-        let removedWorktreeIds = Set(roots.keys).subtracting(desiredWorktreeIds)
-        for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            await unregister(worktreeId: worktreeId)
-        }
-
-        for (worktreeId, context) in assertion.contextsByWorktreeId.sorted(by: { lhs, rhs in
-            Self.sortWorktreeIds(lhs.key, rhs.key)
-        }) {
-            guard
-                roots[worktreeId]?.repoId != context.repoId
-                    || roots[worktreeId]?.rootPath != context.rootPath
-            else {
-                continue
-            }
-            await register(worktreeId: worktreeId, repoId: context.repoId, rootPath: context.rootPath)
-        }
-    }
-
     /// Test seam for deterministic ingress without OS-level FSEvents.
     package func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
-        await ingestRawPaths(worktreeId: worktreeId, paths: paths)
+        await ingestRawPaths(
+            worktreeId: worktreeId,
+            paths: paths,
+            requiresFullGitRefresh: false
+        )
     }
 
     package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
@@ -266,6 +307,18 @@ package actor FilesystemActor {
         activePaneWorktreeId = worktreeId
     }
 
+    package func setRepositoryFactAttention(
+        activePaneWorktreeId: UUID?,
+        openWorktreeIds: Set<UUID>
+    ) {
+        self.activePaneWorktreeId = activePaneWorktreeId
+        for worktreeId in roots.keys {
+            guard var root = roots[worktreeId] else { continue }
+            root.isActiveInApp = openWorktreeIds.contains(worktreeId)
+            roots[worktreeId] = root
+        }
+    }
+
     package func start() async {
         // Ingress/drain tasks are initialized during actor init; start is explicit for
         // lifecycle parity with other filesystem source conformers.
@@ -276,7 +329,17 @@ package actor FilesystemActor {
     }
 
     package func shutdown() async {
-        guard !hasShutdown else { return }
+        guard !hasBegunShutdown else { return }
+        isPreparingActivityShutdown = true
+        fseventStreamClient.beginActivityShutdown()
+        let activityDrainTask = drainTask
+        drainTask?.cancel()
+        drainTask = nil
+        if let activityDrainTask {
+            await activityDrainTask.value
+        }
+        await checkpointRepositoryLocalActivity()
+        hasBegunShutdown = true
         watchedFolderScanState.isShuttingDown = true
         let activeIngressTask = ingressTask
         let activeDrainTask = drainTask
@@ -314,84 +377,61 @@ package actor FilesystemActor {
         }
 
         roots.removeAll(keepingCapacity: false)
+        rootOwnership = FilesystemRootOwnership(canonicalRootsByWorktree: [:])
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
         watchedFolderScanState = FilesystemWatchedFolderScanState()
         watchedFolderScanState.isShuttingDown = true
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
-        hasShutdown = true
         ingressTerminalContinuation.finish()
     }
 
-    private func ingestRawPaths(worktreeId: UUID, paths: [String]) async {
-        guard roots[worktreeId] != nil else {
-            Self.logger.debug(
-                "Dropped filesystem path batch for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
-            )
-            return
-        }
-        guard !paths.isEmpty else { return }
-
-        let ownership = FilesystemRootOwnership(
+    private func rebuildRootOwnership() {
+        rootOwnership = FilesystemRootOwnership(
             canonicalRootsByWorktree: roots.mapValues(\.canonicalRootPath)
         )
-
-        for rawPath in paths {
-            guard let ownedPath = ownership.route(sourceWorktreeId: worktreeId, rawPath: rawPath) else {
-                Self.logger.debug(
-                    "Dropped unroutable filesystem path for source worktree \(worktreeId.uuidString, privacy: .public): \(rawPath, privacy: .public)"
-                )
-                continue
-            }
-
-            guard let root = roots[ownedPath.worktreeId] else { continue }
-
-            if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
-                guard var latestRoot = roots[ownedPath.worktreeId] else { continue }
-                latestRoot.pathFilter = pathFilter
-                roots[ownedPath.worktreeId] = latestRoot
-
-                var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-                pendingChanges.containsGitInternalChanges = true
-                pendingChanges.recordPendingChange(at: schedulingClock.now())
-                pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
-                continue
-            }
-
-            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-            switch root.pathFilter.classify(relativePath: ownedPath.relativePath) {
-            case .projected:
-                pendingChanges.projectedPaths.insert(ownedPath.relativePath)
-            case .gitObjectDatabase:
-                continue
-            case .gitInternal:
-                pendingChanges.containsGitInternalChanges = true
-                pendingChanges.suppressedGitInternalPathCount += 1
-            case .ignoredByPolicy:
-                pendingChanges.suppressedIgnoredPathCount += 1
-            }
-            pendingChanges.recordPendingChange(at: schedulingClock.now())
-            pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
-        }
-
-        scheduleDrainIfNeeded()
-        await recordLogicalDebtSnapshotIfChanged()
+        rootOwnershipRevision &+= 1
     }
+}
 
+extension FilesystemActor {
     func startIngressTaskIfNeeded() {
+        guard !hasBegunShutdown else { return }
         guard ingressTask == nil else { return }
         let stream = fseventStreamClient.events()
         ingressTask = Task { [weak self] in
-            for await batch in stream {
+            for await ingressItem in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
+                guard case .batch(let batch) = ingressItem else {
+                    switch ingressItem {
+                    case .activityObservations(let activityBatch):
+                        await self.ingestSharedActivityObservations(activityBatch)
+                        await self.consumeActivityOverflowRecoveries()
+                    case .activityProcessingFence(let fenceID):
+                        await self.consumeActivityOverflowRecoveries()
+                        self.fseventStreamClient.acknowledgeActivityProcessingFence(fenceID)
+                    case .batch:
+                        break
+                    }
+                    continue
+                }
                 if await self.isWatchedFolderBatch(batch.worktreeId) {
                     await self.handleWatchedFolderFSEvent(batch)
                 } else {
-                    await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
+                    await self.ingestRawPaths(
+                        worktreeId: batch.worktreeId,
+                        paths: batch.paths,
+                        requiresFullGitRefresh: batch.requiresFullGitRefresh,
+                        activityParticipant: batch.participant,
+                        activityObservations: batch.observations,
+                        shouldScheduleAndRecord: false
+                    )
                 }
-                await self.consumeCoarseRefreshDebt()
+                guard !Task.isCancelled else { break }
+                guard await self.acceptsIngressWork else { break }
+                await self.consumeOverflowRecoveries()
+                await self.consumeActivityOverflowRecoveries()
             }
             guard !Task.isCancelled else { return }
             await self?.reportIngressTerminalIfNeeded()
@@ -399,35 +439,77 @@ package actor FilesystemActor {
     }
 
     private func reportIngressTerminalIfNeeded() {
-        guard !hasShutdown, !didReportIngressTerminal else { return }
+        guard !hasBegunShutdown, !didReportIngressTerminal else { return }
         didReportIngressTerminal = true
         ingressTerminalContinuation.yield(.eventsEnded)
     }
 
-    private func consumeCoarseRefreshDebt() async {
-        for worktreeId in fseventStreamClient.consumeCoarseRefreshDebt() {
+    private var acceptsIngressWork: Bool {
+        !hasBegunShutdown
+    }
+
+    private func consumeOverflowRecoveries() async {
+        guard !hasBegunShutdown else { return }
+        for recovery in fseventStreamClient.consumeOverflowRecoveries() {
+            guard !hasBegunShutdown else { break }
+            let isWatchedFolderRecovery = isWatchedFolderBatch(recovery.worktreeId)
+            let preservesWatchedFolderScope =
+                isWatchedFolderRecovery
+                && recovery.containsGitTopologyPath == false
             performanceTraceRecorder?.record(
                 .filesystemStageOutcome,
                 attributes: [
-                    "agentstudio.performance.filesystem.stage": .string("coarse_refresh_debt"),
-                    "agentstudio.performance.filesystem.outcome": .string("overflow_coarse"),
+                    "agentstudio.performance.filesystem.stage": .string("overflow_recovery"),
+                    "agentstudio.performance.filesystem.outcome": .string(
+                        recovery.paths == nil && !preservesWatchedFolderScope
+                            ? "overflow_coarse" : "overflow_scoped"),
                 ]
             )
-            if isWatchedFolderBatch(worktreeId) {
-                await handleCoarseWatchedFolderFSEvent(worktreeId: worktreeId)
+            if let paths = recovery.paths {
+                let batch = FSEventBatch(
+                    worktreeId: recovery.worktreeId,
+                    paths: paths.sorted()
+                )
+                if isWatchedFolderRecovery {
+                    await handleWatchedFolderFSEvent(
+                        batch,
+                        shouldRecordLogicalDebt: false
+                    )
+                } else {
+                    await ingestRawPaths(
+                        worktreeId: recovery.worktreeId,
+                        paths: batch.paths,
+                        requiresFullGitRefresh: recovery.requiresFullGitRefresh,
+                        shouldScheduleAndRecord: false
+                    )
+                }
                 continue
             }
-            guard pendingChangesByWorktreeId[worktreeId] != nil else { continue }
-            var pendingChanges = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
+            if isWatchedFolderRecovery {
+                guard recovery.containsGitTopologyPath else { continue }
+                await handleCoarseWatchedFolderFSEvent(
+                    worktreeId: recovery.worktreeId,
+                    shouldRecordLogicalDebt: false
+                )
+                continue
+            }
+            guard pendingChangesByWorktreeId[recovery.worktreeId] != nil else { continue }
+            var pendingChanges = pendingChangesByWorktreeId[recovery.worktreeId] ?? PendingWorktreeChanges()
+            if recovery.requiresFullGitRefresh {
+                pendingChanges.containsGitInternalChanges = true
+            }
             pendingChanges.projectedPaths.insert(".")
             pendingChanges.recordPendingChange(at: schedulingClock.now())
-            pendingChangesByWorktreeId[worktreeId] = pendingChanges
-            scheduleDrainIfNeeded()
+            pendingChangesByWorktreeId[recovery.worktreeId] = pendingChanges
         }
+        guard !hasBegunShutdown else { return }
+        scheduleDrainIfNeeded()
         await recordLogicalDebtSnapshotIfChanged()
     }
 
-    private func scheduleDrainIfNeeded() {
+    func scheduleDrainIfNeeded() {
+        guard !hasBegunShutdown else { return }
+        guard !isPreparingActivityShutdown else { return }
         guard drainTask == nil else { return }
         guard hasPendingPaths else { return }
 
@@ -448,6 +530,10 @@ package actor FilesystemActor {
 
         while !Task.isCancelled {
             let now = schedulingClock.now()
+            if activityCheckpointIsDue(now: now) {
+                await checkpointRepositoryLocalActivity()
+                continue
+            }
             if let worktreeId = nextWorktreeToFlush(now: now) {
                 await flush(worktreeId: worktreeId)
                 continue
@@ -482,7 +568,8 @@ package actor FilesystemActor {
     }
 
     private var hasPendingPaths: Bool {
-        pendingChangesByWorktreeId.values.contains(where: \.hasPendingChanges)
+        pendingActivityCheckpoint.isPending
+            || pendingChangesByWorktreeId.values.contains(where: \.hasPendingChanges)
     }
 
     var pendingWorktreeLogicalDebtCount: Int {
@@ -491,22 +578,6 @@ package actor FilesystemActor {
 
     var drainTaskLogicalDebtCount: Int {
         drainTask == nil ? 0 : 1
-    }
-
-    nonisolated private static func isGitIgnoreReloadPath(rawPath: String, relativePath: String) -> Bool {
-        if relativePath == ".gitignore" {
-            return true
-        }
-
-        guard relativePath == "." else {
-            return false
-        }
-
-        let normalizedRawPath =
-            rawPath
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\\", with: "/")
-        return normalizedRawPath == ".gitignore" || normalizedRawPath.hasSuffix("/.gitignore")
     }
 
     private func nextWorktreeToFlush(now: Duration) -> UUID? {
@@ -536,7 +607,8 @@ package actor FilesystemActor {
     }
 
     private func nextFlushDeadline(now: Duration) -> Duration? {
-        pendingChangesByWorktreeId
+        let pathDeadline =
+            pendingChangesByWorktreeId
             .compactMap { worktreeId, pendingChanges -> Duration? in
                 guard pendingChanges.hasPendingChanges else { return nil }
                 guard roots[worktreeId] != nil else { return nil }
@@ -544,6 +616,8 @@ package actor FilesystemActor {
                 return deadline > now ? deadline : now
             }
             .min()
+        let activityDeadline = activityCheckpointDeadline()
+        return [pathDeadline, activityDeadline].compactMap { $0 }.min()
     }
 
     private func priorityKey(for worktreeId: UUID) -> Int {
@@ -741,7 +815,8 @@ package actor FilesystemActor {
                     .repoDiscovered(
                         repoPath: repoPath,
                         parentPath: parentPath,
-                        linkedWorktrees: linkedWorktrees
+                        linkedWorktrees: linkedWorktrees,
+                        stableIdentity: .prepare(repoPath: repoPath, linkedWorktrees: linkedWorktrees)
                     )
                 )
             )
@@ -838,7 +913,7 @@ package actor FilesystemActor {
         lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
     }
 
-    private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
+    static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
     }
 

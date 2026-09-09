@@ -56,6 +56,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let source = OrderedRecordingFilesystemSource()
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: harness.store,
             viewRegistry: ViewRegistry(),
@@ -63,6 +64,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             surfaceManager: MockFilesystemCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: harness.bus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: source,
             filesystemProjectionIndex: FilesystemProjectionIndex(),
             windowLifecycleStore: WindowLifecycleAtom(),
@@ -76,15 +79,10 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
         let operations = await source.operations()
         #expect(operations.compactMap(\.registeredWorktreeId) == expectedWorktreeIds)
-        let activityWorktreeIds = operations.compactMap { operation -> UUID? in
-            guard case .activity(let worktreeId, isActiveInApp: false) = operation else { return nil }
-            return worktreeId
-        }
-        #expect(activityWorktreeIds == expectedWorktreeIds)
         let sourceSnapshot = await source.snapshot()
         #expect(Set(sourceSnapshot.registeredRoots.keys) == Set(expectedWorktreeIds))
-        #expect(sourceSnapshot.activityByWorktreeId.count == expectedWorktreeIds.count)
-        #expect(sourceSnapshot.activityByWorktreeId.values.allSatisfy { !$0 })
+        #expect(sourceSnapshot.activityByWorktreeId.isEmpty)
+        #expect(sourceSnapshot.activePaneWorktreeId == nil)
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let registrationCounts = try sourceSyncRegistrationCounts(from: outputFileURL)
@@ -93,8 +91,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         #expect(registrationCounts.reduce(0, +) == expectedWorktreeIds.count)
     }
 
-    @Test("filesystem source writes preserve serial operation order")
-    func filesystemSourceWritesPreserveSerialOperationOrder() async throws {
+    @Test("filesystem source writes roots before the topology assertion")
+    func filesystemSourceWritesRootsBeforeTopologyAssertion() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -135,16 +133,17 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         #expect(registerOperations.first == mainWorktree.id)
         #expect(Set(registerOperations) == Set([mainWorktree.id, reconciledFeature.id]))
         let firstRegister = try #require(operations.firstIndex { $0.isRegister })
-        let firstActivity = try #require(operations.firstIndex { $0.isActivity })
-        let firstActivePane = try #require(operations.firstIndex { $0.isActivePane })
         let firstAssertTopology = try #require(operations.firstIndex { $0.isAssertTopology })
-        #expect(firstRegister < firstActivity)
-        #expect(firstActivity < firstActivePane)
-        #expect(firstActivePane < firstAssertTopology)
+        #expect(firstRegister < firstAssertTopology)
+        #expect(
+            !operations.contains {
+                $0.kind == .activity || $0.kind == .activePane || $0.kind == .sidebarVisibleWorktrees
+            }
+        )
     }
 
-    @Test("sidebar visibility changes use the affected-key lane after bootstrap")
-    func sidebarVisibilityChangesUseAffectedKeyLaneAfterBootstrap() async {
+    @Test("sidebar visibility changes do not enter the filesystem-effects lane")
+    func sidebarVisibilityChangesDoNotEnterFilesystemEffectsLane() async {
         await withAsyncTestCoreAtoms { coreAtoms in
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -165,13 +164,11 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
             let visibleWorktreeIds: Set<UUID> = [UUIDv7.generate(), UUIDv7.generate()]
             sidebarVisibleWorktreesAtom.setVisibleWorktreeIds(visibleWorktreeIds)
-            coordinator.scheduleSidebarVisibleWorktreesUpdate()
-
-            await source.waitForOperation(.sidebarVisibleWorktrees)
             await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-            #expect(await source.operations() == [.sidebarVisibleWorktrees(worktreeIds: visibleWorktreeIds)])
+            #expect(await source.operations().isEmpty)
             #expect(coordinator.filesystemFullReconciliationRequestCount == bootstrapFullReconciliationCount)
+            #expect(coordinator.filesystemAffectedKeyRequestCount == 0)
             await coordinator.shutdown()
         }
     }
@@ -325,8 +322,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
         let snapshot = await source.snapshot()
         #expect(snapshot.registeredRoots[originalWorktree.id] == originalWorktree.path)
-        #expect(snapshot.activityByWorktreeId[originalWorktree.id] == true)
-        #expect(snapshot.activePaneWorktreeId == originalWorktree.id)
+        #expect(snapshot.activityByWorktreeId.isEmpty)
+        #expect(snapshot.activePaneWorktreeId == nil)
     }
 
     @Test("stale projection result is dropped when pane context generation changes")
@@ -600,13 +597,16 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         index: some WorkspaceFilesystemProjectionIndexing,
         bus: EventBus<RuntimeEnvelope>
     ) -> WorkspaceSurfaceCoordinator {
-        WorkspaceSurfaceCoordinator(
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        return WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
             surfaceManager: MockFilesystemCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
+            gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: source,
             filesystemProjectionIndex: index,
             windowLifecycleStore: WindowLifecycleAtom(),

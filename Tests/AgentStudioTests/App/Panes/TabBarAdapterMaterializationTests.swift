@@ -26,7 +26,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom
         )
     }
 
@@ -52,7 +51,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         let didStart = await projectionGate.waitUntilStarted()
@@ -77,7 +75,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -103,7 +100,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -156,7 +152,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -173,8 +168,8 @@ final class TabBarAdapterMaterializationTests {
         #expect(adapter.tabs.first?.displayTitle == "After")
     }
 
-    @Test("overlapping projections publish only the latest admitted request")
-    func overlappingProjectionsPublishOnlyLatestRequest() async {
+    @Test("rapid same-tab invalidations stay single-flight and publish the latest request")
+    func rapidSameTabInvalidationsStaySingleFlightAndPublishLatestRequest() async {
         let secondGate = TabBarAdapterProjectionGate()
         let thirdGate = TabBarAdapterProjectionGate()
         defer {
@@ -192,7 +187,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -204,6 +198,7 @@ final class TabBarAdapterMaterializationTests {
         secondGate.release()
         #expect(await completionRecorder.wait(for: .superseded(.init(value: 2))))
         #expect(await thirdGate.waitUntilStarted(), "Third projection did not start")
+        #expect(projectionController.maximumConcurrentProjectionCount == 1)
 
         thirdGate.release()
         #expect(await completionRecorder.wait(for: .published(.init(value: 3))))
@@ -224,7 +219,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         #expect(
@@ -247,8 +241,8 @@ final class TabBarAdapterMaterializationTests {
         #expect(Array(projectionController.projectedTabIDs.suffix(1)) == [firstTab.id])
     }
 
-    @Test("keyed inbox mutation projects only the tab containing that pane")
-    func keyedInboxMutationProjectsOnlyOwningTab() async {
+    @Test("Inbox mutation does not project any tab")
+    func inboxMutationDoesNotProjectAnyTab() async {
         let projectionController = TabBarAdapterProjectionController()
         let firstPane = store.createPane(title: "First")
         let secondPane = store.createPane(title: "Second")
@@ -260,7 +254,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         #expect(
@@ -290,14 +283,10 @@ final class TabBarAdapterMaterializationTests {
             )
         )
 
-        #expect(
-            await waitForOutput {
-                self.adapter.tabs.first { $0.id == firstTab.id }?.notificationDotColor == .red
-            },
-            "Owning tab did not publish its keyed inbox attention"
-        )
-        #expect(projectionController.projectionCount == initialProjectionCount + 1)
-        #expect(Array(projectionController.projectedTabIDs.suffix(1)) == [firstTab.id])
+        for _ in 0..<3 { await Task.yield() }
+
+        #expect(adapter.tabs.first { $0.id == firstTab.id }?.notificationDotColor == nil)
+        #expect(projectionController.projectionCount == initialProjectionCount)
     }
 
     @Test("appending a tab projects only the new tab item")
@@ -313,7 +302,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         #expect(
@@ -354,7 +342,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         #expect(
@@ -391,7 +378,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -440,7 +426,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -485,7 +470,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -541,7 +525,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -586,7 +569,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )
@@ -652,7 +634,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             performanceTraceRecorder: performanceTraceRecorder,
             project: measuredProject,
             onProjectionCompletion: completionRecorder.record
@@ -732,7 +713,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             performanceTraceRecorder: performanceTraceRecorder,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
@@ -768,7 +748,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project
         )
         #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
@@ -807,7 +786,6 @@ final class TabBarAdapterMaterializationTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            inboxAtom: inboxAtom,
             project: projectionController.project,
             onProjectionCompletion: completionRecorder.record
         )

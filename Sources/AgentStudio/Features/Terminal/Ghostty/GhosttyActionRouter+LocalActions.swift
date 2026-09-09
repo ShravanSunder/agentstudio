@@ -143,10 +143,11 @@ extension Ghostty.ActionRouter {
         paneID: UUID,
         control: TerminalActivityOrderedControl,
         contextBeforeControl: TerminalActivityProjectionContext? = nil,
-        contextAfterControl: TerminalActivityProjectionContext? = nil
+        contextAfterControl: TerminalActivityProjectionContext? = nil,
+        accumulator: TerminalLocalActionAccumulator = localActionAccumulator
     ) async {
         let currentContext = terminalActivityProjectionContext(paneID: paneID)
-        let precedingAggregate = localActionAccumulator.detachActivityBeforeControl(
+        let precedingAggregate = accumulator.detachActivityBeforeControl(
             for: surfaceID,
             contextBeforeControl: contextBeforeControl ?? currentContext,
             contextAfterControl: contextAfterControl
@@ -418,6 +419,7 @@ extension Ghostty.ActionRouter {
             followUpDrainCount: batch.metrics.followUpDrainCount,
             mainActorTaskCount: 1,
             activityAggregateCount: batch.activity == nil ? 0 : 1,
+            outputAdvancementCount: batch.metrics.outputAdvancementCount,
             retainedEntryCount: UInt64(batch.retainedEntryCount),
             retainedSizeBytes: UInt64(batch.retainedEntryCount * 64)
         )
@@ -449,6 +451,7 @@ extension Ghostty.ActionRouter {
             followUpDrainCount: barrier.metrics.followUpDrainCount,
             mainActorTaskCount: 0,
             activityAggregateCount: 0,
+            outputAdvancementCount: 0,
             retainedEntryCount: UInt64(retainedEntryCount),
             retainedSizeBytes: UInt64(retainedEntryCount * 64)
         )
@@ -509,7 +512,7 @@ extension Ghostty.ActionRouter {
         routingLookup: any GhosttyActionRoutingLookup,
         accumulator: TerminalLocalActionAccumulator = localActionAccumulator,
         precedingTitleApplyObserver: @MainActor (Bool) -> Void = { _ in }
-    ) -> Bool {
+    ) async -> Bool {
         guard
             isCurrentSurfaceLifetime(
                 expectedSurfaceID: expectedSurfaceID,
@@ -533,6 +536,16 @@ extension Ghostty.ActionRouter {
                     for: expectedSurfaceID
                 )
             }
+        }
+        if case .commandFinished = payload,
+            let paneID = routingLookup.paneId(for: expectedSurfaceID)
+        {
+            await applyOrderedActivityControl(
+                surfaceID: expectedSurfaceID,
+                paneID: paneID,
+                control: .commandFinished,
+                accumulator: accumulator
+            )
         }
         let didPublish = routeActionToTerminalRuntimeOnMainActor(
             actionTag: actionTag,

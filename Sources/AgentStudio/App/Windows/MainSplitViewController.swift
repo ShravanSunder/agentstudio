@@ -1,7 +1,6 @@
 import AgentStudioBridge
 import AgentStudioCore
 import AgentStudioEditorChooser
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AppKit
@@ -10,19 +9,15 @@ import SwiftUI
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let octiconLoader: OcticonLoader
-    let uiState: WorkspaceSidebarState
-    let sidebarCache: SidebarCacheState
-    let inboxSidebarState: InboxSidebarState
-    let inboxAtom: InboxNotificationAtom
     let paneActivityStatusAtom: PaneActivityStatusAtom
-    let prefsAtom: InboxNotificationPrefsAtom
-    let repoCache: RepoCacheAtom
+    let sidebarState: WorkspaceSidebarState
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
-    let onDismissInbox: @MainActor @Sendable () -> Void
+    let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
 }
 
 final class ShellSplitView: NSSplitView {
@@ -36,7 +31,7 @@ final class ShellSplitView: NSSplitView {
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder = @MainActor (SidebarRootViewDependencies) -> AnyView
-    private static let inboxFocusRetryTurns = 20
+    private static let sidebarFocusRetryTurns = 20
 
     @MainActor
     private static func defaultSidebarRootViewBuilder(
@@ -46,19 +41,16 @@ class MainSplitViewController: NSSplitViewController {
             SidebarSurfaceHost(
                 store: dependencies.store,
                 octiconLoader: dependencies.octiconLoader,
-                uiState: dependencies.uiState,
-                sidebarCache: dependencies.sidebarCache,
-                inboxSidebarState: dependencies.inboxSidebarState,
-                inboxAtom: dependencies.inboxAtom,
                 paneActivityStatusAtom: dependencies.paneActivityStatusAtom,
-                prefsAtom: dependencies.prefsAtom,
-                repoCache: dependencies.repoCache,
+                sidebarState: dependencies.sidebarState,
                 repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged,
-                onDismissInbox: dependencies.onDismissInbox
+                onPerformanceProofReadback: dependencies.onPerformanceProofReadback,
+                onRepositoryFactUpdateProgressPresented: dependencies
+                    .onRepositoryFactUpdateProgressPresented
             )
         )
     }
@@ -87,17 +79,14 @@ class MainSplitViewController: NSSplitViewController {
     private let windowLifecycleStore: WindowLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
-    private let inboxAtom: InboxNotificationAtom
-    private let inboxPrefsAtom: InboxNotificationPrefsAtom
-    private let inboxSidebarState: InboxSidebarState
-    private let paneInboxPresentationState: PaneInboxPresentationAtom
     private let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     private let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     private let bridgePaneAttendance: BridgePaneAttendanceAtom
     private let editorChooser: EditorChooserState
-    private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
+    private let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
+    private let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
@@ -128,17 +117,16 @@ class MainSplitViewController: NSSplitViewController {
         windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        inboxAtom: InboxNotificationAtom,
-        inboxPrefsAtom: InboxNotificationPrefsAtom,
-        inboxSidebarState: InboxSidebarState,
-        paneInboxPresentationState: PaneInboxPresentationAtom,
         repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         editorChooser: EditorChooserState,
-        paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
+        onRepositoryFactUpdateProgressPresented:
+            @escaping @MainActor @Sendable (UUID, UUID) -> Void = { _, _ in },
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -155,17 +143,14 @@ class MainSplitViewController: NSSplitViewController {
         self.windowLifecycleStore = windowLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
-        self.inboxAtom = inboxAtom
-        self.inboxPrefsAtom = inboxPrefsAtom
-        self.inboxSidebarState = inboxSidebarState
-        self.paneInboxPresentationState = paneInboxPresentationState
         self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.bridgePaneAttendance = bridgePaneAttendance
         self.editorChooser = editorChooser
-        self.paneInboxPresenter = paneInboxPresenter
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
+        self.onPerformanceProofReadback = onPerformanceProofReadback
+        self.onRepositoryFactUpdateProgressPresented = onRepositoryFactUpdateProgressPresented
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
@@ -211,8 +196,7 @@ class MainSplitViewController: NSSplitViewController {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
-            inboxAtom: inboxAtom,
-            paneInboxPresentation: makePaneInboxPresentation(),
+            paneInboxPresentation: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
             registersAsCommandHandler: paneTabRegistersAsCommandHandler,
@@ -233,13 +217,8 @@ class MainSplitViewController: NSSplitViewController {
             SidebarRootViewDependencies(
                 store: store,
                 octiconLoader: octiconLoader,
-                uiState: uiState,
-                sidebarCache: atom(\.sidebarCache),
-                inboxSidebarState: inboxSidebarState,
-                inboxAtom: inboxAtom,
                 paneActivityStatusAtom: atom(\.paneActivityStatus),
-                prefsAtom: inboxPrefsAtom,
-                repoCache: repoCache,
+                sidebarState: uiState,
                 repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 performanceTraceRecorder: performanceTraceRecorder,
@@ -247,10 +226,8 @@ class MainSplitViewController: NSSplitViewController {
                     paneTabVC?.refocusActivePane()
                 },
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
-                onDismissInbox: { [weak self] in
-                    self?.collapseSidebar()
-                    self?.refocusActivePane()
-                }
+                onPerformanceProofReadback: onPerformanceProofReadback,
+                onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented
             )
         )
         let sidebarHosting = NSHostingController(
@@ -401,74 +378,6 @@ class MainSplitViewController: NSSplitViewController {
         return width
     }
 
-    func makePaneInboxPresentation() -> PaneInboxPresentation {
-        let inbox = inboxAtom
-        let presenter = paneInboxPresenter
-        let paneInboxState = paneInboxPresentationState
-        let prefsAtom = inboxPrefsAtom
-        return PaneInboxPresentation(
-            unreadCount: { paneIds in
-                inbox.visiblePaneInboxRollUpAlertCount(forPaneIds: paneIds)
-            },
-            clear: { _, paneIds in
-                inbox.clearPaneInbox(paneIds: paneIds)
-            },
-            open: { parentPaneId, paneIds in
-                presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
-            },
-            openRollUpAlerts: { parentPaneId, paneIds in
-                if presenter.isPresented(parentPaneId: parentPaneId, paneIds: paneIds) {
-                    presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
-                } else {
-                    paneInboxState.requestTemporaryOverride(
-                        contentMode: .rollUpAlerts,
-                        rowStateFilter: .unreadOnly
-                    )
-                    presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
-                }
-            },
-            toggle: { parentPaneId, paneIds in
-                presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
-            },
-            setPresented: { parentPaneId, paneIds, isPresented in
-                presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
-            },
-            pendingRequest: {
-                presenter.request
-            },
-            clearRequest: { request in
-                presenter.clearRequest(request)
-            },
-            popoverContent: { [weak self] parentPaneId, paneIds, onClose in
-                guard let self else {
-                    return AnyView(EmptyView())
-                }
-                return AnyView(
-                    PaneInboxNotificationPopover(
-                        parentPaneId: parentPaneId,
-                        octiconLoader: self.octiconLoader,
-                        workspaceWindowId: self.workspaceWindowId,
-                        paneIds: paneIds,
-                        inboxAtom: inbox,
-                        prefsAtom: prefsAtom,
-                        presentationAtom: paneInboxState,
-                        commandDispatcher: self.commandDispatcher,
-                        onActivate: { notification in
-                            presenter.recordRowActivation(notification: notification, paneIds: paneIds)
-                        },
-                        onFocusPane: { [weak self] paneId in
-                            self?.paneTabViewController?.execute(.focusPane, target: paneId, targetType: .pane)
-                        },
-                        onClose: onClose
-                    )
-                )
-            },
-            pruneFilterModes: { retainedParentPaneIds in
-                paneInboxState.prune(retainingParentPaneIds: retainedParentPaneIds)
-            }
-        )
-    }
-
     func savePersistentUIState() {
         saveSidebarState()
     }
@@ -510,6 +419,46 @@ class MainSplitViewController: NSSplitViewController {
         splitViewItems.first?.isCollapsed ?? false
     }
 
+    func sidebarPerformanceProofShellReadback(
+        window: NSWindow?
+    ) -> SidebarPerformanceProofShellReadback? {
+        guard let sidebarItem = splitViewItems.first,
+            let sidebarView = sidebarItem.viewController.viewIfLoaded,
+            let paneTabViewController
+        else { return nil }
+
+        let nativeSidebarGeometryIsVisible =
+            !sidebarItem.isCollapsed
+            && SidebarPerformanceProofAccessibility.isEffectivelyVisible(sidebarView)
+            && sidebarView.frame.width > 0
+            && sidebarView.frame.height > 0
+        let tableView = SidebarPerformanceProofAccessibility.firstDescendant(
+            of: NSTableView.self,
+            in: sidebarView
+        )
+        let nativeSelectedGroupingMode = SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(
+            in: sidebarView
+        )
+        let nativeSidebarAccessibilityIsReady =
+            nativeSidebarGeometryIsVisible
+            && nativeSelectedGroupingMode != nil
+            && tableView?.accessibilityRole() == .table
+
+        return SidebarPerformanceProofShellReadback(
+            semanticSidebarIsCollapsed: uiState.sidebarCollapsed,
+            nativeSidebarIsCollapsed: sidebarItem.isCollapsed,
+            nativeSidebarGeometryIsVisible: nativeSidebarGeometryIsVisible,
+            nativeFilterValue: (window?.firstResponder as? NSTextView)?.string,
+            nativeSelectedGroupingMode: nativeSelectedGroupingMode,
+            nativeSidebarAccessibilityIsReady: nativeSidebarAccessibilityIsReady,
+            nativePresentedRowCount: tableView?.numberOfRows,
+            nativeVisibleProjection: tableView.flatMap {
+                RepoExplorerNativeVisibleProjectionReadback.capture(in: $0)
+            },
+            tab: paneTabViewController.sidebarPerformanceProofTabReadback(window: window)
+        )
+    }
+
     func expandSidebar() {
         guard isViewLoaded else {
             shouldExpandSidebarOnLoad = true
@@ -540,7 +489,6 @@ class MainSplitViewController: NSSplitViewController {
             shouldExpandSidebarOnLoad = false
             uiState.setSidebarCollapsed(true)
             uiState.setSidebarHasFocus(false)
-            clearInboxRuntimeEntryStateIfNeeded()
             return
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
@@ -549,13 +497,7 @@ class MainSplitViewController: NSSplitViewController {
         splitView.layoutSubtreeIfNeeded()
         uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(false)
-        clearInboxRuntimeEntryStateIfNeeded()
         scheduleSaveSidebarState()
-    }
-
-    private func clearInboxRuntimeEntryStateIfNeeded() {
-        guard uiState.sidebarSurface == .inbox else { return }
-        inboxSidebarState.markDismissed()
     }
 
     @discardableResult
@@ -564,33 +506,21 @@ class MainSplitViewController: NSSplitViewController {
         guard let window = view.window else { return false }
         window.makeKey()
 
-        switch uiState.sidebarSurface {
-        case .repos:
-            guard
-                let focusTarget = sidebarHostingController?.view.descendantView(
-                    matching: RepoExplorerView.focusTargetIdentifier
-                )
-            else {
-                return false
-            }
-            return window.makeFirstResponder(focusTarget)
-        case .inbox:
-            guard
-                let focusTarget = sidebarHostingController?.view.descendantView(
-                    matching: InboxNotificationSidebarView.focusTargetIdentifier
-                )
-            else {
-                return false
-            }
-            return window.makeFirstResponder(focusTarget)
+        guard
+            let focusTarget = sidebarHostingController?.view.descendantView(
+                matching: RepoExplorerView.focusTargetIdentifier
+            )
+        else {
+            return false
         }
+        return window.makeFirstResponder(focusTarget)
     }
 
     private func scheduleSidebarFocus() {
         sidebarFocusTask?.cancel()
         sidebarFocusTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for _ in 0..<Self.inboxFocusRetryTurns {
+            for _ in 0..<Self.sidebarFocusRetryTurns {
                 guard !Task.isCancelled else { return }
                 if self.focusSidebar() {
                     return
@@ -610,47 +540,6 @@ class MainSplitViewController: NSSplitViewController {
         guard uiState.sidebarSurface == .repos else { return }
         expandSidebar()
         uiState.setFilterVisible(true)
-    }
-
-    func showInboxNotifications(commandBarIsKey: Bool) {
-        showInboxNotifications(commandBarIsKey: commandBarIsKey, togglesVisibleInbox: true)
-    }
-
-    func showRollUpInboxNotifications(commandBarIsKey: Bool) {
-        inboxSidebarState.requestFilterClearOnNextRetarget()
-        inboxSidebarState.setPendingDisplayOverride(
-            InboxNotificationDisplayOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
-        )
-        showInboxNotifications(commandBarIsKey: commandBarIsKey, togglesVisibleInbox: false)
-    }
-
-    private func showInboxNotifications(commandBarIsKey: Bool, togglesVisibleInbox: Bool) {
-        let hasPendingRetarget =
-            inboxSidebarState.peekPendingFilter() != nil
-            || inboxSidebarState.peekPendingDisplayOverride() != nil
-            || inboxSidebarState.hasUnhandledRetargetRequest()
-        // Contract: a visible inbox means the user is already on the requested
-        // surface, so the second invocation is a close toggle rather than a no-op.
-        if togglesVisibleInbox && !hasPendingRetarget && !isSidebarCollapsed && uiState.sidebarSurface == .inbox {
-            collapseSidebar()
-            return
-        }
-        uiState.setSidebarSurface(.inbox)
-        ensureSidebarVisible()
-        if commandBarIsKey {
-            inboxSidebarState.markRetargetRequestHandled()
-            sidebarFocusTask?.cancel()
-            shouldFocusSidebarWhenVisible = false
-            uiState.setSidebarHasFocus(false)
-            return
-        }
-        guard isViewLoaded, view.window != nil else {
-            shouldFocusSidebarWhenVisible = true
-            inboxSidebarState.markRetargetRequestHandled()
-            return
-        }
-        inboxSidebarState.markRetargetRequestHandled()
-        scheduleSidebarFocus()
     }
 
     func showWorktreeSidebar() {

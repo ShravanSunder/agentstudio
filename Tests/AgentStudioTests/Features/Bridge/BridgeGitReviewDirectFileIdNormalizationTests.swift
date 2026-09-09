@@ -27,7 +27,8 @@ struct BridgeGitReviewDirectFileIdNormalizationTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let request = BridgeEndpointComparisonRequest(
             query: makeBridgeReviewQuery(baseEndpointId: "base", headEndpointId: "working"),

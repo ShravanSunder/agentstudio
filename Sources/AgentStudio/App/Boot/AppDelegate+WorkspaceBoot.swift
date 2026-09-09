@@ -3,6 +3,7 @@ import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -155,7 +156,7 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        configurePerformanceTelemetry()
         CoreAtomScope.setUp(atomStore.core)
         atomStore.core.workspaceRepositoryTopology.setWorktreePathAmbiguityReporter { [weak self] in
             Task { @MainActor [weak self] in
@@ -210,6 +211,7 @@ extension AppDelegate {
             workspaceAtom: atomStore.core.workspaceEntityRecency,
             sqliteDatastore: sqliteDatastore
         )
+        repositoryLocalActivityStore = makeRepositoryLocalActivityStore(sqliteDatastore: sqliteDatastore)
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.core.sidebarCache,
             sqliteDatastore: sqliteDatastore,
@@ -225,7 +227,6 @@ extension AppDelegate {
             }
         )
         workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)
-        paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
         case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):
@@ -290,6 +291,14 @@ extension AppDelegate {
         }
     }
 
+    private func configurePerformanceTelemetry() {
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        RepoExplorerPerformanceTelemetry.shared.configure(
+            traceRuntime: traceRuntime,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
     private func configureInteractionPerformanceProbeOwners() {
         let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
         managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
@@ -312,7 +321,6 @@ extension AppDelegate {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
             repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
-            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -323,6 +331,7 @@ extension AppDelegate {
     private func bootLoadCacheStore() async {
         await entityRecencyStore.restoreApplicationAsync()
         await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
+        await repositoryLocalActivityStore.restoreAsync()
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
@@ -331,7 +340,6 @@ extension AppDelegate {
     private func bootLoadUIStore() async {
         await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
-        await bootLoadInboxNotificationStore()
     }
 
     private func bootEstablishRuntimeBus(
@@ -354,13 +362,55 @@ extension AppDelegate {
                 )
             )
         seedSlotsForInstalledPanes()
-        let pipeline = FilesystemGitPipeline(
-            bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient(),
-            performanceTraceRecorder: performanceTraceRecorder
+        let filesystemComposition = makeBootFilesystemComposition(
+            paneRuntimeBus: paneRuntimeBus
         )
+        let gitStatusPhysicalGate = filesystemComposition.gitStatusPhysicalGate
+        let gitWorkingTreeStatusProvider = filesystemComposition.gitWorkingTreeStatusProvider
+        let pipeline = filesystemComposition.pipeline
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        repositoryFactUpdateSource = pipeline
+        bootInstallWorkspaceRuntimeOwners(
+            paneRuntimeBus: paneRuntimeBus,
+            pipeline: pipeline,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+            gitStatusPhysicalGate: gitStatusPhysicalGate
+        )
+        bootInstallShellRuntimeOwners(paneRuntimeBus: paneRuntimeBus)
+    }
+
+    private func makeBootFilesystemComposition(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>
+    ) -> (
+        pipeline: FilesystemGitPipeline,
+        gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
+    ) {
+        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+        let fseventStreamClient = DarwinFSEventStreamClient()
+        bootRegisterFilesystemIngressPerformanceReporter(for: fseventStreamClient)
+        let repositoryLocalActivityProjector = makeRepositoryLocalActivityProjector()
+        let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
+            physicalGate: gitStatusPhysicalGate,
+            continuityWitness: fseventStreamClient
+        )
+        let pipeline = FilesystemGitPipeline(
+            bus: paneRuntimeBus,
+            gitWorkingTreeProvider: gitWorkingTreeStatusProvider,
+            fseventStreamClient: fseventStreamClient,
+            repositoryLocalActivityProjector: repositoryLocalActivityProjector,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+        return (pipeline, gitWorkingTreeStatusProvider, gitStatusPhysicalGate)
+    }
+
+    private func bootInstallWorkspaceRuntimeOwners(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        pipeline: FilesystemGitPipeline,
+        gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
+    ) {
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -374,6 +424,8 @@ extension AppDelegate {
             closeTransitionCoordinator: closeTransitionCoordinator,
             bridgeGitReadScheduler: bridgeGitReadScheduler,
             worktreeProductConstructionCoordinator: bridgeWorktreeProductConstructionCoordinator,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
@@ -403,10 +455,16 @@ extension AppDelegate {
             performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
+            self?.cancelRepositoryFactUpdate(repoId: repoId)
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+    }
+
+    private func bootInstallShellRuntimeOwners(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>
+    ) {
         startWorkspacePaneRecencyObservation()
         commandBarController = CommandBarPanelController(
             store: store,
@@ -419,22 +477,70 @@ extension AppDelegate {
                     placement: placement
                 )
             },
-            notificationInboxCommands: makeInboxNotificationCommands(),
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
 
+    private func makeRepositoryLocalActivityStore(
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
+    ) -> RepositoryLocalActivityStore {
+        RepositoryLocalActivityStore(
+            atom: atomStore.core.repositoryLocalActivity,
+            sqliteDatastore: sqliteDatastore
+        )
+    }
+
+    private func makeRepositoryLocalActivityProjector() -> RepositoryLocalActivityProjector {
+        let localActivityStore = repositoryLocalActivityStore!
+        return RepositoryLocalActivityProjector(
+            authorityRevocationSink: { repositoryStableKeys in
+                await localActivityStore.revokeCurrentSessionAuthority(
+                    for: repositoryStableKeys
+                )
+            },
+            commitSink: { commit in
+                _ = try await localActivityStore.commitAsync(commit)
+            }
+        )
+    }
+
+    private func bootRegisterFilesystemIngressPerformanceReporter(
+        for fseventStreamClient: DarwinFSEventStreamClient
+    ) {
+        guard let performanceTraceRecorder else { return }
+        let client = fseventStreamClient
+        let recorder = performanceTraceRecorder
+        performanceTraceRecorder.registerPeriodicSnapshotReporter { [weak client, weak recorder] in
+            guard let client, let recorder else { return }
+            var attributes = client.snapshotAndResetIngressPerformance().traceAttributes
+            let observationSnapshot = client.sharedLocalObservationSnapshot()
+            attributes["agentstudio.performance.filesystem.local_stream.physical.count"] = .int(
+                observationSnapshot.physicalStreamCount
+            )
+            attributes["agentstudio.performance.filesystem.local_stream.logical_registration.count"] = .int(
+                observationSnapshot.logicalRegistrationCount
+            )
+            recorder.record(
+                .filesystemIngressSnapshot,
+                attributes: attributes
+            )
+        }
+    }
+
     private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {
         let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
+        coordinator.acceptedPreparedContentMountGeneration = contentMountCohort.generation
         let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
             generation: contentMountCohort.generation,
             viewRegistry: viewRegistry,
-            mountHandler: coordinator
+            mountHandler: coordinator,
+            descriptorsByPaneID: Dictionary(
+                uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
+            )
         )
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
             cohort: contentMountCohort,
@@ -443,7 +549,10 @@ extension AppDelegate {
             nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
                 generation: contentMountCohort.generation,
                 coordinator: coordinator
-            )
+            ),
+            placeholderTransitionHandler: { [weak coordinator] pane, mode in
+                coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
+            }
         )
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(
@@ -452,8 +561,14 @@ extension AppDelegate {
                 coordinator: contentMountCoordinator
             )
         )
-        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
-            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
+        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] visibleQueuedSet in
+            contentMountCoordinator?.handleVisibilitySignals(for: visibleQueuedSet) ?? []
+        }
+        coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
+            guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
+            guard !acceptedPaneIDs.isEmpty else { return }
+            await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)
         }
     }
 

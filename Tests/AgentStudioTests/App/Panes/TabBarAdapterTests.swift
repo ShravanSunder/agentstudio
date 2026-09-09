@@ -43,8 +43,7 @@ final class TabBarAdapterTests {
         inboxAtom = notificationAtom
         adapter = TabBarAdapter(
             store: store,
-            repoCache: repoCache,
-            inboxAtom: notificationAtom
+            repoCache: repoCache
         )
         lastObservedOutputPublicationRevision = 0
     }
@@ -96,6 +95,8 @@ final class TabBarAdapterTests {
         let pane = store.createPane(title: "Attention")
         let tab = Tab(paneId: pane.id, name: "Attention")
         store.appendTab(tab)
+        await waitForAdapterRefresh()
+        let initialRevision = adapter.outputPublicationRevision
         let notification = InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
@@ -114,12 +115,13 @@ final class TabBarAdapterTests {
         )
 
         inboxAtom.append(notification)
-        await waitForAdapterRefresh()
+        await Task.yield()
 
-        #expect(adapter.tabs.first?.notificationDotColor == .red)
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
+        #expect(adapter.outputPublicationRevision == initialRevision)
 
         inboxAtom.markRead(scope: .paneIds([pane.id]))
-        await waitForAdapterRefresh()
+        await Task.yield()
 
         #expect(adapter.tabs.first?.notificationDotColor == nil)
     }
@@ -131,6 +133,8 @@ final class TabBarAdapterTests {
         let pane = store.createPane(title: "Settled Agent")
         let tab = Tab(paneId: pane.id, name: "Settled Agent")
         store.appendTab(tab)
+        await waitForAdapterRefresh()
+        let initialRevision = adapter.outputPublicationRevision
         let notification = InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
@@ -149,12 +153,13 @@ final class TabBarAdapterTests {
         )
 
         inboxAtom.append(notification)
-        await waitForAdapterRefresh()
+        await Task.yield()
 
-        #expect(adapter.tabs.first?.notificationDotColor == .yellow)
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
+        #expect(adapter.outputPublicationRevision == initialRevision)
 
         inboxAtom.markRead(scope: .paneIds([pane.id]))
-        await waitForAdapterRefresh()
+        await Task.yield()
 
         #expect(adapter.tabs.first?.notificationDotColor == nil)
     }
@@ -166,6 +171,8 @@ final class TabBarAdapterTests {
         let pane = store.createPane(title: "Priority")
         let tab = Tab(paneId: pane.id, name: "Priority")
         store.appendTab(tab)
+        await waitForAdapterRefresh()
+        let initialRevision = adapter.outputPublicationRevision
 
         inboxAtom.append(
             InboxNotification(
@@ -185,8 +192,8 @@ final class TabBarAdapterTests {
                 isDismissedFromPaneInbox: false
             )
         )
-        await waitForAdapterRefresh()
-        #expect(adapter.tabs.first?.notificationDotColor == .yellow)
+        await Task.yield()
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
 
         inboxAtom.append(
             InboxNotification(
@@ -206,8 +213,8 @@ final class TabBarAdapterTests {
                 isDismissedFromPaneInbox: false
             )
         )
-        await waitForAdapterRefresh()
-        #expect(adapter.tabs.first?.notificationDotColor == .amber)
+        await Task.yield()
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
 
         inboxAtom.append(
             InboxNotification(
@@ -227,8 +234,9 @@ final class TabBarAdapterTests {
                 isDismissedFromPaneInbox: false
             )
         )
-        await waitForAdapterRefresh()
-        #expect(adapter.tabs.first?.notificationDotColor == .red)
+        await Task.yield()
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
+        #expect(adapter.outputPublicationRevision == initialRevision)
     }
 
     @Test

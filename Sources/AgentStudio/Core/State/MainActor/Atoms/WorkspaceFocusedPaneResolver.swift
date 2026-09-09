@@ -12,7 +12,10 @@ package struct WorkspaceFocusedPaneResolver {
         guard
             let activeTabId = workspaceTab.shellAtom.activeTabId,
             let activeTab = workspaceTab.tab(activeTabId),
-            let activeMainPaneId = activeTab.activePaneId,
+            let activeMainPaneId = workspacePane.activeResidencyPaneId(
+                preferred: activeTab.activePaneId,
+                in: activeTab.activeArrangement.layout.paneIds
+            ),
             let activeMainPane = workspacePane.pane(activeMainPaneId)
         else {
             return nil
@@ -20,13 +23,17 @@ package struct WorkspaceFocusedPaneResolver {
 
         let drawer = activeMainPane.drawer
         let drawerView = drawer.flatMap { activeTab.activeArrangement.drawerViews[$0.drawerId] }
+        let activeDrawerPaneIds = workspacePane.activeResidencyPaneIds(in: drawer?.paneIds ?? [])
+        let activeDrawerPaneId = drawerView?.activeChildId.flatMap { activeChildId in
+            activeDrawerPaneIds.contains(activeChildId) ? activeChildId : nil
+        }
         let normalizedOwner = WorkspaceFocusOwnerNormalizer.normalize(
             requested: requestedOwner,
             context: .init(
                 activeMainPaneId: activeMainPaneId,
                 expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
-                paneIds: drawer?.paneIds ?? [],
-                activeDrawerPaneId: drawerView?.activeChildId,
+                paneIds: activeDrawerPaneIds,
+                activeDrawerPaneId: activeDrawerPaneId,
                 minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
             )
         )

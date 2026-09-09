@@ -265,22 +265,20 @@ Picker-oriented flows, such as repo/worktree selection, should stay under
 
 ## Sidebar Semantic Boundary
 
-Sidebar grouping and active-surface mutation use the generic command IPC path.
-Runtime proof and automation call `command.execute` with headless sidebar
-commands, then use read-only sidebar methods for state inspection:
+Repo Explorer grouping uses the generic command IPC path. Runtime proof and
+automation call `command.execute` with headless Repo grouping commands, then
+use the read-only sidebar methods for state inspection:
 
-- `command.execute(commandId: showWorktreeSidebar)`
-- `command.execute(commandId: showInboxNotifications)`
 - `command.execute(commandId: setRepoSidebarGroupingRepo|setRepoSidebarGroupingPane|setRepoSidebarGroupingTab)`
-- `command.execute(commandId: setInboxGroupingTab|setInboxGroupingRepo|setInboxGroupingPane|setInboxGroupingNone)`
-- `sidebar.grouping.get(surface: repo|inbox)`
+- `sidebar.grouping.get(surface: repo)`
 - `sidebar.surface.get()`
 
 Repo grouping accepts only `repo`, `pane`, and `tab` because those are the only
-repo grouping commands exposed as headless commands. Inbox grouping accepts
-`tab`, `repo`, `pane`, and `none`. The `sidebar.*.get` methods are query-only
-read-back surfaces; `sidebar.grouping.set` and `sidebar.surface.set` are not
-registered IPC methods.
+grouping commands exposed as headless commands. `sidebar.surface.get()` always
+reports Repo Explorer. A stale Inbox-valued grouping query is rejected before
+feature state is read. Retained Inbox command identities are not exposed over
+IPC. The `sidebar.*.get` methods are query-only read-back surfaces;
+`sidebar.grouping.set` and `sidebar.surface.set` are not registered IPC methods.
 
 These command and read methods require authenticated IPC. Debug-token escrow
 creates the local automation principal used by verifier scripts. Unsafe no-auth

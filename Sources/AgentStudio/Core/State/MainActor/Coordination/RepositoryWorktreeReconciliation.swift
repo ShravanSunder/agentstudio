@@ -38,20 +38,24 @@ package struct WorktreeTopologyDelta: Sendable, Equatable {
 package struct RepositoryScannedMainWorktree: Equatable, Sendable {
     package let name: String
     package let path: URL
+    package let stableKey: String
 
-    package init(name: String, path: URL) {
+    package init(name: String, path: URL, stableKey: String? = nil) {
         self.name = name
         self.path = path
+        self.stableKey = stableKey ?? StableKey.fromPath(path)
     }
 }
 
 package struct RepositoryScannedLinkedWorktree: Equatable, Sendable {
     package let name: String
     package let path: URL
+    package let stableKey: String
 
-    package init(name: String, path: URL) {
+    package init(name: String, path: URL, stableKey: String? = nil) {
         self.name = name
         self.path = path
+        self.stableKey = stableKey ?? StableKey.fromPath(path)
     }
 }
 

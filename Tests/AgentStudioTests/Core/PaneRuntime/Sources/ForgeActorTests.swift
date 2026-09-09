@@ -52,8 +52,8 @@ struct ForgeActorTests {
         await fixture.stopObserving()
     }
 
-    @Test("provider failures retry at exact exponential backoff deadlines")
-    func providerFailuresRetryAtExactBackoffDeadlines() async {
+    @Test("automatic provider failures retry only at the three-minute floor")
+    func automaticProviderFailuresUseThreeMinuteFloor() async {
         let fixture = await ForgeActorFixture.make()
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
@@ -63,15 +63,13 @@ struct ForgeActorTests {
         await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
         #expect(await fixture.events.waitForRefreshFailure(repoId: repoId))
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
+        fixture.advance(by: .seconds(179))
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 1)
+        fixture.advance(by: .seconds(1))
         #expect(await fixture.provider.waitForCallCount(2))
-        await fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
-        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 2))
-        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2))
-        #expect(await fixture.provider.waitForCallCount(3))
         await fixture.provider.resolve(
-            callAt: 2,
+            callAt: 1,
             with: .complete([
                 ForgePullRequest(
                     headRefName: "feature/failure",
@@ -139,6 +137,35 @@ struct ForgeActorTests {
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.provider.resolve(callAt: 0, with: .complete([]))
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("process capacity two defers the third repository until exact provider return")
+    func processCapacityTwoDefersThirdRepository() async {
+        let fixture = await ForgeActorFixture.make()
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
+        let thirdRepoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let thirdWorktreeId = UUIDv7.generate()
+        await fixture.register(repoId: firstRepoId, worktrees: [(firstWorktreeId, "feature/first")])
+        await fixture.register(repoId: secondRepoId, worktrees: [(secondWorktreeId, "feature/second")])
+        await fixture.register(repoId: thirdRepoId, worktrees: [(thirdWorktreeId, "feature/third")])
+
+        await fixture.actor.setDemand(
+            worktreeIds: [firstWorktreeId, secondWorktreeId, thirdWorktreeId]
+        )
+        #expect(await fixture.provider.waitForCallCount(2))
+        #expect(await fixture.provider.callCount == 2)
+        #expect(await fixture.provider.maximumActiveCallCount == 2)
+
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        #expect(await fixture.provider.waitForCallCount(3))
+        #expect(await fixture.provider.maximumActiveCallCount == 2)
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.provider.resolve(callAt: 2, with: .complete([]))
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }
@@ -527,13 +554,14 @@ struct ForgeActorTests {
 
         await fixture.actor.setOrigin(repo: repoId, remote: "https://github.com/acme/replacement.git")
         #expect(await fixture.events.waitForRepositoryInvalidation(repoId: repoId))
-        #expect(await fixture.provider.waitForCallCount(2))
+        #expect(await fixture.provider.callCount == 1)
 
         let obsoleteURL = URL(string: "https://github.com/acme/studio/pull/1")!
         await fixture.provider.resolve(
             callAt: 0,
             with: .complete([ForgePullRequest(headRefName: "feature/origin", url: obsoleteURL)])
         )
+        #expect(await fixture.provider.waitForCallCount(2))
         let currentURL = URL(string: "https://github.com/acme/replacement/pull/2")!
         await fixture.provider.resolve(
             callAt: 1,
@@ -586,7 +614,13 @@ struct ForgeActorFixture {
     let clock: TestPushClock
     let monotonicNow: ManualForgeMonotonicNow
     let observationTask: Task<Void, Never>
-    static func make(performanceTraceRecorder: (any ForgePerformanceRecording)? = nil) async -> Self {
+    static func make(
+        performanceTraceRecorder: (any ForgePerformanceRecording)? = nil,
+        maximumConcurrentProviderRequests: Int =
+            AppPolicies.ForgeRefresh.maximumConcurrentProviderRequests,
+        beforeEventEmission: (@Sendable (ForgeEvent) async -> Void)? = nil,
+        providerRequestDidReturn: (@Sendable (UInt64) -> Void)? = nil
+    ) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = GatedForgeStatusProvider()
         let events = ObservedForgeEvents()
@@ -598,7 +632,10 @@ struct ForgeActorFixture {
             providerName: "stub",
             monotonicNow: { monotonicNow.value },
             sleepClock: clock,
-            performanceTraceRecorder: performanceTraceRecorder
+            maximumConcurrentProviderRequests: maximumConcurrentProviderRequests,
+            performanceTraceRecorder: performanceTraceRecorder,
+            beforeEventEmission: beforeEventEmission,
+            providerRequestDidReturn: providerRequestDidReturn
         )
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observationTask = Task {
@@ -640,6 +677,7 @@ struct ForgeActorFixture {
         await observationTask.value
     }
 }
+
 final class ManualForgeMonotonicNow: @unchecked Sendable {
     private let lock = NSLock()
     private var elapsed = Duration.zero
@@ -679,10 +717,15 @@ actor ObservedForgeEvents {
 
     func facts(for repoId: UUID, branch: String) -> PullRequestFacts? {
         for event in recordedEvents.reversed() {
-            guard case .pullRequestsChanged(let eventRepoId, let factsByBranch) = event,
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    let projection,
+                    _
+                ) = event,
                 eventRepoId == repoId
             else { continue }
-            if let facts = factsByBranch[branch] { return facts }
+            return projection.confirmedFactsByBranch?[branch]
         }
         return nil
     }
@@ -699,7 +742,12 @@ actor ObservedForgeEvents {
 
     func invalidatedBranches(for repoId: UUID) -> Set<String> {
         recordedEvents.reduce(into: []) { result, event in
-            guard case .pullRequestBranchesInvalidated(let eventRepoId, let branches) = event,
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    _,
+                    let branches
+                ) = event,
                 eventRepoId == repoId
             else { return }
             result.formUnion(branches)
@@ -715,7 +763,13 @@ actor ObservedForgeEvents {
     func waitForRepositoryInvalidation(repoId: UUID) async -> Bool {
         await waitForRecordedEvent {
             recordedEvents.contains(where: { event in
-                guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+                guard
+                    case .pullRequestRepositoryProjectionChanged(
+                        let eventRepoId,
+                        .stable(.unknown),
+                        _
+                    ) = event
+                else { return false }
                 return eventRepoId == repoId
             })
         }
@@ -723,7 +777,13 @@ actor ObservedForgeEvents {
 
     func repositoryInvalidationCount(repoId: UUID) -> Int {
         recordedEvents.count { event in
-            guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    .stable(.unknown),
+                    _
+                ) = event
+            else { return false }
             return eventRepoId == repoId
         }
     }
@@ -757,16 +817,42 @@ actor ObservedForgeEvents {
 
     func containsExactURL(_ url: URL) -> Bool {
         recordedEvents.contains { event in
-            guard case .pullRequestsChanged(_, let factsByBranch) = event else { return false }
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    _,
+                    .stable(.ready(let factsByBranch)),
+                    _
+                ) = event
+            else { return false }
             return factsByBranch.values.contains { $0.exactOpenURL == url }
         }
     }
 
     func pullRequestEventCount(for repoId: UUID) -> Int {
-        recordedEvents.count { event in
-            guard case .pullRequestsChanged(let eventRepoId, _) = event else { return false }
-            return eventRepoId == repoId
+        var previousReadyFacts: [String: PullRequestFacts]?
+        var changedReadyFactsCount = 0
+        for event in recordedEvents {
+            guard
+                case .pullRequestRepositoryProjectionChanged(
+                    let eventRepoId,
+                    let projection,
+                    _
+                ) = event,
+                eventRepoId == repoId
+            else { continue }
+            switch projection {
+            case .stable(.ready(let factsByBranch)):
+                if previousReadyFacts != factsByBranch {
+                    changedReadyFactsCount += 1
+                }
+                previousReadyFacts = factsByBranch
+            case .stable(.unknown), .stable(.unavailable):
+                previousReadyFacts = nil
+            case .loading:
+                continue
+            }
         }
+        return changedReadyFactsCount
     }
 
     func refreshFailureCount(for repoId: UUID) -> Int {
@@ -786,159 +872,6 @@ actor ObservedForgeEvents {
     ) async -> Bool {
         await waitForRecordedEvent {
             refreshFailureCount(for: repoId) >= expectedCount
-        }
-    }
-}
-private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
-    private struct PendingCall {
-        let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
-    }
-
-    private var pendingCalls: [PendingCall] = []
-    private var startedCallCount = 0
-    private var activeCallCount = 0
-    private var startedCallWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-    private(set) var maximumActiveCallCount = 0
-
-    var startedCount: Int {
-        startedCallCount
-    }
-
-    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
-        startedCallCount += 1
-        activeCallCount += 1
-        maximumActiveCallCount = max(maximumActiveCallCount, activeCallCount)
-        resumeSatisfiedStartedCallWaiters()
-        defer { activeCallCount -= 1 }
-        return await withCheckedContinuation { continuation in
-            pendingCalls.append(PendingCall(continuation: continuation))
-        }
-    }
-
-    func waitForStartedCallCount(_ expectedCount: Int) async {
-        guard startedCallCount < expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            startedCallWaiters.append((expectedCount, continuation))
-        }
-    }
-
-    func finishNextCall(returning counts: [String: Int]) {
-        let pendingCall = pendingCalls.removeFirst()
-        let pullRequests = counts.flatMap { branch, count in
-            (0..<count).map { index in
-                ForgePullRequest(
-                    headRefName: branch,
-                    url: URL(string: "https://example.test/pull/\(index)")!
-                )
-            }
-        }
-        pendingCall.continuation.resume(returning: .complete(pullRequests))
-    }
-
-    func failNextCall() {
-        let pendingCall = pendingCalls.removeFirst()
-        pendingCall.continuation.resume(returning: .failed(message: "failed"))
-    }
-
-    private func resumeSatisfiedStartedCallWaiters() {
-        var pendingWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-        for (expectedCount, continuation) in startedCallWaiters {
-            if startedCallCount >= expectedCount {
-                continuation.resume()
-            } else {
-                pendingWaiters.append((expectedCount, continuation))
-            }
-        }
-        startedCallWaiters = pendingWaiters
-    }
-}
-
-private actor SequencedForgeStatusProvider: ForgeStatusProvider {
-    private var results: [[String: Int]]
-    private var callCount = 0
-    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    init(results: [[String: Int]]) {
-        self.results = results
-    }
-
-    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
-        let result = results.removeFirst()
-        callCount += 1
-        resumeSatisfiedCallCountWaiters()
-        let pullRequests = result.flatMap { branch, count in
-            (0..<count).map { index in
-                ForgePullRequest(
-                    headRefName: branch,
-                    url: URL(string: "https://example.test/pull/\(index)")!
-                )
-            }
-        }
-        return .complete(pullRequests)
-    }
-
-    func waitForCallCount(_ expectedCount: Int) async {
-        guard callCount < expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            callCountWaiters.append((expectedCount, continuation))
-        }
-    }
-
-    private func resumeSatisfiedCallCountWaiters() {
-        var pendingWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-        for (expectedCount, continuation) in callCountWaiters {
-            if callCount >= expectedCount {
-                continuation.resume()
-            } else {
-                pendingWaiters.append((expectedCount, continuation))
-            }
-        }
-        callCountWaiters = pendingWaiters
-    }
-}
-
-private actor CancellationObservingForgeStatusProvider: ForgeStatusProvider {
-    private var didStart = false
-    private var didCancel = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
-
-    var didObserveCancellation: Bool {
-        didCancel
-    }
-
-    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
-        didStart = true
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
-
-        while !Task.isCancelled {
-            await Task.yield()
-        }
-
-        didCancel = true
-        let pendingCancellationWaiters = cancellationWaiters
-        cancellationWaiters.removeAll(keepingCapacity: false)
-        for waiter in pendingCancellationWaiters {
-            waiter.resume()
-        }
-        return .failed(message: "cancelled")
-    }
-
-    func waitUntilStarted() async {
-        guard !didStart else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func waitUntilCancelled() async {
-        guard !didCancel else { return }
-        await withCheckedContinuation { continuation in
-            cancellationWaiters.append(continuation)
         }
     }
 }

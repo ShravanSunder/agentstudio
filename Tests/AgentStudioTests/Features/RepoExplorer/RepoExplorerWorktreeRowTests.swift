@@ -64,7 +64,6 @@ struct RepoExplorerWorktreeRowTests {
                     linesDeleted: 0,
                     untrackedFileCount: 0
                 ),
-                unreadCount: 0,
                 showsFavoriteControl: false
             )
             .frame(width: 320)
@@ -202,7 +201,10 @@ struct RepoExplorerWorktreeRowTests {
 
         let glyphStart = try #require(rowSource.range(of: "package struct SidebarPendingPullRequestIndicator"))
         let glyphEnd = try #require(
-            rowSource.range(of: "extension View", range: glyphStart.upperBound..<rowSource.endIndex)
+            rowSource.range(
+                of: "package struct SidebarStatusChipRow",
+                range: glyphStart.upperBound..<rowSource.endIndex
+            )
         )
         let glyphSource = String(rowSource[glyphStart.lowerBound..<glyphEnd.lowerBound])
 
@@ -228,13 +230,13 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(
             chipSource.components(separatedBy: ".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)").count
-                == 5
+                == 6
         )
         #expect(!chipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
     }
 
-    @Test("pending progress overlays the icon gutter and never enters chip layout flow")
-    func pendingProgressOverlaysIconGutterWithoutTakingChipSpace() throws {
+    @Test("pending progress occupies the fixed icon gutter without shifting chips")
+    func pendingProgressOccupiesFixedIconGutterWithoutShiftingChips() throws {
         let sharedSource = try String(
             contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
@@ -248,16 +250,25 @@ struct RepoExplorerWorktreeRowTests {
             encoding: .utf8
         )
 
-        #expect(sharedSource.contains(".overlay(alignment: .leading)"))
+        #expect(sharedSource.contains("package struct SidebarStatusChipRow"))
         #expect(sharedSource.contains("AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
         #expect(sharedSource.contains("AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
         #expect(sharedSource.contains(".accessibilityLabel(\"Refreshing pull request status\")"))
+        #expect(!sharedSource.contains(".offset("))
         #expect(!sharedSource.contains("Pull request facts not fetched"))
         #expect(!sharedSource.contains("pendingPullRequestGlyph"))
-        #expect(worktreeSource.contains(".sidebarPendingPullRequestIndicator("))
-        #expect(paneSource.contains(".sidebarPendingPullRequestIndicator("))
-        #expect(paneSource.contains("text: \"Active\""))
-        #expect(!paneSource.contains("text: \"active\""))
+        #expect(worktreeSource.contains("SidebarStatusChipRow("))
+        #expect(
+            worktreeSource.contains(
+                "RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchStatus)"
+            )
+        )
+        #expect(paneSource.contains("SidebarStatusChipRow("))
+        #expect(paneSource.contains("icon: .system(.playCircleFill)"))
+        #expect(paneSource.contains("text: nil"))
+        #expect(!paneSource.contains("text: \"Active\""))
+        #expect(paneSource.contains("row.isActive ? \"Active\" : nil"))
+        #expect(paneSource.contains("isActive ? \"Active\" : nil"))
     }
 
     @Test("a detached-HEAD worktree resolves pull request data unavailable immediately")
@@ -280,14 +291,16 @@ struct RepoExplorerWorktreeRowTests {
 
         // Detached HEAD is a local, synchronous fact of the enrichment itself
         // (no branch to key a forge query on) and must resolve to terminal
-        // no-data without ever waiting on a forge query, unlike an ordinary
-        // branched worktree that is still genuinely pending its first query.
+        // no-data without ever waiting on a forge query. A branched worktree
+        // with no active request is unresolved but not visibly loading.
         #expect(detachedStatus.pullRequestDataUnavailable)
         #expect(detachedStatus.prCount == nil)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: detachedStatus))
 
         #expect(!branchedIdleStatus.pullRequestDataUnavailable)
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedIdleStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(branchedIdleStatus))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(branchedIdleStatus))
     }
 
     @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
@@ -323,12 +336,16 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: idleWithoutFacts))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(idleWithoutFacts))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(idleWithoutFacts))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: activeRequest))
         #expect(SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: activeRequest))
         // Resolved-unavailable (no remote, or repeated failures past the
         // honesty threshold) must never render as still-pending.
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: terminallyUnavailable))
         #expect(!SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: terminallyUnavailable))
+        #expect(!RepoExplorerWorktreeStatusPresentation.showsPendingIndicator(terminallyUnavailable))
+        #expect(!RepoExplorerWorktreeStatusPresentation.reservesStatusLine(terminallyUnavailable))
     }
 
     @Test("a stale positive PR count never renders once the repo resolves unavailable")
@@ -364,29 +381,6 @@ struct RepoExplorerWorktreeRowTests {
         #expect(renderBranchSource.contains("!branchStatus.pullRequestDataUnavailable"))
     }
 
-    @Test("row content accepts primitive unread count")
-    func rowContentAcceptsUnreadCount() {
-        let view = RepoExplorerWorktreeRowContent(
-            octiconLoader: makeRepoExplorerTestOcticonLoader(),
-            checkoutTitle: "agent-studio",
-            branchName: "main",
-            placementText: "Pane 2 active",
-            checkoutIconKind: .mainCheckout,
-            iconColor: .accentColor,
-            branchStatus: .unknown,
-            unreadCount: 4,
-            showsFavoriteControl: false
-        )
-
-        _ = view.body
-    }
-
-    @Test("unread pill only renders for positive counts")
-    func unreadPillVisibility() {
-        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 0) == false)
-        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 4) == true)
-    }
-
     @Test("favorite state exposes explicit add and remove labels")
     func favoriteStateExposesExplicitLabels() {
         #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: false) == "Add Favorite")
@@ -395,6 +389,49 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
         #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: false).icon == .system(.bookmark))
         #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: true).icon == .system(.bookmarkFill))
+    }
+
+    @Test("inactive repository header uses one icon and compact hover copy")
+    func inactiveRepositoryHeaderUsesIconOnlyPresentation() throws {
+        let presentation = RepoExplorerMaterializedRowView.inactiveRepositoryStatus
+
+        #expect(presentation.icon == .system(.memorychip))
+        #expect(presentation.label == "Locally inactive")
+        #expect(presentation.helpText == "Locally inactive")
+
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            encoding: .utf8
+        )
+        let functionStart = try #require(
+            source.range(of: "private func repositoryActivityTrailingContent")
+        )
+        let functionSource = source[functionStart.lowerBound...]
+        #expect(!functionSource.contains("Text(inactivityStatus.label)"))
+        #expect(!functionSource.contains("Text(\"Updating\")"))
+        #expect(functionSource.contains("if controlState.revealsRefresh, let commandPresentation"))
+        #expect(
+            source.contains(
+                "isUpdating: RepoExplorerRepositoryUpdatePresentation.isLoading("
+            )
+        )
+        #expect(
+            !source.contains(
+                "isUpdating: RepoExplorerRepositoryUpdatePresentation.keepsActivitySlotVisible("
+            )
+        )
+    }
+
+    @Test("inactive repository refresh reveal is local and explicitly dismissible")
+    func inactiveRepositoryRefreshRevealStateIsLocal() {
+        var state = RepoExplorerInactiveRepositoryControlState()
+
+        #expect(!state.revealsRefresh)
+        state.revealRefresh()
+        #expect(state.revealsRefresh)
+        state.hideRefresh()
+        #expect(!state.revealsRefresh)
+        #expect(AppPolicies.RepoExplorer.inactiveRefreshRevealDuration == .seconds(30))
     }
 
     @Test("favorite control visibility uses main worktree identity for every action")
@@ -410,62 +447,71 @@ struct RepoExplorerWorktreeRowTests {
 
     @Test("favorite visibility policy guards inline and context-menu actions")
     func favoriteVisibilityPolicyGuardsEveryAction() throws {
-        let source = try String(
+        let rowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
+        let menuSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
+            encoding: .utf8
+        )
 
-        #expect(source.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
-        #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
-        #expect(source.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
-        #expect(!source.contains(".help(favoriteActionSpec.helpText)"))
+        #expect(rowSource.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
+        #expect(menuSource.contains("showsFavoriteControl: favoriteControlVisibility.showsContextMenuAction"))
+        #expect(rowSource.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
+        #expect(!rowSource.contains(".help(favoriteActionSpec.helpText)"))
     }
 
     @Test("context menu exposes creation destinations at the top level")
     func contextMenuGroupsCreationActionsByDestination() throws {
         let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("LocalActionSpec.createNewInPane.actionSpec"))
-        #expect(source.contains("LocalActionSpec.createNewInTab.actionSpec"))
+        #expect(source.contains("action: .createNewInPane"))
+        #expect(source.contains("action: .createNewInTab"))
         #expect(!source.contains("LocalActionSpec.createNew.actionSpec"))
         #expect(!source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
         #expect(!source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.goToPane.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openNewTerminalInTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
         #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
         #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
         #expect(!source.contains("contextMenuCommand(.openWorktree)"))
-        let createNewInPaneOffset = try #require(
-            source.range(of: "LocalActionSpec.createNewInPane.actionSpec")?.lowerBound
-        )
-        let createNewInTabOffset = try #require(
-            source.range(of: "LocalActionSpec.createNewInTab.actionSpec")?.lowerBound
-        )
+        let createNewInPaneOffset = try #require(source.range(of: "action: .createNewInPane")?.lowerBound)
+        let createNewInTabOffset = try #require(source.range(of: "action: .createNewInTab")?.lowerBound)
         let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
         #expect(createNewInTabOffset < createNewInPaneOffset)
         #expect(createNewInPaneOffset < goToPaneOffset)
     }
 
+    @Test("materialized SwiftUI rows do not own contextual menu lifetime")
+    func materializedSwiftUIRowsDoNotOwnContextMenus() throws {
+        for path in [
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+        ] {
+            let source = try String(contentsOfFile: path, encoding: .utf8)
+            #expect(!source.contains(".contextMenu {"))
+        }
+    }
+
     @Test("context menu uses shared content labels for both creation destinations")
     func contextMenuUsesSharedContentLabels() throws {
         let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openReviewInNewTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openFilesInNewTab)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeReview)"))
-        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeFiles)"))
+        #expect(
+            source.contains(
+                "RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: command.command)"
+            )
+        )
+        #expect(source.contains("?? actionSpec.label"))
     }
 
     @Test("context menu labels use the same content vocabulary in tabs and panes")
@@ -490,25 +536,6 @@ struct RepoExplorerWorktreeRowTests {
         )
     }
 
-    @Test("repository header menu contains only pane navigation and path actions")
-    func repositoryHeaderMenuUsesExactAllowedActions() throws {
-        let source = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
-            encoding: .utf8
-        )
-
-        let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
-        let revealOffset = try #require(source.range(of: "LocalActionSpec.revealInFinder.actionSpec")?.lowerBound)
-        let copyOffset = try #require(source.range(of: "LocalActionSpec.copyPath.actionSpec")?.lowerBound)
-        #expect(goToPaneOffset < revealOffset)
-        #expect(revealOffset < copyOffset)
-        #expect(source.contains("PathActions.revealInFinder(repo.repoPath)"))
-        #expect(source.contains("PathActions.copyPath(repo.repoPath)"))
-        #expect(!source.contains("Refresh Worktrees"))
-        #expect(!source.contains("Remove Repo"))
-        #expect(!source.contains("createNew"))
-    }
-
     @Test("pane rows use the shared secondary metadata styling")
     func paneRowsUseSharedSecondaryMetadataStyling() throws {
         let paneNavigationSource = try String(
@@ -525,8 +552,9 @@ struct RepoExplorerWorktreeRowTests {
         #expect(paneNavigationSource.contains(".saturation(secondaryLine.isTerminalOutput ? 0 : 1)"))
         #expect(paneNavigationSource.contains("AppStyles.Shell.Sidebar.rowContentSpacing"))
         #expect(paneNavigationSource.contains("SidebarChip("))
-        #expect(paneNavigationSource.contains("text: \"Active\""))
-        #expect(!paneNavigationSource.contains("text: \"active\""))
+        #expect(paneNavigationSource.contains("icon: .system(.playCircleFill)"))
+        #expect(paneNavigationSource.contains("text: nil"))
+        #expect(!paneNavigationSource.contains("text: \"Active\""))
         #expect(paneNavigationSource.contains("SidebarGitStatusChips("))
         #expect(paneNavigationSource.contains("branchStatus: branchStatus"))
         #expect(paneNavigationSource.contains("text: recencyText"))
@@ -540,22 +568,24 @@ struct RepoExplorerWorktreeRowTests {
 
     @Test("pane rows use By Repo rhythm, indent, and group-container color")
     func paneRowsMatchByRepoChromeAndTabGroupColor() throws {
-        let explorerViewSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+        let materializationSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
             encoding: .utf8
         )
         let appEntityIconSource = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
             encoding: .utf8
         )
-        #expect(explorerViewSource.contains("leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
-        #expect(explorerViewSource.contains("branchStatusByWorktreeId: result.branchStatusByWorktreeId"))
+        #expect(
+            materializationSource.contains("leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset"))
+        #expect(materializationSource.contains("branchStatus: inputs.branchStatusByWorktreeID[worktreeID]"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }
 
-    @Test("pane and By Repo rows align all text and chips on one shared guide")
-    func paneAndByRepoRowsShareTextColumnAlignmentGuide() throws {
+    @Test("every grouping mode uses one content-independent sidebar grid")
+    func everyGroupingModeUsesOneContentIndependentSidebarGrid() throws {
         let paneRowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
@@ -564,32 +594,96 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
-        let alignmentSource = try String(
-            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarTextColumnAlignment.swift",
+        let chipSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
+            encoding: .utf8
+        )
+        let metadataLineSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarMetadataLine.swift",
+            encoding: .utf8
+        )
+        let groupHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift",
+            encoding: .utf8
+        )
+        let materializationSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift",
             encoding: .utf8
         )
 
         for source in [paneRowSource, worktreeRowSource] {
-            #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
-            #expect(source.contains(".sidebarIconLineTextColumnGuide()"))
-            #expect(source.contains(".sidebarChipRowTextColumnGuide()"))
+            #expect(source.contains("VStack(alignment: .leading"))
+            #expect(source.contains("SidebarStatusChipRow("))
+            #expect(!source.contains("sidebarTextColumn"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
+        #expect(chipSource.contains("package struct SidebarStatusChipRow"))
+        #expect(chipSource.contains("width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
+        #expect(chipSource.contains("spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
+        #expect(!metadataLineSource.contains("sidebarTextColumn"))
         #expect(paneRowSource.contains("AppEntityIcon.pane.swiftUIImage("))
         #expect(paneRowSource.contains("size: AppStyles.Shell.Sidebar.rowIdentityIconSize"))
         #expect(worktreeRowSource.contains("AppStyles.Shell.Sidebar.worktreeIconSize"))
-        #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
-        #expect(!alignmentSource.contains("textColumnLeadingInset"))
+        #expect(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth == AppStyles.Shell.Sidebar.groupIconColumnWidth)
+        #expect(
+            materializationSource.contains(
+                "leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset"
+            )
+        )
+        for source in [paneRowSource, worktreeRowSource, metadataLineSource, groupHeaderSource] {
+            #expect(source.contains("alignment: .leading"))
+        }
+        #expect(!paneRowSource.contains("rowLeadingIconColumnWidth,\n                    alignment: .trailing"))
+        #expect(!worktreeRowSource.contains("rowLeadingIconColumnWidth, alignment: .trailing"))
+        #expect(!metadataLineSource.contains("rowLeadingIconColumnWidth, alignment: .trailing"))
+        #expect(!groupHeaderSource.contains("groupIconColumnWidth,\n                            alignment: .trailing"))
 
-        // The dedicated chips-line guide must outdent by the pill's own horizontal padding, sourced from
-        // the same constant the pill uses, so the first chip's CONTENT (not its pill background edge)
-        // lands on the shared text column. The plain sidebarTextColumnGuide() stays leading-only.
-        let guideStart = try #require(
-            alignmentSource.range(of: "package func sidebarChipRowTextColumnGuide() -> some View {"))
-        let guideEnd = try #require(
-            alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
-        let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])
-        #expect(guideSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+        let groupIconOrigin =
+            AppStyles.Shell.Sidebar.listRowLeadingInset
+            + AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth
+            + AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing
+        let itemIconOrigin =
+            AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            + AppStyles.Shell.Sidebar.rowHorizontalInset
+        let groupTextOrigin =
+            groupIconOrigin
+            + AppStyles.Shell.Sidebar.groupIconColumnWidth
+            + AppStyles.Shell.Sidebar.groupIconTitleSpacing
+        let itemTextAndChipOrigin =
+            itemIconOrigin
+            + AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+            + AppStyles.Shell.Sidebar.groupIconTitleSpacing
+        #expect(groupIconOrigin == itemIconOrigin)
+        #expect(groupTextOrigin == itemTextAndChipOrigin)
+    }
+
+    @Test("native groups preserve standardized 12 point group and 8 point item spacing")
+    func nativeGroupsPreserveVerticalRhythm() throws {
+        let materializedRowSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            AppStyles.Shell.Sidebar.nativeRowVerticalInset * 2
+                == AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.nativeRowVerticalInset
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.groupRowVerticalPadding
+                == AppStyles.Shell.Sidebar.nativeGroupSpacing
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.groupRowVerticalPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
+                + AppStyles.Shell.Sidebar.nativeRowVerticalInset
+                == AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+        #expect(materializedRowSource.contains("nativeGroupHeaderTopPadding"))
+        #expect(materializedRowSource.contains("nativeGroupHeaderBottomPadding"))
     }
 
     @Test("an admitted PR refresh shows gutter progress even when cached facts remain")

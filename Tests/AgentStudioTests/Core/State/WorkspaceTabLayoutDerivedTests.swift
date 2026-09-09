@@ -1,5 +1,6 @@
 import AgentStudioTestSupport
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioCore
@@ -159,5 +160,57 @@ struct WorkspaceTabLayoutDerivedTests {
         let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
 
         #expect(derived.allPaneIds == Set([paneA, paneB]))
+    }
+
+    @Test("keyed arrangement lookup ignores unrelated tab insertion")
+    func keyedArrangementLookupIgnoresUnrelatedTabInsertion() {
+        let atom = WorkspaceTabArrangementAtom()
+        let observedPaneID = UUID()
+        let observedArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: observedPaneID)
+        )
+        let observedState = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [observedPaneID],
+            arrangements: [observedArrangement],
+            activeArrangementId: observedArrangement.id,
+            activePaneId: observedPaneID
+        )
+        atom.appendState(observedState)
+        let observationCounter = WorkspaceTabArrangementObservationCounter()
+        withObservationTracking {
+            _ = atom.arrangementState(observedState.tabId)
+        } onChange: {
+            observationCounter.record()
+        }
+
+        let unrelatedPaneID = UUID()
+        let unrelatedArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: unrelatedPaneID)
+        )
+        atom.appendState(
+            TabArrangementState(
+                tabId: UUID(),
+                allPaneIds: [unrelatedPaneID],
+                arrangements: [unrelatedArrangement],
+                activeArrangementId: unrelatedArrangement.id,
+                activePaneId: unrelatedPaneID
+            )
+        )
+
+        #expect(!observationCounter.didFire)
+        #expect(atom.arrangementState(observedState.tabId) == observedState)
+    }
+}
+
+private final class WorkspaceTabArrangementObservationCounter: @unchecked Sendable {
+    private(set) var didFire = false
+
+    func record() {
+        didFire = true
     }
 }

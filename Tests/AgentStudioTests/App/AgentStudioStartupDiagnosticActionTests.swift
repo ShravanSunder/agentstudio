@@ -5,9 +5,36 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTestSupport
 
 struct AgentStudioStartupDiagnosticActionTests {
+    @Test("sidebar performance selector invokes only the package native pilot facade")
+    func sidebarPerformanceSelectorInvokesOnlyNativePilotFacade() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift",
+            encoding: .utf8
+        )
+        let diagnosticStart = try #require(
+            source.range(of: "private func runSidebarPerformanceProofDiagnostic(")
+        )
+        let diagnosticEnd = try #require(
+            source.range(
+                of: "func prepareSidebarPerformanceProofFixture(",
+                range: diagnosticStart.upperBound..<source.endIndex
+            )
+        )
+        let diagnosticSource = source[diagnosticStart.lowerBound..<diagnosticEnd.lowerBound]
+
+        #expect(diagnosticSource.contains("await RepoExplorerNativeTablePilot.run("))
+        #expect(diagnosticSource.contains("performanceTraceRecorder:"))
+        #expect(!diagnosticSource.contains("RepoExplorerProjectionAdapter"))
+        #expect(!diagnosticSource.contains("RepoExplorerMaterializationHost"))
+        #expect(!diagnosticSource.contains("NSTableView"))
+        #expect(!diagnosticSource.contains("RepoExplorerNativeTransactionApplier"))
+        #expect(!diagnosticSource.contains("retry"))
+    }
+
     @Test("repo explorer key mutation fixture waits for launch restore before topology readiness")
     func repoExplorerKeyMutationFixtureWaitsForLaunchRestoreBeforeTopologyReadiness() throws {
         let source = try String(
@@ -19,19 +46,29 @@ struct AgentStudioStartupDiagnosticActionTests {
         let restoreBounds = try #require(source.range(of: "startupDiagnosticLaunchRestoreBounds()"))
         let finishRestore = try #require(
             source.range(of: "finishLaunchRestore(", range: restoreBounds.upperBound..<source.endIndex))
+        let fixtureApplySequence = try #require(
+            source.range(
+                of: "let fixtureApplySequence = currentRepoExplorerMainActorApplySequence()",
+                range: finishRestore.upperBound..<source.endIndex
+            )
+        )
         let prepareFixture = try #require(
             source.range(
-                of: "SidebarPerformanceProofFixture.prepare(", range: finishRestore.upperBound..<source.endIndex)
+                of: "SidebarPerformanceProofFixture.prepare(", range: fixtureApplySequence.upperBound..<source.endIndex)
         )
         let waitForMembership = try #require(
             source.range(
-                of: "settleRepoExplorerProjection(fixture: fixture, action: action)",
-                range: prepareFixture.upperBound..<source.endIndex)
+                of: "await settleRepoExplorerProjection(",
+                range: prepareFixture.upperBound..<source.endIndex
+            )
         )
+        let settlementArguments = source[waitForMembership.lowerBound..<source.endIndex]
 
         #expect(restoreBounds.lowerBound < finishRestore.lowerBound)
-        #expect(finishRestore.lowerBound < prepareFixture.lowerBound)
+        #expect(finishRestore.lowerBound < fixtureApplySequence.lowerBound)
+        #expect(fixtureApplySequence.lowerBound < prepareFixture.lowerBound)
         #expect(prepareFixture.lowerBound < waitForMembership.lowerBound)
+        #expect(settlementArguments.contains("fixtureApplySequence: fixtureApplySequence"))
     }
 
     @Test("repo explorer key mutation diagnostic settles fixture and each observed mutation")
@@ -44,7 +81,7 @@ struct AgentStudioStartupDiagnosticActionTests {
 
         let fixtureSettlementCall = try #require(
             source.range(
-                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+                of: "await settleRepoExplorerProjection("
             )
         )
         let firstPhase = try #require(
@@ -69,11 +106,13 @@ struct AgentStudioStartupDiagnosticActionTests {
         )
 
         let contextInstall = try #require(
-            source.range(of: "setRepoExplorerKeyedWakeContext(keyClass: \"diagnostic_settle\")")
+            source.range(
+                of: "RepoExplorerPerformanceTelemetry.shared.setContext(keyClass: \"diagnostic_settle\")"
+            )
         )
         let contextRestore = try #require(
             source.range(
-                of: "defer { AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil) }",
+                of: "defer { RepoExplorerPerformanceTelemetry.shared.setContext(keyClass: nil) }",
                 range: contextInstall.upperBound..<source.endIndex
             )
         )
@@ -88,8 +127,8 @@ struct AgentStudioStartupDiagnosticActionTests {
     }
 
     @MainActor
-    @Test("sidebar performance fixture installs canonical repository membership and resets its owning tab title")
-    func sidebarPerformanceFixtureInstallsCanonicalRepositoryMembershipAndPlaceholderTabTitle() throws {
+    @Test("sidebar performance fixture installs sortable repository membership and resets its owning tab title")
+    func sidebarPerformanceFixtureInstallsSortableRepositoryMembershipAndPlaceholderTabTitle() throws {
         try withTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repositoryRoot = URL(fileURLWithPath: "/tmp/sidebar-performance-fixture")
@@ -114,6 +153,22 @@ struct AgentStudioStartupDiagnosticActionTests {
             )
             #expect(store.repositoryTopologyAtom.repositoryIdsInOrder.contains(preparedFixture.repositoryId))
             #expect(store.repositoryTopologyAtom.worktreeIdsInOrder.contains(preparedFixture.worktreeId))
+            #expect(
+                store.repositoryTopologyAtom.repositoryIdsInOrder.count
+                    == AppPolicies.SidebarPerformanceProof.repositoryCount
+            )
+            #expect(
+                store.repositoryTopologyAtom.worktreeIdsInOrder.count
+                    == AppPolicies.SidebarPerformanceProof.worktreeCount
+            )
+            #expect(
+                store.tabLayoutAtom.tabs.count
+                    == AppPolicies.SidebarPerformanceProof.tabCount
+            )
+            #expect(
+                store.paneAtom.graphAtom.paneIDs.count
+                    == AppPolicies.SidebarPerformanceProof.paneCount
+            )
         }
     }
 

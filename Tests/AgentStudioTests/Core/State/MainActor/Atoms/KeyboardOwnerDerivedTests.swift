@@ -97,8 +97,8 @@ struct KeyboardOwnerDerivedTests {
         #expect(owner == .sidebar(.repos))
     }
 
-    @Test("sidebar visible with focus and .inbox returns .sidebar(.inbox)")
-    func sidebarWithFocusInboxReturnsSidebarInbox() {
+    @Test("legacy Inbox sidebar focus normalizes to Repo Explorer ownership")
+    func sidebarWithLegacyInboxFocusReturnsSidebarRepos() {
         let (window, management, uiState) = makeAtoms()
         makeWindowKey(window)
         uiState.setSidebarHasFocus(true)
@@ -110,7 +110,7 @@ struct KeyboardOwnerDerivedTests {
             uiState: uiState
         )
 
-        #expect(owner == .sidebar(.inbox))
+        #expect(owner == .sidebar(.repos))
     }
 
     @Test(".otherWindow wins over .managementLayer")

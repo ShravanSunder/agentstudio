@@ -77,7 +77,11 @@ struct RepoExplorerDuplicateTopologyContainmentTests {
                 groupId: group.id,
                 repoId: repoId,
                 worktreeId: duplicatedWorktreeId,
-                rowId: "duplicate-topology-must-not-resolve"
+                rowId: .worktree(
+                    groupID: group.id,
+                    repoID: repoId,
+                    worktreeID: duplicatedWorktreeId
+                )
             ) == nil
         )
     }

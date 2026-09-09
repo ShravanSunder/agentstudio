@@ -61,6 +61,7 @@ package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable 
     let followUpDrainCount: UInt64
     let mainActorTaskCount: UInt64
     let activityAggregateCount: UInt64
+    let outputAdvancementCount: UInt64
     let retainedEntryCount: UInt64
     let retainedSizeBytes: UInt64
 
@@ -73,6 +74,7 @@ package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable 
         followUpDrainCount: UInt64,
         mainActorTaskCount: UInt64,
         activityAggregateCount: UInt64,
+        outputAdvancementCount: UInt64 = 0,
         retainedEntryCount: UInt64,
         retainedSizeBytes: UInt64
     ) {
@@ -84,6 +86,7 @@ package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable 
         self.followUpDrainCount = followUpDrainCount
         self.mainActorTaskCount = mainActorTaskCount
         self.activityAggregateCount = activityAggregateCount
+        self.outputAdvancementCount = outputAdvancementCount
         self.retainedEntryCount = retainedEntryCount
         self.retainedSizeBytes = retainedSizeBytes
     }
@@ -105,6 +108,22 @@ package struct TerminalCompactApplyPerformanceSnapshot: Equatable, Sendable {
 package enum TerminalActivityProjectionRoundTripPerformance: Equatable, Sendable {
     case notSubmitted
     case completed(Duration)
+}
+
+package struct SidebarPerformanceTerminalWorkloadSnapshot: Equatable, Sendable {
+    package let terminalInputCount: UInt64
+    package let terminalOutputAdvancementCount: UInt64
+    package let orderedCommandCount: UInt64
+
+    package init(
+        terminalInputCount: UInt64,
+        terminalOutputAdvancementCount: UInt64,
+        orderedCommandCount: UInt64
+    ) {
+        self.terminalInputCount = terminalInputCount
+        self.terminalOutputAdvancementCount = terminalOutputAdvancementCount
+        self.orderedCommandCount = orderedCommandCount
+    }
 }
 
 package struct FilesystemEffectPerformanceSnapshot: Equatable, Sendable {
@@ -148,6 +167,8 @@ package enum AgentStudioFocusResponderChangeReason: String, Sendable {
 }
 
 package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
+    package typealias PeriodicSnapshotReporter = @MainActor @Sendable () -> Void
+
     package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
         let worktreePathIndexGeneration: UInt64
@@ -179,11 +200,13 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarCache = "performance.commandbar.cache"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
+        case filesystemIngressSnapshot = "performance.filesystem.ingress_snapshot"
         case filesystemStageOutcome = "performance.filesystem.stage_outcome"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
         case focusResponderChange = "performance.focus.responder_change"
         case forgeRefresh = "performance.forge.refresh"
         case gitAdmission = "performance.git.admission"
+        case gitAggregate = "performance.git.aggregate"
         case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
         case gitPathQuarantine = "performance.git.path_quarantine"
@@ -204,13 +227,19 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
         case repoExplorerKeyedWake = "performance.repo_explorer.keyed_wake"
+        case repoExplorerNativeTablePilot = "performance.repo_explorer.native_table_pilot"
+        case repoExplorerStageSnapshot = "performance.repo_explorer.stage_snapshot"
         case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
+        case repositoryFactDemand = "performance.repository_fact_demand"
+        case repositoryFactUpdate = "performance.repository_fact_update"
+        case remoteReferenceRefresh = "performance.remote_reference.refresh"
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
         case sidebarFilterInput = "performance.sidebar.filter_input"
+        case sidebarProofWorkloadChanged = "performance.sidebar.proof_workload_changed"
         case sidebarProjection = "performance.sidebar.projection"
         case sidebarRowIndex = "performance.sidebar.row_index"
         case sidebarResize = "performance.sidebar.resize"
@@ -241,8 +270,16 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var topologyLookupAdmission = TopologyLookupTraceAdmission()
     private var paneAssociationAdmission = PaneAssociationTraceAdmission()
+    private var sidebarPerformanceTerminalWorkload = SidebarPerformanceTerminalWorkloadSnapshot(
+        terminalInputCount: 0,
+        terminalOutputAdvancementCount: 0,
+        orderedCommandCount: 0
+    )
+    private var sidebarPerformanceProofWorkloadBaseline: SidebarPerformanceTerminalWorkloadSnapshot?
+    private var didRecordSidebarPerformanceProofWorkloadChange = false
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
+    private let periodicSnapshotReporterRegistry: PeriodicSnapshotReporterRegistry
     private var recordedStartupLaunchInstant: ContinuousClock.Instant
 
     package init(
@@ -252,6 +289,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             AgentStudioProcessMemorySampler.waitOneSecond
     ) {
         self.recordedStartupLaunchInstant = ContinuousClock.now
+        let periodicSnapshotReporterRegistry = PeriodicSnapshotReporterRegistry()
+        self.periodicSnapshotReporterRegistry = periodicSnapshotReporterRegistry
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
             runtimeDeliveryPerformanceReporter?.enable()
@@ -274,6 +313,11 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                         eventTimeUnixNano: traceRuntime.timestampUnixNano(),
                         attributes: runtimeDeliverySnapshot.traceAttributes
                     )
+                }
+                Task { @MainActor in
+                    for reporter in periodicSnapshotReporterRegistry.snapshot() {
+                        reporter()
+                    }
                 }
             }
             self.processMemorySampler = processMemorySampler
@@ -304,6 +348,101 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         }
     }
 
+    package func recordSidebarPerformanceTerminalInput() {
+        let changedSnapshot = lock.withLock { () -> SidebarPerformanceTerminalWorkloadSnapshot? in
+            sidebarPerformanceTerminalWorkload = SidebarPerformanceTerminalWorkloadSnapshot(
+                terminalInputCount: sidebarPerformanceTerminalWorkload.terminalInputCount &+ 1,
+                terminalOutputAdvancementCount: sidebarPerformanceTerminalWorkload
+                    .terminalOutputAdvancementCount,
+                orderedCommandCount: sidebarPerformanceTerminalWorkload.orderedCommandCount
+            )
+            return claimSidebarPerformanceProofWorkloadChangeIfNeeded()
+        }
+        recordSidebarPerformanceProofWorkloadChange(changedSnapshot, kind: "terminal_input")
+    }
+
+    package func recordSidebarPerformanceTerminalOutputAdvancements(_ count: UInt64) {
+        guard count > 0 else { return }
+        let changedSnapshot = lock.withLock { () -> SidebarPerformanceTerminalWorkloadSnapshot? in
+            sidebarPerformanceTerminalWorkload = SidebarPerformanceTerminalWorkloadSnapshot(
+                terminalInputCount: sidebarPerformanceTerminalWorkload.terminalInputCount,
+                terminalOutputAdvancementCount: sidebarPerformanceTerminalWorkload
+                    .terminalOutputAdvancementCount &+ count,
+                orderedCommandCount: sidebarPerformanceTerminalWorkload.orderedCommandCount
+            )
+            return claimSidebarPerformanceProofWorkloadChangeIfNeeded()
+        }
+        recordSidebarPerformanceProofWorkloadChange(changedSnapshot, kind: "terminal_output")
+    }
+
+    package func recordSidebarPerformanceOrderedCommand() {
+        let changedSnapshot = lock.withLock { () -> SidebarPerformanceTerminalWorkloadSnapshot? in
+            sidebarPerformanceTerminalWorkload = SidebarPerformanceTerminalWorkloadSnapshot(
+                terminalInputCount: sidebarPerformanceTerminalWorkload.terminalInputCount,
+                terminalOutputAdvancementCount: sidebarPerformanceTerminalWorkload
+                    .terminalOutputAdvancementCount,
+                orderedCommandCount: sidebarPerformanceTerminalWorkload.orderedCommandCount &+ 1
+            )
+            return claimSidebarPerformanceProofWorkloadChangeIfNeeded()
+        }
+        recordSidebarPerformanceProofWorkloadChange(changedSnapshot, kind: "ordered_command")
+    }
+
+    package func sidebarPerformanceTerminalWorkloadSnapshot()
+        -> SidebarPerformanceTerminalWorkloadSnapshot
+    {
+        lock.withLock { sidebarPerformanceTerminalWorkload }
+    }
+
+    package func beginSidebarPerformanceWorkloadProof()
+        -> SidebarPerformanceTerminalWorkloadSnapshot
+    {
+        lock.withLock {
+            sidebarPerformanceProofWorkloadBaseline = sidebarPerformanceTerminalWorkload
+            didRecordSidebarPerformanceProofWorkloadChange = false
+            return sidebarPerformanceTerminalWorkload
+        }
+    }
+
+    package func completeSidebarPerformanceWorkloadProof()
+        -> SidebarPerformanceTerminalWorkloadSnapshot
+    {
+        lock.withLock {
+            sidebarPerformanceProofWorkloadBaseline = nil
+            return sidebarPerformanceTerminalWorkload
+        }
+    }
+
+    private func claimSidebarPerformanceProofWorkloadChangeIfNeeded()
+        -> SidebarPerformanceTerminalWorkloadSnapshot?
+    {
+        guard let baseline = sidebarPerformanceProofWorkloadBaseline,
+            sidebarPerformanceTerminalWorkload != baseline,
+            !didRecordSidebarPerformanceProofWorkloadChange
+        else { return nil }
+        didRecordSidebarPerformanceProofWorkloadChange = true
+        return sidebarPerformanceTerminalWorkload
+    }
+
+    private func recordSidebarPerformanceProofWorkloadChange(
+        _ snapshot: SidebarPerformanceTerminalWorkloadSnapshot?,
+        kind: String
+    ) {
+        guard let snapshot else { return }
+        record(
+            .sidebarProofWorkloadChanged,
+            attributes: [
+                "agentstudio.performance.sidebar.proof.workload.kind": .string(kind),
+                "agentstudio.performance.sidebar.proof.terminal_input.count": Self.traceInteger(
+                    snapshot.terminalInputCount),
+                "agentstudio.performance.sidebar.proof.terminal_output.count": Self.traceInteger(
+                    snapshot.terminalOutputAdvancementCount),
+                "agentstudio.performance.sidebar.proof.ordered_command.count": Self.traceInteger(
+                    snapshot.orderedCommandCount),
+            ]
+        )
+    }
+
     package func record(
         _ event: Event,
         attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
@@ -315,6 +454,17 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
             attributes: attributes()
         )
+    }
+
+    @discardableResult
+    package func registerPeriodicSnapshotReporter(
+        _ reporter: @escaping PeriodicSnapshotReporter
+    ) -> UUID {
+        periodicSnapshotReporterRegistry.register(reporter)
+    }
+
+    package func unregisterPeriodicSnapshotReporter(_ token: UUID) {
+        periodicSnapshotReporterRegistry.unregister(token)
     }
 
     package func recordDuration(
@@ -440,6 +590,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         queueAge: Duration,
         applyOutcome: TerminalAccumulatorApplyOutcome?
     ) {
+        recordSidebarPerformanceTerminalOutputAdvancements(snapshot.outputAdvancementCount)
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.terminal.accumulator.drain.class": .string(
                 snapshot.drainClass.rawValue
@@ -458,6 +609,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                 snapshot.mainActorTaskCount),
             "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
                 snapshot.activityAggregateCount),
+            "agentstudio.performance.terminal.output_advancement.count": Self.traceInteger(
+                snapshot.outputAdvancementCount),
             "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
                 snapshot.retainedEntryCount),
             "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(

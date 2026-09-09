@@ -46,7 +46,13 @@ struct PrimarySidebarPipelineIntegrationTests {
             let repoARefresh = Task<[String: PullRequestFacts]?, Never> {
                 for await envelope in repoARefreshSubscription {
                     guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        case .forge(
+                            .pullRequestRepositoryProjectionChanged(
+                                let repoId,
+                                .stable(.ready(let factsByBranch)),
+                                _
+                            )
+                        ) = worktreeEnvelope.event,
                         repoId == repoA.id
                     else { continue }
                     return factsByBranch
@@ -56,7 +62,13 @@ struct PrimarySidebarPipelineIntegrationTests {
             let repoBRefresh = Task<[String: PullRequestFacts]?, Never> {
                 for await envelope in repoBRefreshSubscription {
                     guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        case .forge(
+                            .pullRequestRepositoryProjectionChanged(
+                                let repoId,
+                                .stable(.ready(let factsByBranch)),
+                                _
+                            )
+                        ) = worktreeEnvelope.event,
                         repoId == repoB.id
                     else { continue }
                     return factsByBranch
@@ -64,15 +76,12 @@ struct PrimarySidebarPipelineIntegrationTests {
                 return nil
             }
 
-            await forgeActor.register(
-                worktreeId: worktreeA,
-                repoId: repoA.id,
-                rootPath: repoA.repoPath
-            )
-            await forgeActor.register(
-                worktreeId: worktreeB,
-                repoId: repoB.id,
-                rootPath: repoB.repoPath
+            await registerForgeWorktree(worktreeA, repository: repoA, forgeActor: forgeActor)
+            await registerForgeWorktree(worktreeB, repository: repoB, forgeActor: forgeActor)
+            await attendRepositoryFacts(
+                worktreeIds: [worktreeA, worktreeB],
+                activePaneWorktreeId: worktreeA,
+                projector: projector
             )
             await forgeActor.setDemand(worktreeIds: [worktreeA, worktreeB])
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
@@ -141,6 +150,12 @@ struct PrimarySidebarPipelineIntegrationTests {
                 return
             }
 
+            await attendRepositoryFacts(
+                worktreeIds: [worktreeId],
+                activePaneWorktreeId: worktreeId,
+                projector: projector
+            )
+
             await postWorktreeRegistered(
                 bus: bus,
                 worktreeId: worktreeId,
@@ -199,7 +214,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                 case .updateWatchedFolders:
                     break
                 }
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
 
         await withStartedForgeScopeCoordinator(bus: bus, coordinator: coordinator, forgeActor: forgeActor) {
@@ -339,6 +355,7 @@ struct PrimarySidebarPipelineIntegrationTests {
                 registeredWorktreeIds.insert(worktree.id)
                 await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
             }
+            await attendRepositoryFacts(worktreeIds: registeredWorktreeIds, projector: projector)
             await forgeActor.setDemand(worktreeIds: registeredWorktreeIds)
 
             let identityConverged = await eventually("all finance repos should share one remote group key") {
@@ -368,7 +385,7 @@ struct PrimarySidebarPipelineIntegrationTests {
             }
             #expect(pullRequestCountsConverged)
 
-            let sidebarRepos = workspaceStore.repos.map(RepoPresentationItem.init(repo:))
+            let sidebarRepos = makeRepoPresentationItems(repositories: workspaceStore.repos)
             let metadata = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
@@ -381,6 +398,44 @@ struct PrimarySidebarPipelineIntegrationTests {
             #expect(financeGroup != nil)
             #expect((financeGroup?.repos.count ?? 0) >= 3)
         }
+    }
+
+    private func makeRepoPresentationItems(repositories: [Repo]) -> [RepoPresentationItem] {
+        repositories.map { repo in
+            RepoPresentationItem(
+                repo: repo,
+                stableKey: repo.stableKey,
+                worktreeStableKeysByID: Dictionary(
+                    uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                )
+            )
+        }
+    }
+
+    private func attendRepositoryFacts(
+        worktreeIds: Set<UUID>,
+        activePaneWorktreeId: UUID? = nil,
+        projector: GitWorkingDirectoryProjector
+    ) async {
+        await projector.setRepositoryFactAttention(
+            activePaneWorktreeId: activePaneWorktreeId,
+            sidebarAttendedWorktreeIds: worktreeIds,
+            visibleActiveTabWorktreeIds: [],
+            openWorktreeIds: worktreeIds,
+            backgroundOnlyAutomaticWorktreeIds: []
+        )
+    }
+
+    private func registerForgeWorktree(
+        _ worktreeId: UUID,
+        repository: Repo,
+        forgeActor: ForgeActor
+    ) async {
+        await forgeActor.register(
+            worktreeId: worktreeId,
+            repoId: repository.id,
+            rootPath: repository.repoPath
+        )
     }
 
     private func makeWorkspaceStore() -> WorkspaceStore {
@@ -445,7 +500,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                 case .updateWatchedFolders:
                     break
                 }
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -459,7 +515,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     origin: "git@github.com:askluna/agent-studio.git"
                 )
             },
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
 
         return (forgeActor, coordinator, projector)

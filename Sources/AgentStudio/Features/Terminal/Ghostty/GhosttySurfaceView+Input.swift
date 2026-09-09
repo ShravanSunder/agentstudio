@@ -235,6 +235,7 @@ extension Ghostty.SurfaceView {
 
     private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e, text: String? = nil) {
         guard let surface else { return }
+        performanceTraceRecorder?.recordSidebarPerformanceTerminalInput()
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
@@ -410,6 +411,7 @@ extension Ghostty.SurfaceView {
 
     func sendText(_ text: String) {
         guard let surface else { return }
+        performanceTraceRecorder?.recordSidebarPerformanceTerminalInput()
         text.withCString { ptr in
             ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
         }

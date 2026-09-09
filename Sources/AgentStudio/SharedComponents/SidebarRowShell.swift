@@ -7,6 +7,8 @@ package struct SidebarRowShell<Content: View>: View {
     let isHovering: Bool
     let content: Content
 
+    @Environment(\.sidebarRowVerticalInset) private var rowVerticalInset
+
     package static var chromePolicy: SidebarRowChromePolicy {
         .sidebarRowShell
     }
@@ -25,7 +27,7 @@ package struct SidebarRowShell<Content: View>: View {
 
     package var body: some View {
         content
-            .padding(.vertical, Self.contentVerticalInset)
+            .padding(.vertical, rowVerticalInset)
             .padding(.horizontal, Self.contentHorizontalInset)
             .background(rowBackground)
             .contentShape(Rectangle())
@@ -71,5 +73,16 @@ package struct SidebarRowShell<Content: View>: View {
 
     static var rowCornerRadius: CGFloat {
         AppStyles.Shell.Sidebar.rowCornerRadius
+    }
+}
+
+private struct SidebarRowVerticalInsetEnvironmentKey: EnvironmentKey {
+    static let defaultValue = AppStyles.Shell.Sidebar.rowVerticalInset
+}
+
+extension EnvironmentValues {
+    package var sidebarRowVerticalInset: CGFloat {
+        get { self[SidebarRowVerticalInsetEnvironmentKey.self] }
+        set { self[SidebarRowVerticalInsetEnvironmentKey.self] = newValue }
     }
 }

@@ -25,9 +25,12 @@ SQLite repository. Do not add an atom to own SQL, and do not add SQL because an
 atom exists.
 
 Existing pane/tab graph atoms stay: they are UI-observed, and SQLite is how that
-durable graph survives restart. Many other atoms have no table. Inbox is the
-mixed pattern: the log is a repository; `InboxNotificationAtom` exists because
-the sidebar observes the list.
+durable graph survives restart. Many other atoms have no table. Retained Inbox
+types document a historical mixed pattern: the log has a repository and the
+retired sidebar once observed `InboxNotificationAtom`. App boot does not load,
+observe, route, present, or write that dormant state. All retained Inbox atom,
+store, and repository names below are historical examples, not live owners or
+permission to reconnect the feature without a new product decision.
 
 | If you need… | Use | Do not use |
 | --- | --- | --- |
@@ -59,15 +62,16 @@ owner, not in Jotai's Provider/Store.
 3. **Atom plus store snapshot** when that shared UI fact must survive
    restart. The atom stays the live owner. A store captures an immutable
    snapshot and the datastore writes SQL. `WorkspaceStore` snapshots the
-   pane/tab graph; `InboxNotificationStore` snapshots `InboxNotificationAtom`;
-   `UIStateStore` snapshots sidebar shell memory. Atom methods never talk to
-   GRDB.
+   pane/tab graph and `UIStateStore` snapshots sidebar shell memory.
+   `InboxNotificationStore` snapshotting `InboxNotificationAtom` is a retained
+   historical example only. It is not activated by App boot, and App does not
+   read or write its rows. Atom methods never talk to GRDB.
 4. **SQLite repository only** when the work is CRUD, query, coalesce, or
    retention and no UI subscriber must wake. `InboxNotificationSQLiteRepository`
    is the row owner for the log. Do not add an atom to wrap those queries.
    If a list later needs Observation, add an atom for the observed projection
-   and keep the repository as the snapshot/row owner (the inbox mixed
-   pattern).
+   and keep the repository as the snapshot/row owner. The dormant Inbox
+   repository remains an example of this retained boundary, not an active lane.
 
 Do not start at SQL and invent an atom to match the table. Do not start at an
 atom and invent a table because the atom exists.
@@ -80,7 +84,7 @@ Read the primitive source before using it. Product owners are `@MainActor
 | Need | Primitive / reader | Why, in this codebase | Live owner |
 | --- | --- | --- | --- |
 | One scalar or one cohesive observed value | `AtomValue` inside a product owner, or `private(set)` on the owner for a trivial field | Observation wakes on unequal write. Writes need a content comparator except the trivial scalar allowlist. | `CommandBarSurfaceAtom.activeSurface` is owner `private(set)`; use `AtomValue` when the slot needs an explicit comparator |
-| Many keys, one row should wake | `AtomFamily` | A sidebar row reads `value(for: worktreeId)` and must not invalidate on every other key. Membership revision is separate from per-key revision. | `RepositoryTopologyAtom`, `RepoCacheAtom` enrichment maps, `WorkspacePaneGraphAtom` pane slots, `InboxNotificationAtom` unread counts |
+| Many keys, one row should wake | `AtomFamily` | A sidebar row reads `value(for: worktreeId)` and must not invalidate on every other key. Membership revision is separate from per-key revision. | `RepositoryTopologyAtom`, `RepoCacheAtom` enrichment maps, `WorkspacePaneGraphAtom` pane slots |
 | Cheap compose of already-observed atoms | `*Derived` reader, or `DerivedAtom` with declared `AtomRevision` inputs | Pull on next read. Do not hide `atom(\...)` inside compute. Product code today uses reader structs more than the `DerivedAtom` class. | `WorkspacePaneDerived`, `CommandContextDerived`, `WorkspaceTabLayoutDerived` |
 | Expensive keyed UI that must stay current off-main | Existing `EagerDerivedAtomFamily` seam only | Push: admit a request, project off MainActor, publish current or equal. Not a source atom and not SQL. | `TabBarAdapter`, `RepoExplorerProjectionAdapter` |
 | Grouped writes across slots in one owner | `AtomMutationContext` | Bump the aggregate revision once after accepted changes. Not a state kind. | Pane-graph commits filling `AtomFamily` slots |
@@ -301,7 +305,7 @@ facts, snapshots, deltas, or intents.
 | `WorkspaceSidebarState` | window-keyed `WorkspaceSidebarMemoryAtom`, runtime-only `SidebarFocusRuntimeAtom` | sidebar read model |
 | `SidebarCacheState` | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only, not a live write owner | sidebar shell read model |
 | `EditorChooserState` | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
-| `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
+| Retained `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | dormant source only; not composed by App |
 
 ## Domain Type Role Matrix
 

@@ -46,20 +46,36 @@ if (!isRecord(cloudflareWorkerConfig) || !isRecord(cloudflareWorkerConfig["asset
 }
 
 const cloudflareAssetsConfig = cloudflareWorkerConfig["assets"];
+const expectedWorkerFirstRoutes = ["/x", "/x/*", "/yt", "/yt/*", "/c", "/c/*"];
 if (
   cloudflareAssetsConfig["htmlHandling"] !== "drop-trailing-slash" ||
-  cloudflareAssetsConfig["notFoundHandling"] !== "none"
+  cloudflareAssetsConfig["notFoundHandling"] !== "none" ||
+  JSON.stringify(cloudflareAssetsConfig["runWorkerFirst"]) !==
+    JSON.stringify(expectedWorkerFirstRoutes)
 ) {
   throw new Error("Cloudflare output does not enforce the campaign route HTML contract");
 }
 
-const forbiddenRuntimeConfigKeys = ["main", "bindings", "analyticsEngineDatasets"];
-for (const forbiddenRuntimeConfigKey of forbiddenRuntimeConfigKeys) {
-  if (cloudflareWorkerConfig[forbiddenRuntimeConfigKey] !== undefined) {
-    throw new Error(
-      `Cloudflare campaign release must remain assets-only; found ${forbiddenRuntimeConfigKey}`,
-    );
-  }
+const cloudflareEnvironment = cloudflareWorkerConfig["env"];
+if (!isRecord(cloudflareEnvironment)) {
+  throw new Error("Cloudflare output has no readable Worker bindings");
+}
+const assetsBinding = cloudflareEnvironment["ASSETS"];
+const analyticsBinding = cloudflareEnvironment["ANALYTICS"];
+if (!isRecord(assetsBinding) || assetsBinding["type"] !== "assets") {
+  throw new Error("Cloudflare output has no ASSETS binding");
+}
+if (
+  !isRecord(analyticsBinding) ||
+  analyticsBinding["type"] !== "analytics-engine-dataset" ||
+  analyticsBinding["name"] !== "agent_studio_campaign_requests"
+) {
+  throw new Error("Cloudflare output has no expected campaign Analytics Engine binding");
+}
+
+const cloudflareWorkerManifest = cloudflareWorkerConfig["manifest"];
+if (!isRecord(cloudflareWorkerManifest) || cloudflareWorkerManifest["mainModule"] !== "index.js") {
+  throw new Error("Cloudflare output has no packaged campaign Worker module");
 }
 
 const expectedCampaignHtmlPaths = [

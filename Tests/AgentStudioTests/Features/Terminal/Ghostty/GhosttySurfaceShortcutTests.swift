@@ -203,14 +203,14 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func test_appOwnedShortcuts_containsSidebarAndPaneInboxShortcuts() {
+    func test_appOwnedShortcuts_reserveRetiredInboxTriggersFromTerminal() {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showInboxNotifications),
-            "Expected sidebar inbox shortcut in appOwnedShortcuts"
+            "Retired sidebar Inbox trigger remains reserved from terminal input"
         )
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showPaneInboxNotifications),
-            "Expected pane inbox shortcut in appOwnedShortcuts"
+            "Retired pane Inbox trigger remains reserved from terminal input"
         )
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showWorktreeSidebar),

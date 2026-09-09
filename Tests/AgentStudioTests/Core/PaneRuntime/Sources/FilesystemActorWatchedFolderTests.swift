@@ -7,6 +7,51 @@ import Testing
 
 @Suite("FilesystemActor Watched Folders")
 struct FilesystemActorWatchedFolderTests {
+    @Test("one ingress batch records multiple watched overflow admissions once")
+    func ingressBatchRecordsMultipleWatchedOverflowAdmissionsOnce() async throws {
+        let fixture = try await WatchedFolderActorFixture(
+            watchedFolderCount: 2,
+            recordsLogicalDebt: true
+        )
+        defer { fixture.removeTemporaryRoot() }
+
+        let initialRefresh = Task {
+            await fixture.actor.refreshWatchedFolders(fixture.watchedPaths)
+        }
+        for _ in fixture.watchedPaths {
+            await fixture.finishNextScanWithEmptyResult()
+        }
+        _ = await initialRefresh.value
+        #expect(await fixture.waitUntilRecordedLogicalDebtEquals(0))
+
+        let callbackRoutingIDs = fixture.fseventClient.registeredWorktreeIds
+        #expect(callbackRoutingIDs.count == 2)
+        let baselineRevision = await fixture.actor.logicalDebtSnapshotPublicationRevision
+        for callbackRoutingID in callbackRoutingIDs {
+            fixture.fseventClient.sendOverflowRecovery(
+                worktreeId: callbackRoutingID,
+                paths: nil,
+                containsGitTopologyPath: true
+            )
+        }
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: try #require(callbackRoutingIDs.first),
+                paths: [fixture.watchedFolder.appending(path: "ordinary-trigger").path]
+            )
+        )
+
+        #expect(await fixture.waitUntilAdmittedWatchedScanCount(2))
+        let admittedRevision = await fixture.actor.logicalDebtSnapshotPublicationRevision
+        #expect(admittedRevision == baselineRevision + 1)
+
+        for _ in callbackRoutingIDs {
+            await fixture.finishNextScanWithEmptyResult()
+        }
+        await fixture.actor.shutdown()
+        try await fixture.performanceTraceRecorder?.drain()
+    }
+
     @Test("logical debt reaches zero only after watched-folder result transfer")
     func logicalDebtReachesZeroAfterResultTransfer() async throws {
         let fixture = try await WatchedFolderActorFixture()
@@ -268,6 +313,38 @@ struct FilesystemActorWatchedFolderTests {
         await fixture.actor.shutdown()
     }
 
+    @Test("refresh summary fingerprints repository and linked-worktree identities")
+    func refreshSummaryFingerprintsCompleteDiscoveredTopology() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        let clone = fixture.watchedFolder.appending(path: "clone")
+        let firstLinkedWorktree = fixture.watchedFolder.appending(path: "linked-one")
+        let secondLinkedWorktree = fixture.watchedFolder.appending(path: "linked-two")
+
+        let firstSummary = await fixture.performInitialRefresh(
+            result: completeResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(firstLinkedWorktree, parentClone: clone),
+            ])
+        )
+        let secondSummary = await fixture.performRefresh(
+            result: completeResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(firstLinkedWorktree, parentClone: clone),
+                linkedEntry(secondLinkedWorktree, parentClone: clone),
+            ])
+        )
+
+        #expect(firstSummary.repoPaths(in: fixture.watchedFolder) == [canonicalURL(clone)])
+        #expect(
+            firstSummary.linkedWorktreePaths(in: fixture.watchedFolder)
+                == [canonicalURL(firstLinkedWorktree)]
+        )
+        #expect(firstSummary.topologyFingerprint != nil)
+        #expect(secondSummary.topologyFingerprint != firstSummary.topologyFingerprint)
+        await fixture.actor.shutdown()
+    }
+
     @Test("shutdown resumes a manual refresh with a pending scan result")
     func shutdownResumesPendingManualRefresh() async throws {
         let fixture = try await WatchedFolderActorFixture()
@@ -325,6 +402,33 @@ struct FilesystemActorWatchedFolderTests {
         await boundedYields()
         #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
 
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: nil,
+            containsGitTopologyPath: false
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/TriggerCoarse.swift").path]
+            )
+        )
+        await boundedYields()
+        #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
+
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: [fixture.watchedFolder.appending(path: "repo/Sources/Dropped.swift").path]
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/Trigger.swift").path]
+            )
+        )
+        await boundedYields()
+        #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
+
         fixture.fseventClient.send(
             FSEventBatch(
                 worktreeId: callbackRoutingID,
@@ -336,6 +440,37 @@ struct FilesystemActorWatchedFolderTests {
         #expect(callbackStart.request.sourceID.rootID == fixture.watchedPath.id)
         await fixture.scanner.finish(callbackStart, with: completeResult(entries: []))
         try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 1)
+
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: [fixture.watchedFolder.appending(path: "repo/.git/refs/heads/main").path]
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/Trigger.swift").path]
+            )
+        )
+        let overflowRecoveryStart = await fixture.scanner.nextStart()
+        #expect(overflowRecoveryStart.request.cause == .callback)
+        await fixture.scanner.finish(overflowRecoveryStart, with: completeResult(entries: []))
+        try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 2)
+
+        fixture.fseventClient.sendOverflowRecovery(
+            worktreeId: callbackRoutingID,
+            paths: nil,
+            containsGitTopologyPath: true
+        )
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/Sources/TriggerCoarseGit.swift").path]
+            )
+        )
+        let coarseGitRecoveryStart = await fixture.scanner.nextStart()
+        #expect(coarseGitRecoveryStart.request.cause == .callback)
+        await fixture.scanner.finish(coarseGitRecoveryStart, with: completeResult(entries: []))
+        try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 3)
         await fixture.actor.shutdown()
     }
 
@@ -530,19 +665,51 @@ private struct WatchedFolderActorFixture {
     let fseventClient = ControllableFSEventStreamClient()
     let watchedFolder: URL
     let watchedPath: WatchedPath
+    let watchedPaths: [WatchedPath]
     let scheduler: WatchedFolderScanScheduler
     let actor: FilesystemActor
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     private let eventRecorder: TopologyEventRecorder
     private let eventCollectionTask: Task<Void, Never>
 
-    init() async throws {
+    init(
+        watchedFolderCount: Int = 1,
+        recordsLogicalDebt: Bool = false
+    ) async throws {
+        precondition(watchedFolderCount > 0)
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appending(path: "filesystem-actor-watched-folder-\(UUIDv7.generate())")
         let watchedFolder = URL(fileURLWithPath: temporaryRoot.path)
         try FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
-        let watchedPath = WatchedPath(path: watchedFolder)
+        let watchedPaths =
+            if watchedFolderCount == 1 {
+                [WatchedPath(path: watchedFolder)]
+            } else {
+                try (0..<watchedFolderCount).map { index in
+                    let path = watchedFolder.appending(path: "root-\(index)")
+                    try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+                    return WatchedPath(path: path)
+                }
+            }
+        let watchedPath = try #require(watchedPaths.first)
         let scanner = self.scanner
+        let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? =
+            if recordsLogicalDebt {
+                AgentStudioPerformanceTraceRecorder(
+                    traceRuntime: AgentStudioTraceRuntime(
+                        configuration: AgentStudioTraceConfiguration.from(environment: [
+                            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                            "AGENTSTUDIO_TRACE_DIR": FileManager.default.temporaryDirectory.path,
+                            "AGENTSTUDIO_TRACE_NAME": "watched-overflow-admission-\(UUIDv7.generate())",
+                            "AGENTSTUDIO_TRACE_TAGS": "performance",
+                        ])
+                    ),
+                    processMemorySampleWait: { false }
+                )
+            } else {
+                nil
+            }
         let scheduler = try WatchedFolderScanScheduler(
             maximumConcurrentScans: 1,
             now: { .zero },
@@ -558,15 +725,18 @@ private struct WatchedFolderActorFixture {
             fseventStreamClient: fseventClient,
             watchedFolderScanScheduler: scheduler,
             debounceWindow: .zero,
-            maxFlushLatency: .zero
+            maxFlushLatency: .zero,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         let eventRecorder = TopologyEventRecorder()
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         self.watchedFolder = watchedFolder
         self.watchedPath = watchedPath
+        self.watchedPaths = watchedPaths
         self.scheduler = scheduler
         self.actor = actor
+        self.performanceTraceRecorder = performanceTraceRecorder
         self.eventRecorder = eventRecorder
         eventCollectionTask = Task {
             for await envelope in stream {
@@ -622,6 +792,34 @@ private struct WatchedFolderActorFixture {
         throw WatchedFolderActorTestError.expectedScannerProgress
     }
 
+    func finishNextScanWithEmptyResult() async {
+        let start = await scanner.nextStart()
+        await scanner.finish(start, with: completeResult(entries: []))
+    }
+
+    func waitUntilRecordedLogicalDebtEquals(_ expectedCount: Int) async -> Bool {
+        for _ in 0..<10_000 {
+            if await actor.lastRecordedLogicalDebtSnapshot?.logicalDebtCount == expectedCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return await actor.lastRecordedLogicalDebtSnapshot?.logicalDebtCount == expectedCount
+    }
+
+    func waitUntilAdmittedWatchedScanCount(_ expectedCount: Int) async -> Bool {
+        for _ in 0..<10_000 {
+            let snapshot = await actor.logicalDebtSnapshot()
+            if snapshot.watchedFolderActiveQuantumCount + snapshot.watchedFolderReadyCount
+                == expectedCount
+            {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
     func removeTemporaryRoot() {
         eventCollectionTask.cancel()
         try? FileManager.default.removeItem(at: watchedFolder)
@@ -636,51 +834,6 @@ private actor RefreshCompletionProbe {
     }
 
     func summary() -> WatchedFolderRefreshSummary? { recordedSummary }
-}
-
-private struct RepoDiscoveryEvent: Equatable {
-    let repoPath: URL
-    let linkedWorktrees: LinkedWorktreeInfo
-}
-
-private struct TopologyEventSet: Equatable {
-    var discovered: [RepoDiscoveryEvent] = []
-    var removed: Set<URL> = []
-}
-
-private actor TopologyEventRecorder {
-    private var events = TopologyEventSet()
-
-    func record(_ envelope: RuntimeEnvelope) {
-        guard case .system(let systemEnvelope) = envelope,
-            case .topology(let topologyEvent) = systemEnvelope.event
-        else { return }
-        switch topologyEvent {
-        case .repoDiscovered(let repoPath, _, let linkedWorktrees):
-            events.discovered.append(
-                RepoDiscoveryEvent(
-                    repoPath: repoPath.standardizedFileURL,
-                    linkedWorktrees: linkedWorktrees
-                )
-            )
-        case .reposDiscovered(_, let repositories):
-            events.discovered.append(
-                contentsOf: repositories.map {
-                    RepoDiscoveryEvent(
-                        repoPath: $0.repoPath.standardizedFileURL,
-                        linkedWorktrees: $0.linkedWorktrees
-                    )
-                }
-            )
-        case .repoRemoved(let repoPath):
-            events.removed.insert(repoPath.standardizedFileURL)
-        case .worktreeRegistered, .worktreeUnregistered:
-            break
-        }
-    }
-
-    func reset() { events = TopologyEventSet() }
-    func snapshot() -> TopologyEventSet { events }
 }
 
 private struct ActorUnusedValidationClient: RepoDiscoveryReadClient {

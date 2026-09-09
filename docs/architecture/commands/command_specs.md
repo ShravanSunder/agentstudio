@@ -21,6 +21,12 @@ and
 Display:
 [Tooltips, help text, and compact control copy](#tooltips-help-text-and-compact-control-copy).
 
+Inbox command identities are intentionally retained but retired. Their catalog
+definitions are `.notPresented`, carry no shortcut, and the independent IPC
+projection is unexposed. App shell and pane owners reject them without reading
+or mutating Inbox state. Do not reconnect those identities to UI, shortcuts,
+IPC, or runtime composition without a new product decision.
+
 ## Files to load
 
 These source files own the system. Architecture claims should link here so
@@ -308,8 +314,8 @@ parallel system — back up to step 0.
 
 | Handler | Owns | Examples |
 |---------|------|----------|
-| `ShellCommandHandling` (`AppDelegate`) | App/window/sidebar/command-bar shell actions that do not need pane-local focus or drawer resolution. | `newWindow`, `closeWindow`, `showCommandBarEverything`, `toggleSidebar`, `showInboxNotifications`, `showWorktreeSidebar`, sign-in flows. |
-| `WorkspaceCommandHandling` (`PaneTabViewController`) | Tab, pane, drawer, and workspace actions that need active pane state, drawer focus, pane target resolution, or workspace validation. | `toggleDrawer`, `addDrawerPane`, `openPaneLocationInEditorMenu`, `openPaneLocationInFinder`, `showPaneInboxNotifications`, focus and layout commands. |
+| `ShellCommandHandling` (`AppDelegate`) | App/window/sidebar/command-bar shell actions that do not need pane-local focus or drawer resolution. | `newWindow`, `closeWindow`, `showCommandBarEverything`, `toggleSidebar`, `showWorktreeSidebar`, sign-in flows. |
+| `WorkspaceCommandHandling` (`PaneTabViewController`) | Tab, pane, drawer, and workspace actions that need active pane state, drawer focus, pane target resolution, or workspace validation. | `toggleDrawer`, `addDrawerPane`, `openPaneLocationInEditorMenu`, `openPaneLocationInFinder`, focus and layout commands. |
 
 If a command operates on a pane, drawer, or pane-adjacent control, it
 belongs in `PaneTabViewController`. Do not route pane-local commands
@@ -317,10 +323,10 @@ through `AppDelegate` and then infer the active pane from
 `WorkspaceStore`; that bypasses the drawer-aware focus and selection
 helpers used by the rest of the pane system.
 
-`showPaneInboxNotifications` is pane-scoped even though the bell control
-lives in the pane drawer toolbox. Its target is the active parent pane
-plus that pane's drawer children. It must stay enabled for a focused
-parent pane even when the drawer is closed or empty.
+Retained Inbox command identities are historical compatibility source, not
+active handler ownership. Shell and workspace handlers reject them as
+unavailable without reading or mutating Inbox state; no bell control, pane
+target resolution, presentation route, or command/query owner is active.
 
 The drawer command pattern is:
 

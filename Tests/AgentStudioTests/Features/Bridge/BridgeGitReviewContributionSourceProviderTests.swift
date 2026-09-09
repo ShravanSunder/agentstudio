@@ -21,7 +21,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: LibGit2AgentStudioGitLocalClient(),
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
@@ -95,7 +96,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: gitClient,
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
 
@@ -270,7 +272,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: gitClient,
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
 
@@ -308,7 +311,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: gitClient,
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
 
@@ -340,7 +344,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: AgentStudioGitLocalClientFake(),
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
 
@@ -370,7 +375,8 @@ extension BridgeGitReviewSourceProviderTests {
             client: AgentStudioGitBridgeReviewDataClient(
                 repositoryPath: repositoryPath,
                 client: gitClient,
-                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+                gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+                statusPhysicalGate: makeBridgeStatusPhysicalGate()
             )
         )
         let task = Task {
@@ -531,7 +537,8 @@ private func makeContributionAdapterFixture(
         client: AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
     )
     return ContributionAdapterFixture(

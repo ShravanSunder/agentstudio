@@ -34,6 +34,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     package let note: String?
     package let tags: [String]
     package var worktrees: [Worktree]
+    package let worktreeStableKeysByID: [UUID: String]
 
     package init(
         id: UUID,
@@ -43,7 +44,8 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         isFavorite: Bool = false,
         note: String? = nil,
         tags: [String] = [],
-        worktrees: [Worktree]
+        worktrees: [Worktree],
+        worktreeStableKeysByID: [UUID: String] = [:]
     ) {
         self.id = id
         self.name = name
@@ -53,18 +55,24 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         self.note = note
         self.tags = tags
         self.worktrees = worktrees
+        self.worktreeStableKeysByID = worktreeStableKeysByID
     }
 
-    package init(repo: Repo) {
+    package init(
+        repo: Repo,
+        stableKey: String,
+        worktreeStableKeysByID: [UUID: String]
+    ) {
         self.init(
             id: repo.id,
             name: repo.name,
             repoPath: repo.repoPath,
-            stableKey: repo.stableKey,
+            stableKey: stableKey,
             isFavorite: repo.isFavorite,
             note: repo.note,
             tags: repo.tags,
-            worktrees: repo.worktrees
+            worktrees: repo.worktrees,
+            worktreeStableKeysByID: worktreeStableKeysByID
         )
     }
 }

@@ -84,8 +84,11 @@ publication, stored-classifier bypass, and post-switch fallthrough to the shared
 semantic edge while leaving `.exactFactOrControl` eligible for that ordered
 route. The rule does not perform general type resolution or control-flow
 analysis. It does not enforce Inbox classification; `InboxNotificationRouter`
-independently uses exhaustive top-level and nested owned-event switches with
-typed ignore reasons.
+is outside this active guard.
+
+The retained `InboxNotificationRouter` source is dormant historical implementation:
+its exhaustive switches describe preserved source, not an active enforcement owner.
+It must not be reconnected without a new product decision.
 
 ## Former Shell And Custom SwiftLint Coverage
 

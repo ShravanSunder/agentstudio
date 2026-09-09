@@ -28,6 +28,15 @@ struct AgentStudioOTLPCommonQuiescenceProjectionTests {
                 "agentstudio.performance.git.retry_pending.count": .int(3),
                 "agentstudio.performance.git.logical_running.count": .int(2),
                 "agentstudio.performance.git.logical_debt.count": .int(1),
+                "agentstudio.performance.git.future_automatic.count": .int(86),
+                "agentstudio.performance.git.future_failure.count": .int(1),
+                "agentstudio.performance.git.ready_pending.count": .int(0),
+                "agentstudio.performance.git.capacity_pending.count": .int(0),
+                "agentstudio.performance.git.active_follow_up.count": .int(1),
+                "agentstudio.performance.git.unclassified_pending.count": .int(0),
+                "agentstudio.performance.git.overdue_deadline.count": .int(0),
+                "agentstudio.performance.git.oldest_preparation_ms": .double(120),
+                "agentstudio.performance.git.next_deadline_ms": .double(1000),
                 "agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count": .int(8),
                 "agentstudio.performance.runtime_delivery.eventbus_active_delivery_debt.count": .int(7),
                 "agentstudio.performance.runtime_delivery.total_pending.count": .int(6),
@@ -59,6 +68,15 @@ struct AgentStudioOTLPCommonQuiescenceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.git.retry_pending.count"] == .int(3))
         #expect(projection.attributes["agentstudio.performance.git.logical_running.count"] == .int(2))
         #expect(projection.attributes["agentstudio.performance.git.logical_debt.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.performance.git.future_automatic.count"] == .int(86))
+        #expect(projection.attributes["agentstudio.performance.git.future_failure.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.performance.git.ready_pending.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.performance.git.capacity_pending.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.performance.git.active_follow_up.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.performance.git.unclassified_pending.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.performance.git.overdue_deadline.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.performance.git.oldest_preparation_ms"] == .double(120))
+        #expect(projection.attributes["agentstudio.performance.git.next_deadline_ms"] == .double(1000))
         #expect(
             projection.attributes["agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count"]
                 == .int(8))

@@ -118,6 +118,29 @@ enum RepoExplorerPaneRecencyText {
         if elapsedHours < 24 { return "\(elapsedHours)h" }
         return "\(elapsedHours / 24)d"
     }
+
+    static func nextPresentationChangeDate(referenceDate: Date, now: Date) -> Date {
+        let elapsedSeconds = max(0, now.timeIntervalSince(referenceDate))
+        let nextTextBoundary: TimeInterval
+        if elapsedSeconds < 60 {
+            nextTextBoundary = 60
+        } else if elapsedSeconds < 60 * 60 {
+            nextTextBoundary = (floor(elapsedSeconds / 60) + 1) * 60
+        } else if elapsedSeconds < 24 * 60 * 60 {
+            nextTextBoundary = (floor(elapsedSeconds / (60 * 60)) + 1) * 60 * 60
+        } else {
+            nextTextBoundary = (floor(elapsedSeconds / (24 * 60 * 60)) + 1) * 24 * 60 * 60
+        }
+
+        let tierBoundaries = [
+            AppPolicies.EntityRecency.strongBlueDuration,
+            AppPolicies.EntityRecency.mediumBlueDuration,
+            AppPolicies.EntityRecency.mutedBlueDuration,
+            AppPolicies.EntityRecency.faintBlueDuration,
+        ]
+        let nextTierBoundary = tierBoundaries.first { $0 > elapsedSeconds }
+        return referenceDate.addingTimeInterval(min(nextTextBoundary, nextTierBoundary ?? nextTextBoundary))
+    }
 }
 
 enum RepoExplorerPaneRecencyTier: Equatable, Sendable {
@@ -190,5 +213,26 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
         self.unassociatedPaneLocations = unassociatedPaneLocations
         self.bridgePaneCommandCandidatesByWorktreeId = bridgePaneCommandCandidatesByWorktreeId
+    }
+
+    func replacing(
+        repos: [RepoPresentationItem]? = nil,
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]? = nil,
+        groupingMode: RepoExplorerGroupingMode? = nil,
+        sortOrder: RepoExplorerSortOrder? = nil,
+        query: String? = nil,
+        bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]]? = nil
+    ) -> Self {
+        Self(
+            repos: repos ?? self.repos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId ?? repoEnrichmentSnapshotByRepoId,
+            groupingMode: groupingMode ?? self.groupingMode,
+            sortOrder: sortOrder ?? self.sortOrder,
+            query: query ?? self.query,
+            paneLocationsByWorktreeId: paneLocationsByWorktreeId,
+            unassociatedPaneLocations: unassociatedPaneLocations,
+            bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId
+                ?? self.bridgePaneCommandCandidatesByWorktreeId
+        )
     }
 }

@@ -269,6 +269,144 @@ struct RepoExplorerPaneProjectionTests {
         #expect(firstTabRows.map(\.secondaryText) == ["First message", "Third message"])
     }
 
+    @Test("By Tab membership includes associated and unassociated panes in their canonical tabs")
+    func byTabIncludesMixedAndAllUnassociatedTabs() throws {
+        let fixture = makeMixedAndUnassociatedTabFixture()
+        let projection = fixture.projection
+        let repoId = fixture.repoId
+        let mixedTabId = fixture.mixedTabId
+        let unassociatedTabId = fixture.unassociatedTabId
+        let associatedPaneId = fixture.associatedPaneId
+        let mixedUnassociatedPaneId = fixture.mixedUnassociatedPaneId
+        let unassociatedOnlyPaneId = fixture.unassociatedOnlyPaneId
+
+        #expect(projection.resolvedGroups.map(\.repoTitle) == ["Mixed", "Unassociated"])
+        #expect(projection.resolvedGroups.map(\.organizationName) == ["2 panes", "1 pane"])
+        let mixedRows = try #require(projection.paneRowsByGroupId["tab:\(mixedTabId.uuidString)"])
+        #expect(mixedRows.map(\.destination.paneId) == [associatedPaneId, mixedUnassociatedPaneId])
+        let unassociatedRows = try #require(
+            projection.paneRowsByGroupId["tab:\(unassociatedTabId.uuidString)"]
+        )
+        #expect(unassociatedRows.map(\.destination.paneId) == [unassociatedOnlyPaneId])
+
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        let paneEntries = rowIndex.entries.compactMap { entry -> (String, UUID)? in
+            guard case .resolvedPaneRow(let groupId, let identity, _) = entry else { return nil }
+            return (groupId, identity.paneId)
+        }
+        #expect(
+            paneEntries.map(\.1)
+                == [associatedPaneId, mixedUnassociatedPaneId, unassociatedOnlyPaneId]
+        )
+        let resolvedRows = rowIndex.entries.compactMap { entry -> RepoExplorerResolvedPaneContext? in
+            guard case .resolvedPaneRow(let groupId, let identity, let rowId) = entry else { return nil }
+            guard case .tabPane(let rowGroupId, let paneId) = rowId else {
+                Issue.record("By Tab rows require tab-owned identity")
+                return nil
+            }
+            #expect(rowGroupId == groupId)
+            #expect(paneId == identity.paneId)
+            return rowIndex.resolvePane(
+                groupId: groupId,
+                repoId: identity.repoId,
+                paneId: identity.paneId,
+                rowId: rowId
+            )
+        }
+        #expect(resolvedRows.map(\.destination.paneId) == paneEntries.map(\.1))
+        #expect(resolvedRows.map(\.row.repoId) == [repoId, nil, nil])
+        #expect(resolvedRows.map(\.row.isActive) == [true, false, true])
+
+        let collapsed = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: ["tab:\(mixedTabId.uuidString)"],
+            isFiltering: false
+        )
+        #expect(
+            !collapsed.entries.contains { entry in
+                guard case .resolvedPaneRow(let groupId, _, _) = entry else { return false }
+                return groupId == "tab:\(mixedTabId.uuidString)"
+            }
+        )
+    }
+
+    @Test("By Tab repository association changes enrichment without changing membership identity")
+    func byTabAssociationTransitionPreservesMembershipIdentity() throws {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let tabId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let location = WorkspacePaneLocation(
+            paneId: paneId,
+            tabId: tabId,
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true
+        )
+        let repository = makeRepo(id: repoId, worktrees: [worktree])
+        let associated = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repository],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [worktree.id: [location]]
+            ),
+            branchNameByWorktreeId: [worktree.id: "main"],
+            branchStatusByWorktreeId: [worktree.id: .unknown]
+        )
+        let unassociated = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repository],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                unassociatedPaneLocations: [location]
+            )
+        )
+
+        #expect(associated.resolvedGroups.map(\.id) == unassociated.resolvedGroups.map(\.id))
+        #expect(associated.resolvedGroups.map(\.organizationName) == ["1 pane"])
+        #expect(unassociated.resolvedGroups.map(\.organizationName) == ["1 pane"])
+        let associatedIndex = RepoExplorerRowIndex(
+            projection: associated,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        let unassociatedIndex = RepoExplorerRowIndex(
+            projection: unassociated,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        let associatedRowID = try #require(
+            associatedIndex.entries.compactMap { entry -> RepoExplorerRowID? in
+                guard case .resolvedPaneRow(_, _, let rowID) = entry else { return nil }
+                return rowID
+            }.first
+        )
+        let unassociatedRowID = try #require(
+            unassociatedIndex.entries.compactMap { entry -> RepoExplorerRowID? in
+                guard case .resolvedPaneRow(_, _, let rowID) = entry else { return nil }
+                return rowID
+            }.first
+        )
+        #expect(associatedRowID == unassociatedRowID)
+        #expect(associatedRowID == .tabPane(groupID: "tab:\(tabId.uuidString)", paneID: paneId))
+        let associatedRow = try #require(associated.paneRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
+        let unassociatedRow = try #require(unassociated.paneRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
+        #expect(associatedRow.repoId == repoId)
+        #expect(associatedRow.worktreeId == worktree.id)
+        #expect(associatedRow.branchContextText == "agent-studio · main")
+        #expect(unassociatedRow.repoId == nil)
+        #expect(unassociatedRow.worktreeId == nil)
+        #expect(unassociatedRow.branchContextText == nil)
+        #expect(unassociatedRow.branchStatus == nil)
+    }
+
     @Test("empty states distinguish no repositories, no panes, and no tabs")
     func emptyStatesMatchGroupingMode() {
         let emptyRepoProjection = RepoExplorerProjection.project(
@@ -534,6 +672,89 @@ struct RepoExplorerPaneProjectionTests {
         )
     }
 
+    private func makeMixedAndUnassociatedTabFixture() -> ByTabMembershipFixture {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let mixedTabId = UUIDv7.generate()
+        let unassociatedTabId = UUIDv7.generate()
+        let associatedPaneId = UUIDv7.generate()
+        let mixedUnassociatedPaneId = UUIDv7.generate()
+        let unassociatedOnlyPaneId = UUIDv7.generate()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [makeRepo(id: repoId, worktrees: [worktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    worktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: associatedPaneId,
+                            tabId: mixedTabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ]
+                ],
+                unassociatedPaneLocations: [
+                    WorkspacePaneLocation(
+                        paneId: mixedUnassociatedPaneId,
+                        tabId: mixedTabId,
+                        tabIndex: 0,
+                        paneIndexInTab: 1,
+                        isActiveInTab: false
+                    ),
+                    WorkspacePaneLocation(
+                        paneId: unassociatedOnlyPaneId,
+                        tabId: unassociatedTabId,
+                        tabIndex: 1,
+                        paneIndexInTab: 0,
+                        isActiveInTab: true
+                    ),
+                ]
+            ),
+            paneRowFactsByPaneId: [
+                associatedPaneId: paneFacts(
+                    title: "associated", activity: "Associated activity", time: 30, isActive: true),
+                mixedUnassociatedPaneId: paneFacts(
+                    title: "mixed unassociated", activity: "Mixed activity", time: 20, recency: "1m"),
+                unassociatedOnlyPaneId: paneFacts(
+                    title: "unassociated only", activity: "Unassociated activity", time: 10, recency: "2m",
+                    isActive: true),
+            ],
+            tabGroupFactsByTabId: [
+                mixedTabId: .init(displayTitle: "Mixed"),
+                unassociatedTabId: .init(displayTitle: "Unassociated"),
+            ]
+        )
+        return ByTabMembershipFixture(
+            projection: projection,
+            repoId: repoId,
+            mixedTabId: mixedTabId,
+            unassociatedTabId: unassociatedTabId,
+            associatedPaneId: associatedPaneId,
+            mixedUnassociatedPaneId: mixedUnassociatedPaneId,
+            unassociatedOnlyPaneId: unassociatedOnlyPaneId
+        )
+    }
+
+    private func paneFacts(
+        title: String,
+        activity: String,
+        time: TimeInterval,
+        recency: String = "Now",
+        isActive: Bool = false
+    ) -> RepoExplorerPaneRowFacts {
+        RepoExplorerPaneRowFacts(
+            terminalTitle: title,
+            latestMessageText: activity,
+            recencyReferenceDate: Date(timeIntervalSince1970: time),
+            recencyText: recency,
+            isActive: isActive
+        )
+    }
+
     private func makeWorktree(repoId: UUID, name: String = "main") -> Worktree {
         Worktree(repoId: repoId, name: name, path: URL(fileURLWithPath: "/tmp/\(name)"))
     }
@@ -551,4 +772,14 @@ struct RepoExplorerPaneProjectionTests {
             updatedAt: Date(timeIntervalSince1970: 0)
         )
     }
+}
+
+private struct ByTabMembershipFixture {
+    let projection: RepoExplorerSidebarProjection
+    let repoId: UUID
+    let mixedTabId: UUID
+    let unassociatedTabId: UUID
+    let associatedPaneId: UUID
+    let mixedUnassociatedPaneId: UUID
+    let unassociatedOnlyPaneId: UUID
 }

@@ -33,10 +33,8 @@ struct VendorConsumerWiringScriptTests {
 
         let benchmarkTask = try #require(taskBlock(named: "test:swift:benchmark", in: source))
         #expect(
-            benchmarkTask.contains("depends = [\"build\"]")
-                || benchmarkTask.contains("depends = [\"verify-vendors\", \"build\"]")
-                || benchmarkTask.contains("depends = [\"build\", \"verify-vendors\"]"),
-            "test:swift:benchmark must inherit verification through build")
+            hasVendorVerificationBeforeConsumption(benchmarkTask),
+            "test:swift:benchmark must verify vendors before compiling in its own slot")
     }
 
     @Test("Bridge development server task delegates vendor verification to its direct script")

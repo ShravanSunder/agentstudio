@@ -163,6 +163,31 @@ package struct TestPushClock: Clock {
         }
     }
 
+    @discardableResult
+    package func advanceToNextPendingSleep() -> Bool {
+        var ready: [UnsafeContinuation<Void, Error>] = []
+        var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
+        let advanced = state.withCriticalRegion { st in
+            guard let nextDeadline = st.pending.map(\.deadline).min() else {
+                return false
+            }
+            st.now = max(st.now, nextDeadline)
+            let remaining = st.pending.filter { $0.deadline > st.now }
+            let resumed = st.pending.filter { $0.deadline <= st.now }
+            st.pending = remaining
+            ready = resumed.map(\.continuation)
+            resumedWaiters = Self.dequeueSatisfiedPendingSleepWaiters(state: &st)
+            return true
+        }
+        for continuation in ready {
+            continuation.resume()
+        }
+        for waiter in resumedWaiters {
+            waiter.resume()
+        }
+        return advanced
+    }
+
     package var pendingSleepCount: Int {
         state.withCriticalRegion { $0.pending.count }
     }
@@ -173,6 +198,12 @@ package struct TestPushClock: Clock {
 
     package var pendingSleepGenerations: Set<Int> {
         state.withCriticalRegion { Set($0.pending.map(\.generation)) }
+    }
+
+    package var pendingSleepDeadlines: Set<Instant> {
+        state.withCriticalRegion { currentState in
+            Set(currentState.pending.map { Instant(nanoseconds: $0.deadline) })
+        }
     }
 
     package func waitForPendingSleepCount(atLeast count: Int = 1) async {

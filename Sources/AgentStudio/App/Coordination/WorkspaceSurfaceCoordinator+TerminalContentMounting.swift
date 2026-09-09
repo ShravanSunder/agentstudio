@@ -27,11 +27,17 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// Steady-state creation may enrich the terminal from current repository
     /// topology. Prepared startup activation uses the topology-independent
     /// sibling below instead.
+    ///
+    /// `authority` is a compile-time witness the caller must already hold
+    /// (from `ViewRegistry.terminalSurfaceCreationAuthority(for:generation:)`);
+    /// there is no default value, so a call site that skipped the custody
+    /// question does not build.
     @discardableResult
     func mountCurrentTerminalContent(
         pane: Pane,
         initialFrame: NSRect? = nil,
-        treatAsRestoredSessionStart: Bool = false
+        treatAsRestoredSessionStart: Bool = false,
+        authority: TerminalSurfaceCreationAuthority
     ) -> NSView? {
         guard case .terminal = pane.content else {
             preconditionFailure("nonterminal pane entered the terminal content owner")
@@ -69,7 +75,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             switch createTopologyIndependentTerminalView(
                 for: pane,
                 initialFrame: initialFrame,
-                treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                authority: authority
             ) {
             case .mounted(let mountedContent):
                 mountedView = mountedContent.view
@@ -84,10 +91,15 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
 
     /// Mount a terminal from accepted composition without consulting repository
     /// topology or canonical atoms for identity, launch, or content selection.
+    ///
+    /// `authority` is a compile-time witness only. `PreparedTerminalMountAdmissionPort`
+    /// mints and passes `.prepared(claim)` here after its own successful
+    /// `pending -> mounting` claim; there is no default value.
     @discardableResult
     func mountPreparedTerminalContent(
         admission: TerminalActivationAdmission,
-        initialFrame: NSRect?
+        initialFrame: NSRect?,
+        authority: TerminalSurfaceCreationAuthority
     ) -> TerminalActivationAttemptResult {
         let pane = admission.descriptor.pane
         guard case .terminal = pane.content else {
@@ -103,7 +115,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         switch createTopologyIndependentTerminalView(
             for: pane,
             initialFrame: initialFrame,
-            treatAsRestoredSessionStart: true
+            treatAsRestoredSessionStart: true,
+            authority: authority
         ) {
         case .mounted(let mountedContent):
             return .ready(surfaceID: mountedContent.surfaceID)

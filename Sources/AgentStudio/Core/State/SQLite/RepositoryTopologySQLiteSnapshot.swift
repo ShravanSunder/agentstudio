@@ -5,6 +5,7 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
     let worktrees: [CanonicalWorktree]
     let unavailableRepoIds: Set<UUID>
     let watchedPaths: [WatchedPath]
+    let watchedPathStableKeysByID: [UUID: String]
     let updatedAt: Date
 
     init(
@@ -12,12 +13,16 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
         worktrees: [CanonicalWorktree] = [],
         unavailableRepoIds: Set<UUID> = [],
         watchedPaths: [WatchedPath] = [],
+        watchedPathStableKeysByID: [UUID: String]? = nil,
         updatedAt: Date
     ) {
         self.repos = repos
         self.worktrees = worktrees
         self.unavailableRepoIds = unavailableRepoIds
         self.watchedPaths = watchedPaths
+        self.watchedPathStableKeysByID =
+            watchedPathStableKeysByID
+            ?? Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0.stableKey) })
         self.updatedAt = updatedAt
     }
 }

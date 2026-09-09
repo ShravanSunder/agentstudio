@@ -1,6 +1,8 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AppKit
 import Foundation
+import GhosttyKit
 import Testing
 
 @testable import AgentStudioTerminal
@@ -37,6 +39,17 @@ private final class TerminalActivityInputRecorder {
 }
 
 @MainActor
+private final class ExactControlOrderRecorder {
+    private(set) var inputs: [TerminalActivitySourceInput] = []
+    private(set) var runtimeWasEmptyAtInput = false
+
+    func record(_ input: TerminalActivitySourceInput, runtimeWasEmpty: Bool) {
+        inputs.append(input)
+        runtimeWasEmptyAtInput = runtimeWasEmpty
+    }
+}
+
+@MainActor
 private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
     private let surfaceIDsByViewObjectID: [ObjectIdentifier: UUID]
     private let paneIDsBySurfaceID: [UUID: UUID]
@@ -59,6 +72,78 @@ private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
 }
 
 extension GhosttyActionRouterTests {
+    @Test("commandFinished reaches ordered activity input before the ordinary runtime fact")
+    func commandFinishedReachesOrderedInputBeforeRuntimeFact() async throws {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneID = PaneId(existingUUID: paneUUID)
+        let surfaceViewObjectID = ObjectIdentifier(NSView(frame: .zero))
+        let runtime = TerminalRuntime(
+            paneId: paneID,
+            metadata: PaneMetadata(paneId: paneID, title: "Ordered command finish")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let routingLookup = LocalDrainRoutingLookup(
+            surfaceIDsByViewObjectID: [surfaceViewObjectID: surfaceID],
+            paneIDsBySurfaceID: [surfaceID: paneUUID]
+        )
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
+        let recorder = ExactControlOrderRecorder()
+        let bindingID = UUIDv7.generate()
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindTerminalActivityInput(
+            id: bindingID,
+            context: { _ in
+                TerminalActivityProjectionContext(
+                    isAttended: true,
+                    isAgentClassified: false,
+                    outputBurstThreshold: 30
+                )
+            },
+            sink: { input in
+                let runtimeWasEmpty = (await runtime.eventsSince(seq: 0)).events.isEmpty
+                recorder.record(input, runtimeWasEmpty: runtimeWasEmpty)
+            }
+        )
+        defer {
+            Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID)
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+        }
+
+        let routed = await Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            precedingTitle: nil,
+            actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+            payload: .commandFinished(exitCode: 0, duration: 42),
+            surfaceViewObjectID: surfaceViewObjectID,
+            expectedSurfaceID: surfaceID,
+            routingLookup: routingLookup,
+            accumulator: accumulator
+        )
+
+        #expect(routed)
+        #expect(recorder.runtimeWasEmptyAtInput)
+        let input = try #require(recorder.inputs.first)
+        guard
+            case .orderedControl(
+                let recordedSurfaceID,
+                let recordedPaneID,
+                let precedingAggregate,
+                .commandFinished
+            ) = input
+        else {
+            Issue.record("Expected one ordered commandFinished input")
+            return
+        }
+        #expect(recordedSurfaceID == surfaceID)
+        #expect(recordedPaneID == paneUUID)
+        #expect(precedingAggregate == nil)
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.count == 1)
+    }
+
     @Test("mounted surface without apply target does not self-reschedule failed title")
     func mountedSurfaceWithoutApplyTargetDoesNotSelfRescheduleFailedTitle() async {
         let surfaceID = UUIDv7.generate()

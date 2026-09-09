@@ -33,6 +33,12 @@ xcuserdata/
 node_modules/
 .pnpm-store/
 .vite/
+# Local credentials and Cloudflare operator environment
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
 /.cloudflare/
 BridgeWeb/dist/
 BridgeWeb/.vitest-attachments/

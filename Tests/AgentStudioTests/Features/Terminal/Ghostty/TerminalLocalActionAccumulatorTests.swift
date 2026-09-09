@@ -460,6 +460,7 @@ struct TerminalLocalActionAccumulatorTests {
         }
 
         let batch = try #require(accumulator.beginDrain(for: surfaceID, lane: .immediate))
+        #expect(batch.metrics.outputAdvancementCount == 2)
         #expect(Ghostty.ActionRouter.terminalAccumulatorDrainClass(for: batch) == .immediate)
         let activity = try #require(batch.activity)
         #expect(activity.cumulativePositiveRowGrowth == 15)

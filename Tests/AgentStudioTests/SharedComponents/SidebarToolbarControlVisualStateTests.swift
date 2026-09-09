@@ -54,7 +54,7 @@ struct SidebarToolbarControlVisualStateTests {
             encoding: .utf8
         )
         let repoExplorerSource = try String(
-            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
             encoding: .utf8
         )
 
