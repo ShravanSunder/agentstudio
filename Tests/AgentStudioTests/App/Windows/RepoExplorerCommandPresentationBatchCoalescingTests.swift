@@ -128,11 +128,18 @@ extension RepoExplorerCommandPresentationBatchTests {
                         processIdentifier: 943
                     )
                     defer { try? FileManager.default.removeItem(at: trace.directory) }
+                    let yieldGate = RepoExplorerCoalescingYieldGate()
+                    let resumedYield = ExactEventAcknowledgement<Bool>()
+                    defer { yieldGate.release() }
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: fixture.store,
                         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
                         dispatcher: .shared,
-                        performanceTraceRecorder: trace.recorder
+                        performanceTraceRecorder: trace.recorder,
+                        coalescingYield: {
+                            await yieldGate.wait()
+                            resumedYield.record(true)
+                        }
                     )
                     batch.start()
                     defer { batch.stop() }
@@ -149,11 +156,10 @@ extension RepoExplorerCommandPresentationBatchTests {
                     let visibleSnapshotBefore = try coalescingRefreshCount(
                         at: outputFileURL, trigger: "visible_snapshot")
 
-                    // Arms the onChange task, lets it run up to its own coalescing yield, then a
-                    // synchronous visible-snapshot refresh runs during that yield (no other awaits
-                    // in between).
+                    // Hold the old observation wake at its coalescing boundary while the
+                    // visible snapshot synchronously supersedes its tracking generation.
                     fixture.store.setActivePane(fixture.paneA2.id, inTab: fixture.tabA.id)
-                    await Task.yield()
+                    await eventually("coalescer reached its suspension boundary") { yieldGate.isSuspended }
                     batch.acceptVisibleWorktreeSnapshot(
                         makeCoalescingVisibleWorktreeSnapshot(
                             worktreeIDs: [fixture.worktree.id],
@@ -161,7 +167,9 @@ extension RepoExplorerCommandPresentationBatchTests {
                             visibleRevision: 2
                         )
                     )
-                    for _ in 0..<500 { await Task.yield() }
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    yieldGate.release()
+                    _ = await resumedYield.wait { $0 }
                     try await trace.recorder.drain()
                     let observationAfter = try coalescingRefreshCount(at: outputFileURL, trigger: "observation")
                     let visibleSnapshotAfter = try coalescingRefreshCount(
