@@ -22,7 +22,12 @@ _xcb_pipe() {
     if [ -n "${XCB_EXTRA_ARGS:-}" ]; then
       read -r -a extra_args <<<"${XCB_EXTRA_ARGS}"
     fi
-    bash "$filter_script" | xcbeautify "${extra_args[@]}"
+    # Bash 3.2 treats an empty array expansion as unset when nounset is enabled.
+    if [ "${#extra_args[@]}" -gt 0 ]; then
+      bash "$filter_script" | xcbeautify "${extra_args[@]}"
+    else
+      bash "$filter_script" | xcbeautify
+    fi
     return
   fi
 
