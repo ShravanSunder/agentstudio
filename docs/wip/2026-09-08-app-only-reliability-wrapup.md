@@ -124,7 +124,17 @@ accepted panes, preserving empty repository/tab topology and frozen descriptor/f
 assertions; joined shutdown is local to those tests. No production guard changed.
 Astra independently verified the cause and correction. Focused restore/durability/architecture
 proof passed 30 tests / three suites, exit 0:
-`/tmp/agentstudio-pr335-restore-fixture-proof.log`. Large-lane follow-up is running.
+`/tmp/agentstudio-pr335-restore-fixture-proof.log`. The large lane passed all619 tests;
+restore correction committed as `d2a659756`. The subsequent full aggregate passed fast,
+isolated and large Swift phases, then failed one Bridge topology replay WebKit case
+(seven issues; nine sibling cases passed). PR routing uses the workspace command queue,
+but that case had no executor. Its local fixture now installs the real executor, joins
+the queue before each existing retirement drain, and cleans up on success/throw.
+Astra verified all assertions and the other nine cases are unchanged. Correctly scoped
+WebKit proof passed ten tests / two suites, exit0:
+`/tmp/agentstudio-pr335-bridge-nested-authorized.log`. Earlier attempts selected zero tests
+or failed SwiftPM sandbox setup; neither counts as passing proof. Full WebKit follow-up
+and final committed aggregate remain required.
 Final aggregate on the final committed correction remains required; no aggregate success is claimed.
 
 ## Prior bounded proof retained
