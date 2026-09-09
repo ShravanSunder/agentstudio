@@ -522,7 +522,8 @@ import Observation
             guard await Self.writeStrictColdMutation(at: coldMutationURL) else { return nil }
             guard
                 await waitForStrictColdLocalCompletion(
-                    worktreeID: worktree.id
+                    worktreeID: worktree.id,
+                    repositoryID: repository.id
                 )
             else { return nil }
             guard await Self.removeStrictColdMutation(at: coldMutationURL) else { return nil }
@@ -579,7 +580,8 @@ import Observation
         }
 
         private func waitForStrictColdLocalCompletion(
-            worktreeID: UUID
+            worktreeID: UUID,
+            repositoryID: UUID
         ) async -> Bool {
             let clock = ContinuousClock()
             let deadline = clock.now + AppPolicies.SidebarPerformanceProof.fixturePreparationTimeout
@@ -587,7 +589,10 @@ import Observation
                 if Self.strictColdLocalCompletionObserved(
                     repoCache?.worktreeEnrichment(for: worktreeID)
                 ) {
-                    return true
+                    // Registration may read the file before its FSEvent checkpoint.
+                    // Require the activity owner's promotion before removing the stimulus.
+                    let activity = await strictSidebarRepositoryActivityClassification()
+                    if activity.warmRepositoryIDs.contains(repositoryID) { return true }
                 }
                 do {
                     try await AsyncDelay.taskSleep.wait(
