@@ -57,7 +57,7 @@ ONE APP-ONLY PR, READY BUT UNMERGED
 │   ├── DONE: five controller suites await command completion; focused gates passed
 │   ├── DONE: corrected tests clean up asynchronous harnesses on success or thrown failure
 │   ├── DONE: prepared-journal/executor fixtures and joined shutdown; focused gates passed
-│   ├── OPEN: diagnose first-open blank drawer using real host/visibility/focus evidence
+│   ├── DONE: first-open blank drawer root cause, controlled red/green and native attachment proof
 │   ├── OPEN: resolve or explicitly bound busy-session cleanup and native-free responsiveness
 │   └── OPEN: final aggregate rerun, current shared-input runtime proof and native decisions
 └── Delivery
@@ -230,3 +230,30 @@ Historical requested records remain:
 [takeover history](2026-09-07-app-only-reliability-audit/takeover-state.md), and
 [tree review](2026-09-07-app-only-reliability-audit/astra-wrapup-tree-review.md).
 They record earlier errors and proof boundaries; they do not override this scope or current source.
+
+## 2026-09-09 first-open drawer correction
+
+Unlocked foreground proof reproduced a blank first drawer on41520b3c3. The native
+surface existed, but two SwiftUI representables requested its one cached AppKit
+container and the host did not attach until later UI transitions. The redundant
+registration-dependent outer identity in FlatPaneStripContent changed concurrently
+with the child observing slot.host. Removing it leaves stable pane identity in
+ForEach and preserves host-instance replacement identity in PaneLeafContainer.
+
+The first broad controller regression was inconclusive because it did not establish
+the drawer's preference-driven presentation. Those exploratory edits were discarded.
+The retained small real-window DrawerPanel test requires panel appearance and compares
+early/late registration: early passed and late failed before the fix; both passed
+afterward. Both cases also prove real host replacement and retire temporary hosts.
+Focused hosting/retention/slot proof:26 tests/4 suites, exit0,
+/tmp/pr335-drawer-host-final-focused.log. Astra reviewed the final two-file delta
+without findings.
+
+Corrected debug58773/window241682 launched through the standard shared-input helper;
+observability passed. Fresh terminal tab then first Add Drawer Pane attached and
+displayed terminal content without an agent collapse/reopen. Trace shows one
+makeNSView followed by window=true in the same second10:25:07Z. Screenshots:
+/tmp/pr335-fixed-first-drawer.png and /tmp/pr335-fixed-first-drawer-settled.png.
+Additional user input/second drawer appeared during this proof; later interactions
+are not attributed to the agent. Final full aggregate/CI on this correction remain
+required. Stalled zmx retirement policy remains unanswered; no vendor change.
