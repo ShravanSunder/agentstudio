@@ -319,7 +319,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func showWorktreeSidebarToolbarAction() {
-        AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
+        AppCommandDispatcher.shared.dispatch(.showReposSidebar)
         Task { @MainActor [weak self] in
             self?.refreshToolbarToggleState()
         }
@@ -363,7 +363,7 @@ extension MainWindowController: NSToolbarDelegate {
             item = makeNativeToolbarItem(
                 identifier: itemIdentifier,
                 label: "Repositories",
-                command: .showWorktreeSidebar,
+                command: .showReposSidebar,
                 symbolName: "square.stack.3d.down.right",
                 isBordered: false,
                 action: #selector(showWorktreeSidebarToolbarAction)

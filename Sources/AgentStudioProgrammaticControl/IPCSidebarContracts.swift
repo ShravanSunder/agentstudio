@@ -2,12 +2,13 @@ import Foundation
 
 public enum IPCSidebarSurface: String, Codable, Equatable, Sendable {
     case repo
+    case panes
     case inbox
 }
 
 public enum IPCSidebarGroupingMode: String, Codable, Equatable, Sendable {
     case repo
-    case pane
+    case activity
     case tab
     case noGrouping = "none"
 }

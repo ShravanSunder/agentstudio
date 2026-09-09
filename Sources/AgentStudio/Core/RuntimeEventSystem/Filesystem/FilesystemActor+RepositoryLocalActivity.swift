@@ -186,7 +186,8 @@ extension FilesystemActor {
         for binding in barrier.bindings {
             guard let repositoryStableKey = repositoryStableKeysByWorktreeId[binding.worktreeId]
             else {
-                repositoryStableKeysByParticipant[binding.participant, default: []] = []
+                // Inventory observers do not ingest repository activity. Including them
+                // would require an activity acknowledgement they can never produce.
                 continue
             }
             repositoryStableKeysByParticipant[binding.participant, default: []].insert(

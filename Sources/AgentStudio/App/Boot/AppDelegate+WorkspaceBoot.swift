@@ -348,6 +348,7 @@ extension AppDelegate {
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
             gitWorkingTreeProvider: gitWorkingTreeStatusProvider,
+            remoteReferenceRefreshProvider: WorkspaceRemoteReferenceProvider.make(),
             fseventStreamClient: fseventStreamClient,
             repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             performanceTraceRecorder: performanceTraceRecorder

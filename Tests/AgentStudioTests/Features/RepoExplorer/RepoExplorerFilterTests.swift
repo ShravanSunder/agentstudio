@@ -38,6 +38,16 @@ struct RepoExplorerFilterTests {
         #expect(result.count == 2)
     }
 
+    @Test("worker filtering normalizes whitespace while preserving name matching")
+    func filteringNormalizesWhitespace() {
+        let repositories = presentableRepos([
+            makeRepo(name: "alpha", worktrees: [makeWorktree(name: "main")]),
+            makeRepo(name: "beta", worktrees: [makeWorktree(name: "develop")]),
+        ])
+        #expect(RepoExplorerFilter.filter(repos: repositories, query: "  ").count == 2)
+        #expect(RepoExplorerFilter.filter(repos: repositories, query: " alpha ").map(\.name) == ["alpha"])
+    }
+
     // MARK: - Repo Name Match
 
     @Test

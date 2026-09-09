@@ -117,8 +117,8 @@ struct RepoExplorerContextMenuPresenterTests {
         let requests = RepoExplorerWorktreeCommandPresentation.requests(
             worktreeId: worktreeID,
             repoId: repoID,
-            isFavorite: false,
-            showsFavoriteControl: true
+            isPinned: false,
+            showsPinnedControl: true
         )
         let disabledRequest = try #require(
             requests.first(where: { $0.command == .showBridgeFiles })
@@ -130,7 +130,7 @@ struct RepoExplorerContextMenuPresenterTests {
                     (request, request != disabledRequest)
                 }
             ),
-            favoriteStateByRepositoryID: [repoID: false]
+            pinnedStateByRepositoryID: [repoID: false]
         )
         var dispatchedRequests: [RepoExplorerCommandPresentationRequest] = []
         let presenter = RepoExplorerContextMenuPresenter(
@@ -154,7 +154,7 @@ struct RepoExplorerContextMenuPresenterTests {
                 LocalActionSpec.createNewInTab.actionSpec.label,
                 LocalActionSpec.createNewInPane.actionSpec.label,
                 "",
-                AppCommand.addRepoFavorite.definition.label,
+                AppCommand.pinRepo.definition.label,
                 LocalActionSpec.openInEditorMenu.actionSpec.label,
                 "",
                 LocalActionSpec.revealInFinder.actionSpec.label,
@@ -168,6 +168,72 @@ struct RepoExplorerContextMenuPresenterTests {
         #expect(dispatchedRequests.map(\.command) == [.openNewTerminalInTab])
         #expect(dispatchedRequests.first?.target == worktreeID)
         #expect(dispatchedRequests.first?.surface == .contextMenu)
+    }
+
+    @Test("pane menu presents its surface-specific pin command and stable pane target")
+    func paneMenuPresentsPinCommandForCanonicalPaneTarget() throws {
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let paneID = UUIDv7.generate()
+        let groupID = "panes:panes:repo:\(repoID.uuidString)"
+        let destination = RepoExplorerPaneDestination(
+            paneId: paneID,
+            repoId: repoID,
+            worktreeId: worktreeID,
+            worktreeLabel: "main",
+            tabId: UUIDv7.generate(),
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true,
+            paneDisplayLabel: "Terminal"
+        )
+        var pane = RepoExplorerProjectedPaneRow(
+            groupId: groupID,
+            repoId: repoID,
+            destination: destination,
+            membershipOwner: .tab,
+            rowId: "pane:\(paneID.uuidString)",
+            primaryText: "Terminal"
+        )
+        pane.isPinned = false
+        let rowID = RepoExplorerRowID.tabPane(groupID: groupID, paneID: paneID)
+        let presentation = RepoExplorerMaterializedRowPresentation.pane(pane)
+        let row = RepoExplorerMaterializedRow(
+            id: rowID,
+            contentRevision: RepoExplorerRowContentRevision(presentation: presentation),
+            layout: RepoExplorerRowLayout.make(for: presentation),
+            representedRepoID: repoID,
+            representedWorktreeID: worktreeID
+        )
+        let request = try #require(
+            RepoExplorerPaneCommandPresentation.requests(paneId: paneID, isPinned: false)
+                .first { $0.surface == .contextMenu }
+        )
+        let snapshot = RepoExplorerCommandPresentationSnapshot(
+            generation: 8,
+            results: [request: true]
+        )
+        var dispatchedRequests: [RepoExplorerCommandPresentationRequest] = []
+        let presenter = RepoExplorerContextMenuPresenter(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            interactions: RepoExplorerTableInteractions(
+                onCommandRequest: { dispatchedRequests.append($0) },
+                onToggleGroup: { _ in },
+                onFocusPane: { _ in }
+            ),
+            isRowCurrent: { $0 == rowID }
+        )
+
+        let menu = try #require(
+            presenter.makeMenu(for: row, commandPresentationSnapshot: snapshot)
+        )
+        #expect(menu.items.map(\.title) == [AppCommand.pinPane.definition.label])
+
+        menu.performActionForItem(at: 0)
+
+        #expect(dispatchedRequests == [request])
+        #expect(dispatchedRequests.first?.target == paneID)
+        #expect(dispatchedRequests.first?.targetType == .pane)
     }
 
     private func makeMaterializer(

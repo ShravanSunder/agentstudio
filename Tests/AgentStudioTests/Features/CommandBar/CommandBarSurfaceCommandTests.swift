@@ -28,14 +28,14 @@ struct CommandBarSurfaceCommandTests {
 
         let sidebarInbox = items.first { $0.command == .showInboxNotifications }
         let paneInbox = items.first { $0.command == .showPaneInboxNotifications }
-        let worktreeSidebar = items.first { $0.command == .showWorktreeSidebar }
+        let reposSidebar = items.first { $0.command == .showReposSidebar }
 
         #expect(sidebarInbox == nil)
         #expect(paneInbox == nil)
 
-        #expect(worktreeSidebar?.title == "Toggle Worktrees")
-        #expect(worktreeSidebar?.group == "Window")
-        #expect(worktreeSidebar?.shortcutTrigger == AppShortcut.showWorktreeSidebar.trigger)
-        #expect(worktreeSidebar?.shortcutKeys?.map(\.symbol).joined() == "⌘S")
+        #expect(reposSidebar?.title == "Repos")
+        #expect(reposSidebar?.group == "Sidebar")
+        #expect(reposSidebar?.shortcutTrigger == AppShortcut.showReposSidebar.trigger)
+        #expect(reposSidebar?.shortcutKeys?.map(\.symbol).joined() == "⌘S")
     }
 }

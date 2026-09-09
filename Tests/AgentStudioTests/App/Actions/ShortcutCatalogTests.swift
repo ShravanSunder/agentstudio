@@ -106,7 +106,7 @@ struct ShortcutCatalogTests {
         )
 
         #expect(showInbox == nil)
-        #expect(showRepos == .showWorktreeSidebar)
+        #expect(showRepos == .showReposSidebar)
     }
 
     @Test
@@ -191,7 +191,7 @@ struct ShortcutCatalogTests {
         )
 
         #expect(showInbox == nil)
-        #expect(showRepos == .showWorktreeSidebar)
+        #expect(showRepos == .showReposSidebar)
     }
 
     @Test

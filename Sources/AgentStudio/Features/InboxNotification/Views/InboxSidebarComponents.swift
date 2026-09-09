@@ -297,24 +297,26 @@ struct InboxSidebarHeader: View {
                         }
                     )
                     .popover(isPresented: $groupingMenuOpen) {
-                        SidebarGroupingPopover(
-                            items: commandPresentation.groupingOptions.map(\.grouping),
-                            selectedItem: grouping,
-                            icon: { grouping in
-                                groupingCommandSpec(for: grouping).icon.swiftUIImage(
-                                    loader: octiconLoader,
-                                    size: AppStyles.General.Icon.compact
-                                )
-                            },
-                            label: { groupingCommandSpec(for: $0).label },
-                            onSelect: { candidate in
-                                let command = groupingCommandSpec(for: candidate).command
-                                guard commandCapability.canDispatch(command) else { return }
-                                actions.onSelectGrouping(candidate)
-                                groupingMenuOpen = false
-                            },
-                            onDismiss: { groupingMenuOpen = false }
-                        )
+                        PopoverPanel {
+                            SidebarGroupingPopover(
+                                items: commandPresentation.groupingOptions.map(\.grouping),
+                                selectedItem: grouping,
+                                icon: { grouping in
+                                    groupingCommandSpec(for: grouping).icon.swiftUIImage(
+                                        loader: octiconLoader,
+                                        size: AppStyles.General.Icon.compact
+                                    )
+                                },
+                                label: { groupingCommandSpec(for: $0).label },
+                                onSelect: { candidate in
+                                    let command = groupingCommandSpec(for: candidate).command
+                                    guard commandCapability.canDispatch(command) else { return }
+                                    actions.onSelectGrouping(candidate)
+                                    groupingMenuOpen = false
+                                },
+                                onDismiss: { groupingMenuOpen = false }
+                            )
+                        }
                     }
                 }
             }

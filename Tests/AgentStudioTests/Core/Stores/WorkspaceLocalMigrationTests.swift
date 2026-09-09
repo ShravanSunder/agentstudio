@@ -73,6 +73,7 @@ struct WorkspaceLocalMigrationTests {
                     "004_remove_persisted_pull_request_counts",
                     "005_move_repo_grouping_to_window_sidebar_memory",
                     "006_add_repository_local_activity_facts",
+                    "007_add_per_screen_sidebar_organization",
                 ]
         )
     }
@@ -180,8 +181,8 @@ struct WorkspaceLocalMigrationTests {
         #expect(state.2)
     }
 
-    @Test("repo grouping belongs only to main-window sidebar memory")
-    func repoGroupingBelongsOnlyToMainWindowSidebarMemory() throws {
+    @Test("per-screen grouping belongs only to main-window sidebar memory")
+    func perScreenGroupingBelongsOnlyToMainWindowSidebarMemory() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
 
         try WorkspaceLocalMigrations.migrate(databaseQueue)
@@ -200,7 +201,9 @@ struct WorkspaceLocalMigrationTests {
             )
         }
 
-        #expect(columnNamesByTable["local_window_state"]?.contains("repo_grouping_mode") == true)
+        #expect(columnNamesByTable["local_window_state"]?.contains("repos_grouping_mode") == true)
+        #expect(columnNamesByTable["local_window_state"]?.contains("panes_grouping_mode") == true)
+        #expect(columnNamesByTable["local_window_state"]?.contains("repo_grouping_mode") == false)
         #expect(
             columnNamesByTable["local_repo_explorer_preferences"]?.contains("grouping_mode") == false
         )
@@ -247,7 +250,10 @@ struct WorkspaceLocalMigrationTests {
             )
         }
 
-        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_move_repo_grouping_to_window_sidebar_memory"
+        )
 
         let repoGroupingMode = try databaseQueue.read { database in
             try String.fetchOne(
@@ -319,7 +325,10 @@ struct WorkspaceLocalMigrationTests {
             )
         }
 
-        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_move_repo_grouping_to_window_sidebar_memory"
+        )
 
         let repoGroupingMode = try databaseQueue.read { database in
             try String.fetchOne(
@@ -383,7 +392,10 @@ struct WorkspaceLocalMigrationTests {
             )
         }
 
-        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_move_repo_grouping_to_window_sidebar_memory"
+        )
 
         let repoGroupingMode = try databaseQueue.read { database in
             try String.fetchOne(
@@ -392,6 +404,14 @@ struct WorkspaceLocalMigrationTests {
             )
         }
         #expect(repoGroupingMode == "tab")
+    }
+
+    @Test("migration 007 maps legacy modes and preserves sort direction independently")
+    func migration007MapsLegacyModesAndPreservesSortDirectionIndependently() throws {
+        for scenario in migration007Scenarios {
+            let migrated = try migrateSidebarOrganizationScenario(scenario)
+            assertMigratedSidebarOrganization(migrated, matches: scenario)
+        }
     }
 
     @Test("pull request cache hard cut drops legacy persisted counts")
@@ -668,6 +688,196 @@ struct WorkspaceLocalMigrationTests {
             }
         }
     }
+}
+
+private struct Migration007Scenario: Sendable {
+    let legacyMode: String
+    let expectedSurface: String
+    let expectedPaneGrouping: String
+    let legacyGroupKey: String
+    let expectedGroupKeys: Set<String>
+}
+
+private struct Migration007Snapshot {
+    let window: Row
+    let preferences: Row
+    let windowColumns: Set<String>
+    let preferenceColumns: Set<String>
+    let collapsedGroupKeys: Set<String>
+}
+
+private let migration007Scenarios = [
+    Migration007Scenario(
+        legacyMode: "repo",
+        expectedSurface: "repos",
+        expectedPaneGrouping: "repo",
+        legacyGroupKey: "remote:org/repo",
+        expectedGroupKeys: [
+            "repos:pinnedRepositories:remote:org/repo",
+            "repos:openRepositories:remote:org/repo",
+            "repos:repositories:remote:org/repo",
+        ]
+    ),
+    Migration007Scenario(
+        legacyMode: "pane",
+        expectedSurface: "panes",
+        expectedPaneGrouping: "repo",
+        legacyGroupKey: "pane-repo:10000000-0000-0000-0000-000000000001",
+        expectedGroupKeys: [
+            "panes:pinnedPanes:repo:10000000-0000-0000-0000-000000000001",
+            "panes:panes:repo:10000000-0000-0000-0000-000000000001",
+        ]
+    ),
+    Migration007Scenario(
+        legacyMode: "tab",
+        expectedSurface: "panes",
+        expectedPaneGrouping: "tab",
+        legacyGroupKey: "tab:10000000-0000-0000-0000-000000000002",
+        expectedGroupKeys: [
+            "panes:pinnedPanes:tab:10000000-0000-0000-0000-000000000002",
+            "panes:panes:tab:10000000-0000-0000-0000-000000000002",
+        ]
+    ),
+]
+
+private let migration007InactiveModeKeys: Set<String> = [
+    "repos:pinnedRepositories:remote:inactive/group",
+    "repos:openRepositories:remote:inactive/group",
+    "repos:repositories:remote:inactive/group",
+    "panes:pinnedPanes:repo:10000000-0000-0000-0000-000000000003",
+    "panes:panes:repo:10000000-0000-0000-0000-000000000003",
+    "panes:pinnedPanes:tab:10000000-0000-0000-0000-000000000004",
+    "panes:panes:tab:10000000-0000-0000-0000-000000000004",
+]
+
+private func migrateSidebarOrganizationScenario(
+    _ scenario: Migration007Scenario
+) throws -> Migration007Snapshot {
+    let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+    try WorkspaceLocalMigrations.migrator.migrate(
+        databaseQueue,
+        upTo: "006_add_repository_local_activity_facts"
+    )
+    let workspaceId = UUIDv7.generate().uuidString
+    let windowId = UUIDv7.generate().uuidString
+    try databaseQueue.write { database in
+        try seedMigration007Scenario(
+            database,
+            scenario: scenario,
+            workspaceId: workspaceId,
+            windowId: windowId
+        )
+    }
+    try WorkspaceLocalMigrations.migrate(databaseQueue)
+    return try databaseQueue.read { database in
+        try readMigration007Snapshot(database, workspaceId: workspaceId)
+    }
+}
+
+private func seedMigration007Scenario(
+    _ database: Database,
+    scenario: Migration007Scenario,
+    workspaceId: String,
+    windowId: String
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO local_window_state(
+                window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                is_filter_visible, sidebar_collapsed, sidebar_surface,
+                repo_grouping_mode, updated_at
+            ) VALUES (?, 'main', 250, NULL, 'saved filter', 1, 0, 'repos', ?, 10)
+            """,
+        arguments: [windowId, scenario.legacyMode]
+    )
+    try database.execute(
+        sql: """
+            INSERT INTO local_repo_explorer_preferences(
+                workspace_id, sort_order, visibility_mode, updated_at
+            ) VALUES (?, 'descending', 'all', 10)
+            """,
+        arguments: [workspaceId]
+    )
+    let legacyCollapsedKeys = [
+        scenario.legacyGroupKey,
+        "remote:inactive/group",
+        "pane-repo:10000000-0000-0000-0000-000000000003",
+        "tab:10000000-0000-0000-0000-000000000004",
+    ]
+    for groupKey in legacyCollapsedKeys {
+        try database.execute(
+            sql: "INSERT INTO local_window_sidebar_collapsed_group(window_id, group_key) VALUES (?, ?)",
+            arguments: [windowId, groupKey]
+        )
+    }
+}
+
+private func readMigration007Snapshot(
+    _ database: Database,
+    workspaceId: String
+) throws -> Migration007Snapshot {
+    let window = try #require(
+        try Row.fetchOne(
+            database,
+            sql: """
+                SELECT sidebar_surface, repos_grouping_mode, panes_grouping_mode,
+                       repos_subgroup_mode, panes_subgroup_mode,
+                       repos_shows_pinned, panes_shows_pinned, filter_text
+                FROM local_window_state
+                WHERE window_role = 'main'
+                """
+        )
+    )
+    let preferences = try #require(
+        try Row.fetchOne(
+            database,
+            sql: """
+                SELECT repos_sort_field, panes_sort_field,
+                       repos_sort_direction, panes_sort_direction
+                FROM local_repo_explorer_preferences
+                WHERE workspace_id = ?
+                """,
+            arguments: [workspaceId]
+        )
+    )
+    return Migration007Snapshot(
+        window: window,
+        preferences: preferences,
+        windowColumns: try Set(
+            String.fetchAll(database, sql: "SELECT name FROM pragma_table_info('local_window_state')")
+        ),
+        preferenceColumns: try Set(
+            String.fetchAll(
+                database,
+                sql: "SELECT name FROM pragma_table_info('local_repo_explorer_preferences')"
+            )
+        ),
+        collapsedGroupKeys: try Set(
+            String.fetchAll(database, sql: "SELECT group_key FROM local_window_sidebar_collapsed_group")
+        )
+    )
+}
+
+private func assertMigratedSidebarOrganization(
+    _ migrated: Migration007Snapshot,
+    matches scenario: Migration007Scenario
+) {
+    #expect(migrated.window["sidebar_surface"] as String == scenario.expectedSurface)
+    #expect(migrated.window["repos_grouping_mode"] as String == "repo")
+    #expect(migrated.window["panes_grouping_mode"] as String == scenario.expectedPaneGrouping)
+    #expect(migrated.window["repos_subgroup_mode"] as String == "none")
+    #expect(migrated.window["panes_subgroup_mode"] as String == "activity")
+    #expect(migrated.window["repos_shows_pinned"] as Int == 1)
+    #expect(migrated.window["panes_shows_pinned"] as Int == 1)
+    #expect(migrated.window["filter_text"] as String == "saved filter")
+    #expect(migrated.preferences["repos_sort_field"] as String == "name")
+    #expect(migrated.preferences["panes_sort_field"] as String == "name")
+    #expect(migrated.preferences["repos_sort_direction"] as String == "descending")
+    #expect(migrated.preferences["panes_sort_direction"] as String == "descending")
+    #expect(!migrated.windowColumns.contains("repo_grouping_mode"))
+    #expect(!migrated.preferenceColumns.contains("sort_order"))
+    #expect(!migrated.preferenceColumns.contains("visibility_mode"))
+    #expect(migrated.collapsedGroupKeys == scenario.expectedGroupKeys.union(migration007InactiveModeKeys))
 }
 
 private func expectLocalDatabaseError(containing expectedMessage: String, _ operation: () throws -> Void) {

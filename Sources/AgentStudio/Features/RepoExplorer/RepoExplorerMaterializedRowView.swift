@@ -32,12 +32,22 @@ struct RepoExplorerMaterializedRowView: View {
     @ViewBuilder
     private var content: some View {
         switch row.presentation {
+        case .activitySubgroup(let bucket, let isFirstInGroup):
+            SidebarSubgroupHeading(bucket.title)
+                .padding(
+                    .top,
+                    isFirstInGroup
+                        ? AppStyles.Shell.Sidebar.nativeFirstSubgroupTopPadding
+                        : AppStyles.Shell.Sidebar.nativeSubsequentSubgroupTopPadding
+                )
+                .padding(.bottom, AppStyles.Shell.Sidebar.nativeSubgroupBottomPadding)
+                .accessibilityAddTraits(.isHeader)
         case .sectionHeader(let kind, let isFirstRow):
-            SectionSubheadingLabel(kind.title)
+            SidebarEntitySectionHeading(kind.title, icon: kind.sectionIcon, octiconLoader: octiconLoader)
                 .padding(.leading, AppStyles.Shell.Sidebar.listRowLeadingInset)
                 .padding(.trailing, AppStyles.Components.SectionSubheading.horizontalPadding)
                 .padding(.top, isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
-                .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
+                .padding(.bottom, AppStyles.Shell.Sidebar.nativeSectionHeaderBottomPadding)
                 .accessibilityAddTraits(.isHeader)
         case .loadingSectionHeader(_, let state):
             RepoExplorerLoadingSectionHeaderRow(state: state)
@@ -53,7 +63,7 @@ struct RepoExplorerMaterializedRowView: View {
             SidebarRepoGroupHeader(
                 isCollapsed: !group.isExpanded,
                 octiconLoader: octiconLoader,
-                icon: group.icon,
+                icon: nil,
                 repoTitle: group.title,
                 organizationName: group.organizationName,
                 onToggle: { onToggleGroup(group.groupID) },
@@ -78,15 +88,15 @@ struct RepoExplorerMaterializedRowView: View {
             .padding(.top, AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding)
             .padding(.bottom, AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding)
         case .worktree(let worktree):
-            let isFavorite =
-                commandPresentationSnapshot.favoriteStateByRepositoryID[
+            let isPinned =
+                commandPresentationSnapshot.pinnedStateByRepositoryID[
                     worktree.repo.id
                 ] ?? false
             let commandPresentation = RepoExplorerWorktreeCommandPresentation.resolve(
                 worktreeId: worktree.worktree.id,
                 repoId: worktree.repo.id,
-                isFavorite: isFavorite,
-                showsFavoriteControl: worktree.isMainCheckout,
+                isPinned: isPinned,
+                showsPinnedControl: worktree.isMainCheckout,
                 snapshot: commandPresentationSnapshot
             )
             RepoExplorerWorktreeRow(
@@ -103,11 +113,11 @@ struct RepoExplorerMaterializedRowView: View {
                 branchStatus: worktree.branchStatus,
                 showsRepositoryFactStatus: worktree.showsRepositoryFactStatus,
                 bridgeCommandResolution: worktree.bridgeCommandResolution,
-                isFavorite: isFavorite,
+                isPinned: isPinned,
                 commandPresentation: commandPresentation,
-                onToggleFavorite: {
+                onTogglePinned: {
                     dispatch(
-                        isFavorite ? .removeRepoFavorite : .addRepoFavorite,
+                        isPinned ? .unpinRepo : .pinRepo,
                         from: commandPresentation
                     )
                 },
@@ -116,9 +126,18 @@ struct RepoExplorerMaterializedRowView: View {
                 }
             )
         case .pane(let pane):
+            let pinPresentation = RepoExplorerPaneCommandPresentation.resolve(
+                paneId: pane.destination.paneId, isPinned: pane.isPinned,
+                snapshot: commandPresentationSnapshot
+            )
             RepoExplorerPaneRow(
                 row: pane,
                 octiconLoader: octiconLoader,
+                pinPresentation: pinPresentation,
+                onPin: {
+                    guard let request = pinPresentation?.request else { return }
+                    onCommandRequest(request)
+                },
                 onFocus: { onFocusPane(pane.destination.paneId) }
             )
         case .unassociatedPane(let pane):
@@ -167,6 +186,8 @@ struct RepoExplorerMaterializedRowView: View {
 
     static func accessibilityLabel(for row: RepoExplorerMaterializedRow) -> String {
         switch row.presentation {
+        case .activitySubgroup(let bucket, _):
+            bucket.title
         case .sectionHeader(let kind, _):
             kind.title
         case .loadingSectionHeader(_, let state):

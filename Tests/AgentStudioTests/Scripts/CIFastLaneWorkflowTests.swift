@@ -392,6 +392,8 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(largeSerialFilter.contains("BridgePackagedProductJourneyScriptTests"))
+        #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadScriptTests"))
+        #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadSettlementScriptTests"))
         #expect(
             largeRunner.contains(
                 "--skip \"$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)\""

@@ -32,6 +32,8 @@ enum WorkspaceCoreMigrations {
         ("014_drop_shows_minimized_panes", dropShowsMinimizedPanesStatements),
         ("015_drop_pane_topology_facets", dropPaneTopologyFacetsStatements),
         ("016_add_pane_association_facets", addPaneAssociationFacetsStatements),
+        // Both identifiers have already been applied by separate branches. Keep their full names stable.
+        ("017_add_independent_sidebar_pins", addIndependentSidebarPinsStatements),
         ("017_create_session_ownership_journal", createSessionOwnershipJournalStatements),
     ]
 

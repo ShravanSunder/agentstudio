@@ -160,16 +160,16 @@ extension AppCommand {
         )
     }
 
-    func repoSidebarGroupingDefinition(
+    func sidebarSettingDefinition(
         label: String,
         icon: CommandIcon,
-        helpTarget: String
+        helpText: String
     ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
-            label: "Group Repos by \(label)",
+            label: label,
             icon: icon,
-            helpText: "Group the repo sidebar by \(helpTarget)",
+            helpText: helpText,
             surfacePolicy: .exposed([.commandBar, .inlineControl]),
             targeting: .contextual,
             commandBarGroupName: "Sidebar",
@@ -177,13 +177,19 @@ extension AppCommand {
         )
     }
 
-    func repoSidebarSortOrderDefinition() -> AppCommandSpec {
+    func sidebarScreenDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
-            label: "Set Repo Sidebar Sort Order",
-            icon: .system(.arrowUpArrowDown),
-            helpText: "Set the repo sidebar sort order",
-            surfacePolicy: .exposed([.inlineControl]),
+            shortcut: shortcut,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: .exposed([.commandBar, .inlineControl, .toolbar(.app)]),
             targeting: .contextual,
             commandBarGroupName: "Sidebar",
             commandBarGroupPriority: CommandBarGroupPriority.sidebar
@@ -233,10 +239,11 @@ extension AppCommand {
         )
     }
 
-    func repoFavoriteDefinition(
+    func sidebarPinDefinition(
         label: String,
         icon: SystemSymbol,
-        helpText: String
+        helpText: String,
+        targetType: SearchItemType
     ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
@@ -244,9 +251,9 @@ extension AppCommand {
             icon: .system(icon),
             helpText: helpText,
             surfacePolicy: .exposed([.contextMenu, .inlineControl]),
-            targeting: .targeted([.repo]),
-            commandBarGroupName: "Repo",
-            commandBarGroupPriority: CommandBarGroupPriority.repo
+            targeting: .targeted([targetType]),
+            commandBarGroupName: "Sidebar",
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
         )
     }
 

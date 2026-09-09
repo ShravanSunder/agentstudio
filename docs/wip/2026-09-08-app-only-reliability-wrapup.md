@@ -9,6 +9,27 @@ Relevance audit HEAD: `95f3c3e44`; audit base: `6cbbee4a4`. Final product correc
 through `d087c8338` have passing mandatory aggregate and bounded independent review.
 Always refresh external PR state before merge readiness; recorded refs are not live status.
 
+## Latest-main integration
+
+User requested a careful merge of `origin/main` (`bbde25a38`, PRs #334 and #336)
+into `cf471342b`. The incoming work adds independent sidebar pins/organization,
+terminal-exit acknowledgment improvements, and macOS Bash build/test fixes.
+
+Six conflicts were resolved by responsibility: retain both already-used full schema
+identifiers (`017_add_independent_sidebar_pins` and `017_create_session_ownership_journal`);
+retain the coalescing seam with main's exact-event test completions; retain stricter
+cadence equality and clock-bounded waits alongside main's other duty-aware cases;
+replace retired favorite-command tests with pin-command tests that await the real
+command queue. Auto-merges preserve pinned metadata through the existing SQLite/Undo
+path and main's off-main termination acknowledgment wait through app-owned teardown.
+Additional tests cover either branch's pre-existing database and pinned close/Undo.
+No vendor source, pins, prepared-input symlinks, or ownership/deadline policy changed.
+Fresh no-history Astra merge review found no supported merge-introduced findings.
+Eight focused suites passed in separate processes, 78 tests total (including both
+schema starting states, pinned Undo, cadence, coalescing and terminal exit). Logs:
+`tmp/pr335-wrapup-proof/main-merge-*`. The mandatory aggregate gate must pass before
+pushing this integration. Prior hosted PR readiness applies only to `cf471342b`.
+
 ## Current MainActor correction (2026-09-09)
 
 Read-only inventory of base `6cbbee4a4` through `6d822123a` enumerated all 85 changed

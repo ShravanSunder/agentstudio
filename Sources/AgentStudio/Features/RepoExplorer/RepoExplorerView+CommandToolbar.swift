@@ -3,114 +3,286 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
+enum RepoExplorerOrganizationSelector: Hashable {
+    case sortField
+    case grouping
+}
+
 extension RepoExplorerView {
-    @ViewBuilder
+    var sidebarSurfaceSelector: some View {
+        let presentation = RepoExplorerToolbarCommandPresentation.resolve(snapshot: commandPresentationSnapshot)
+        return SidebarEntityToggle(
+            segments: [AppCommand.showReposSidebar, .showPanesSidebar].map { command in
+                SidebarToolbarSegment(
+                    value: command,
+                    label: command.definition.label,
+                    accessibilityIdentifier: "sidebarSurface.\(command.rawValue)",
+                    tooltipValue: command.definition.controlTooltipRenderValue(),
+                    isEnabled: presentation.command(command)?.isEnabled == true
+                )
+            },
+            selection: repoExplorerPrefs.sidebarSurface == .repos ? .showReposSidebar : .showPanesSidebar,
+            octiconLoader: octiconLoader,
+            entityIcon: { $0 == .showReposSidebar ? .repo : .pane },
+            onSelect: { command in commandDispatcher.dispatch(command) }
+        )
+        .accessibilityIdentifier("sidebarSurfaceSelector")
+    }
+
     var repoToolbarRow: some View {
-        let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
-        let commandPresentation = RepoExplorerToolbarCommandPresentation.resolve(
-            nextSortOrder: nextSortOrder,
-            snapshot: commandPresentationSnapshot
-        )
-        let presentedGroupingModes = RepoExplorerGroupingMode.allCases.filter { groupingMode in
-            commandPresentation.command(groupingCommand(for: groupingMode)) != nil
-        }
-
-        HStack(spacing: AppStyles.General.Spacing.standard) {
+        let presentation = RepoExplorerToolbarCommandPresentation.resolve(snapshot: commandPresentationSnapshot)
+        let isPanes = repoExplorerPrefs.sidebarSurface == .panes
+        let sortCommands: [AppCommand] =
+            isPanes
+            ? [.setPanesSortFieldName, .setPanesSortFieldActivity]
+            : [.setReposSortFieldName, .setReposSortFieldActivity]
+        let groupingCommands: [AppCommand] =
+            isPanes
+            ? [.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity]
+            : [.setReposGroupingRepo, .setReposGroupingActivity]
+        return HStack(spacing: AppStyles.General.Spacing.tight) {
             Spacer(minLength: 0)
+            commandToggle(
+                isPanes ? .togglePanesShowsPinned : .toggleReposShowsPinned,
+                selected: repoExplorerPrefs.showsPinned, presentation: presentation
+            )
+            SidebarToolbarDivider()
+            sortDirectionButton(
+                isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
+                presentation: presentation
+            )
+            sortFieldSelector(commands: sortCommands, presentation: presentation)
+            SidebarToolbarDivider()
+            groupingSelector(commands: groupingCommands, presentation: presentation)
+        }
+        .accessibilityIdentifier("repoSidebarToolbarRow")
+        .onChange(of: repoExplorerPrefs.sidebarSurface) { _, _ in openOrganizationSelector = nil }
+    }
 
-            if let sortCommand = commandPresentation.command(.setRepoSidebarSortOrder) {
-                SidebarToolbarSortButton(
-                    sortValue: repoExplorerPrefs.sortOrder,
-                    isReversed: repoExplorerPrefs.sortOrder == .descending,
-                    label: sortCommand.commandSpec.label,
-                    accessibilityIdentifier: "repoSidebarSortButton",
-                    tooltipValue: sortCommand.commandSpec.controlTooltipRenderValue(
-                        textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-                    ),
-                    icon: {
-                        sortCommand.commandSpec.icon.swiftUIImage(
-                            loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact
-                        )
-                    },
-                    tooltipTarget: RepoSidebarToolbarTooltipTarget.sort,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
-                    onHover: { updateTooltipTarget(.sort, isHovered: $0) },
-                    onToggle: { onSetSortOrder(nextSortOrder) }
-                )
-                .id("repoSidebarSortButton.stable")
-                .disabled(!sortCommand.isEnabled)
-            }
-
-            if !presentedGroupingModes.isEmpty {
-                SidebarToolbarDivider()
-                SidebarToolbarSegmentedControl(
-                    segments: presentedGroupingModes.map { groupingMode in
-                        let command = presentedGroupingCommand(
-                            for: groupingMode,
-                            in: commandPresentation
-                        )
-                        return SidebarToolbarSegment(
-                            value: groupingMode,
-                            label: groupingMode.title,
-                            accessibilityIdentifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
-                            tooltipValue: command.commandSpec.controlTooltipRenderValue(
-                                textOverride: groupingMode.title
-                            ),
-                            isEnabled: command.isEnabled
-                        )
-                    },
-                    selection: repoExplorerPrefs.groupingMode,
-                    icon: { groupingMode in
-                        groupingModeIcon(for: groupingMode).swiftUIImage(
-                            loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact,
-                            foregroundOverride: groupingMode == repoExplorerPrefs.groupingMode
-                                ? AppStyles.General.Accent.primaryColor
-                                : nil
-                        )
-                    },
-                    onSelect: { groupingMode in
-                        let command = groupingCommand(for: groupingMode)
-                        guard commandPresentation.command(command)?.isEnabled == true else { return }
-                        commandDispatcher.dispatch(command)
+    private func sortFieldSelector(
+        commands: [AppCommand],
+        presentation: RepoExplorerToolbarCommandPresentation
+    ) -> some View {
+        let selected = commands[repoExplorerPrefs.sortField == .name ? 0 : 1]
+        let options = commandOptions(commands, presentation: presentation)
+        return SidebarToolbarPickerButton(
+            label: selected.definition.helpText,
+            selectionLabel: selected.definition.label,
+            accessibilityIdentifier: "repoSidebarSortFieldButton",
+            tooltipValue: selected.definition.controlTooltipRenderValue(),
+            isOpen: openOrganizationSelector == .sortField,
+            showsIcon: false,
+            icon: { EmptyView() },
+            action: { toggleOrganizationSelector(.sortField) }
+        )
+        .popover(isPresented: organizationSelectorBinding(.sortField), arrowEdge: .top) {
+            SidebarPopoverReveal {
+                let sortAction = LocalActionSpec.sortRepoExplorerItems.actionSpec
+                PopoverPanel {
+                    PopoverPanelSectionHeader(sortAction.label) {
+                        sortAction.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
                     }
-                )
-                .accessibilityIdentifier("repoSidebarGroupingControl")
+                    SidebarGroupingPopover(
+                        items: options.filter(\.isEnabled).map(\.value),
+                        selectedItem: selected,
+                        icon: { command in
+                            command.definition.icon.swiftUIImage(
+                                loader: octiconLoader, size: AppStyles.General.Icon.compact
+                            )
+                        },
+                        label: { command in command.definition.label },
+                        onSelect: { command in
+                            guard presentation.command(command)?.isEnabled == true else { return }
+                            commandDispatcher.dispatch(command)
+                            openOrganizationSelector = nil
+                        },
+                        onDismiss: { openOrganizationSelector = nil }
+                    )
+                }
+
             }
         }
-        .background(
-            AccessibilityLabelBridge(
-                identifier: "repoSidebarToolbarRow",
-                label: "Repo toolbar row"
+    }
+
+    private func groupingSelector(
+        commands: [AppCommand],
+        presentation: RepoExplorerToolbarCommandPresentation
+    ) -> some View {
+        let organizationAction = LocalActionSpec.showRepoExplorerOrganization.actionSpec
+        let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        let subgroupAction = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
+        let subgroupCommand = currentSubgroupCommand
+        return SidebarToolbarPickerButton(
+            label: organizationAction.label,
+            selectionLabel: groupingSelectionLabel,
+            accessibilityIdentifier: "repoSidebarGroupingButton",
+            tooltipValue: organizationAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: organizationAction.label)
+            ),
+            isOpen: openOrganizationSelector == .grouping,
+            icon: {
+                organizationAction.icon.swiftUIImage(
+                    loader: octiconLoader, size: AppStyles.General.Icon.compact
+                )
+            },
+            action: { toggleOrganizationSelector(.grouping) }
+        )
+        .popover(isPresented: organizationSelectorBinding(.grouping), arrowEdge: .top) {
+            SidebarPopoverReveal {
+                SidebarOrganizationPopover(
+                    group: SidebarOrganizationPopoverSection(
+                        title: groupingAction.label,
+                        options: commandOptions(commands, presentation: presentation),
+                        selection: groupingCommand
+                    ),
+                    subgroup: subgroupCommand.map { selectedSubgroupCommand in
+                        SidebarOrganizationPopoverSection(
+                            title: subgroupAction.label,
+                            options: commandOptions(
+                                [.setPanesSubgroupNone, .setPanesSubgroupActivity],
+                                presentation: presentation
+                            ),
+                            selection: selectedSubgroupCommand
+                        )
+                    },
+                    subgroupTitle: subgroupAction.label,
+                    unavailableSubgroupText: LocalActionSpec.noRepoExplorerSubgroups.actionSpec.label,
+                    unavailableSubgroupIcon: {
+                        LocalActionSpec.noRepoExplorerSubgroups.actionSpec.icon.swiftUIImage(
+                            loader: octiconLoader, size: AppStyles.General.Icon.compact
+                        )
+                    },
+                    icon: { command in
+                        command.definition.icon.swiftUIImage(
+                            loader: octiconLoader, size: AppStyles.General.Icon.compact
+                        )
+                    },
+                    headerIcon: { level in
+                        let action = level == .group ? groupingAction : subgroupAction
+                        action.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
+                    },
+                    onSelect: { item in
+                        guard presentation.command(item.value)?.isEnabled == true else { return }
+                        commandDispatcher.dispatch(item.value)
+                    },
+                    onDismiss: { openOrganizationSelector = nil }
+                )
+            }
+        }
+    }
+
+    private func commandOptions(
+        _ commands: [AppCommand],
+        presentation: RepoExplorerToolbarCommandPresentation
+    ) -> [SidebarToolbarSegment<AppCommand>] {
+        commands.map { command in
+            SidebarToolbarSegment(
+                value: command,
+                label: command.definition.label,
+                accessibilityIdentifier: controlAccessibilityIdentifier(command),
+                tooltipValue: command.definition.controlTooltipRenderValue(),
+                isEnabled: presentation.command(command)?.isEnabled == true
             )
+        }
+    }
+
+    private var groupingCommand: AppCommand {
+        switch (repoExplorerPrefs.sidebarSurface, repoExplorerPrefs.groupingMode) {
+        case (.repos, .repo), (.inbox, .repo), (.repos, .tab), (.inbox, .tab):
+            .setReposGroupingRepo
+        case (.repos, .activity), (.inbox, .activity):
+            .setReposGroupingActivity
+        case (.panes, .repo):
+            .setPanesGroupingRepo
+        case (.panes, .tab):
+            .setPanesGroupingTab
+        case (.panes, .activity):
+            .setPanesGroupingActivity
+        }
+    }
+
+    private var currentSubgroupCommand: AppCommand? {
+        guard repoExplorerPrefs.sidebarSurface == .panes,
+            repoExplorerPrefs.groupingMode != .activity
+        else {
+            return nil
+        }
+        return repoExplorerPrefs.subgroupMode == .ungrouped
+            ? .setPanesSubgroupNone : .setPanesSubgroupActivity
+    }
+
+    private var groupingSelectionLabel: String {
+        [groupingCommand, currentSubgroupCommand]
+            .compactMap { $0?.definition.label }
+            .joined(separator: " → ")
+    }
+
+    private func organizationSelectorBinding(
+        _ selector: RepoExplorerOrganizationSelector
+    ) -> Binding<Bool> {
+        Binding(
+            get: { openOrganizationSelector == selector },
+            set: { openOrganizationSelector = $0 ? selector : nil }
         )
     }
 
-    func presentedGroupingCommand(
-        for mode: RepoExplorerGroupingMode,
-        in commandPresentation: RepoExplorerToolbarCommandPresentation
-    ) -> RepoExplorerPresentedCommand {
-        guard let presentedCommand = commandPresentation.command(groupingCommand(for: mode)) else {
-            preconditionFailure("Grouping popover received a presentation-denied mode")
-        }
-        return presentedCommand
+    private func toggleOrganizationSelector(_ selector: RepoExplorerOrganizationSelector) {
+        openOrganizationSelector = openOrganizationSelector == selector ? nil : selector
     }
 
-    func groupingCommand(for mode: RepoExplorerGroupingMode) -> AppCommand {
-        switch mode {
-        case .repo: .setRepoSidebarGroupingRepo
-        case .pane: .setRepoSidebarGroupingPane
-        case .tab: .setRepoSidebarGroupingTab
+    private func controlAccessibilityIdentifier(_ command: AppCommand) -> String {
+        switch command {
+        case .setReposGroupingRepo, .setPanesGroupingRepo: "repoSidebarGroupingSegment.repo"
+        case .setPanesGroupingTab: "repoSidebarGroupingSegment.tab"
+        case .setReposGroupingActivity, .setPanesGroupingActivity: "repoSidebarGroupingSegment.activity"
+        default: "sidebarOrganization.\(command.rawValue)"
         }
     }
 
-    func groupingModeIcon(for mode: RepoExplorerGroupingMode) -> AppEntityIcon {
-        switch mode {
-        case .repo: AppEntityIcon.repo
-        case .pane: AppEntityIcon.pane
-        case .tab: AppEntityIcon.tab
+    @ViewBuilder
+    private func sortDirectionButton(
+        _ command: AppCommand, presentation: RepoExplorerToolbarCommandPresentation
+    ) -> some View {
+        if let sortCommand = presentation.command(command) {
+            SidebarToolbarSortButton(
+                sortValue: repoExplorerPrefs.sortDirection,
+                isReversed: repoExplorerPrefs.sortDirection == .descending,
+                label: sortCommand.commandSpec.label,
+                accessibilityIdentifier: "repoSidebarSortButton",
+                tooltipValue: sortCommand.commandSpec.controlTooltipRenderValue(
+                    textOverride: "Sort \(repoExplorerPrefs.sortDirection.title.lowercased())"
+                ),
+                icon: {
+                    sortCommand.commandSpec.icon.swiftUIImage(
+                        loader: octiconLoader, size: AppStyles.General.Icon.compact
+                    )
+                },
+                onToggle: { commandDispatcher.dispatch(command) }
+            )
+            .id("repoSidebarSortButton.stable")
+            .disabled(!sortCommand.isEnabled)
+        }
+    }
+
+    @ViewBuilder
+    private func commandToggle(
+        _ command: AppCommand, selected: Bool, presentation: RepoExplorerToolbarCommandPresentation
+    ) -> some View {
+        if let presented = presentation.command(command) {
+            SidebarToolbarActionButton(
+                label: presented.commandSpec.label,
+                accessibilityIdentifier: "sidebarOrganization.\(command.rawValue)",
+                tooltipValue: presented.commandSpec.controlTooltipRenderValue(),
+                icon: {
+                    presented.commandSpec.icon.swiftUIImage(
+                        loader: octiconLoader, size: AppStyles.General.Icon.compact
+                    )
+                },
+                isActive: selected,
+                showsActiveBackground: false,
+                action: { commandDispatcher.dispatch(command) }
+            )
+            .disabled(!presented.isEnabled)
         }
     }
 }

@@ -57,7 +57,7 @@ struct RepositoryTopologyStableIdentityTests {
         atom.replaceTopology(replacement)
         atom.applyValidatedRepositoryMetadata(
             repositoryID: repositoryID,
-            isFavorite: true,
+            isPinned: true,
             note: nil,
             tags: []
         )
@@ -179,7 +179,7 @@ struct RepositoryTopologyStableIdentityTests {
 
         // Arrange
         var metadataOnlyRepository = repository
-        metadataOnlyRepository.isFavorite = true
+        metadataOnlyRepository.isPinned = true
         let metadataOnlyReplacement = try #require(
             preparedTopology(
                 repositories: [metadataOnlyRepository],

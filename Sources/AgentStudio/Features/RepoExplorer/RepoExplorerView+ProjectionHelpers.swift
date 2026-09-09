@@ -76,7 +76,7 @@ extension RepoExplorerView {
         extra: [String: AgentStudioTraceValue] = [:]
     ) -> [String: AgentStudioTraceValue] {
         var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.sidebar.surface": .string("repo"),
+            "agentstudio.performance.sidebar.surface": .string(request.snapshot.surface == .panes ? "panes" : "repo"),
             "agentstudio.performance.sidebar.phase": .string(phase),
             "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
             "agentstudio.performance.sidebar.query_state": .string(
@@ -107,8 +107,10 @@ extension RepoExplorerView {
         groupingMode: RepoExplorerGroupingMode = .repo
     ) -> AppEntityIcon {
         switch groupingMode {
-        case .pane, .repo:
+        case .repo:
             return .repo
+        case .activity:
+            return .activity
         case .tab:
             return .tabGroup
         }
@@ -175,12 +177,12 @@ extension RepoExplorerView {
         let sectionsFingerprint = projection.sections.enumerated().map { sectionIndex, section in
             let resolvedGroups = section.resolvedGroups.map { group in
                 let repos = group.repos.map { repo in
-                    "\(repo.id.uuidString):\(repo.isFavorite)"
+                    "\(repo.id.uuidString):\(repo.isPinned)"
                 }.joined(separator: ",")
                 return "\(group.id):\(repos)"
             }.joined(separator: ";")
             let loadingRepos = section.loadingRepos.map { repo in
-                "\(repo.id.uuidString):\(repo.isFavorite)"
+                "\(repo.id.uuidString):\(repo.isPinned)"
             }.joined(separator: ",")
             let unassociatedPanes = section.unassociatedPaneDestinations.map { destination in
                 "\(destination.paneId.uuidString):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
@@ -206,7 +208,7 @@ extension RepoExplorerView {
         let loadingFingerprint = projection.loadingRepos
             .enumerated()
             .map { index, repo in
-                "\(index):\(repo.id.uuidString):\(repo.name):\(repo.repoPath.path):\(repo.isFavorite)"
+                "\(index):\(repo.id.uuidString):\(repo.name):\(repo.repoPath.path):\(repo.isPinned)"
             }
             .joined(separator: "|")
 
@@ -354,7 +356,7 @@ extension RepoExplorerView {
         _ group: RepoPresentationGroup,
         groupingMode: RepoExplorerGroupingMode
     ) -> RepoPresentationItem? {
-        guard groupingMode == .repo || groupingMode == .pane, group.repos.count == 1 else { return nil }
+        guard groupingMode == .repo, group.repos.count == 1 else { return nil }
         return group.repos.first
     }
 

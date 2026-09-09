@@ -86,7 +86,7 @@ struct AgentStudioStartupDiagnosticActionTests {
         )
         let firstPhase = try #require(
             source.range(
-                of: "phase: \"rendered_repo_favorite\"",
+                of: "phase: \"rendered_repo_pinned\"",
                 range: fixtureSettlementCall.upperBound..<source.endIndex
             )
         )

@@ -2,14 +2,26 @@ import AgentStudioCore
 import Foundation
 
 struct RepoExplorerProjectionStructuralTarget: Equatable, Sendable {
+    let surface: SidebarSurface
     let groupingMode: RepoExplorerGroupingMode
+    let subgroupMode: SidebarSubgroupMode
+    let sortField: SidebarSortField
+    let showsPinned: Bool
+    let referenceDate: Date
+    let calendar: Calendar
     let sortOrder: RepoExplorerSortOrder
     let query: String
     let collapsedGroupIDs: Set<String>
     let isFiltering: Bool
 
     init(request: RepoExplorerProjectionRequest) {
+        surface = request.snapshot.surface
         groupingMode = request.snapshot.groupingMode
+        subgroupMode = request.snapshot.subgroupMode
+        sortField = request.snapshot.sortField
+        showsPinned = request.snapshot.showsPinned
+        referenceDate = request.snapshot.referenceDate
+        calendar = request.snapshot.calendar
         sortOrder = request.snapshot.sortOrder
         query = request.snapshot.query
         collapsedGroupIDs = request.collapsedGroupIds
@@ -17,7 +29,13 @@ struct RepoExplorerProjectionStructuralTarget: Equatable, Sendable {
     }
 
     init(result: RepoExplorerProjectionResult) {
+        surface = result.snapshot.surface
         groupingMode = result.snapshot.groupingMode
+        subgroupMode = result.snapshot.subgroupMode
+        sortField = result.snapshot.sortField
+        showsPinned = result.snapshot.showsPinned
+        referenceDate = result.snapshot.referenceDate
+        calendar = result.snapshot.calendar
         sortOrder = result.snapshot.sortOrder
         query = result.snapshot.query
         collapsedGroupIDs = result.collapsedGroupIds

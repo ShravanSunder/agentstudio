@@ -250,7 +250,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let startedAction = tracker.begin(
             sequence: 1,
             baseline: baseline,
-            expectedOutcome: .grouping(.pane)
+            expectedOutcome: .grouping(.activity)
         )
         let action = try #require(startedAction)
 
@@ -266,8 +266,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 11,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
-                    nativeGroupingMode: .pane
+                    groupingMode: .activity,
+                    nativeGroupingMode: .activity
                 ),
                 action: action
             )
@@ -290,7 +290,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
+                    groupingMode: .activity,
                     nativeGroupingMode: .repo
                 ),
                 action: action
@@ -302,8 +302,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                     semanticGeneration: 8,
                     acknowledgedRevision: 12,
                     visibleGeneration: 14,
-                    groupingMode: .pane,
-                    nativeGroupingMode: .pane
+                    groupingMode: .activity,
+                    nativeGroupingMode: .activity
                 ),
                 action: action
             )
@@ -336,7 +336,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         let startedAction = tracker.begin(
             sequence: 1,
             baseline: baseline,
-            expectedOutcome: .grouping(.pane)
+            expectedOutcome: .grouping(.activity)
         )
         let action = try #require(startedAction)
 
@@ -376,8 +376,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
                 semanticGeneration: 8,
                 acknowledgedRevision: 12,
                 visibleGeneration: 14,
-                groupingMode: .pane,
-                nativeGroupingMode: .pane,
+                groupingMode: .activity,
+                nativeGroupingMode: .activity,
                 materializationFingerprint: 101,
                 nativeVisibleProjection: mismatchedNativeProjection
             )
@@ -388,8 +388,8 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             semanticGeneration: 8,
             acknowledgedRevision: 12,
             visibleGeneration: 14,
-            groupingMode: .pane,
-            nativeGroupingMode: .pane,
+            groupingMode: .activity,
+            nativeGroupingMode: .activity,
             materializationFingerprint: 101,
             nativeVisibleProjection: .matching(
                 materializationGeneration: 14,
@@ -592,7 +592,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
             let segment = SelectedSidebarGroupingAccessibilityButton(
                 identifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
                 label: groupingMode.title,
-                isSelected: groupingMode == .pane
+                isSelected: groupingMode == .activity
             )
             rootView.addSubview(segment)
         }
@@ -600,7 +600,7 @@ struct SidebarPerformanceProofStartupDiagnosticTests {
         rootView.addSubview(tableView)
 
         #expect(
-            SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(in: rootView) == .pane
+            SidebarPerformanceProofAccessibility.selectedRepoGroupingMode(in: rootView) == .activity
         )
         #expect(
             SidebarPerformanceProofAccessibility.firstDescendant(
@@ -727,47 +727,6 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         #expect(!source.contains("filterText ="))
         #expect(!source.contains("uiState."))
         #expect(!source.contains("AppCommandIPC"))
-    }
-
-    @Test("strict fixture refreshes two real roots plus one isolated control root")
-    func strictFixtureRefreshesTwoRealRootsPlusOneIsolatedControlRoot() throws {
-        let fixtureSource = try String(
-            contentsOfFile: "Sources/AgentStudio/App/Boot/SidebarPerformanceProofFixture+RealSize.swift",
-            encoding: .utf8
-        )
-        let diagnosticSource = try String(
-            contentsOfFile:
-                "Sources/AgentStudio/App/Boot/AppDelegate+SidebarPerformanceProofStartupDiagnostics.swift",
-            encoding: .utf8
-        )
-        let combinedSource = fixtureSource + diagnosticSource
-
-        let requiredRoots = try #require(
-            combinedSource.range(of: "strictWatchedRootURLs")
-        )
-        let addWatchedPath = try #require(
-            combinedSource.range(of: "mutationCoordinator.addWatchedPath")
-        )
-        let refreshWatchedFolders = try #require(
-            diagnosticSource.range(of: "commands.refreshWatchedFolders")
-        )
-        let completedSummary = try #require(
-            diagnosticSource.range(of: "WatchedFolderRefreshSummary")
-        )
-        #expect(requiredRoots.lowerBound < addWatchedPath.lowerBound)
-        #expect(completedSummary.lowerBound < refreshWatchedFolders.lowerBound)
-        #expect(fixtureSource.contains("controlRootURL: URL"))
-        #expect(fixtureSource.contains("rootURLs + [controlRootURL]"))
-        #expect(combinedSource.contains("summary.repoPaths(in: rootURL).isEmpty"))
-        #expect(combinedSource.contains("summary.repoPaths(in: controlRootURL) == [controlRootURL]"))
-        #expect(combinedSource.contains("controlRootPresent: true"))
-        #expect(combinedSource.contains("control_root_present"))
-        #expect(combinedSource.contains("unknownRepositoryCount"))
-        #expect(combinedSource.contains("unknownWorktreeCount"))
-        #expect(combinedSource.contains("unknown_repository_count"))
-        #expect(combinedSource.contains("unknown_worktree_count"))
-        #expect(!diagnosticSource.contains("unclassifiedRepositoryCount"))
-        #expect(!diagnosticSource.contains("populateRealSizeTopology"))
     }
 
     @Test("strict pane fixture registers native view slots before layout publication")

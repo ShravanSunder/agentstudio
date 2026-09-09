@@ -49,7 +49,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
         )
         #expect(
             AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
-                .showWorktreeSidebar,
+                .showReposSidebar,
                 keyboardOwner: .sidebar(.repos)
             )
         )

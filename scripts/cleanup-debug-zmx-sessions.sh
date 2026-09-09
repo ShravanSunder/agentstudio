@@ -70,10 +70,10 @@ if re.fullmatch(r"[0-9a-z]{4}/z", relative):
     sys.exit(0)
 if not proof_root:
     sys.exit(1)
-temporary_proof_base = os.path.realpath("/tmp/agentstudio-sidebar-performance")
+temporary_proof_base = os.path.realpath("/tmp/as-sp")
 if os.path.commonpath([proof_root, temporary_proof_base]) != temporary_proof_base:
     sys.exit(1)
-if os.path.basename(proof_root) != "disposable-debug-data":
+if os.path.basename(proof_root) != "d":
     sys.exit(1)
 if root != os.path.join(proof_root, "z"):
     sys.exit(1)

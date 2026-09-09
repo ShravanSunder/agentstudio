@@ -151,9 +151,9 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     func debugZmxHelperAcceptsExplicitDisposableProofRoot() throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let proofArtifact = URL(fileURLWithPath: "/tmp/agentstudio-sidebar-performance")
+        let proofArtifact = URL(fileURLWithPath: "/tmp/as-sp")
             .appending(path: "zmx-proof-\(UUIDv7.generate())")
-        let dataRoot = proofArtifact.appending(path: "disposable-debug-data")
+        let dataRoot = proofArtifact.appending(path: "d")
         let zmxRoot = dataRoot.appending(path: "z")
         let zmxPath = dataRoot.appending(path: "bin/zmx")
         defer { try? FileManager.default.removeItem(at: proofArtifact) }

@@ -42,7 +42,7 @@ struct RepoExplorerProjectionIntentTests {
             generation: 3,
             repositoryID: repositoryID,
             worktreeID: worktreeID,
-            isFavorite: true
+            isPinned: true
         )
         let target = RepoExplorerProjectionStructuralTarget(request: latestRequest)
         let pending = RepoExplorerProjectionIntent.delta(
@@ -110,7 +110,7 @@ func makeProjectionIntentRequest(
     generation: Int,
     repositoryID: UUID = UUIDv7.generate(),
     worktreeID: UUID = UUIDv7.generate(),
-    isFavorite: Bool = false,
+    isPinned: Bool = false,
     query: String = ""
 ) -> RepoExplorerProjectionRequest {
     let repository = RepoPresentationItem(
@@ -118,7 +118,7 @@ func makeProjectionIntentRequest(
         name: "agent-studio",
         repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
         stableKey: "agent-studio",
-        isFavorite: isFavorite,
+        isPinned: isPinned,
         worktrees: [
             Worktree(
                 id: worktreeID,

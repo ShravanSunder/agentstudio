@@ -164,13 +164,20 @@ enum WorkspaceLocalRepositoryStorage {
                 isFilterVisible: false,
                 sidebarCollapsed: false,
                 sidebarSurface: .repos,
-                repoGroupingMode: .repo
+                repoGroupingMode: .repo,
+                paneGroupingMode: .repo,
+                repoSubgroupMode: .ungrouped,
+                paneSubgroupMode: .activity,
+                showsPinnedRepos: true,
+                showsPinnedPanes: true
             )
         try database.execute(
             sql: """
                 UPDATE local_window_state
                 SET filter_text = ?, is_filter_visible = ?, sidebar_collapsed = ?,
-                    sidebar_surface = ?, repo_grouping_mode = ?, updated_at = ?
+                    sidebar_surface = ?, repos_grouping_mode = ?, panes_grouping_mode = ?,
+                    repos_subgroup_mode = ?, panes_subgroup_mode = ?,
+                    repos_shows_pinned = ?, panes_shows_pinned = ?, updated_at = ?
                 WHERE window_id = ?
                 """,
             arguments: [
@@ -179,6 +186,11 @@ enum WorkspaceLocalRepositoryStorage {
                 sidebarState.sidebarCollapsed ? 1 : 0,
                 SQLiteLocalUXStorage.storageValue(for: sidebarState.sidebarSurface),
                 SQLiteLocalUXStorage.storageValue(for: sidebarState.repoGroupingMode),
+                SQLiteLocalUXStorage.storageValue(for: sidebarState.paneGroupingMode),
+                sidebarState.repoSubgroupMode.rawValue,
+                sidebarState.paneSubgroupMode.rawValue,
+                sidebarState.showsPinnedRepos ? 1 : 0,
+                sidebarState.showsPinnedPanes ? 1 : 0,
                 updatedAt.timeIntervalSince1970,
                 windowId,
             ]
@@ -392,17 +404,22 @@ enum WorkspaceLocalRepositoryStorage {
         try database.execute(
             sql: """
                 INSERT INTO local_repo_explorer_preferences(
-                    workspace_id, sort_order, visibility_mode, updated_at
-                ) VALUES (?, ?, ?, ?)
+                    workspace_id, repos_sort_field, panes_sort_field,
+                    repos_sort_direction, panes_sort_direction, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(workspace_id) DO UPDATE SET
-                    sort_order = excluded.sort_order,
-                    visibility_mode = excluded.visibility_mode,
+                    repos_sort_field = excluded.repos_sort_field,
+                    panes_sort_field = excluded.panes_sort_field,
+                    repos_sort_direction = excluded.repos_sort_direction,
+                    panes_sort_direction = excluded.panes_sort_direction,
                     updated_at = excluded.updated_at
                 """,
             arguments: [
                 workspaceId.uuidString,
-                preferences.sortOrder,
-                preferences.visibilityMode,
+                preferences.reposSortField.rawValue,
+                preferences.panesSortField.rawValue,
+                preferences.reposSortDirection.rawValue,
+                preferences.panesSortDirection.rawValue,
                 updatedAt.timeIntervalSince1970,
             ]
         )
@@ -416,15 +433,18 @@ enum WorkspaceLocalRepositoryStorage {
             let row = try Row.fetchOne(
                 database,
                 sql: """
-                    SELECT sort_order, visibility_mode
+                    SELECT repos_sort_field, panes_sort_field,
+                           repos_sort_direction, panes_sort_direction
                     FROM local_repo_explorer_preferences
                     WHERE workspace_id = ?
                     """,
                 arguments: [workspaceId.uuidString]
             ),
             let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
-                sortOrder: row["sort_order"],
-                visibilityMode: row["visibility_mode"]
+                reposSortField: row["repos_sort_field"],
+                panesSortField: row["panes_sort_field"],
+                reposSortDirection: row["repos_sort_direction"],
+                panesSortDirection: row["panes_sort_direction"]
             )
         else {
             return .default
@@ -514,13 +534,19 @@ enum WorkspaceLocalRepositoryStorage {
             sql: """
                 INSERT INTO local_window_state(
                     window_id, window_role, sidebar_width, window_frame_json, filter_text,
-                    is_filter_visible, sidebar_collapsed, sidebar_surface, repo_grouping_mode, updated_at
-                ) VALUES (?, 'main', 250, NULL, '', 0, 0, ?, ?, ?)
+                    is_filter_visible, sidebar_collapsed, sidebar_surface,
+                    repos_grouping_mode, panes_grouping_mode,
+                    repos_subgroup_mode, panes_subgroup_mode,
+                    repos_shows_pinned, panes_shows_pinned, updated_at
+                ) VALUES (?, 'main', 250, NULL, '', 0, 0, ?, ?, ?, ?, ?, 1, 1, ?)
                 """,
             arguments: [
                 windowId,
                 SQLiteLocalUXStorage.storageValue(for: SidebarSurface.repos),
                 SQLiteLocalUXStorage.storageValue(for: RepoSidebarGroupingMode.repo),
+                SQLiteLocalUXStorage.storageValue(for: RepoSidebarGroupingMode.repo),
+                SidebarSubgroupMode.ungrouped.rawValue,
+                SidebarSubgroupMode.activity.rawValue,
                 updatedAt.timeIntervalSince1970,
             ]
         )

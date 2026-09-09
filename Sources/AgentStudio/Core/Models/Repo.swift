@@ -7,7 +7,7 @@ package struct Repo: Codable, Identifiable, Hashable, Sendable {
     package var repoPath: URL
     package var worktrees: [Worktree]
     var createdAt: Date
-    package var isFavorite: Bool
+    package var isPinned: Bool
     var note: String?
     package var tags: [String]
 
@@ -21,7 +21,7 @@ package struct Repo: Codable, Identifiable, Hashable, Sendable {
         repoPath: URL,
         worktrees: [Worktree] = [],
         createdAt: Date = Date(),
-        isFavorite: Bool = false,
+        isPinned: Bool = false,
         note: String? = nil,
         tags: [String] = []
     ) {
@@ -30,7 +30,7 @@ package struct Repo: Codable, Identifiable, Hashable, Sendable {
         self.repoPath = repoPath
         self.worktrees = worktrees
         self.createdAt = createdAt
-        self.isFavorite = isFavorite
+        self.isPinned = isPinned
         self.note = note
         self.tags = tags
     }
@@ -42,7 +42,7 @@ package struct Repo: Codable, Identifiable, Hashable, Sendable {
         self.repoPath = try container.decode(URL.self, forKey: .repoPath)
         self.worktrees = try container.decode([Worktree].self, forKey: .worktrees)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
-        self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.note = try container.decodeIfPresent(String.self, forKey: .note)
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }

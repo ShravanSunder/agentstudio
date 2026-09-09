@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
@@ -8,6 +9,7 @@ struct TabBarArrangementChip: View {
     let isHovered: Bool
     let isPressed: Bool
     let nameMaxWidth: CGFloat
+    let octiconLoader: OcticonLoader
 
     var styleContract: ChromeToolbarCapsuleStyleContract {
         ChromeToolbarCapsuleStyleContract(isHovered: isHovered, isPressed: isPressed)
@@ -33,9 +35,10 @@ struct TabBarArrangementChip: View {
         let styleContract = styleContract
 
         HStack(spacing: 6) {
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: styleContract.iconSize, weight: .medium))
-                .foregroundStyle(contentForegroundColor)
+            LocalActionSpec.arrangements.actionSpec.icon.swiftUIImage(
+                loader: octiconLoader, size: styleContract.iconSize
+            )
+            .foregroundStyle(contentForegroundColor)
 
             if let name {
                 HStack(spacing: 4) {

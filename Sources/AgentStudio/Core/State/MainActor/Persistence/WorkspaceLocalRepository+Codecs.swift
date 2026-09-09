@@ -54,7 +54,9 @@ enum WorkspaceLocalRepositoryCodecs {
                 database,
                 sql: """
                     SELECT filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface,
-                           repo_grouping_mode
+                           repos_grouping_mode, panes_grouping_mode,
+                           repos_subgroup_mode, panes_subgroup_mode,
+                           repos_shows_pinned, panes_shows_pinned
                     FROM local_window_state
                     WHERE window_role = 'main'
                     """
@@ -63,19 +65,36 @@ enum WorkspaceLocalRepositoryCodecs {
             return nil
         }
         let surfaceValue: String = row["sidebar_surface"]
-        let groupingValue: String = row["repo_grouping_mode"]
+        let repoGroupingValue: String = row["repos_grouping_mode"]
+        let paneGroupingValue: String = row["panes_grouping_mode"]
+        let repoSubgroupValue: String = row["repos_subgroup_mode"]
+        let paneSubgroupValue: String = row["panes_subgroup_mode"]
         guard let sidebarSurface = SQLiteLocalUXStorage.sidebarSurface(from: surfaceValue) else {
             throw WorkspaceLocalRepositoryError.unsupportedSidebarSurface(surfaceValue)
         }
-        guard let repoGroupingMode = SQLiteLocalUXStorage.repoGroupingMode(from: groupingValue) else {
-            throw WorkspaceLocalRepositoryError.unsupportedRepoGroupingMode(groupingValue)
+        guard let repoGroupingMode = SQLiteLocalUXStorage.repoGroupingMode(from: repoGroupingValue) else {
+            throw WorkspaceLocalRepositoryError.unsupportedRepoGroupingMode(repoGroupingValue)
+        }
+        guard let paneGroupingMode = SQLiteLocalUXStorage.repoGroupingMode(from: paneGroupingValue) else {
+            throw WorkspaceLocalRepositoryError.unsupportedRepoGroupingMode(paneGroupingValue)
+        }
+        guard let repoSubgroupMode = SidebarSubgroupMode(rawValue: repoSubgroupValue) else {
+            throw WorkspaceLocalRepositoryError.unsupportedSidebarSubgroupMode(repoSubgroupValue)
+        }
+        guard let paneSubgroupMode = SidebarSubgroupMode(rawValue: paneSubgroupValue) else {
+            throw WorkspaceLocalRepositoryError.unsupportedSidebarSubgroupMode(paneSubgroupValue)
         }
         return .init(
             filterText: row["filter_text"],
             isFilterVisible: (row["is_filter_visible"] as Int) == 1,
             sidebarCollapsed: (row["sidebar_collapsed"] as Int) == 1,
             sidebarSurface: sidebarSurface,
-            repoGroupingMode: repoGroupingMode
+            repoGroupingMode: repoGroupingMode,
+            paneGroupingMode: paneGroupingMode,
+            repoSubgroupMode: repoSubgroupMode,
+            paneSubgroupMode: paneSubgroupMode,
+            showsPinnedRepos: (row["repos_shows_pinned"] as Int) == 1,
+            showsPinnedPanes: (row["panes_shows_pinned"] as Int) == 1
         )
     }
 

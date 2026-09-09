@@ -12,6 +12,38 @@ struct WorkspaceUndoStorePublicationTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("durable close and Undo preserve independent pane pins and terminal identity")
+    func durableUndoPreservesPanePin() async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore, startsObserving: false)
+        let pane = store.createPane()
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        #expect(store.mutationCoordinator.setPanePinned(pane.id, isPinned: true))
+        let time = WorkspaceUndoJournalTime(
+            utc: Date(timeIntervalSince1970: 100), bootID: "pin-undo-fixture",
+            uptimeNanoseconds: 100_000_000_000)
+
+        try await store.closeForUndo(
+            tabID: tab.id, paneID: nil, closeID: UUIDv7.generate(), time: time,
+            willPublish: { _, _ in }, didPublish: { _, _ in })
+        let savedCloses = try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID)
+        #expect(savedCloses.first?.snapshot.panes.first?.metadata.isPinned == true)
+        #expect(store.paneAtom.pane(pane.id) == nil)
+        let receipt = try await store.undoClose(
+            time: time, willPublish: { _, _ in }, didPublish: { _, _ in })
+
+        #expect(receipt != nil)
+        #expect(store.paneAtom.pane(pane.id)?.metadata.isPinned == true)
+        #expect(store.paneAtom.pane(pane.id)?.terminalState?.zmxSessionID == pane.terminalState?.zmxSessionID)
+        let persisted = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID)
+        #expect(persisted.panes.first?.metadata.isPinned == true)
+    }
+
     @Test("undo skips an unavailable placement without consuming it or blocking an older tab")
     func unavailableNewestEntryDoesNotBlockUndo() async throws {
         let workspaceID = UUIDv7.generate()

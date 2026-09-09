@@ -99,6 +99,20 @@ struct UIActionPresentationTests {
         #expect(toolTip == "Group (⌥G)")
     }
 
+    @Test("repo explorer organization roles use local-action display metadata")
+    func repoExplorerOrganizationRolesUseLocalActionDisplayMetadata() {
+        let group = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        let subgroup = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
+
+        #expect(group.label == "Group")
+        #expect(group.helpText == "Choose how sidebar items are grouped")
+        #expect(group.icon == .system(.square2Layers3d))
+        #expect(LocalActionSpec.showRepoExplorerOrganization.actionSpec.icon == .system(.sliderHorizontal3))
+        #expect(subgroup.icon == .system(.listBulletIndent))
+        #expect(subgroup.label == "Subgroup")
+        #expect(subgroup.helpText == "Choose how sidebar items are subgrouped")
+    }
+
     @Test
     func drawerChooserToolTip_usesOverrideWithShortcut() {
         let toolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
@@ -168,9 +182,9 @@ struct UIActionPresentationTests {
 
         #expect(paneAction.label == "Show Arrangements")
         #expect(paneAction.helpText == "Show arrangements for the active tab")
-        #expect(paneAction.icon == .system(.rectangle3Group))
+        #expect(paneAction.icon == .system(.rectangle3GroupFill))
         #expect(sharedMenuAction.label == "Arrangements")
         #expect(sharedMenuAction.helpText == "Manage tab arrangements")
-        #expect(sharedMenuAction.icon == .system(.rectangle3Group))
+        #expect(sharedMenuAction.icon == .system(.rectangle3GroupFill))
     }
 }

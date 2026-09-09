@@ -6,6 +6,39 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 struct AgentStudioStartupDiagnosticActionParsingTests {
+    @Test("file remotes are limited to a validated isolated sidebar performance launch")
+    func fileRemotesRequireValidatedSidebarPerformanceLaunch() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "sidebar-remote-protocol-\(UUIDv7.generate())", directoryHint: .isDirectory
+        )
+        let controlRoot = fixtureRoot.appending(path: "control", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: controlRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let environment = [
+            AgentStudioStartupDiagnosticAction.environmentKey: "sidebar-cpu-zero-pty-idle",
+            AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey: controlRoot.path,
+            AppDataPaths.dataDirectoryEnvironmentKey: fixtureRoot.path,
+            AppDataPaths.traceProofTokenEnvironmentKey: "test-proof",
+        ]
+        let configured = WorkspaceRemoteReferenceProvider.configuration(environment: environment)
+        #expect(configured.allowedProtocols == [.https, .ssh, .file])
+        #expect(configured.operationTimeoutSeconds == AppPolicies.RemoteReferenceRefresh.childProcessTimeoutSeconds)
+        #expect(WorkspaceRemoteReferenceProvider.configuration(environment: [:]).allowedProtocols == [.https, .ssh])
+        for key in [AgentStudioStartupDiagnosticAction.environmentKey, AppDataPaths.traceProofTokenEnvironmentKey] {
+            var rejected = environment
+            rejected.removeValue(forKey: key)
+            #expect(
+                WorkspaceRemoteReferenceProvider.configuration(environment: rejected).allowedProtocols == [
+                    .https, .ssh,
+                ])
+        }
+        var escaped = environment
+        escaped[AgentStudioStartupDiagnosticAction.watchFolderEnvironmentKey] =
+            fixtureRoot.deletingLastPathComponent().path
+        #expect(
+            WorkspaceRemoteReferenceProvider.configuration(environment: escaped).allowedProtocols == [.https, .ssh])
+    }
+
     @Test("startup diagnostic action is disabled unless exact env value is present")
     func disabledUnlessExactEnvironmentValueIsPresent() {
         #expect(AgentStudioStartupDiagnosticAction.fromEnvironment([:]) == nil)

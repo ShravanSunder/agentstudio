@@ -116,7 +116,11 @@ package enum LocalActionSpec {
     case clearAllHistory
     case groupInboxNotifications
     case deleteInboxNotifications
+    case showRepoExplorerOrganization
+    case sortRepoExplorerItems
     case groupRepoExplorerWorktrees
+    case subgroupRepoExplorerWorktrees
+    case noRepoExplorerSubgroups
     case cancel
     case add
     case rename
@@ -195,7 +199,7 @@ package enum LocalActionSpec {
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
         case .arrangements:
             return ActionSpec(
-                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))
+                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3GroupFill))
         case .addTerminalToTab:
             return ActionSpec(
                 label: "Add Terminal to Tab",
@@ -206,7 +210,7 @@ package enum LocalActionSpec {
             return ActionSpec(
                 label: "Show Arrangements",
                 helpText: "Show arrangements for the active tab",
-                icon: .system(.rectangle3Group)
+                icon: Self.arrangements.actionSpec.icon
             )
         case .saveCurrentLayoutAsArrangement:
             return ActionSpec(
@@ -263,11 +267,29 @@ package enum LocalActionSpec {
                 helpText: "Open delete actions for inbox notifications",
                 icon: .system(.deleteLeft)
             )
+        case .sortRepoExplorerItems:
+            return ActionSpec(
+                label: "Sort", helpText: "Choose how sidebar items are sorted", icon: .system(.arrowUpArrowDown))
+        case .showRepoExplorerOrganization:
+            return ActionSpec(
+                label: "Organization",
+                helpText: "Choose how sidebar items are grouped",
+                icon: .system(.sliderHorizontal3)
+            )
         case .groupRepoExplorerWorktrees:
             return ActionSpec(
-                label: "Group Repo Worktrees",
-                helpText: "Group repo worktrees by repo, pane, or tab",
-                icon: .system(.squareStack3dUp)
+                label: "Group",
+                helpText: "Choose how sidebar items are grouped",
+                icon: .system(.square2Layers3d)
+            )
+        case .noRepoExplorerSubgroups:
+            return ActionSpec(
+                label: "No subgroups", helpText: "Subgrouping is unavailable for this grouping", icon: .system(.circle))
+        case .subgroupRepoExplorerWorktrees:
+            return ActionSpec(
+                label: "Subgroup",
+                helpText: "Choose how sidebar items are subgrouped",
+                icon: .system(.listBulletIndent)
             )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))

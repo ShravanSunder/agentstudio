@@ -242,7 +242,7 @@ enum WorkspaceSQLiteStateBridge {
                     repoPath: repo.repoPath,
                     stableKey: repo.stableKey,
                     createdAt: repo.createdAt,
-                    isFavorite: repo.isFavorite,
+                    isPinned: repo.isPinned,
                     note: repo.note,
                     worktrees: (worktreesByRepoId[repo.id] ?? []).map { worktree in
                         .init(
@@ -532,6 +532,7 @@ enum WorkspaceSQLiteStateBridge {
             title: metadata.title,
             note: metadata.note,
             checkoutRef: metadata.checkoutRef,
+            isPinned: metadata.isPinned,
             durableFacets: .init(
                 repoId: metadata.facets.repoId,
                 worktreeId: metadata.facets.worktreeId,
@@ -674,6 +675,7 @@ enum WorkspaceSQLiteStateBridge {
             ),
             checkoutRef: record.checkoutRef,
             note: record.note,
+            isPinned: record.isPinned,
             fillNilLaunchDirectoryFacet: false
         )
     }

@@ -272,4 +272,25 @@ PATH="$fake_bin:$PATH" FAKE_HOMEBREW_REPOSITORY="$fake_homebrew" HOMEBREW_TAP_TO
 PATH="$fake_bin:$PATH" FAKE_BREW_REPOSITORY_FAIL=1 HOMEBREW_TAP_TOKEN=fake \
   DRY_RUN=1 SKIP_BREW_STYLE=1 "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
 
+# macOS /bin/bash is 3.2: an empty array is unset under nounset.
+for xcb_extra_args in "" "--renderer github-actions"; do
+  xcb_output="$(XCB_EXTRA_ARGS="$xcb_extra_args" /bin/bash -eu -c '
+    source "$1/scripts/xcb-helpers.sh"
+    xcbeautify() {
+      printf "argument-count=%s\n" "$#"
+      for argument in "$@"; do printf "argument=%s\n" "$argument"; done
+      cat
+    }
+    printf "release build output\n" | _xcb_pipe
+  ' _ "$ROOT_DIR")"
+  assert_contains "$xcb_output" "release build output"
+  if [[ -z "$xcb_extra_args" ]]; then
+    assert_contains "$xcb_output" "argument-count=0"
+  else
+    assert_contains "$xcb_output" "argument-count=2"
+    assert_contains "$xcb_output" "argument=--renderer"
+    assert_contains "$xcb_output" "argument=github-actions"
+  fi
+done
+
 echo "release script verification passed"
