@@ -12,6 +12,7 @@ import {
 } from './bridge-product-contract-primitives.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
+	assertBridgeProductResyncReconciliationMatchesRequest,
 	bridgeProductControlRequestSchema,
 	bridgeProductControlResponseSchema,
 	encodeBridgeProductCapabilityHeader,
@@ -72,7 +73,10 @@ interface BridgeProductControlAdmissionIdentity {
 }
 
 interface BridgeProductControlAdmissionProps<TResult> {
-	readonly acceptResponse: (response: BridgeProductControlResponse) => TResult;
+	readonly acceptResponse: (
+		response: BridgeProductControlResponse,
+		request: BridgeProductControlRequest,
+	) => TResult;
 	readonly buildRequest: (
 		identity: BridgeProductControlAdmissionIdentity,
 	) => BridgeProductControlRequest;
@@ -276,6 +280,45 @@ export class BridgeProductControlMux {
 		});
 	}
 
+	resync(props: {
+		readonly readActiveSubscriptions: () => Extract<
+			BridgeProductControlRequest,
+			{ kind: 'workerSession.resync' }
+		>['activeSubscriptions'];
+		readonly readLastAcceptedStreamSequence: () => number;
+	}): Promise<Extract<BridgeProductControlResponse, { kind: 'resync.accepted' }>> {
+		return this.#admit({
+			acceptResponse: (
+				response,
+				request,
+			): Extract<BridgeProductControlResponse, { kind: 'resync.accepted' }> => {
+				if (response.kind !== 'resync.accepted' || request.kind !== 'workerSession.resync') {
+					throw new Error('Bridge product session resync did not return resync.accepted.');
+				}
+				if (response.nextExpectedRequestSequence !== request.requestSequence + 1) {
+					throw new Error(
+						'Bridge product session resync returned an unexpected next request sequence.',
+					);
+				}
+				if (response.metadataStreamSequenceBarrier < request.lastAcceptedStreamSequence) {
+					throw new Error(
+						'Bridge product session resync metadata barrier precedes the claimed stream sequence.',
+					);
+				}
+				assertBridgeProductResyncReconciliationMatchesRequest({ request, response });
+				return response;
+			},
+			buildRequest: (identity): BridgeProductControlRequest =>
+				bridgeProductControlRequestSchema.parse({
+					...identity,
+					activeSubscriptions: props.readActiveSubscriptions(),
+					kind: 'workerSession.resync',
+					lastAcceptedRequestSequence: identity.requestSequence - 1,
+					lastAcceptedStreamSequence: props.readLastAcceptedStreamSequence(),
+				}),
+		});
+	}
+
 	#admit<TResult>(props: BridgeProductControlAdmissionProps<TResult>): Promise<TResult> {
 		return this.#enqueue(async (): Promise<TResult> => {
 			props.signal?.throwIfAborted();
@@ -309,7 +352,7 @@ export class BridgeProductControlMux {
 				});
 			}
 			this.#nextRequestSequence += 1;
-			return props.acceptResponse(response);
+			return props.acceptResponse(response, request);
 		});
 	}
 

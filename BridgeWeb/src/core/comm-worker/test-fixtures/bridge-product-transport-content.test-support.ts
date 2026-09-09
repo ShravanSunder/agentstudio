@@ -109,6 +109,7 @@ export class TestContentProductServer {
 	nextContentRequestFailure: Error | null = null;
 	nextContentResponseKind: 'ordinary' | 'read-error' | 'unexpected-eof' = 'ordinary';
 	nextAcknowledgementStatus = 204;
+	resyncFailure: Error | null = null;
 	readonly requestRoutes: string[] = [];
 	#heldAcknowledgement: Promise<void> | null = null;
 	#heldContentRequestId: string | null = null;
@@ -224,6 +225,9 @@ export class TestContentProductServer {
 	async #handleControl(body: unknown): Promise<Response> {
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
+		if (request.kind === 'workerSession.resync' && this.resyncFailure !== null) {
+			throw this.resyncFailure;
+		}
 		const identity = {
 			paneSessionId: request.paneSessionId,
 			requestId: request.requestId,

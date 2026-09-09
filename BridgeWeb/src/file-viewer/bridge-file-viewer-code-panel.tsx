@@ -391,7 +391,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					: { workerFactory: props.codeViewWorkerFactory })}
 			>
 				<div
-					className={`h-full min-h-0 min-w-0 ${props.openFileState.status === 'ready' ? '' : 'invisible'}`}
+					className={`h-full min-h-0 min-w-0 ${codeViewItems.length > 0 ? '' : 'invisible'}`}
 					data-testid="bridge-file-viewer-code-view"
 				>
 					<CodeView

@@ -522,7 +522,9 @@ export class BridgeCommWorkerProductController {
 	): Promise<void> {
 		try {
 			for await (const frame of subscription.events) {
-				if (subscription !== this.#reviewSubscription) return;
+				// Retired sources still drain frames ordered before their cancellation
+				// terminal. Returning here would close the queue behind the transport.
+				if (subscription !== this.#reviewSubscription) continue;
 				const event = frame.data;
 				try {
 					const applicationReceipt = await this.#onReviewMetadataEvent(
@@ -748,7 +750,9 @@ export class BridgeCommWorkerProductController {
 	): Promise<void> {
 		try {
 			for await (const frame of subscription.events) {
-				if (subscription !== this.#fileSubscription) return;
+				// Stop publishing retired source facts without closing the transport's
+				// queue before the native cancellation terminal has drained.
+				if (subscription !== this.#fileSubscription) continue;
 				const event = frame.data;
 				this.#fileSource = event.source;
 				this.#fileFrameObservationRecoveryAttempted = false;

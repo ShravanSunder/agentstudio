@@ -610,7 +610,13 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 				snapshot,
 				sourceStatus: 'stale',
 			}),
-			reviewPublicationIdentity: null,
+			reviewPublicationIdentity: {
+				packageId: event.packageId,
+				publicationId: event.publicationId,
+				reviewGeneration: event.generation,
+				revision: event.revision,
+				sourceIdentity: event.sourceIdentity,
+			},
 			workerDerivationEpoch,
 		});
 	}
@@ -635,7 +641,13 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		}).filter((patch) => patch.slice === 'reviewSource');
 		this.#publishDisplayPatches({
 			patches: sourcePatches,
-			reviewPublicationIdentity: null,
+			reviewPublicationIdentity: {
+				packageId: event.packageId,
+				publicationId: event.publicationId,
+				reviewGeneration: event.generation,
+				revision: event.revision,
+				sourceIdentity: event.sourceIdentity,
+			},
 			workerDerivationEpoch,
 		});
 	}

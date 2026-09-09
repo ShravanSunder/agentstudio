@@ -567,6 +567,10 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			expect(
 				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
 			).toContain('Loading file');
+			const retainedView = rendered.getByTestId('bridge-file-viewer-code-view').element();
+			expect(getComputedStyle(retainedView).visibility).toBe('visible');
+			expect(mountedCodeView.current).toBe(capturedCodeView);
+			expect(setItemReceipts.some((items) => items.length === 0)).toBe(false);
 			await rendered.rerender(
 				annotationHarness.wrap(
 					<BridgeFileViewerCodePanel

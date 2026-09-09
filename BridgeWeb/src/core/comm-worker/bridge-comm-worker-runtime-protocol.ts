@@ -764,14 +764,16 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				if (pump.getPendingWorkIds().length > 0) requestPreparationDrain();
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
-				activeFileWorkerDerivationEpoch = workerDerivationEpoch;
+				activeFileWorkerDerivationEpoch = null;
 				productController?.setAnnotationProjectionSourceUnavailable('file', _error);
 				publishUpdatingChrome();
 				abortAllFileContentPreparations();
+				cancelSelectedFileContentOperation();
+				selectedFileContentOperationStore = null;
+				latestSelectedFilePreparationRequest = null;
+				// A failed delivery retires preparation authority, not the last complete display.
 				const displayProjection = fileQueryProjection.applyDisplayPatches([
-					{ operation: 'clear', slice: 'fileTree' },
-					{ operation: 'reset', slice: 'fileItem' },
-					{ operation: 'reset', slice: 'fileStatus' },
+					{ operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' },
 				]);
 				for (const message of fileDisplayEventAuthority.publish({
 					epoch: workerDerivationEpoch,
@@ -779,17 +781,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				})) {
 					port.postMessage(message);
 				}
-				const messages = handler.applyFileViewRuntimeMutation({
-					epoch: workerDerivationEpoch,
-					mutation: {
-						contentRequestUpserts: [],
-						contentUpserts: [],
-						filePathUpserts: [],
-						kind: 'reset',
-						rowUpserts: [],
-					},
-				});
-				for (const message of messages) port.postMessage(message);
 				requestReviewBackgroundWarmup(
 					currentFileSourceWarmupKey ?? `file-metadata-failure:${workerDerivationEpoch.toString()}`,
 				);

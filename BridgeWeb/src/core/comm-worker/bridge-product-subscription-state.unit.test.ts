@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import type { BridgeProductMetadataApplicationOpen } from './bridge-product-metadata-application-protocol.js';
-import { bridgeProductReviewAnnotationMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
+import {
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
+	bridgeProductReviewMetadataApplicationProtocol,
+} from './bridge-product-metadata-application-registry.js';
 import {
 	bridgeProductMetadataFrameSchema,
 	type BridgeProductMetadataFrame,
@@ -13,6 +16,10 @@ import {
 	type BridgeProductSubscriptionFrame,
 	type BridgeProductSubscriptionStateControlMux,
 } from './bridge-product-subscription-state.js';
+import {
+	emptyInterestHash,
+	waitForCondition,
+} from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol
@@ -21,6 +28,153 @@ type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 const annotationInterestSha256 = 'a'.repeat(64);
 
 describe('Bridge product subscription state', () => {
+	test('reconciles an older subscription against the current surface epoch without retagging its admission', async () => {
+		// Arrange: an annotation subscription opens before its surface metadata
+		// advances the shared epoch, as in the real four-subscription startup.
+		const harness = createAnnotationControlHarness();
+		let surfaceEpoch = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: harness.controlMux,
+			createIdentifier: (): string => 'unused-epoch-reconciliation-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => surfaceEpoch,
+			subscriptionId: 'older-annotation-subscription',
+		});
+		state.start();
+		const admittedOpen = await harness.capturedOpen;
+		await state.update({});
+
+		try {
+			// Act: reconciliation asks native whether this ID can serve the current
+			// epoch. Native, not the worker, decides whether a fresh ID is required.
+			surfaceEpoch = 1;
+			const claim = state.reconciliationClaim();
+
+			// Assert
+			expect(admittedOpen.workerDerivationEpoch).toBe(0);
+			expect(claim).toMatchObject({
+				subscriptionId: 'older-annotation-subscription',
+				workerDerivationEpoch: 1,
+			});
+			const terminal = state.publicSubscription.events[Symbol.asyncIterator]().next();
+			void terminal.catch((): void => {});
+			await state.applyReconciliation({
+				disposition: 'reopenRequired',
+				reason: 'epoch_advanced',
+				requiredWorkerDerivationEpoch: 1,
+				subscriptionId: 'older-annotation-subscription',
+				subscriptionKind: 'review.annotations',
+			});
+			await expect(terminal).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
+		} finally {
+			state.fail(new Error('Epoch reconciliation test cleanup.'));
+		}
+	});
+
+	test('rechecks recovery admission after asynchronous interest hashing', async () => {
+		// Arrange
+		const digestStarted = createBridgeProductDeferred<void>();
+		const digestResult = createBridgeProductDeferred<ArrayBuffer>();
+		const controlResponse = createBridgeProductDeferred<void>();
+		let updateControlCount = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				cancelSubscription: async (): Promise<void> => {},
+				openSubscription: async (): Promise<{
+					readonly interestRevision: number;
+					readonly interestSha256: string;
+				}> => ({
+					interestRevision: 0,
+					interestSha256: emptyInterestHash('review.metadata'),
+				}),
+				updateSubscriptionBatch: (): Promise<void> => {
+					updateControlCount += 1;
+					return controlResponse.promise;
+				},
+			},
+			createIdentifier: (): string => 'recovery-hash-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: { interests: [] },
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'recovery-hash-subscription',
+		});
+		state.start();
+		await state.update({ interests: [] });
+		const digestSpy = vi.spyOn(globalThis.crypto.subtle, 'digest').mockImplementationOnce(() => {
+			digestStarted.resolve();
+			return digestResult.promise;
+		});
+		const update = state.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] });
+		void update.catch((): void => {});
+		await digestStarted.promise;
+
+		try {
+			// Act: recovery starts while preparation is suspended, before control admission.
+			state.beginRecovery();
+			digestResult.resolve(new Uint8Array(32).buffer);
+			await new Promise<void>((resolve): void => {
+				setImmediate(resolve);
+			});
+
+			// Assert: completing preparation is not permission to bypass the recovery gate.
+			expect(updateControlCount).toBe(0);
+		} finally {
+			await state.finishRecovery();
+			await waitForCondition(() => updateControlCount === 1);
+			state.fail(new Error('Interest-hash test cleanup.'));
+			controlResponse.resolve();
+			await update.catch((): void => {});
+			digestSpy.mockRestore();
+		}
+	});
+
+	test('does not start a queued operation across a newly installed recovery gate', async () => {
+		// Arrange: let the operation enter its queue callback, then begin recovery
+		// before any extra asynchronous admission hop can start the control call.
+		const harness = createAnnotationControlHarness();
+		let cancelControlCount = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				...harness.controlMux,
+				cancelSubscription: async (): Promise<void> => {
+					cancelControlCount += 1;
+				},
+			},
+			createIdentifier: (): string => 'unused-recovery-gate-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 1,
+			subscriptionId: 'recovery-gate-subscription',
+		});
+		state.start();
+		await harness.capturedOpen;
+		await state.update({});
+		const cancellation = state.cancel();
+		void cancellation.catch((): void => {});
+		await Promise.resolve();
+		const admittedBeforeRecovery = cancelControlCount;
+
+		try {
+			// Act
+			state.beginRecovery();
+			await Promise.resolve();
+
+			// Assert: controls already started are allowed to settle, but a queued
+			// control cannot newly start while the recovery gate is closed.
+			expect(cancelControlCount).toBe(admittedBeforeRecovery);
+		} finally {
+			state.fail(new Error('Recovery-gate test cleanup.'));
+			await cancellation.catch((): void => {});
+		}
+	});
+
 	test.each([
 		'interest_mismatch',
 		'producer_overflow',

@@ -14,6 +14,7 @@ import {
 } from './bridge-product-control-contracts.js';
 import { bridgeProductReviewFileChangeKindSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
+import { bridgeProductSubscriptionFrameFailureCodes } from './bridge-product-subscription-frame-failure.js';
 import {
 	bridgeWorkerContentAvailabilityPatchPayloadSchema,
 	bridgeWorkerRowPaintPatchPayloadSchema,
@@ -531,6 +532,22 @@ const bridgeWorkerSurfacePublicationEnvelopeShape = {
 const bridgeWorkerProductMetadataStreamDiagnosticSchema = z
 	.object({
 		kind: z.literal('productMetadataStream'),
+		lastSubscriptionTermination: z
+			.object({
+				subscriptionId: bridgeProductIdentifierSchema,
+				outcome: z.enum(['terminal', 'failed']),
+				reason: z
+					.enum([
+						'metadata_stream_error',
+						'subscription_frame_rejected',
+						'unknown_subscription',
+						...bridgeProductSubscriptionFrameFailureCodes,
+					])
+					.nullable(),
+			})
+			.strict()
+			.nullable(),
+		routeFailureSubscriptionId: bridgeProductIdentifierSchema.nullable(),
 		acknowledgedFrameCount: z.number().int().nonnegative(),
 		activeSubscriptionCount: z.number().int().nonnegative(),
 		committedFrameCount: z.number().int().nonnegative(),
@@ -581,7 +598,12 @@ const bridgeWorkerProductMetadataStreamDiagnosticSchema = z
 		receivedByteCount: z.number().int().nonnegative(),
 		retainedByteCount: z.number().int().nonnegative(),
 		routeFailureCode: z
-			.enum(['metadata_stream_error', 'subscription_frame_rejected', 'unknown_subscription'])
+			.enum([
+				'metadata_stream_error',
+				'subscription_frame_rejected',
+				'unknown_subscription',
+				...bridgeProductSubscriptionFrameFailureCodes,
+			])
 			.nullable(),
 		routedFrameCount: z.number().int().nonnegative(),
 		streamOpenCount: z.number().int().nonnegative(),

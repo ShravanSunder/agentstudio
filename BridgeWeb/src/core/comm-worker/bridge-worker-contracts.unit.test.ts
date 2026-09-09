@@ -443,6 +443,8 @@ describe('BridgeWorkerContracts', () => {
 				status: 'degraded',
 				diagnostic: {
 					kind: 'productMetadataStream',
+					lastSubscriptionTermination: null,
+					routeFailureSubscriptionId: null,
 					acknowledgedFrameCount: 1,
 					activeSubscriptionCount: 1,
 					committedFrameCount: 1,

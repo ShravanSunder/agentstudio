@@ -814,7 +814,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileState()).toBe('ready');
 	});
 
-	test('clears selected content while a new source snapshot replaces the active stream', async () => {
+	test('retains selected content while a new source snapshot replaces the active stream', async () => {
 		const initialContent = makeFileContent('export const sourceSnapshotInitial = true;\n');
 		const replacementContent = makeFileContent('export const sourceSnapshotFresh = true;\n');
 		const initialDescriptor = await makeFileDescriptorForContent({
@@ -870,7 +870,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 
 		await waitForOpenFileState('loading');
-		expect(visibleCodeText()).not.toContain('sourceSnapshotInitial');
+		expect(visibleCodeText()).toContain('sourceSnapshotInitial');
 
 		await actUpdate((): void => {
 			publishRequiredMetadataEvents([

@@ -676,9 +676,20 @@ export function createBridgeMainRenderSnapshotStore(
 		applyReviewDisplayPatchEvent: (event: BridgeWorkerReviewDisplayPatchEvent): void => {
 			if (isDisposed) return;
 			const shouldPublishInitialRootSnapshot = snapshot.reviewDisplayFreshness === null;
+			const activeIdentity = reviewCandidateBankOwner.currentPresentation.activeIdentity;
+			const incomingIdentity = event.reviewPublicationIdentity;
+			const replaysExactActivePublication =
+				activeIdentity !== null &&
+				incomingIdentity !== null &&
+				activeIdentity.packageId === incomingIdentity.packageId &&
+				activeIdentity.publicationId === incomingIdentity.publicationId &&
+				activeIdentity.generation === incomingIdentity.reviewGeneration &&
+				activeIdentity.revision === incomingIdentity.revision &&
+				activeIdentity.sourceIdentity === incomingIdentity.sourceIdentity;
 			const replacesWorkerDerivationEpoch =
 				snapshot.reviewDisplayFreshness !== null &&
-				event.epoch > snapshot.reviewDisplayFreshness.epoch;
+				event.epoch > snapshot.reviewDisplayFreshness.epoch &&
+				!replaysExactActivePublication;
 			const effect = applyReviewDisplayPatchEventInPlace({
 				event,
 				reviewItemIndexById,
