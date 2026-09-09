@@ -616,7 +616,7 @@ equal-line limitations. Missing evidence never falls back to focus time.
 
 The header has two rows: Repos/Panes plus Filter, then Show Pinned, animated
 sort-direction arrow, Name/Activity picker, and one grouping summary. The
-summary opens one native `.popover` with 16-point padding and equal Group and
+summary opens one native `.popover` with shared 12-point padding and equal Group and
 Subgroup columns. Catalog icons label both headers. An unavailable subgroup
 retains its column with lighter `No Subgroups`; valid None remains selectable.
 Presentation filtering and dispatch guards reject invalid commands.
