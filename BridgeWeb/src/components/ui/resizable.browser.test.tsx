@@ -66,16 +66,19 @@ test('keeps a quiet line with reachable nearby pointer and keyboard resizing', a
 	await act(async () => {
 		handle.focus();
 	});
-	await expect.element(handle).toHaveAttribute('data-separator', 'focus');
-	await expect.poll(() => getComputedStyle(grip).opacity).toBe('1');
+	await act(async (): Promise<void> => {
+		// Real layout observations can update Separator ARIA while the visual state settles.
+		await expect.element(handle).toHaveAttribute('data-separator', 'focus');
+		await expect.poll(() => getComputedStyle(grip).opacity).toBe('1');
+	});
 	expect(getComputedStyle(handle).backgroundColor).toBe('rgb(143, 152, 168)');
 	const pointerValue = Number(handle.getAttribute('aria-valuenow'));
 	await act(async () => {
 		await userEvent.keyboard('{ArrowRight}');
+		await expect
+			.poll(() => Number(handle.getAttribute('aria-valuenow')))
+			.toBeGreaterThan(pointerValue);
 	});
-	await expect
-		.poll(() => Number(handle.getAttribute('aria-valuenow')))
-		.toBeGreaterThan(pointerValue);
 	await act(async (): Promise<void> => {
 		handle.blur();
 		await rendered.unmount();
