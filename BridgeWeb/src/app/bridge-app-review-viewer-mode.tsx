@@ -23,7 +23,6 @@ import type {
 	BridgeReviewSearchMode,
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
-import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import {
 	WorktreeAnnotationSurfaceProvider,
 	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
@@ -45,12 +44,12 @@ import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
-import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 import {
 	bridgeReviewComparisonPackageMatch,
 	bridgeReviewComparisonPaneIsLoading,
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
+import { BridgeReviewHeaderPanels } from './bridge-review-header-panels.js';
 import {
 	BridgeReviewRefreshHeaderGroup,
 	bridgeReviewRefreshHeaderPresentation,
@@ -413,8 +412,7 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 				}}
 				presentation={refreshHeaderPresentation}
 			/>
-			<WorktreeAnnotationShareHeaderControl />
-			<BridgeReviewComparisonControl
+			<BridgeReviewHeaderPanels
 				comparisonPresentation={panelChromeSlice.reviewComparison}
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
 				disabled={comparisonIsLoading}

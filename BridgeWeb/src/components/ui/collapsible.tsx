@@ -5,12 +5,28 @@ import type { ReactElement } from 'react';
 
 import { cn } from '@/lib/utils.js';
 
+import { Button } from './button.js';
+
 function Collapsible(props: CollapsiblePrimitive.Root.Props): ReactElement {
 	return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
 }
 
 function CollapsibleTrigger(props: CollapsiblePrimitive.Trigger.Props): ReactElement {
 	return <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />;
+}
+
+/** Section-heading hierarchy with the same action and focus recipe as other controls. */
+function CollapsibleHeading(
+	props: Omit<CollapsiblePrimitive.Trigger.Props, 'render'>,
+): ReactElement {
+	return (
+		<h3>
+			<CollapsibleTrigger
+				{...props}
+				render={<Button size="sm" variant="ghost" className="text-base" />}
+			/>
+		</h3>
+	);
 }
 
 function CollapsibleContent({
@@ -31,4 +47,4 @@ function CollapsibleContent({
 	);
 }
 
-export { Collapsible, CollapsibleContent, CollapsibleTrigger };
+export { Collapsible, CollapsibleContent, CollapsibleHeading, CollapsibleTrigger };

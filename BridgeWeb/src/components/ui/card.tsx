@@ -42,7 +42,7 @@ function CardDescription({ className, ...props }: ComponentProps<'div'>): ReactE
 	return (
 		<div
 			data-slot="card-description"
-			className={cn('min-w-0 text-sm text-muted-foreground', className)}
+			className={cn('min-w-0 text-sm font-normal text-muted-foreground', className)}
 			{...props}
 		/>
 	);
@@ -59,14 +59,20 @@ function CardAction({ className, ...props }: ComponentProps<'div'>): ReactElemen
 }
 
 function CardContent({ className, ...props }: ComponentProps<'div'>): ReactElement {
-	return <div data-slot="card-content" className={cn('min-w-0 p-2', className)} {...props} />;
+	return (
+		<div
+			data-slot="card-content"
+			className={cn('min-w-0 p-2 [&:not(:first-child)]:pt-0', className)}
+			{...props}
+		/>
+	);
 }
 
 function CardFooter({ className, ...props }: ComponentProps<'div'>): ReactElement {
 	return (
 		<div
 			data-slot="card-footer"
-			className={cn('flex min-w-0 items-center p-2 pt-0', className)}
+			className={cn('flex min-w-0 flex-wrap items-center gap-2 p-2 pt-0', className)}
 			{...props}
 		/>
 	);
