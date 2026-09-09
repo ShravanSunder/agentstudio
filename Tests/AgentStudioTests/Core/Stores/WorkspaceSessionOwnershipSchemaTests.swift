@@ -10,7 +10,8 @@ struct WorkspaceSessionOwnershipSchemaTests {
     @Test("ordinary schema setup registers existing opaque sessions without changing panes")
     func schemaSetupPreservesExistingSessions() throws {
         let database = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrator.migrate(database, upTo: "016_add_pane_association_facets")
+        // Use the current pre-journal schema: the pane reader requires main's pin column.
+        try WorkspaceCoreMigrations.migrator.migrate(database, upTo: "017_add_independent_sidebar_pins")
         let fixture = WorkspaceCoreTopologyRepositoryFixture(
             repository: WorkspaceCoreRepository(databaseWriter: database),
             databaseQueue: database

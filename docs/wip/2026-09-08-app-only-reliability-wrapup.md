@@ -27,7 +27,11 @@ No vendor source, pins, prepared-input symlinks, or ownership/deadline policy ch
 Fresh no-history Astra merge review found no supported merge-introduced findings.
 Eight focused suites passed in separate processes, 78 tests total (including both
 schema starting states, pinned Undo, cadence, coalescing and terminal exit). Logs:
-`tmp/pr335-wrapup-proof/main-merge-*`. The mandatory aggregate gate must pass before
+`tmp/pr335-wrapup-proof/main-merge-*`. The first aggregate exposed one old journal
+fixture reading schema 016 with the current pin-aware reader. It now starts at the
+current pre-journal sidebar-pin schema; all three schema tests passed, with the same
+unchanged-pane/session and reopen assertions. Astra confirmed that bounded correction.
+The mandatory aggregate gate must pass before
 pushing this integration. Prior hosted PR readiness applies only to `cf471342b`.
 
 ## Current MainActor correction (2026-09-09)
