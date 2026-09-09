@@ -142,6 +142,7 @@ package enum AppStyles {
                 nativeItemSpacing - groupRowVerticalPadding - nativeGroupHeaderBottomPadding + General.Spacing.tight
             package static let nativeSubsequentSubgroupTopPadding: CGFloat =
                 nativeGroupSpacing - nativeRowVerticalInset + General.Spacing.tight
+            package static let nativeSectionHeaderBottomPadding: CGFloat = 0
             package static let nativeSubgroupBottomPadding: CGFloat =
                 nativeItemSpacing - nativeRowVerticalInset
             package static let countBadgeHorizontalPadding: CGFloat = 6

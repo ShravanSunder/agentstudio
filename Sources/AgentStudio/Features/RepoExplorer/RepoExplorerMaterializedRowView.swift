@@ -47,7 +47,7 @@ struct RepoExplorerMaterializedRowView: View {
                 .padding(.leading, AppStyles.Shell.Sidebar.listRowLeadingInset)
                 .padding(.trailing, AppStyles.Components.SectionSubheading.horizontalPadding)
                 .padding(.top, isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
-                .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
+                .padding(.bottom, AppStyles.Shell.Sidebar.nativeSectionHeaderBottomPadding)
                 .accessibilityAddTraits(.isHeader)
         case .loadingSectionHeader(_, let state):
             RepoExplorerLoadingSectionHeaderRow(state: state)

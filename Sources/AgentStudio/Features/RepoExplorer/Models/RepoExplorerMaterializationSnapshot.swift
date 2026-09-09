@@ -177,7 +177,7 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
             )
             facts.additionalVerticalPadding =
                 (isFirstRow ? 0 : AppStyles.Components.SectionSubheading.topPadding)
-                + AppStyles.Components.SectionSubheading.bottomPadding
+                + AppStyles.Shell.Sidebar.nativeSectionHeaderBottomPadding
             return facts
         case .loadingSectionHeader:
             var facts = Facts(

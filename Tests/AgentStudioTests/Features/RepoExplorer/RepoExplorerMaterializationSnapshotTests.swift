@@ -8,6 +8,19 @@ import Testing
 
 @Suite("RepoExplorerMaterializationSnapshotTests")
 struct RepoExplorerMaterializationSnapshotTests {
+    @Test("section breathing room is above the heading, with no added gap below")
+    func sectionSpacingIsAboveOnly() {
+        let first = RepoExplorerRowLayout.make(for: .sectionHeader(kind: .openRepositories, isFirstRow: true))
+        let later = RepoExplorerRowLayout.make(for: .sectionHeader(kind: .repositories, isFirstRow: false))
+        #expect(first.metrics.fallbackHeight == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight)
+        #expect(later.metrics.fallbackHeight - first.metrics.fallbackHeight == 12)
+        #expect(
+            AppStyles.Shell.Sidebar.nativeSectionHeaderBottomPadding
+                + AppStyles.Shell.Sidebar.nativeGroupHeaderTopPadding
+                + AppStyles.Shell.Sidebar.groupRowVerticalPadding == AppStyles.Shell.Sidebar.nativeItemSpacing
+        )
+    }
+
     @Test("activity subgroup materializes as a section-style row aligned to the child icon column")
     func activitySubgroupUsesSectionStyleAndChildIconAlignment() {
         let presentation = RepoExplorerMaterializedRowPresentation.activitySubgroup(.justNow, isFirstInGroup: true)
