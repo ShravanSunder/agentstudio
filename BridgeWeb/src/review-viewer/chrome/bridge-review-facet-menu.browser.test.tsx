@@ -27,7 +27,9 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 		);
 
 		// Act
+		await openFacetSubmenu('Git status');
 		const gitRows = findMenuCheckboxItems('Git status');
+		await openFacetSubmenu('File category');
 		const categoryRows = findMenuCheckboxItems('File category');
 		const visibilityRows = findMenuCheckboxItems('Visibility');
 
@@ -55,10 +57,13 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 			'Documentation',
 			'Configuration',
 			'Generated',
-			'Dependencies and build output',
-			'Fixtures',
+			'Dependencies / build',
+			'Test data',
 			'Other',
 		]);
+		for (const row of categoryRows) {
+			expect(row.querySelector('[data-testid$="-option-badge"] svg')).not.toBeNull();
+		}
 		expect(categoryRows.map(checkedState)).toEqual([
 			'false',
 			'false',
@@ -70,8 +75,16 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 			'false',
 			'false',
 		]);
-		expect(visibilityRows.map(visibleRowLabel)).toEqual(['Binary', 'Large']);
+		expect(visibilityRows.map(visibleRowLabel)).toEqual([
+			'Include binary files',
+			'Include large files',
+		]);
 		expect(visibilityRows.map(checkedState)).toEqual(['true', 'false']);
+		for (const row of visibilityRows) {
+			expect(row.querySelector('[data-slot="switch-indicator"]')).not.toBeNull();
+			expect(row.querySelector('[role="switch"]')).toBeNull();
+			expect(getComputedStyle(row).height).toBe('28px');
+		}
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -131,6 +144,15 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 	});
 });
 
+async function openFacetSubmenu(label: string): Promise<void> {
+	const trigger = document.querySelector(`[role="menuitem"][aria-label="${label}"]`);
+	expect(trigger).not.toBeNull();
+	await act(async (): Promise<void> => requireHTMLElement(trigger).click());
+	await expect
+		.poll(() => document.querySelector(`[role="group"][aria-label="${label}"]`))
+		.not.toBeNull();
+}
+
 const gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
 	{ value: 'all', label: 'All', description: 'Show every Git status' },
 	{ value: 'added', label: 'Added', description: 'Show added files' },
@@ -141,7 +163,7 @@ const gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKin
 ];
 
 function findMenuCheckboxItems(groupLabel: string): HTMLElement[] {
-	const group = document.querySelector(`section[aria-label="${groupLabel}"]`);
+	const group = document.querySelector(`[role="group"][aria-label="${groupLabel}"]`);
 	expect(group).not.toBeNull();
 	return [...(group?.querySelectorAll('[role="menuitemcheckbox"]') ?? [])].map(
 		(element: Element): HTMLElement => requireHTMLElement(element),

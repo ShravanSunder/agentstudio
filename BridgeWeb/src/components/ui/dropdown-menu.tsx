@@ -21,6 +21,7 @@ import type { ComponentProps, ReactElement } from 'react';
 import { cn } from '@/lib/utils';
 
 import { ItemDescription } from './item-content.js';
+import { SwitchIndicator } from './switch.js';
 
 type DropdownMenuRootProps = MenuRootProps;
 type DropdownMenuPortalProps = MenuPortalProps;
@@ -225,10 +226,12 @@ function DropdownMenuCheckboxItem({
 	checked,
 	inset,
 	presentation = 'default',
+	indicator = 'check',
 	...props
 }: DropdownMenuCheckboxItemProps & {
 	inset?: boolean;
 	presentation?: 'default' | 'descriptive';
+	indicator?: 'check' | 'switch';
 }): ReactElement {
 	return (
 		<MenuPrimitive.CheckboxItem
@@ -237,6 +240,7 @@ function DropdownMenuCheckboxItem({
 			data-presentation={presentation}
 			className={cn(
 				"group/dropdown-menu-item relative flex h-[var(--row-height-default)] cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-xs outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-inset:pl-7.5 data-[presentation=descriptive]:flex-col data-[presentation=descriptive]:items-start data-[presentation=descriptive]:justify-center data-[presentation=descriptive]:h-[var(--row-height-descriptive)] data-[presentation=descriptive]:gap-0.5 data-[presentation=descriptive]:py-1 data-[presentation=descriptive]:text-base data-disabled:pointer-events-none data-disabled:text-faint-foreground data-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				indicator === 'switch' ? 'pr-12' : undefined,
 				className,
 			)}
 			checked={checked}
@@ -246,9 +250,13 @@ function DropdownMenuCheckboxItem({
 				className="pointer-events-none absolute right-2 flex items-center justify-center"
 				data-slot="dropdown-menu-checkbox-item-indicator"
 			>
-				<MenuPrimitive.CheckboxItemIndicator>
-					<CheckIcon />
-				</MenuPrimitive.CheckboxItemIndicator>
+				{indicator === 'switch' ? (
+					<SwitchIndicator checked={checked === true} />
+				) : (
+					<MenuPrimitive.CheckboxItemIndicator>
+						<CheckIcon />
+					</MenuPrimitive.CheckboxItemIndicator>
+				)}
 			</span>
 			{children}
 		</MenuPrimitive.CheckboxItem>
