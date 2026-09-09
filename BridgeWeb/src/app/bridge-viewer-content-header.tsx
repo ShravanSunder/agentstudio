@@ -2,12 +2,7 @@ import { FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
-import {
-	bridgeViewerChromeHeaderClassName,
-	bridgeViewerChromeLucideIconClassName,
-	bridgeViewerChromeSegmentButtonClassName,
-	bridgeViewerChromeSegmentedControlClassName,
-} from './bridge-viewer-chrome.js';
+import { bridgeViewerChromeHeaderClassName } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
 export function BridgeViewerContentHeader(props: {
@@ -28,14 +23,14 @@ export function BridgeViewerContentHeader(props: {
 			<div className="flex min-w-0 items-center gap-2">
 				<span
 					aria-label={viewerModeLabel(props.mode)}
-					className="shrink-0 text-[var(--bridge-text-primary)]"
+					className="shrink-0 text-foreground"
 					data-testid="bridge-viewer-content-mode-icon"
 					title={viewerModeLabel(props.mode)}
 				>
 					{viewerModeIcon(props.mode)}
 				</span>
 				<span
-					className="min-w-0 truncate text-[11px] text-[var(--bridge-text-secondary)]"
+					className="min-w-0 truncate text-xs text-muted-foreground"
 					data-testid="bridge-viewer-content-title"
 				>
 					{props.title}
@@ -44,7 +39,7 @@ export function BridgeViewerContentHeader(props: {
 					<span
 						aria-atomic="true"
 						aria-live="polite"
-						className="shrink-0 text-[11px] text-[var(--bridge-text-secondary)]"
+						className="shrink-0 text-xs text-muted-foreground"
 						data-testid="bridge-viewer-content-status"
 						role="status"
 					>
@@ -67,11 +62,9 @@ export function BridgeViewerContentHeader(props: {
 function viewerModeIcon(mode: 'file' | 'review'): ReactElement {
 	switch (mode) {
 		case 'file':
-			return <FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />;
+			return <FileTextIcon aria-hidden="true" className="size-3" />;
 		case 'review':
-			return (
-				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-			);
+			return <ListChecksIcon aria-hidden="true" className="size-3" />;
 		default:
 			return assertNeverViewerMode(mode);
 	}
@@ -99,7 +92,7 @@ export function BridgeViewerContextSwitcher(props: {
 	return (
 		<ToggleGroup
 			aria-label="Bridge viewer context"
-			className={cn(bridgeViewerChromeSegmentedControlClassName, 'grid grid-cols-2')}
+			className="grid grid-cols-2"
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
 			onValueChange={(modes): void => {
@@ -116,7 +109,8 @@ export function BridgeViewerContextSwitcher(props: {
 				}
 			}}
 			role="group"
-			size="sm"
+			size="xs"
+			variant="segmented"
 			value={[props.mode]}
 		>
 			<BridgeViewerContextButton isSelected={props.mode === 'file'} label="Files" mode="file" />
@@ -137,22 +131,17 @@ function BridgeViewerContextButton(props: {
 	return (
 		<ToggleGroupItem
 			aria-label={props.label}
-			className={cn(
-				bridgeViewerChromeSegmentButtonClassName,
-				'w-full',
-				props.isSelected ? 'shadow-none' : undefined,
-			)}
+			className="w-full"
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}
-			size="sm"
 			title={props.label}
 			value={props.mode}
 		>
 			{props.mode === 'file' ? (
-				<FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+				<FileTextIcon aria-hidden="true" />
 			) : (
-				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+				<ListChecksIcon aria-hidden="true" />
 			)}
 			<span>{props.label}</span>
 		</ToggleGroupItem>

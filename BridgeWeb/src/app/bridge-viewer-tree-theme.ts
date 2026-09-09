@@ -60,7 +60,7 @@ export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
 	'--trees-selected-focused-border-color-override': 'var(--ring)',
 	'--trees-focus-ring-color-override': 'var(--ring)',
 	'--trees-font-family-override': 'var(--font-sans)',
-	'--trees-font-size-override': '12px',
+	'--trees-font-size-override': 'var(--text-base)',
 	'--trees-level-gap-override': '4px',
 	'--trees-padding-inline-override': 8,
 	'--trees-git-renamed-color-override': 'var(--primary)',

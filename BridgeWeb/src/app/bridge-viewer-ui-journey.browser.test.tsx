@@ -21,7 +21,11 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		disposeBridgeReviewRecoveryWitnessHarnesses();
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
-		await page.viewport(defaultViewport.width, defaultViewport.height);
+		try {
+			await page.viewport(defaultViewport.width, defaultViewport.height);
+		} catch (cause: unknown) {
+			throw new Error('UI journey viewport restoration failed.', { cause });
+		}
 	});
 
 	test('preserves Review selection through search, filters, settings, focus, and narrow layout', async () => {
@@ -53,6 +57,14 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		await expectSelectedPath(harness.renderResult.container, selectedFile.path);
 		expect(harness.codeText()).toContain(selectedFile.contentMarker);
+		const fileHeader = allElementsIncludingOpenShadowRoots(harness.renderResult.container).find(
+			(element) => element.hasAttribute('data-diffs-header'),
+		);
+		if (fileHeader === undefined) throw new Error('Expected a rendered Pierre file header.');
+		expect(getComputedStyle(fileHeader).backgroundColor).toBe('rgb(28, 32, 38)');
+		expect(getComputedStyle(fileHeader).marginBottom).toBe('0px');
+		expect(getComputedStyle(fileHeader).borderBottomWidth).toBe('0px');
+		expect(fileHeader.getBoundingClientRect().height).toBe(40);
 
 		// Assert: the normal clean-Chrome viewport resolves the compact canonical scale.
 		const filterTrigger = requireHTMLElement(
@@ -120,7 +132,16 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		expect(getComputedStyle(disabledFacetClear).opacity).toBe('1');
 		expect(disabledFacetClear.hasAttribute('data-disabled')).toBe(true);
 
+		await act(async (): Promise<void> => {
+			requireHTMLElement(
+				document.querySelector('[role="menuitem"][aria-label="Git status"]'),
+			).click();
+		});
+		await expect
+			.poll(() => document.querySelector('[role="group"][aria-label="Git status"]'))
+			.not.toBeNull();
 		const modifiedOption = findFacetOption('Modified');
+		await finishAnimations(requireHTMLElement(modifiedOption.closest('[role="menu"]')));
 		expect(modifiedOption.getBoundingClientRect().height).toBe(28);
 		await clickAndSettle(modifiedOption);
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
@@ -150,13 +171,13 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		);
 		await finishAnimations(settingsPopup);
 		assertInsideViewport(settingsPopup, defaultViewport);
-		const settingsRows = menuRows(settingsPopup);
+		const settingsRows = [...settingsPopup.querySelectorAll<HTMLElement>('[role="switch"]')];
 		expect(settingsRows.length).toBeGreaterThan(0);
-		for (const row of settingsRows) expect(row.getBoundingClientRect().height).toBe(28);
+		for (const row of settingsRows) expect(row.getBoundingClientRect().height).toBe(16);
 		const disabledReset = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-review-view-settings-reset"]'),
 		);
-		expect(disabledReset.hasAttribute('data-disabled')).toBe(true);
+		expect(disabledReset.hasAttribute('disabled')).toBe(true);
 		expect(getComputedStyle(disabledReset).opacity).toBe('1');
 
 		await clickAndSettle(findViewSettingsRow(settingsPopup, 'Word wrap'));
@@ -167,6 +188,9 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		);
 		expect(enabledReset.hasAttribute('data-disabled')).toBe(false);
 		await clickAndSettle(enabledReset);
+		await act(async (): Promise<void> => {
+			await userEvent.keyboard('{Escape}');
+		});
 		await finishAnimations(settingsPopup);
 		await act(async (): Promise<void> => {
 			await expect.poll(() => document.activeElement).toBe(settingsTrigger);
@@ -190,17 +214,22 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		assertInsideBounds(settingsTrigger, fixtureBounds);
 		expect(document.activeElement).toBe(settingsTrigger);
 		await expectSelectedPath(harness.renderResult.container, selectedFile.path);
-		await page.screenshot({
-			element: fixtureRoot,
-			path: '../../../tmp/bridge-viewer-ui-journey-review-settings-1024.png',
-		});
+		try {
+			await page.screenshot({
+				element: fixtureRoot,
+				path: '../../../tmp/bridge-viewer-ui-journey-review-settings-1024.png',
+			});
+		} catch (cause: unknown) {
+			throw new Error('UI journey narrow-layout capture failed after interaction assertions.', {
+				cause,
+			});
+		}
 	});
 });
 
 async function clickAndSettle(element: HTMLElement): Promise<void> {
 	await act(async (): Promise<void> => {
-		await userEvent.click(element);
-		await userEvent.unhover(element);
+		element.click();
 	});
 	await advanceBridgeReviewRecoveryWitnessFrames(2);
 }
@@ -252,21 +281,11 @@ function findFacetOption(label: string): HTMLElement {
 }
 
 function findViewSettingsRow(popup: HTMLElement, label: string): HTMLElement {
-	const row = menuRows(popup).find(
-		(candidate): boolean =>
-			candidate.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
-			label,
+	const row = [...popup.querySelectorAll<HTMLElement>('[role="switch"]')].find(
+		(candidate): boolean => candidate.getAttribute('aria-label') === label,
 	);
 	if (row === undefined) throw new Error(`Expected Review view-settings row ${label}.`);
 	return row;
-}
-
-function menuRows(popup: HTMLElement): readonly HTMLElement[] {
-	return [
-		...popup.querySelectorAll<HTMLElement>(
-			'[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
-		),
-	];
 }
 
 function codeViewOverflow(container: HTMLElement): readonly string[] {

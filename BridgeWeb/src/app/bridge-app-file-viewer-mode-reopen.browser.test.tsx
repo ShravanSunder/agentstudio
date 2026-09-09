@@ -348,10 +348,8 @@ function viewSettingsRow(surface: 'file' | 'review', label: string): HTMLElement
 		`[data-testid="bridge-${surface}-view-settings-content"]`,
 	);
 	if (content === null) throw new Error(`Missing ${surface} View Settings content`);
-	const row = [...content.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find(
-		(candidate): boolean =>
-			candidate.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
-			label,
+	const row = [...content.querySelectorAll<HTMLElement>('[role="switch"]')].find(
+		(candidate): boolean => candidate.getAttribute('aria-label') === label,
 	);
 	if (row === undefined) throw new Error(`Missing View Settings row: ${label}`);
 	return row;
