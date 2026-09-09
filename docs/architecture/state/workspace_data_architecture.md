@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer is the sole sidebar and is a pure reader of state owners via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, and terminal activity router consume their own matched facts. Repo Explorer hosts the Repos and Panes sidebar screens and reads state owners via `@Observable` binding. Projection performs no imperative fetches or mutations; controls dispatch through command specs.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -560,40 +560,78 @@ Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` be
 
 ## Sidebar Data Flow
 
-The sidebar is a pure reader. It reads structure from one store, display data from another.
+The sidebar is a pure reader. It combines canonical structure, keyed display
+facts, and persisted presentation choices through the existing projection.
 
 ```
-RepositoryTopologyAtom             → canonical global repo/worktree structure (what exists)
-RepoCacheAtom.repoEnrichmentByRepoId           → org name, display name, groupKey
-RepoCacheAtom.worktreeEnrichmentByWorktreeId   → branch, git status
-RepoCacheAtom.pullRequestFacts(for:)           → PR badges (facts by RepoBranchKey)
-WorkspaceSidebarState          → filter and sidebar shell composition
-                                 (collapsed / surface / runtime focus)
+RepositoryTopologyAtom                       → global repo/worktree structure
+RepoCacheAtom keyed enrichment and PR facts  → prepared display facts
+WorkspaceSidebarState                        → filter, surface, grouping, subgroup,
+                                               Show Pinned, collapse, runtime focus
+RepoExplorerSidebarPrefsAtom                 → per-surface sort field and direction
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
-Repo Explorer captures only the declared repo/worktree membership and keyed
-topology, cache, pane-placement, zoom, capability, and Bridge-attendance
-facts needed by its rendered rows. The immutable capture is admitted to the
-existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
-projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
-Cancellation, supersession, removal, and generation checks prevent stale work
-from binding. MainActor owns only keyed capture, current-generation result
-binding, and command-presentation snapshot publication. Whole dictionaries and
-topology snapshots remain persistence/cold-batch bridges, not hot sidebar
-observation inputs.
+Repo Explorer captures only declared membership and keyed facts. The immutable
+capture enters the existing `EagerDerivedAtomFamily`;
+`RepoExplorerProjectionWorker` builds the projection and row index off
+MainActor. Cancellation, supersession, removal, and generation checks prevent
+stale binding. MainActor owns keyed capture, current-result binding, and command
+presentation publication only.
 
-`By Tab` membership comes from `WorkspaceTabGraph`: every canonical active pane
-belongs to its canonical tab regardless of repository association. Repository
-topology optionally enriches those pane rows with repo, worktree, branch, Git,
-and pull-request facts; it never admits or suppresses tab membership. `By Repo`
-remains repository-only, and `All Panes` continues to place unassociated panes
-under `No Repositories`.
+Repos offers Repo and Activity grouping only and has no effective subgroup.
+Repo renders remote-identity groups under Pinned Repos, Open Repos, and
+Available Repos. Activity keeps Pinned Repos first and replaces Open/Available
+with fixed, noncollapsible activity sections. One remote-identity group uses the
+newest eligible output timestamp across every represented repository and
+worktree. Repository headers remain expandable to checkout rows.
 
-This is not a broad live "join" problem — each store has one clear job and the
-capture declares the exact keys being combined. The bus keeps owners current;
-the sidebar performs no imperative fetches or mutations.
+Panes renders independent Pinned Panes and Other Panes, grouped by Repo, Tab,
+or Activity. Repo and Tab may subgroup by None or Activity; subgroup headings
+appear only when the parent contains more than one nonempty bucket. Activity as
+the main group has no redundant subgroup. Hiding a pinned section merges its
+members into ordinary membership without clearing flags or duplicating rows.
+
+Panes membership comes from canonical active-residency `allPaneIds`, including
+panes retained across arrangements. Repository association adds context but does
+not decide membership. Unassociated panes retain a No Repository group.
+Repository headers keep display-name order, tab headers keep shell order, and
+activity buckets keep fixed time order. Name/Activity and direction sort only
+leaves within their section, group, and optional subgroup.
+
+Existing window-local persistence owns surface, grouping, subgroup, Show Pinned,
+and collapse. Workspace-local persistence owns per-surface sort. Repos reuses
+`repoGroupingMode`; its legacy subgroup field remains persisted but has no
+presentation effect. Local migration 007 already owns per-screen organization.
+Core migration 017 already renamed repository `is_favorite` to `is_pinned` and
+added independent pane `is_pinned`. This correction adds no schema. Both
+surfaces default to Name ascending and Show Pinned on. Activity main grouping
+suppresses Panes subgrouping without overwriting the saved choice.
+
+The worker classifies `PaneActivityStatusFact.observedAt` into Active, Just Now,
+Last Hour, Today, Last 7 Days, Older, or No Activity and prepares presentation
+deadlines. This runtime-only settled-output fact retains existing coverage and
+equal-line limitations. Missing evidence never falls back to focus time.
+
+The header has two rows: Repos/Panes plus Filter, then Show Pinned, animated
+sort-direction arrow, Name/Activity picker, and one grouping summary. The
+summary opens one native `.popover` with shared 12-point padding and equal Group and
+Subgroup columns. Catalog icons label both headers. An unavailable subgroup
+retains its column with lighter `No Subgroups`; valid None remains selectable.
+Presentation filtering and dispatch guards reject invalid commands.
+
+Section headings use entity icons and blue word-initial lowercase-small-caps
+labels. Expandable repository/tab headers use chevron and title without an
+entity icon. Activity subgroup headings use the same casing in secondary color
+with a trailing divider. Shared `AppStyles` increases noninitial section and
+subgroup top spacing without changing leaf alignment.
+
+This is not a broad live join: each store has one job and capture declares the
+keys being combined. MainActor binds prepared results; grouping, activity
+aggregation, sorting, deadline selection, and row derivation stay detached.
+Existing focus/recency chips remain. Unseen dots, running animations, zmx IPC,
+and vendor changes are outside this sidebar slice.
 
 Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detached HEAD"`. No branch field on the `Worktree` model itself.
 

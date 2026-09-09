@@ -30,7 +30,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     package let name: String
     package let repoPath: URL
     package let stableKey: String
-    package let isFavorite: Bool
+    package let isPinned: Bool
     package let note: String?
     package let tags: [String]
     package var worktrees: [Worktree]
@@ -41,7 +41,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         name: String,
         repoPath: URL,
         stableKey: String,
-        isFavorite: Bool = false,
+        isPinned: Bool = false,
         note: String? = nil,
         tags: [String] = [],
         worktrees: [Worktree],
@@ -51,7 +51,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         self.name = name
         self.repoPath = repoPath
         self.stableKey = stableKey
-        self.isFavorite = isFavorite
+        self.isPinned = isPinned
         self.note = note
         self.tags = tags
         self.worktrees = worktrees
@@ -68,7 +68,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: stableKey,
-            isFavorite: repo.isFavorite,
+            isPinned: repo.isPinned,
             note: repo.note,
             tags: repo.tags,
             worktrees: repo.worktrees,

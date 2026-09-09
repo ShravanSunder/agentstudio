@@ -14,6 +14,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
     package private(set) var facets: PaneContextFacets
     package private(set) var checkoutRef: String?
     package private(set) var note: String?
+    package private(set) var isPinned: Bool
 
     package init(
         paneId: PaneId = PaneId.generateUUIDv7(),
@@ -25,6 +26,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
         facets: PaneContextFacets = .empty,
         checkoutRef: String? = nil,
         note: String? = nil,
+        isPinned: Bool = false,
         fillNilLaunchDirectoryFacet: Bool = true
     ) {
         self.paneId = paneId
@@ -37,6 +39,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
         self.facets = fillNilLaunchDirectoryFacet ? facets.fillingNilFields(from: launchFacets) : facets
         self.checkoutRef = checkoutRef
         self.note = note
+        self.isPinned = isPinned
     }
 
     package mutating func updateTitle(_ newTitle: String) {
@@ -59,6 +62,10 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
         note = Self.normalizedNote(newNote)
     }
 
+    package mutating func updatePinned(_ isPinned: Bool) {
+        self.isPinned = isPinned
+    }
+
     package func canonicalizedIdentity(
         paneId: PaneId,
         contentType: PaneContentType,
@@ -74,6 +81,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
             facets: facets,
             checkoutRef: checkoutRef,
             note: note,
+            isPinned: isPinned,
             fillNilLaunchDirectoryFacet: fillNilLaunchDirectoryFacet
         )
     }
@@ -108,6 +116,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
         case facets
         case checkoutRef
         case note
+        case isPinned
     }
 
     private enum LegacyCodingKeys: String, CodingKey {
@@ -178,6 +187,7 @@ package struct PaneMetadata: Codable, Hashable, Sendable {
         }
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
         self.note = try container.decodeIfPresent(String.self, forKey: .note)
+        self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 
     private static func normalizedNote(_ value: String?) -> String? {

@@ -354,7 +354,7 @@ struct RepoExplorerViewProjectionHelperTests {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
-            isFavorite: true,
+            isPinned: true,
             worktrees: repo.worktrees
         )
         let favoriteGroup = RepoPresentationGroup(
@@ -378,7 +378,7 @@ struct RepoExplorerViewProjectionHelperTests {
         let favoritesProjection = RepoExplorerSidebarProjection(
             sections: [
                 RepoExplorerSidebarSection(
-                    kind: .favorites,
+                    kind: .pinnedRepositories,
                     resolvedGroups: [group],
                     loadingRepos: []
                 )
@@ -531,7 +531,6 @@ struct RepoExplorerViewProjectionHelperTests {
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: { _ in nil },
             commandDispatcher: dispatcher,
-            onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
         )
@@ -684,11 +683,11 @@ struct RepoExplorerViewProjectionHelperTests {
                 invalidationRecorder.record()
             }
 
-            store.mutationCoordinator.setRepoFavorite(unrelatedRepo.id, isFavorite: true)
+            store.mutationCoordinator.setRepoPinned(unrelatedRepo.id, isPinned: true)
 
             #expect(invalidationRecorder.invalidationCount == 0)
 
-            store.mutationCoordinator.setRepoFavorite(renderedRepo.id, isFavorite: true)
+            store.mutationCoordinator.setRepoPinned(renderedRepo.id, isPinned: true)
 
             #expect(invalidationRecorder.invalidationCount == 1)
         }
@@ -731,7 +730,7 @@ struct RepoExplorerViewProjectionHelperTests {
             repos: []
         )
 
-        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .pane) == .repo)
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .repo) == .repo)
         #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .tab) == .tabGroup)
     }
 
@@ -744,7 +743,7 @@ struct RepoExplorerViewProjectionHelperTests {
             repos: []
         )
 
-        #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .pane) == .repo)
+        #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .repo) == .repo)
         #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .tab) == .tabGroup)
     }
 

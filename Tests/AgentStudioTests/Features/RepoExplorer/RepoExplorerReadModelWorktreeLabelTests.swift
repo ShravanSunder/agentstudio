@@ -26,7 +26,8 @@ extension RepoExplorerReadModelTests {
             RepoExplorerSnapshot(
                 repos: [repo(id: repoId, name: "agent-studio", worktrees: [mismatchedWorktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
-                groupingMode: .pane,
+                surface: .panes,
+                groupingMode: .repo,
                 query: "",
                 paneLocationsByWorktreeId: [
                     mismatchedWorktree.id: [
@@ -42,7 +43,7 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        let expectedGroupId = "pane-repo:\(repoId.uuidString)"
+        let expectedGroupId = "panes:panes:repo:\(repoId.uuidString)"
         let paneRow = try #require(projection.paneRowsByGroupId[expectedGroupId]?.first)
         #expect(paneRow.destination.worktreeLabel == "feature-display-name")
     }

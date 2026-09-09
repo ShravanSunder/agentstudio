@@ -472,7 +472,7 @@ final class AppCommandTests {
             .setInboxRowStateFilter,
             .setInboxContentMode,
         ]
-        let worktreeSidebar = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let reposSidebar = AppCommandDispatcher.shared.definition(for: .showReposSidebar)
 
         for command in retiredCommands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
@@ -480,10 +480,10 @@ final class AppCommandTests {
             #expect(definition.surfacePolicy == .notPresented)
             #expect(definition.targeting == .contextual)
         }
-        #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
-        #expect(worktreeSidebar.surfacePolicy.exposes(.commandBar))
-        #expect(worktreeSidebar.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
-        #expect(worktreeSidebar.targeting == .contextual)
+        #expect(reposSidebar.shortcut == .showReposSidebar)
+        #expect(reposSidebar.surfacePolicy.exposes(.commandBar))
+        #expect(reposSidebar.surfacePolicy.exposes(.inlineControl))
+        #expect(reposSidebar.targeting == .contextual)
     }
 
     @MainActor
@@ -495,8 +495,8 @@ final class AppCommandTests {
 
         // Assert
         let commandNames = repoCommands.map(\.command)
-        #expect(commandNames.contains(.addRepoFavorite))
-        #expect(commandNames.contains(.removeRepoFavorite))
+        #expect(commandNames.contains(.pinRepo))
+        #expect(commandNames.contains(.unpinRepo))
         #expect(commandNames.contains(.removeRepo))
         #expect(!commandNames.contains(.openWorktree))
     }
@@ -521,15 +521,13 @@ final class AppCommandTests {
     }
 
     @Test
-    func test_dispatcher_dispatchRequest_routesTypedArgumentsToAppRouter() async throws {
+    func test_dispatcher_dispatchRequest_routesNoArgumentSidebarCommandToAppRouter() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.requestCommands = [.setRepoSidebarSortOrder]
-        appRouter.requestCapabilityCommands = [.setRepoSidebarSortOrder]
-        appRouter.parameterlessCanExecuteResult = false
+        appRouter.requestCommands = [.setReposSortFieldActivity]
+        appRouter.parameterlessCanExecuteResult = true
         let request = AppCommandExecutionRequest(
-            command: .setRepoSidebarSortOrder,
-            arguments: .repoSidebarSortOrder(.descending)
+            command: .setReposSortFieldActivity
         )
 
         try await withIsolatedCommandDispatcher(

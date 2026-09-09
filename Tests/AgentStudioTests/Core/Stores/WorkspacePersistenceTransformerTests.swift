@@ -19,7 +19,7 @@ struct WorkspacePersistenceTransformerTests {
                     id: repositoryID,
                     name: "agent-studio",
                     repoPath: URL(filePath: "/tmp/agent-studio-metadata"),
-                    isFavorite: true,
+                    isPinned: true,
                     note: "repository note",
                     tags: ["client"]
                 )
@@ -44,7 +44,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         // Assert
-        #expect(topologyAtom.repo(repositoryID)?.isFavorite == true)
+        #expect(topologyAtom.repo(repositoryID)?.isPinned == true)
         #expect(topologyAtom.repo(repositoryID)?.note == "repository note")
         #expect(topologyAtom.repo(repositoryID)?.tags == ["client"])
         #expect(topologyAtom.worktree(worktreeID)?.note == "worktree note")

@@ -244,7 +244,14 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                 worktreeRows: worktreeRows,
                 entries: &entries
             )
-            for row in projectedPaneRowsByGroupId[group.id] ?? [] {
+            let paneRows = projectedPaneRowsByGroupId[group.id] ?? []
+            let showsActivitySubgroups = Set(paneRows.compactMap(\.activitySubgroup)).count > 1
+            var previousBucket: RepoExplorerActivityBucket?
+            for row in paneRows {
+                if showsActivitySubgroups, let bucket = row.activitySubgroup, bucket != previousBucket {
+                    entries.append(.activitySubgroup(groupId: group.id, bucket: bucket))
+                    previousBucket = bucket
+                }
                 entries.append(
                     .resolvedPaneRow(
                         groupId: group.id,
@@ -267,20 +274,19 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         worktreeRows: [RepoExplorerProjectedWorktreeRow],
         entries: inout [RepoExplorerListEntry]
     ) {
-        entries.append(
-            contentsOf: worktreeRows.map { row in
-                .resolvedWorktreeRow(
-                    groupId: groupId,
-                    repoId: row.repo.id,
-                    worktreeId: row.worktree.id,
-                    rowId: .worktree(
-                        groupID: row.groupId,
-                        repoID: row.repo.id,
-                        worktreeID: row.worktree.id
-                    )
-                )
+        let showsActivitySubgroups = Set(worktreeRows.compactMap(\.activitySubgroup)).count > 1
+        var previousBucket: RepoExplorerActivityBucket?
+        for row in worktreeRows {
+            if showsActivitySubgroups, let bucket = row.activitySubgroup, bucket != previousBucket {
+                entries.append(.activitySubgroup(groupId: groupId, bucket: bucket))
+                previousBucket = bucket
             }
-        )
+            entries.append(
+                .resolvedWorktreeRow(
+                    groupId: groupId, repoId: row.repo.id, worktreeId: row.worktree.id,
+                    rowId: .worktree(groupID: row.groupId, repoID: row.repo.id, worktreeID: row.worktree.id)
+                ))
+        }
     }
 
     private static func paneRowID(

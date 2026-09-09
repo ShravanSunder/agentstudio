@@ -55,7 +55,7 @@ struct AppStylesNamespaceTests {
         #expect(AppStyles.Components.SectionSubheading.fontSize == AppStyles.General.Typography.textBase)
         #expect(AppStyles.Components.SectionSubheading.foregroundOpacity == 0.70)
         #expect(AppStyles.Components.SectionSubheading.horizontalPadding == 12)
-        #expect(AppStyles.Components.SectionSubheading.topPadding == 8)
+        #expect(AppStyles.Components.SectionSubheading.topPadding == 12)
         #expect(AppStyles.Components.SectionSubheading.bottomPadding == 4)
         #expect(AppStyles.CommandBar.Rows.selectedRowTitleOpacity == 0.95)
         #expect(AppStyles.CommandBar.Rows.trailingMetadataOpacity == 0.68)

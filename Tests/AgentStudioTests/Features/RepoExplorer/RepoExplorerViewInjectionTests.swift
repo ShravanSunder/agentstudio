@@ -47,37 +47,23 @@ struct RepoExplorerViewInjectionTests {
         let view = makeRepoExplorerView(repoExplorerPrefs: preferences)
         let invalidationRecorder = RepoExplorerObservationInvalidationRecorder()
         withObservationTracking {
-            _ = view.repoExplorerPrefs.groupingMode
+            _ = view.repoExplorerPrefs.groupingMode(for: .panes)
         } onChange: {
             invalidationRecorder.recordInvalidation()
         }
 
         // Act
-        preferences.setGroupingMode(.pane)
+        preferences.setGroupingMode(.tab, for: .panes)
 
         // Assert
         #expect(invalidationRecorder.invalidationCount == 1)
-        #expect(view.repoExplorerPrefs.groupingMode == .pane)
-    }
-
-    @Test("typed sort callback preserves the Feature value")
-    func typedSortCallbackPreservesFeatureValue() {
-        var sortOrders: [RepoExplorerSortOrder] = []
-        let view = makeRepoExplorerView(
-            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            onSetSortOrder: { sortOrders.append($0) }
-        )
-
-        view.onSetSortOrder(.descending)
-
-        #expect(sortOrders == [.descending])
+        #expect(view.repoExplorerPrefs.groupingMode(for: .panes) == .tab)
     }
 
     private func makeRepoExplorerView(
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot = { _ in nil },
-        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in }
     ) -> RepoExplorerView {
         RepoExplorerView(
             store: store,
@@ -85,7 +71,6 @@ struct RepoExplorerViewInjectionTests {
             repoExplorerPrefs: repoExplorerPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetSortOrder: onSetSortOrder,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
         )

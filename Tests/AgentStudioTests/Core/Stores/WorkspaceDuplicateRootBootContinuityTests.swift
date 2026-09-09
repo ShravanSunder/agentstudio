@@ -207,7 +207,7 @@ private struct DuplicateRootBootContinuityFixture {
         try databasePool.write { database in
             try database.execute(
                 sql: """
-                    INSERT INTO repo(id, name, repo_path, stable_key, created_at, is_favorite, note)
+                    INSERT INTO repo(id, name, repo_path, stable_key, created_at, is_pinned, note)
                     VALUES (?, ?, ?, ?, ?, 0, ?)
                     """,
                 arguments: [

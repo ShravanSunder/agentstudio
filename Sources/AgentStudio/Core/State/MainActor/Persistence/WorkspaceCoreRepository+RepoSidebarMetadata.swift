@@ -2,16 +2,16 @@ import Foundation
 import GRDB
 
 extension WorkspaceCoreRepository {
-    func updateRepoFavorite(repoId: UUID, isFavorite: Bool) throws {
+    func updateRepoPinned(repoId: UUID, isPinned: Bool) throws {
         try databaseWriter.write { database in
             try requireRepoExists(database, repoId: repoId)
             try database.execute(
                 sql: """
                     UPDATE repo
-                    SET is_favorite = ?
+                    SET is_pinned = ?
                     WHERE id = ?
                     """,
-                arguments: [isFavorite ? 1 : 0, repoId.uuidString]
+                arguments: [isPinned ? 1 : 0, repoId.uuidString]
             )
         }
     }

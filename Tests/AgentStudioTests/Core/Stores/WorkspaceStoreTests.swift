@@ -320,6 +320,28 @@ final class WorkspaceStoreTests {
         #expect(atom.pane(pane.id)?.metadata.note == "Restart backend after deploy")
     }
 
+    @Test("workspace pane atom updates pin without changing pending undo identity")
+    func workspacePaneAtomUpdatesPinWithoutChangingPendingUndoIdentity() {
+        let atom = WorkspacePaneAtom()
+        let pane = Pane(
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
+            metadata: PaneMetadata()
+        )
+        #expect(!pane.metadata.isPinned)
+        #expect(atom.insertRestoredPane(pane))
+        let expiresAt = Date(timeIntervalSince1970: 1_800_000_000)
+        atom.setResidency(.pendingUndo(expiresAt: expiresAt), for: pane.id)
+
+        atom.updatePanePinned(pane.id, isPinned: true)
+        atom.updatePanePinned(pane.id, isPinned: true)
+
+        #expect(atom.pane(pane.id)?.metadata.isPinned == true)
+        #expect(atom.pane(pane.id)?.residency == .pendingUndo(expiresAt: expiresAt))
+        #expect(atom.pane(pane.id)?.id == pane.id)
+    }
+
     @Test
 
     func test_removePane_removesFromPanes() {

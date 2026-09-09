@@ -135,53 +135,6 @@ struct ArrangementPanelDisplayStateTests {
     }
 
     @Test
-    func chipVisualStyle_inactiveChip_usesHoverAndPressedFills() {
-        let idle = ArrangementChipVisualStyle(
-            isActive: false,
-            isHovered: false,
-            isPressed: false
-        )
-        let hovered = ArrangementChipVisualStyle(
-            isActive: false,
-            isHovered: true,
-            isPressed: false
-        )
-        let pressed = ArrangementChipVisualStyle(
-            isActive: false,
-            isHovered: true,
-            isPressed: true
-        )
-
-        #expect(idle.backgroundOpacity == AppStyles.General.Fill.subtle)
-        #expect(hovered.backgroundOpacity == AppStyles.General.Fill.hover)
-        #expect(pressed.backgroundOpacity == AppStyles.General.Fill.pressed)
-    }
-
-    @Test
-    func chipVisualStyle_activeChip_keepsActiveFillUntilPressed() {
-        let active = ArrangementChipVisualStyle(
-            isActive: true,
-            isHovered: false,
-            isPressed: false
-        )
-        let activeHovered = ArrangementChipVisualStyle(
-            isActive: true,
-            isHovered: true,
-            isPressed: false
-        )
-        let activePressed = ArrangementChipVisualStyle(
-            isActive: true,
-            isHovered: true,
-            isPressed: true
-        )
-
-        #expect(active.backgroundOpacity == AppStyles.General.Fill.active)
-        #expect(activeHovered.backgroundOpacity == AppStyles.General.Fill.active)
-        #expect(activePressed.backgroundOpacity == AppStyles.General.Fill.pressed)
-        #expect(active.foregroundIsPrimary)
-    }
-
-    @Test
     func popoverAutoOpen_opensWhenRenameTargetsActiveTabArrangement() {
         let arrangementId = UUID()
         let arrangements = [

@@ -33,7 +33,7 @@ extension WorkspaceCoreRepository {
         var repoPath: URL
         let stableKey: String
         var createdAt: Date
-        var isFavorite: Bool
+        var isPinned: Bool
         var note: String?
         var worktrees: [WorktreeRecord]
         var tags: [String]
@@ -44,7 +44,7 @@ extension WorkspaceCoreRepository {
             repoPath: URL,
             stableKey: String? = nil,
             createdAt: Date,
-            isFavorite: Bool = false,
+            isPinned: Bool = false,
             note: String? = nil,
             worktrees: [WorktreeRecord],
             tags: [String] = []
@@ -54,7 +54,7 @@ extension WorkspaceCoreRepository {
             self.repoPath = repoPath.standardizedFileURL
             self.stableKey = stableKey ?? StableKey.fromPath(repoPath.standardizedFileURL)
             self.createdAt = createdAt
-            self.isFavorite = isFavorite
+            self.isPinned = isPinned
             self.note = note
             self.worktrees = worktrees
             self.tags = tags
@@ -240,7 +240,7 @@ private func fetchRepoRecords(_ database: Database) throws -> [WorkspaceCoreRepo
     let rows = try Row.fetchAll(
         database,
         sql: """
-            SELECT id, name, repo_path, stable_key, created_at, is_favorite, note
+            SELECT id, name, repo_path, stable_key, created_at, is_pinned, note
             FROM repo
             ORDER BY created_at ASC, id ASC
             """
@@ -255,7 +255,7 @@ private func fetchRepoRecords(_ database: Database) throws -> [WorkspaceCoreRepo
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
             createdAt: repo.createdAt,
-            isFavorite: repo.isFavorite,
+            isPinned: repo.isPinned,
             note: repo.note,
             worktrees: worktrees,
             tags: tags
@@ -339,7 +339,7 @@ private func decodeRepoRecord(
     let repoPath: String = row["repo_path"]
     let stableKey: String = row["stable_key"]
     let createdAt: Double = row["created_at"]
-    let isFavorite: Int = row["is_favorite"]
+    let isPinned: Int = row["is_pinned"]
     let note: String? = row["note"]
     return .init(
         id: id,
@@ -347,7 +347,7 @@ private func decodeRepoRecord(
         repoPath: URL(fileURLWithPath: repoPath),
         stableKey: stableKey,
         createdAt: Date(timeIntervalSince1970: createdAt),
-        isFavorite: isFavorite != 0,
+        isPinned: isPinned != 0,
         note: note,
         worktrees: worktrees
     )

@@ -46,7 +46,7 @@ extension WorkspaceSQLiteStateBridge {
             repoPath: record.repoPath,
             stableKey: record.stableKey,
             createdAt: record.createdAt,
-            isFavorite: record.isFavorite,
+            isPinned: record.isPinned,
             note: record.note,
             tags: record.tags
         )

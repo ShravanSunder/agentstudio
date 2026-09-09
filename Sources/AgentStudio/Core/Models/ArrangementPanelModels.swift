@@ -150,26 +150,3 @@ enum ArrangementChipAffordance {
         role == .userLayout
     }
 }
-
-struct ArrangementChipVisualStyle: Equatable {
-    let isActive: Bool
-    let isHovered: Bool
-    let isPressed: Bool
-
-    var backgroundOpacity: CGFloat {
-        if isPressed {
-            return AppStyles.General.Fill.pressed
-        }
-        if isActive {
-            return AppStyles.General.Fill.active
-        }
-        if isHovered {
-            return AppStyles.General.Fill.hover
-        }
-        return AppStyles.General.Fill.subtle
-    }
-
-    var foregroundIsPrimary: Bool {
-        isActive || isHovered || isPressed
-    }
-}

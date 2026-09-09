@@ -547,6 +547,98 @@ struct FilesystemActorActivityTests {
         await actor.shutdown()
     }
 
+    @Test("unmapped watched-folder participants do not block repository activity commits")
+    func unmappedWatchedFolderParticipantDoesNotBlockRepositoryActivityCommit() async throws {
+        // Arrange
+        let streamClient = ControllableFSEventStreamClient()
+        let activityCommitRecorder = FilesystemActivityCommitRecorder()
+        let activityProjector = RepositoryLocalActivityProjector { commit in
+            await activityCommitRecorder.record(commit)
+        }
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: streamClient,
+            repositoryLocalActivityProjector: activityProjector,
+            sleepClock: TestPushClock(),
+            debounceWindow: .seconds(60),
+            maxFlushLatency: .seconds(120)
+        )
+        let repositoryWorktreeID = UUIDv7.generate()
+        let watchedFolderRegistrationID = UUIDv7.generate()
+        let repositoryID = UUIDv7.generate()
+        let repositoryStableKey = "ababababcdcdcdcd"
+        let repositoryRoot = URL(
+            filePath: "/tmp/activity-mapped-repository-\(repositoryWorktreeID.uuidString)"
+        )
+        let repositoryParticipant = FSEventParticipant(
+            scopeKey: "local:\(repositoryWorktreeID.uuidString)",
+            generation: 1,
+            volumeIdentifier: "volume-1"
+        )
+        let watchedFolderParticipant = FSEventParticipant(
+            scopeKey: "local:\(watchedFolderRegistrationID.uuidString)",
+            generation: 2,
+            volumeIdentifier: "volume-1"
+        )
+        await actor.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: 1,
+                contextsByWorktreeId: [
+                    repositoryWorktreeID: WorktreeFilesystemContext(
+                        repoId: repositoryID,
+                        rootPath: repositoryRoot
+                    )
+                ],
+                repositoryStableKeysByWorktreeId: [
+                    repositoryWorktreeID: repositoryStableKey
+                ]
+            )
+        )
+        streamClient.setActivityBarrier(
+            FSEventActivityBarrier(
+                bindings: [
+                    FSEventParticipantBinding(
+                        worktreeId: repositoryWorktreeID,
+                        participant: repositoryParticipant
+                    ),
+                    FSEventParticipantBinding(
+                        worktreeId: watchedFolderRegistrationID,
+                        participant: watchedFolderParticipant
+                    ),
+                ],
+                deliveredEventIDByParticipant: [
+                    repositoryParticipant: 42,
+                    watchedFolderParticipant: 91,
+                ]
+            )
+        )
+
+        // Act
+        let changedPath = repositoryRoot.appending(path: "Sources/Changed.swift").path
+        streamClient.send(
+            FSEventBatch(
+                worktreeId: repositoryWorktreeID,
+                paths: [changedPath],
+                participant: repositoryParticipant,
+                observations: [
+                    FSEventObservation(
+                        path: changedPath,
+                        eventID: 42,
+                        flags: UInt32(kFSEventStreamEventFlagItemModified)
+                    )
+                ]
+            )
+        )
+        #expect(await waitUntil { await actor.pendingWorktreeLogicalDebtCount == 1 })
+        await actor.shutdown()
+
+        // Assert
+        let commit = try #require(await activityCommitRecorder.commits.first)
+        #expect(commit.repositoryUpdates.map(\.repositoryStableKey) == [repositoryStableKey])
+        #expect(commit.repositoryUpdates.first?.qualifyingActivityAt != nil)
+        #expect(commit.cursorWatermarks.first?.lastEventID == 42)
+    }
+
     private func waitUntil(
         maxTurns: Int = 10_000,
         condition: @escaping @Sendable () async -> Bool

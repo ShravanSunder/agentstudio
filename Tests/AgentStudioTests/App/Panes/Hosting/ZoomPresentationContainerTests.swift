@@ -351,7 +351,7 @@ struct ZoomPresentationContainerTests {
         action.perform()
 
         #expect(action.state.label == "Show Arrangements")
-        #expect(action.state.icon == .system(.rectangle3Group))
+        #expect(action.state.icon == .system(.rectangle3GroupFill))
         #expect(action.state.tooltip.text == "Show Arrangements (⌘⌥I)")
         #expect(action.state.isEnabled)
         #expect(presentation.pendingRequest?.tabId == sourceTab.id)

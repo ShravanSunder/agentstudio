@@ -161,14 +161,14 @@ struct WorkspaceCoreRepositoryTopologyTests {
             )
         )
 
-        try repository.updateRepoFavorite(repoId: repoId, isFavorite: true)
+        try repository.updateRepoPinned(repoId: repoId, isPinned: true)
         try repository.updateRepoNote(repoId: repoId, note: "important")
         try repository.updateWorktreeNote(worktreeId: worktreeId, note: "review")
         try repository.replaceRepoTags(repoId: repoId, tags: ["client", "primary"])
         let restoredTopology = try repository.fetchRepositoryTopology()
         let restoredTags = try repository.fetchRepoTags(repoId: repoId)
 
-        #expect(restoredTopology.repos.single?.isFavorite == true)
+        #expect(restoredTopology.repos.single?.isPinned == true)
         #expect(restoredTopology.repos.single?.note == "important")
         #expect(restoredTopology.repos.single?.worktrees.single?.note == "review")
         #expect(restoredTags == ["client", "primary"])

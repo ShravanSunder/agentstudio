@@ -385,19 +385,19 @@ package final class RepositoryTopologyAtom {
 
     func applyValidatedRepositoryMetadata(
         repositoryID: UUID,
-        isFavorite: Bool,
+        isPinned: Bool,
         note: String?,
         tags: [String]
     ) {
         guard let repositoryIndex = repos.firstIndex(where: { $0.id == repositoryID }) else { return }
         var repository = repos[repositoryIndex]
         guard
-            repository.isFavorite != isFavorite
+            repository.isPinned != isPinned
                 || repository.note != note
                 || repository.tags != tags
         else { return }
 
-        repository.isFavorite = isFavorite
+        repository.isPinned = isPinned
         repository.note = note
         repository.tags = tags
         repos[repositoryIndex] = repository

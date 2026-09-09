@@ -213,21 +213,22 @@ package struct CollapsedPaneBar: View {
         return Button {
             toggleArrangementPopover()
         } label: {
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isArrangementHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isArrangementHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
+            LocalActionSpec.arrangements.actionSpec.icon.swiftUIImage(
+                loader: octiconLoader, size: AppStyles.General.Icon.compact
+            )
+            .foregroundStyle(isArrangementHovered ? .primary : .secondary)
+            .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
+            .background(
+                Circle()
+                    .fill(
+                        Color.white.opacity(
+                            isArrangementHovered
+                                ? AppStyles.General.Fill.pressed
+                                : AppStyles.General.Fill.muted
                         )
-                )
-                .contentShape(Circle())
+                    )
+            )
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityHidden(true)

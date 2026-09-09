@@ -147,7 +147,7 @@ struct RepoExplorerProjectionBrokerTests {
             generation: 2,
             repositoryID: repositoryID,
             worktreeID: worktreeID,
-            isFavorite: true
+            isPinned: true
         )
         let requestC = makeProjectionIntentRequest(
             generation: 3,

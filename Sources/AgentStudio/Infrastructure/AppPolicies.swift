@@ -35,6 +35,10 @@ package enum AppPolicies {
 
     package enum RepoExplorer {
         package static let inactiveRefreshRevealDuration: Duration = .seconds(30)
+        package static let activeActivityDuration: TimeInterval = 60
+        package static let justNowActivityDuration: TimeInterval = 10 * 60
+        package static let lastHourActivityDuration: TimeInterval = 60 * 60
+        package static let recentActivityDuration: TimeInterval = 7 * 24 * 60 * 60
     }
 
     package enum SidebarProjection {
@@ -217,6 +221,10 @@ package enum AppPolicies {
 
     package enum TerminalActivation {
         package static let restoreMaximumConcurrentAdmissions: Int = 1
+    }
+
+    package enum TerminalProcessTermination {
+        package static let acknowledgementTimeout: Duration = .seconds(2)
     }
 
     package enum TerminalLocalAction {

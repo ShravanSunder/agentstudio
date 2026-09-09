@@ -32,31 +32,14 @@ package struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
                 Button {
                     select(item)
                 } label: {
-                    HStack(spacing: AppStyles.General.Spacing.standard) {
-                        Image(systemName: "checkmark")
-                            .opacity(selectedItem == item ? 1 : 0)
-                            .frame(width: AppStyles.General.Icon.compact)
-                        icon(item)
-                            .frame(width: AppStyles.General.Icon.compact)
-                        Text(label(item))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .foregroundStyle(Color.primary)
-                    .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.popoverRowHorizontalPadding)
-                    .padding(.vertical, AppStyles.Shell.Sidebar.ToolbarControl.popoverRowVerticalPadding)
-                    .contentShape(Rectangle())
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.popoverRowCornerRadius
-                        )
-                        .fill(
-                            Color.primary.opacity(
-                                highlightedItem == item ? AppStyles.General.Fill.hover : 0
-                            )
-                        )
-                    )
+                    PopoverOptionLabel(label(item)) { icon(item) }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    PopoverOptionButtonStyle(
+                        isSelected: selectedItem == item,
+                        isHighlighted: highlightedItem == item
+                    )
+                )
                 .accessibilityLabel(label(item))
                 .accessibilityAddTraits(selectedItem == item ? .isSelected : [])
                 .onHover { isHovered in
@@ -67,7 +50,6 @@ package struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
             }
         }
         .frame(minWidth: AppStyles.Shell.Sidebar.ToolbarControl.popoverMinimumWidth)
-        .padding(AppStyles.General.Spacing.tight)
         .background(
             SelectablePopoverKeyboardBridge(
                 items: keyboardItems,

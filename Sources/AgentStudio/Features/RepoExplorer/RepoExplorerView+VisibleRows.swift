@@ -10,6 +10,7 @@ enum RepoExplorerFocus: Hashable {
 
 final class RepoExplorerFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
+    var onFilterFocusRequest: @MainActor () -> Void = {}
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -36,10 +37,12 @@ final class RepoExplorerFocusableView: NSView {
 
 struct RepoExplorerFocusBridge: NSViewRepresentable {
     let uiState: WorkspaceSidebarState
+    var onFilterFocusRequest: @MainActor () -> Void = {}
 
     func makeNSView(context: Context) -> RepoExplorerFocusableView {
         let view = RepoExplorerFocusableView()
         view.identifier = RepoExplorerView.focusTargetIdentifier
+        view.onFilterFocusRequest = onFilterFocusRequest
         view.onFocusChange = { hasFocus in
             uiState.setSidebarHasFocus(hasFocus)
         }
@@ -47,6 +50,7 @@ struct RepoExplorerFocusBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: RepoExplorerFocusableView, context: Context) {
+        nsView.onFilterFocusRequest = onFilterFocusRequest
         nsView.onFocusChange = { hasFocus in
             uiState.setSidebarHasFocus(hasFocus)
         }
@@ -55,6 +59,7 @@ struct RepoExplorerFocusBridge: NSViewRepresentable {
     static func dismantleNSView(_ nsView: RepoExplorerFocusableView, coordinator: ()) {
         MainActor.assumeIsolated {
             nsView.onFocusChange(false)
+            nsView.onFilterFocusRequest = {}
         }
     }
 }
@@ -82,6 +87,13 @@ enum RepoExplorerViewportPublisher {
 }
 
 extension RepoExplorerView {
+    @discardableResult
+    package static func requestFilterFocus(on target: NSView) -> Bool {
+        guard let target = target as? RepoExplorerFocusableView else { return false }
+        target.onFilterFocusRequest()
+        return true
+    }
+
     package static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let surfaceBackground = SidebarSurfaceBackground.shellChrome

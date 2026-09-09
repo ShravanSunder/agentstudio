@@ -3,334 +3,6 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import Foundation
 
-enum RepoExplorerEmptyState: Equatable, Sendable {
-    case content
-    case noRepositories
-    case noPanes
-    case noTabs
-    case searchNoResults
-}
-
-enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
-    case favorites
-    case panes
-    case repositories
-    case tabs
-    case ungrouped
-
-    var title: String {
-        switch self {
-        case .favorites: "Favorites"
-        case .panes: "Active Repositories"
-        case .repositories: "Repositories"
-        case .tabs: "Tabs"
-        case .ungrouped: "No Repositories"
-        }
-    }
-}
-
-enum RepoExplorerLoadingSectionState: Equatable, Sendable {
-    case scanning
-    case statusUnavailable
-    case mixed
-}
-
-struct RepoExplorerSidebarSection: Identifiable, Equatable, Sendable {
-    let kind: RepoExplorerSidebarSectionKind
-    let resolvedGroups: [RepoPresentationGroup]
-    let loadingRepos: [RepoPresentationItem]
-    let unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination]
-
-    init(
-        kind: RepoExplorerSidebarSectionKind,
-        resolvedGroups: [RepoPresentationGroup],
-        loadingRepos: [RepoPresentationItem],
-        unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination] = []
-    ) {
-        self.kind = kind
-        self.resolvedGroups = resolvedGroups
-        self.loadingRepos = loadingRepos
-        self.unassociatedPaneDestinations = unassociatedPaneDestinations
-    }
-
-    var id: String { "section:\(kind.rawValue)" }
-    var title: String { kind.title }
-
-    func loadingState(enrichmentByRepoId: [UUID: RepoEnrichment]) -> RepoExplorerLoadingSectionState {
-        var hasScanningRepos = false
-        var hasStatusUnavailableRepos = false
-        for repo in loadingRepos {
-            switch enrichmentByRepoId[repo.id] {
-            case .statusUnavailable:
-                hasStatusUnavailableRepos = true
-            case .awaitingOrigin, .none:
-                hasScanningRepos = true
-            case .resolvedLocal, .resolvedRemote:
-                break
-            }
-        }
-        if hasScanningRepos && hasStatusUnavailableRepos {
-            return .mixed
-        }
-        return hasStatusUnavailableRepos ? .statusUnavailable : .scanning
-    }
-}
-
-struct RepoExplorerSidebarContent: Equatable, Sendable {
-    let sections: [RepoExplorerSidebarSection]
-    let resolvedGroups: [RepoPresentationGroup]
-    let worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
-    let paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]
-    let paneDestinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]]
-    let paneDestinationsByRepoId: [UUID: [RepoExplorerPaneDestination]]
-    let loadingRepos: [RepoPresentationItem]
-    let emptyState: RepoExplorerEmptyState
-
-    var showsNoResults: Bool {
-        emptyState == .searchNoResults
-    }
-
-    init(
-        sections: [RepoExplorerSidebarSection],
-        resolvedGroups: [RepoPresentationGroup],
-        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
-        paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]] = [:],
-        paneDestinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]] = [:],
-        paneDestinationsByRepoId: [UUID: [RepoExplorerPaneDestination]] = [:],
-        loadingRepos: [RepoPresentationItem],
-        showsNoResults: Bool
-    ) {
-        self.sections = sections
-        self.resolvedGroups = resolvedGroups
-        self.worktreeRowsByGroupId = worktreeRowsByGroupId
-        self.paneRowsByGroupId = paneRowsByGroupId
-        self.paneDestinationsByWorktreeId = paneDestinationsByWorktreeId
-        self.paneDestinationsByRepoId = paneDestinationsByRepoId
-        self.loadingRepos = loadingRepos
-        emptyState = showsNoResults ? .searchNoResults : .content
-    }
-
-    init(
-        sections: [RepoExplorerSidebarSection],
-        resolvedGroups: [RepoPresentationGroup],
-        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
-        paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]] = [:],
-        paneDestinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]] = [:],
-        paneDestinationsByRepoId: [UUID: [RepoExplorerPaneDestination]] = [:],
-        loadingRepos: [RepoPresentationItem],
-        emptyState: RepoExplorerEmptyState
-    ) {
-        self.sections = sections
-        self.resolvedGroups = resolvedGroups
-        self.worktreeRowsByGroupId = worktreeRowsByGroupId
-        self.paneRowsByGroupId = paneRowsByGroupId
-        self.paneDestinationsByWorktreeId = paneDestinationsByWorktreeId
-        self.paneDestinationsByRepoId = paneDestinationsByRepoId
-        self.loadingRepos = loadingRepos
-        self.emptyState = emptyState
-    }
-}
-
-struct RepoExplorerPlacementContext: Equatable, Sendable {
-    let paneId: UUID
-    let tabId: UUID
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
-
-    var displayText: String {
-        let paneTitle = "Pane \(paneIndexInTab + 1)"
-        return isActiveInTab ? "\(paneTitle) active" : paneTitle
-    }
-}
-
-struct RepoExplorerProjectedWorktreeRow: Equatable, Sendable {
-    let groupId: String
-    let repo: RepoPresentationItem
-    let worktree: Worktree
-    let rowId: String
-    let checkoutColorHex: String
-    let placementContext: RepoExplorerPlacementContext?
-}
-
-struct RepoExplorerPaneDestination: Equatable, Sendable, Identifiable {
-    let paneId: UUID
-    let repoId: UUID
-    let worktreeId: UUID
-    let worktreeLabel: String
-    let tabId: UUID
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
-    let paneDisplayLabel: String
-
-    init(
-        paneId: UUID,
-        repoId: UUID,
-        worktreeId: UUID,
-        worktreeLabel: String,
-        tabId: UUID,
-        tabIndex: Int,
-        paneIndexInTab: Int,
-        isActiveInTab: Bool,
-        paneDisplayLabel: String = ""
-    ) {
-        self.paneId = paneId
-        self.repoId = repoId
-        self.worktreeId = worktreeId
-        self.worktreeLabel = worktreeLabel
-        self.tabId = tabId
-        self.tabIndex = tabIndex
-        self.paneIndexInTab = paneIndexInTab
-        self.isActiveInTab = isActiveInTab
-        self.paneDisplayLabel = paneDisplayLabel
-    }
-
-    var id: UUID { paneId }
-
-    var label: String {
-        let activeSuffix = isActiveInTab ? " — Active" : ""
-        return
-            "\(worktreeLabel) — \(paneDisplayLabel) — Tab \(tabIndex + 1), Pane \(paneIndexInTab + 1)\(activeSuffix)"
-    }
-
-    func label(paneDisplayLabel: String) -> String {
-        let activeSuffix = isActiveInTab ? " — Active" : ""
-        return
-            "\(worktreeLabel) — \(paneDisplayLabel) — Tab \(tabIndex + 1), Pane \(paneIndexInTab + 1)\(activeSuffix)"
-    }
-}
-
-struct RepoExplorerUnassociatedPaneDestination: Equatable, Sendable, Identifiable {
-    let paneId: UUID
-    let tabId: UUID
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
-
-    var id: UUID { paneId }
-
-    func label(paneDisplayLabel: String) -> String {
-        let activeSuffix = isActiveInTab ? " — Active" : ""
-        return "\(paneDisplayLabel) — Tab \(tabIndex + 1), Pane \(paneIndexInTab + 1)\(activeSuffix)"
-    }
-}
-
-enum RepoExplorerSidebarProjection: Equatable, Sendable {
-    case ready(RepoExplorerSidebarContent)
-    case degraded(RepoExplorerTopologyFault)
-
-    var sections: [RepoExplorerSidebarSection] {
-        switch self {
-        case .ready(let content): content.sections
-        case .degraded: []
-        }
-    }
-
-    var resolvedGroups: [RepoPresentationGroup] {
-        switch self {
-        case .ready(let content): content.resolvedGroups
-        case .degraded: []
-        }
-    }
-
-    var loadingRepos: [RepoPresentationItem] {
-        switch self {
-        case .ready(let content): content.loadingRepos
-        case .degraded: []
-        }
-    }
-
-    func scanningRepoCount(enrichmentByRepoId: [UUID: RepoEnrichment]) -> Int {
-        loadingRepos.count { repo in
-            switch enrichmentByRepoId[repo.id] {
-            case .awaitingOrigin, .none:
-                return true
-            case .resolvedLocal, .resolvedRemote, .statusUnavailable:
-                return false
-            }
-        }
-    }
-
-    var worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] {
-        switch self {
-        case .ready(let content): content.worktreeRowsByGroupId
-        case .degraded: [:]
-        }
-    }
-
-    var paneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]] {
-        switch self {
-        case .ready(let content): content.paneRowsByGroupId
-        case .degraded: [:]
-        }
-    }
-
-    var paneDestinationsByWorktreeId: [UUID: [RepoExplorerPaneDestination]] {
-        switch self {
-        case .ready(let content): content.paneDestinationsByWorktreeId
-        case .degraded: [:]
-        }
-    }
-
-    var paneDestinationsByRepoId: [UUID: [RepoExplorerPaneDestination]] {
-        switch self {
-        case .ready(let content): content.paneDestinationsByRepoId
-        case .degraded: [:]
-        }
-    }
-
-    var emptyState: RepoExplorerEmptyState {
-        switch self {
-        case .ready(let content): content.emptyState
-        case .degraded: .content
-        }
-    }
-
-    var showsNoResults: Bool {
-        switch self {
-        case .ready(let content): content.showsNoResults
-        case .degraded: false
-        }
-    }
-
-    init(
-        sections: [RepoExplorerSidebarSection],
-        resolvedGroups: [RepoPresentationGroup],
-        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
-        loadingRepos: [RepoPresentationItem],
-        showsNoResults: Bool
-    ) {
-        self = .ready(
-            RepoExplorerSidebarContent(
-                sections: sections,
-                resolvedGroups: resolvedGroups,
-                worktreeRowsByGroupId: worktreeRowsByGroupId,
-                loadingRepos: loadingRepos,
-                showsNoResults: showsNoResults
-            )
-        )
-    }
-
-    init(
-        sections: [RepoExplorerSidebarSection],
-        resolvedGroups: [RepoPresentationGroup],
-        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
-        loadingRepos: [RepoPresentationItem],
-        emptyState: RepoExplorerEmptyState
-    ) {
-        self = .ready(
-            RepoExplorerSidebarContent(
-                sections: sections,
-                resolvedGroups: resolvedGroups,
-                worktreeRowsByGroupId: worktreeRowsByGroupId,
-                loadingRepos: loadingRepos,
-                emptyState: emptyState
-            )
-        )
-    }
-}
-
 enum RepoExplorerProjection {
     static func project(
         _ snapshot: RepoExplorerSnapshot,
@@ -361,12 +33,13 @@ enum RepoExplorerProjection {
         if let degradedProjection = degradedProjectionIfTopologyFault(in: snapshot.repos) {
             return degradedProjection
         }
+        let query = RepoExplorerFilter.normalizedQuery(snapshot.query)
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
-        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
+        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: query)
         let filteredLoadingRepos = filterLoadingRepos(
             unresolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId),
-            query: snapshot.query,
-            sortOrder: snapshot.sortOrder
+            query: query,
+            sortOrder: .ascending
         )
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,
@@ -391,62 +64,32 @@ enum RepoExplorerProjection {
             namesByWorktreeId: branchNameByWorktreeId,
             statusesByWorktreeId: branchStatusByWorktreeId
         )
-        let resolvedGroups: [RepoPresentationGroup]
-        let projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
-        let projectedPaneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]
-        switch snapshot.groupingMode {
-        case .repo:
-            resolvedGroups = remoteIdentityGroups(
-                repos: filteredResolvedRepos,
+        let organization = organizedContent(
+            .init(
+                snapshot: snapshot,
+                eligibleRepositories: snapshot.surface == .panes
+                    ? RepoExplorerFilter.filter(repos: snapshot.repos, query: query)
+                    : filteredResolvedRepos,
+                loadingRepos: filteredLoadingRepos,
                 metadataByRepoId: repoMetadataById,
-                sortOrder: snapshot.sortOrder
-            )
-            projectedRowsByGroupId = worktreeRowsByGroupId(
-                from: resolvedGroups,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
-            )
-            projectedPaneRowsByGroupId = [:]
-        case .pane:
-            let paneProjection = paneRepoGroups(
-                repos: filteredResolvedRepos,
-                metadataByRepoId: repoMetadataById,
-                sortOrder: snapshot.sortOrder,
+                checkoutColors: checkoutColorHexByRepoId,
                 destinationsByWorktreeId: paneDestinationsByWorktreeId,
-                paneRowFactsByPaneId: paneRowFactsByPaneId,
+                destinationsByRepoId: paneDestinationsByRepoId,
+                unassociatedDestinations: unassociatedPaneDestinations,
+                paneFacts: paneRowFactsByPaneId,
+                tabFacts: tabGroupFactsByTabId,
                 branchFacts: paneBranchFacts
-            )
-            resolvedGroups = paneProjection.groups
-            projectedRowsByGroupId = [:]
-            projectedPaneRowsByGroupId = paneProjection.paneRowsByGroupId
-        case .tab:
-            let tabProjection = tabPaneGroups(
-                repos: filteredResolvedRepos,
-                destinationsByWorktreeId: paneDestinationsByWorktreeId,
-                unassociatedPaneDestinations: unassociatedPaneDestinations,
-                paneRowFactsByPaneId: paneRowFactsByPaneId,
-                tabGroupFactsByTabId: tabGroupFactsByTabId,
-                branchFacts: paneBranchFacts
-            )
-            resolvedGroups = tabProjection.groups
-            projectedRowsByGroupId = [:]
-            projectedPaneRowsByGroupId = tabProjection.paneRowsByGroupId
-        }
-
-        let sections = sidebarSections(
-            groupingMode: snapshot.groupingMode,
-            resolvedGroups: resolvedGroups,
-            loadingRepos: filteredLoadingRepos,
-            unassociatedPaneDestinations: unassociatedPaneDestinations
-        )
-        let orderedResolvedGroups = sections.isEmpty ? resolvedGroups : sections.flatMap(\.resolvedGroups)
-        let orderedLoadingRepos = sections.isEmpty ? filteredLoadingRepos : sections.flatMap(\.loadingRepos)
+            ))
+        let sections = organization.sections
+        let orderedResolvedGroups = sections.flatMap(\.resolvedGroups)
+        let orderedLoadingRepos = sections.flatMap(\.loadingRepos)
 
         return .ready(
             RepoExplorerSidebarContent(
                 sections: sections,
                 resolvedGroups: orderedResolvedGroups,
-                worktreeRowsByGroupId: projectedRowsByGroupId,
-                paneRowsByGroupId: projectedPaneRowsByGroupId,
+                worktreeRowsByGroupId: organization.worktreeRows,
+                paneRowsByGroupId: organization.paneRows,
                 paneDestinationsByWorktreeId: paneDestinationsByWorktreeId,
                 paneDestinationsByRepoId: paneDestinationsByRepoId,
                 loadingRepos: orderedLoadingRepos,
@@ -454,8 +97,7 @@ enum RepoExplorerProjection {
                     snapshot: snapshot,
                     resolvedGroups: orderedResolvedGroups,
                     loadingRepos: orderedLoadingRepos,
-                    hasUnassociatedPanes: snapshot.groupingMode == .pane
-                        && !unassociatedPaneDestinations.isEmpty
+                    hasUnassociatedPanes: false
                 )
             )
         )
@@ -477,70 +119,6 @@ enum RepoExplorerProjection {
         }
     }
 
-    private static func sidebarSections(
-        groupingMode: RepoExplorerGroupingMode,
-        resolvedGroups: [RepoPresentationGroup],
-        loadingRepos: [RepoPresentationItem],
-        unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination]
-    ) -> [RepoExplorerSidebarSection] {
-        // Loading-repo placeholders are a By-Repo concept; pane/tab groupings render panes, not repos,
-        // so an unresolved repo must never surface as a row (or drive the scanning banner) there.
-        let loadingReposForSection = groupingMode == .repo ? loadingRepos : []
-
-        if groupingMode == .tab {
-            return [
-                RepoExplorerSidebarSection(
-                    kind: .tabs,
-                    resolvedGroups: resolvedGroups,
-                    loadingRepos: loadingReposForSection
-                )
-            ]
-        }
-        let favoriteGroups = resolvedGroups.filter { group in
-            !group.repos.isEmpty && group.repos.allSatisfy(\.isFavorite)
-        }
-        let favoriteLoadingRepos = loadingReposForSection.filter(\.isFavorite)
-        let regularGroups = resolvedGroups.filter { group in
-            group.repos.contains { !$0.isFavorite }
-        }
-        let regularLoadingRepos = loadingReposForSection.filter { !$0.isFavorite }
-        let normalSectionKind: RepoExplorerSidebarSectionKind =
-            switch groupingMode {
-            case .repo: .repositories
-            case .pane: .panes
-            case .tab: .tabs
-            }
-
-        var sections: [RepoExplorerSidebarSection] = []
-        if !favoriteGroups.isEmpty || !favoriteLoadingRepos.isEmpty {
-            sections.append(
-                RepoExplorerSidebarSection(
-                    kind: .favorites,
-                    resolvedGroups: favoriteGroups,
-                    loadingRepos: favoriteLoadingRepos
-                )
-            )
-        }
-        sections.append(
-            RepoExplorerSidebarSection(
-                kind: normalSectionKind,
-                resolvedGroups: regularGroups,
-                loadingRepos: regularLoadingRepos
-            )
-        )
-        if groupingMode == .pane && !unassociatedPaneDestinations.isEmpty {
-            sections.append(
-                RepoExplorerSidebarSection(
-                    kind: .ungrouped,
-                    resolvedGroups: [],
-                    loadingRepos: [],
-                    unassociatedPaneDestinations: unassociatedPaneDestinations
-                )
-            )
-        }
-        return sections
-    }
-
     private static func emptyState(
         snapshot: RepoExplorerSnapshot,
         resolvedGroups: [RepoPresentationGroup],
@@ -548,17 +126,10 @@ enum RepoExplorerProjection {
         hasUnassociatedPanes: Bool
     ) -> RepoExplorerEmptyState {
         guard resolvedGroups.isEmpty && loadingRepos.isEmpty && !hasUnassociatedPanes else { return .content }
-        if !snapshot.query.isEmpty {
+        if !RepoExplorerFilter.normalizedQuery(snapshot.query).isEmpty {
             return .searchNoResults
         }
-        switch snapshot.groupingMode {
-        case .repo:
-            return .noRepositories
-        case .pane:
-            return .noPanes
-        case .tab:
-            return .noTabs
-        }
+        return snapshot.surface == .repos ? .noRepositories : .noPanes
     }
 
     private static func checkoutColorHexByRepoId(
@@ -670,7 +241,7 @@ enum RepoExplorerProjection {
         }
     }
 
-    private static func remoteIdentityGroups(
+    static func remoteIdentityGroups(
         repos: [RepoPresentationItem],
         metadataByRepoId: [UUID: RepoIdentityMetadata],
         sortOrder: RepoExplorerSortOrder
@@ -698,6 +269,9 @@ enum RepoExplorerProjection {
     ) -> Bool {
         let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
         let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
+        if leftTitle.localizedCaseInsensitiveCompare(rightTitle) == .orderedSame {
+            return lhs.id < rhs.id
+        }
         return compare(leftTitle, rightTitle, sortOrder: sortOrder)
     }
 
@@ -762,40 +336,6 @@ enum RepoExplorerProjection {
         return lhs.paneId.uuidString < rhs.paneId.uuidString
     }
 
-    static func paneRowPrecedes(
-        _ lhs: RepoExplorerPaneDestination,
-        _ rhs: RepoExplorerPaneDestination,
-        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts],
-        usesRecency: Bool
-    ) -> Bool {
-        if usesRecency {
-            let lhsDate = paneRowFactsByPaneId[lhs.paneId]?.recencyReferenceDate
-            let rhsDate = paneRowFactsByPaneId[rhs.paneId]?.recencyReferenceDate
-            if lhsDate != rhsDate {
-                return (lhsDate ?? .distantPast) > (rhsDate ?? .distantPast)
-            }
-        }
-        return paneDestinationPrecedes(lhs, rhs)
-    }
-
-    static func paneRowPrecedes(
-        _ lhs: RepoExplorerProjectedPaneDestination,
-        _ rhs: RepoExplorerProjectedPaneDestination,
-        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts],
-        usesRecency: Bool
-    ) -> Bool {
-        if usesRecency {
-            let lhsDate = paneRowFactsByPaneId[lhs.paneId]?.recencyReferenceDate
-            let rhsDate = paneRowFactsByPaneId[rhs.paneId]?.recencyReferenceDate
-            if lhsDate != rhsDate {
-                return (lhsDate ?? .distantPast) > (rhsDate ?? .distantPast)
-            }
-        }
-        if lhs.tabIndex != rhs.tabIndex { return lhs.tabIndex < rhs.tabIndex }
-        if lhs.paneIndexInTab != rhs.paneIndexInTab { return lhs.paneIndexInTab < rhs.paneIndexInTab }
-        return lhs.paneId.uuidString < rhs.paneId.uuidString
-    }
-
     static func panePrimaryText(
         _ destination: RepoExplorerPaneDestination,
         terminalTitle: String?
@@ -827,7 +367,7 @@ enum RepoExplorerProjection {
         return normalizedName
     }
 
-    private static func worktreeRowsByGroupId(
+    static func worktreeRowsByGroupId(
         from groups: [RepoPresentationGroup],
         checkoutColorHexByRepoId: [UUID: String]
     ) -> [String: [RepoExplorerProjectedWorktreeRow]] {

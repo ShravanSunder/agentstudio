@@ -64,7 +64,7 @@ struct RepoExplorerWorktreeRowTests {
                     linesDeleted: 0,
                     untrackedFileCount: 0
                 ),
-                showsFavoriteControl: false
+                showsPinnedControl: false
             )
             .frame(width: 320)
             .background(Color.black)
@@ -381,14 +381,20 @@ struct RepoExplorerWorktreeRowTests {
         #expect(renderBranchSource.contains("!branchStatus.pullRequestDataUnavailable"))
     }
 
-    @Test("favorite state exposes explicit add and remove labels")
-    func favoriteStateExposesExplicitLabels() {
-        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: false) == "Add Favorite")
-        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: true) == "Remove Favorite")
-        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: false) == "Add favorite")
-        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
-        #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: false).icon == .system(.bookmark))
-        #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: true).icon == .system(.bookmarkFill))
+    @Test("pinned state exposes explicit pin and unpin labels")
+    func pinnedStateExposesExplicitLabels() {
+        #expect(RepoExplorerWorktreeRowContent.pinnedAccessibilityLabel(isPinned: false) == "Pin Repository")
+        #expect(RepoExplorerWorktreeRowContent.pinnedAccessibilityLabel(isPinned: true) == "Unpin Repository")
+        #expect(
+            RepoExplorerWorktreeRowContent.pinnedHelpText(isPinned: false)
+                == "Pin this repository in the Repos sidebar"
+        )
+        #expect(
+            RepoExplorerWorktreeRowContent.pinnedHelpText(isPinned: true)
+                == "Unpin this repository from the Repos sidebar"
+        )
+        #expect(RepoExplorerWorktreeRowContent.pinnedActionSpec(isPinned: false).icon == .system(.pin))
+        #expect(RepoExplorerWorktreeRowContent.pinnedActionSpec(isPinned: true).icon == .system(.pinFill))
     }
 
     @Test("inactive repository header uses one icon and compact hover copy")
@@ -434,10 +440,10 @@ struct RepoExplorerWorktreeRowTests {
         #expect(AppPolicies.RepoExplorer.inactiveRefreshRevealDuration == .seconds(30))
     }
 
-    @Test("favorite control visibility uses main worktree identity for every action")
-    func favoriteControlVisibilityUsesMainWorktreeIdentity() {
-        let mainVisibility = RepoExplorerFavoriteControlVisibility(isMainWorktree: true)
-        let linkedVisibility = RepoExplorerFavoriteControlVisibility(isMainWorktree: false)
+    @Test("pinned control visibility uses main worktree identity for every action")
+    func pinnedControlVisibilityUsesMainWorktreeIdentity() {
+        let mainVisibility = RepoExplorerPinnedControlVisibility(isMainWorktree: true)
+        let linkedVisibility = RepoExplorerPinnedControlVisibility(isMainWorktree: false)
 
         #expect(mainVisibility.showsInlineButton)
         #expect(mainVisibility.showsContextMenuAction)
@@ -445,8 +451,8 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!linkedVisibility.showsContextMenuAction)
     }
 
-    @Test("favorite visibility policy guards inline and context-menu actions")
-    func favoriteVisibilityPolicyGuardsEveryAction() throws {
+    @Test("pinned visibility policy guards inline and context-menu actions")
+    func pinnedVisibilityPolicyGuardsEveryAction() throws {
         let rowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
@@ -456,10 +462,10 @@ struct RepoExplorerWorktreeRowTests {
             encoding: .utf8
         )
 
-        #expect(rowSource.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
-        #expect(menuSource.contains("showsFavoriteControl: favoriteControlVisibility.showsContextMenuAction"))
-        #expect(rowSource.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
-        #expect(!rowSource.contains(".help(favoriteActionSpec.helpText)"))
+        #expect(rowSource.contains("showsPinnedControl: pinnedControlVisibility.showsInlineButton"))
+        #expect(menuSource.contains("showsPinnedControl: pinnedControlVisibility.showsContextMenuAction"))
+        #expect(rowSource.contains(".controlHelp(pinnedActionSpec.controlTooltipRenderValue())"))
+        #expect(!rowSource.contains(".help(pinnedActionSpec.helpText)"))
     }
 
     @Test("context menu exposes creation destinations at the top level")
