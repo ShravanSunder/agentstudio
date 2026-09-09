@@ -471,8 +471,8 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			'Documentation',
 			'Configuration',
 			'Generated',
-			'Dependencies and build output',
-			'Fixtures',
+			'Dependencies / build',
+			'Test data',
 			'Other',
 		]) {
 			expect(filterPopover.textContent).toContain(fileClassLabel);
@@ -496,9 +496,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await waitForFileViewerMenuFocus();
 		await dispatchFileViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
-		await navigateFileViewerMenuTo('Dependencies and build output');
+		await navigateFileViewerMenuTo('Dependencies / build');
 		const focusedVendorOption = highlightedFileViewerMenuOption();
-		expect(focusedVendorOption.textContent).toContain('Dependencies and build output');
+		expect(focusedVendorOption.textContent).toContain('Dependencies / build');
 		expect(document.activeElement).toBe(focusedVendorOption);
 		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 			dispatchFileViewerMenuEnter();
@@ -541,8 +541,8 @@ const categoryFilterCases = [
 	{ expectedPaths: ['Docs', 'Docs/Guide.md'], label: 'Documentation' },
 	{ expectedPaths: ['Config', 'Config/package.json'], label: 'Configuration' },
 	{ expectedPaths: ['Generated', 'Generated/API.generated.swift'], label: 'Generated' },
-	{ expectedPaths: ['Vendor', 'Vendor/Library.js'], label: 'Dependencies and build output' },
-	{ expectedPaths: ['Fixtures', 'Fixtures/sample.txt'], label: 'Fixtures' },
+	{ expectedPaths: ['Vendor', 'Vendor/Library.js'], label: 'Dependencies / build' },
+	{ expectedPaths: ['Fixtures', 'Fixtures/sample.txt'], label: 'Test data' },
 	{ expectedPaths: ['Assets', 'Assets/logo.png'], label: 'Other' },
 ] as const;
 

@@ -69,8 +69,10 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
 		const annotationsTrigger = rendered
-			.getByRole('button', { name: 'Share comments', exact: true })
+			.getByRole('button', { name: 'Annotations', exact: true })
 			.element();
+		expect(annotationsTrigger.textContent).toBe('Annotations');
+		expect(annotationsTrigger.classList).toContain('border-input');
 		expect(annotationsTrigger.querySelector('svg')).not.toBeNull();
 		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
 		const codeCanvas = rendered.getByTestId('share-layout-code-canvas').element();
@@ -78,7 +80,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const codeCanvasTopBeforeOpen = codeCanvas.getBoundingClientRect().top;
 
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 
 		const shelf = rendered.getByTestId('worktree-annotation-share-shelf').element();
@@ -103,7 +105,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		const outsideTarget = rendered.getByRole('button', { name: 'Code canvas target' });
 		const closingShelf = requireHtmlElement(
@@ -125,9 +127,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 
-		await expect.element(rendered.getByRole('button', { name: 'Share comments' })).toBeEnabled();
+		await expect.element(rendered.getByRole('button', { name: 'Annotations' })).toBeEnabled();
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
 		await expect.element(rendered.getByText('Pending —')).toBeVisible();
@@ -141,7 +143,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		const copyButton = requireHtmlButton(
 			rendered.getByRole('button', { name: 'Copy Markdown' }).element(),
@@ -190,7 +192,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			await settleInteraction();
 		});
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'All comments, 1' }).click(),
@@ -230,9 +232,9 @@ describe('worktree annotation Share comments integrated surface', () => {
 			const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 			await publishShareProjection(surface);
 
-			await expect.element(rendered.getByRole('button', { name: 'Share comments' })).toBeEnabled();
+			await expect.element(rendered.getByRole('button', { name: 'Annotations' })).toBeEnabled();
 			await performBrowserAction(() => {
-				clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+				clickHtmlButton(rendered.getByRole('button', { name: 'Annotations' }).element());
 			});
 			const pendingScopeButton = requireShareScopeButton('Pending comments');
 			expect(pendingScopeButton.getAttribute('aria-label')).toBe('Pending comments, 2');
@@ -309,7 +311,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await settleInteraction();
 
@@ -327,7 +329,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, false, 'resolved');
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 
 		await expect
@@ -350,7 +352,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface);
 		await performBrowserAction(() => {
-			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+			clickHtmlButton(rendered.getByRole('button', { name: 'Annotations' }).element());
 		});
 
 		await performBrowserAction(() => {
@@ -405,7 +407,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, true);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 
 		await expect.element(rendered.getByRole('button', { name: 'History (1)' })).toBeVisible();
@@ -429,7 +431,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, 'unknown');
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 		await performBrowserAction(() =>
@@ -464,7 +466,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, 'unknown');
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 		await performBrowserAction(() =>
@@ -495,7 +497,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			);
 			await publishShareProjection(surface, true);
 			await performBrowserAction(() =>
-				rendered.getByRole('button', { name: 'Share comments' }).click(),
+				rendered.getByRole('button', { name: 'Annotations' }).click(),
 			);
 
 			const shareLayoutOwner = rendered.getByTestId('worktree-annotation-share-shelf').element();
@@ -526,7 +528,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, true);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 		await performBrowserAction(() =>
@@ -574,7 +576,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
 		await publishShareProjection(surface, true);
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations' }).click(),
 		);
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 		await performBrowserAction(() =>

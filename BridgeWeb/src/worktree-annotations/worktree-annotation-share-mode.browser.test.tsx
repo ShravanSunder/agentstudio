@@ -93,11 +93,13 @@ describe('worktree annotation Share comments presentation', () => {
 		const onCopy = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(<ShareModeFixture onCopy={onCopy} onExport={onExport} />);
-		const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
-		expect(shareTrigger.element().querySelector('svg')).not.toBeNull();
+		const shareTrigger = rendered.getByRole('button', { name: 'Annotations', exact: true });
+		expect(shareTrigger.element().textContent).toBe('Annotations');
+		expect(shareTrigger.element().querySelector('.lucide-messages-square')).not.toBeNull();
+		expect(shareTrigger.element().classList).toContain('border-input');
 		expect(shareTrigger.element().getAttribute('data-slot')).toBe('drawer-trigger');
-		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Share comments');
-		expect(shareTrigger.element().getBoundingClientRect().width).toBe(24);
+		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Annotations');
+		expect(shareTrigger.element().getBoundingClientRect().width).toBeGreaterThan(80);
 		expect(shareTrigger.element().getBoundingClientRect().height).toBe(24);
 
 		await performBrowserAction(() => shareTrigger.click());
@@ -196,7 +198,7 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 
 		await performBrowserAction(() => {
-			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+			clickHtmlButton(rendered.getByRole('button', { name: 'Annotations', exact: true }).element());
 		});
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
@@ -208,7 +210,7 @@ describe('worktree annotation Share comments presentation', () => {
 			.not.toBeInTheDocument();
 
 		await performBrowserAction(() => {
-			clickHtmlButton(rendered.getByRole('button', { name: 'Share comments' }).element());
+			clickHtmlButton(rendered.getByRole('button', { name: 'Annotations', exact: true }).element());
 		});
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
 		await performBrowserAction(async (): Promise<void> => {
@@ -230,7 +232,7 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Share comments' }).click(),
+			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
 		);
 		await expect
 			.element(rendered.getByRole('alert'))

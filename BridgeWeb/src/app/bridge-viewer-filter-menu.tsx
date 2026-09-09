@@ -110,6 +110,7 @@ export function BridgeViewerFacetToggleRow(props: {
 		<DropdownMenuCheckboxItem
 			aria-label={props.label}
 			checked={props.checked}
+			indicator="switch"
 			title={props.description}
 			data-testid={props.testId}
 			onCheckedChange={(checked: boolean): void => props.onCheckedChange(checked)}

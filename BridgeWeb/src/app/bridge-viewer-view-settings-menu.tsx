@@ -1,18 +1,31 @@
-import { RotateCcwIcon, SettingsIcon } from 'lucide-react';
-import { useEffect, type ReactElement } from 'react';
+import {
+	AlignJustifyIcon,
+	ChartNoAxesColumnIcon,
+	CircleOffIcon,
+	Columns2Icon,
+	ListOrderedIcon,
+	PaintBucketIcon,
+	PlusIcon,
+	RotateCcwIcon,
+	SettingsIcon,
+	WrapTextIcon,
+	type LucideIcon,
+} from 'lucide-react';
+import { useEffect, useId, type ReactElement } from 'react';
 
 import { Button } from '../components/ui/button.js';
+import { Field, FieldLabel, FieldTitle } from '../components/ui/field.js';
 import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu.js';
-import { BridgeViewerFilterMenuHeader } from './bridge-viewer-filter-menu.js';
+	Popover,
+	PopoverContent,
+	PopoverHeader,
+	PopoverTitle,
+	PopoverTrigger,
+} from '../components/ui/popover.js';
+import { Separator } from '../components/ui/separator.js';
+import { Switch } from '../components/ui/switch.js';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip.js';
 import type {
 	BridgeFilesViewSettings,
 	BridgeReviewChangeIndicators,
@@ -49,6 +62,7 @@ export function BridgeViewerViewSettingsMenu(
 ): ReactElement {
 	const { disabled, onOpenChange, open } = props;
 	const testPrefix = `bridge-${props.surface}-view-settings`;
+	const switchIdPrefix = `${useId()}-${testPrefix}-switch`;
 	const settingsChanged = !bridgeViewerViewSettingsAreEqual(props);
 	useEffect((): void => {
 		if (disabled === true && open) onOpenChange(false);
@@ -66,8 +80,8 @@ export function BridgeViewerViewSettingsMenu(
 		else props.onChange(props.defaultSettings);
 	};
 	return (
-		<DropdownMenu onOpenChange={props.onOpenChange} open={props.open}>
-			<DropdownMenuTrigger
+		<Popover onOpenChange={props.onOpenChange} open={props.open}>
+			<PopoverTrigger
 				aria-label="View settings"
 				render={<Button size="icon-sm" variant="ghost" />}
 				data-testid={`${testPrefix}-trigger`}
@@ -75,33 +89,38 @@ export function BridgeViewerViewSettingsMenu(
 				title="View settings"
 			>
 				<SettingsIcon aria-hidden="true" />
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
+			</PopoverTrigger>
+			<PopoverContent
 				align="end"
+				scrollable
 				className="w-64"
 				data-testid={`${testPrefix}-content`}
 				sideOffset={6}
 			>
-				<BridgeViewerFilterMenuHeader
-					description={`Change how ${props.surface === 'file' ? 'file' : 'review'} content is displayed`}
-					testId={`${testPrefix}-header`}
-					title="View Settings"
-				/>
-				<DropdownMenuSeparator />
-				<section aria-label="Appearance">
+				<PopoverHeader data-testid={`${testPrefix}-header`}>
+					<PopoverTitle>View Settings</PopoverTitle>
+				</PopoverHeader>
+				<Separator />
+				<section aria-label="Appearance" className="flex flex-col gap-2 py-1">
 					<ViewSettingsToggleRow
 						checked={props.settings.lineNumbers}
+						icon={ListOrderedIcon}
+						id={`${switchIdPrefix}-line-numbers`}
 						label="Line numbers"
 						onCheckedChange={updateLineNumbers}
 					/>
 					<ViewSettingsToggleRow
 						checked={props.settings.wordWrap}
+						icon={WrapTextIcon}
+						id={`${switchIdPrefix}-word-wrap`}
 						label="Word wrap"
 						onCheckedChange={updateWordWrap}
 					/>
 					{props.surface === 'review' ? (
 						<ViewSettingsToggleRow
 							checked={props.settings.changeBackgrounds}
+							icon={PaintBucketIcon}
+							id={`${switchIdPrefix}-change-backgrounds`}
 							label="Change backgrounds"
 							onCheckedChange={(changeBackgrounds): void =>
 								props.onChange({ ...props.settings, changeBackgrounds })
@@ -110,16 +129,15 @@ export function BridgeViewerViewSettingsMenu(
 					) : null}
 				</section>
 				{props.surface === 'review' ? (
-					<>
-						<DropdownMenuSeparator />
+					<div className="flex flex-col gap-2 py-1">
 						<ViewSettingsRadioGroup
 							label="Diff layout"
 							onSelect={(diffLayout): void => props.onChange({ ...props.settings, diffLayout })}
 							options={diffLayoutOptions}
 							value={props.settings.diffLayout}
 						/>
-						<DropdownMenuSeparator />
 						<ViewSettingsRadioGroup
+							iconOnly
 							label="Change indicators"
 							onSelect={(changeIndicators): void =>
 								props.onChange({ ...props.settings, changeIndicators })
@@ -127,19 +145,22 @@ export function BridgeViewerViewSettingsMenu(
 							options={changeIndicatorOptions}
 							value={props.settings.changeIndicators}
 						/>
-					</>
+					</div>
 				) : null}
-				<DropdownMenuSeparator />
-				<DropdownMenuItem
+				<Separator />
+				<Button
+					className="w-full justify-start"
 					data-testid={`${testPrefix}-reset`}
 					disabled={!settingsChanged}
 					onClick={resetViewSettings}
+					size="sm"
+					variant="ghost"
 				>
-					<RotateCcwIcon aria-hidden="true" />
+					<RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
 					<span>Reset View Settings</span>
-				</DropdownMenuItem>
-			</DropdownMenuContent>
-		</DropdownMenu>
+				</Button>
+			</PopoverContent>
+		</Popover>
 	);
 }
 
@@ -161,57 +182,98 @@ function bridgeViewerViewSettingsAreEqual(props: BridgeViewerViewSettingsMenuPro
 
 function ViewSettingsToggleRow(props: {
 	readonly checked: boolean;
+	readonly icon: LucideIcon;
+	readonly id: string;
 	readonly label: string;
 	readonly onCheckedChange: (checked: boolean) => void;
 }): ReactElement {
+	const Icon = props.icon;
 	return (
-		<DropdownMenuCheckboxItem checked={props.checked} onCheckedChange={props.onCheckedChange}>
-			<span data-bridge-view-settings-row-label="">{props.label}</span>
-		</DropdownMenuCheckboxItem>
+		<Field className="px-1" orientation="horizontal">
+			<FieldLabel htmlFor={props.id}>
+				<Icon aria-hidden="true" />
+				<span>{props.label}</span>
+			</FieldLabel>
+			<Switch
+				aria-label={props.label}
+				checked={props.checked}
+				id={props.id}
+				onCheckedChange={props.onCheckedChange}
+			/>
+		</Field>
 	);
 }
 
 function ViewSettingsRadioGroup<TValue extends string>(props: {
+	readonly iconOnly?: boolean;
 	readonly label: string;
 	readonly onSelect: (value: TValue) => void;
-	readonly options: readonly { readonly label: string; readonly value: TValue }[];
+	readonly options: readonly {
+		readonly icon: LucideIcon;
+		readonly label: string;
+		readonly value: TValue;
+	}[];
 	readonly value: TValue;
 }): ReactElement {
 	return (
 		<section aria-label={props.label}>
-			<p className="px-2 py-1 text-[11px] font-medium text-[var(--bridge-text-muted)]">
-				{props.label}
-			</p>
-			<DropdownMenuRadioGroup value={props.value}>
-				{props.options.map(
-					(option): ReactElement => (
-						<DropdownMenuRadioItem
-							key={option.value}
-							onClick={(): void => props.onSelect(option.value)}
-							value={option.value}
-						>
-							<span data-bridge-view-settings-row-label="">{option.label}</span>
-						</DropdownMenuRadioItem>
-					),
-				)}
-			</DropdownMenuRadioGroup>
+			<Field className="px-1" orientation="horizontal">
+				<FieldTitle>{props.label}</FieldTitle>
+				<ToggleGroup
+					aria-label={props.label}
+					className={
+						props.options.length === 2 ? 'grid w-full grid-cols-2' : 'grid w-full grid-cols-3'
+					}
+					size="xs"
+					value={[props.value]}
+					variant="segmented"
+				>
+					{props.options.map((option): ReactElement => {
+						const Icon = option.icon;
+						const choice = (
+							<ToggleGroupItem
+								aria-label={option.label}
+								className="w-full"
+								key={option.value}
+								onPressedChange={(pressed): void => {
+									if (pressed) props.onSelect(option.value);
+								}}
+								value={option.value}
+							>
+								<Icon aria-hidden="true" data-icon={props.iconOnly ? undefined : 'inline-start'} />
+								{props.iconOnly ? null : <span>{option.label}</span>}
+							</ToggleGroupItem>
+						);
+						return props.iconOnly ? (
+							<Tooltip key={option.value}>
+								<TooltipTrigger render={choice} />
+								<TooltipContent>{option.label}</TooltipContent>
+							</Tooltip>
+						) : (
+							choice
+						);
+					})}
+				</ToggleGroup>
+			</Field>
 		</section>
 	);
 }
 
 const diffLayoutOptions: readonly {
+	readonly icon: LucideIcon;
 	readonly label: string;
 	readonly value: BridgeReviewDiffLayout;
 }[] = [
-	{ label: 'Split', value: 'split' },
-	{ label: 'Unified', value: 'unified' },
+	{ icon: Columns2Icon, label: 'Split', value: 'split' },
+	{ icon: AlignJustifyIcon, label: 'Unified', value: 'unified' },
 ];
 
 const changeIndicatorOptions: readonly {
+	readonly icon: LucideIcon;
 	readonly label: string;
 	readonly value: BridgeReviewChangeIndicators;
 }[] = [
-	{ label: 'Bars', value: 'bars' },
-	{ label: 'Symbols', value: 'symbols' },
-	{ label: 'None', value: 'none' },
+	{ icon: ChartNoAxesColumnIcon, label: 'Bars', value: 'bars' },
+	{ icon: PlusIcon, label: 'Symbols', value: 'symbols' },
+	{ icon: CircleOffIcon, label: 'None', value: 'none' },
 ];

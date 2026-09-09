@@ -1,4 +1,4 @@
-import { Copy, FileJson2, List, ListFilter, Share2, X } from 'lucide-react';
+import { Copy, FileJson2, List, ListFilter, MessagesSquareIcon, X } from 'lucide-react';
 import type { MouseEvent, ReactElement, ReactNode, Ref } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
@@ -32,11 +32,12 @@ export function WorktreeAnnotationShareTrigger(props: {
 					<TooltipTrigger
 						render={
 							<BridgeViewerButton
-								ariaLabel="Share comments"
+								ariaLabel="Annotations"
 								ariaPressed={props.open}
 								buttonRef={props.buttonRef}
-								size="icon-sm"
-								data-tooltip="Share comments"
+								size="sm"
+								variant="outline"
+								data-tooltip="Annotations"
 								disabled={props.disabled}
 							/>
 						}
@@ -44,10 +45,11 @@ export function WorktreeAnnotationShareTrigger(props: {
 				}
 			>
 				<BridgeViewerIcon>
-					<Share2 aria-hidden="true" />
+					<MessagesSquareIcon aria-hidden="true" />
 				</BridgeViewerIcon>
+				<span>Annotations</span>
 			</DrawerTrigger>
-			<TooltipContent side="bottom">Share comments</TooltipContent>
+			<TooltipContent side="bottom">View and share annotations</TooltipContent>
 		</Tooltip>
 	);
 }

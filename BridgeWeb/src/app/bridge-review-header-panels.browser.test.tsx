@@ -52,8 +52,8 @@ describe('Bridge Review header peer panels', () => {
 			const scrollBounds = scroll.getBoundingClientRect();
 			const noteBounds = note.getBoundingClientRect();
 			expect(noteBounds.bottom).toBeCloseTo(panelBounds.bottom - 18, 0);
-			expect(noteBounds.top - scrollBounds.bottom).toBeCloseTo(8, 0);
-			expect(scrollBounds.top - input.getBoundingClientRect().bottom).toBeCloseTo(8, 0);
+			expect(scrollBounds.bottom).toBeCloseTo(noteBounds.top - 8, 0);
+			expect(scrollBounds.top).toBeCloseTo(input.getBoundingClientRect().bottom + 8, 0);
 			expect(scrollBounds.height).toBeGreaterThan(200);
 			if (!(scroll instanceof HTMLElement)) throw new Error('Expected result scroll container.');
 			expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
@@ -75,7 +75,7 @@ describe('Bridge Review header peer panels', () => {
 			);
 			await publishSavedComment(surface);
 			const compareTrigger = rendered.getByTestId('bridge-review-comparison-trigger');
-			const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
+			const shareTrigger = rendered.getByRole('button', { name: 'Annotations', exact: true });
 			await performAction(() =>
 				(outgoingKind === 'compare' ? compareTrigger : shareTrigger).click(),
 			);
@@ -161,7 +161,9 @@ describe('Bridge Review header peer panels', () => {
 		await performAction(() => rendered.getByTestId('bridge-review-comparison-trigger').click());
 		expect(queryTargets).toHaveBeenCalledTimes(1);
 
-		await performAction(() => rendered.getByRole('button', { name: 'Share comments' }).click());
+		await performAction(() =>
+			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
+		);
 		expect(cancelTargetQuery).toHaveBeenCalledTimes(1);
 		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
 		expect(
@@ -226,7 +228,9 @@ describe('Bridge Review header peer panels', () => {
 			);
 			const repeatsHistory = actionName === 'Repeat output attempt 1';
 			await publishSavedComment(surface, repeatsHistory);
-			await performAction(() => rendered.getByRole('button', { name: 'Share comments' }).click());
+			await performAction(() =>
+				rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
+			);
 			if (repeatsHistory) {
 				await performAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
 			}
@@ -257,7 +261,9 @@ describe('Bridge Review header peer panels', () => {
 		);
 		const rendered = await render(fixture(true));
 		await publishSavedComment(surface);
-		await performAction(() => rendered.getByRole('button', { name: 'Share comments' }).click());
+		await performAction(() =>
+			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
+		);
 		await performAction(() => rendered.getByRole('button', { name: 'Copy Markdown' }).click());
 		await rendered.rerender(fixture(false));
 		await settlePanels();

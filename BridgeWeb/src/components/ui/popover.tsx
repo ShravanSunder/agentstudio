@@ -21,6 +21,7 @@ function PopoverContent({
 	collisionAvoidance,
 	collisionPadding,
 	motion = 'default',
+	scrollable = false,
 	positionerClassName,
 	side = 'bottom',
 	sideOffset = 4,
@@ -37,6 +38,7 @@ function PopoverContent({
 		| 'sideOffset'
 	> & {
 		readonly motion?: 'default' | 'shelf';
+		readonly scrollable?: boolean;
 		readonly positionerClassName?: string;
 	}): ReactElement {
 	return (
@@ -53,11 +55,15 @@ function PopoverContent({
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
+					data-scrollable={scrollable}
 					className={cn(
 						'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2 rounded-lg border border-popover-border bg-popover p-2 text-sm text-popover-foreground shadow-popover outline-hidden',
 						motion === 'shelf'
 							? 'translate-y-0 transition-transform duration-[var(--motion-fast)] ease-out data-ending-style:-translate-y-2 data-ending-style:ease-in data-starting-style:-translate-y-2 motion-reduce:translate-y-0 motion-reduce:transition-none'
 							: 'duration-[var(--motion-fast)] data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+						scrollable
+							? 'max-h-(--available-height) overflow-y-auto overscroll-contain'
+							: undefined,
 						className,
 					)}
 					{...props}

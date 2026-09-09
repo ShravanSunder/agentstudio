@@ -31,10 +31,13 @@ describe('BridgeFileViewerFacetMenu Browser Mode', () => {
 			'Documentation',
 			'Configuration',
 			'Generated',
-			'Dependencies and build output',
-			'Fixtures',
+			'Dependencies / build',
+			'Test data',
 			'Other',
 		]);
+		for (const row of categoryRows) {
+			expect(row.querySelector('[data-testid$="-option-badge"] svg')).not.toBeNull();
+		}
 		expect(
 			categoryRows.map((row: HTMLElement): string | null => row.getAttribute('aria-checked')),
 		).toEqual(['false', 'true', 'false', 'false', 'false', 'false', 'false', 'false', 'false']);

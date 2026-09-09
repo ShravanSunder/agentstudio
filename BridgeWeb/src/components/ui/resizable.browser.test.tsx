@@ -42,8 +42,6 @@ test('keeps a quiet line with reachable nearby pointer and keyboard resizing', a
 				buttons: 1,
 			}),
 		);
-	});
-	await act(async () => {
 		document.dispatchEvent(
 			new PointerEvent('pointermove', {
 				bubbles: true,
@@ -54,8 +52,6 @@ test('keeps a quiet line with reachable nearby pointer and keyboard resizing', a
 				buttons: 1,
 			}),
 		);
-	});
-	await act(async () => {
 		document.dispatchEvent(
 			new PointerEvent('pointerup', {
 				bubbles: true,
@@ -65,8 +61,8 @@ test('keeps a quiet line with reachable nearby pointer and keyboard resizing', a
 				pointerType: 'mouse',
 			}),
 		);
+		await expect.poll(() => Number(handle.getAttribute('aria-valuenow'))).toBeLessThan(before);
 	});
-	await expect.poll(() => Number(handle.getAttribute('aria-valuenow'))).toBeLessThan(before);
 	await act(async () => {
 		handle.focus();
 	});
@@ -80,4 +76,8 @@ test('keeps a quiet line with reachable nearby pointer and keyboard resizing', a
 	await expect
 		.poll(() => Number(handle.getAttribute('aria-valuenow')))
 		.toBeGreaterThan(pointerValue);
+	await act(async (): Promise<void> => {
+		handle.blur();
+		await rendered.unmount();
+	});
 });

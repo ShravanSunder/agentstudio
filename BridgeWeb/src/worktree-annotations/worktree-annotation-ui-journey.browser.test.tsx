@@ -244,7 +244,7 @@ describe('worktree annotation synthetic end-user journey', () => {
 		});
 		expect(thread.getAttribute('data-annotation-resolution')).toBe('open');
 
-		const shareTrigger = rendered.getByRole('button', { name: 'Share comments', exact: true });
+		const shareTrigger = rendered.getByRole('button', { name: 'Annotations', exact: true });
 		await performJourneyAction(() => clickButton(shareTrigger.element()));
 		const shareShelf = rendered.getByTestId('worktree-annotation-share-shelf').element();
 		if (!(shareShelf instanceof HTMLElement)) throw new Error('Expected the Share shelf.');
