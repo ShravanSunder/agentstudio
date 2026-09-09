@@ -89,7 +89,7 @@ through the same seam. Nothing else in the app calls `ghostty_surface_set_occlus
   collections. Bare removal used to leave the renderer believing it was visible.
 - **Focus follows delivered visibility.** `SurfaceManager.setFocus(_, focused: true)` is refused
   unless the surface is active, its last delivered visibility is `true`, **and** it is its
-  window's first responder (R7); focus-off is always delivered. The responder-chain callback
+  window's first responder; focus-off is always delivered. The responder-chain callback
   (`SurfaceManager.surfaceDidBecomeFirstResponder(_:)`, called from
   `Ghostty.SurfaceView.becomeFirstResponder`) supplies responder truth itself and gates only on
   active membership and delivered visibility, since AppKit may not have updated

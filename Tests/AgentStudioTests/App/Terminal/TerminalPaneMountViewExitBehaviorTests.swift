@@ -17,11 +17,20 @@ struct TerminalPaneMountViewExitBehaviorTests {
     init() {
         installTestCoreAtomsIfNeeded()
     }
+    @MainActor
     private struct PaneTabControllerHarness {
         let store: WorkspaceStore
         let controller: PaneTabViewController
+        let coordinator: WorkspaceSurfaceCoordinator
+        let executor: WorkspaceActionExecutor
         let appEventBus: EventBus<AppEvent>
         let tempDir: URL
+
+        func shutdown() async {
+            controller.shutdown()
+            await executor.stopAcceptingCommandsAndDrain()
+            await coordinator.shutdown()
+        }
     }
 
     private final class WeakControllerBox {
@@ -35,7 +44,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
     private func makePaneTabControllerHarness() -> PaneTabControllerHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-exit-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore()
+        let store: WorkspaceStore
+        do {
+            store = try makeWorkspaceJournalTestStore()
+        } catch {
+            preconditionFailure("Could not prepare the terminal-exit journal fixture: \(error)")
+        }
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockTerminalExitSurfaceManager()
@@ -82,6 +96,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return PaneTabControllerHarness(
             store: store,
             controller: controller,
+            coordinator: coordinator,
+            executor: executor,
             appEventBus: appEventBus,
             tempDir: tempDir
         )
@@ -180,6 +196,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await terminationTask?.value
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingErrorOverlayForTesting)
+        await harness.shutdown()
     }
 
     @Test("process termination ignored by a subscribed controller restores visible fallback UI")
@@ -198,6 +215,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await terminationTask?.value
         #expect(mountView.isShowingErrorOverlayForTesting)
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        await harness.shutdown()
     }
 
     @Test("process termination with dropped delivery restores visible fallback UI")
@@ -250,6 +268,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
         #expect(!mountView.isShowingErrorOverlayForTesting)
+        await harness.shutdown()
     }
 
     @Test("fatal terminal errors still show the error overlay during startup restore")
@@ -281,6 +300,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await eventually("single-pane tab should close after AppEventBus delivery") {
             harness.store.tabs.isEmpty
         }
+        await harness.shutdown()
     }
 
     @Test("terminal process termination delivered through AppEventBus closes drawer children")
@@ -300,6 +320,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             )
         else {
             Issue.record("Expected drawer pane creation to succeed")
+            await harness.shutdown()
             return
         }
 
@@ -310,6 +331,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             harness.store.pane(drawerPane.id) == nil
         }
         #expect(harness.store.pane(parentPane.id) != nil)
+        await harness.shutdown()
     }
 
     @Test("terminal termination delivered through AppEventBus removes minimized panes from the active arrangement")
@@ -339,6 +361,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             sizingMode: .halveTarget)
         guard harness.store.minimizePane(minimizedPane.id, inTab: tab.id) else {
             Issue.record("Expected pane minimization to succeed")
+            await harness.shutdown()
             return
         }
         #expect(harness.store.tab(tab.id)?.panes.contains(minimizedPane.id) == true)
@@ -353,6 +376,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(harness.store.tab(tab.id) != nil)
         #expect(harness.store.tab(tab.id)?.panes.contains(minimizedPane.id) == false)
         #expect(Set(harness.store.tab(tab.id)?.paneIds ?? []) == Set([paneA.id, paneB.id]))
+        await harness.shutdown()
     }
 
     @Test("requestClose immediately suppresses a competing process-exited health update")
@@ -372,6 +396,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         await terminationTask?.value
         #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        await harness.shutdown()
     }
 
     @Test("controller subscribes before view load and unregisters on teardown")

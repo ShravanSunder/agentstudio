@@ -926,7 +926,7 @@ sequenceDiagram
 
 1. **Close**: `WorkspaceSurfaceCoordinator.executeCloseTab(tabId)`
    - Prepare a full tab/pane snapshot and commit removal plus durable Undo atomically.
-   - Publish committed placement, then detach retained native content for Undo.
+   - Detach retained native content for Undo, then publish committed placement.
    - The journal applies the 300-second deadline and ten-operation capacity.
 
 2. **Undo** (`Cmd+Shift+T`): `WorkspaceSurfaceCoordinator.undoCloseTab()`

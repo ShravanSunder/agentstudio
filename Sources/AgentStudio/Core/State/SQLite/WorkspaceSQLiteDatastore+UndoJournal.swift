@@ -85,13 +85,6 @@ extension WorkspaceSQLiteDatastore {
         }
     }
 
-    package func recoverUndoCloseDeadlines(workspaceID: UUID, time: WorkspaceUndoJournalTime) async throws {
-        try await withWorkspacePersistenceOrder { datastore in
-            try datastore.requireJournalMutationAdmission()
-            try datastore.journalRepository().recoverUndoCloseDeadlines(workspaceID: workspaceID, time: time)
-        }
-    }
-
     package func expireUndoCloses(
         workspaceID: UUID,
         time: WorkspaceUndoJournalTime

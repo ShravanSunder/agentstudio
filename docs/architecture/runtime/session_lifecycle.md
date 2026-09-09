@@ -274,7 +274,7 @@ sequenceDiagram
 
 The coordinator prepares a complete close snapshot and commits the composition change plus
 `workspace_undo_close` and its members in the existing serialized SQLite writer. Only after
-commit does it publish placement and detach native views. The last pane uses the tab-close path.
+commit does it detach native views and then publish placement. The last pane uses the tab-close path.
 Available entries retain native surfaces through SurfaceManager; the manager has no independent TTL.
 
 The durable journal owns the 300-second deadline and ten-entry oldest-first capacity per workspace.

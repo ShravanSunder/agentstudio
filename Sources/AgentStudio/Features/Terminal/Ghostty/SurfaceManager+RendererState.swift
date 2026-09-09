@@ -75,12 +75,6 @@ extension SurfaceManager {
         return .applied
     }
 
-    /// The last renderer visibility delivered for a surface, or `nil` if the surface has never
-    /// received a delivery (or is not manager-owned).
-    package func lastDeliveredVisibility(for surfaceID: UUID) -> Bool? {
-        (activeSurfaces[surfaceID] ?? hiddenSurfaces[surfaceID])?.lastDeliveredVisibility
-    }
-
     /// Reconciles renderer visibility for every attached surface against its pane's current
     /// desired visibility, delivering only where the desired value differs from the last
     /// delivered value. Hidden surfaces and undo-stack entries are never touched.
@@ -109,7 +103,7 @@ extension SurfaceManager {
 
     /// Set focus state for a surface, gated so a surface may only receive focus=true while it is
     /// active, its last delivered renderer visibility is `true`, and it is its window's first
-    /// responder (spec R7: another control owning keyboard focus must not admit renderer focus).
+    /// responder; another control owning keyboard focus must not admit renderer focus.
     /// Focus=false is always permitted so a surface being backgrounded or torn down can still
     /// relinquish focus.
     func setFocus(_ surfaceId: UUID, focused: Bool) {

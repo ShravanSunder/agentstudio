@@ -168,181 +168,201 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
     }
 
     @Test("targeted Expand Pane restores a minimized main pane")
-    func expandPane_minimizedMainPane_restoresPane() {
+    func expandPane_minimizedMainPane_restoresPane() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane()
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        #expect(harness.store.minimizePane(pane.id, inTab: tab.id))
+        await withWorkspaceCommandHarness(harness) {
+            let pane = harness.store.createPane()
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            #expect(harness.store.minimizePane(pane.id, inTab: tab.id))
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .expandPane,
+                    target: pane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .expandPane,
                 target: pane.id,
                 targetType: .pane
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .expandPane,
-            target: pane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(pane.id) == false)
+            #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(pane.id) == false)
+        }
     }
 
     @Test("targeted Expand Pane restores a minimized drawer child")
-    func expandPane_minimizedDrawerChild_restoresPane() throws {
+    func expandPane_minimizedDrawerChild_restoresPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane()
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-        #expect(harness.store.minimizeDrawerPane(drawerPane.id, in: parentPane.id))
+        try await withWorkspaceCommandHarness(harness) {
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+            #expect(harness.store.minimizeDrawerPane(drawerPane.id, in: parentPane.id))
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .expandPane,
+                    target: drawerPane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .expandPane,
                 target: drawerPane.id,
                 targetType: .pane
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .expandPane,
-            target: drawerPane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == false)
+            #expect(
+                harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == false)
+        }
     }
 
     @Test("targeted Minimize Pane minimizes a visible main pane")
-    func minimizePane_visibleMainPane_minimizesPane() {
+    func minimizePane_visibleMainPane_minimizesPane() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane()
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
+        await withWorkspaceCommandHarness(harness) {
+            let pane = harness.store.createPane()
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .minimizePane,
+                    target: pane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .minimizePane,
                 target: pane.id,
                 targetType: .pane
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .minimizePane,
-            target: pane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(pane.id) == true)
+            #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(pane.id) == true)
+        }
     }
 
     @Test("targeted Minimize Pane minimizes a visible drawer child")
-    func minimizePane_visibleDrawerChild_minimizesPane() throws {
+    func minimizePane_visibleDrawerChild_minimizesPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane()
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        try await withWorkspaceCommandHarness(harness) {
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .minimizePane,
+                    target: drawerPane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .minimizePane,
                 target: drawerPane.id,
                 targetType: .pane
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .minimizePane,
-            target: drawerPane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == true)
+            #expect(
+                harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == true)
+        }
     }
 
     @Test("targeted Toggle Drawer accepts the owned main pane and rejects its drawer child")
-    func toggleDrawer_ownedMainPane_togglesOnlyParent() throws {
+    func toggleDrawer_ownedMainPane_togglesOnlyParent() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane()
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-        let drawer = try #require(harness.store.pane(parentPane.id)?.drawer)
-        let wasExpanded = drawer.isExpanded
+        try await withWorkspaceCommandHarness(harness) {
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+            let drawer = try #require(harness.store.pane(parentPane.id)?.drawer)
+            let wasExpanded = drawer.isExpanded
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .toggleDrawer,
+                    target: parentPane.id,
+                    targetType: .pane
+                )
+            )
+            #expect(
+                !harness.controller.canExecute(
+                    .toggleDrawer,
+                    target: drawerPane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .toggleDrawer,
                 target: parentPane.id,
                 targetType: .pane
             )
-        )
-        #expect(
-            !harness.controller.canExecute(
-                .toggleDrawer,
-                target: drawerPane.id,
-                targetType: .pane
-            )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .toggleDrawer,
-            target: parentPane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == !wasExpanded)
+            #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == !wasExpanded)
+        }
     }
 
     @Test("targeted Close Pane removes an owned drawer child")
-    func closePane_ownedDrawerChild_removesPane() throws {
+    func closePane_ownedDrawerChild_removesPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane()
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        try await withWorkspaceCommandHarness(harness) {
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .closePane,
+                    target: drawerPane.id,
+                    targetType: .pane
+                )
+            )
+
+            harness.controller.execute(
                 .closePane,
                 target: drawerPane.id,
                 targetType: .pane
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .closePane,
-            target: drawerPane.id,
-            targetType: .pane
-        )
-
-        #expect(harness.store.pane(drawerPane.id) == nil)
-        #expect(harness.store.pane(parentPane.id) != nil)
+            #expect(harness.store.pane(drawerPane.id) == nil)
+            #expect(harness.store.pane(parentPane.id) != nil)
+        }
     }
 
     @Test("targeted pane location commands use the exact drawer child path")
@@ -528,29 +548,32 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
     }
 
     @Test("Move Pane routes the source pane to the selected nonempty destination")
-    func movePaneToTab_selectedDestination_receivesSourcePane() {
+    func movePaneToTab_selectedDestination_receivesSourcePane() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let sourcePane = harness.store.createPane()
-        let sourceTab = Tab(paneId: sourcePane.id)
-        let otherDestinationPane = harness.store.createPane()
-        let otherDestinationTab = Tab(paneId: otherDestinationPane.id)
-        let selectedDestinationPane = harness.store.createPane()
-        let selectedDestinationTab = Tab(paneId: selectedDestinationPane.id)
-        harness.store.appendTab(sourceTab)
-        harness.store.appendTab(otherDestinationTab)
-        harness.store.appendTab(selectedDestinationTab)
-        harness.store.setActiveTab(sourceTab.id)
+        await withWorkspaceCommandHarness(harness) {
+            let sourcePane = harness.store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            let otherDestinationPane = harness.store.createPane()
+            let otherDestinationTab = Tab(paneId: otherDestinationPane.id)
+            let selectedDestinationPane = harness.store.createPane()
+            let selectedDestinationTab = Tab(paneId: selectedDestinationPane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.appendTab(otherDestinationTab)
+            harness.store.appendTab(selectedDestinationTab)
+            harness.store.setActiveTab(sourceTab.id)
 
-        harness.controller.executeMovePaneToTab(
-            sourcePaneId: sourcePane.id,
-            sourceTabId: sourceTab.id,
-            targetTabId: selectedDestinationTab.id
-        )
+            harness.controller.executeMovePaneToTab(
+                sourcePaneId: sourcePane.id,
+                sourceTabId: sourceTab.id,
+                targetTabId: selectedDestinationTab.id
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.store.tab(selectedDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == true)
-        #expect(harness.store.tab(otherDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == false)
+            #expect(harness.store.tab(selectedDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == true)
+            #expect(harness.store.tab(otherDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == false)
+        }
     }
 
     @Test("Move Pane presentation enables with a destination and rechecks before activation")

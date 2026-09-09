@@ -4,8 +4,7 @@ import Testing
 
 /// Red-first proof for `scripts/verify-renderer-population.sh`: a read-only sampler that reports
 /// renderer/IO thread counts, IOSurface/IOAccelerator dirty footprint, and heap class occupancy for
-/// one AgentStudio PID. Governing: plan S8; specification V2/V6/V9; program design "Proof
-/// architecture" runtime rows.
+/// one AgentStudio PID. This proves parser behavior; native reclamation needs separate runtime evidence.
 @Suite("Renderer population script")
 struct RendererPopulationScriptTests {
     private static let scriptPath = "scripts/verify-renderer-population.sh"
@@ -31,8 +30,8 @@ struct RendererPopulationScriptTests {
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
     }
 
-    @Test("script has valid syntax and refuses the production executable")
-    func scriptHasValidSyntaxAndRefusesTheProductionExecutable() async throws {
+    @Test("script has valid syntax and declares the production sampling restriction")
+    func scriptHasValidSyntaxAndDeclaresProductionSamplingRestriction() async throws {
         // Arrange: the script must exist and parse as valid bash.
         let syntax = try await DefaultProcessExecutor(timeout: 10).execute(
             command: "/bin/bash",
@@ -212,7 +211,7 @@ struct RendererPopulationScriptTests {
     }
 
     private func writeFixture(_ contents: String, named name: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUIDv7.generate().uuidString)-\(name)")
         try contents.write(to: url, atomically: true, encoding: .utf8)
         return url
     }

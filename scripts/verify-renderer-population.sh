@@ -1,6 +1,6 @@
 #!/bin/bash
 # Read-only renderer population and graphics-residency sampler for one AgentStudio PID.
-# Reports renderer/IO thread counts, PTY children, IOSurface/IOAccelerator dirty footprint, heap
+# Reports renderer/IO thread counts, direct child processes, IOSurface/IOAccelerator dirty footprint, heap
 # class occupancy, and system memory pressure alongside WindowServer residency. Every source below
 # is read-only; nothing here signals a process. Run with --help for full usage.
 set -euo pipefail
@@ -16,7 +16,7 @@ Usage: verify-renderer-population.sh <pid> [label] [sample_seconds=1]
        verify-renderer-population.sh --parse-system-memory <vm_stat file> <swap file>
        verify-renderer-population.sh --help
 
-Samples renderer/IO thread population, PTY children, IOSurface/IOAccelerator dirty footprint,
+Samples renderer/IO thread population, direct child processes, IOSurface/IOAccelerator dirty footprint,
 heap class occupancy, and system memory pressure for one AgentStudio PID; prints one JSON object
 on stdout. Raw captures land under
 ${AGENTSTUDIO_RENDERER_POPULATION_ROOT:-a fresh mktemp -d}/<label>/.
@@ -25,7 +25,7 @@ Sources (read-only, no sudo): /usr/bin/sample (thread population by name suffix)
 /usr/bin/footprint -p (phys/IOSurface/IOAccelerator dirty MB), /usr/bin/vmmap -wide -noCoalesce
 (IOSurface region counts), /usr/bin/heap (Ghostty.SurfaceView / TerminalPaneMountView /
 PaneHostView instance counts -- heap briefly suspends the target while it walks the heap; never
-run this against the production app), pgrep -P (PTY children), and ps/top/vm_stat/sysctl
+run this against the production app), pgrep -P (all direct child processes; not a zmx process-group census), and ps/top/vm_stat/sysctl
 vm.swapusage (WindowServer residency, compressor, free, swap).
 
 Refusal: exits 2 and does nothing else when <pid> resolves to the production app
@@ -281,8 +281,8 @@ sample_pid() {
 
   # `pgrep -P` exits 1 (not an error) when the pid has no children; under `pipefail` an
   # unguarded exit 1 would abort the whole script on the valid zero-child case.
-  local pty_children
-  pty_children="$( { pgrep -P "$pid" || true; } | wc -l | tr -d ' ')"
+  local direct_children
+  direct_children="$( { pgrep -P "$pid" || true; } | wc -l | tr -d ' ')"
 
   local heap_surface_view heap_terminal_mount_view heap_pane_host_view
   if capture_is_invalid "$heap_file"; then
@@ -329,14 +329,14 @@ sample_pid() {
     capture_errors_json+="]"
   fi
 
-  /usr/bin/python3 - "$pid" "$label" "$renderer_threads" "$io_threads" "$pty_children" \
+  /usr/bin/python3 - "$pid" "$label" "$renderer_threads" "$io_threads" "$direct_children" \
     "$footprint_json" "$vmmap_json" "$windowserver_pid" "$windowserver_mem_mb" "$system_memory_json" \
     "$heap_surface_view" "$heap_terminal_mount_view" "$heap_pane_host_view" "$capture_errors_json" <<'PY'
 import datetime
 import json
 import sys
 
-(_, pid, label, renderer_threads, io_threads, pty_children, footprint_json, vmmap_json,
+(_, pid, label, renderer_threads, io_threads, direct_children, footprint_json, vmmap_json,
  windowserver_pid, windowserver_mem_mb, system_memory_json, heap_surface_view,
  heap_terminal_mount_view, heap_pane_host_view, capture_errors_json) = sys.argv
 footprint = json.loads(footprint_json)
@@ -355,7 +355,7 @@ print(json.dumps({
     "observed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
     "renderer_threads": optional_int(renderer_threads),
     "io_threads": optional_int(io_threads),
-    "pty_children": int(pty_children),
+    "direct_children": int(direct_children),
     "iosurface_regions_total": vmmap["iosurface_regions_total"],
     "iosurface_regions_large": vmmap["iosurface_regions_large"],
     "iosurface_dirty_mb": footprint["iosurface_dirty_mb"],

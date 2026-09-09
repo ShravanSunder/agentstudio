@@ -62,17 +62,11 @@ package final class SurfaceManager {
 
     // MARK: - Configuration
 
-    /// How long to keep surfaces in undo stack (default 5 minutes)
-
     /// Maximum retry count for surface creation
     private let maxCreationRetries: Int
 
     /// Health check interval in seconds
     private let healthCheckInterval: TimeInterval
-
-    /// Delay scheduler for time-dependent operations (e.g. undo expiration). Not `private`:
-    /// read from `SurfaceManager+RendererState.swift`.
-    let delayScheduler: AsyncDelay
 
     /// The only boundary through which renderer visibility/focus reaches libghostty.
     let rendererStateDelivery: any SurfaceRendererStateDelivery
@@ -123,14 +117,12 @@ package final class SurfaceManager {
     package init(
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
-        delayScheduler: AsyncDelay = .taskSleep,
         rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         nativeSurfaceRetirement: @escaping @MainActor (Ghostty.SurfaceView) -> Void = { $0.retireNativeSurface() }
     ) {
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
-        self.delayScheduler = delayScheduler
         self.rendererStateDelivery = rendererStateDelivery
         self.nativeSurfaceRetirement = nativeSurfaceRetirement
         self.performanceTraceRecorder = performanceTraceRecorder

@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -225,7 +226,7 @@ struct StoreVisibilityTierResolverTests {
         // child on the parent (drawers start expanded, per tier_marksExpandedDrawerChildrenVisible),
         // then zoom is entered on the parent.
         let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
+            .appending(path: "agentstudio-visibility-\(UUIDv7.generate().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore()

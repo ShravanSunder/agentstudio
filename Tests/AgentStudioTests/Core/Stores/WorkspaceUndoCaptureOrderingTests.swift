@@ -8,6 +8,10 @@ import Testing
 @MainActor
 @Suite("Workspace undo capture ordering", .serialized)
 struct WorkspaceUndoCaptureOrderingTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("close publishes only after its composition and undo are durable", arguments: [false, true])
     func closePublicationRequiresCommit(rejectWrite: Bool) async throws {
         let workspaceID = UUIDv7.generate()

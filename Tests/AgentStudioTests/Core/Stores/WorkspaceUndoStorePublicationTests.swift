@@ -8,6 +8,10 @@ import Testing
 @MainActor
 @Suite("Workspace durable close store publication", .serialized)
 struct WorkspaceUndoStorePublicationTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("undo skips an unavailable placement without consuming it or blocking an older tab")
     func unavailableNewestEntryDoesNotBlockUndo() async throws {
         let workspaceID = UUIDv7.generate()

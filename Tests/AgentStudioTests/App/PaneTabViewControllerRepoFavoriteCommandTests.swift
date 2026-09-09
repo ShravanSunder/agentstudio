@@ -13,17 +13,21 @@ struct PaneTabViewControllerRepoFavoriteCommandTests {
     }
 
     @Test("targeted repo favorite commands mutate canonical topology through workspace actions")
-    func executeRepoFavoriteCommandsMutatesCanonicalTopology() {
+    func executeRepoFavoriteCommandsMutatesCanonicalTopology() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let (repo, _) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        await withWorkspaceCommandHarness(harness) {
+            let (repo, _) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
 
-        harness.controller.execute(.addRepoFavorite, target: repo.id, targetType: .repo)
+            harness.controller.execute(.addRepoFavorite, target: repo.id, targetType: .repo)
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.store.repositoryTopologyAtom.repo(repo.id)?.isFavorite == true)
+            #expect(harness.store.repositoryTopologyAtom.repo(repo.id)?.isFavorite == true)
 
-        harness.controller.execute(.removeRepoFavorite, target: repo.id, targetType: .repo)
+            harness.controller.execute(.removeRepoFavorite, target: repo.id, targetType: .repo)
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.store.repositoryTopologyAtom.repo(repo.id)?.isFavorite == false)
+            #expect(harness.store.repositoryTopologyAtom.repo(repo.id)?.isFavorite == false)
+        }
     }
 }

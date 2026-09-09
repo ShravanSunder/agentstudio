@@ -28,7 +28,6 @@ struct SurfaceRendererVisibilityIntegrationTests {
         SurfaceManager(
             maxCreationRetries: 0,
             healthCheckInterval: 3600,
-            delayScheduler: AsyncDelay { _ in },
             rendererStateDelivery: delivery
         )
     }

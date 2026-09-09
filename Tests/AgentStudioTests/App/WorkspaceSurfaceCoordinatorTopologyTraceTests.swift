@@ -28,7 +28,7 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         let runtime = makePerformanceTraceRuntime(traceDirectory: traceDirectory)
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
         let paneEventBus = makeTestPaneRuntimeEventBus()
-        let store = WorkspaceStore()
+        let store = try makeWorkspaceJournalTestStore()
         let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
@@ -46,76 +46,81 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: recorder
         )
-        defer { Task { await coordinator.shutdown() } }
+        do {
+            let repo = store.addRepo(at: tempDir.appending(path: "bridge-root"))
+            let worktree = try #require(store.repo(repo.id)?.worktrees.single)
+            var tabs: [Tab] = []
+            for index in 0..<4 {
+                let pane = makeCWDOnlyBridgePane(store, title: "Bridge \(index)", cwd: worktree.path)
+                let tab = Tab(paneId: pane.id, name: "Bridge \(index)")
+                store.appendTab(tab)
+                tabs.append(tab)
+            }
+            store.setActiveTab(tabs[0].id)
+            await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        let repo = store.addRepo(at: tempDir.appending(path: "bridge-root"))
-        let worktree = try #require(store.repo(repo.id)?.worktrees.single)
-        var tabs: [Tab] = []
-        for index in 0..<4 {
-            let pane = makeCWDOnlyBridgePane(store, title: "Bridge \(index)", cwd: worktree.path)
-            let tab = Tab(paneId: pane.id, name: "Bridge \(index)")
-            store.appendTab(tab)
-            tabs.append(tab)
-        }
-        store.setActiveTab(tabs[0].id)
-        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
-
-        let firstCoordinatorCWD = URL(
-            filePath: worktree.path.appending(path: "Sources").path,
-            directoryHint: .isDirectory
-        )
-        let secondCoordinatorCWD = URL(
-            filePath: worktree.path.appending(path: "Tests").path,
-            directoryHint: .isDirectory
-        )
-        let tracedPaneID = try #require(tabs[0].activePaneId)
-        _ = await paneEventBus.post(
-            makeRuntimeEnvelope(
-                source: .pane(PaneId(existingUUID: tracedPaneID)),
-                paneKind: .terminal,
-                seq: 1,
-                commandId: nil,
-                correlationId: nil,
-                timestamp: ContinuousClock().now,
-                epoch: 0,
-                event: .terminal(.cwdChanged(firstCoordinatorCWD.path))
+            let firstCoordinatorCWD = URL(
+                filePath: worktree.path.appending(path: "Sources").path,
+                directoryHint: .isDirectory
             )
-        )
-        await eventually("coordinator should consume the first runtime CWD fact") {
-            store.pane(tracedPaneID)?.metadata.cwd == firstCoordinatorCWD
-        }
-        _ = await paneEventBus.post(
-            makeRuntimeEnvelope(
-                source: .pane(PaneId(existingUUID: tracedPaneID)),
-                paneKind: .terminal,
-                seq: 2,
-                commandId: nil,
-                correlationId: nil,
-                timestamp: ContinuousClock().now,
-                epoch: 0,
-                event: .terminal(.cwdChanged(secondCoordinatorCWD.path))
+            let secondCoordinatorCWD = URL(
+                filePath: worktree.path.appending(path: "Tests").path,
+                directoryHint: .isDirectory
             )
-        )
-        await eventually("coordinator should consume the second runtime CWD fact") {
-            store.pane(tracedPaneID)?.metadata.cwd == secondCoordinatorCWD
-        }
+            let tracedPaneID = try #require(tabs[0].activePaneId)
+            _ = await paneEventBus.post(
+                makeRuntimeEnvelope(
+                    source: .pane(PaneId(existingUUID: tracedPaneID)),
+                    paneKind: .terminal,
+                    seq: 1,
+                    commandId: nil,
+                    correlationId: nil,
+                    timestamp: ContinuousClock().now,
+                    epoch: 0,
+                    event: .terminal(.cwdChanged(firstCoordinatorCWD.path))
+                )
+            )
+            await eventually("coordinator should consume the first runtime CWD fact") {
+                store.pane(tracedPaneID)?.metadata.cwd == firstCoordinatorCWD
+            }
+            _ = await paneEventBus.post(
+                makeRuntimeEnvelope(
+                    source: .pane(PaneId(existingUUID: tracedPaneID)),
+                    paneKind: .terminal,
+                    seq: 2,
+                    commandId: nil,
+                    correlationId: nil,
+                    timestamp: ContinuousClock().now,
+                    epoch: 0,
+                    event: .terminal(.cwdChanged(secondCoordinatorCWD.path))
+                )
+            )
+            await eventually("coordinator should consume the second runtime CWD fact") {
+                store.pane(tracedPaneID)?.metadata.cwd == secondCoordinatorCWD
+            }
 
-        for tab in tabs {
+            for tab in tabs {
+                for _ in 0..<16 {
+                    _ = store.paneAtom.paneSnapshot()
+                }
+                try await coordinator.execute(.closeTab(tabId: tab.id))
+            }
+            try await coordinator.undoCloseTab()
             for _ in 0..<16 {
                 _ = store.paneAtom.paneSnapshot()
             }
-            try await coordinator.execute(.closeTab(tabId: tab.id))
-        }
-        try await coordinator.undoCloseTab()
-        for _ in 0..<16 {
-            _ = store.paneAtom.paneSnapshot()
-        }
-        try await recorder.drain()
+            try await recorder.drain()
 
-        let outputFileURL = try #require(runtime.outputFileURL)
-        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents) == 2)
+            let outputFileURL = try #require(runtime.outputFileURL)
+            let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+            #expect(countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents) == 2)
+        } catch {
+            await coordinator.shutdown()
+            try? await runtime.shutdown()
+            throw error
+        }
         await coordinator.shutdown()
+        try await runtime.shutdown()
     }
 
     private func makeCWDOnlyBridgePane(

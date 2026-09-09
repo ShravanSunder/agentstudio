@@ -26,26 +26,13 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>)
 
     /// Registers (or clears, passing `nil`) a handler fired whenever attached-surface
-    /// membership changes (attach/detach/move/swap/destroy). Defaulted to a no-op so
-    /// existing mocks compile without adopting renderer-visibility reconciliation.
+    /// membership changes (attach/detach/move/swap/destroy).
     func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?)
 
     /// Reconciles renderer visibility for every attached surface against `visibilityForPaneID`.
-    /// Defaulted to a no-op result so existing mocks compile without adopting renderer-visibility
-    /// reconciliation.
     func reconcileAttachedVisibility(
         _ visibilityForPaneID: (UUID) -> Bool
     ) -> SurfaceVisibilityReconciliationResult
-}
-
-extension WorkspaceSurfaceManaging {
-    func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?) {}
-
-    func reconcileAttachedVisibility(
-        _ visibilityForPaneID: (UUID) -> Bool
-    ) -> SurfaceVisibilityReconciliationResult {
-        .init(applied: 0, equal: 0, missing: 0)
-    }
 }
 
 extension SurfaceManager: WorkspaceSurfaceManaging {}
@@ -174,16 +161,12 @@ final class WorkspaceSurfaceCoordinator {
         )
     }
 
-    /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
-    /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
-    /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and
-    /// SessionRuntime. Future: extract to UndoEngine when undo requirements grow.
+    /// In-memory projection of available durable journal entries for native restoration.
+    /// SQLite owns close ordering, deadlines, capacity and session ownership.
     private var undoCloses: [WorkspaceUndoCloseProjection] = []
     var undoStack: [WorkspaceMutationCoordinator.CloseEntry] {
         undoCloses.map { $0.snapshot.restoreEntry }
     }
-
-    /// Maximum undo stack entries before oldest are garbage-collected.
 
     convenience init(
         store: WorkspaceStore,

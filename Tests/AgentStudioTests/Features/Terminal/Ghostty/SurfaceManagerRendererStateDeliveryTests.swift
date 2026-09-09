@@ -20,7 +20,6 @@ struct SurfaceManagerRendererStateDeliveryTests {
         SurfaceManager(
             maxCreationRetries: 0,
             healthCheckInterval: 3600,
-            delayScheduler: AsyncDelay { _ in },
             rendererStateDelivery: delivery,
             performanceTraceRecorder: performanceTraceRecorder
         )
@@ -325,7 +324,7 @@ struct SurfaceManagerRendererStateDeliveryTests {
         _ = manager.reconcileAttachedVisibility { paneID in paneID != paneB }
         delivery.reset()
 
-        // Act — A is the visible target but has no window, so R7's first-responder condition
+        // Act — A is the visible target but has no window, so the first-responder condition
         // refuses focus-on for it.
         manager.syncFocus(activeSurfaceId: managedA.id)
 
