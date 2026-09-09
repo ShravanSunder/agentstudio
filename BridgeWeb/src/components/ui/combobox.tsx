@@ -133,6 +133,22 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
 	);
 }
 
+function ComboboxViewport({
+	className,
+	...props
+}: React.ComponentProps<'div'>): React.ReactElement {
+	return (
+		<div
+			data-slot="combobox-viewport"
+			className={cn(
+				'min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-field-background',
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 function ComboboxItem({
 	className,
 	children,
@@ -295,6 +311,7 @@ export {
 	ComboboxInput,
 	ComboboxContent,
 	ComboboxList,
+	ComboboxViewport,
 	ComboboxItem,
 	ComboboxItemDescription,
 	ComboboxGroup,
