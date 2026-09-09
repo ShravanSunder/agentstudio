@@ -517,8 +517,11 @@ extension WebKitSerializedTests {
             #expect(await controller.teardown().value)
         }
 
-        @Test("cold Review intake admits nil or current stream and rejects stale stream")
-        func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream() async throws {
+        @Test(
+            "explicit cold Review intake admits nil or current stream and rejects stale stream",
+            arguments: ["background-warmup", "sequence_gap"]
+        )
+        func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream(reason: String) async throws {
             // Arrange
             let nilStreamController = makeColdReviewIntakeController()
             let currentStreamController = makeColdReviewIntakeController()
@@ -536,37 +539,49 @@ extension WebKitSerializedTests {
                 staleStreamController.productAdmissionGate.acquire()
             )
 
-            // Act
+            // Listener readiness alone must not start initial Review construction.
             await nilStreamController.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(reason: nil, streamId: nil),
                 productAdmission: nilStreamAdmission
             )
+            #expect(nilStreamController.activeReviewRefreshTask == nil)
+            #expect(nilStreamController.paneState.diff.packageMetadata == nil)
+
+            // Act
+            await nilStreamController.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(reason: reason, streamId: nil),
+                productAdmission: nilStreamAdmission
+            )
             await currentStreamController.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(
-                    reason: nil,
+                    reason: reason,
                     streamId: currentStreamController.reviewProtocolStreamId()
                 ),
                 productAdmission: currentStreamAdmission
             )
             await staleStreamController.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(
-                    reason: nil,
+                    reason: reason,
                     streamId: "review:stale-stream"
                 ),
                 productAdmission: staleStreamAdmission
             )
 
             // Assert
-            let nilStreamLoadTask = try #require(nilStreamController.activeReviewRefreshTask)
-            let currentStreamLoadTask = try #require(currentStreamController.activeReviewRefreshTask)
+            let nilStreamLoadTask = nilStreamController.activeReviewRefreshTask
+            let currentStreamLoadTask = currentStreamController.activeReviewRefreshTask
             #expect(staleStreamController.activeReviewRefreshTask == nil)
             #expect(staleStreamController.paneState.diff.packageMetadata == nil)
-            await nilStreamLoadTask.value
-            await currentStreamLoadTask.value
+            // A fast admitted load may already be complete; its published result is the contract.
+            await nilStreamLoadTask?.value
+            await currentStreamLoadTask?.value
             #expect(nilStreamController.paneState.diff.status == .ready)
             #expect(nilStreamController.paneState.diff.packageMetadata != nil)
             #expect(currentStreamController.paneState.diff.status == .ready)
             #expect(currentStreamController.paneState.diff.packageMetadata != nil)
+            #expect(await nilStreamController.teardown().value)
+            #expect(await currentStreamController.teardown().value)
+            #expect(await staleStreamController.teardown().value)
         }
 
         private func makeColdReviewIntakeController() -> BridgePaneController {
