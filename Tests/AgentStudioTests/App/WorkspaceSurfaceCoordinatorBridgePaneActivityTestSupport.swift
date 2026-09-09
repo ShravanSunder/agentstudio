@@ -30,20 +30,15 @@ struct BridgePaneActivityTestHarness {
 }
 
 @MainActor
-func makeSinglePaneBridgeActivityTestHarness() -> BridgePaneActivityTestHarness {
-    makeBridgePaneActivityTestHarness(includeSiblingInTab: false)
-}
-
-@MainActor
 func makeBridgePaneActivityTestHarness(
     includeSiblingInTab: Bool = true,
+    store: WorkspaceStore = WorkspaceStore(),
     filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
     worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
         BridgeWorktreeProductConstructionCoordinator()
 ) -> BridgePaneActivityTestHarness {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-bridge-pane-activity-\(UUID().uuidString)")
-    let store = WorkspaceStore()
     let bridgePane = store.createPane(
         content: .bridgePanel(
             BridgePaneState(

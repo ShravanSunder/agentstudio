@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 @testable import AgentStudioCore
 @testable import AgentStudioTestSupport
 
@@ -27,56 +28,74 @@ extension WebKitSerializedTests {
             installTestCoreAtomsIfNeeded()
         }
 
-        @Test("last-pane closePane can undo before Bridge retirement yields")
+        @Test("last-pane close and undo preserve fresh authority while prior retirement is blocked")
         func lastPaneCloseThenImmediateUndoSurvivesDeferredBridgeRestore() async throws {
-            // Arrange
-            let harness = makeSinglePaneBridgeActivityTestHarness()
-            try await installBridgeControllerAndEnterForeground(harness)
-            let originalAuthorityIdentity = try #require(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-            )
-            let originalController = try #require(
-                harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
-            )
+            let harness = makeBridgePaneActivityTestHarness(
+                includeSiblingInTab: false, store: try makeWorkspaceJournalTestStore())
+            harness.store.removePane(harness.siblingPane.id)
+            let retirementGate = BridgeComparisonGate()
+            var heldRefreshTask: Task<Void, Never>?
+            do {
+                try await installBridgeControllerAndEnterForeground(harness)
+                let originalAuthorityIdentity = try #require(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                )
+                let originalController = try #require(
+                    harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
+                )
 
-            // Act — intentionally do not yield between close and undo.
-            try await harness.coordinator.execute(
-                .closePane(tabId: harness.tabId, paneId: harness.bridgePane.id)
-            )
-            try await harness.coordinator.undoCloseTab()
+                try #require(originalController.activeReviewRefreshTask == nil)
+                let heldTask = Task { await retirementGate.waitUntilReleased() }
+                heldRefreshTask = heldTask
+                originalController.activeReviewRefreshTask = heldTask
+                await retirementGate.waitForStartedComparisonCount(1)
 
-            // Assert — the synchronous undo must retain the model under fresh authority.
-            let replacementAuthorityIdentity = try #require(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-            )
-            #expect(harness.store.pane(harness.bridgePane.id) != nil)
-            #expect(harness.store.tab(harness.tabId) != nil)
-            #expect(replacementAuthorityIdentity != originalAuthorityIdentity)
+                // Act — keep prior controller work blocked across both durable operations.
+                try await harness.coordinator.execute(
+                    .closePane(tabId: harness.tabId, paneId: harness.bridgePane.id)
+                )
+                try await harness.coordinator.undoCloseTab()
 
-            // Act — let the retiring controller complete and the deferred replacement install.
-            await harness.coordinator.drainBridgePaneRetirements()
+                // Assert — Undo restores ownership before the old controller can finish retiring.
+                #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
+                let replacementAuthorityIdentity = try #require(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                )
+                #expect(harness.store.pane(harness.bridgePane.id) != nil)
+                #expect(harness.store.tab(harness.tabId) != nil)
+                #expect(replacementAuthorityIdentity != originalAuthorityIdentity)
 
-            // Assert
-            let replacementController = try #require(
-                harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
-            )
-            #expect(replacementController !== originalController)
-            #expect(
-                harness.coordinator.runtimeForPane(PaneId(existingUUID: harness.bridgePane.id))
-                    === replacementController.runtime
-            )
-            #expect(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-                    == replacementAuthorityIdentity
-            )
-            replacementController.runtime.ingestBridgeEvent(
-                .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 1, deletions: 0)))
-            )
-            let runtimeReplay = await replacementController.runtime.eventsSince(seq: 0)
-            #expect(runtimeReplay.events.count == 1)
-            #expect(runtimeReplay.nextSeq == 1)
-            #expect(!runtimeReplay.gapDetected)
+                // Act — release prior work, then let the deferred replacement install.
+                await retirementGate.releaseAll()
+                await heldTask.value
+                await harness.coordinator.drainBridgePaneRetirements()
 
+                // Assert
+                let replacementController = try #require(
+                    harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
+                )
+                #expect(replacementController !== originalController)
+                #expect(
+                    harness.coordinator.runtimeForPane(PaneId(existingUUID: harness.bridgePane.id))
+                        === replacementController.runtime
+                )
+                #expect(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                        == replacementAuthorityIdentity
+                )
+                replacementController.runtime.ingestBridgeEvent(
+                    .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 1, deletions: 0)))
+                )
+                let runtimeReplay = await replacementController.runtime.eventsSince(seq: 0)
+                #expect(runtimeReplay.events.count == 1)
+                #expect(runtimeReplay.nextSeq == 1)
+                #expect(!runtimeReplay.gapDetected)
+            } catch {
+                await retirementGate.releaseAll()
+                await heldRefreshTask?.value
+                await harness.finish()
+                throw error
+            }
             await harness.finish()
         }
 

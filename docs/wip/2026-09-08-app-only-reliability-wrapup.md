@@ -109,8 +109,9 @@ both now pass 6 tests / 2 suites, exit 0, in
 `/tmp/agentstudio-pr335-publication-scope-proof.log`. No test body or SQL failure trigger changed.
 The committed-HEAD aggregate on `40495b2ec` reached the large Swift lane and exited 1:
 `/tmp/agentstudio-pr335-committed-aggregate.log`. DrawerCommandIntegrationTests had five
-failing scenarios / 11 issues: its fixture used a store without the SQLite save coordinator
-required by terminal creation/discard/close. It now uses the existing prepared-journal
+failing scenarios / 11 issues: its default test store allocated an unprepared SQLite datastore,
+which cannot perform terminal creation/discard/close. The test-target convenience initializer
+in WorkspaceStoreTestAccess supplies that datastore; it is not an absent save coordinator. It now uses the existing prepared-journal
 fixture and joins executor/coordinator shutdown on success, early return and throw.
 All 20 original scenario bodies, 46 expectations and 12 requirements remain; Astra
 found no issue in the bounded correction. Focused proof passed 20 tests / one suite,
@@ -134,7 +135,19 @@ Astra verified all assertions and the other nine cases are unchanged. Correctly 
 WebKit proof passed ten tests / two suites, exit0:
 `/tmp/agentstudio-pr335-bridge-nested-authorized.log`. Earlier attempts selected zero tests
 or failed SwiftPM sandbox setup; neither counts as passing proof. Full WebKit follow-up
-and final committed aggregate remain required.
+and final committed aggregate remain required. The following WebKit pass found one
+close/Undo activity case with unprepared storage. Its existing shared fixture now accepts
+an injected store with default behavior unchanged; only the durable scenario opts into
+the prepared journal. A targeted last-pane close/Undo case additionally exposed an active
+spare pane outside all tabs. The case now removes that unused fixture pane and supplies
+prepared storage. Its former no-yield/synchronous-Undo wording was obsolete: the test now
+holds a task through the controller's existing retirement join, asserts retirement is
+still pending after durable Undo, then releases and verifies the original replacement/
+authority/runtime replay outcomes. No production hook, clock delay or provider claim
+was introduced. The unused single-pane convenience helper was removed. Astra verified
+the bounded corrections; combined WebKit proof passed12 tests / three suites, exit0:
+`/tmp/agentstudio-pr335-bridge-retirement-gate-proof.log`. Full WebKit and aggregate follow.
+
 Final aggregate on the final committed correction remains required; no aggregate success is claimed.
 
 ## Prior bounded proof retained

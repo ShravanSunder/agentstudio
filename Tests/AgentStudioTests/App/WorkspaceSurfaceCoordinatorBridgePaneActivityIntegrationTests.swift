@@ -349,41 +349,45 @@ extension WebKitSerializedTests {
 
         @Test("close then undo installs fresh authority immune to stale retirement completion")
         func closeThenUndoInstallsFreshAuthority() async throws {
-            let harness = makeBridgePaneActivityTestHarness()
-            try await installBridgeControllerAndEnterForeground(harness)
-            let originalAuthorityIdentity = try #require(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-            )
-            let originalController = try #require(
-                harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
-            )
+            let harness = makeBridgePaneActivityTestHarness(store: try makeWorkspaceJournalTestStore())
+            do {
+                try await installBridgeControllerAndEnterForeground(harness)
+                let originalAuthorityIdentity = try #require(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                )
+                let originalController = try #require(
+                    harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
+                )
 
-            try await harness.coordinator.execute(.closeTab(tabId: harness.tabId))
-            #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .closed)
-            #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
+                try await harness.coordinator.execute(.closeTab(tabId: harness.tabId))
+                #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .closed)
+                #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
 
-            try await harness.coordinator.undoCloseTab()
+                try await harness.coordinator.undoCloseTab()
 
-            let replacementAuthorityIdentity = try #require(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-            )
-            #expect(replacementAuthorityIdentity != originalAuthorityIdentity)
-            await harness.coordinator.drainBridgePaneRetirements()
-            await expectBridgePaneActivity(
-                .foreground,
-                for: harness.bridgePane.id,
-                in: harness.coordinator,
-                because: "undo recreated the Bridge pane under its fresh authority"
-            )
-            let replacementController = try #require(
-                harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
-            )
-            #expect(replacementController !== originalController)
-            #expect(
-                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
-                    == replacementAuthorityIdentity
-            )
-
+                let replacementAuthorityIdentity = try #require(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                )
+                #expect(replacementAuthorityIdentity != originalAuthorityIdentity)
+                await harness.coordinator.drainBridgePaneRetirements()
+                await expectBridgePaneActivity(
+                    .foreground,
+                    for: harness.bridgePane.id,
+                    in: harness.coordinator,
+                    because: "undo recreated the Bridge pane under its fresh authority"
+                )
+                let replacementController = try #require(
+                    harness.viewRegistry.allBridgeViews[harness.bridgePane.id]?.controller
+                )
+                #expect(replacementController !== originalController)
+                #expect(
+                    harness.coordinator.bridgePaneActivityAuthorityIdentity(for: harness.bridgePane.id)
+                        == replacementAuthorityIdentity
+                )
+            } catch {
+                await harness.finish()
+                throw error
+            }
             await harness.finish()
         }
 
