@@ -130,14 +130,16 @@ struct TerminalPaneMountViewExitBehaviorTests {
     private func makeProcessExitMountView(
         paneId: UUID = UUID(),
         showsRestorePresentationDuringStartup: Bool = false,
-        appEventBus: EventBus<AppEvent> = EventBus<AppEvent>()
+        appEventBus: EventBus<AppEvent> = EventBus<AppEvent>(),
+        terminationAcknowledgementClock: TestPushClock? = nil
     ) -> TerminalPaneMountView {
         TerminalPaneMountView(
             restoredSurfaceId: UUID(),
             paneId: paneId,
             title: "Terminal",
             showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup,
-            appEventBus: appEventBus
+            appEventBus: appEventBus,
+            terminationAcknowledgementClock: terminationAcknowledgementClock
         )
     }
 
@@ -152,7 +154,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("process termination without subscribers keeps a visible fallback")
     func processTermination_withoutSubscribers_showsFallbackOverlay() async {
-        let mountView = makeProcessExitMountView()
+        let clock = TestPushClock()
+        let mountView = makeProcessExitMountView(terminationAcknowledgementClock: clock)
 
         let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         #expect(mountView.isProcessRunning == false)
@@ -161,6 +164,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isShowingErrorOverlayForTesting)
+        #expect(clock.pendingSleepCount == 0)
     }
 
     @Test("process termination with subscribers suppresses a competing process-exited health update immediately")
@@ -184,17 +188,21 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("process termination ignored by a subscribed controller restores visible fallback UI")
     func processTermination_ignoredBySubscribedController_restoresFallbackOverlay() async {
+        let clock = TestPushClock()
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let mountView = makeProcessExitMountView(
             paneId: UUIDv7.generate(),
-            appEventBus: harness.appEventBus
+            appEventBus: harness.appEventBus,
+            terminationAcknowledgementClock: clock
         )
 
         let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
         await terminationTask?.value
         #expect(mountView.isShowingErrorOverlayForTesting)
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
@@ -202,6 +210,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("process termination with dropped delivery restores visible fallback UI")
     func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
+        let clock = TestPushClock()
         let subscriberName = "TerminalPaneMountViewExitBehaviorTests.droppedDelivery"
         let appEventBus = EventBus<AppEvent>()
         var droppedDeliverySubscriber: EventBusSubscription<AppEvent>? = await appEventBus.subscribe(
@@ -210,7 +219,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
         #expect(droppedDeliverySubscriber != nil)
         await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: true)
-        let mountView = makeProcessExitMountView(appEventBus: appEventBus)
+        let mountView = makeProcessExitMountView(appEventBus: appEventBus, terminationAcknowledgementClock: clock)
 
         let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
@@ -218,6 +227,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(!mountView.isShowingErrorOverlayForTesting)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
 
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
         await terminationTask?.value
         #expect(mountView.isShowingErrorOverlayForTesting)
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
@@ -372,6 +383,39 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         await terminationTask?.value
         #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+    }
+
+    @Test("termination waits for its matching acknowledgment and drains the timeout")
+    func terminationWaitsForMatchingAcknowledgment() async {
+        let clock = TestPushClock()
+        let appEventBus = EventBus<AppEvent>()
+        let terminationConsumer = await appEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "TerminalPaneMountViewExitBehaviorTests.terminationConsumer"
+        )
+        var terminationEvents = terminationConsumer.makeAsyncIterator()
+        let mountView = makeProcessExitMountView(
+            appEventBus: appEventBus,
+            terminationAcknowledgementClock: clock
+        )
+        let terminationTask = mountView.requestClose()
+        _ = await terminationEvents.next()
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+
+        await appEventBus.post(.terminalProcessTerminationHandled(paneId: UUIDv7.generate()))
+        await appEventBus.post(.terminalProcessTerminationHandled(paneId: mountView.paneId))
+        await terminationTask?.value
+
+        #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(clock.pendingSleepCount == 0)
+        await waitForAppEventBusSubscriber(
+            named: "TerminalPaneMountView.terminationAcknowledgement",
+            on: appEventBus,
+            isPresent: false
+        )
     }
 
     @Test("controller subscribes before view load and unregisters on teardown")

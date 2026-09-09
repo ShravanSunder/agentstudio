@@ -223,6 +223,10 @@ package enum AppPolicies {
         package static let restoreMaximumConcurrentAdmissions: Int = 1
     }
 
+    package enum TerminalProcessTermination {
+        package static let acknowledgementTimeout: Duration = .seconds(2)
+    }
+
     package enum TerminalLocalAction {
         package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
     }

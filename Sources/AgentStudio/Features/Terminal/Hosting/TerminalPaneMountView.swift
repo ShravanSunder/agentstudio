@@ -3,18 +3,6 @@ import AgentStudioInfrastructure
 import AppKit
 import GhosttyKit
 
-private actor TerminationDeliveryObservation {
-    private var hasObservedHandling = false
-
-    func markHandled() {
-        hasObservedHandling = true
-    }
-
-    func handled() -> Bool {
-        hasObservedHandling
-    }
-}
-
 enum TerminalSearchPresentationState: Equatable {
     case closed(epoch: UInt64)
     case opening(expectedEpoch: UInt64)
@@ -43,7 +31,7 @@ enum TerminalSearchPresentationState: Equatable {
 /// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
 /// WorkspaceSurfaceCoordinator creates surfaces and passes them here via displaySurface().
 package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
-    private static let terminationHandlingRetryTurns = 20
+    private let terminationAcknowledgementDelay: AsyncDelay
 
     package let paneId: UUID
     let worktree: Worktree?
@@ -95,7 +83,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         showsRestorePresentationDuringStartup: Bool = false,
         startupGraceDuration: Duration = .milliseconds(100),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        appEventBus: EventBus<AppEvent> = AppEventBus.shared
+        appEventBus: EventBus<AppEvent> = AppEventBus.shared,
+        terminationAcknowledgementClock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.paneId = paneId
         self.worktree = worktree
@@ -106,6 +95,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         self.startupGraceDuration = startupGraceDuration
         self.performanceTraceRecorder = performanceTraceRecorder
         self.appEventBus = appEventBus
+        self.terminationAcknowledgementDelay = terminationAcknowledgementClock.map(AsyncDelay.clock) ?? .taskSleep
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
 
@@ -123,7 +113,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         showsRestorePresentationDuringStartup: Bool = false,
         startupGraceDuration: Duration = .milliseconds(100),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        appEventBus: EventBus<AppEvent> = AppEventBus.shared
+        appEventBus: EventBus<AppEvent> = AppEventBus.shared,
+        terminationAcknowledgementClock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.paneId = paneId
         self.worktree = nil
@@ -134,6 +125,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         self.startupGraceDuration = startupGraceDuration
         self.performanceTraceRecorder = performanceTraceRecorder
         self.appEventBus = appEventBus
+        self.terminationAcknowledgementDelay = terminationAcknowledgementClock.map(AsyncDelay.clock) ?? .taskSleep
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
 
@@ -146,7 +138,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         paneId: UUID,
         title: String,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        appEventBus: EventBus<AppEvent> = AppEventBus.shared
+        appEventBus: EventBus<AppEvent> = AppEventBus.shared,
+        terminationAcknowledgementClock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.paneId = paneId
         self.worktree = nil
@@ -157,6 +150,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         self.startupGraceDuration = .milliseconds(100)
         self.performanceTraceRecorder = performanceTraceRecorder
         self.appEventBus = appEventBus
+        self.terminationAcknowledgementDelay = terminationAcknowledgementClock.map(AsyncDelay.clock) ?? .taskSleep
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
     }
@@ -704,29 +698,23 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     private func postProcessTerminationEvent(processAlive: Bool) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let terminationObservation = TerminationDeliveryObservation()
             let paneId = self.paneId
             let acknowledgementStream = await self.appEventBus.subscribe(
                 policy: .criticalUnbounded,
                 subscriberName: "TerminalPaneMountView.terminationAcknowledgement"
             )
-            let acknowledgementTask = Task {
-                for await event in acknowledgementStream {
-                    switch event {
-                    case .terminalProcessTerminationHandled(let handledPaneId) where handledPaneId == paneId:
-                        await terminationObservation.markHandled()
-                        return
-                    default:
-                        continue
-                    }
+            let delivery = await self.appEventBus.post(.terminalProcessTerminated(paneId: paneId))
+            // The acknowledgment subscription itself is included in the delivery count.
+            let hadEffectiveDelivery =
+                if delivery.subscriberCount > 1 {
+                    await Self.waitForTerminationHandling(
+                        stream: acknowledgementStream,
+                        paneId: paneId,
+                        delay: self.terminationAcknowledgementDelay
+                    )
+                } else {
+                    false
                 }
-            }
-
-            _ = await self.appEventBus.post(.terminalProcessTerminated(paneId: paneId))
-            let hadEffectiveDelivery = await self.waitForTerminationHandling(
-                observation: terminationObservation,
-                acknowledgementTask: acknowledgementTask
-            )
             self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
             if hadEffectiveDelivery {
                 self.finishRestorePresentation()
@@ -738,20 +726,32 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         }
     }
 
-    private func waitForTerminationHandling(
-        observation: TerminationDeliveryObservation,
-        acknowledgementTask: Task<Void, Never>
+    @concurrent
+    private nonisolated static func waitForTerminationHandling(
+        stream: EventBusSubscription<AppEvent>,
+        paneId: UUID,
+        delay: AsyncDelay
     ) async -> Bool {
-        defer { acknowledgementTask.cancel() }
-
-        for _ in 0..<Self.terminationHandlingRetryTurns {
-            if await observation.handled() {
-                return true
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await event in stream {
+                    if case .terminalProcessTerminationHandled(let handledPaneId) = event,
+                        handledPaneId == paneId
+                    {
+                        return true
+                    }
+                }
+                return false
             }
-            await Task.yield()
+            group.addTask {
+                try? await delay.wait(AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
+                return false
+            }
+            let handled = await group.next() ?? false
+            group.cancelAll()
+            while await group.next() != nil {}
+            return handled
         }
-
-        return await observation.handled()
     }
 
     private func showProcessExitedFallback(processAlive: Bool) {
