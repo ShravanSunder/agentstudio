@@ -159,7 +159,7 @@ extension AppCommand {
     func toggleReposShowsPinnedDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Show Pinned",
-            icon: .system(.pinFill),
+            icon: .system(.pin),
             helpText: "Show or merge the Pinned repos section"
         )
     }
@@ -167,7 +167,7 @@ extension AppCommand {
     func togglePanesShowsPinnedDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Show Pinned",
-            icon: .system(.pinFill),
+            icon: .system(.pin),
             helpText: "Show or merge the Pinned Panes section"
         )
     }

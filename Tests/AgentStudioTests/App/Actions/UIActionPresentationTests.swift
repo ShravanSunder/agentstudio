@@ -106,7 +106,7 @@ struct UIActionPresentationTests {
 
         #expect(group.label == "Group")
         #expect(group.helpText == "Choose how sidebar items are grouped")
-        #expect(group.icon == .system(.rectangle3Group))
+        #expect(group.icon == .system(.square2Layers3d))
         #expect(LocalActionSpec.showRepoExplorerOrganization.actionSpec.icon == .system(.sliderHorizontal3))
         #expect(subgroup.icon == .system(.listBulletIndent))
         #expect(subgroup.label == "Subgroup")
@@ -182,9 +182,9 @@ struct UIActionPresentationTests {
 
         #expect(paneAction.label == "Show Arrangements")
         #expect(paneAction.helpText == "Show arrangements for the active tab")
-        #expect(paneAction.icon == .system(.rectangle3Group))
+        #expect(paneAction.icon == .system(.rectangle3GroupFill))
         #expect(sharedMenuAction.label == "Arrangements")
         #expect(sharedMenuAction.helpText == "Manage tab arrangements")
-        #expect(sharedMenuAction.icon == .system(.rectangle3Group))
+        #expect(sharedMenuAction.icon == .system(.rectangle3GroupFill))
     }
 }

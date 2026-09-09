@@ -84,6 +84,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case rectangleStack = "rectangle.stack"
     case scope = "scope"
     case sidebarLeft = "sidebar.left"
+    case square2Layers3d = "square.2.layers.3d"
     case squareArrowTriangle4Outward = "square.arrowtriangle.4.outward"
     case squareSplit2x1 = "square.split.2x1"
     case squareStackFill = "square.stack.fill"

@@ -46,7 +46,7 @@ Dependency direction remains App → Feature/Core/SharedComponents, Feature → 
 Row 1  SidebarEntityToggle | SidebarSearchField
 Row 2  Show Pinned | SortDirection + SortField | GroupingSummary
 
-Grouping popover, 16pt padding
+Grouping popover, shared panel padding
 ┌──────────────────────┬──────────────────────┐
 │ [icon] Group         │ [icon] Subgroup      │
 │ neutral options      │ neutral options      │
@@ -57,7 +57,9 @@ Grouping popover, 16pt padding
 
 The pin action disables persistent active fill. `SidebarToolbarSortButton` retains stable identity and animated arrow; the adjacent picker owns Name/Activity. The grouping summary shows main or `main → subgroup`.
 
-One `SidebarOrganizationPopover` and keyboard bridge owns navigation. Header/option icons come from action/command specs. The model filters disabled options and selection rechecks enablement. Valid None dispatches normally. Unavailable subgrouping retains the header/icon/column but creates no keyboard item or request.
+The three configuration surfaces compose one shared `PopoverPanel` shell, `PopoverPanelSectionHeader`, and `PopoverOptionButtonStyle` / `PopoverOptionSurface`. The shared AppStyles recipe uses 12-point content padding and 8-point section spacing; no caller adds another inset. Compound arrangement chips use the same option surface as selectable rows. Native `.popover` hosts and placement stay unchanged.
+
+One `SidebarOrganizationPopover` and keyboard bridge owns organization navigation. Header/option icons come from action/command specs. The model filters disabled options and selection rechecks enablement. Valid None dispatches normally. Unavailable subgrouping retains the header/icon/column but creates no keyboard item or request.
 
 ## Projection
 

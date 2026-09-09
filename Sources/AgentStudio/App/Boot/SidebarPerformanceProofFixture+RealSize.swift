@@ -3,6 +3,11 @@ import AgentStudioInfrastructure
 import Foundation
 
 #if DEBUG
+    struct SidebarPerformanceProofHistoricalActivitySeed: Equatable, Sendable {
+        let repositoryIDs: [UUID]
+        let commit: RepositoryLocalActivityCommit
+    }
+
     extension SidebarPerformanceProofFixture {
         static var strictWatchedRootURLs: [URL] {
             AppPolicies.SidebarPerformanceProof.strictWatchedRootURLs.map(\.standardizedFileURL)
@@ -195,6 +200,105 @@ import Foundation
                     )
                 }
             }
+        }
+
+        @concurrent nonisolated static func makeHistoricalInactiveActivitySeed(
+            classificationInput: RepositoryActivityClassificationInput,
+            repositoryPathsByID: [UUID: URL],
+            watchedRootSummary: WatchedFolderRefreshSummary,
+            rootURLs: [URL]
+        ) async -> SidebarPerformanceProofHistoricalActivitySeed? {
+            let activity = RepositoryActivityClassifier.classify(classificationInput)
+            let eligibleRepositoryPaths = Set(
+                rootURLs.flatMap { watchedRootSummary.repoPaths(in: $0).map(\.standardizedFileURL) }
+            )
+            let eligibleUnknownRepositories = classificationInput.repositories
+                .filter { repository in
+                    repositoryPathsByID[repository.repositoryID].map(\.standardizedFileURL)
+                        .map(eligibleRepositoryPaths.contains) == true
+                        && activity.unknownRepositoryIDs.contains(repository.repositoryID)
+                        && Set(repository.worktreeStableKeysByID.keys)
+                            .isDisjoint(with: classificationInput.openWorktreeIDs)
+                        && classificationInput.repositoryLocalActivityByStableKey[
+                            repository.repositoryStableKey
+                        ]?.lastQualifyingActivityAt == nil
+                }
+                .sorted { $0.repositoryStableKey < $1.repositoryStableKey }
+            guard eligibleUnknownRepositories.count >= 2 else { return nil }
+
+            let seededRepositoryCount = max(1, eligibleUnknownRepositories.count / 2)
+            let seededRepositories = Array(
+                eligibleUnknownRepositories.prefix(
+                    min(seededRepositoryCount, eligibleUnknownRepositories.count - 1)
+                )
+            )
+            // This is prepared fixture history. It establishes representative
+            // continuous negative coverage; it does not claim the live process
+            // actually observed sixty days elapse.
+            let historicalCoverageStartedAt = classificationInput.referenceDate.addingTimeInterval(
+                -classificationInput.inactivityHorizon - 1
+            )
+            guard
+                let commit = try? RepositoryLocalActivityCommit(
+                    repositoryUpdates: seededRepositories.map { repository in
+                        RepositoryLocalActivityUpdate(
+                            repositoryStableKey: repository.repositoryStableKey,
+                            coverageChange: .restart(at: historicalCoverageStartedAt)
+                        )
+                    },
+                    updatedAt: classificationInput.referenceDate
+                )
+            else { return nil }
+            return SidebarPerformanceProofHistoricalActivitySeed(
+                repositoryIDs: seededRepositories.map(\.repositoryID),
+                commit: commit
+            )
+        }
+
+        @MainActor
+        static func captureRepositoryActivityInput(
+            store: WorkspaceStore,
+            repositoryLocalActivity: RepositoryLocalActivityAtom,
+            referenceDate: Date
+        ) -> RepositoryActivityClassificationInput {
+            let topology = store.repositoryTopologyAtom
+            let paneGraph = store.paneAtom.graphAtom
+            let associationsByPaneID = Dictionary(
+                uniqueKeysWithValues: paneGraph.repositoryAssociationPaneIds.compactMap { paneID in
+                    paneGraph.repositoryAssociation(for: paneID).map { (paneID, $0) }
+                }
+            )
+            let openWorktreeIDs = paneGraph.activeRepositoryAssociationWorktreeIDs(
+                in: associationsByPaneID
+            )
+            let repositories = topology.repositoryIdsInOrder.compactMap { repositoryID in
+                topology.repo(repositoryID).map { repository in
+                    RepositoryActivityTopology(
+                        repositoryID: repositoryID,
+                        repositoryStableKey: repository.stableKey,
+                        worktreeStableKeysByID: Dictionary(
+                            uniqueKeysWithValues: repository.worktrees.map {
+                                ($0.id, $0.stableKey)
+                            }
+                        )
+                    )
+                }
+            }
+            let repositoryLocalActivityByStableKey = Dictionary(
+                uniqueKeysWithValues: repositories.compactMap { repository in
+                    repositoryLocalActivity.activity(for: repository.repositoryStableKey).map {
+                        (repository.repositoryStableKey, $0)
+                    }
+                }
+            )
+            return RepositoryActivityClassificationInput(
+                repositories: repositories,
+                openWorktreeIDs: openWorktreeIDs,
+                localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
+                repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
+                referenceDate: referenceDate,
+                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+            )
         }
     }
 #endif

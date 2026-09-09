@@ -78,8 +78,8 @@ extension RepoExplorerView {
         .popover(isPresented: organizationSelectorBinding(.sortField), arrowEdge: .top) {
             SidebarPopoverReveal {
                 let sortAction = LocalActionSpec.sortRepoExplorerItems.actionSpec
-                VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
-                    SidebarPopoverSectionHeader(sortAction.label) {
+                PopoverPanel {
+                    PopoverPanelSectionHeader(sortAction.label) {
                         sortAction.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
                     }
                     SidebarGroupingPopover(
@@ -99,7 +99,6 @@ extension RepoExplorerView {
                         onDismiss: { openOrganizationSelector = nil }
                     )
                 }
-                .padding(AppStyles.Components.SidebarOrganizationPanel.contentPadding)
 
             }
         }

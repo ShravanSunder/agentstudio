@@ -8,6 +8,197 @@ import Testing
 @testable import AgentStudioCore
 
 extension SidebarPerformanceProofStartupDiagnosticTests {
+    @Test("historical fixture activity uses the typed store and preserves warm and unknown demand")
+    func historicalFixtureActivityPreservesMixedDemandPopulations() async throws {
+        let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000_000)
+        let horizon = AppPolicies.EntityRecency.applicationActivityHorizon
+        let warmRepositoryID = UUIDv7.generate()
+        let warmWorktreeID = UUIDv7.generate()
+        let firstUnknownRepositoryID = UUIDv7.generate()
+        let firstUnknownWorktreeID = UUIDv7.generate()
+        let secondUnknownRepositoryID = UUIDv7.generate()
+        let secondUnknownWorktreeID = UUIDv7.generate()
+        let repositories = [
+            RepositoryActivityTopology(
+                repositoryID: warmRepositoryID,
+                repositoryStableKey: "1111111111111111",
+                worktreeStableKeysByID: [warmWorktreeID: "2222222222222222"]
+            ),
+            RepositoryActivityTopology(
+                repositoryID: firstUnknownRepositoryID,
+                repositoryStableKey: "3333333333333333",
+                worktreeStableKeysByID: [firstUnknownWorktreeID: "4444444444444444"]
+            ),
+            RepositoryActivityTopology(
+                repositoryID: secondUnknownRepositoryID,
+                repositoryStableKey: "5555555555555555",
+                worktreeStableKeysByID: [secondUnknownWorktreeID: "6666666666666666"]
+            ),
+        ]
+        let (activityAtom, activityStore) = try await makeCurrentCoverageActivityStore(
+            referenceDate: referenceDate
+        )
+        let initialActivityByStableKey = activityAtom.snapshot()
+        let initialClassificationInput = RepositoryActivityClassificationInput(
+            repositories: repositories,
+            openWorktreeIDs: [],
+            localActivityHydrationDisposition: activityAtom.hydrationDisposition,
+            repositoryLocalActivityByStableKey: initialActivityByStableKey,
+            referenceDate: referenceDate,
+            inactivityHorizon: horizon
+        )
+        let firstRootURL = URL(fileURLWithPath: "/fixture/first-root")
+        let secondRootURL = URL(fileURLWithPath: "/fixture/second-root")
+        let warmRepositoryPath = firstRootURL.appendingPathComponent("warm")
+        let inactiveCandidatePath = firstRootURL.appendingPathComponent("inactive-candidate")
+        let unknownRemainderPath = secondRootURL.appendingPathComponent("unknown-remainder")
+        let repositoryPathsByID = [
+            warmRepositoryID: warmRepositoryPath,
+            firstUnknownRepositoryID: inactiveCandidatePath,
+            secondUnknownRepositoryID: unknownRemainderPath,
+        ]
+        let watchedRootSummary = WatchedFolderRefreshSummary(
+            repoPathsByWatchedFolder: [
+                firstRootURL: [warmRepositoryPath, inactiveCandidatePath],
+                secondRootURL: [unknownRemainderPath],
+            ]
+        )
+
+        let seed = try #require(
+            await SidebarPerformanceProofFixture.makeHistoricalInactiveActivitySeed(
+                classificationInput: initialClassificationInput,
+                repositoryPathsByID: repositoryPathsByID,
+                watchedRootSummary: watchedRootSummary,
+                rootURLs: [firstRootURL, secondRootURL]
+            )
+        )
+        _ = try await activityStore.commitAsync(seed.commit)
+        let acceptedActivityByStableKey = activityAtom.snapshot()
+        let finalClassificationInput = RepositoryActivityClassificationInput(
+            repositories: repositories,
+            openWorktreeIDs: [],
+            localActivityHydrationDisposition: activityAtom.hydrationDisposition,
+            repositoryLocalActivityByStableKey: acceptedActivityByStableKey,
+            referenceDate: referenceDate,
+            inactivityHorizon: horizon
+        )
+        let finalClassification = RepositoryActivityClassifier.classify(finalClassificationInput)
+        let demand = try await settledHistoricalActivityDemand(
+            classificationInput: finalClassificationInput,
+            attendedWorktreeIDs: [
+                warmWorktreeID,
+                firstUnknownWorktreeID,
+                secondUnknownWorktreeID,
+            ],
+            repositoryIDByWorktreeID: [
+                warmWorktreeID: warmRepositoryID,
+                firstUnknownWorktreeID: firstUnknownRepositoryID,
+                secondUnknownWorktreeID: secondUnknownRepositoryID,
+            ]
+        )
+
+        #expect(seed.repositoryIDs == [firstUnknownRepositoryID])
+        #expect(finalClassification.warmRepositoryIDs == [warmRepositoryID])
+        #expect(finalClassification.locallyInactiveRepositoryIDs == [firstUnknownRepositoryID])
+        #expect(finalClassification.unknownRepositoryIDs == [secondUnknownRepositoryID])
+        #expect(demand.automaticRemoteAndForgeWorktreeIds == [warmWorktreeID])
+        #expect(demand.backgroundOnlyAutomaticWorktreeIds == [secondUnknownWorktreeID])
+        #expect(!demand.automaticLocalGitWorktreeIds.contains(firstUnknownWorktreeID))
+    }
+
+    @Test("historical fixture activity refuses to consume the last unknown repository")
+    func historicalFixtureActivityRequiresAnUnknownRemainder() async throws {
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let repository = RepositoryActivityTopology(
+            repositoryID: repositoryID,
+            repositoryStableKey: "7777777777777777",
+            worktreeStableKeysByID: [worktreeID: "8888888888888888"]
+        )
+        let referenceDate = Date(timeIntervalSinceReferenceDate: 10_000_000)
+        let classificationInput = RepositoryActivityClassificationInput(
+            repositories: [repository],
+            openWorktreeIDs: [],
+            localActivityHydrationDisposition: .authoritative,
+            repositoryLocalActivityByStableKey: [:],
+            referenceDate: referenceDate,
+            inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
+        )
+        let rootURL = URL(fileURLWithPath: "/fixture/root")
+        let repositoryPath = rootURL.appendingPathComponent("only-unknown")
+
+        let seed = await SidebarPerformanceProofFixture.makeHistoricalInactiveActivitySeed(
+            classificationInput: classificationInput,
+            repositoryPathsByID: [repositoryID: repositoryPath],
+            watchedRootSummary: WatchedFolderRefreshSummary(
+                repoPathsByWatchedFolder: [rootURL: [repositoryPath]]
+            ),
+            rootURLs: [rootURL]
+        )
+
+        #expect(seed == nil)
+    }
+
+    private func settledHistoricalActivityDemand(
+        classificationInput: RepositoryActivityClassificationInput,
+        attendedWorktreeIDs: Set<UUID>,
+        repositoryIDByWorktreeID: [UUID: UUID]
+    ) async throws -> RepositoryFactDemandSnapshot {
+        let receiver = SidebarHistoricalActivityDemandReceiver()
+        let coordinator = RepositoryFactDemandCoordinator(
+            wallClockNow: { classificationInput.referenceDate },
+            delivery: { snapshot in
+                await receiver.receive(snapshot)
+            }
+        )
+        coordinator.accept(
+            RepositoryFactDemandInput(
+                activePaneWorktreeId: nil,
+                sidebarAttendedWorktreeIds: attendedWorktreeIDs,
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: classificationInput.openWorktreeIDs,
+                repositoryIdByWorktreeId: repositoryIDByWorktreeID,
+                activityTopology: classificationInput.repositories,
+                localActivityHydrationDisposition: classificationInput.localActivityHydrationDisposition,
+                repositoryLocalActivityByStableKey: classificationInput.repositoryLocalActivityByStableKey
+            )
+        )
+        await coordinator.waitUntilIdle()
+        let deliveredDemand = await receiver.lastSnapshot()
+        await coordinator.shutdown()
+        return try #require(deliveredDemand)
+    }
+
+    private func makeCurrentCoverageActivityStore(
+        referenceDate: Date
+    ) async throws -> (atom: RepositoryLocalActivityAtom, store: RepositoryLocalActivityStore) {
+        let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: UUIDv7.generate())
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
+        let atom = RepositoryLocalActivityAtom()
+        let store = RepositoryLocalActivityStore(atom: atom, sqliteDatastore: datastore)
+        _ = try await store.commitAsync(
+            try RepositoryLocalActivityCommit(
+                repositoryUpdates: [
+                    RepositoryLocalActivityUpdate(
+                        repositoryStableKey: "1111111111111111",
+                        qualifyingActivityAt: referenceDate,
+                        coverageChange: .restart(at: referenceDate)
+                    ),
+                    RepositoryLocalActivityUpdate(
+                        repositoryStableKey: "3333333333333333",
+                        coverageChange: .restart(at: referenceDate)
+                    ),
+                    RepositoryLocalActivityUpdate(
+                        repositoryStableKey: "5555555555555555",
+                        coverageChange: .restart(at: referenceDate)
+                    ),
+                ],
+                updatedAt: referenceDate
+            )
+        )
+        return (atom, store)
+    }
+
     @Test("strict fixture refreshes two real roots plus one isolated control root")
     func strictFixtureRefreshesTwoRealRootsPlusOneIsolatedControlRoot() throws {
         let fixtureSource = try String(
@@ -174,4 +365,16 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         }
     }
 
+}
+
+private actor SidebarHistoricalActivityDemandReceiver {
+    private var snapshot: RepositoryFactDemandSnapshot?
+
+    func receive(_ snapshot: RepositoryFactDemandSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func lastSnapshot() -> RepositoryFactDemandSnapshot? {
+        snapshot
+    }
 }

@@ -74,7 +74,7 @@ Sort                          │   ├── Subgroup: None
                                   └── No Subgroups
 ```
 
-The popover keeps equally wide Group and Subgroup columns. Valid None stays selectable. Unavailable subgrouping retains the Subgroup header/icon and shows lighter noninteractive “No Subgroups”; invalid choices never dispatch.
+Sort, Group/Subgroup, and Arrangements share actual panel, heading, and option styling components, including typography, padding, and selection treatment. Their horizontal chips and vertical choices retain their respective layouts. The grouping popover keeps equally wide Group and Subgroup columns. Valid None stays selectable. Unavailable subgrouping retains the Subgroup header/icon and shows lighter noninteractive “No Subgroups”; invalid choices never dispatch.
 
 Show Pinned defaults on independently on both surfaces. Selected is blue without persistent fill; unselected is neutral. The grouping summary reads `Main → Subgroup` when applicable. The sort picker changes type only; the animated arrow changes direction only.
 

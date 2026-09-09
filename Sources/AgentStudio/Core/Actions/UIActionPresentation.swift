@@ -199,7 +199,7 @@ package enum LocalActionSpec {
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
         case .arrangements:
             return ActionSpec(
-                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))
+                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3GroupFill))
         case .addTerminalToTab:
             return ActionSpec(
                 label: "Add Terminal to Tab",
@@ -210,7 +210,7 @@ package enum LocalActionSpec {
             return ActionSpec(
                 label: "Show Arrangements",
                 helpText: "Show arrangements for the active tab",
-                icon: .system(.rectangle3Group)
+                icon: Self.arrangements.actionSpec.icon
             )
         case .saveCurrentLayoutAsArrangement:
             return ActionSpec(
@@ -280,7 +280,7 @@ package enum LocalActionSpec {
             return ActionSpec(
                 label: "Group",
                 helpText: "Choose how sidebar items are grouped",
-                icon: .system(.rectangle3Group)
+                icon: .system(.square2Layers3d)
             )
         case .noRepoExplorerSubgroups:
             return ActionSpec(

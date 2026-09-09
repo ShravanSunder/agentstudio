@@ -375,7 +375,7 @@ extension AppCommand {
             return arrangementDefinition(
                 shortcut: .showArrangementPanel,
                 label: "Show Arrangements",
-                icon: .system(.rectangle3Group),
+                icon: LocalActionSpec.arrangements.actionSpec.icon,
                 helpText: "Show arrangements for the active tab",
                 surfacePolicy: .exposed([
                     .commandBar,
@@ -417,7 +417,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Cycle Arrangement",
-                icon: .system(.rectangle3Group),
+                icon: LocalActionSpec.arrangements.actionSpec.icon,
                 helpText: "Switch to the next arrangement in the active tab",
                 surfacePolicy: .notPresented,
                 targeting: .contextual,
@@ -429,7 +429,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Save Arrangement As...",
-                icon: .system(.rectangle3GroupFill),
+                icon: LocalActionSpec.arrangements.actionSpec.icon,
                 helpText: "Save the current tab layout as a named arrangement",
                 surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
                 targeting: .contextualAndTargeted([.tab], preferredInvocation: .contextual),
@@ -440,7 +440,7 @@ extension AppCommand {
         case .deleteArrangement:
             return arrangementDefinition(
                 label: "Delete Arrangement",
-                icon: .system(.rectangle3GroupBubble),
+                icon: LocalActionSpec.arrangements.actionSpec.icon,
                 helpText: "Delete a saved arrangement from the active tab",
                 surfacePolicy: .exposed([.commandBar, .contextMenu]),
                 targeting: .targeted([.tab])

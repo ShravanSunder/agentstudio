@@ -262,11 +262,16 @@ extension GitWorkingDirectoryProjector {
         } else {
             freshest = existing.batchSeq >= incoming.batchSeq ? existing : incoming
         }
+        // Empty paths request a full refresh, including origin discovery. A narrower
+        // file change must not discard that pending obligation during coalescing.
+        let mergedPaths =
+            existing.paths.isEmpty || incoming.paths.isEmpty
+            ? [] : normalizedPathspecs(existing.paths + incoming.paths)
         return FileChangeset(
             worktreeId: freshest.worktreeId,
             repoId: freshest.repoId,
             rootPath: freshest.rootPath,
-            paths: normalizedPathspecs(existing.paths + incoming.paths),
+            paths: mergedPaths,
             containsGitInternalChanges: existing.containsGitInternalChanges || incoming.containsGitInternalChanges,
             suppressedIgnoredPathCount: existing.suppressedIgnoredPathCount + incoming.suppressedIgnoredPathCount,
             suppressedGitInternalPathCount: existing.suppressedGitInternalPathCount

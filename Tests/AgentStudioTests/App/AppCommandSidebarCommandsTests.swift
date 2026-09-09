@@ -25,8 +25,8 @@ struct AppCommandSidebarCommandsTests {
             (.setPanesSortFieldActivity, "Activity", .system(.clock)),
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.togglePanesSortDirection, "Direction", .system(.arrowUpArrowDown)),
-            (.toggleReposShowsPinned, "Show Pinned", .system(.pinFill)),
-            (.togglePanesShowsPinned, "Show Pinned", .system(.pinFill)),
+            (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
+            (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
         ]
 
         for (command, label, icon) in expectedCommands {

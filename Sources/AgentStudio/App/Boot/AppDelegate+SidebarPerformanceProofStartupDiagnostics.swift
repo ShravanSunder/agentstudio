@@ -92,6 +92,7 @@ import Observation
         let warmRepositoryCount: Int
         let inactiveRepositoryCount: Int
         let unknownRepositoryCount: Int
+        let seededInactiveRepositoryCount: Int
         let warmWorktreeCount: Int
         let inactiveWorktreeCount: Int
         let unknownWorktreeCount: Int
@@ -296,6 +297,8 @@ import Observation
                     fixtureEvidence.inactiveRepositoryCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count": .int(
                     fixtureEvidence.unknownRepositoryCount),
+                "agentstudio.startup_diagnostic.sidebar_proof.seeded_inactive_repository_count": .int(
+                    fixtureEvidence.seededInactiveRepositoryCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count": .int(
                     fixtureEvidence.warmWorktreeCount),
                 "agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count": .int(
@@ -411,20 +414,15 @@ import Observation
                 return nil
             }
 
-            guard
-                SidebarPerformanceProofFixture.populateStrictPaneFleet(
-                    store: store,
-                    viewRegistry: viewRegistry,
-                    placeholderFileURL: controlRootURL.appendingPathComponent("baseline.txt")
-                )
-            else {
-                recordBlockedSidebarPerformanceProofDiagnostic(
-                    action: action,
-                    reason: "pane_fleet_failed"
-                )
-                return nil
-            }
+            guard prepareStrictSidebarPaneFleet(action: action, controlRootURL: controlRootURL) else { return nil }
             await workspaceSurfaceCoordinator.settleRepositoryFactDemandAdmissionForPerformanceProof()
+            guard
+                let seededInactiveRepositoryCount = await prepareStrictSidebarHistoricalInactiveActivity(
+                    action: action,
+                    summary: summary,
+                    rootURLs: rootURLs
+                )
+            else { return nil }
             let activity = await strictSidebarRepositoryActivityClassification()
             guard !activity.warmRepositoryIDs.isEmpty,
                 !activity.locallyInactiveRepositoryIDs.isEmpty,
@@ -457,6 +455,7 @@ import Observation
                 warmRepositoryCount: activity.warmRepositoryIDs.count,
                 inactiveRepositoryCount: activity.locallyInactiveRepositoryIDs.count,
                 unknownRepositoryCount: activity.unknownRepositoryIDs.count,
+                seededInactiveRepositoryCount: seededInactiveRepositoryCount,
                 warmWorktreeCount: activity.warmWorktreeIDs.count,
                 inactiveWorktreeCount: activity.locallyInactiveWorktreeIDs.count,
                 unknownWorktreeCount: activity.unknownWorktreeIDs.count,
@@ -470,6 +469,26 @@ import Observation
                 explicitRemoteAdmittedCount: coldProof.remoteAdmittedCount,
                 explicitForgeAdmittedCount: coldProof.forgeAdmittedCount
             )
+        }
+
+        private func prepareStrictSidebarPaneFleet(
+            action: AgentStudioStartupDiagnosticAction,
+            controlRootURL: URL
+        ) -> Bool {
+            guard
+                SidebarPerformanceProofFixture.populateStrictPaneFleet(
+                    store: store,
+                    viewRegistry: viewRegistry,
+                    placeholderFileURL: controlRootURL.appendingPathComponent("baseline.txt")
+                )
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "pane_fleet_failed"
+                )
+                return false
+            }
+            return true
         }
 
         private struct StrictColdRepositoryProof {
@@ -643,49 +662,18 @@ import Observation
         private func strictSidebarRepositoryActivityClassification() async
             -> RepositoryActivityClassification
         {
-            let topology = store.repositoryTopologyAtom
-            let paneGraph = store.paneAtom.graphAtom
-            let associationsByPaneID = Dictionary(
-                uniqueKeysWithValues: paneGraph.repositoryAssociationPaneIds.compactMap { paneID in
-                    paneGraph.repositoryAssociation(for: paneID).map {
-                        (paneID, $0)
-                    }
-                }
-            )
-            let openWorktreeIDs = paneGraph.activeRepositoryAssociationWorktreeIDs(
-                in: associationsByPaneID
-            )
-            let repositoryLocalActivity = atomStore.core.repositoryLocalActivity
-            let repositoryLocalActivityByStableKey = Dictionary(
-                uniqueKeysWithValues: topology.repositoryIdsInOrder.compactMap { repositoryID in
-                    topology.repo(repositoryID).flatMap { repository in
-                        repositoryLocalActivity.activity(for: repository.stableKey).map {
-                            (repository.stableKey, $0)
-                        }
-                    }
-                }
-            )
-            let input = RepositoryActivityClassificationInput(
-                repositories: topology.repositoryIdsInOrder.compactMap { repositoryID in
-                    topology.repo(repositoryID).map { repository in
-                        RepositoryActivityTopology(
-                            repositoryID: repositoryID,
-                            repositoryStableKey: repository.stableKey,
-                            worktreeStableKeysByID: Dictionary(
-                                uniqueKeysWithValues: repository.worktrees.map {
-                                    ($0.id, $0.stableKey)
-                                }
-                            )
-                        )
-                    }
-                },
-                openWorktreeIDs: openWorktreeIDs,
-                localActivityHydrationDisposition: repositoryLocalActivity.hydrationDisposition,
-                repositoryLocalActivityByStableKey: repositoryLocalActivityByStableKey,
-                referenceDate: Date(),
-                inactivityHorizon: AppPolicies.EntityRecency.applicationActivityHorizon
-            )
+            let input = captureStrictSidebarRepositoryActivityInput(referenceDate: Date())
             return await Self.classifyStrictSidebarRepositoryActivity(input)
+        }
+
+        func captureStrictSidebarRepositoryActivityInput(
+            referenceDate: Date
+        ) -> RepositoryActivityClassificationInput {
+            SidebarPerformanceProofFixture.captureRepositoryActivityInput(
+                store: store,
+                repositoryLocalActivity: atomStore.core.repositoryLocalActivity,
+                referenceDate: referenceDate
+            )
         }
 
         @concurrent nonisolated private static func classifyStrictSidebarRepositoryActivity(

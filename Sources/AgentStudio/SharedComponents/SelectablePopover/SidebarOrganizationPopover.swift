@@ -100,15 +100,16 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
     }
 
     package var body: some View {
-        HStack(alignment: .top, spacing: AppStyles.Components.SidebarOrganizationPanel.columnSpacing) {
-            section(model.group, level: .group)
-            if let subgroup = model.subgroup {
-                section(subgroup, level: .subgroup)
-            } else {
-                unavailableSubgroupSection
+        PopoverPanel {
+            HStack(alignment: .top, spacing: AppStyles.Components.SidebarOrganizationPanel.columnSpacing) {
+                section(model.group, level: .group)
+                if let subgroup = model.subgroup {
+                    section(subgroup, level: .subgroup)
+                } else {
+                    unavailableSubgroupSection
+                }
             }
         }
-        .padding(AppStyles.Components.SidebarOrganizationPanel.contentPadding)
         .fixedSize(horizontal: false, vertical: true)
         .background(
             SelectablePopoverKeyboardBridge(
@@ -144,24 +145,16 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
     }
 
     private func sectionHeader(_ title: String, level: SidebarOrganizationLevel) -> some View {
-        SidebarPopoverSectionHeader(title) { headerIcon(level) }
+        PopoverPanelSectionHeader(title) { headerIcon(level) }
     }
 
     private var unavailableSubgroupSection: some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
             sectionHeader(subgroupTitle, level: .subgroup)
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                unavailableSubgroupIcon()
-                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
-                    .accessibilityHidden(true)
-                Text(unavailableSubgroupText)
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .regular))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, AppStyles.General.Spacing.loose)
-            .padding(.vertical, AppStyles.General.Spacing.tight)
+            PopoverOptionLabel(unavailableSubgroupText) { unavailableSubgroupIcon() }
+                .modifier(
+                    PopoverOptionSurface(isSelected: false, isHighlighted: false, isUnavailable: true)
+                )
         }
         .frame(width: AppStyles.Components.SidebarOrganizationPanel.columnWidth, alignment: .topLeading)
     }
@@ -176,22 +169,10 @@ package struct SidebarOrganizationPopover<Item: Hashable, Icon: View, HeaderIcon
         return Button {
             select(item)
         } label: {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                icon(option.value)
-                    .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
-                Text(option.label)
-                    .font(
-                        .system(
-                            size: AppStyles.General.Typography.textXs,
-                            weight: isSelected ? .semibold : .regular
-                        )
-                    )
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
+            PopoverOptionLabel(option.label) { icon(option.value) }
         }
         .buttonStyle(
-            SidebarOrganizationOptionStyle(
+            PopoverOptionButtonStyle(
                 isSelected: isSelected, isHighlighted: highlightedItem == item
             )
         )
@@ -235,29 +216,5 @@ package struct SidebarPopoverReveal<Content: View>: View {
                     isVisible = true
                 }
             }
-    }
-}
-
-private struct SidebarOrganizationOptionStyle: ButtonStyle {
-    let isSelected: Bool
-    let isHighlighted: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        let isEmphasized = isSelected || isHighlighted || configuration.isPressed
-        let fillOpacity =
-            configuration.isPressed
-            ? AppStyles.General.Fill.pressed
-            : isSelected
-                ? AppStyles.General.Fill.active
-                : isHighlighted ? AppStyles.General.Fill.hover : AppStyles.General.Fill.subtle
-        configuration.label
-            .foregroundStyle(isEmphasized ? .primary : .secondary)
-            .padding(.horizontal, AppStyles.General.Spacing.loose)
-            .padding(.vertical, AppStyles.General.Spacing.tight)
-            .background(
-                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
-                    .fill(Color.white.opacity(fillOpacity))
-            )
-            .contentShape(Rectangle())
     }
 }

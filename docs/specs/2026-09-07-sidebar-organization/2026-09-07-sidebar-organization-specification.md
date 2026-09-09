@@ -17,7 +17,7 @@ Row 2   Pin │ ↑/↓  Name/Activity │ Repo → Activity
 
 Show Pinned defaults on. Selected is blue without persistent fill; unselected is neutral. The original animated arrow toggles direction only. The Name/Activity picker changes sort type only. The grouping summary appends `→ Subgroup` only when effective.
 
-The grouping `.popover` MUST use 16-point padding and two equal, top-aligned columns. Group/Subgroup headers use catalog-owned icons; options use compact neutral Arrangement-style rows. When unavailable, the Subgroup column/header/icon/width remain with lighter noninteractive “No subgroups”. Valid None remains selectable.
+Sort, Group/Subgroup, and Arrangements MUST share the same content padding, heading typography, option typography, and selection/hover/pressed treatment. The grouping `.popover` retains two equal, top-aligned columns. Group/Subgroup headers use catalog-owned icons; options use the compact neutral Arrangements treatment. Sort uses the same icon-and-name row without an extra checkmark column. When unavailable, the Subgroup column/header/icon/width remain with lighter noninteractive “No subgroups”. Valid None remains selectable.
 
 **R2 (U7):** Every state-changing organization choice MUST use its surface-specific command spec, presentation preflight, and dispatcher. Selector open/dismiss is presentation-only local view state, with display metadata projected from LocalActionSpec; it does not create an AppCommand or IPC action. Option selection and pin/sort toggles recheck command enablement and dispatch. Exact chords are deferred. Unavailable/disabled commands MUST NOT dispatch or steal Filter/terminal/editor typing.
 

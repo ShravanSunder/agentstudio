@@ -454,8 +454,12 @@ package enum AppStyles {
     }
 
     package enum Components {
+        package enum PopoverPanel {
+            package static let contentPadding: CGFloat = 12
+            package static let sectionSpacing: CGFloat = 8
+        }
+
         package enum SidebarOrganizationPanel {
-            package static let contentPadding: CGFloat = 16
             package static let columnWidth: CGFloat = 160
             package static let columnSpacing: CGFloat = 16
         }
