@@ -15,7 +15,10 @@ import {
 	worktreeAnnotationPierreRangesMatch,
 	worktreeAnnotationThreadPresentationIdentity,
 } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
-import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-surface-client.js';
+import type {
+	WorktreeAnnotationCommandConfirmedThreadProjection,
+	WorktreeAnnotationThreadProjection,
+} from './worktree-annotation-surface-client.js';
 
 describe('worktree annotation Pierre adapter', () => {
 	test('maps exact and relocated File threads to end-line annotation slots', () => {
@@ -129,6 +132,31 @@ describe('worktree annotation Pierre adapter', () => {
 			sourceRole: 'file',
 			startLine: 2,
 		});
+	});
+
+	test('admits a command-confirmed origin only against its exact current source descriptor', () => {
+		const item = makeBridgeReviewItem({ itemId: 'item-1', path: 'Sources/App.swift' });
+		const commandThread = commandConfirmedThread();
+
+		expect(
+			reviewPierreAnnotationsForItem({
+				item,
+				itemType: 'diff',
+				sourceDescriptorIdsByRole: { base: 'source-base', head: 'source-command' },
+				threads: [commandThread],
+			}),
+		).toHaveLength(1);
+		expect(
+			reviewPierreAnnotationsForItem({
+				item,
+				itemType: 'diff',
+				sourceDescriptorIdsByRole: { base: 'source-base', head: 'source-replacement' },
+				threads: [commandThread],
+			}),
+		).toEqual([]);
+		expect(
+			reviewPierreAnnotationsForItem({ item, itemType: 'diff', threads: [commandThread] }),
+		).toEqual([]);
 	});
 
 	test('keeps one typed Pierre annotation per thread when threads share a diff line and side', () => {
@@ -389,5 +417,23 @@ function threadProjectionWithMessage(): WorktreeAnnotationThreadProjection {
 				threadRevision: 1,
 			},
 		],
+	};
+}
+
+function commandConfirmedThread(): WorktreeAnnotationCommandConfirmedThreadProjection {
+	return {
+		context: {
+			diffSide: 'additions',
+			endLine: 6,
+			path: 'Sources/App.swift',
+			placement: 'command_confirmed',
+			resolution: 'open',
+			scope: 'located',
+			sourceIdentity: 'source-command',
+			sourceRole: 'review_head',
+			startLine: 5,
+			threadId: '00000000-0000-7000-8000-000000000071',
+		},
+		messages: [],
 	};
 }

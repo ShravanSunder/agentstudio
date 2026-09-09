@@ -20,19 +20,20 @@ export function messageCommandCursorFromOutcome(
 	if (
 		outcome.status.kind !== 'committed' ||
 		outcome.sessionId === null ||
-		outcome.receipt === undefined
+		outcome.receipt?.kind !== 'message'
 	) {
 		throw new Error('Committed annotation command did not return its message receipt.');
 	}
+	const message = outcome.receipt.message;
 	return {
-		draftRevision: outcome.receipt.draftRevision,
-		messageId: outcome.receipt.messageId,
-		messageRevision: outcome.receipt.messageRevision,
-		savedRevision: outcome.receipt.savedRevision,
-		sessionId: outcome.sessionId,
-		sessionRevision: outcome.receipt.sessionRevision,
-		threadId: outcome.receipt.threadId,
-		threadRevision: outcome.receipt.threadRevision,
+		draftRevision: message.draft?.revision ?? null,
+		messageId: message.messageId,
+		messageRevision: message.messageRevision,
+		savedRevision: message.savedRevision,
+		sessionId: message.sessionId,
+		sessionRevision: message.sessionRevision,
+		threadId: message.threadId,
+		threadRevision: message.threadRevision,
 	};
 }
 
@@ -61,4 +62,30 @@ export function newestMessageCommandCursor(
 		return candidate.messageRevision > current.messageRevision ? candidate : current;
 	}
 	return candidate.sessionRevision > current.sessionRevision ? candidate : current;
+}
+
+export function newestCommandConfirmedThreadRevision(
+	threadId: string,
+	outcomes: readonly WorktreeAnnotationCommandOutcome[],
+): number | null {
+	let newestRevision: number | null = null;
+	for (const outcome of outcomes) {
+		if (outcome.status.kind !== 'committed') continue;
+		const receipt = outcome.receipt;
+		const candidateRevision =
+			receipt?.kind === 'message' && receipt.context.threadId === threadId
+				? receipt.message.threadRevision
+				: receipt?.kind === 'message_removed' &&
+					  receipt.threadId === threadId &&
+					  receipt.threadRevision !== null
+					? receipt.threadRevision
+					: null;
+		if (
+			candidateRevision !== null &&
+			(newestRevision === null || candidateRevision > newestRevision)
+		) {
+			newestRevision = candidateRevision;
+		}
+	}
+	return newestRevision;
 }

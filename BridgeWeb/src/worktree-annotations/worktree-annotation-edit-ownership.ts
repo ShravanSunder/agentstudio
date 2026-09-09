@@ -1,3 +1,4 @@
+import { mergeWorktreeAnnotationCommandConfirmedThreads } from './worktree-annotation-command-confirmed-presentation.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationSurfaceClient,
@@ -58,7 +59,14 @@ export class WorktreeAnnotationEditOwnershipController {
 	}
 
 	#currentMessage(): WorktreeAnnotationMessageEntry | null {
-		return messageById(this.#annotationClient.getSnapshot().threads, this.#messageId);
+		const snapshot = this.#annotationClient.getSnapshot();
+		return messageById(
+			mergeWorktreeAnnotationCommandConfirmedThreads({
+				commandConfirmedThreads: snapshot.commandConfirmedThreads,
+				serverThreads: snapshot.threads,
+			}),
+			this.#messageId,
+		);
 	}
 
 	#enqueue(operation: () => Promise<void>): Promise<void> {
@@ -69,7 +77,7 @@ export class WorktreeAnnotationEditOwnershipController {
 }
 
 function messageById(
-	threads: readonly WorktreeAnnotationThreadProjection[],
+	threads: readonly Pick<WorktreeAnnotationThreadProjection, 'messages'>[],
 	messageId: string,
 ): WorktreeAnnotationMessageEntry | null {
 	for (const thread of threads) {

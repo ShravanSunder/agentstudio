@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { createBridgeMetadataCatalogTransferSchema } from './bridge-metadata-catalog-transfer-contracts.js';
 import {
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
@@ -223,63 +224,6 @@ const annotationDecodedCommandOutcomeStatusSchema = z.discriminatedUnion('kind',
 	annotationFailedCommandOutcomeStatusSchema,
 ]);
 
-const annotationCommandReceiptSchema = z.discriminatedUnion('kind', [
-	z
-		.object({
-			draftRevision: bridgeProductNonnegativeSequenceSchema.nullable(),
-			kind: z.literal('message'),
-			messageId: bridgeProductReviewPublicationIdSchema,
-			messageRevision: bridgeProductNonnegativeSequenceSchema,
-			savedRevision: bridgeProductNonnegativeSequenceSchema.positive().nullable(),
-			sessionRevision: bridgeProductNonnegativeSequenceSchema,
-			threadId: bridgeProductReviewPublicationIdSchema,
-			threadRevision: bridgeProductNonnegativeSequenceSchema,
-		})
-		.strict(),
-]);
-
-const annotationCommandOutcomeCommonShape = {
-	requestId: bridgeProductIdentifierSchema,
-	sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
-	surface: z.enum(['file', 'review']),
-} as const;
-
-export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z.union([
-	z
-		.object({
-			...annotationCommandOutcomeCommonShape,
-			receipt: annotationCommandReceiptSchema.optional(),
-			status: annotationCommandOutcomeStatusSchema,
-		})
-		.strict(),
-	z
-		.object({
-			...annotationCommandOutcomeCommonShape,
-			receipt: z.null(),
-			status: annotationViewedCommandOutcomeStatusSchema,
-		})
-		.strict()
-		.transform(({ receipt: _receipt, ...outcome }) => ({ ...outcome, receipt: undefined })),
-]);
-
-export const bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema = z.union([
-	z
-		.object({
-			...annotationCommandOutcomeCommonShape,
-			receipt: annotationCommandReceiptSchema.optional(),
-			status: annotationDecodedCommandOutcomeStatusSchema,
-		})
-		.strict(),
-	z
-		.object({
-			...annotationCommandOutcomeCommonShape,
-			receipt: z.undefined().optional(),
-			status: annotationViewedCommandOutcomeStatusSchema,
-		})
-		.strict()
-		.transform((outcome) => ({ ...outcome, receipt: undefined })),
-]);
-
 const annotationMessageBodySchema = z.string().refine((body) => {
 	const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);
 	return byteLength !== null && byteLength <= 16 * 1024;
@@ -392,6 +336,163 @@ export const bridgeProductWorktreeAnnotationMessageEntrySchema = z
 		createdAt: createdAtUnixMilliseconds,
 	}))
 	.pipe(bridgeProductWorktreeAnnotationDecodedMessageEntrySchema);
+
+export const bridgeProductWorktreeAnnotationReceiptContextSchema = z
+	.object({
+		diffSide: z.enum(['additions', 'deletions']).nullable(),
+		endLine: bridgeProductNonnegativeSequenceSchema.positive(),
+		path: bridgeProductDisplayPathSchema,
+		resolution: z.enum(['open', 'resolved']),
+		scope: z.literal('located'),
+		sourceIdentity: bridgeProductIdentifierSchema,
+		sourceRole: z.enum(['file', 'review_base', 'review_head']),
+		startLine: bridgeProductNonnegativeSequenceSchema.positive(),
+		threadId: bridgeProductReviewPublicationIdSchema,
+	})
+	.strict()
+	.refine((context) => context.endLine >= context.startLine, {
+		message: 'Annotation receipt thread endLine cannot precede startLine.',
+		path: ['endLine'],
+	});
+
+export const bridgeProductWorktreeAnnotationMessageReceiptSchema = z
+	.object({
+		context: bridgeProductWorktreeAnnotationReceiptContextSchema,
+		kind: z.literal('message'),
+		message: bridgeProductWorktreeAnnotationMessageEntrySchema,
+	})
+	.strict()
+	.refine((receipt) => receipt.context.threadId === receipt.message.threadId, {
+		message: 'Annotation receipt message must match its thread context.',
+		path: ['message', 'threadId'],
+	});
+
+export const bridgeProductWorktreeAnnotationDecodedMessageReceiptSchema = z
+	.object({
+		context: bridgeProductWorktreeAnnotationReceiptContextSchema,
+		kind: z.literal('message'),
+		message: bridgeProductWorktreeAnnotationDecodedMessageEntrySchema,
+	})
+	.strict()
+	.refine((receipt) => receipt.context.threadId === receipt.message.threadId, {
+		message: 'Annotation receipt message must match its thread context.',
+		path: ['message', 'threadId'],
+	});
+
+export const bridgeProductWorktreeAnnotationMessageRemovedReceiptSchema = z
+	.object({
+		kind: z.literal('message_removed'),
+		messageId: bridgeProductReviewPublicationIdSchema,
+		removedMessageRevision: bridgeProductNonnegativeSequenceSchema,
+		sessionId: bridgeProductReviewPublicationIdSchema,
+		sessionRevision: bridgeProductNonnegativeSequenceSchema,
+		threadId: bridgeProductReviewPublicationIdSchema,
+		threadRevision: bridgeProductNonnegativeSequenceSchema.nullable(),
+	})
+	.strict();
+
+export const bridgeProductWorktreeAnnotationCommandReceiptSchema = z.discriminatedUnion('kind', [
+	bridgeProductWorktreeAnnotationMessageReceiptSchema,
+	bridgeProductWorktreeAnnotationMessageRemovedReceiptSchema,
+]);
+
+export const bridgeProductWorktreeAnnotationDecodedCommandReceiptSchema = z.discriminatedUnion(
+	'kind',
+	[
+		bridgeProductWorktreeAnnotationDecodedMessageReceiptSchema,
+		bridgeProductWorktreeAnnotationMessageRemovedReceiptSchema,
+	],
+);
+
+const annotationCommandOutcomeCommonShape = {
+	requestId: bridgeProductIdentifierSchema,
+	sessionId: bridgeProductReviewPublicationIdSchema.nullable(),
+	surface: z.enum(['file', 'review']),
+} as const;
+
+const annotationCommandOutcomeWithoutReceiptSchema = z
+	.object({
+		...annotationCommandOutcomeCommonShape,
+		receipt: z.undefined().optional(),
+		status: annotationCommandOutcomeStatusSchema,
+	})
+	.strict();
+
+const annotationDecodedCommandOutcomeWithoutReceiptSchema = z
+	.object({
+		...annotationCommandOutcomeCommonShape,
+		receipt: z.undefined().optional(),
+		status: annotationDecodedCommandOutcomeStatusSchema,
+	})
+	.strict();
+
+const annotationCommandOutcomeWithReceiptSchema = z
+	.object({
+		...annotationCommandOutcomeCommonShape,
+		receipt: bridgeProductWorktreeAnnotationCommandReceiptSchema,
+		status: annotationCommittedCommandOutcomeStatusSchema,
+	})
+	.strict()
+	.superRefine((outcome, context) => {
+		const receiptSessionId =
+			outcome.receipt.kind === 'message'
+				? outcome.receipt.message.sessionId
+				: outcome.receipt.sessionId;
+		if (outcome.sessionId !== receiptSessionId) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Annotation receipt session must match its command outcome.',
+				path: ['sessionId'],
+			});
+		}
+	});
+
+const annotationDecodedCommandOutcomeWithReceiptSchema = z
+	.object({
+		...annotationCommandOutcomeCommonShape,
+		receipt: bridgeProductWorktreeAnnotationDecodedCommandReceiptSchema,
+		status: annotationCommittedCommandOutcomeStatusSchema,
+	})
+	.strict()
+	.superRefine((outcome, context) => {
+		const receiptSessionId =
+			outcome.receipt.kind === 'message'
+				? outcome.receipt.message.sessionId
+				: outcome.receipt.sessionId;
+		if (outcome.sessionId !== receiptSessionId) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Annotation receipt session must match its command outcome.',
+				path: ['sessionId'],
+			});
+		}
+	});
+
+export const bridgeProductWorktreeAnnotationCommandOutcomeSchema = z.union([
+	annotationCommandOutcomeWithReceiptSchema,
+	annotationCommandOutcomeWithoutReceiptSchema,
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: z.null(),
+			status: annotationViewedCommandOutcomeStatusSchema,
+		})
+		.strict()
+		.transform(({ receipt: _receipt, ...outcome }) => ({ ...outcome, receipt: undefined })),
+]);
+
+export const bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema = z.union([
+	annotationDecodedCommandOutcomeWithReceiptSchema,
+	annotationDecodedCommandOutcomeWithoutReceiptSchema,
+	z
+		.object({
+			...annotationCommandOutcomeCommonShape,
+			receipt: z.undefined().optional(),
+			status: annotationViewedCommandOutcomeStatusSchema,
+		})
+		.strict()
+		.transform((outcome) => ({ ...outcome, receipt: undefined })),
+]);
 
 export const bridgeProductWorktreeAnnotationCatalogEntrySchema = z.discriminatedUnion('kind', [
 	z

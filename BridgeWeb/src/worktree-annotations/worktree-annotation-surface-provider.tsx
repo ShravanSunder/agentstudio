@@ -434,12 +434,17 @@ function WorktreeAnnotationThreadExpansionReconciler(): null {
 		const expansion = interaction.threadExpansion;
 		if (expansion.kind !== 'open') return;
 		if (
-			projection.threads.some((thread): boolean => thread.context.threadId === expansion.threadId)
+			projection.threads.some(
+				(thread): boolean => thread.context.threadId === expansion.threadId,
+			) ||
+			projection.commandConfirmedThreads.some(
+				(thread): boolean => thread.context.threadId === expansion.threadId,
+			)
 		)
 			return;
 		const focusTarget = interaction.resolveThreadFocus();
 		void interaction.collapseThread().then((): void => focusTarget?.focus());
-	}, [interaction, projection.threads]);
+	}, [interaction, projection.commandConfirmedThreads, projection.threads]);
 	return null;
 }
 

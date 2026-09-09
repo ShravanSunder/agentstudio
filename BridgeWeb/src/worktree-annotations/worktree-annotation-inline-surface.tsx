@@ -175,6 +175,14 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 					: 'border-transparent bg-transparent',
 			)}
 			data-annotation-editor-surface
+			onClick={(event) => {
+				if (props.editing !== true || !(event.target instanceof Element)) return;
+				if (event.target.closest('button, a, input, select, textarea, [role="button"]') !== null)
+					return;
+				event.currentTarget
+					.querySelector<HTMLTextAreaElement>('textarea')
+					?.focus({ preventScroll: true });
+			}}
 		>
 			<div className={props.editing === true ? 'min-w-0' : 'min-w-0 p-2 pr-10'}>
 				{props.children}

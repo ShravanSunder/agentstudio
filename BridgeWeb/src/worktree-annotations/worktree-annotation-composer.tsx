@@ -280,22 +280,6 @@ export function WorktreeAnnotationNewMessageComposer(
 		if (!hasLocalEditSinceMountRef.current) setBody(projectedDraft.body);
 		setIsDurable(true);
 	}, [isDurable, projectedDurableMessage, scheduler]);
-	const projectedCommittedMessage =
-		committedCursor === null ? null : currentMessageById(projection, committedCursor.messageId);
-	useLayoutEffect((): void => {
-		if (
-			committedCursor === null ||
-			projectedCommittedMessage === null ||
-			projectedCommittedMessage.savedRevision === null ||
-			projectedCommittedMessage.savedRevision < (committedCursor.savedRevision ?? 0)
-		) {
-			return;
-		}
-		props.onSaved({
-			messageId: projectedCommittedMessage.messageId,
-			threadId: committedCursor.threadId,
-		});
-	}, [committedCursor, projectedCommittedMessage, props]);
 	useLayoutEffect((): void => {
 		if (committedCursor === null) return;
 		committedPreviewRef.current?.focus();
@@ -353,6 +337,7 @@ export function WorktreeAnnotationNewMessageComposer(
 				targetMessageCursorRef.current = savedCursor;
 				setCommittedCursor(savedCursor);
 				props.onCommitted?.();
+				props.onSaved({ messageId: savedCursor.messageId, threadId: savedCursor.threadId });
 			});
 			setSavePhase('idle');
 		} catch (error: unknown) {

@@ -29,14 +29,14 @@ describe('RecordingAnnotationBrowserSurface command correlation', () => {
 		surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'root.create');
 		const rootOutcome = await rootPromise;
 		const rootReceipt = rootOutcome.receipt;
-		if (rootReceipt === undefined) throw new Error('Expected exact root receipt.');
+		if (rootReceipt?.kind !== 'message') throw new Error('Expected exact root message receipt.');
 		// Act
 		const savePromise = client.execute({
 			editToken: 'annotation-edit-test',
-			expectedDraftRevision: rootReceipt.draftRevision ?? 0,
-			expectedMessageRevision: rootReceipt.messageRevision,
+			expectedDraftRevision: rootReceipt.message.draft?.revision ?? 0,
+			expectedMessageRevision: rootReceipt.message.messageRevision,
 			kind: 'draft.save',
-			messageId: rootReceipt.messageId,
+			messageId: rootReceipt.message.messageId,
 			sessionId: annotationSessionId,
 		});
 		const releaseDemand = client.acquireSession(annotationSessionId);
@@ -47,11 +47,16 @@ describe('RecordingAnnotationBrowserSurface command correlation', () => {
 		expect(surface.sentOperations.at(-1)?.kind).toBe('output.history');
 		expect(saveOutcome.status).toEqual({ kind: 'committed' });
 		expect(saveOutcome.receipt).toMatchObject({
-			draftRevision: null,
 			kind: 'message',
-			messageId: rootReceipt.messageId,
-			savedRevision: 1,
+			message: {
+				draft: null,
+				messageId: rootReceipt.message.messageId,
+				savedRevision: 1,
+			},
 		});
+		expect(client.getSnapshot().commandConfirmedThreads).toMatchObject([
+			{ context: { sourceIdentity: 'source-1' }, messages: [{ savedBody: 'Exact receipt draft' }] },
+		]);
 		releaseDemand();
 		client.dispose();
 	});

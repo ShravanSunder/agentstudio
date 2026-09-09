@@ -69,7 +69,7 @@ export interface WorktreeAnnotationThreadSummaryProps {
 	readonly hasLockedMessage: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
 	readonly messageCount: number;
-	readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+	readonly placement: 'command_confirmed' | 'exact' | 'outdated' | 'relocated' | 'unavailable';
 	readonly resolution: 'open' | 'resolved';
 }
 

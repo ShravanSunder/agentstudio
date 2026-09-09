@@ -4,6 +4,7 @@ import type { BridgeProductWorktreeAnnotationOperation } from '../../core/comm-w
 import type { BridgeReviewItemDescriptor } from '../../foundation/review-package/bridge-review-package.js';
 import {
 	worktreeAnnotationThreadSemanticIdentity,
+	type WorktreeAnnotationInlineThreadProjection,
 	type WorktreeAnnotationThreadProjection,
 } from '../../worktree-annotations/worktree-annotation-projection-store.js';
 
@@ -87,13 +88,14 @@ export function reviewPierreAnnotationForComposer(props: {
 
 export function filePierreAnnotationsForThreads(props: {
 	readonly path: string;
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorId?: string | null;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): LineAnnotation<WorktreeAnnotationPierreMetadata>[] {
 	return props.threads.flatMap(
 		(thread): readonly LineAnnotation<WorktreeAnnotationPierreMetadata>[] => {
 			const context = thread.context;
 			if (
-				!threadCanUsePierreSlot(thread) ||
+				!threadCanUsePierreSlot(thread, props.sourceDescriptorId ?? null) ||
 				!fileSurfaceCanRenderSourceRole(context.sourceRole) ||
 				context.path !== props.path ||
 				context.startLine === null ||
@@ -119,17 +121,29 @@ export function filePierreAnnotationsForThreads(props: {
 export function reviewPierreAnnotationsForItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'diff';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): DiffLineAnnotation<WorktreeAnnotationPierreMetadata>[];
 export function reviewPierreAnnotationsForItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'file';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): LineAnnotation<WorktreeAnnotationPierreMetadata>[];
 export function reviewPierreAnnotationsForItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'diff' | 'file';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): (
 	| DiffLineAnnotation<WorktreeAnnotationPierreMetadata>
 	| LineAnnotation<WorktreeAnnotationPierreMetadata>
@@ -142,8 +156,12 @@ export function reviewPierreAnnotationsForItem(props: {
 			| LineAnnotation<WorktreeAnnotationPierreMetadata>
 		)[] => {
 			const context = thread.context;
+			const sourceDescriptorId =
+				context.sourceRole === 'review_base'
+					? (props.sourceDescriptorIdsByRole?.base ?? null)
+					: (props.sourceDescriptorIdsByRole?.head ?? null);
 			if (
-				!threadCanUsePierreSlot(thread) ||
+				!threadCanUsePierreSlot(thread, sourceDescriptorId) ||
 				context.startLine === null ||
 				context.endLine === null
 			) {
@@ -195,7 +213,8 @@ export function reviewPierreAnnotationsForItem(props: {
 // own metadata at the annotation renderer boundary.
 export function filePierreAnnotationsForExistingCodeView(props: {
 	readonly path: string;
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorId?: string | null;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): LineAnnotation[] {
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
 	return filePierreAnnotationsForThreads(props) as unknown as LineAnnotation[];
@@ -212,17 +231,29 @@ export function filePierreAnnotationForExistingCodeViewComposer(props: {
 export function reviewPierreAnnotationsForExistingCodeView(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'diff';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): DiffLineAnnotation[];
 export function reviewPierreAnnotationsForExistingCodeView(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'file';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): LineAnnotation[];
 export function reviewPierreAnnotationsForExistingCodeView(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemType: 'diff' | 'file';
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
+	readonly sourceDescriptorIdsByRole?: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
 }): (DiffLineAnnotation | LineAnnotation)[] {
 	return props.itemType === 'diff'
 		? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Existing CodeView fixes Pierre metadata to undefined; renderer validation owns the annotation metadata boundary.
@@ -267,8 +298,8 @@ export function reviewPierreAnnotationForExistingCodeViewComposer(props: {
 
 export function threadForPierreAnnotation(props: {
 	readonly annotation: DiffLineAnnotation | LineAnnotation;
-	readonly threads: readonly WorktreeAnnotationThreadProjection[];
-}): WorktreeAnnotationThreadProjection | null {
+	readonly threads: readonly WorktreeAnnotationInlineThreadProjection[];
+}): WorktreeAnnotationInlineThreadProjection | null {
 	const metadata = worktreeAnnotationMetadataForPierreAnnotation(props.annotation);
 	if (metadata === null || metadata.kind !== 'thread') return null;
 	return (
@@ -343,7 +374,7 @@ export function worktreeAnnotationMetadataForPierreAnnotation(
 }
 
 export function worktreeAnnotationThreadPresentationIdentity(
-	thread: WorktreeAnnotationThreadProjection,
+	thread: WorktreeAnnotationInlineThreadProjection,
 ): string {
 	return worktreeAnnotationThreadSemanticIdentity(thread);
 }
@@ -437,7 +468,15 @@ export function reviewAnnotationOriginForPierreSelection(props: {
 	};
 }
 
-function threadCanUsePierreSlot(thread: WorktreeAnnotationThreadProjection): boolean {
+function threadCanUsePierreSlot(
+	thread: WorktreeAnnotationInlineThreadProjection,
+	expectedSourceIdentity: string | null,
+): boolean {
+	if (thread.context.placement === 'command_confirmed') {
+		return (
+			expectedSourceIdentity !== null && thread.context.sourceIdentity === expectedSourceIdentity
+		);
+	}
 	return (
 		thread.context.scope === 'located' &&
 		(thread.context.placement === 'exact' || thread.context.placement === 'relocated')

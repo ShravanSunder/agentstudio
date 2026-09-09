@@ -496,16 +496,14 @@ describe('worktree annotation Pierre integration', () => {
 			});
 			await settleBrowserCondition(
 				(): boolean =>
-					document.querySelector(
-						'[data-testid="worktree-annotation-committed-pending-projection"]',
-					) !== null,
+					document.querySelector('[data-testid="worktree-annotation-thread"]') !== null,
 				'Expected the exact Save receipt to present the committed File preview.',
 			);
 			const committedPreview = document.querySelector<HTMLElement>(
-				'[data-testid="worktree-annotation-committed-pending-projection"]',
+				'[data-testid="worktree-annotation-thread"]',
 			);
 			if (committedPreview === null) throw new Error('Expected committed File preview.');
-			expect(document.activeElement).toBe(committedPreview);
+			expect(committedPreview.contains(document.activeElement)).toBe(true);
 
 			await act(async (): Promise<void> => {
 				await rendered.rerender(renderFilePanel(successorFile));
@@ -514,7 +512,7 @@ describe('worktree annotation Pierre integration', () => {
 			});
 
 			expect(committedPreview.isConnected).toBe(true);
-			expect(document.activeElement).toBe(committedPreview);
+			expect(committedPreview.contains(document.activeElement)).toBe(true);
 			expect(committedPreview.textContent).toContain('Saved before the File refresh settles.');
 			expect(
 				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
@@ -526,7 +524,7 @@ describe('worktree annotation Pierre integration', () => {
 			});
 
 			expect(committedPreview.isConnected).toBe(true);
-			expect(document.activeElement).toBe(committedPreview);
+			expect(committedPreview.contains(document.activeElement)).toBe(true);
 			expect(committedPreview.textContent).toContain('Saved before the File refresh settles.');
 			expect(
 				surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
@@ -813,6 +811,7 @@ function makeFileItem(
 			itemId: fileId,
 			lineCount: 8,
 			sourceDescriptorId,
+			sourceDescriptorIdsByRole: { base: null, head: null, diff: null, file: sourceDescriptorId },
 		},
 		file: {
 			cacheKey: `file-cache-${fileId}`,

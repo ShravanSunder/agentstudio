@@ -19,11 +19,12 @@ import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-comp
 import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
 import { WorktreeAnnotationCommandButton } from './worktree-annotation-inline-surface.js';
 import type { WorktreeAnnotationRange } from './worktree-annotation-interaction.js';
+import { newestCommandConfirmedThreadRevision } from './worktree-annotation-message-command-cursor.js';
 import { deriveWorktreeAnnotationThreadStateCounts } from './worktree-annotation-message-state.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
+	WorktreeAnnotationInlineThreadProjection,
 	WorktreeAnnotationMessageEntry,
-	WorktreeAnnotationThreadProjection,
 } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationActiveNewMessageEditTokens,
@@ -57,7 +58,7 @@ export interface WorktreeAnnotationThreadProps {
 	readonly rangeIdentity?:
 		| { readonly itemId: string; readonly range: WorktreeAnnotationRange }
 		| undefined;
-	readonly thread: WorktreeAnnotationThreadProjection;
+	readonly thread: WorktreeAnnotationInlineThreadProjection;
 }
 
 export function WorktreeAnnotationThread(
@@ -103,16 +104,14 @@ export function WorktreeAnnotationThread(
 	const firstMessage = visibleMessages[0];
 	const latestMessage = visibleMessages.at(-1);
 	const sessionId = firstMessage?.sessionId ?? null;
-	const acknowledgedThreadRevision = projection.commandOutcomes.reduce(
-		(newestRevision, outcome): number => {
-			const receipt = outcome.status.kind === 'committed' ? outcome.receipt : undefined;
-			return receipt?.kind === 'message' && receipt.threadId === threadId
-				? Math.max(newestRevision, receipt.threadRevision)
-				: newestRevision;
-		},
-		0,
+	const acknowledgedThreadRevision = newestCommandConfirmedThreadRevision(
+		threadId,
+		projection.commandOutcomes,
 	);
-	const threadRevision = Math.max(firstMessage?.threadRevision ?? 0, acknowledgedThreadRevision);
+	const threadRevision = Math.max(
+		firstMessage?.threadRevision ?? 0,
+		acknowledgedThreadRevision ?? 0,
+	);
 	useWorktreeAnnotationSessionDemand(sessionId);
 	if (firstMessage === undefined || latestMessage === undefined || sessionId === null) return null;
 
@@ -141,7 +140,9 @@ export function WorktreeAnnotationThread(
 		else activateMessageRange(targetMessageId);
 		const targetOwnsInteraction =
 			event.target instanceof Element &&
-			event.target.closest('a, button, input, select, textarea, [role="button"]') !== null;
+			event.target.closest(
+				'a, button, input, select, textarea, [role="button"], [data-annotation-editing="true"] [data-annotation-editor-surface]',
+			) !== null;
 		if (!targetOwnsInteraction && window.getSelection()?.isCollapsed !== false) {
 			event.currentTarget.focus({ preventScroll: true });
 		}
@@ -427,10 +428,10 @@ function messageHasUncommittedHumanDraft(
 		const receipt = outcome.status.kind === 'committed' ? outcome.receipt : undefined;
 		return (
 			receipt?.kind === 'message' &&
-			receipt.messageId === message.messageId &&
-			receipt.messageRevision >= message.messageRevision &&
-			receipt.draftRevision === null &&
-			receipt.savedRevision !== null
+			receipt.message.messageId === message.messageId &&
+			receipt.message.messageRevision >= message.messageRevision &&
+			receipt.message.draft === null &&
+			receipt.message.savedRevision !== null
 		);
 	});
 }
@@ -443,7 +444,7 @@ interface WorktreeAnnotationTimelineSummaryProps {
 	readonly messageCount: number;
 	readonly newMessageCount: number;
 	readonly pendingMessageCount: number;
-	readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+	readonly placement: 'command_confirmed' | 'exact' | 'outdated' | 'relocated' | 'unavailable';
 	readonly readStatus: 'ready' | 'refreshing' | 'unavailable' | 'unknown';
 	readonly resolution: 'open' | 'resolved';
 	readonly threadActions: ReactNode;
@@ -507,7 +508,7 @@ function WorktreeAnnotationTimelineSummary(
 	);
 }
 
-function annotationThreadLocationLabel(thread: WorktreeAnnotationThreadProjection): string {
+function annotationThreadLocationLabel(thread: WorktreeAnnotationInlineThreadProjection): string {
 	const location =
 		thread.context.startLine === null
 			? (thread.context.path ?? 'Session')

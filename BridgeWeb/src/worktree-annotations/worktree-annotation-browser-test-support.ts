@@ -10,6 +10,7 @@ import type {
 	BridgeProductWorktreeAnnotationOperation,
 } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import { WorktreeAnnotationBrowserCommandReceiptFixture } from './worktree-annotation-browser-command-receipt-fixture.js';
 import { reviewAnnotationPublicationIdentityForMainIdentity } from './worktree-annotation-review-application.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
@@ -111,6 +112,9 @@ export class RecordingAnnotationBrowserSurface {
 	};
 	#revision = 0;
 	#sessions: readonly AnnotationSessionSummary[] = [];
+	readonly #commandReceiptFixture = new WorktreeAnnotationBrowserCommandReceiptFixture(
+		annotationHeadThreadId,
+	);
 	readonly #threadsById = new Map<
 		string,
 		{
@@ -303,7 +307,12 @@ export class RecordingAnnotationBrowserSurface {
 			wireVersion: 1,
 		});
 		this.#revision += 1;
-		const receipt = this.#messageReceiptForOperation(pendingCommand.operation);
+		const receipt = this.#commandReceiptFixture.receiptForCommittedOperation({
+			committedSessionId: sessionId,
+			committedSessionRevision: this.#revision,
+			operation: pendingCommand.operation,
+			projectedThreadsById: this.#threadsById,
+		});
 		this.publishProjectionState({
 			commandOutcomes: [
 				{
@@ -324,11 +333,17 @@ export class RecordingAnnotationBrowserSurface {
 	settleMostRecentCommittedWithoutProjection(
 		sessionId: string = annotationSessionId,
 		operationKind?: BridgeProductWorktreeAnnotationOperation['kind'],
-	): void {
+	): WorktreeAnnotationCommandOutcome['receipt'] {
 		const pendingCommand = this.#takeMostRecentPendingAnnotationCommand(operationKind);
 		const workerRequestId = pendingCommand.requestId;
 		const productRequestId = `product-${workerRequestId}`;
-		const receipt = this.#messageReceiptForOperation(pendingCommand.operation);
+		this.#revision += 1;
+		const receipt = this.#commandReceiptFixture.receiptForCommittedOperation({
+			committedSessionId: sessionId,
+			committedSessionRevision: this.#revision,
+			operation: pendingCommand.operation,
+			projectedThreadsById: this.#threadsById,
+		});
 		this.#publish({
 			direction: 'serverWorkerToMain',
 			kind: 'annotationCommandAccepted',
@@ -345,6 +360,7 @@ export class RecordingAnnotationBrowserSurface {
 			transferDescriptors: [],
 			wireVersion: 1,
 		});
+		return receipt;
 	}
 
 	settleMostRecentConflict(operationKind?: BridgeProductWorktreeAnnotationOperation['kind']): void {
@@ -398,62 +414,6 @@ export class RecordingAnnotationBrowserSurface {
 			transferDescriptors: [],
 			wireVersion: 1,
 		});
-	}
-
-	#messageReceiptForOperation(
-		operation: BridgeProductWorktreeAnnotationOperation,
-	): WorktreeAnnotationCommandOutcome['receipt'] {
-		if (operation.kind === 'root.create') {
-			return {
-				draftRevision: 0,
-				kind: 'message',
-				messageId: '00000000-0000-7000-8000-000000000031',
-				messageRevision: 0,
-				savedRevision: null,
-				sessionRevision: this.#revision,
-				threadId: annotationHeadThreadId,
-				threadRevision: 0,
-			};
-		}
-		if (operation.kind === 'reply.create') {
-			return {
-				draftRevision: 0,
-				kind: 'message',
-				messageId: '00000000-0000-7000-8000-000000000032',
-				messageRevision: 0,
-				savedRevision: null,
-				sessionRevision: this.#revision + 1,
-				threadId: operation.threadId,
-				threadRevision: operation.expectedThreadRevision + 1,
-			};
-		}
-		if (operation.kind !== 'draft.flush' && operation.kind !== 'draft.save') return undefined;
-		const projectedMessage = [...this.#threadsById.values()]
-			.flatMap((thread) => thread.messages)
-			.find((message) => message.messageId === operation.messageId);
-		if (
-			operation.kind === 'draft.flush' &&
-			operation.body.trim().length === 0 &&
-			(projectedMessage?.savedRevision === null || projectedMessage?.savedRevision === undefined)
-		) {
-			return undefined;
-		}
-		return {
-			draftRevision:
-				operation.kind === 'draft.save'
-					? null
-					: operation.expectedDraftRevision === null
-						? 0
-						: operation.expectedDraftRevision + 1,
-			kind: 'message',
-			messageId: operation.messageId,
-			messageRevision: (projectedMessage?.messageRevision ?? 0) + 1,
-			savedRevision:
-				operation.kind === 'draft.save' ? (projectedMessage?.savedRevision ?? 0) + 1 : null,
-			sessionRevision: this.#revision + 1,
-			threadId: projectedMessage?.threadId ?? annotationHeadThreadId,
-			threadRevision: projectedMessage?.threadRevision ?? 0,
-		};
 	}
 
 	settleMostRecentAdmissionRequired(props: {

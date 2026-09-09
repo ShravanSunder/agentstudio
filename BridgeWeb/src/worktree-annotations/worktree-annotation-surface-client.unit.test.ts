@@ -358,6 +358,8 @@ describe('worktree annotation surface command rendezvous', () => {
 			messageId,
 			sessionId,
 		});
+		const canonicalMessage = projectionSnapshot(3, 12).threads[0]?.messages[0];
+		if (canonicalMessage === undefined) throw new Error('Expected canonical message fixture.');
 
 		harness.publish({
 			direction: 'serverWorkerToMain',
@@ -372,6 +374,28 @@ describe('worktree annotation surface command rendezvous', () => {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationCommandAccepted',
 			outcome: {
+				receipt: {
+					context: {
+						diffSide: null,
+						endLine: 4,
+						path: 'Sources/App.swift',
+						resolution: 'open',
+						scope: 'located',
+						sourceIdentity: 'source-1',
+						sourceRole: 'file',
+						startLine: 3,
+						threadId,
+					},
+					kind: 'message',
+					message: {
+						...canonicalMessage,
+						messageRevision: 3,
+						savedBody: 'Saved from command',
+						savedRevision: 2,
+						sessionRevision: 4,
+						status: 'editable',
+					},
+				},
 				requestId: 'product-save-1',
 				sessionId,
 				status: { kind: 'committed' },
@@ -383,6 +407,9 @@ describe('worktree annotation surface command rendezvous', () => {
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 		});
+		expect(harness.client.getSnapshot().commandConfirmedThreads).toMatchObject([
+			{ messages: [{ savedBody: 'Saved from command' }] },
+		]);
 
 		await expect(save).resolves.toMatchObject({
 			requestId: 'product-save-1',
