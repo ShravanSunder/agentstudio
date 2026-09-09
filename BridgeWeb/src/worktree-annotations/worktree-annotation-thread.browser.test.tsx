@@ -61,7 +61,10 @@ describe('worktree annotation inline thread', () => {
 			.toBeVisible();
 		await expect
 			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
-			.toHaveTextContent('Pending');
+			.toHaveAttribute('aria-label', 'Pending');
+		expect(
+			rendered.getByTestId('worktree-annotation-message-pending-status').element().textContent,
+		).toBe('Pending');
 		const annotationMessage = rendered.getByTestId('worktree-annotation-message').element();
 		expect(
 			annotationMessage.querySelector('[data-slot="avatar"][aria-label="You"]'),
@@ -120,10 +123,47 @@ describe('worktree annotation inline thread', () => {
 			resolution: 'resolved',
 		});
 		const reopenButton = rendered.getByRole('button', { name: 'Reopen annotation thread' });
-		expect(reopenButton.element().classList).toContain('border-input');
+		expect(getComputedStyle(reopenButton.element()).color).toBe('rgb(234, 234, 234)');
+		const reopenIcon = reopenButton.element().querySelector('svg');
+		if (reopenIcon === null) throw new Error('Expected the reopen action icon.');
+		expect(getComputedStyle(reopenIcon).color).toBe('rgb(64, 156, 255)');
+		expect(reopenButton.element().classList).toContain('bg-primary/15');
 		expect(reopenButton.element().classList).not.toContain('border-success/50');
+		expect(rendered.getByRole('button', { name: 'Reply to annotation thread' }).all()).toHaveLength(
+			0,
+		);
+		expect(rendered.getByTestId('worktree-annotation-message').all()).toHaveLength(0);
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Expand 1 annotation' }).click();
+		});
+		await expect.element(rendered.getByText('Resolution style.')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-message-pending-status').all()).toHaveLength(
+			0,
+		);
+		expect(
+			rendered
+				.getByTestId('worktree-annotation-thread')
+				.element()
+				.getAttribute('data-annotation-resolution'),
+		).toBe('resolved');
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Collapse 1 annotation' }).click();
+		});
+		await expect.element(rendered.getByText('Resolved', { exact: true })).toBeVisible();
+		await act(async (): Promise<void> => {
+			await page.screenshot({
+				element: rendered.getByTestId('worktree-annotation-thread').element(),
+				path: '../../../tmp/bridgeweb-resolved-header.png',
+			});
+		});
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).not.toContain(
+			'ring-warning',
+		);
 
 		await publishThreadMessages(surface, [message]);
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-message-pending-status'))
+			.toBeVisible();
 		expect(
 			rendered
 				.getByRole('button', { name: 'Resolve annotation thread' })

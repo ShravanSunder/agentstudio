@@ -85,11 +85,9 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			--diffs-addition-base: var(--success);
 			--diffs-deletion-base: var(--destructive);
 			--diffs-modified-base: var(--primary);
-			--diffs-fg: var(--foreground);
+			--diffs-fg: var(--code-foreground);
 			--diffs-fg-number: var(--faint-foreground);
-			container-type: scroll-state;
-			container-name: bridge-code-view-sticky-header;
-			background-color: var(--surface);
+			background-color: var(--file-header);
 			cursor: default;
 			height: 40px;
 			min-height: 40px;
@@ -125,7 +123,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 
 		[data-diffs-header='default'] {
 			align-items: center;
-			border-block: 1px solid var(--border);
+			border-block-start: 1px solid var(--separator);
 			color: var(--muted-foreground);
 			padding-inline: 12px;
 		}
@@ -136,16 +134,5 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			font-weight: 500;
 		}
 
-		@container bridge-code-view-sticky-header scroll-state(stuck: top) {
-			[data-diffs-header]::after {
-				position: absolute;
-				bottom: -1px;
-				left: 0;
-				width: 100%;
-				height: 1px;
-				content: '';
-				background-color: var(--input);
-			}
-		}
 	`,
 };

@@ -40,7 +40,6 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 			clearDisabled={!hasActiveFacet}
 			clearLabel="Clear filters"
 			clearTestId="bridge-review-facet-clear"
-			contentClassName="w-[min(520px,calc(100vw-32px))]"
 			contentTestId="bridge-review-facet-popover"
 			description="Refine the file set without changing the review mode"
 			hasActiveFilter={hasActiveFacet}
@@ -115,6 +114,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 							checked={props.showBinary}
 							description="Include binary files"
 							label="Binary"
+							icon={null}
 							onCheckedChange={(showBinary) =>
 								props.onFilterChange({
 									categoryFilter: props.categoryFilter,
@@ -130,6 +130,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 							checked={props.showLarge}
 							description="Include large files"
 							label="Large"
+							icon={null}
 							onCheckedChange={(showLarge) =>
 								props.onFilterChange({
 									categoryFilter: props.categoryFilter,

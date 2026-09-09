@@ -8,6 +8,10 @@ import {
 import { BridgeReviewComparisonStatusBanner } from '../../app/bridge-review-comparison-status-banner.js';
 import type { BridgeReviewComparisonTarget } from '../../app/bridge-review-comparison-target.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import {
+	BridgeViewerContextPanelProvider,
+	BridgeViewerContextPanelViewport,
+} from '../../app/bridge-viewer-context-panel-host.js';
 import type { BridgeViewerFileCategory } from '../../app/bridge-viewer-file-class-options.js';
 import type { BridgeViewerFacetMenuOption } from '../../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
@@ -240,7 +244,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 	return (
 		<main
 			ref={surfaceRootRef}
-			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground"
 			data-review-selected-demand-admitted-bytes={selectedDemandTelemetry?.admittedBytes}
 			data-review-selected-demand-admitted-bytes-by-lane={serializeReviewDemandLaneBytes(
 				selectedDemandTelemetry?.admittedBytesByLane,
@@ -376,95 +380,101 @@ export function renderReviewViewerShellPresentation(presentation: {
 				// Rail-frame gating stays on the lightweight fallback shells, not real content.
 				isActive={true}
 				content={
-					<section
-						aria-label="Selected content"
-						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
-						data-testid="bridge-review-code-scroll"
-					>
-						<BridgeViewerContentHeader
-							controls={props.viewerHeaderControls}
-							mode="review"
-							statusText={statusText}
-							title={contentHeaderTitle}
-						/>
-						<BridgeReviewComparisonStatusBanner
-							onRetry={props.onRetryComparison}
-							state={props.comparisonPaneState}
-						/>
+					<BridgeViewerContextPanelProvider>
 						<section
-							aria-label="Code canvas"
-							aria-busy={comparisonIsLoading ? 'true' : undefined}
-							className={cn(
-								'relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)] transition-opacity',
-								comparisonIsLoading ? 'pointer-events-none opacity-50' : undefined,
-							)}
-							data-testid="bridge-review-canvas"
-							inert={comparisonIsLoading || undefined}
+							aria-label="Selected content"
+							className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-background"
+							data-testid="bridge-review-code-scroll"
 						>
-							{!hasChangedFiles ? (
-								<BridgeReviewEmptyCanvas />
-							) : props.selectedContentUnavailablePath !== undefined &&
-							  props.selectedContentUnavailablePath !== null ? (
-								<BridgeReviewContentUnavailableState
-									sourcePath={props.selectedContentUnavailablePath}
+							<BridgeViewerContentHeader
+								controls={props.viewerHeaderControls}
+								mode="review"
+								statusText={statusText}
+								title={contentHeaderTitle}
+							/>
+							<div data-testid="bridge-review-comparison-status-slot">
+								<BridgeReviewComparisonStatusBanner
+									onRetry={props.onRetryComparison}
+									state={props.comparisonPaneState}
 								/>
-							) : (
-								<BridgeCodeViewPanel
-									presentationPositionKey={props.presentationPositionKey}
-									projection={projection}
-									renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
-									reviewPackage={props.reviewPackage}
-									selectedCodeViewItem={props.selectedCodeViewItem ?? null}
-									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
-									selectedContentPaintTelemetryStart={
-										props.selectedContentPaintTelemetryStart ?? null
-									}
-									selectedItemId={props.selectedItemId}
-									selectedItemPresentation={props.selectedItemPresentation ?? null}
-									{...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile })}
-									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
-									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
-									{...(props.codeViewOptions === undefined
-										? {}
-										: { codeViewOptions: props.codeViewOptions })}
-									{...(props.onCodeViewVisibleItemIdsChange === undefined
-										? {}
-										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
-									{...(props.onAnnotationAttentionItemIdsChange === undefined
-										? {}
-										: {
-												onAnnotationAttentionItemIdsChange:
-													props.onAnnotationAttentionItemIdsChange,
-											})}
-									{...(props.onAnnotationEditorAttentionItemIdsChange === undefined
-										? {}
-										: {
-												onAnnotationEditorAttentionItemIdsChange:
-													props.onAnnotationEditorAttentionItemIdsChange,
-											})}
-									{...(props.onReadingPositionItemIdChange === undefined
-										? {}
-										: {
-												onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
-											})}
-									{...(props.onCodeViewControlHandleChange === undefined
-										? {}
-										: {
-												onControlHandleChange: props.onCodeViewControlHandleChange,
-											})}
-									{...(props.codeViewWorkerPoolEnabled === undefined
-										? {}
-										: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-									{...(props.codeViewWorkerFactory === undefined
-										? {}
-										: { workerFactory: props.codeViewWorkerFactory })}
-									{...(props.telemetryRecorder === undefined
-										? {}
-										: { telemetryRecorder: props.telemetryRecorder })}
-								/>
-							)}
+							</div>
+							<BridgeViewerContextPanelViewport testId="bridge-review-context-panel-viewport">
+								<section
+									aria-label="Code canvas"
+									aria-busy={comparisonIsLoading ? 'true' : undefined}
+									className={cn(
+										'relative h-full min-h-0 min-w-0 bg-background',
+										comparisonIsLoading ? 'pointer-events-none' : undefined,
+									)}
+									data-testid="bridge-review-canvas"
+									inert={comparisonIsLoading || undefined}
+								>
+									{!hasChangedFiles ? (
+										<BridgeReviewEmptyCanvas />
+									) : props.selectedContentUnavailablePath !== undefined &&
+									  props.selectedContentUnavailablePath !== null ? (
+										<BridgeReviewContentUnavailableState
+											sourcePath={props.selectedContentUnavailablePath}
+										/>
+									) : (
+										<BridgeCodeViewPanel
+											presentationPositionKey={props.presentationPositionKey}
+											projection={projection}
+											renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
+											reviewPackage={props.reviewPackage}
+											selectedCodeViewItem={props.selectedCodeViewItem ?? null}
+											selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
+											selectedContentPaintTelemetryStart={
+												props.selectedContentPaintTelemetryStart ?? null
+											}
+											selectedItemId={props.selectedItemId}
+											selectedItemPresentation={props.selectedItemPresentation ?? null}
+											{...(props.onOpenFile === undefined ? {} : { onOpenFile: props.onOpenFile })}
+											telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+											visibleCodeViewItems={props.visibleCodeViewItems ?? []}
+											{...(props.codeViewOptions === undefined
+												? {}
+												: { codeViewOptions: props.codeViewOptions })}
+											{...(props.onCodeViewVisibleItemIdsChange === undefined
+												? {}
+												: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
+											{...(props.onAnnotationAttentionItemIdsChange === undefined
+												? {}
+												: {
+														onAnnotationAttentionItemIdsChange:
+															props.onAnnotationAttentionItemIdsChange,
+													})}
+											{...(props.onAnnotationEditorAttentionItemIdsChange === undefined
+												? {}
+												: {
+														onAnnotationEditorAttentionItemIdsChange:
+															props.onAnnotationEditorAttentionItemIdsChange,
+													})}
+											{...(props.onReadingPositionItemIdChange === undefined
+												? {}
+												: {
+														onReadingPositionItemIdChange: props.onReadingPositionItemIdChange,
+													})}
+											{...(props.onCodeViewControlHandleChange === undefined
+												? {}
+												: {
+														onControlHandleChange: props.onCodeViewControlHandleChange,
+													})}
+											{...(props.codeViewWorkerPoolEnabled === undefined
+												? {}
+												: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+											{...(props.codeViewWorkerFactory === undefined
+												? {}
+												: { workerFactory: props.codeViewWorkerFactory })}
+											{...(props.telemetryRecorder === undefined
+												? {}
+												: { telemetryRecorder: props.telemetryRecorder })}
+										/>
+									)}
+								</section>
+							</BridgeViewerContextPanelViewport>
 						</section>
-					</section>
+					</BridgeViewerContextPanelProvider>
 				}
 				contentTestId="bridge-review-content-panel"
 				handleTestId="bridge-review-rail-resize-handle"
@@ -474,8 +484,8 @@ export function renderReviewViewerShellPresentation(presentation: {
 							aria-label="Changed files"
 							aria-busy={comparisonIsLoading ? 'true' : undefined}
 							className={cn(
-								'h-full min-h-0 transition-opacity',
-								comparisonIsLoading ? 'pointer-events-none opacity-50' : undefined,
+								'h-full min-h-0',
+								comparisonIsLoading ? 'pointer-events-none' : undefined,
 							)}
 							data-testid="bridge-review-rail-tree-slot"
 							inert={comparisonIsLoading || undefined}
@@ -601,7 +611,7 @@ function BridgeReviewEmptyCanvas(): ReactElement {
 			className="flex h-full items-center justify-center px-8 text-center"
 			data-testid="bridge-review-empty-canvas"
 		>
-			<p className="text-sm font-medium text-[var(--bridge-text-primary)]">Nothing to review</p>
+			<p className="text-sm font-medium text-foreground">Nothing to review</p>
 		</div>
 	);
 }
@@ -612,7 +622,7 @@ function BridgeReviewEmptyFileTree(): ReactElement {
 			className="flex h-full items-center justify-center px-4 text-center"
 			data-testid="bridge-review-empty-file-tree"
 		>
-			<p className="text-xs text-[var(--bridge-text-secondary)]">No changed files</p>
+			<p className="text-xs text-muted-foreground">No changed files</p>
 		</div>
 	);
 }
@@ -662,12 +672,12 @@ function BridgeReviewContentUnavailableState(props: { readonly sourcePath: strin
 	return (
 		<section
 			aria-label="Selected content unavailable"
-			className="flex h-full min-h-[260px] items-center justify-center bg-[var(--bridge-canvas-bg)] px-8 text-center"
+			className="flex h-full min-h-[260px] items-center justify-center bg-background px-8 text-center"
 			data-testid="bridge-review-content-unavailable"
 		>
 			<div className="max-w-md">
-				<p className="text-sm font-medium text-[var(--bridge-text-primary)]">Content unavailable</p>
-				<p className="mt-1 truncate text-xs text-[var(--bridge-text-muted)]">{props.sourcePath}</p>
+				<p className="text-sm font-medium text-foreground">Content unavailable</p>
+				<p className="mt-1 truncate text-xs text-faint-foreground">{props.sourcePath}</p>
 			</div>
 		</section>
 	);

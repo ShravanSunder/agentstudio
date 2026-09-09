@@ -410,9 +410,9 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			for (const metadataCount of metadataCounts) {
 				const metadataCountStyle = getComputedStyle(metadataCount);
 				const metadataCountFontSize = Number.parseFloat(metadataCountStyle.fontSize);
-				expect(metadataCountFontSize).toBe(10);
+				expect(metadataCountFontSize).toBe(9);
 				expect(metadataCountFontSize).toBeLessThan(surroundingNavigationFontSize);
-				expect(Number.parseFloat(metadataCountStyle.lineHeight)).toBe(10);
+				expect(Number.parseFloat(metadataCountStyle.lineHeight)).toBe(12);
 				expect(metadataCountStyle.fontVariantNumeric).toContain('tabular-nums');
 				const metadataCountBox = metadataCount.getBoundingClientRect();
 				const headerTitleBox = pierreHeaderTitle.getBoundingClientRect();

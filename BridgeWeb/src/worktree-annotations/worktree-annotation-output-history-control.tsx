@@ -2,9 +2,17 @@ import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
 import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardFooter,
+	CardHeader,
+	CardTitle,
+} from '@/components/ui/card.js';
+import {
 	Collapsible,
 	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleHeading,
 } from '@/components/ui/collapsible.js';
 
 import { bridgeViewerActionToolbarSurfaceClassName } from '../app/bridge-viewer-action-toolbar.js';
@@ -105,15 +113,9 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 		<Collapsible>
 			<section
 				aria-label="Output history"
-				className={cn(
-					props.embedded === true
-						? 'mt-2 border-t border-[var(--bridge-border-subtle)] pt-1.5'
-						: bridgeViewerActionToolbarSurfaceClassName,
-				)}
+				className={cn(props.embedded === true ? 'mt-2' : bridgeViewerActionToolbarSurfaceClassName)}
 			>
-				<CollapsibleTrigger render={<BridgeViewerButton />}>
-					History ({history.length})
-				</CollapsibleTrigger>
+				<CollapsibleHeading>History ({history.length})</CollapsibleHeading>
 				<CollapsibleContent className="mt-2">
 					<WorktreeAnnotationOutputHistory
 						history={history}
@@ -138,24 +140,48 @@ function WorktreeAnnotationOutputHistory(props: {
 	readonly onRepeat: (attemptId: string) => void;
 }): ReactElement {
 	return (
-		<div className="space-y-1">
+		<div className="space-y-2">
 			{props.history.map((summary, attemptIndex) => (
-				<div
-					className="border-t border-[var(--bridge-border-subtle)] pt-1.5"
+				<Card
+					aria-labelledby={`annotation-output-history-title-${summary.attemptId}`}
 					data-testid="annotation-output-history-entry"
 					key={summary.attemptId}
+					role="group"
 				>
-					<p className="text-[11px] font-medium text-[var(--bridge-text-primary)]">
-						{summary.outputKind === 'clipboard_markdown' ? 'Clipboard Markdown' : 'JSON file'} ·{' '}
-						{annotationCountLabel(summary.messageCount)}
-					</p>
-					<p className="text-[11px] text-[var(--bridge-text-secondary)]">
-						<time dateTime={new Date(summary.createdAt).toISOString()}>
-							{formatOutputAttemptTime(summary.createdAt)}
-						</time>{' '}
-						· {annotationOutputHistoryStatus(summary.state, summary.outputKind)}
-					</p>
-					<div className="flex gap-1">
+					<CardHeader>
+						<CardTitle id={`annotation-output-history-title-${summary.attemptId}`}>
+							{summary.outputKind === 'clipboard_markdown' ? 'Clipboard Markdown' : 'JSON file'} ·{' '}
+							{annotationCountLabel(summary.messageCount)}
+						</CardTitle>
+						<CardDescription>
+							<time dateTime={new Date(summary.createdAt).toISOString()}>
+								{formatOutputAttemptTime(summary.createdAt)}
+							</time>
+						</CardDescription>
+						<p className="text-sm text-foreground">
+							{annotationOutputHistoryStatus(summary.state, summary.outputKind)}
+						</p>
+					</CardHeader>
+					{props.inspection?.attemptId !== summary.attemptId ? null : (
+						<CardContent>
+							{props.inspection.kind === 'loading' ? (
+								<p aria-live="polite" className="text-xs text-muted-foreground" role="status">
+									Loading exact bytes…
+								</p>
+							) : (
+								<div data-testid="annotation-output-inspection">
+									<p className="text-xs text-muted-foreground">
+										Exact saved output · {props.inspection.byteLength} bytes ·{' '}
+										{props.inspection.contentType}
+									</p>
+									<pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap rounded bg-muted p-1.5 font-mono text-xs text-annotation-foreground">
+										{props.inspection.content}
+									</pre>
+								</div>
+							)}
+						</CardContent>
+					)}
+					<CardFooter>
 						<BridgeViewerButton
 							aria-label={`Inspect output attempt ${attemptIndex + 1}`}
 							onClick={() => props.onInspect(summary.attemptId)}
@@ -176,24 +202,8 @@ function WorktreeAnnotationOutputHistory(props: {
 								Mark as not handled
 							</BridgeViewerButton>
 						) : null}
-					</div>
-					{props.inspection?.attemptId !== summary.attemptId ? null : props.inspection.kind ===
-					  'loading' ? (
-						<p className="mt-1 text-[11px] text-[var(--bridge-text-secondary)]">
-							Loading exact bytes…
-						</p>
-					) : (
-						<div className="mt-1" data-testid="annotation-output-inspection">
-							<p className="text-[11px] text-[var(--bridge-text-secondary)]">
-								Exact saved output · {props.inspection.byteLength} bytes ·{' '}
-								{props.inspection.contentType}
-							</p>
-							<pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap rounded bg-muted p-1.5 font-mono text-xs text-comment-foreground">
-								{props.inspection.content}
-							</pre>
-						</div>
-					)}
-				</div>
+					</CardFooter>
+				</Card>
 			))}
 		</div>
 	);

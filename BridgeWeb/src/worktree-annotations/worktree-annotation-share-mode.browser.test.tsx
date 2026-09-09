@@ -5,9 +5,13 @@ import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
-import { BridgeViewerHeaderShelf } from '../app/bridge-viewer-header-shelf.js';
+import {
+	BridgeViewerContextPanelProvider,
+	BridgeViewerContextPanelViewport,
+} from '../app/bridge-viewer-context-panel-host.js';
+import { BridgeViewerContextPanel } from '../app/bridge-viewer-context-panel.js';
 import { Alert } from '../components/ui/alert.js';
-import { Popover } from '../components/ui/popover.js';
+import { Drawer } from '../components/ui/drawer.js';
 import {
 	WorktreeAnnotationShareModeRow,
 	WorktreeAnnotationShareTrigger,
@@ -15,21 +19,68 @@ import {
 } from './worktree-annotation-share-mode.js';
 
 describe('worktree annotation Share comments presentation', () => {
+	test('renders ordinary Share body content before History', async () => {
+		const rendered = await render(
+			<Drawer>
+				<div className="h-[240px] w-[320px]">
+					<WorktreeAnnotationShareModeRow
+						error={null}
+						history={<div data-testid="share-history">History content</div>}
+						isOutputPending={false}
+						membership={{ allCount: 1, kind: 'ready', pendingCount: 1 }}
+						onCopy={vi.fn()}
+						onDone={vi.fn()}
+						onExport={vi.fn()}
+						onScopeChange={vi.fn()}
+						scope="pending"
+						{...{
+							children: (
+								<div className="h-[360px]" data-testid="share-preview-body">
+									Preview content
+								</div>
+							),
+						}}
+					/>
+				</div>
+			</Drawer>,
+		);
+
+		const previewBody = rendered.getByTestId('share-preview-body').element();
+		const history = rendered.getByTestId('share-history').element();
+		expect(
+			previewBody.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).not.toBe(0);
+		const shareMode = rendered.getByRole('region', { name: 'Share comments' }).element();
+		const body = shareMode.querySelector<HTMLElement>('.overflow-y-auto');
+		const footer = shareMode.querySelector<HTMLElement>('[data-slot="drawer-footer"]');
+		if (body === null || footer === null) throw new Error('Expected a scrollable body and footer.');
+		expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+		expect(Math.round(body.getBoundingClientRect().bottom)).toBeLessThanOrEqual(
+			Math.round(footer.getBoundingClientRect().top),
+		);
+		expect(footer.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+			shareMode.getBoundingClientRect().bottom,
+		);
+	});
+
 	test('uses the owned action surface without a route-local color', async () => {
 		const rendered = await render(
-			<div>
-				<Alert data-testid="loading-status-surface">Loading comparison…</Alert>
-				<WorktreeAnnotationShareModeRow
-					error={null}
-					isOutputPending={false}
-					membership={{ allCount: 11, kind: 'ready', pendingCount: 4 }}
-					onCopy={vi.fn()}
-					onDone={vi.fn()}
-					onExport={vi.fn()}
-					onScopeChange={vi.fn()}
-					scope="pending"
-				/>
-			</div>,
+			<Drawer>
+				<div>
+					<Alert data-testid="loading-status-surface">Loading comparison…</Alert>
+					<WorktreeAnnotationShareModeRow
+						error={null}
+						history={null}
+						isOutputPending={false}
+						membership={{ allCount: 11, kind: 'ready', pendingCount: 4 }}
+						onCopy={vi.fn()}
+						onDone={vi.fn()}
+						onExport={vi.fn()}
+						onScopeChange={vi.fn()}
+						scope="pending"
+					/>
+				</div>
+			</Drawer>,
 		);
 
 		const loadingSurface = rendered.getByTestId('loading-status-surface').element();
@@ -43,11 +94,11 @@ describe('worktree annotation Share comments presentation', () => {
 		const onExport = vi.fn<(scope: WorktreeAnnotationShareScope) => void>();
 		const rendered = await render(<ShareModeFixture onCopy={onCopy} onExport={onExport} />);
 		const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
-		expect(shareTrigger.element().textContent).toBe('');
-		expect(shareTrigger.element().querySelector('.lucide-share-2')).not.toBeNull();
-		expect(shareTrigger.element().getAttribute('data-slot')).toBe('popover-trigger');
+		expect(shareTrigger.element().querySelector('svg')).not.toBeNull();
+		expect(shareTrigger.element().getAttribute('data-slot')).toBe('drawer-trigger');
 		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Share comments');
-		expect(getComputedStyle(shareTrigger.element()).width).toBe('24px');
+		expect(shareTrigger.element().getBoundingClientRect().width).toBe(24);
+		expect(shareTrigger.element().getBoundingClientRect().height).toBe(24);
 
 		await performBrowserAction(() => shareTrigger.click());
 		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
@@ -58,7 +109,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(shareMode.element().textContent).not.toContain('Copy Markdown');
 		expect(shareMode.element().textContent).toContain('Export');
 		expect(shareMode.element().textContent).not.toContain('Export JSON');
-		expect(shareMode.element().querySelector('.lucide-share-2')).not.toBeNull();
+		expect(shareMode.element().querySelector('.lucide-share-2')).toBeNull();
 		expect(shareMode.element().querySelector('.lucide-copy')).not.toBeNull();
 		expect(
 			rendered.getByRole('button', { name: 'Export JSON' }).element().querySelector('svg'),
@@ -76,7 +127,45 @@ describe('worktree annotation Share comments presentation', () => {
 		await expect.element(rendered.getByRole('button', { name: 'All comments, 11' })).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeEnabled();
-		expect(document.querySelector('[data-slot="popover-content"]')).toBe(
+		const copyButton = rendered.getByRole('button', { name: 'Copy Markdown' }).element();
+		const exportButton = rendered.getByRole('button', { name: 'Export JSON' }).element();
+		const copyBounds = copyButton.getBoundingClientRect();
+		const exportBounds = exportButton.getBoundingClientRect();
+		const header = shareMode.element().querySelector('[data-slot="drawer-header"]');
+		const footer = shareMode.element().querySelector('[data-slot="drawer-footer"]');
+		const titleIcon = header?.querySelector('svg');
+		if (header === null || footer === null || titleIcon === undefined || titleIcon === null) {
+			throw new Error('Expected the shared drawer frame and title icon.');
+		}
+		expect(getComputedStyle(header).padding).toBe('8px');
+		expect(getComputedStyle(footer).padding).toBe('8px');
+		const body = header.nextElementSibling;
+		if (body === null) throw new Error('Expected the drawer body after its header.');
+		expect(getComputedStyle(body).padding).toBe('8px');
+		const title = rendered.getByRole('heading', { name: 'Share annotations' }).element();
+		expect(getComputedStyle(title).fontSize).toBe('14px');
+		expect(getComputedStyle(title).lineHeight).toBe('20px');
+		expect(titleIcon.closest('button')).not.toBeNull();
+		expect(titleIcon.getBoundingClientRect().width).toBe(12);
+		for (const name of ['Pending comments, 4', 'All comments, 11']) {
+			const segment = rendered.getByRole('button', { name }).element();
+			const icon = segment.querySelector('svg');
+			if (icon === null) throw new Error('Expected matching outline icons for both scopes.');
+			expect(segment.getBoundingClientRect().height).toBe(20);
+			expect(icon.getBoundingClientRect().width).toBe(12);
+			expect(getComputedStyle(segment).columnGap).toBe('4px');
+		}
+		expect(Math.round(copyBounds.height)).toBe(24);
+		expect(Math.round(exportBounds.height)).toBe(24);
+		expect(Math.round(copyBounds.top)).toBe(Math.round(exportBounds.top));
+		expect(Math.round(exportBounds.left - copyBounds.right)).toBe(8);
+		expect(getComputedStyle(copyButton).backgroundColor).toBe(
+			getComputedStyle(exportButton).backgroundColor,
+		);
+		expect(getComputedStyle(copyButton).borderColor).toBe(
+			getComputedStyle(exportButton).borderColor,
+		);
+		expect(document.querySelector('[data-slot="drawer-popup"]')).toBe(
 			rendered.getByTestId('worktree-annotation-share-shelf').element(),
 		);
 		expect(document.querySelector('[role="checkbox"]')).toBeNull();
@@ -133,7 +222,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(onExport).not.toHaveBeenCalled();
 	});
 
-	test('retains failure feedback inside the 90%-width floating shelf', async () => {
+	test('retains failure feedback inside the viewer-local right drawer', async () => {
 		const rendered = await render(
 			<div className="w-[420px]">
 				<ShareModeFixture error="Export failed. No comments were handled." />
@@ -149,7 +238,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(
 			rendered.getByTestId('worktree-annotation-share-shelf').element().getBoundingClientRect()
 				.width,
-		).toBeCloseTo(378, 0);
+		).toBeCloseTo(384, 0);
 	});
 });
 
@@ -162,35 +251,42 @@ function ShareModeFixture(props: {
 }): ReactElement {
 	const [isOpen, setIsOpen] = useState(false);
 	const [scope, setScope] = useState<WorktreeAnnotationShareScope>('pending');
-	const headerRef = useRef<HTMLDivElement | null>(null);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	return (
-		<div ref={headerRef} data-bridge-viewer-content-topbar="true">
-			<Popover onOpenChange={setIsOpen} open={isOpen}>
-				<WorktreeAnnotationShareTrigger buttonRef={triggerRef} disabled={false} open={isOpen} />
-				<BridgeViewerHeaderShelf
-					anchor={headerRef}
-					ariaLabel="Share comments"
-					finalFocus={triggerRef}
-					testId="worktree-annotation-share-shelf"
-				>
-					<WorktreeAnnotationShareModeRow
-						error={props.error ?? null}
-						isOutputPending={false}
-						membership={{
-							allCount: props.allCount ?? 11,
-							kind: 'ready',
-							pendingCount: props.pendingCount ?? 4,
-						}}
-						onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
-						onDone={() => setIsOpen(false)}
-						onExport={(selectedScope) => props.onExport?.(selectedScope)}
-						onScopeChange={setScope}
-						scope={scope}
-					/>
-				</BridgeViewerHeaderShelf>
-			</Popover>
-		</div>
+		<BridgeViewerContextPanelProvider>
+			<div className="grid h-[500px] w-[420px] grid-rows-[auto_minmax(0,1fr)]">
+				<Drawer onOpenChange={setIsOpen} open={isOpen} modal={false} swipeDirection="right">
+					<div data-bridge-viewer-content-topbar="true">
+						<WorktreeAnnotationShareTrigger buttonRef={triggerRef} disabled={false} open={isOpen} />
+					</div>
+					<BridgeViewerContextPanelViewport testId="share-mode-context-panel-viewport">
+						<div className="h-full" />
+					</BridgeViewerContextPanelViewport>
+					<BridgeViewerContextPanel
+						ariaLabel="Share comments"
+						finalFocus={triggerRef}
+						height="half"
+						testId="worktree-annotation-share-shelf"
+					>
+						<WorktreeAnnotationShareModeRow
+							error={props.error ?? null}
+							history={null}
+							isOutputPending={false}
+							membership={{
+								allCount: props.allCount ?? 11,
+								kind: 'ready',
+								pendingCount: props.pendingCount ?? 4,
+							}}
+							onCopy={(selectedScope) => props.onCopy?.(selectedScope)}
+							onDone={() => setIsOpen(false)}
+							onExport={(selectedScope) => props.onExport?.(selectedScope)}
+							onScopeChange={setScope}
+							scope={scope}
+						/>
+					</BridgeViewerContextPanel>
+				</Drawer>
+			</div>
+		</BridgeViewerContextPanelProvider>
 	);
 }
 

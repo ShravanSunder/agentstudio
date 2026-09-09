@@ -396,7 +396,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	return (
 		<div
 			aria-label="Review file tree"
-			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
+			className="h-full min-h-0 overflow-hidden bg-surface text-muted-foreground"
 			data-testid="bridge-review-trees-panel"
 			tabIndex={-1}
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}

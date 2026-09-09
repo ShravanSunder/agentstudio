@@ -1,23 +1,37 @@
-import { SlidersHorizontalIcon, XIcon } from 'lucide-react';
-import type { ReactElement, ReactNode } from 'react';
+import {
+	FilesIcon,
+	GitBranchIcon,
+	FilePlusIcon,
+	FilePenIcon,
+	FileMinusIcon,
+	FileSymlinkIcon,
+	CopyIcon,
+	SlidersHorizontalIcon,
+	XIcon,
+} from 'lucide-react';
+import type { ComponentProps, ReactElement, ReactNode } from 'react';
 
+import { Button } from '../components/ui/button.js';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuHeader,
+	DropdownMenuDescription,
+	DropdownMenuLabel,
+	DropdownMenuGroup,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 } from '../components/ui/dropdown-menu.js';
-import {
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-} from './bridge-viewer-chrome.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import {
 	bridgeViewerFiltersShortcut,
 	bridgeViewerShortcutTitle,
 } from './bridge-viewer-local-shortcuts.js';
-import { cn } from './class-name.js';
 
 export interface BridgeViewerFilterOption<TValue extends string> {
 	readonly value: TValue;
@@ -42,43 +56,15 @@ export interface BridgeViewerFilterMenuProps<TValue extends string> {
 	readonly onChange: (value: TValue) => void;
 }
 
-export const bridgeViewerFilterMenuSurfaceClassName = cn(
-	'z-[80] rounded-[10px] border border-[var(--bridge-menu-border)]',
-	'bg-[var(--bridge-menu-bg)] p-2 text-[var(--bridge-text-secondary)]',
-	'shadow-[var(--bridge-menu-shadow)] ring-1 ring-[var(--bridge-menu-ring)]',
-);
-
-export const bridgeViewerFilterOptionClassName = cn(
-	'gap-2 rounded-[7px] px-2 pr-8 text-[13px]',
-	'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
-	'focus:text-[var(--bridge-text-primary)]',
-);
-
-export const bridgeViewerFilterClearClassName = cn(
-	'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
-	'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
-	'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
-);
-
-export const bridgeViewerMenuTriggerClassName = cn(
-	'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
-	bridgeViewerChromeIconButtonClassName,
-	'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-	'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-	'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-	'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
-);
-
 export function BridgeViewerFilterMenuHeader(props: {
 	readonly description: string;
 	readonly testId: string;
 	readonly title: string;
 }): ReactElement {
 	return (
-		<header className="px-2 pb-2 pt-1.5" data-testid={props.testId}>
-			<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">{props.title}</p>
-			<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">{props.description}</p>
-		</header>
+		<DropdownMenuHeader title={props.title} data-testid={props.testId}>
+			<DropdownMenuDescription>{props.description}</DropdownMenuDescription>
+		</DropdownMenuHeader>
 	);
 }
 
@@ -95,25 +81,16 @@ export function BridgeViewerFilterOptionRow(props: {
 	return (
 		<DropdownMenuCheckboxItem
 			checked={props.checked}
-			className={cn(
-				bridgeViewerFilterOptionClassName,
-				'h-8 py-0',
-				props.checked && 'text-[var(--bridge-text-primary)]',
-			)}
 			data-testid={props.optionTestId}
 			onCheckedChange={props.onSelect}
 		>
-			<span
+			<StatusBadge
 				aria-hidden="true"
-				className={cn(
-					'flex size-5 shrink-0 items-center justify-center rounded-[6px]',
-					'text-[10px] font-semibold leading-none',
-					statusBadgeClassName(props.value),
-				)}
+				tone={statusBadgeTone(props.value)}
 				data-testid={props.optionBadgeTestId}
 			>
-				{props.icon}
-			</span>
+				{typeof props.icon === 'string' ? gitStatusIcon(props.value) : props.icon}
+			</StatusBadge>
 			<span className="min-w-0 truncate" data-testid={props.optionLabelTestId}>
 				{props.label}
 			</span>
@@ -126,28 +103,19 @@ export function BridgeViewerFacetToggleRow(props: {
 	readonly description: string;
 	readonly label: string;
 	readonly onCheckedChange: (checked: boolean) => void;
+	readonly icon: ReactNode;
 	readonly testId: string;
 }): ReactElement {
 	return (
 		<DropdownMenuCheckboxItem
 			aria-label={props.label}
 			checked={props.checked}
-			className={cn(
-				bridgeViewerFilterOptionClassName,
-				'min-h-10 py-1.5',
-				props.checked && 'text-[var(--bridge-text-primary)]',
-			)}
+			title={props.description}
 			data-testid={props.testId}
 			onCheckedChange={(checked: boolean): void => props.onCheckedChange(checked)}
 		>
-			<span className="min-w-0">
-				<span className="block truncate" data-bridge-filter-row-label="">
-					{props.label}
-				</span>
-				<span className="block truncate text-[11px] text-[var(--bridge-text-muted)]">
-					{props.description}
-				</span>
-			</span>
+			{props.icon}
+			<span data-bridge-filter-row-label="">{props.label}</span>
 		</DropdownMenuCheckboxItem>
 	);
 }
@@ -159,15 +127,8 @@ export function BridgeViewerFilterClearItem(props: {
 	readonly testId: string;
 }): ReactElement {
 	return (
-		<DropdownMenuItem
-			className={bridgeViewerFilterClearClassName}
-			data-testid={props.testId}
-			disabled={props.disabled}
-			onClick={props.onClear}
-		>
-			<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
-				<XIcon aria-hidden="true" className="size-3.5" />
-			</span>
+		<DropdownMenuItem data-testid={props.testId} disabled={props.disabled} onClick={props.onClear}>
+			<XIcon aria-hidden="true" />
 			<span>{props.label}</span>
 		</DropdownMenuItem>
 	);
@@ -185,18 +146,16 @@ export function BridgeViewerFilterTrigger(props: {
 	return (
 		<DropdownMenuTrigger
 			aria-label={props.label}
-			className={bridgeViewerMenuTriggerClassName}
+			render={<Button size="icon-sm" variant="ghost" />}
 			data-testid={props.testId}
 			title={props.title ?? props.label}
 		>
 			<span className="relative flex min-w-0 items-center truncate">
 				<FilterTriggerGlyph testId={props.triggerGlyphTestId} />
 				{props.hasActiveFilter ? (
-					<span
-						className={cn(
-							'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-							'bg-[var(--bridge-focus-border)] shadow-[var(--bridge-focus-dot-shadow)]',
-						)}
+					<StatusBadge
+						appearance="indicator"
+						className="absolute -right-0.5 -top-0.5"
 						data-testid={props.activeIndicatorTestId}
 					/>
 				) : null}
@@ -211,7 +170,6 @@ export function BridgeViewerFacetMenu(props: {
 	readonly clearDisabled: boolean;
 	readonly clearLabel: string;
 	readonly clearTestId: string;
-	readonly contentClassName: string;
 	readonly contentTestId: string;
 	readonly description: string;
 	readonly hasActiveFilter: boolean;
@@ -239,18 +197,14 @@ export function BridgeViewerFacetMenu(props: {
 			/>
 			<DropdownMenuContent
 				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, props.contentClassName)}
+				className="w-72 max-w-[calc(100vw-32px)]"
 				data-testid={props.contentTestId}
 				sideOffset={6}
 			>
-				<BridgeViewerFilterMenuHeader
-					description={props.description}
-					testId={props.headerTestId}
-					title={props.title}
-				/>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuHeader title={props.title} data-testid={props.headerTestId} />
+				<DropdownMenuSeparator />
 				{props.children}
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuSeparator />
 				<BridgeViewerFilterClearItem
 					disabled={props.clearDisabled}
 					label={props.clearLabel}
@@ -272,12 +226,11 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 	readonly optionTestId: string;
 	readonly options: readonly BridgeViewerFacetMenuOption<TValue>[];
 	readonly testId: string;
+	readonly submenu?: boolean;
 }): ReactElement {
-	return (
-		<section aria-label={props.label} data-testid={props.testId}>
-			<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
-				{props.label}
-			</p>
+	const options = (
+		<DropdownMenuGroup aria-label={props.label} data-testid={props.testId}>
+			<DropdownMenuLabel>{props.label}</DropdownMenuLabel>
 			<div className="space-y-0.5">
 				{props.options.map(
 					(option: BridgeViewerFacetMenuOption<TValue>): ReactElement => (
@@ -295,7 +248,23 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 					),
 				)}
 			</div>
-		</section>
+		</DropdownMenuGroup>
+	);
+	if (props.submenu !== true) return options;
+	const selectedLabel = props.options.find((option) => option.value === props.activeValue)?.label;
+	return (
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger aria-label={props.label}>
+				{props.label === 'Git status' ? (
+					<GitBranchIcon aria-hidden="true" />
+				) : (
+					<FilesIcon aria-hidden="true" />
+				)}
+				<span>{props.label}</span>
+				<span className="ml-auto truncate">{selectedLabel}</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent className="w-64">{options}</DropdownMenuSubContent>
+		</DropdownMenuSub>
 	);
 }
 
@@ -330,10 +299,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 			/>
 			<DropdownMenuContent
 				align="end"
-				className={cn(
-					bridgeViewerFilterMenuSurfaceClassName,
-					'w-64 max-h-[min(460px,calc(100vh-96px))]',
-				)}
+				className="w-64 max-h-[min(460px,calc(100vh-96px))]"
 				data-testid={testIds.popover}
 				sideOffset={6}
 			>
@@ -342,7 +308,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 					testId={testIds.popoverHeader}
 					title={titleForFilterLabel(props.label)}
 				/>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuSeparator />
 				{menuOptions.map(
 					(option: BridgeViewerFilterOption<TValue>): ReactElement => (
 						<BridgeViewerFilterOptionRow
@@ -358,7 +324,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 						/>
 					),
 				)}
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuSeparator />
 				<BridgeViewerFilterClearItem
 					disabled={!canClear}
 					label="Clear filter"
@@ -375,13 +341,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 }
 
 function FilterTriggerGlyph(props: { readonly testId: string }): ReactElement {
-	return (
-		<SlidersHorizontalIcon
-			aria-hidden="true"
-			className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
-			data-testid={props.testId}
-		/>
-	);
+	return <SlidersHorizontalIcon aria-hidden="true" data-testid={props.testId} />;
 }
 
 function titleForFilterLabel(label: string): string {
@@ -430,27 +390,39 @@ function bridgeViewerFilterMenuTestIds(testId: string): BridgeViewerFilterMenuTe
 	};
 }
 
-function statusBadgeClassName(value: string): string {
+function statusBadgeTone(value: string): ComponentProps<typeof StatusBadge>['tone'] {
 	switch (value) {
 		case 'added':
-		case 'source':
-			return 'bg-[color-mix(in_oklch,var(--bridge-added)_18%,transparent)] text-[var(--bridge-added)]';
+			return 'success';
 		case 'modified':
-		case 'fixture':
-			return 'bg-[color-mix(in_oklch,var(--bridge-accent)_18%,transparent)] text-[var(--bridge-accent)]';
+			return 'primary';
 		case 'renamed':
-		case 'test':
-		case 'docs':
-			return 'bg-[color-mix(in_oklch,var(--bridge-warning)_20%,transparent)] text-[var(--bridge-warning)]';
+			return 'warning';
 		case 'deleted':
-		case 'binary':
-			return 'bg-[color-mix(in_oklch,var(--bridge-deleted)_18%,transparent)] text-[var(--bridge-deleted)]';
+			return 'destructive';
 		case 'copied':
 		case 'generated':
 		case 'vendor':
 		case 'config':
-			return 'bg-[color-mix(in_oklch,var(--bridge-text-muted)_18%,transparent)] text-[var(--bridge-text-secondary)]';
+			return 'neutral';
 		default:
-			return 'bg-[color-mix(in_oklch,var(--bridge-text-muted)_18%,transparent)] text-[var(--bridge-text-secondary)]';
+			return 'neutral';
+	}
+}
+
+function gitStatusIcon(value: string): ReactElement {
+	switch (value) {
+		case 'added':
+			return <FilePlusIcon aria-hidden="true" />;
+		case 'modified':
+			return <FilePenIcon aria-hidden="true" />;
+		case 'deleted':
+			return <FileMinusIcon aria-hidden="true" />;
+		case 'renamed':
+			return <FileSymlinkIcon aria-hidden="true" />;
+		case 'copied':
+			return <CopyIcon aria-hidden="true" />;
+		default:
+			return <FilesIcon aria-hidden="true" />;
 	}
 }

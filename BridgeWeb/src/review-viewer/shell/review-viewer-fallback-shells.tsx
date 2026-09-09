@@ -4,6 +4,10 @@ import type { BridgeReviewComparisonPaneState } from '../../app/bridge-review-co
 import { BridgeReviewComparisonStatusBanner } from '../../app/bridge-review-comparison-status-banner.js';
 import type { BridgeReviewComparisonTarget } from '../../app/bridge-review-comparison-target.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import {
+	BridgeViewerContextPanelProvider,
+	BridgeViewerContextPanelViewport,
+} from '../../app/bridge-viewer-context-panel-host.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
@@ -28,10 +32,8 @@ export function BridgeReviewEmptyShell(props: {
 				data-testid="bridge-review-empty-shell"
 			>
 				<div className="max-w-sm">
-					<p className="text-sm font-medium text-[var(--bridge-text-primary)]">Bridge Review</p>
-					<p className="mt-1 text-xs text-[var(--bridge-text-secondary)]">
-						Waiting for review metadata
-					</p>
+					<p className="text-sm font-medium text-foreground">Bridge Review</p>
+					<p className="mt-1 text-xs text-muted-foreground">Waiting for review metadata</p>
 				</div>
 			</section>
 		</BridgeReviewFallbackFrame>
@@ -55,7 +57,7 @@ export function BridgeReviewProjectionPendingShell(props: {
 				className="flex h-full min-h-[260px] items-center justify-center px-8"
 				data-testid="bridge-review-projection-pending-shell"
 			>
-				<div className="flex w-72 flex-col gap-3 text-[var(--bridge-text-secondary)]">
+				<div className="flex w-72 flex-col gap-3 text-muted-foreground">
 					<p className="text-sm">Projecting review</p>
 					<BridgeReviewFallbackSkeleton />
 				</div>
@@ -78,11 +80,11 @@ export function BridgeReviewProjectionFailedShell(props: {
 		>
 			<section
 				aria-label="Review projection status"
-				className="flex h-full min-h-[260px] items-center justify-center px-8 text-center text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[260px] items-center justify-center px-8 text-center text-muted-foreground"
 				data-testid="bridge-review-projection-failed-shell"
 			>
 				<div>
-					<p className="text-sm text-[var(--bridge-text-primary)]">Review projection unavailable</p>
+					<p className="text-sm text-foreground">Review projection unavailable</p>
 					<p className="mt-1 text-xs">The review metadata could not be projected.</p>
 				</div>
 			</section>
@@ -107,7 +109,7 @@ export function BridgeReviewMetadataLoadingShell(props: {
 				className="flex h-full min-h-[260px] items-center justify-center px-8"
 				data-testid="bridge-review-metadata-loading-shell"
 			>
-				<div className="flex w-72 flex-col gap-3 text-[var(--bridge-text-secondary)]">
+				<div className="flex w-72 flex-col gap-3 text-muted-foreground">
 					<p className="text-sm">Loading review metadata</p>
 					<BridgeReviewFallbackSkeleton />
 				</div>
@@ -131,11 +133,11 @@ export function BridgeReviewMetadataFailedShell(props: {
 		>
 			<section
 				aria-label="Review metadata status"
-				className="flex h-full min-h-[260px] items-center justify-center px-8 text-center text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[260px] items-center justify-center px-8 text-center text-muted-foreground"
 				data-testid="bridge-review-metadata-failed-shell"
 			>
 				<div>
-					<p className="text-sm text-[var(--bridge-text-primary)]">Review metadata unavailable</p>
+					<p className="text-sm text-foreground">Review metadata unavailable</p>
 					<p className="mt-1 text-xs">
 						{props.error ?? 'The review metadata stream could not be loaded.'}
 					</p>
@@ -175,11 +177,11 @@ export function BridgeReviewComparisonInitialShell(props: {
 				data-testid="bridge-review-comparison-initial-shell"
 			>
 				{isLoading ? (
-					<div className="flex w-72 flex-col gap-3 text-[var(--bridge-text-secondary)]">
+					<div className="flex w-72 flex-col gap-3 text-muted-foreground">
 						<BridgeReviewFallbackSkeleton />
 					</div>
 				) : (
-					<p className="text-sm text-[var(--bridge-text-secondary)]">Comparison unavailable</p>
+					<p className="text-sm text-muted-foreground">Comparison unavailable</p>
 				)}
 			</section>
 		</BridgeReviewFallbackFrame>
@@ -196,44 +198,52 @@ function BridgeReviewFallbackFrame(props: {
 }): ReactElement {
 	return (
 		<main
-			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground"
 			data-testid="bridge-review-fallback-frame"
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
 				isActive={props.isActive}
 				content={
-					<section
-						className={cn(
-							'grid h-full min-h-0 min-w-0 overflow-hidden',
-							props.comparisonStatusBanner === undefined
-								? 'grid-rows-[auto_minmax(0,1fr)]'
-								: 'grid-rows-[auto_auto_minmax(0,1fr)]',
-						)}
-					>
-						<BridgeViewerContentHeader
-							controls={props.viewerHeaderControls}
-							mode="review"
-							statusText={null}
-							title={props.title}
-						/>
-						{props.comparisonStatusBanner}
+					<BridgeViewerContextPanelProvider>
 						<section
-							className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
-							data-testid="bridge-review-fallback-canvas"
+							className={cn(
+								'grid h-full min-h-0 min-w-0 overflow-hidden',
+								props.comparisonStatusBanner === undefined
+									? 'grid-rows-[auto_minmax(0,1fr)]'
+									: 'grid-rows-[auto_auto_minmax(0,1fr)]',
+							)}
 						>
-							{props.children}
+							<BridgeViewerContentHeader
+								controls={props.viewerHeaderControls}
+								mode="review"
+								statusText={null}
+								title={props.title}
+							/>
+							{props.comparisonStatusBanner === undefined ? null : (
+								<div data-testid="bridge-review-comparison-status-slot">
+									{props.comparisonStatusBanner}
+								</div>
+							)}
+							<BridgeViewerContextPanelViewport testId="bridge-review-context-panel-viewport">
+								<section
+									className="h-full min-h-0 min-w-0 bg-background"
+									data-testid="bridge-review-fallback-canvas"
+								>
+									{props.children}
+								</section>
+							</BridgeViewerContextPanelViewport>
 						</section>
-					</section>
+					</BridgeViewerContextPanelProvider>
 				}
 				contentTestId="bridge-review-content-panel"
 				handleTestId="bridge-review-rail-resize-handle"
 				rail={BridgeViewerRightRailShell({
 					body: (
 						<div className="flex flex-col gap-2">
-							<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
-							<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
-							<Skeleton className="h-3 w-4/5 bg-[var(--bridge-surface-raised-bg)]" />
+							<Skeleton className="h-3 w-full bg-muted" />
+							<Skeleton className="h-3 w-11/12 bg-muted" />
+							<Skeleton className="h-3 w-4/5 bg-muted" />
 						</div>
 					),
 					bodyClassName: 'min-h-0 flex-1 overflow-hidden overscroll-contain p-3',
@@ -246,8 +256,8 @@ function BridgeReviewFallbackFrame(props: {
 						testId: 'bridge-review-rail-toolbar',
 						trailing: (
 							<>
-								<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
-								<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
+								<Skeleton className="h-6 w-6 bg-muted" />
+								<Skeleton className="h-6 w-6 bg-muted" />
 							</>
 						),
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
@@ -262,9 +272,9 @@ function BridgeReviewFallbackFrame(props: {
 function BridgeReviewFallbackSkeleton(): ReactElement {
 	return (
 		<div className="flex flex-col gap-2">
-			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
+			<Skeleton className="h-3 w-full bg-muted" />
+			<Skeleton className="h-3 w-11/12 bg-muted" />
+			<Skeleton className="h-3 w-3/4 bg-muted" />
 		</div>
 	);
 }

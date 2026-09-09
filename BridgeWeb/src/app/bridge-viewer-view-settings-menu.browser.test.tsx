@@ -39,7 +39,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			width: 256,
 		});
 		expect(appearanceRows.map((row): number => row.getBoundingClientRect().height)).toEqual([
-			32, 32,
+			28, 28,
 		]);
 
 		// Act
@@ -100,7 +100,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			width: 256,
 		});
 		expect(appearanceRows.map((row): number => row.getBoundingClientRect().height)).toEqual([
-			32, 32, 32,
+			28, 28, 28,
 		]);
 
 		// Act

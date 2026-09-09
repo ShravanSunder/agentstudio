@@ -45,7 +45,7 @@ describe('BridgeFileViewerFacetMenu Browser Mode', () => {
 });
 
 function findMenuCheckboxItems(groupLabel: string): HTMLElement[] {
-	const group = document.querySelector(`section[aria-label="${groupLabel}"]`);
+	const group = document.querySelector(`[role="group"][aria-label="${groupLabel}"]`);
 	expect(group).not.toBeNull();
 	return [...(group?.querySelectorAll('[role="menuitemcheckbox"]') ?? [])].map(
 		(element: Element): HTMLElement => requireHTMLElement(element),

@@ -401,7 +401,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	return (
 		<section
 			aria-label="Selected file"
-			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
+			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background"
 			data-bridge-code-view-overflow={codeViewOptions.overflow}
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
@@ -583,7 +583,7 @@ function BridgeFileViewerContentState(props: {
 				: 'Content unavailable';
 	return (
 		<div
-			className="relative flex min-h-full items-start justify-center text-sm text-[var(--bridge-text-secondary)]"
+			className="relative flex min-h-full items-start justify-center text-sm text-muted-foreground"
 			data-testid="bridge-file-viewer-content-state"
 			role="status"
 		>

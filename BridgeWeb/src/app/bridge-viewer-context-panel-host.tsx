@@ -28,9 +28,11 @@ export function BridgeViewerContextPanelViewport(props: {
 	const portalContainerRef = requireBridgeViewerContextPanelPortalContainer();
 	return (
 		<section
+			aria-label="Viewer content"
 			className="relative h-full min-h-0 min-w-0 overflow-clip"
 			data-testid={props.testId}
 			ref={portalContainerRef}
+			tabIndex={-1}
 		>
 			{props.children}
 		</section>

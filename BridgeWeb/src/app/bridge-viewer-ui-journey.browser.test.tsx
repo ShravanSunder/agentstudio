@@ -21,7 +21,11 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		disposeBridgeReviewRecoveryWitnessHarnesses();
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
-		await page.viewport(defaultViewport.width, defaultViewport.height);
+		try {
+			await page.viewport(defaultViewport.width, defaultViewport.height);
+		} catch (cause: unknown) {
+			throw new Error('UI journey viewport restoration failed.', { cause });
+		}
 	});
 
 	test('preserves Review selection through search, filters, settings, focus, and narrow layout', async () => {
@@ -53,6 +57,14 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		await expectSelectedPath(harness.renderResult.container, selectedFile.path);
 		expect(harness.codeText()).toContain(selectedFile.contentMarker);
+		const fileHeader = allElementsIncludingOpenShadowRoots(harness.renderResult.container).find(
+			(element) => element.hasAttribute('data-diffs-header'),
+		);
+		if (fileHeader === undefined) throw new Error('Expected a rendered Pierre file header.');
+		expect(getComputedStyle(fileHeader).backgroundColor).toBe('rgb(28, 32, 38)');
+		expect(getComputedStyle(fileHeader).marginBottom).toBe('0px');
+		expect(getComputedStyle(fileHeader).borderBottomWidth).toBe('0px');
+		expect(fileHeader.getBoundingClientRect().height).toBe(40);
 
 		// Assert: the normal clean-Chrome viewport resolves the compact canonical scale.
 		const filterTrigger = requireHTMLElement(
@@ -190,10 +202,16 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		assertInsideBounds(settingsTrigger, fixtureBounds);
 		expect(document.activeElement).toBe(settingsTrigger);
 		await expectSelectedPath(harness.renderResult.container, selectedFile.path);
-		await page.screenshot({
-			element: fixtureRoot,
-			path: '../../../tmp/bridge-viewer-ui-journey-review-settings-1024.png',
-		});
+		try {
+			await page.screenshot({
+				element: fixtureRoot,
+				path: '../../../tmp/bridge-viewer-ui-journey-review-settings-1024.png',
+			});
+		} catch (cause: unknown) {
+			throw new Error('UI journey narrow-layout capture failed after interaction assertions.', {
+				cause,
+			});
+		}
 	});
 });
 

@@ -3,7 +3,7 @@ import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
 import { cn } from './class-name.js';
 
 export const bridgeViewerActionToolbarSurfaceClassName =
-	'border-b border-[var(--bridge-border-subtle)] bg-card px-2 py-1.5 shadow-[var(--bridge-divider-shadow)]';
+	'border-b border-border bg-card px-2 py-1.5 shadow-[var(--shadow-divider)]';
 
 export function BridgeViewerActionToolbar(props: {
 	readonly ariaLabel: string;

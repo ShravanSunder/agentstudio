@@ -11,53 +11,77 @@ describe('worktree annotation message state', () => {
 			expected: { isAllEligible: true, isNew: false, isPending: true },
 			message: messageFacts(),
 			name: 'human saved unhandled',
+			resolution: 'open' as const,
+		},
+		{
+			expected: { isAllEligible: true, isNew: false, isPending: false },
+			message: messageFacts(),
+			name: 'human saved unhandled in a resolved thread',
+			resolution: 'resolved' as const,
 		},
 		{
 			expected: { isAllEligible: true, isNew: false, isPending: false },
 			message: messageFacts({ handled: true }),
 			name: 'human handled',
+			resolution: 'open' as const,
 		},
 		{
 			expected: { isAllEligible: false, isNew: false, isPending: false },
 			message: messageFacts({ draft: {} }),
 			name: 'human draft',
+			resolution: 'open' as const,
 		},
 		{
 			expected: { isAllEligible: false, isNew: false, isPending: false },
 			message: messageFacts({ savedRevision: null }),
 			name: 'missing current saved revision',
+			resolution: 'open' as const,
 		},
 		{
 			expected: { isAllEligible: true, isNew: true, isPending: false },
 			message: messageFacts({ attentionState: 'new', authorKind: 'agent' }),
 			name: 'agent new',
+			resolution: 'open' as const,
+		},
+		{
+			expected: { isAllEligible: true, isNew: true, isPending: false },
+			message: messageFacts({ attentionState: 'new', authorKind: 'agent' }),
+			name: 'agent new in a resolved thread',
+			resolution: 'resolved' as const,
 		},
 		{
 			expected: { isAllEligible: true, isNew: false, isPending: false },
 			message: messageFacts({ attentionState: 'viewed', authorKind: 'agent' }),
 			name: 'agent viewed',
+			resolution: 'open' as const,
 		},
-	])('derives $name', ({ expected, message }) => {
-		expect(deriveWorktreeAnnotationMessageState(message)).toEqual(expected);
+	])('derives $name', ({ expected, message, resolution }) => {
+		expect(deriveWorktreeAnnotationMessageState(message, resolution)).toEqual(expected);
 	});
 
 	test('counts independent New and Pending states in projection order', () => {
-		const counts = deriveWorktreeAnnotationThreadStateCounts([
-			messageFacts({ attentionState: 'new', authorKind: 'agent' }),
-			messageFacts(),
-			messageFacts({ attentionState: 'viewed', authorKind: 'agent' }),
-			messageFacts({ handled: true }),
-		]);
+		const counts = deriveWorktreeAnnotationThreadStateCounts(
+			[
+				messageFacts({ attentionState: 'new', authorKind: 'agent' }),
+				messageFacts(),
+				messageFacts({ attentionState: 'viewed', authorKind: 'agent' }),
+				messageFacts({ handled: true }),
+			],
+			'open',
+		);
 
 		expect(counts).toEqual({ newCount: 1, pendingCount: 1 });
 	});
 
 	test('omits both state counts when every current revision is cleared', () => {
 		expect(
-			deriveWorktreeAnnotationThreadStateCounts([
-				messageFacts({ handled: true }),
-				messageFacts({ attentionState: 'viewed', authorKind: 'agent' }),
-			]),
+			deriveWorktreeAnnotationThreadStateCounts(
+				[
+					messageFacts({ handled: true }),
+					messageFacts({ attentionState: 'viewed', authorKind: 'agent' }),
+				],
+				'open',
+			),
 		).toEqual({ newCount: 0, pendingCount: 0 });
 	});
 });

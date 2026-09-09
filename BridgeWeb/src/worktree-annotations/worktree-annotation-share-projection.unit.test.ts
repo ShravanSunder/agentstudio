@@ -73,6 +73,39 @@ describe('worktree annotation Share projection', () => {
 			expect(projection.allCount).toBe(0);
 		}
 	});
+
+	test('excludes resolved threads only from Pending and restores eligibility when reopened', () => {
+		const resolvedThread = threadFixture('thread-resolved', 'exact', [
+			messageFixture('resolved-unhandled'),
+		]);
+		resolvedThread.context.resolution = 'resolved';
+
+		const pendingProjection = deriveWorktreeAnnotationShareProjection({
+			scope: 'pending',
+			threads: [resolvedThread],
+		});
+		expect(pendingProjection.pendingCount).toBe(0);
+		expect(pendingProjection.inlineThreads).toEqual([]);
+
+		const allProjection = deriveWorktreeAnnotationShareProjection({
+			scope: 'all',
+			threads: [resolvedThread],
+		});
+		expect(allProjection.allCount).toBe(1);
+		expect(allProjection.inlineThreads[0]?.messages.map((message) => message.messageId)).toEqual([
+			'resolved-unhandled',
+		]);
+
+		resolvedThread.context.resolution = 'open';
+		const reopenedProjection = deriveWorktreeAnnotationShareProjection({
+			scope: 'pending',
+			threads: [resolvedThread],
+		});
+		expect(reopenedProjection.pendingCount).toBe(1);
+		expect(
+			reopenedProjection.inlineThreads[0]?.messages.map((message) => message.messageId),
+		).toEqual(['resolved-unhandled']);
+	});
 });
 
 interface MessageFixture {
@@ -117,13 +150,20 @@ function threadFixture(
 	readonly context: {
 		readonly path: string;
 		readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+		resolution: 'open' | 'resolved';
 		readonly startLine: number;
 		readonly threadId: string;
 	};
 	readonly messages: readonly MessageFixture[];
 } {
 	return {
-		context: { path: `Sources/${threadId}.swift`, placement, startLine: 1, threadId },
+		context: {
+			path: `Sources/${threadId}.swift`,
+			placement,
+			resolution: 'open',
+			startLine: 1,
+			threadId,
+		},
 		messages,
 	};
 }

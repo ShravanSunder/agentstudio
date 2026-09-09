@@ -247,6 +247,7 @@ function AnnotationMessagePreparationFixture(props: {
 					onFinishEdit={props.onFinishEdit}
 					ordinal={1}
 					path="Sources/App/View.swift"
+					resolution="open"
 				/>
 			)}
 			<InstallationPreparationTrigger />

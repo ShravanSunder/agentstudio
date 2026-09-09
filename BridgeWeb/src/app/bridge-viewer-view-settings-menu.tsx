@@ -1,6 +1,7 @@
 import { RotateCcwIcon, SettingsIcon } from 'lucide-react';
 import { useEffect, type ReactElement } from 'react';
 
+import { Button } from '../components/ui/button.js';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -11,21 +12,13 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { bridgeViewerChromeLucideIconClassName } from './bridge-viewer-chrome.js';
-import {
-	bridgeViewerFilterClearClassName,
-	bridgeViewerFilterMenuSurfaceClassName,
-	bridgeViewerFilterOptionClassName,
-	BridgeViewerFilterMenuHeader,
-	bridgeViewerMenuTriggerClassName,
-} from './bridge-viewer-filter-menu.js';
+import { BridgeViewerFilterMenuHeader } from './bridge-viewer-filter-menu.js';
 import type {
 	BridgeFilesViewSettings,
 	BridgeReviewChangeIndicators,
 	BridgeReviewDiffLayout,
 	BridgeReviewViewSettings,
 } from './bridge-viewer-view-settings.js';
-import { cn } from './class-name.js';
 
 interface BridgeFilesViewSettingsMenuProps {
 	readonly disabled?: boolean;
@@ -76,16 +69,16 @@ export function BridgeViewerViewSettingsMenu(
 		<DropdownMenu onOpenChange={props.onOpenChange} open={props.open}>
 			<DropdownMenuTrigger
 				aria-label="View settings"
-				className={bridgeViewerMenuTriggerClassName}
+				render={<Button size="icon-sm" variant="ghost" />}
 				data-testid={`${testPrefix}-trigger`}
 				disabled={props.disabled}
 				title="View settings"
 			>
-				<SettingsIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+				<SettingsIcon aria-hidden="true" />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
 				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-64')}
+				className="w-64"
 				data-testid={`${testPrefix}-content`}
 				sideOffset={6}
 			>
@@ -94,7 +87,7 @@ export function BridgeViewerViewSettingsMenu(
 					testId={`${testPrefix}-header`}
 					title="View Settings"
 				/>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuSeparator />
 				<section aria-label="Appearance">
 					<ViewSettingsToggleRow
 						checked={props.settings.lineNumbers}
@@ -118,14 +111,14 @@ export function BridgeViewerViewSettingsMenu(
 				</section>
 				{props.surface === 'review' ? (
 					<>
-						<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+						<DropdownMenuSeparator />
 						<ViewSettingsRadioGroup
 							label="Diff layout"
 							onSelect={(diffLayout): void => props.onChange({ ...props.settings, diffLayout })}
 							options={diffLayoutOptions}
 							value={props.settings.diffLayout}
 						/>
-						<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+						<DropdownMenuSeparator />
 						<ViewSettingsRadioGroup
 							label="Change indicators"
 							onSelect={(changeIndicators): void =>
@@ -136,16 +129,13 @@ export function BridgeViewerViewSettingsMenu(
 						/>
 					</>
 				) : null}
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuSeparator />
 				<DropdownMenuItem
-					className={bridgeViewerFilterClearClassName}
 					data-testid={`${testPrefix}-reset`}
 					disabled={!settingsChanged}
 					onClick={resetViewSettings}
 				>
-					<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
-						<RotateCcwIcon aria-hidden="true" className="size-3.5" />
-					</span>
+					<RotateCcwIcon aria-hidden="true" />
 					<span>Reset View Settings</span>
 				</DropdownMenuItem>
 			</DropdownMenuContent>
@@ -175,11 +165,7 @@ function ViewSettingsToggleRow(props: {
 	readonly onCheckedChange: (checked: boolean) => void;
 }): ReactElement {
 	return (
-		<DropdownMenuCheckboxItem
-			checked={props.checked}
-			className={cn(bridgeViewerFilterOptionClassName, 'h-8 py-0')}
-			onCheckedChange={props.onCheckedChange}
-		>
+		<DropdownMenuCheckboxItem checked={props.checked} onCheckedChange={props.onCheckedChange}>
 			<span data-bridge-view-settings-row-label="">{props.label}</span>
 		</DropdownMenuCheckboxItem>
 	);
@@ -200,7 +186,6 @@ function ViewSettingsRadioGroup<TValue extends string>(props: {
 				{props.options.map(
 					(option): ReactElement => (
 						<DropdownMenuRadioItem
-							className={cn(bridgeViewerFilterOptionClassName, 'h-8 py-0')}
 							key={option.value}
 							onClick={(): void => props.onSelect(option.value)}
 							value={option.value}

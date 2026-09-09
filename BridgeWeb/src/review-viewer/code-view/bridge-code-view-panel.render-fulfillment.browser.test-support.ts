@@ -62,8 +62,8 @@ export function assertBridgeCodeViewHeaderGeometry(props: {
 		throw new Error('Expected the shadcn open-file button inside the Pierre file header.');
 	}
 	const openFileButtonBox = openFileButton.getBoundingClientRect();
-	expect(Math.round(openFileButtonBox.width)).toBe(28);
-	expect(Math.round(openFileButtonBox.height)).toBe(28);
+	expect(Math.round(openFileButtonBox.width)).toBe(24);
+	expect(Math.round(openFileButtonBox.height)).toBe(24);
 	const pierreHeaderBox = pierreHeader.getBoundingClientRect();
 	expect(
 		Math.abs(

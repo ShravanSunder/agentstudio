@@ -160,14 +160,29 @@ function DrawerContent({
 	);
 }
 
-function DrawerHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+function DrawerHeader({
+	className,
+	divider = false,
+	...props
+}: React.ComponentProps<'div'> & { readonly divider?: boolean }): React.ReactElement {
 	return (
 		<div
 			data-slot="drawer-header"
 			className={cn(
-				'flex shrink-0 flex-col border-b border-border p-2 text-xs font-medium text-foreground [&_svg]:size-3 [&_svg]:shrink-0',
+				'flex shrink-0 flex-col gap-1 p-2',
+				divider ? 'border-b border-border' : undefined,
 				className,
 			)}
+			{...props}
+		/>
+	);
+}
+
+function DrawerBody({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+	return (
+		<div
+			data-slot="drawer-body"
+			className={cn('min-h-0 flex-1 overflow-y-auto p-2', className)}
 			{...props}
 		/>
 	);
@@ -190,7 +205,7 @@ function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props): Reac
 	return (
 		<DrawerPrimitive.Title
 			data-slot="drawer-title"
-			className={cn('font-heading', className)}
+			className={cn('text-lg font-semibold text-foreground', className)}
 			{...props}
 		/>
 	);
@@ -203,7 +218,7 @@ function DrawerDescription({
 	return (
 		<DrawerPrimitive.Description
 			data-slot="drawer-description"
-			className={cn('text-balance', className)}
+			className={cn('text-sm font-normal text-balance text-muted-foreground', className)}
 			{...props}
 		/>
 	);
@@ -211,6 +226,7 @@ function DrawerDescription({
 
 export {
 	Drawer,
+	DrawerBody,
 	DrawerClose,
 	DrawerContent,
 	DrawerDescription,

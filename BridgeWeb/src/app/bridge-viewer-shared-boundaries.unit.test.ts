@@ -158,9 +158,10 @@ describe('BridgeViewer shared component boundaries', () => {
 		const buttonPrimitive = await source('src/components/ui/button.tsx');
 		const reviewFacetMenu = await source('src/review-viewer/chrome/bridge-review-facet-menu.tsx');
 
-		expect(appCss).toContain('--border: var(--palette-stroke-subtle);');
-		expect(appCss).toContain('--input: var(--palette-stroke-hover);');
-		expect(appCss).toContain('--ring: var(--primary);');
+		expect(appCss).toContain('--separator: var(--palette-stroke-subtle);');
+		expect(appCss).toContain('--border: var(--palette-stroke-border);');
+		expect(appCss).toContain('--input: var(--palette-stroke-input);');
+		expect(appCss).toContain('--ring: var(--palette-stroke-focus);');
 		expect(buttonPrimitive).toContain('focus-visible:border-ring');
 		expect(buttonPrimitive).toContain('focus-visible:ring-ring ');
 		expect(buttonPrimitive).not.toContain('focus-visible:ring-ring/30');

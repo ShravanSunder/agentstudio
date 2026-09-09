@@ -1,6 +1,7 @@
 import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -61,16 +62,56 @@ describe('worktree annotation recovery and rail history controls', () => {
 			});
 			await Promise.resolve();
 		});
+		expect(rendered.getByTestId('annotation-output-history-entry').all()).toHaveLength(0);
+		expect(
+			getComputedStyle(rendered.getByRole('button', { name: 'History (1)' }).element()).fontSize,
+		).toBe('13px');
+		await expect.element(rendered.getByRole('heading', { name: 'History (1)' })).toBeVisible();
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'History (1)' }).click();
-			await settleInteraction();
+			clickHtmlButton(rendered.getByRole('button', { name: 'History (1)' }).element());
+			await Promise.resolve();
 		});
+		const historyPanel = document.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
+		if (historyPanel === null) throw new Error('Expected the expanded History panel.');
+		await settleCollapsibleMotion(historyPanel);
 		await expect.element(rendered.getByText('Clipboard Markdown · 1 annotation')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Inspect or repeat exact durable output.');
+		const historySection = document.querySelector<HTMLElement>('[aria-label="Output history"]');
+		if (historySection === null) throw new Error('Expected the History section.');
+		expect(historySection.classList).not.toContain('border-t');
 		const historyEntry = rendered.getByTestId('annotation-output-history-entry').element();
-		expect(historyEntry.classList).toContain('border-t');
-		expect(historyEntry.classList).not.toContain('rounded-md');
-		expect(document.querySelector('time[datetime="2026-08-17T10:00:00.000Z"]')).not.toBeNull();
+		expect(historyEntry.getAttribute('data-slot')).toBe('card');
+		expect(historyEntry.classList).toContain('bg-card');
+		expect(historyEntry.classList).toContain('border-border');
+		expect(historyEntry.classList).toContain('rounded-lg');
+		const title = rendered.getByText('Clipboard Markdown · 1 annotation').element();
+		expect(historyEntry.getAttribute('aria-labelledby')).toBe(title.id);
+		const time = document.querySelector<HTMLTimeElement>(
+			'time[datetime="2026-08-17T10:00:00.000Z"]',
+		);
+		if (time === null) throw new Error('Expected the native output attempt time.');
+		const outcome = rendered.getByText('Copied', { exact: true }).element();
+		expect(time.parentElement?.nextElementSibling).toBe(outcome);
+		expect(getComputedStyle(time).fontSize).toBe('12px');
+		const footer = historyEntry.querySelector<HTMLElement>('[data-slot="card-footer"]');
+		if (footer === null) throw new Error('Expected owned Card footer actions.');
+		expect(getComputedStyle(footer).flexWrap).toBe('wrap');
+		expect(getComputedStyle(footer).gap).toBe('8px');
+		const inspectButton = rendered
+			.getByRole('button', { name: 'Inspect output attempt 1' })
+			.element();
+		const markNotHandledButton = rendered
+			.getByRole('button', {
+				name: 'Mark as not handled',
+			})
+			.element();
+		expect(markNotHandledButton.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			inspectButton.getBoundingClientRect().bottom,
+		);
+		await page.screenshot({
+			element: historyEntry,
+			path: '../../../tmp/bridgeweb-worktree-annotation-history-card.png',
+		});
 		await expect
 			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
 			.not.toBeInTheDocument();
@@ -113,10 +154,12 @@ function RecoveryAndHistoryFixture(props: {
 	readonly surface: RecordingAnnotationBrowserSurface;
 }): ReactElement {
 	return (
-		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
-			<WorktreeAnnotationRecoveryWarning />
-			<WorktreeAnnotationOutputHistoryControl />
-		</WorktreeAnnotationSurfaceProvider>
+		<div className="w-[180px]">
+			<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
+				<WorktreeAnnotationRecoveryWarning />
+				<WorktreeAnnotationOutputHistoryControl />
+			</WorktreeAnnotationSurfaceProvider>
+		</div>
 	);
 }
 
@@ -124,6 +167,38 @@ async function settleInteraction(): Promise<void> {
 	await Promise.resolve();
 	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 	await Promise.resolve();
+}
+
+function clickHtmlButton(element: HTMLElement | SVGElement): void {
+	if (!(element instanceof HTMLButtonElement)) throw new Error('Expected an HTML button.');
+	element.click();
+}
+
+async function settleCollapsibleMotion(panel: HTMLElement): Promise<void> {
+	await settleBrowserCondition(
+		(): boolean => !panel.hasAttribute('data-starting-style'),
+		'Expected History expansion motion to settle.',
+	);
+	await act(async (): Promise<void> => {
+		await Promise.all(
+			panel.getAnimations({ subtree: true }).map((animation) => animation.finished),
+		);
+		await Promise.resolve();
+	});
+}
+
+async function settleBrowserCondition(
+	predicate: () => boolean,
+	failureMessage: string,
+	remainingFrames = 10,
+): Promise<void> {
+	if (predicate()) return;
+	if (remainingFrames <= 0) throw new Error(failureMessage);
+	await act(async (): Promise<void> => {
+		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+		await Promise.resolve();
+	});
+	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
 }
 
 function outputHistorySummary(

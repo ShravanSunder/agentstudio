@@ -6,10 +6,55 @@ import { render } from 'vitest-browser-react';
 import '../../app/bridge-app.css';
 import { bridgeViewerTreeStyle } from '../../app/bridge-viewer-tree-theme.js';
 import { Button } from './button.js';
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from './card.js';
 import { Combobox, ComboboxItem, ComboboxItemDescription, ComboboxList } from './combobox.js';
+import { Drawer, DrawerDescription, DrawerHeader, DrawerTitle } from './drawer.js';
 import { InputGroup, InputGroupInput } from './input-group.js';
 import { Input } from './input.js';
 import { ItemContent, ItemLabel } from './item-content.js';
+
+test('owns panel and card hierarchy without inherited caption or icon overrides', async () => {
+	const rendered = await render(
+		<Drawer>
+			<DrawerHeader data-testid="panel-header">
+				<DrawerTitle data-testid="panel-title">Compare Worktree</DrawerTitle>
+				<DrawerDescription data-testid="panel-description">
+					Choose a comparison target.
+				</DrawerDescription>
+				<Button size="icon" aria-label="Header action">
+					<svg data-testid="header-action-icon" />
+				</Button>
+			</DrawerHeader>
+			<Card>
+				<CardHeader>
+					<CardTitle data-testid="section-title">Current comparison</CardTitle>
+					<CardDescription data-testid="section-description">Common commit</CardDescription>
+				</CardHeader>
+				<CardFooter data-testid="card-actions">
+					<Button>Inspect</Button>
+					<Button>Repeat</Button>
+				</CardFooter>
+			</Card>
+		</Drawer>,
+	);
+	const style = (id: string): CSSStyleDeclaration =>
+		getComputedStyle(rendered.getByTestId(id).element());
+	expect(style('panel-title').fontSize).toBe('14px');
+	expect(style('section-title').fontSize).toBe('13px');
+	expect(Number(style('panel-title').fontWeight)).toBeGreaterThan(
+		Number(style('section-title').fontWeight),
+	);
+	for (const id of ['panel-description', 'section-description']) {
+		expect(style(id).fontSize).toBe('12px');
+		expect(style(id).lineHeight).toBe('16px');
+		expect(style(id).color).toBe('rgb(184, 188, 196)');
+		expect(style(id).fontWeight).toBe('400');
+	}
+	expect(style('panel-header').borderBottomWidth).toBe('0px');
+	expect(style('header-action-icon').width).toBe('14px');
+	expect(style('card-actions').gap).toBe('8px');
+	expect(style('card-actions').flexWrap).toBe('wrap');
+});
 
 test('uses native-correlated roles instead of one dense size for every kind of text', async () => {
 	const rendered = await render(

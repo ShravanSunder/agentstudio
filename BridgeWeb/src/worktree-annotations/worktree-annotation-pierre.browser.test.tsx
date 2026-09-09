@@ -661,7 +661,7 @@ describe('worktree annotation Pierre integration', () => {
 			(frame): boolean => frame.dataset['annotationThreadId'] === annotationHeadThreadId,
 		);
 		if (firstThreadFrame === undefined) throw new Error('Expected the multi-message File thread.');
-		expect(firstThreadFrame.textContent).toContain('2 annotations');
+		expect(firstThreadFrame.textContent).toContain('2 comments');
 		expect(firstThreadFrame.textContent).toContain('Comment 3');
 		expect(firstThreadFrame.textContent).not.toContain('Comment 1');
 		await act(async (): Promise<void> => {

@@ -47,7 +47,7 @@ export function WorktreeAnnotationAdmissionPopover(
 			}}
 			open
 		>
-			<PopoverContent anchor={props.anchor} className="gap-2" side="bottom" align="end">
+			<PopoverContent anchor={props.anchor} side="bottom" align="end">
 				<PopoverHeader>
 					<PopoverTitle>
 						{continuityIsUncertain ? 'Review continuity is uncertain' : 'Choose a review session'}
@@ -63,19 +63,19 @@ export function WorktreeAnnotationAdmissionPopover(
 						<Button
 							key={session.sessionId}
 							onClick={() => props.onContinue(session.sessionId)}
-							size="xs"
+							size="default"
 							variant={continuityIsUncertain ? 'secondary' : 'outline'}
 						>
 							{continuityIsUncertain ? 'Continue' : `Continue session ${index + 1}`}
 						</Button>
 					))}
 					{continuityIsUncertain ? (
-						<Button onClick={props.onLeavePaused} size="xs" variant="ghost">
+						<Button onClick={props.onLeavePaused} size="default" variant="ghost">
 							Leave Paused
 						</Button>
 					) : null}
 					{continuityIsUncertain ? (
-						<Button onClick={props.onStartAnother} size="xs" variant="ghost">
+						<Button onClick={props.onStartAnother} size="default" variant="ghost">
 							Start Another
 						</Button>
 					) : null}

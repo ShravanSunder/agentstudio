@@ -69,7 +69,7 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 	return (
 		<section
 			aria-label="Review content"
-			className="bridge-code-view-panel relative flex h-full min-h-0 flex-col bg-[var(--bridge-canvas-bg)]"
+			className="bridge-code-view-panel relative flex h-full min-h-0 flex-col bg-background"
 			data-code-view-item-count={props.initialItems.length}
 			data-code-view-rendered-content-resource-count={props.materializationResourceEntryCount}
 			data-code-view-rendered-content-resource-item-ids={props.materializationResourceEntryItemIds}
@@ -131,7 +131,6 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 							'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
 							'[overflow-anchor:none] [will-change:scroll-position]',
 							'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',
-							'[&_diffs-container]:shadow-[0_-1px_0_var(--bridge-code-view-file-separator),0_1px_0_var(--bridge-code-view-file-separator)]',
 						)}
 						initialItems={props.initialItems}
 						key={props.sourceKey}

@@ -3,11 +3,7 @@ import type { ReactElement } from 'react';
 
 import type { BridgeMainReviewRefreshPresentation } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import { BridgeViewerButton } from './bridge-viewer-button.js';
-import {
-	bridgeViewerChromeLucideIconClassName,
-	bridgeViewerChromeSegmentButtonClassName,
-	bridgeViewerChromeSegmentedControlClassName,
-} from './bridge-viewer-chrome.js';
+import { bridgeViewerChromeStatusGroupClassName } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
 export type BridgeReviewRefreshHeaderPresentation =
@@ -93,7 +89,7 @@ function BridgeReviewRefreshHeaderGroupContent(props: {
 	return (
 		<div
 			className={cn(
-				bridgeViewerChromeSegmentedControlClassName,
+				bridgeViewerChromeStatusGroupClassName,
 				'col-start-1 row-start-1',
 				presentationClassName,
 			)}
@@ -102,7 +98,7 @@ function BridgeReviewRefreshHeaderGroupContent(props: {
 			<span
 				aria-atomic="true"
 				aria-live="polite"
-				className="inline-flex h-5 items-center gap-1 px-1.5 text-[11px] font-medium leading-none"
+				className="inline-flex h-5 items-center gap-1 px-1.5 text-xs font-medium"
 				role="status"
 			>
 				<BridgeReviewRefreshStatusIcon statusText={props.presentation.statusText} />
@@ -122,19 +118,15 @@ function BridgeReviewRefreshHeaderGroupSizer(): ReactElement {
 		<div
 			aria-hidden="true"
 			className={cn(
-				bridgeViewerChromeSegmentedControlClassName,
+				bridgeViewerChromeStatusGroupClassName,
 				'invisible col-start-1 row-start-1 text-warning',
 			)}
 		>
-			<span className="inline-flex h-5 items-center gap-1 px-1.5 text-[11px] font-medium leading-none">
-				<TriangleAlertIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			<span className="inline-flex h-5 items-center gap-1 px-1.5 text-xs font-medium">
+				<TriangleAlertIcon aria-hidden="true" className="size-3" />
 				Update unavailable
 			</span>
-			<BridgeViewerButton
-				ariaLabel="Retry"
-				className={bridgeViewerChromeSegmentButtonClassName}
-				disabled
-			>
+			<BridgeViewerButton ariaLabel="Retry" size="xs" disabled>
 				Retry
 			</BridgeViewerButton>
 		</div>
@@ -149,18 +141,13 @@ function BridgeReviewRefreshStatusIcon(props: {
 			return (
 				<LoaderCircleIcon
 					aria-hidden="true"
-					className={cn(
-						bridgeViewerChromeLucideIconClassName,
-						'animate-spin motion-reduce:animate-none',
-					)}
+					className={cn('size-3', 'animate-spin motion-reduce:animate-none')}
 				/>
 			);
 		case 'Update ready':
-			return <CircleIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />;
+			return <CircleIcon aria-hidden="true" className="size-3" />;
 		case 'Update unavailable':
-			return (
-				<TriangleAlertIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-			);
+			return <TriangleAlertIcon aria-hidden="true" className="size-3" />;
 		default:
 			return assertNeverRefreshStatus(props.statusText);
 	}
@@ -174,21 +161,13 @@ function BridgeReviewRefreshHeaderAction(props: {
 	switch (props.action) {
 		case 'applyNow':
 			return (
-				<BridgeViewerButton
-					ariaLabel="Apply now"
-					className={bridgeViewerChromeSegmentButtonClassName}
-					onClick={props.onApplyNow}
-				>
+				<BridgeViewerButton ariaLabel="Apply now" size="xs" onClick={props.onApplyNow}>
 					Apply now
 				</BridgeViewerButton>
 			);
 		case 'retry':
 			return (
-				<BridgeViewerButton
-					ariaLabel="Retry"
-					className={bridgeViewerChromeSegmentButtonClassName}
-					onClick={props.onRetry}
-				>
+				<BridgeViewerButton ariaLabel="Retry" size="xs" onClick={props.onRetry}>
 					Retry
 				</BridgeViewerButton>
 			);

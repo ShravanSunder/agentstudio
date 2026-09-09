@@ -206,8 +206,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(filterBox.left).toBeLessThan(searchBox.left);
 		expect(Math.abs(toolbarBox.right - trailingControlsBox.right - 8)).toBeLessThanOrEqual(1);
 		expect(trailingControlsBox.left).toBeGreaterThan(toolbarBox.left + toolbarBox.width / 2);
-		expect(Math.round(filterGlyphBox.width)).toBe(14);
-		expect(Math.round(filterGlyphBox.height)).toBe(14);
+		expect(Math.round(filterGlyphBox.width)).toBe(12);
+		expect(Math.round(filterGlyphBox.height)).toBe(12);
 		expect(filterGlyph.classList.contains('lucide-sliders-horizontal')).toBe(true);
 		expect(getComputedStyle(searchToggle).fontSize).toBe('11px');
 		const filterCount = requireBridgeViewerHTMLElement(

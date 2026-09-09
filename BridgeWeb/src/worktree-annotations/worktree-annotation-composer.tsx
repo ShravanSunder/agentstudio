@@ -410,10 +410,10 @@ export function WorktreeAnnotationNewMessageComposer(
 					editing={committedCursor === null}
 					metadata={
 						<>
-							<span className="font-medium text-comment-foreground">You</span>
+							<span className="font-medium text-annotation-foreground">You</span>
 							<span aria-hidden="true">·</span>
 							{committedCursor !== null ? (
-								<span className="font-medium text-comment-foreground">Saved</span>
+								<span className="font-medium text-annotation-foreground">Saved</span>
 							) : savePhase === 'saving' ? (
 								<span>Saving draft…</span>
 							) : isDurable ? (
@@ -436,7 +436,6 @@ export function WorktreeAnnotationNewMessageComposer(
 								appearance="embedded"
 								autoFocus
 								aria-label={props.placeholder}
-								className="min-h-16"
 								placeholder={props.placeholder}
 								readOnly={savePhase !== 'idle'}
 								value={body}

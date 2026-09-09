@@ -20,6 +20,7 @@ export interface WorktreeAnnotationShareThreadFacts<
 	readonly context: {
 		readonly path: string;
 		readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+		readonly resolution: 'open' | 'resolved';
 		readonly startLine: number;
 		readonly threadId: string;
 	};
@@ -56,16 +57,19 @@ export function deriveWorktreeAnnotationShareProjection<
 
 	for (const thread of props.threads) {
 		const currentSavedMessages = thread.messages.filter(
-			(message): boolean => deriveWorktreeAnnotationMessageState(message).isAllEligible,
+			(message): boolean =>
+				deriveWorktreeAnnotationMessageState(message, thread.context.resolution).isAllEligible,
 		);
 		allCount += currentSavedMessages.length;
 		pendingCount += currentSavedMessages.filter(
-			(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+			(message): boolean =>
+				deriveWorktreeAnnotationMessageState(message, thread.context.resolution).isPending,
 		).length;
 		const participatingMessages =
 			props.scope === 'pending'
 				? currentSavedMessages.filter(
-						(message): boolean => deriveWorktreeAnnotationMessageState(message).isPending,
+						(message): boolean =>
+							deriveWorktreeAnnotationMessageState(message, thread.context.resolution).isPending,
 					)
 				: currentSavedMessages;
 		if (participatingMessages.length === 0) continue;

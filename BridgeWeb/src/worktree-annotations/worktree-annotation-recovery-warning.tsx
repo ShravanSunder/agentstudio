@@ -40,8 +40,8 @@ export function WorktreeAnnotationRecoveryWarning(): ReactElement | null {
 	};
 
 	return (
-		<Alert className="rounded-none border-x-0 border-warning/35 bg-warning/10 pr-28">
-			<TriangleAlert className="text-warning" />
+		<Alert layout="banner" variant="warning">
+			<TriangleAlert />
 			<AlertTitle>Comments recovered with missing local history</AlertTitle>
 			<AlertDescription>
 				{failureMessage ??
