@@ -378,7 +378,9 @@ describe('review viewer shell', () => {
 		expect(classNameForElement(canvas)).toContain('min-h-0');
 		expect(sidebar?.type).toBe('aside');
 		expect(classNameForElement(sidebar)).toContain('order-last');
-		expect(classNameForElement(sidebar)).toContain('border-l');
+		// The shared resize separator owns the boundary; the rail must not double it.
+		expect(classNameForElement(sidebar)).not.toContain('border-l');
+		expect(classNameForElement(sidebar)).toContain('bg-surface');
 	});
 
 	test('keeps CodeView and right rail scrolling owned by separate containers', () => {
