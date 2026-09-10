@@ -27,6 +27,11 @@ package struct WorkspaceLocalRepository: Sendable {
         var sidebarCollapsed: Bool
         var sidebarSurface: SidebarSurface
         var repoGroupingMode: RepoSidebarGroupingMode = .repo
+        var paneGroupingMode: RepoSidebarGroupingMode = .repo
+        var repoSubgroupMode: SidebarSubgroupMode = .ungrouped
+        var paneSubgroupMode: SidebarSubgroupMode = .activity
+        var showsPinnedRepos: Bool = true
+        var showsPinnedPanes: Bool = true
     }
 
     struct WorkspaceMemoryRecord: Equatable, Sendable {
@@ -60,30 +65,47 @@ package struct WorkspaceLocalRepository: Sendable {
     }
 
     package struct RepoExplorerPreferencesRecord: Equatable, Sendable {
-        package let sortOrder: String
-        package let visibilityMode: String
+        package let reposSortField: SidebarSortField
+        package let panesSortField: SidebarSortField
+        package let reposSortDirection: SidebarSortDirection
+        package let panesSortDirection: SidebarSortDirection
 
-        private init(
-            sortOrder: String,
-            visibilityMode _: String
+        package init(
+            reposSortField: SidebarSortField,
+            panesSortField: SidebarSortField,
+            reposSortDirection: SidebarSortDirection,
+            panesSortDirection: SidebarSortDirection
         ) {
-            self.sortOrder = sortOrder
-            self.visibilityMode = SQLiteLocalUXStorage.repoExplorerVisibilityAll
+            self.reposSortField = reposSortField
+            self.panesSortField = panesSortField
+            self.reposSortDirection = reposSortDirection
+            self.panesSortDirection = panesSortDirection
         }
 
         package static let `default` = Self(
-            sortOrder: SQLiteLocalUXStorage.repoExplorerSortAscending,
-            visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
+            reposSortField: .name,
+            panesSortField: .name,
+            reposSortDirection: .ascending,
+            panesSortDirection: .ascending
         )
 
         package static func validated(
-            sortOrder: String,
-            visibilityMode: String
+            reposSortField: String,
+            panesSortField: String,
+            reposSortDirection: String,
+            panesSortDirection: String
         ) -> Self? {
-            guard SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder) else { return nil }
+            guard
+                let reposSortField = SidebarSortField(rawValue: reposSortField),
+                let panesSortField = SidebarSortField(rawValue: panesSortField),
+                let reposSortDirection = SidebarSortDirection(rawValue: reposSortDirection),
+                let panesSortDirection = SidebarSortDirection(rawValue: panesSortDirection)
+            else { return nil }
             return Self(
-                sortOrder: sortOrder,
-                visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
+                reposSortField: reposSortField,
+                panesSortField: panesSortField,
+                reposSortDirection: reposSortDirection,
+                panesSortDirection: panesSortDirection
             )
         }
     }
@@ -449,6 +471,7 @@ package struct WorkspaceLocalRepository: Sendable {
 enum WorkspaceLocalRepositoryError: Error, Equatable {
     case unsupportedSidebarSurface(String)
     case unsupportedRepoGroupingMode(String)
+    case unsupportedSidebarSubgroupMode(String)
     case malformedWorkspaceId(String)
     case malformedTabId(String)
     case malformedArrangementId(String)

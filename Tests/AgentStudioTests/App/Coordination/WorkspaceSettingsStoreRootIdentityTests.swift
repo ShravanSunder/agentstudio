@@ -21,13 +21,13 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         )
 
         atomStore.editorPreference.setBookmarkedEditor("cursor")
-        atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
-        atomStore.repoExplorerSidebarPrefs.setSortOrder(.descending)
+        atomStore.repoExplorerSidebarPrefs.setSortField(.activity, for: .panes)
+        atomStore.repoExplorerSidebarPrefs.setSortDirection(.descending, for: .panes)
         try await settingsStore.flush(for: workspaceId)
 
         #expect(try fixture.repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == "descending")
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "all")
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().panesSortField == .activity)
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().panesSortDirection == .descending)
         #expect(try fixture.repository.hasSidebarState() == false)
         #expect(try fixture.repository.fetchInboxNotificationPreferences() == .default)
     }

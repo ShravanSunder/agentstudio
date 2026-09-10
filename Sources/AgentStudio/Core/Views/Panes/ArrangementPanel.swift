@@ -208,11 +208,11 @@ package struct ArrangementPanel: View {
     }
 
     package var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Arrangements")
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
+        PopoverPanel {
+            let arrangementsAction = LocalActionSpec.arrangements.actionSpec
+            PopoverPanelSectionHeader(arrangementsAction.label) {
+                arrangementsAction.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.General.Icon.compact)
+            }
 
             ArrangementChipRow(spacing: 4) {
                 ForEach(arrangements) { arrangement in
@@ -229,14 +229,14 @@ package struct ArrangementPanel: View {
                     Button(action: saveArrangementAction.perform) {
                         Image(systemName: "plus")
                             .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                            .frame(width: 14, height: 14)
+                            .frame(width: AppStyles.General.Icon.compact, height: AppStyles.General.Icon.compact)
+                            .frame(minWidth: 30)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(
-                        ArrangementChipButtonStyle(
-                            isActive: false,
-                            isHovered: isSaveButtonHovered,
-                            minimumWidth: 30
+                        PopoverOptionButtonStyle(
+                            isSelected: false,
+                            isHighlighted: isSaveButtonHovered
                         )
                     )
                     .onHover { isSaveButtonHovered = $0 }
@@ -260,10 +260,7 @@ package struct ArrangementPanel: View {
                 Divider()
                     .padding(.vertical, 2)
 
-                Text("Pane Visibility")
-                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .textCase(.uppercase)
+                PopoverPanelSectionHeader("Pane Visibility")
 
                 VStack(spacing: 2) {
                     ForEach(panes) { pane in
@@ -273,7 +270,6 @@ package struct ArrangementPanel: View {
 
             }
         }
-        .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
         .overlay {
             GeometryReader { geometry in
@@ -329,10 +325,7 @@ package struct ArrangementPanel: View {
             Divider()
                 .padding(.vertical, 2)
 
-            Text("Pane Zoom")
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
+            PopoverPanelSectionHeader("Pane Zoom")
 
             HStack(alignment: .center, spacing: AppStyles.General.Spacing.standard) {
                 if let sourceIdentity = zoomMode.sourceIdentity {
@@ -594,26 +587,12 @@ package struct ArrangementPanel: View {
         switchArrangementAction: TargetedCommandControlAction,
         renameArrangementAction: TargetedCommandControlAction?
     ) -> some View {
-        let chipStyle = ArrangementChipVisualStyle(
-            isActive: arrangement.isActive,
-            isHovered: hoveredArrangementId == arrangement.id,
-            isPressed: false
-        )
-
-        return HStack(spacing: 4) {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
             Button {
                 switchArrangementAction.perform()
             } label: {
                 Text(arrangement.name)
-                    .font(
-                        .system(
-                            size: AppStyles.General.Typography.textXs,
-                            weight: arrangement.isActive ? .semibold : .regular
-                        )
-                    )
-                    .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
             }
-            .buttonStyle(.plain)
             .disabled(!switchArrangementAction.isEnabled)
 
             if ArrangementChipAffordance.showsRenamePencil(role: arrangement.role),
@@ -626,16 +605,15 @@ package struct ArrangementPanel: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
                 .controlHelp(renameArrangementAction.commandSpec.controlTooltipRenderValue())
                 .disabled(!renameArrangementAction.isEnabled)
             }
         }
-        .padding(.horizontal, AppStyles.General.Spacing.loose)
-        .padding(.vertical, AppStyles.General.Spacing.tight)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
-                .fill(Color.white.opacity(chipStyle.backgroundOpacity))
+        .modifier(
+            PopoverCompoundOptionSurface(
+                isSelected: arrangement.isActive,
+                isHighlighted: hoveredArrangementId == arrangement.id
+            )
         )
     }
 
@@ -674,29 +652,5 @@ struct ArrangementChipRow<Content: View>: View {
         HStack(spacing: spacing) {
             content
         }
-    }
-}
-
-private struct ArrangementChipButtonStyle: ButtonStyle {
-    let isActive: Bool
-    let isHovered: Bool
-    var minimumWidth: CGFloat?
-
-    func makeBody(configuration: Configuration) -> some View {
-        let chipStyle = ArrangementChipVisualStyle(
-            isActive: isActive,
-            isHovered: isHovered,
-            isPressed: configuration.isPressed
-        )
-
-        return configuration.label
-            .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
-            .frame(minWidth: minimumWidth)
-            .padding(.horizontal, AppStyles.General.Spacing.loose)
-            .padding(.vertical, AppStyles.General.Spacing.tight)
-            .background(
-                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
-                    .fill(Color.white.opacity(chipStyle.backgroundOpacity))
-            )
     }
 }

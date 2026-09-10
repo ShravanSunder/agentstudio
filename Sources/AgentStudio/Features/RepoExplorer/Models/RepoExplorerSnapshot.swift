@@ -4,16 +4,17 @@ import AgentStudioSharedComponents
 import Foundation
 
 package typealias RepoExplorerGroupingMode = RepoSidebarGroupingMode
+package typealias RepoExplorerSortOrder = SidebarSortDirection
 
 extension RepoSidebarGroupingMode {
     var title: String {
         switch self {
         case .repo:
-            return "By Repo"
-        case .pane:
-            return "All Panes"
+            return "Repo"
+        case .activity:
+            return "Activity"
         case .tab:
-            return "By Tab"
+            return "Tab"
         }
     }
 
@@ -21,8 +22,8 @@ extension RepoSidebarGroupingMode {
         switch self {
         case .repo:
             return .system(.folder)
-        case .pane:
-            return .system(.rectangleSplit2x1)
+        case .activity:
+            return .system(.clock)
         case .tab:
             return .system(.rectangleStack)
         }
@@ -54,6 +55,8 @@ enum RepoExplorerPaneSecondaryLine: Equatable, Sendable {
 
 struct RepoExplorerPaneRowFacts: Equatable, Sendable {
     let terminalTitle: String
+    let activityAt: Date?
+    let isPinned: Bool
     let noteText: String?
     let latestMessageText: String?
     let recencyReferenceDate: Date
@@ -64,6 +67,8 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
 
     init(
         terminalTitle: String,
+        activityAt: Date? = nil,
+        isPinned: Bool = false,
         noteText: String? = nil,
         latestMessageText: String?,
         recencyReferenceDate: Date,
@@ -73,6 +78,8 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
         isDrawerPane: Bool = false
     ) {
         self.terminalTitle = terminalTitle
+        self.activityAt = activityAt
+        self.isPinned = isPinned
         self.noteText = noteText
         self.latestMessageText = latestMessageText
         self.recencyReferenceDate = recencyReferenceDate
@@ -160,27 +167,11 @@ enum RepoExplorerPaneRecencyTier: Equatable, Sendable {
     }
 }
 
-package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
-    case ascending
-    case descending
-
-    package static let `default`: Self = .ascending
-
-    package var toggled: Self {
-        switch self {
-        case .ascending:
-            return .descending
-        case .descending:
-            return .ascending
-        }
-    }
-
+extension SidebarSortDirection {
     var title: String {
         switch self {
-        case .ascending:
-            return "Ascending"
-        case .descending:
-            return "Descending"
+        case .ascending: "Ascending"
+        case .descending: "Descending"
         }
     }
 }
@@ -188,7 +179,13 @@ package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sen
 struct RepoExplorerSnapshot: Equatable, Sendable {
     let repos: [RepoPresentationItem]
     let repoEnrichmentSnapshotByRepoId: [UUID: RepoEnrichment]
+    let surface: SidebarSurface
     let groupingMode: RepoExplorerGroupingMode
+    let subgroupMode: SidebarSubgroupMode
+    let sortField: SidebarSortField
+    let showsPinned: Bool
+    let referenceDate: Date
+    let calendar: Calendar
     let sortOrder: RepoExplorerSortOrder
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
@@ -198,7 +195,13 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     init(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        surface: SidebarSurface = .repos,
         groupingMode: RepoExplorerGroupingMode = .repo,
+        subgroupMode: SidebarSubgroupMode = .ungrouped,
+        sortField: SidebarSortField = .name,
+        showsPinned: Bool = true,
+        referenceDate: Date = Date(timeIntervalSince1970: 0),
+        calendar: Calendar = .current,
         sortOrder: RepoExplorerSortOrder = .default,
         query: String,
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
@@ -207,7 +210,13 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     ) {
         self.repos = repos
         self.repoEnrichmentSnapshotByRepoId = repoEnrichmentByRepoId
+        self.surface = surface
         self.groupingMode = groupingMode
+        self.subgroupMode = subgroupMode
+        self.sortField = sortField
+        self.showsPinned = showsPinned
+        self.referenceDate = referenceDate
+        self.calendar = calendar
         self.sortOrder = sortOrder
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
@@ -218,7 +227,13 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     func replacing(
         repos: [RepoPresentationItem]? = nil,
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]? = nil,
+        surface: SidebarSurface? = nil,
         groupingMode: RepoExplorerGroupingMode? = nil,
+        subgroupMode: SidebarSubgroupMode? = nil,
+        sortField: SidebarSortField? = nil,
+        showsPinned: Bool? = nil,
+        referenceDate: Date? = nil,
+        calendar: Calendar? = nil,
         sortOrder: RepoExplorerSortOrder? = nil,
         query: String? = nil,
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]]? = nil
@@ -226,7 +241,13 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         Self(
             repos: repos ?? self.repos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId ?? repoEnrichmentSnapshotByRepoId,
+            surface: surface ?? self.surface,
             groupingMode: groupingMode ?? self.groupingMode,
+            subgroupMode: subgroupMode ?? self.subgroupMode,
+            sortField: sortField ?? self.sortField,
+            showsPinned: showsPinned ?? self.showsPinned,
+            referenceDate: referenceDate ?? self.referenceDate,
+            calendar: calendar ?? self.calendar,
             sortOrder: sortOrder ?? self.sortOrder,
             query: query ?? self.query,
             paneLocationsByWorktreeId: paneLocationsByWorktreeId,

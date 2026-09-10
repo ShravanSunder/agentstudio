@@ -15,7 +15,7 @@ extension RepoExplorerReadModelTests {
         let earlierTabId = UUIDv7.generate()
         let laterTabId = UUIDv7.generate()
         let repositories = [
-            repo(id: favoriteRepoId, name: "favorite", isFavorite: true, worktrees: [favoriteWorktree]),
+            repo(id: favoriteRepoId, name: "favorite", isPinned: true, worktrees: [favoriteWorktree]),
             repo(id: regularRepoId, name: "regular", worktrees: [regularWorktree]),
         ]
         let projection = RepoExplorerProjection.project(
@@ -25,6 +25,7 @@ extension RepoExplorerReadModelTests {
                     favoriteRepoId: resolvedRemote(repoId: favoriteRepoId),
                     regularRepoId: resolvedRemote(repoId: regularRepoId),
                 ],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 paneLocationsByWorktreeId: [
@@ -50,11 +51,11 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        #expect(projection.sections.map(\.kind) == [.tabs])
+        #expect(projection.sections.map(\.kind) == [.panes])
         #expect(
             projection.resolvedGroups.map(\.id) == [
-                "tab:\(earlierTabId.uuidString)",
-                "tab:\(laterTabId.uuidString)",
+                "panes:panes:tab:\(earlierTabId.uuidString)",
+                "panes:panes:tab:\(laterTabId.uuidString)",
             ]
         )
         #expect(projection.resolvedGroups.flatMap(\.repos).map(\.id) == [regularRepoId, favoriteRepoId])
@@ -69,6 +70,7 @@ extension RepoExplorerReadModelTests {
             RepoExplorerSnapshot(
                 repos: [repo(id: repoId, name: "repository", worktrees: [worktree])],
                 repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                surface: .panes,
                 groupingMode: .tab,
                 query: "",
                 paneLocationsByWorktreeId: [
@@ -92,7 +94,7 @@ extension RepoExplorerReadModelTests {
         )
         let collapsed = RepoExplorerRowIndex(
             projection: projection,
-            collapsedGroupIds: ["tab:\(tabId.uuidString)"],
+            collapsedGroupIds: ["panes:panes:tab:\(tabId.uuidString)"],
             isFiltering: false
         )
 

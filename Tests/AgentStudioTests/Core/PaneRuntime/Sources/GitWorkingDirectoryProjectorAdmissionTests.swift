@@ -501,7 +501,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         await actor.shutdown()
     }
 
-    @Test("inactive contraction preserves filesystem scope after visibility attribution")
+    @Test("inactive contraction preserves required full refresh after visibility attribution")
     func inactiveContractionPreservesFilesystemScopeAfterVisibilityAttribution() async {
         let statusGate = FirstStatusCallGate()
         let blockingWorktreeId = UUIDv7.generate()
@@ -568,7 +568,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             triggerSource: .visibilityChange
         )
 
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths == ["tracked-41.txt"])
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths.isEmpty == true)
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.containsGitInternalChanges == true)
         #expect(
             await actor.refreshAttribution.triggerSourceByWorktreeId[targetWorktreeId]
                 == .visibilityChange
@@ -584,7 +585,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             backgroundOnlyAutomaticWorktreeIds: []
         )
 
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths == ["tracked-41.txt"])
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths.isEmpty == true)
+        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.containsGitInternalChanges == true)
         #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
 

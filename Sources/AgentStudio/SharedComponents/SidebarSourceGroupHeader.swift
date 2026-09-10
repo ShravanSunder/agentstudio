@@ -4,7 +4,7 @@ import SwiftUI
 package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
     let octiconLoader: OcticonLoader
-    let icon: AppEntityIcon
+    let icon: AppEntityIcon?
     let title: String
     let secondaryTitle: String?
     let accessibilityIdentifier: String?
@@ -14,7 +14,7 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     package init(
         isCollapsed: Bool,
         octiconLoader: OcticonLoader,
-        icon: AppEntityIcon,
+        icon: AppEntityIcon?,
         title: String,
         secondaryTitle: String?,
         accessibilityIdentifier: String? = nil,
@@ -42,11 +42,13 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     package var body: some View {
         SidebarSectionHeaderRow(isCollapsed: isCollapsed, onToggle: onToggle) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                headerIcon
-                    .frame(
-                        width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
-                        alignment: .leading
-                    )
+                if let icon {
+                    icon.groupHeaderImage(loader: octiconLoader)
+                        .frame(
+                            width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
+                            alignment: .leading
+                        )
+                }
 
                 HStack(spacing: AppStyles.Shell.Sidebar.groupTitleSpacing) {
                     Text(title)
@@ -94,17 +96,13 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
         return "\(title), \(secondaryTitle)"
     }
 
-    @ViewBuilder
-    private var headerIcon: some View {
-        icon.swiftUIImage(loader: octiconLoader, size: AppStyles.Shell.Sidebar.groupIconSize)
-    }
 }
 
 extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
     package init(
         isCollapsed: Bool,
         octiconLoader: OcticonLoader,
-        icon: AppEntityIcon,
+        icon: AppEntityIcon?,
         title: String,
         secondaryTitle: String?,
         accessibilityIdentifier: String? = nil,

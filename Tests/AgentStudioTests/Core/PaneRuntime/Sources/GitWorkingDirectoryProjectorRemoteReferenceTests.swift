@@ -8,6 +8,67 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector remote-reference currentness")
 struct GitWorkingDirectoryProjectorRemoteReferenceTests {
+    @Test("full registration origin lookup survives ordinary path coalescing in either order")
+    func fullRegistrationOriginLookupSurvivesOrdinaryPathCoalescing() async {
+        for registrationArrivesFirst in [true, false] {
+            let originRecorder = ProjectorOriginRecorder()
+            let actor = GitWorkingDirectoryProjector(
+                bus: EventBus<RuntimeEnvelope>(),
+                gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+                coalescingWindow: .zero,
+                remoteReferenceOriginHandler: { repositoryID, origin in
+                    await originRecorder.record(repositoryID: repositoryID, origin: origin)
+                }
+            )
+            let repositoryID = UUIDv7.generate()
+            let worktreeID = UUIDv7.generate()
+            let rootPath = URL(
+                filePath: "/tmp/registration-origin-coalescing",
+                directoryHint: .isDirectory
+            )
+            let timestamp = ContinuousClock().now
+            let registration = FileChangeset(
+                worktreeId: worktreeID,
+                repoId: repositoryID,
+                rootPath: rootPath,
+                paths: [],
+                containsGitInternalChanges: true,
+                timestamp: timestamp,
+                batchSeq: 0
+            )
+            let ordinaryChange = FileChangeset(
+                worktreeId: worktreeID,
+                repoId: repositoryID,
+                rootPath: rootPath,
+                paths: ["sidebar-cold-proof-change.txt"],
+                timestamp: timestamp + .milliseconds(1),
+                batchSeq: 1
+            )
+            let coalesced =
+                registrationArrivesFirst
+                ? GitWorkingDirectoryProjector.mergeChangesets(registration, with: ordinaryChange)
+                : GitWorkingDirectoryProjector.mergeChangesets(ordinaryChange, with: registration)
+            let origin = "/tmp/registration-origin-coalescing.origin.git"
+
+            let projected = await actor.prepareRemoteReferenceCurrentStatus(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 1),
+                    branch: "main",
+                    origin: origin
+                ),
+                changeset: coalesced
+            )
+
+            #expect(projected.summary.untracked == 1)
+            #expect(
+                await originRecorder.values == [
+                    ProjectorOriginRecord(repositoryID: repositoryID, origin: origin)
+                ]
+            )
+            await actor.shutdown()
+        }
+    }
+
     @Test("matching accepted origin preserves ahead and behind")
     func matchingOriginPreservesCounts() {
         let status = makeStatus()
@@ -174,5 +235,18 @@ struct GitWorkingDirectoryProjectorRemoteReferenceTests {
                 references: []
             )
         )
+    }
+}
+
+private struct ProjectorOriginRecord: Equatable, Sendable {
+    let repositoryID: UUID
+    let origin: String?
+}
+
+private actor ProjectorOriginRecorder {
+    private(set) var values: [ProjectorOriginRecord] = []
+
+    func record(repositoryID: UUID, origin: String?) {
+        values.append(ProjectorOriginRecord(repositoryID: repositoryID, origin: origin))
     }
 }

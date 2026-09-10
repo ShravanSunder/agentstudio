@@ -13,7 +13,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         let fixture = try LiveServerFixture(
             channel: .debug,
             sidebarPort: FakeSidebarPort(
-                repoGrouping: .pane,
+                repoGrouping: .activity,
                 inboxGrouping: .noGrouping,
                 surface: .inbox
             ),
@@ -40,7 +40,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
             surface: .repo
         )
         #expect(repoGrouping.surface == .repo)
-        #expect(repoGrouping.mode == .pane)
+        #expect(repoGrouping.mode == .activity)
 
         let inboxGrouping = try await getGrouping(
             connection: connection,

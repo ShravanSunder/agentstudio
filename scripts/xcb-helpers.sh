@@ -22,7 +22,12 @@ _xcb_pipe() {
     if [ -n "${XCB_EXTRA_ARGS:-}" ]; then
       read -r -a extra_args <<<"${XCB_EXTRA_ARGS}"
     fi
-    bash "$filter_script" | xcbeautify "${extra_args[@]}" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c
+    # Bash 3.2 treats an empty array expansion as unset when nounset is enabled.
+    if [ "${#extra_args[@]}" -gt 0 ]; then
+      bash "$filter_script" | xcbeautify "${extra_args[@]}" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c
+    else
+      bash "$filter_script" | xcbeautify | /usr/bin/iconv -f UTF-8 -t UTF-8 -c
+    fi
     return
   fi
 

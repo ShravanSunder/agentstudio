@@ -40,22 +40,23 @@ struct RepoExplorerViewTests {
         #expect(sharedChipsSource.contains("SidebarPullRequestChipSpec.chip(count:"))
     }
 
-    @Test("selected grouping segment icon call site passes the accent foregroundOverride")
-    func selectedGroupingSegmentIconUsesAccentOverride() throws {
-        let source = try String(
+    @Test("organization controls use shared picker chrome without persistent pin fill")
+    func organizationControlsUseSharedPickerChrome() throws {
+        let toolbarSource = try String(
             contentsOfFile:
                 "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
             encoding: .utf8
         )
-        let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))
-        let iconClosureEnd = try #require(
-            source.range(of: "},", range: iconClosureStart.upperBound..<source.endIndex))
-        let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
+        let sharedControlSource = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift",
+            encoding: .utf8
+        )
 
-        #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
-        #expect(iconClosureSource.contains("foregroundOverride:"))
-        #expect(iconClosureSource.contains("AppStyles.General.Accent.primaryColor"))
-        #expect(!iconClosureSource.contains(".foregroundStyle("))
+        #expect(toolbarSource.contains("SidebarToolbarPickerButton("))
+        #expect(toolbarSource.contains("showsActiveBackground: false"))
+        #expect(sharedControlSource.contains("SidebarToolbarButtonStyle(isOpen: isOpen)"))
+        #expect(sharedControlSource.contains("isActive: isActive && showsActiveBackground"))
     }
 
     @Test("flat list entries expand a resolved group into header and child rows")

@@ -13,6 +13,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var activityOverflowRecoveryByParticipant: [FSEventParticipant: FSEventActivityOverflowRecovery] = [:]
     private var acknowledgedActivityProcessingFenceIds: [FSEventActivityProcessingFenceID] = []
     private var nextRegistrationOutcome: FSEventStreamRegistrationOutcome = .observing
+    private var activityBarrier: FSEventActivityBarrier?
 
     package init() {
         let (stream, continuation) = AsyncStream<FSEventIngressItem>.makeStream(
@@ -131,6 +132,14 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         _ fenceID: FSEventActivityProcessingFenceID
     ) {
         lock.withLock { acknowledgedActivityProcessingFenceIds.append(fenceID) }
+    }
+
+    package func captureActivityBarrier() async -> FSEventActivityBarrier? {
+        lock.withLock { activityBarrier }
+    }
+
+    package func setActivityBarrier(_ barrier: FSEventActivityBarrier?) {
+        lock.withLock { activityBarrier = barrier }
     }
 
     package func send(_ batch: FSEventBatch) {

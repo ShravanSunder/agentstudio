@@ -100,12 +100,12 @@ extension RepoExplorerProjectionWorkerTests {
             generation: 2,
             resolvesRemotes: false
         )
-        let favoriteRequest = request(
-            repos: [withFavorite(initialRepo), metadataSecondaryRepo],
+        let pinRequest = request(
+            repos: [withPin(initialRepo), metadataSecondaryRepo],
             generation: 3,
             resolvesRemotes: false
         )
-        let favoriteRemovalRequest = request(
+        let pinRemovalRequest = request(
             repos: [initialRepo, metadataSecondaryRepo],
             generation: 4,
             resolvesRemotes: false
@@ -124,25 +124,25 @@ extension RepoExplorerProjectionWorkerTests {
         }.wait()
         #expect(equalCandidateSettled)
         #expect(adapter.publishedResult == initialResult)
-        #expect(favoriteRequest.scopedChange(from: metadataRequest) == .repo(repoId))
+        #expect(pinRequest.scopedChange(from: metadataRequest) == nil)
 
         adapter.admitDelta(
             [.repo(repoId)],
-            request: favoriteRequest
+            request: pinRequest
         )
         let scopedResult = try await publishedResult(generation: 3, from: adapter)
-        let referenceResult = try RepoExplorerProjectionWorker.project(favoriteRequest)
+        let referenceResult = try RepoExplorerProjectionWorker.project(pinRequest)
 
         #expect(scopedResult.projection == referenceResult.projection)
         #expect(scopedResult.rowIndex == referenceResult.rowIndex)
 
-        #expect(favoriteRemovalRequest.scopedChange(from: favoriteRequest) == .repo(repoId))
+        #expect(pinRemovalRequest.scopedChange(from: pinRequest) == nil)
         adapter.admitDelta(
             [.repo(repoId)],
-            request: favoriteRemovalRequest
+            request: pinRemovalRequest
         )
         let removalResult = try await publishedResult(generation: 4, from: adapter)
-        let removalReference = try RepoExplorerProjectionWorker.project(favoriteRemovalRequest)
+        let removalReference = try RepoExplorerProjectionWorker.project(pinRemovalRequest)
 
         #expect(removalResult.projection == removalReference.projection)
         #expect(removalResult.rowIndex == removalReference.rowIndex)

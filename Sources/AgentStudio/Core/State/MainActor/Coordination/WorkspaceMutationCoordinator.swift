@@ -88,6 +88,13 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
+    package func setPanePinned(_ paneId: UUID, isPinned: Bool) -> Bool {
+        guard workspacePaneAtom.pane(paneId) != nil else { return false }
+        workspacePaneAtom.updatePanePinned(paneId, isPinned: isPinned)
+        return true
+    }
+
+    @discardableResult
     package func backgroundPane(_ paneId: UUID) -> Bool {
         guard let backgroundedPane = workspacePaneAtom.pane(paneId) else {
             Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")

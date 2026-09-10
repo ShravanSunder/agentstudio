@@ -677,7 +677,7 @@ enum CommandBarDataSource {
                     id: "target-arrangement-\(arrangement.id.uuidString)",
                     title: arrangement.name,
                     subtitle: arrangement.isDefault ? "Default" : "\(arrangement.layout.paneIds.count) panes",
-                    icon: arrangement.isDefault ? .system(.rectangle3Group) : .system(.rectangle3GroupFill),
+                    icon: LocalActionSpec.arrangements.actionSpec.icon,
                     group: "Arrangements",
                     groupPriority: 0,
                     action: .dispatchTargeted(def.command, target: arrangement.id, targetType: .tab)

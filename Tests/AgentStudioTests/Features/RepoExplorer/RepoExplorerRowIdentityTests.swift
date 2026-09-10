@@ -14,6 +14,8 @@ struct RepoExplorerRowIdentityTests {
         let paneID = UUIDv7.generate()
         let groupID = "remote:askluna/agent-studio"
         let identities: [RepoExplorerRowID] = [
+            .activitySubgroup(groupID: groupID, bucket: .active),
+            .activitySubgroup(groupID: groupID, bucket: .justNow),
             .sectionHeader(.repositories),
             .loadingSectionHeader(.repositories),
             .loadingRepository(section: .repositories, repoID: repoID),
@@ -32,6 +34,16 @@ struct RepoExplorerRowIdentityTests {
 
         #expect(Set(identities).count == identities.count)
         #expect(identities == identities.map { $0 })
+    }
+
+    @Test("activity subgroup identity includes both parent group and bucket")
+    func activitySubgroupIdentityIncludesParentGroupAndBucket() {
+        let first = RepoExplorerListEntry.activitySubgroup(groupId: "first", bucket: .active)
+        let differentGroup = RepoExplorerListEntry.activitySubgroup(groupId: "second", bucket: .active)
+        let differentBucket = RepoExplorerListEntry.activitySubgroup(groupId: "first", bucket: .justNow)
+
+        #expect(first.id == .activitySubgroup(groupID: "first", bucket: .active))
+        #expect(Set([first.id, differentGroup.id, differentBucket.id]).count == 3)
     }
 
     @Test("list entries expose the worker-provided typed row identity")

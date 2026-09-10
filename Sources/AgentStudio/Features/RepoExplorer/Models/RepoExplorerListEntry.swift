@@ -10,6 +10,7 @@ struct RepoExplorerPaneListEntryIdentity: Equatable, Sendable {
 }
 
 enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
+    case activitySubgroup(groupId: String, bucket: RepoExplorerActivityBucket)
     case sectionHeader(RepoExplorerSidebarSectionKind)
     case loadingSectionHeader(RepoExplorerSidebarSectionKind)
     case loadingRepoRow(section: RepoExplorerSidebarSectionKind, repo: RepoPresentationItem)
@@ -21,6 +22,8 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
 
     var id: RepoExplorerRowID {
         switch self {
+        case .activitySubgroup(let groupId, let bucket):
+            return .activitySubgroup(groupID: groupId, bucket: bucket)
         case .sectionHeader(let kind):
             return .sectionHeader(kind)
         case .loadingSectionHeader(let kind):

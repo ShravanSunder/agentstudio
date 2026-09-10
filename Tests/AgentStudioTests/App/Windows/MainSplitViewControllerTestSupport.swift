@@ -181,7 +181,7 @@ struct MainSplitViewControllerTestSidebarView: View {
     var body: some View {
         Group {
             switch uiState.sidebarSurface {
-            case .repos:
+            case .repos, .panes:
                 Color.clear
             case .inbox:
                 MainSplitViewControllerTestInboxView(

@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioInfrastructure
 
-@Suite
+@Suite(.serialized)
 struct SidebarPerformanceWorkloadScriptTests {
     private let scriptPath = "scripts/verify-sidebar-performance-workload.sh"
 
@@ -155,6 +155,45 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(sampler.contains("time.sleep"))
         #expect(sampler.contains("$APP_PID"))
         #expect(!sampler.contains("/usr/bin/top"))
+    }
+
+    @Test("strict fixture wait fails immediately with the marker blocked reason")
+    func strictFixtureWaitFailsImmediatelyWithBlockedReason() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE":
+                    #"{"agentstudio.startup_diagnostic.skip_reason":"cold_repository_control_failed"}"#,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("strict sidebar fixture blocked for marker"))
+        #expect(result.stderr.contains(": cold_repository_control_failed"))
+    }
+
+    @Test("implicit script proof root is removed after prepare-only completion")
+    func implicitScriptProofRootIsRemovedAfterCompletion() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES": "1",
+                "AGENTSTUDIO_SIDEBAR_TEST_METRICS_RESPONSE":
+                    #"{"status":"success","data":{"result":[{"value":[0,"1"]}]}}"#,
+            ]
+        )
+
+        try #require(result.exitCode == 0, Comment(rawValue: result.stderr))
+        let summaryPath = try #require(
+            result.stdout.components(separatedBy: ": ").last
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let summaryURL = URL(fileURLWithPath: summaryPath)
+        try #require(summaryURL.lastPathComponent == "summary.txt")
+        let proofRoot = summaryURL.deletingLastPathComponent().deletingLastPathComponent()
+        try #require(proofRoot.lastPathComponent.hasPrefix("agentstudio-sidebar-script-test-"))
+        #expect(!FileManager.default.fileExists(atPath: summaryPath))
+        #expect(!FileManager.default.fileExists(atPath: proofRoot.path))
     }
 }
 
@@ -499,7 +538,8 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("performance.repo_explorer.keyed_wake"))
         #expect(source.contains("keyed-wake-values.env"))
         #expect(source.contains("repo_explorer_key_mutation_phase"))
-        #expect(source.contains("rendered_repo_favorite"))
+        #expect(source.contains("rendered_repo_pinned"))
+        #expect(!source.contains("rendered_repo_favorite"))
         #expect(source.contains("rendered_worktree_fact"))
         #expect(source.contains("relevant_key"))
         #expect(source.contains("unrelated_tab_arrangement_pane"))
@@ -521,14 +561,18 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("assert_keyed_wake_contract"))
         #expect(source.contains("keyed_wake_outcome_count final_projection reference_different"))
         #expect(source.contains("final_projection reference_different expected 0"))
-        #expect(source.contains("rendered_repo_favorite affected_row"))
-        #expect(source.contains("rendered_repo_favorite capture_rebuild \"$WORKLOAD_CYCLES\""))
-        #expect(source.contains("rendered_worktree_fact affected_row"))
-        #expect(source.contains("rendered_worktree_fact capture_rebuild \"$WORKLOAD_CYCLES\""))
+        #expect(source.contains("REQUIRED_KEY_MUTATION_COUNT=100"))
+        #expect(source.contains("rendered_repo_pinned capture_rebuild \"$REQUIRED_KEY_MUTATION_COUNT\""))
+        #expect(source.contains("rendered_repo_pinned whole_surface \"$REQUIRED_KEY_MUTATION_COUNT\""))
+        #expect(source.contains("rendered_repo_pinned eager_admission \"$REQUIRED_KEY_MUTATION_COUNT\""))
+        #expect(source.contains("rendered_repo_pinned affected_row 0"))
+        #expect(source.contains("rendered_repo_pinned membership_path 0"))
+        #expect(source.contains("rendered_worktree_fact affected_row \"$REQUIRED_KEY_MUTATION_COUNT\""))
+        #expect(source.contains("rendered_worktree_fact capture_rebuild \"$REQUIRED_KEY_MUTATION_COUNT\""))
         #expect(source.contains("unrelated_tab_arrangement_pane capture_rebuild 0"))
         #expect(!source.contains("observed_tab_title capture_rebuild 0"))
         #expect(source.contains("unrendered_attendance capture_rebuild 0"))
-        #expect(source.contains("relevant capture_rebuild \"$WORKLOAD_CYCLES\""))
+        #expect(source.contains("relevant capture_rebuild \"$REQUIRED_KEY_MUTATION_COUNT\""))
         #expect(source.contains("missing_declared_key membership_path"))
         #expect(source.contains("surface=\"repo\""))
         #expect(
@@ -543,28 +587,32 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("grouping_switch"))
         #expect(!source.contains("\"sidebar.grouping.set\""))
         #expect(!source.contains("\"sidebar.surface.set\""))
-        #expect(source.contains("\"setRepoSidebarGroupingRepo\""))
-        #expect(source.contains("\"setRepoSidebarGroupingPane\""))
-        #expect(source.contains("\"setRepoSidebarGroupingTab\""))
+        #expect(source.contains("\"showPanesSidebar\""))
+        #expect(source.contains("\"setPanesGroupingRepo\""))
+        #expect(source.contains("\"setPanesGroupingActivity\""))
+        #expect(source.contains("\"setPanesGroupingTab\""))
         #expect(!source.contains("\"showWorktreeSidebar\""))
         #expect(!source.contains("setRepoSidebarVisibilityMode"))
         #expect(!source.contains("favoritesOnly"))
         #expect(!source.contains("visibility_mode"))
-        #expect(source.contains("\"setRepoSidebarSortOrder\""))
-        #expect(source.contains("\"arguments\": {\"order\": order}"))
+        #expect(source.contains("\"togglePanesSortDirection\""))
+        #expect(source.contains("def latest_completed_panes_projection():"))
+        #expect(source.contains("def wait_for_panes_projection("))
+        #expect(source.contains("expected_sort_order=opposite_order"))
+        #expect(source.contains("expected_sort_order=initial_order"))
         #expect(source.contains("sort_order"))
         #expect(source.contains("repo_sort_projection_worker_elapsed_ms_p95"))
         #expect(source.contains("repo_sort_mainactor_apply_elapsed_ms_p95"))
         #expect(source.contains("repo_sort_request_build_mainactor_elapsed_ms_p95"))
         #expect(source.contains("repo_sort_row_index_elapsed_ms_p95"))
-        #expect(source.contains("set_grouping(\"repo\", \"pane\")"))
-        #expect(source.contains("set_grouping(\"repo\", \"repo\")"))
+        #expect(source.contains("set_grouping(\"panes\", \"activity\")"))
+        #expect(source.contains("set_grouping(\"panes\", \"repo\")"))
         #expect(source.contains("\"auth.login replay\""))
         #expect(source.contains("repo_pane_projection_worker_elapsed_ms_p95"))
         #expect(source.contains("repo_pane_projection_worker_elapsed_ms_count"))
-        #expect(source.contains("for mode_name in repo pane tab"))
+        #expect(source.contains("for mode_name in repo activity tab"))
         #expect(source.contains("for phase in request_build_mainactor projection_worker row_index mainactor_apply"))
-        #expect(source.contains("\"repo_${mode_name}_${phase}\""))
+        #expect(source.contains("\"panes_${mode_name}_${phase}\""))
         #expect(source.contains("repo_pane_request_build_mainactor_elapsed_ms_p95"))
         #expect(source.contains("repo_pane_row_index_elapsed_ms_p95"))
         #expect(source.contains("repo_tab_mainactor_apply_elapsed_ms_max"))
@@ -577,7 +625,7 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("wait_for_required_metric_count"))
         #expect(source.contains("REQUIRED_SAMPLE_COUNT=100"))
         #expect(source.contains("REQUIRED_MATERIALIZED_SAMPLE_COUNT=90"))
-        #expect(source.contains("WORKLOAD_FIXTURE_VERSION=sidebar-workload-v5-repo-only"))
+        #expect(source.contains("WORKLOAD_FIXTURE_VERSION=sidebar-workload-v6-panes-organization"))
         #expect(source.contains("REQUIRED_REPOSITORY_COUNT=150"))
         #expect(source.contains("REQUIRED_WORKTREE_COUNT=180"))
         #expect(source.contains("REQUIRED_TAB_COUNT=12"))
@@ -613,14 +661,14 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("sidebar_proof.diagnostic_trace_tags"))
         #expect(!source.contains("WORKLOAD_TRACE_TAGS=\"performance,atoms,app.startup,terminal.startup\""))
         #expect(source.contains("must be >= {minimum}"))
-        #expect(source.contains("def wait_for_readback"))
+        #expect(source.contains("def wait_for_panes_projection"))
         #expect(source.contains("time.monotonic() + timeout"))
         #expect(source.contains("AGENTSTUDIO_TRACE_FLUSH=immediate"))
         #expect(source.contains("KEY_MUTATION_TRACE_TAGS=\"performance,app.startup\""))
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=\"$KEY_MUTATION_TRACE_TAGS\""))
         #expect(source.contains("AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER"))
         #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=\"$STRICT_DISPOSABLE_DATA_ROOT\""))
-        #expect(source.contains("STRICT_DISPOSABLE_DATA_ROOT=\"$ARTIFACT/disposable-debug-data\""))
+        #expect(source.contains("STRICT_DISPOSABLE_DATA_ROOT=\"$ARTIFACT/d\""))
         #expect(source.contains("refusing reset for non-proof data root"))
         #expect(source.contains("refusing reset outside proof artifact"))
         #expect(source.contains("refusing to reset persistent debug data root"))
@@ -640,11 +688,11 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("sidebar baseline workload fixture mismatch"))
         #expect(source.contains("sidebar baseline worktree fixture mismatch"))
         #expect(source.contains("validate_compare_baseline_fixture"))
-        #expect(source.contains("\"sidebar.grouping.get\""))
+        #expect(!source.contains("\"sidebar.grouping.get\""))
         #expect(!source.contains("\"sidebar.surface.get\""))
-        #expect(source.contains("repo_only_workload.ipc_sequence=grouping_and_sort"))
+        #expect(source.contains("panes_only_workload.ipc_sequence=grouping_and_sort"))
         #expect(
-            source.contains("repo_sort.ipc_sequence=descending,ascending,descending,ascending,descending,ascending"))
+            source.contains("panes_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"))
         #expect(source.contains("sidebar-performance-baseline.env"))
         #expect(source.contains("performance_threshold_check"))
         #expect(source.contains("requires authenticated IPC auth mode"))
@@ -829,6 +877,21 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("refuses AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"))
     }
 
+    @Test("proof rejects a zmx socket path that exceeds the macOS byte limit before launch")
+    func rejectsOverlongZmxSocketPathBeforeLaunch() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--sidebar-proof"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_PROOF_ROOT": "/tmp/" + String(repeating: "long", count: 30),
+                "AGENTSTUDIO_TRACE_NAME": "socket-path-test",
+            ]
+        )
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("zmx proof socket path"))
+        #expect(result.stderr.contains("macOS maximum is 103"))
+        #expect(!result.stdout.contains("launching debug"))
+    }
+
     private var settledGitVectorFields: String {
         """
         \(settledUnknownVectorFields),"cold_automatic_deadline_count":0,"cold_automatic_source_start_count":0,"git_future_automatic_count":0,"git_future_failure_count":0,"git_ready_pending_count":0,"git_capacity_pending_count":0,"git_active_follow_up_count":0,"git_unclassified_pending_count":0,"git_overdue_deadline_count":0,"git_running_count":0,"git_physical_limit":4,"git_oldest_preparation_ms":0,"git_next_deadline_ms":0,\(settledRemoteForgeVectorFields),"git_maximum_settlement_ms":960000,"proof_failure_count":0
@@ -903,6 +966,21 @@ func runSidebarScript(
     environment: [String: String] = [:]
 ) async throws -> ProcessResult {
     var mergedEnvironment = ProcessInfo.processInfo.environment
+    let implicitProofRoot: URL?
+    if environment["AGENTSTUDIO_SIDEBAR_PROOF_ROOT"] == nil {
+        implicitProofRoot = FileManager.default.temporaryDirectory.appending(
+            path: "agentstudio-sidebar-script-test-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        mergedEnvironment["AGENTSTUDIO_SIDEBAR_PROOF_ROOT"] = implicitProofRoot?.path
+    } else {
+        implicitProofRoot = nil
+    }
+    defer {
+        if let implicitProofRoot {
+            try? FileManager.default.removeItem(at: implicitProofRoot)
+        }
+    }
     mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
     mergedEnvironment["AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"] = "http://127.0.0.1:13133/"
     for (key, value) in environment {

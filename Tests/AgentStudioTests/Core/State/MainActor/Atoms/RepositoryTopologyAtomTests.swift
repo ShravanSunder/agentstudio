@@ -150,10 +150,10 @@ struct RepositoryTopologyAtomTests {
         #expect(atom.repo(stableKey: repository.stableKey) == atom.repo(repository.id))
         #expect(atom.worktree(stableKey: worktree.stableKey) == atom.worktree(worktree.id))
 
-        coordinator.setRepoFavorite(repository.id, isFavorite: true)
+        coordinator.setRepoPinned(repository.id, isPinned: true)
         try coordinator.updateWorktreeNote(worktree.id, note: "current")
 
-        #expect(atom.repo(stableKey: repository.stableKey)?.isFavorite == true)
+        #expect(atom.repo(stableKey: repository.stableKey)?.isPinned == true)
         #expect(atom.worktree(stableKey: worktree.stableKey)?.note == "current")
     }
 
@@ -205,12 +205,12 @@ struct RepositoryTopologyAtomTests {
         let repo = coordinator.addRepo(at: repoPath)
         let generation = atom.worktreePathIndexGeneration
 
-        coordinator.setRepoFavorite(repo.id, isFavorite: true)
+        coordinator.setRepoPinned(repo.id, isPinned: true)
         coordinator.updateRepoNote(repo.id, note: "current note")
         try coordinator.setRepoTags(["current"], repositoryID: repo.id)
 
         let match = try #require(atom.repoAndWorktree(containing: repoPath))
-        #expect(match.repo.isFavorite)
+        #expect(match.repo.isPinned)
         #expect(match.repo.note == "current note")
         #expect(match.repo.tags == ["current"])
         #expect(atom.worktreePathIndexGeneration == generation)
@@ -240,12 +240,12 @@ struct RepositoryTopologyAtomTests {
         let invalidation = RepositoryTopologyObservationFlag()
 
         withObservationTracking {
-            _ = atom.repo(repo.id)?.isFavorite
+            _ = atom.repo(repo.id)?.isPinned
         } onChange: {
             invalidation.didFire = true
         }
 
-        coordinator.setRepoFavorite(repo.id, isFavorite: true)
+        coordinator.setRepoPinned(repo.id, isPinned: true)
 
         #expect(invalidation.didFire)
     }

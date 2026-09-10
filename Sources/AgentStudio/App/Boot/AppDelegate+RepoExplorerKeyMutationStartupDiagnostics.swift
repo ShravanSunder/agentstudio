@@ -50,9 +50,9 @@ import Foundation
 
             await runRepoExplorerKeyMutationPhase(
                 action: action,
-                phase: "rendered_repo_favorite",
-                keyClass: "rendered_repo_favorite"
-            ) { await self.runRenderedRepoFavoriteMutations() }
+                phase: "rendered_repo_pinned",
+                keyClass: "rendered_repo_pinned"
+            ) { await self.runRenderedRepoPinnedMutations() }
             await runRepoExplorerKeyMutationPhase(
                 action: action,
                 phase: "rendered_worktree_fact",
@@ -225,18 +225,18 @@ import Foundation
             return false
         }
 
-        private func runRenderedRepoFavoriteMutations() async {
+        private func runRenderedRepoPinnedMutations() async {
             guard let repository = store.repositoryTopologyAtom.repos.first else { return }
-            var nextFavoriteState = !repository.isFavorite
+            var nextPinnedState = !repository.isPinned
             for _ in 0..<100 {
                 let captureSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "capture_rebuild"
                 )
-                store.mutationCoordinator.setRepoFavorite(
+                store.mutationCoordinator.setRepoPinned(
                     repository.id,
-                    isFavorite: nextFavoriteState
+                    isPinned: nextPinnedState
                 )
-                nextFavoriteState.toggle()
+                nextPinnedState.toggle()
                 recordRepoExplorerAtomSlotMutation()
                 guard
                     await waitForRepoExplorerKeyedWakeStage(
@@ -278,16 +278,16 @@ import Foundation
 
         private func runRelevantTopologyKeyMutations() async {
             guard let repository = store.repositoryTopologyAtom.repos.first else { return }
-            var nextFavoriteState = !repository.isFavorite
+            var nextPinnedState = !repository.isPinned
             for _ in 0..<100 {
                 let captureSequence = RepoExplorerPerformanceTelemetry.shared.sequence(
                     for: "capture_rebuild"
                 )
-                store.mutationCoordinator.setRepoFavorite(
+                store.mutationCoordinator.setRepoPinned(
                     repository.id,
-                    isFavorite: nextFavoriteState
+                    isPinned: nextPinnedState
                 )
-                nextFavoriteState.toggle()
+                nextPinnedState.toggle()
                 recordRepoExplorerAtomSlotMutation()
                 guard
                     await waitForRepoExplorerKeyedWakeStage(

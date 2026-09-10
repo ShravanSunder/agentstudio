@@ -436,22 +436,32 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
         await clock.waitForPendingSleepCount(atLeast: 2)
 
-        clock.advance(by: policy.visibleSidebarCadence - .milliseconds(1))
+        try await advanceVisibleDeadline(
+            actor, clock, worktreeId,
+            cadence: policy.visibleSidebarCadence,
+            stoppingBeforeDeadlineBy: .milliseconds(1)
+        )
         #expect(await calls.count == 1)
         clock.advance(by: .milliseconds(1))
         #expect(await visibleTierWaitUntil { await calls.count == 2 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.visibleSidebarCadence - .milliseconds(1))
+        try await advanceVisibleDeadline(
+            actor, clock, worktreeId,
+            cadence: policy.visibleSidebarCadence,
+            stoppingBeforeDeadlineBy: .milliseconds(1)
+        )
         #expect(await calls.count == 2)
         clock.advance(by: .milliseconds(1))
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(
-            by: policy.visibleSidebarCadence + policy.visibleSidebarCadence - .milliseconds(1)
+        try await advanceVisibleDeadline(
+            actor, clock, worktreeId,
+            cadence: policy.visibleSidebarCadence * 2,
+            stoppingBeforeDeadlineBy: .milliseconds(1)
         )
         #expect(await calls.count == 3)
 
@@ -520,12 +530,12 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         await clock.waitForPendingSleepCount(atLeast: 2)
-        clock.advance(by: policy.visibleSidebarCadence)
+        try await advanceVisibleDeadline(actor, clock, worktreeId, cadence: policy.visibleSidebarCadence)
         #expect(await visibleTierWaitUntil { await calls.count == 2 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.visibleSidebarCadence * 2)
+        try await advanceVisibleDeadline(actor, clock, worktreeId, cadence: policy.visibleSidebarCadence * 2)
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
         #expect(await actor.unchangedStatusResultCountByWorktreeId[worktreeId] == 2)
@@ -571,8 +581,8 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         await actor.shutdown()
     }
 
-    @Test("visible sidebar worktree refreshes on active cadence before its background stripe")
-    func visibleSidebarWorktreeRefreshesOnActiveCadenceBeforeBackgroundStripe() async throws {
+    @Test("visible sidebar refreshes compose visible cadence with measured duty")
+    func visibleSidebarRefreshesComposeVisibleCadenceWithMeasuredDuty() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = VisibleTierCallRecorder()
@@ -611,17 +621,33 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             )
         )
         #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[visibleWorktreeId] == nil })
 
         await actor.setActivity(worktreeId: visibleWorktreeId, isActiveInApp: false)
         await actor.setSidebarVisibleWorktrees([visibleWorktreeId])
         await clock.waitForPendingSleepCount(atLeast: 2)
         clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
-        #expect(await visibleTierWaitUntil { await calls.count == 2 })
-
-        for _ in 0..<2 {
-            await clock.waitForPendingSleepCount(atLeast: 1)
-            clock.advance(by: policy.activePaneCadence)
+        await actor.waitForVisibilityAdmission()
+        if await calls.count == 1,
+            let deadline = await actor.automaticRefreshDeadlineByWorktreeId[visibleWorktreeId]
+        {
+            let clockNow = await actor.deadlineClock.now
+            clock.advance(by: max(.zero, deadline - clockNow))
         }
+        #expect(await visibleTierWaitUntil { await calls.count == 2 })
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[visibleWorktreeId] == nil })
+        #expect(await actor.demandTier(for: visibleWorktreeId) == .visibleSidebar)
+
+        let lastStart = try #require(await actor.lastAutomaticStartAtByWorktreeId[visibleWorktreeId])
+        let lastCompletion = try #require(await actor.lastAutomaticCompletionAtByWorktreeId[visibleWorktreeId])
+        let duty = try #require(await actor.lastAutomaticDutyByWorktreeId[visibleWorktreeId])
+        let expectedDeadline = max(
+            lastStart + policy.visibleSidebarCadence,
+            lastCompletion + policy.automaticDutyGap(for: duty)
+        )
+        #expect(await actor.automaticRefreshDeadlineByWorktreeId[visibleWorktreeId] == expectedDeadline)
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        try await advanceVisibleDeadline(actor, clock, visibleWorktreeId, cadence: policy.visibleSidebarCadence)
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
 
         await actor.shutdown()
@@ -860,6 +886,21 @@ private actor VisibleTierStatusGate {
             }
         }
     }
+}
+
+private func advanceVisibleDeadline(
+    _ projector: GitWorkingDirectoryProjector,
+    _ clock: TestPushClock,
+    _ worktreeId: UUID,
+    cadence: Duration,
+    stoppingBeforeDeadlineBy: Duration = .zero
+) async throws {
+    let deadline = try #require(await projector.automaticRefreshDeadlineByWorktreeId[worktreeId])
+    let lastStart = try #require(await projector.lastAutomaticStartAtByWorktreeId[worktreeId])
+    #expect(deadline >= lastStart + cadence)
+    // Measured status duty can extend the cadence deadline under aggregate load.
+    let clockNow = await projector.deadlineClock.now
+    clock.advance(by: max(.zero, deadline - clockNow - stoppingBeforeDeadlineBy))
 }
 
 private func visibleTierWaitUntil(

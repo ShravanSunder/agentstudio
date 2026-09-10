@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioTerminal
 import Foundation
@@ -10,17 +11,20 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     private let runtimeRegistry: RuntimeRegistry
     private let commandDispatcher: any PaneRuntimeCommandDispatching
     private let eventBus: EventBus<RuntimeEnvelope>
+    private let terminalEventWaitDelay: AsyncDelay
 
     init(
         workspaceStore: WorkspaceStore,
         runtimeRegistry: RuntimeRegistry,
         commandDispatcher: any PaneRuntimeCommandDispatching,
-        eventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
+        eventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        terminalEventWaitClock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.workspaceStore = workspaceStore
         self.runtimeRegistry = runtimeRegistry
         self.commandDispatcher = commandDispatcher
         self.eventBus = eventBus
+        terminalEventWaitDelay = terminalEventWaitClock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
     func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult {
@@ -137,7 +141,8 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
         timeout: Duration,
         _ extract: @Sendable @escaping (RuntimeEnvelope) -> IPCTerminalWaitResult?
     ) async -> IPCTerminalWaitResult? {
-        await withTaskGroup(of: IPCTerminalWaitResult?.self) { group in
+        let timeoutDelay = terminalEventWaitDelay
+        return await withTaskGroup(of: IPCTerminalWaitResult?.self) { group in
             group.addTask {
                 for await envelope in stream {
                     if let result = extract(envelope) {
@@ -148,7 +153,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             }
 
             group.addTask {
-                try? await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
+                try? await timeoutDelay.wait(timeout)
                 return nil
             }
 

@@ -18,29 +18,34 @@ struct AgentStudioIPCSidebarAdapter: AppIPCSidebarPort, @unchecked Sendable {
     }
 
     func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
-        guard params.surface == .repo else {
-            throw AppIPCQueryError(reason: .targetNotFound)
+        let surface: SidebarSurface
+        switch params.surface {
+        case .repo: surface = .repos
+        case .panes: surface = .panes
+        case .inbox: throw AppIPCQueryError(reason: .targetNotFound)
         }
-        return IPCSidebarGroupingResult(surface: .repo, mode: sidebarGroupingMode(from: repoPrefs.groupingMode))
+        return IPCSidebarGroupingResult(
+            surface: params.surface, mode: sidebarGroupingMode(from: repoPrefs.groupingMode(for: surface))
+        )
     }
 
     func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
-        IPCSidebarSurfaceResult(surface: sidebarSurface(from: sidebarState.sidebarSurface))
+        switch sidebarState.sidebarSurface {
+        case .repos: return IPCSidebarSurfaceResult(surface: .repo)
+        case .panes: return IPCSidebarSurfaceResult(surface: .panes)
+        case .inbox: throw AppIPCQueryError(reason: .targetNotFound)
+        }
     }
 
     private func sidebarGroupingMode(from mode: RepoExplorerGroupingMode) -> IPCSidebarGroupingMode {
         switch mode {
         case .repo:
             return .repo
-        case .pane:
-            return .pane
+        case .activity:
+            return .activity
         case .tab:
             return .tab
         }
     }
 
-    private func sidebarSurface(from surface: SidebarSurface) -> IPCSidebarSurface {
-        _ = surface
-        return .repo
-    }
 }

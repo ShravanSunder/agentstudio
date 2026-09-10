@@ -409,7 +409,8 @@ struct TabBarArrangementButton: View {
                 name: activeArrangementName,
                 isHovered: isHovered,
                 isPressed: presentationState.isPresented,
-                nameMaxWidth: chipNameMaxWidth
+                nameMaxWidth: chipNameMaxWidth,
+                octiconLoader: octiconLoader
             )
             .overlay(alignment: .topTrailing) {
                 if hiddenMinimizedCount > 0 {

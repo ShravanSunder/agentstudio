@@ -88,6 +88,7 @@ final class RepoExplorerProjectionAdapter {
     @ObservationIgnored let inputCapture: RepoExplorerProjectionInputCapture?
     @ObservationIgnored let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored let recencyNow: @MainActor @Sendable () -> Date
+    @ObservationIgnored let deadlineNow: @Sendable () -> Date
     @ObservationIgnored let recencyDelay: AsyncDelay
     @ObservationIgnored let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     @ObservationIgnored var isDemanded = false
@@ -139,6 +140,7 @@ final class RepoExplorerProjectionAdapter {
         inputCapture: RepoExplorerProjectionInputCapture? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
+        deadlineNow: @escaping @Sendable () -> Date = Date.init,
         recencyDelay: AsyncDelay = .taskSleep,
         initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger = .startupDiagnostic,
         onProjectionSuppressed:
@@ -160,6 +162,7 @@ final class RepoExplorerProjectionAdapter {
         self.inputCapture = inputCapture
         self.performanceTraceRecorder = performanceTraceRecorder
         self.recencyNow = recencyNow
+        self.deadlineNow = deadlineNow
         self.recencyDelay = recencyDelay
         self.initialProjectionTrigger = initialProjectionTrigger
         self.onProjectionSuppressed = onProjectionSuppressed
@@ -247,7 +250,7 @@ final class RepoExplorerProjectionAdapter {
         extra: [String: AgentStudioTraceValue] = [:]
     ) -> [String: AgentStudioTraceValue] {
         var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.sidebar.surface": .string("repo"),
+            "agentstudio.performance.sidebar.surface": .string(request.snapshot.surface == .panes ? "panes" : "repo"),
             "agentstudio.performance.sidebar.phase": .string(phase),
             "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
             "agentstudio.performance.sidebar.query_state": .string(

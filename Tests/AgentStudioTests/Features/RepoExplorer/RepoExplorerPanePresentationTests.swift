@@ -144,7 +144,7 @@ struct RepoExplorerPanePresentationTests {
         )
 
         #expect(RepoExplorerView.semanticRepoForHeader(group, groupingMode: .repo)?.id == repo.id)
-        #expect(RepoExplorerView.semanticRepoForHeader(group, groupingMode: .pane)?.id == repo.id)
+        #expect(RepoExplorerView.semanticRepoForHeader(group, groupingMode: .repo)?.id == repo.id)
         #expect(RepoExplorerView.semanticRepoForHeader(group, groupingMode: .tab) == nil)
     }
 

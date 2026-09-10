@@ -8,14 +8,15 @@ DEBUG_RUNNER="${AGENTSTUDIO_SIDEBAR_DEBUG_RUNNER:-$PROJECT_ROOT/scripts/run-debu
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
-DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
+DEFAULT_PROOF_ROOT="/tmp/as-sp"
 WORKLOAD_TRACE_TAGS="performance,app.startup,terminal.startup"
 KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
 REQUIRED_MATERIALIZED_SAMPLE_COUNT=90
+REQUIRED_KEY_MUTATION_COUNT=100
 REQUIRED_METRIC_READBACK_ATTEMPTS=45
-WORKLOAD_FIXTURE_VERSION=sidebar-workload-v5-repo-only
+WORKLOAD_FIXTURE_VERSION=sidebar-workload-v6-panes-organization
 REQUIRED_REPOSITORY_COUNT=150
 REQUIRED_WORKTREE_COUNT=180
 REQUIRED_TAB_COUNT=12
@@ -213,6 +214,7 @@ reset_disposable_debug_root() {
 
 prepare_strict_git_continuity_control() {
   local control_root="${1:?missing continuity control root}"
+  local origin_root="${control_root}.origin.git"
   case "$control_root" in
     "$RESET_DATA_DIR/"*) ;;
     *) echo "refusing continuity control outside isolated debug root" >&2; return 1 ;;
@@ -231,6 +233,9 @@ prepare_strict_git_continuity_control() {
     -c user.name='Agent Studio Performance Proof' \
     -c user.email='performance-proof@invalid.local' \
     commit --quiet -m 'establish continuity control baseline'
+  /usr/bin/git clone --quiet --bare "$control_root" "$origin_root"
+  /usr/bin/git -C "$control_root" remote add origin "$origin_root"
+  /usr/bin/git -C "$control_root" push --quiet --set-upstream origin HEAD
   [ -z "$(/usr/bin/git -C "$control_root" status --porcelain=v1 --untracked-files=all)" ] || {
     echo "continuity control repository is not exactly clean" >&2
     return 1
@@ -646,17 +651,48 @@ strict_sidebar_fixture_ready_query() {
   printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic.sidebar_proof.fixture_ready agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.sidebar_proof.open_source_root_present,agentstudio.startup_diagnostic.sidebar_proof.project_dev_root_present,agentstudio.startup_diagnostic.sidebar_proof.control_root_present,agentstudio.startup_diagnostic.sidebar_proof.discovered_repository_count,agentstudio.startup_diagnostic.sidebar_proof.discovered_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.warm_repository_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_repository_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_repository_count,agentstudio.startup_diagnostic.sidebar_proof.warm_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.inactive_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.unknown_worktree_count,agentstudio.startup_diagnostic.sidebar_proof.cold_automatic_deadline_count,agentstudio.startup_diagnostic.sidebar_proof.cold_local_automatic_source_start_count,agentstudio.startup_diagnostic.sidebar_proof.cold_fsevent_local_completion_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_source_terminal_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_progress_settled_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_local_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_remote_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.explicit_forge_admitted_count,agentstudio.startup_diagnostic.sidebar_proof.topology_fingerprint,agentstudio.startup_diagnostic.sidebar_proof.tab_count,agentstudio.startup_diagnostic.sidebar_proof.pane_model_count,agentstudio.startup_diagnostic.sidebar_proof.expected_session_variant | limit 1'
 }
 
+strict_sidebar_fixture_blocked_query() {
+  printf '%s' '{service.name="AgentStudio",dev.runtime.flavor="debug"} _msg:app.startup_diagnostic_action.blocked agent.proof.marker:"'"$TRACE_MARKER"'" | fields agentstudio.startup_diagnostic.skip_reason | limit 1'
+}
+
+report_strict_sidebar_fixture_blocked() {
+  local response="${1:?missing blocked fixture response}"
+  local reason
+  reason="$(/usr/bin/python3 - "$response" <<'PY'
+import json
+import sys
+
+records = [json.loads(line) for line in sys.argv[1].splitlines() if line.strip()]
+if len(records) != 1:
+    raise SystemExit(f"strict fixture blocked response requires exactly one record, got {len(records)}")
+reason = records[0].get("agentstudio.startup_diagnostic.skip_reason")
+if not isinstance(reason, str) or not reason:
+    raise SystemExit("strict fixture blocked response is missing its reason")
+print(reason)
+PY
+  )"
+  echo "strict sidebar fixture blocked for marker $TRACE_MARKER: $reason" >&2
+  return 1
+}
+
 load_strict_sidebar_fixture_ready() {
   local fixture_file="${1:?missing fixture output file}"
-  local timeout_seconds response query
+  local blocked_query blocked_response timeout_seconds response query
   timeout_seconds="$(/usr/bin/python3 -c 'import sys; print(max(1, int(float(sys.argv[1]) / 1000)))' \
     "$STRICT_POLICY_FIXTURE_PREPARATION_TIMEOUT_MS")"
   query="$(strict_sidebar_fixture_ready_query)"
+  blocked_query="$(strict_sidebar_fixture_blocked_query)"
   for _ in $(seq 1 "$timeout_seconds"); do
     response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" --data-urlencode "query=$query")"
     if [ -n "$response" ]; then
       printf '%s\n' "$response" >"$fixture_file"
       return 0
+    fi
+    blocked_response="$(curl --silent --show-error --max-time 5 "$LOGS_QUERY_URL" \
+      --data-urlencode "query=$blocked_query")"
+    if [ -n "$blocked_response" ]; then
+      report_strict_sidebar_fixture_blocked "$blocked_response"
+      return 1
     fi
     /bin/sleep 1
   done
@@ -733,12 +769,12 @@ if cold_automatic_deadline_count != 0 or cold_local_automatic_source_start_count
     raise SystemExit("strict fixture contains cold automatic work")
 if cold_fsevent_local_completion_count != 1:
     raise SystemExit("strict fixture did not prove one cold FSEvent local completion")
-if explicit_source_admitted_count <= 0 or explicit_source_terminal_count != 3:
-    raise SystemExit("strict fixture did not prove complete explicit source admission and settlement")
+if explicit_source_admitted_count != 1 or explicit_source_terminal_count != 1:
+    raise SystemExit("strict fixture did not prove one remote-only explicit source settlement")
 if explicit_progress_settled_count != 1:
     raise SystemExit("strict fixture did not prove one settled composite progress lifetime")
-if sum((explicit_local_admitted_count, explicit_remote_admitted_count, explicit_forge_admitted_count)) != explicit_source_admitted_count:
-    raise SystemExit("strict fixture explicit source admission accounting is inconsistent")
+if (explicit_local_admitted_count, explicit_remote_admitted_count, explicit_forge_admitted_count) != (0, 1, 0):
+    raise SystemExit("strict fixture explicit source admission is not remote-only")
 if tab_count != int(float(raw_tabs)) or pane_count != int(float(raw_panes)):
     raise SystemExit(f"strict fixture expected 5/20-compatible policy counts, got {tab_count}/{pane_count}")
 expected_sessions = int(float(raw_zero))
@@ -2552,14 +2588,14 @@ record_required_sidebar_metric_matrix() {
   : >"$REQUIRED_METRIC_KEYS_FILE"
   : >"$METRIC_VALUES_FILE"
 
-  for mode_name in repo pane tab; do
+  for mode_name in repo activity tab; do
     for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
       minimum_count="$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
       if [ "$phase" = "request_build_mainactor" ]; then
         minimum_count="$REQUIRED_SAMPLE_COUNT"
       fi
-      record_required_metric_series repo "$phase" "$mode_name" grouping_switch \
-        "repo_${mode_name}_${phase}" "$minimum_count"
+      record_required_metric_series panes "$phase" "$mode_name" grouping_switch \
+        "panes_${mode_name}_${phase}" "$minimum_count"
     done
   done
 
@@ -2667,15 +2703,24 @@ validate_compare_baseline_fixture() {
 run_authenticated_sidebar_ipc_workload() {
   local metadata_path="${1:?missing metadata path}"
   local debug_token_path="${2:?missing debug token path}"
-  /usr/bin/python3 - "$metadata_path" "$debug_token_path" <<'PY'
+  local sort_direction_receipt_path="$ARTIFACT/panes-sort-direction-receipts.jsonl"
+  : >"$sort_direction_receipt_path"
+  /usr/bin/python3 - "$metadata_path" "$debug_token_path" "$LOGS_QUERY_URL" "$TRACE_MARKER" \
+    "$sort_direction_receipt_path" <<'PY'
+import datetime
 import json
 import os
 import socket
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 metadata_path = sys.argv[1]
 debug_token_path = sys.argv[2]
+logs_query_url = sys.argv[3]
+trace_marker = sys.argv[4]
+sort_direction_receipt_path = sys.argv[5]
 timeout = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_TIMEOUT_SECONDS", "15"))
 step_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_STEP_DELAY_SECONDS", "0.35"))
 readback_poll_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_READBACK_POLL_SECONDS", "0.01"))
@@ -2735,6 +2780,60 @@ def require_error(response, label, expected_code, expected_message):
         sys.exit(1)
 
 
+def marker_records():
+    query = f'agent.proof.marker:="{trace_marker}"'
+    url = logs_query_url + "?" + urllib.parse.urlencode({"query": query})
+    with urllib.request.urlopen(url, timeout=10) as response:
+        lines = response.read().decode().splitlines()
+    records = []
+    for line in lines:
+        if not line.strip():
+            continue
+        decoded = json.loads(line)
+        records.extend(decoded if isinstance(decoded, list) else [decoded])
+    return records
+
+
+def record_time_ns(record):
+    timestamp = str(record.get("_time", "")).replace("Z", "+00:00")
+    parsed = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z")
+    return int(parsed.timestamp() * 1_000_000_000)
+
+
+def latest_completed_panes_projection():
+    matching = [
+        record for record in marker_records()
+        if record.get("_msg") == "performance.sidebar.projection"
+        and record.get("agentstudio.performance.sidebar.surface") == "panes"
+        and record.get("agentstudio.performance.sidebar.phase") == "projection_worker"
+    ]
+    if not matching:
+        return None
+    return max(matching, key=record_time_ns)
+
+
+def wait_for_panes_projection(expected_grouping=None, expected_sort_order=None, after_ns=0):
+    deadline = time.monotonic() + timeout
+    latest = None
+    while time.monotonic() < deadline:
+        latest = latest_completed_panes_projection()
+        if latest is not None and record_time_ns(latest) > after_ns:
+            grouping = latest.get("agentstudio.performance.sidebar.group_mode")
+            sort_order = latest.get("agentstudio.performance.sidebar.sort_order")
+            if (expected_grouping is None or grouping == expected_grouping) and (
+                expected_sort_order is None or sort_order == expected_sort_order
+            ):
+                return latest
+        if readback_poll_delay > 0:
+            time.sleep(readback_poll_delay)
+    print(
+        "panes projection readiness timed out: "
+        f"grouping={expected_grouping} sort_order={expected_sort_order} latest={latest}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 session = Session(socket_path)
 try:
     require_success(session.request(1, "auth.login", {"token": token}), "auth.login")
@@ -2770,18 +2869,7 @@ try:
         if result.get("applied") is not True:
             print(f"{label} did not apply: {result}", file=sys.stderr)
             sys.exit(1)
-
-    def wait_for_readback(method, params, label, matches):
-        deadline = time.monotonic() + timeout
-        last_result = None
-        while time.monotonic() < deadline:
-            last_result = require_success(session.request(next_id(), method, params), label)
-            if matches(last_result):
-                return last_result
-            if readback_poll_delay > 0:
-                time.sleep(readback_poll_delay)
-        print(f"{label} readiness timed out: {last_result}", file=sys.stderr)
-        sys.exit(1)
+        return result
 
     def pace_projection_application():
         if step_delay > 0:
@@ -2789,64 +2877,88 @@ try:
 
     def set_grouping(surface, mode):
         command_by_grouping = {
-            ("repo", "repo"): "setRepoSidebarGroupingRepo",
-            ("repo", "pane"): "setRepoSidebarGroupingPane",
-            ("repo", "tab"): "setRepoSidebarGroupingTab",
+            ("panes", "repo"): "setPanesGroupingRepo",
+            ("panes", "tab"): "setPanesGroupingTab",
+            ("panes", "activity"): "setPanesGroupingActivity",
         }
         command_id = command_by_grouping.get((surface, mode))
         if command_id is None:
             print(f"unsupported sidebar grouping command: surface={surface} mode={mode}", file=sys.stderr)
             sys.exit(1)
+        previous_projection = wait_for_panes_projection()
+        previous_grouping = previous_projection.get("agentstudio.performance.sidebar.group_mode")
         execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
-        wait_for_readback(
-            "sidebar.grouping.get",
-            {"surface": surface},
-            f"sidebar.grouping.get {surface}",
-            lambda result: result.get("mode") == mode,
-        )
+        if previous_grouping != mode:
+            wait_for_panes_projection(
+                expected_grouping=mode,
+                after_ns=record_time_ns(previous_projection),
+            )
         pace_projection_application()
 
-    def set_repo_sort_order(order):
-        result = require_success(
-            session.request(
-                next_id(),
-                "command.execute",
-                {
-                    "commandId": "setRepoSidebarSortOrder",
-                    "targetHandle": None,
-                    "arguments": {"order": order},
-                },
-            ),
-            f"command.execute setRepoSidebarSortOrder {order}",
-        )
-        if result.get("applied") is not True:
-            print(f"repo sort order command did not apply for {order}: {result}", file=sys.stderr)
+    def toggle_panes_sort_direction_pair():
+        initial_projection = wait_for_panes_projection()
+        initial_order = initial_projection.get("agentstudio.performance.sidebar.sort_order")
+        if initial_order not in {"ascending", "descending"}:
+            print(f"invalid initial panes sort order: {initial_projection}", file=sys.stderr)
             sys.exit(1)
-        if step_delay > 0:
-            time.sleep(step_delay)
+        opposite_order = "descending" if initial_order == "ascending" else "ascending"
+        first_toggle_result = execute_sidebar_command(
+            "togglePanesSortDirection",
+            {},
+            "command.execute togglePanesSortDirection first toggle",
+        )
+        opposite_projection = wait_for_panes_projection(
+            expected_sort_order=opposite_order,
+            after_ns=record_time_ns(initial_projection),
+        )
+        second_toggle_result = execute_sidebar_command(
+            "togglePanesSortDirection",
+            {},
+            "command.execute togglePanesSortDirection second toggle",
+        )
+        restored_projection = wait_for_panes_projection(
+            expected_sort_order=initial_order,
+            after_ns=record_time_ns(opposite_projection),
+        )
+        with open(sort_direction_receipt_path, "a", encoding="utf-8") as receipt_file:
+            receipt_file.write(json.dumps({
+                "initial": initial_order,
+                "opposite": opposite_order,
+                "restored": restored_projection.get("agentstudio.performance.sidebar.sort_order"),
+                "firstApplied": first_toggle_result.get("applied"),
+                "secondApplied": second_toggle_result.get("applied"),
+            }, sort_keys=True) + "\n")
+        pace_projection_application()
+
+    execute_sidebar_command("showPanesSidebar", {}, "command.execute showPanesSidebar")
+    wait_for_panes_projection()
 
     for _ in range(cycles):
-        set_grouping("repo", "repo")
-        set_repo_sort_order("descending")
-        set_repo_sort_order("ascending")
-        set_grouping("repo", "pane")
-        set_grouping("repo", "tab")
-        set_grouping("repo", "repo")
-        set_grouping("repo", "pane")
-        set_grouping("repo", "tab")
-        set_grouping("repo", "repo")
-        set_repo_sort_order("descending")
-        set_repo_sort_order("ascending")
-        set_grouping("repo", "pane")
-        set_grouping("repo", "tab")
-        set_grouping("repo", "repo")
-        set_grouping("repo", "pane")
-        set_grouping("repo", "repo")
-        set_repo_sort_order("descending")
-        set_repo_sort_order("ascending")
+        set_grouping("panes", "repo")
+        toggle_panes_sort_direction_pair()
+        set_grouping("panes", "activity")
+        set_grouping("panes", "tab")
+        set_grouping("panes", "repo")
+        set_grouping("panes", "activity")
+        set_grouping("panes", "tab")
+        set_grouping("panes", "repo")
+        toggle_panes_sort_direction_pair()
+        set_grouping("panes", "activity")
+        set_grouping("panes", "tab")
+        set_grouping("panes", "repo")
+        set_grouping("panes", "activity")
+        set_grouping("panes", "repo")
+        toggle_panes_sort_direction_pair()
 finally:
     session.close()
 PY
+  local expected_sort_direction_receipt_count=$((AGENTSTUDIO_SIDEBAR_IPC_CYCLES * 3))
+  local actual_sort_direction_receipt_count
+  actual_sort_direction_receipt_count="$(wc -l <"$sort_direction_receipt_path" | tr -d '[:space:]')"
+  if [ "$actual_sort_direction_receipt_count" != "$expected_sort_direction_receipt_count" ]; then
+    echo "panes sort direction receipt count mismatch: expected=$expected_sort_direction_receipt_count actual=$actual_sort_direction_receipt_count" >&2
+    return 1
+  fi
 }
 
 run_repo_explorer_key_mutation_phase() {
@@ -3038,14 +3150,14 @@ validate_controls
 validate_workload_cycles
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
-TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
+TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-s-$(date +%s)-$$}")"
 TRACE_NONCE="$(/usr/bin/uuidgen)"
 TRACE_MARKER_W="$(opaque_trace_marker "${TRACE_NAME}-w" "$TRACE_NONCE")"
 TRACE_MARKER_K="$(opaque_trace_marker "${TRACE_NAME}-k" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER_I="$(opaque_trace_marker "${TRACE_NAME}-i" "$(/usr/bin/uuidgen)")"
 TRACE_MARKER="$TRACE_MARKER_W"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
-STRICT_DISPOSABLE_DATA_ROOT="$ARTIFACT/disposable-debug-data"
+STRICT_DISPOSABLE_DATA_ROOT="$ARTIFACT/d"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
@@ -3054,12 +3166,37 @@ KEYED_WAKE_VALUES_FILE="$ARTIFACT/keyed-wake-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 WORKTREE_FIXTURE_KEY="$(hashed_identity "repos=$REQUIRED_REPOSITORY_COUNT:worktrees=$REQUIRED_WORKTREE_COUNT:tabs=$REQUIRED_TAB_COUNT:panes=$REQUIRED_PANE_COUNT:active_ptys=$REQUIRED_ACTIVE_PTY_COUNT")"
 WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES:tags=$WORKLOAD_TRACE_TAGS:backend=otlp")"
-mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 validate_compare_baseline_fixture
+
+# macOS sockaddr_un allows 103 pathname bytes. Fresh proof sessions use 36-byte UUIDv7 names.
+# Validate the canonical path before launch/reset; /tmp may resolve to /private/tmp.
+if [ "$mode" != "prepare-only" ]; then
+  /usr/bin/python3 - "$STRICT_DISPOSABLE_DATA_ROOT/z" <<'PY_SOCKET_PATH'
+import os
+import sys
+
+socket_path = os.path.realpath(sys.argv[1]) + "/" + "0" * 36
+path_bytes = len(os.fsencode(socket_path))
+if path_bytes > 103:
+    raise SystemExit(
+        f"zmx proof socket path requires {path_bytes} bytes; macOS maximum is 103. "
+        "Use a shorter AGENTSTUDIO_SIDEBAR_PROOF_ROOT or AGENTSTUDIO_TRACE_NAME."
+    )
+PY_SOCKET_PATH
+fi
+mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 
 if [ "$mode" = "prepare-only" ]; then
+  if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE:-}" ]; then
+    [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
+      echo "blocked fixture response test requires canned test-response authorization" >&2
+      exit 2
+    }
+    report_strict_sidebar_fixture_blocked "$AGENTSTUDIO_SIDEBAR_TEST_BLOCKED_FIXTURE_RESPONSE"
+    exit $?
+  fi
   if [ -n "${AGENTSTUDIO_SIDEBAR_TEST_CONTROL_ROOT:-}" ]; then
     [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ] || {
       echo "continuity control test requires canned test-response authorization" >&2
@@ -3321,104 +3458,104 @@ require_exact_fixture_count fixture_active_pty_count "$fixture_active_pty_count"
 
 repo_pane_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo projection_worker pane grouping_switch)"
+    "$(metric_event_elapsed_p95_query panes projection_worker activity grouping_switch)"
 )"
 repo_pane_projection_worker_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo projection_worker pane grouping_switch)"
+    "$(metric_event_elapsed_max_query panes projection_worker activity grouping_switch)"
 )"
 repo_tab_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo mainactor_apply tab grouping_switch)"
+    "$(metric_event_elapsed_p95_query panes mainactor_apply tab grouping_switch)"
 )"
 repo_tab_mainactor_apply_elapsed_ms_max="$(
   wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo mainactor_apply tab grouping_switch)"
+    "$(metric_event_elapsed_max_query panes mainactor_apply tab grouping_switch)"
 )"
 repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" \
+    "$(metric_event_elapsed_count_query panes projection_worker activity grouping_switch)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo projection_worker repo sort_order)"
+    "$(metric_event_elapsed_p95_query panes projection_worker repo sort_order)"
 )"
 repo_sort_projection_worker_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo projection_worker repo sort_order)"
+    "$(metric_event_elapsed_max_query panes projection_worker repo sort_order)"
 )"
 repo_sort_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" \
+    "$(metric_event_elapsed_count_query panes projection_worker repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo mainactor_apply repo sort_order)"
+    "$(metric_event_elapsed_p95_query panes mainactor_apply repo sort_order)"
 )"
 repo_sort_mainactor_apply_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo mainactor_apply repo sort_order)"
+    "$(metric_event_elapsed_max_query panes mainactor_apply repo sort_order)"
 )"
 repo_sort_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" \
+    "$(metric_event_elapsed_count_query panes mainactor_apply repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo request_build_mainactor repo sort_order)"
+    "$(metric_event_elapsed_p95_query panes request_build_mainactor repo sort_order)"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo request_build_mainactor repo sort_order)"
+    "$(metric_event_elapsed_max_query panes request_build_mainactor repo sort_order)"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo request_build_mainactor repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query panes request_build_mainactor repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_row_index_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo row_index repo sort_order)"
+    "$(metric_event_elapsed_p95_query panes row_index repo sort_order)"
 )"
 repo_sort_row_index_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_row_index_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo row_index repo sort_order)"
+    "$(metric_event_elapsed_max_query panes row_index repo sort_order)"
 )"
 repo_sort_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" \
+    "$(metric_event_elapsed_count_query panes row_index repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_tab_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" \
+    "$(metric_event_elapsed_count_query panes mainactor_apply tab grouping_switch)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo request_build_mainactor pane grouping_switch)"
+    "$(metric_event_elapsed_p95_query panes request_build_mainactor activity grouping_switch)"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo request_build_mainactor pane grouping_switch)"
+    "$(metric_event_elapsed_max_query panes request_build_mainactor activity grouping_switch)"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo request_build_mainactor pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query panes request_build_mainactor activity grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_pane_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_row_index_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo row_index pane grouping_switch)"
+    "$(metric_event_elapsed_p95_query panes row_index activity grouping_switch)"
 )"
 repo_pane_row_index_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_row_index_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo row_index pane grouping_switch)"
+    "$(metric_event_elapsed_max_query panes row_index activity grouping_switch)"
 )"
 repo_pane_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" \
+    "$(metric_event_elapsed_count_query panes row_index activity grouping_switch)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 
@@ -3426,7 +3563,7 @@ run_repo_explorer_key_mutation_phase
 run_repo_explorer_interaction_phase
 
 : >"$KEYED_WAKE_VALUES_FILE"
-for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
+for key_class in rendered_repo_pinned rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
   for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
     printf '%s=%s\n' \
       "keyed_wake_${key_class}_${stage}" \
@@ -3434,18 +3571,20 @@ for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arr
   done
 done
 eager_family_admission_count="$(keyed_wake_count relevant eager_admission)"
-assert_keyed_wake_contract rendered_repo_favorite whole_surface 0
-assert_keyed_wake_contract rendered_repo_favorite affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract rendered_repo_favorite capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_repo_pinned capture_rebuild "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract rendered_repo_pinned whole_surface "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract rendered_repo_pinned eager_admission "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract rendered_repo_pinned affected_row 0
+assert_keyed_wake_contract rendered_repo_pinned membership_path 0
 assert_keyed_wake_contract rendered_worktree_fact whole_surface 0
-assert_keyed_wake_contract rendered_worktree_fact affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact affected_row "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$REQUIRED_KEY_MUTATION_COUNT"
 assert_keyed_wake_contract unrelated_tab_arrangement_pane capture_rebuild 0
 assert_keyed_wake_contract unrendered_attendance capture_rebuild 0
 assert_keyed_wake_contract relevant whole_surface 0
-assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
-assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract relevant affected_row "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract relevant capture_rebuild "$REQUIRED_KEY_MUTATION_COUNT"
+assert_keyed_wake_contract missing_declared_key membership_path "$REQUIRED_KEY_MUTATION_COUNT"
 
 reference_different_count="$(keyed_wake_outcome_count final_projection reference_different)"
 if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != "0.0" ]; then
@@ -3453,7 +3592,7 @@ if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != 
   exit 1
 fi
 
-semantic_input_count=$((WORKLOAD_CYCLES * 3))
+semantic_input_count=$((REQUIRED_KEY_MUTATION_COUNT * 3))
 semantic_fact_count="$(keyed_wake_stage_count affected_row)"
 capture_admission_count="$(keyed_wake_stage_count capture_rebuild)"
 execution_admission_count="$(keyed_wake_stage_count projection_worker)"
@@ -3654,13 +3793,13 @@ fi
   echo "repo_pane_row_index_elapsed_ms_p95=$repo_pane_row_index_elapsed_ms_p95"
   echo "repo_pane_row_index_elapsed_ms_max=$repo_pane_row_index_elapsed_ms_max"
   echo "repo_pane_row_index_elapsed_ms_count=$repo_pane_row_index_elapsed_ms_count"
-  echo "repo_only_workload.ipc_sequence=grouping_and_sort"
-  echo "repo_sort.ipc_sequence=descending,ascending,descending,ascending,descending,ascending"
+  echo "panes_only_workload.ipc_sequence=grouping_and_sort"
+  echo "panes_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"
   echo "eager_family_admission_count=$eager_family_admission_count"
   echo "marker_w=$TRACE_MARKER_W"
   echo "marker_k=$TRACE_MARKER_K"
   echo "marker_i=$TRACE_MARKER_I"
-  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,pane_activity_facet_change,missing_key_insertion"
+  echo "repo_explorer_key_mutation_phase=rendered_repo_pinned,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,pane_activity_facet_change,missing_key_insertion"
   echo "interaction_phase=command_bar_open,command_bar_close,tab_move_program_instrument_gap,cmd_r_program_instrument_gap,divider_program_instrument_gap"
   echo "divider_frame=program_instrument_gap"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
