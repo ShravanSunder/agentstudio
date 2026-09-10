@@ -93,6 +93,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         private var sourcePaneIdBinding: Binding<UUID?>
         private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
         private var handleDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
+        private let modifierFlagsProvider: () -> NSEvent.ModifierFlags
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var layout = DrawerGridLayout()
@@ -104,12 +105,14 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             targetBinding: Binding<DrawerRearrangeTarget?>,
             sourcePaneIdBinding: Binding<UUID?>,
             shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
-            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
+            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void,
+            modifierFlagsProvider: @escaping () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
         ) {
             self.targetBinding = targetBinding
             self.sourcePaneIdBinding = sourcePaneIdBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
             self.handleDropClosure = handleDrop
+            self.modifierFlagsProvider = modifierFlagsProvider
         }
 
         func updateHandlers(
@@ -170,6 +173,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return nil
             }
             setSourcePaneId(excludedPaneIds(from: payload).first)
+            let isShiftHeld = modifierFlagsProvider().contains(.shift)
 
             let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
                 location: location,
@@ -181,7 +185,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                         target,
                         DrawerPaneDragCoordinator.sizingMode(
                             for: target,
-                            isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                            isShiftHeld: isShiftHeld
                         )
                     )
                 }
@@ -201,6 +205,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return false
             }
             let geometry = drawerPaneDragGeometry(excluding: excludedPaneIds(from: payload))
+            let isShiftHeld = modifierFlagsProvider().contains(.shift)
             // Re-resolve through the SOURCE-AWARE latched path. The
             // bound `currentTarget` may be stale (latched on a valid
             // foreign target during the drag, then drifted onto a
@@ -219,7 +224,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                             target,
                             DrawerPaneDragCoordinator.sizingMode(
                                 for: target,
-                                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                                isShiftHeld: isShiftHeld
                             )
                         )
                     }
@@ -232,7 +237,7 @@ package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             }
             let sizingMode = DrawerPaneDragCoordinator.sizingMode(
                 for: resolvedTarget,
-                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                isShiftHeld: isShiftHeld
             )
 
             RestoreTrace.log(

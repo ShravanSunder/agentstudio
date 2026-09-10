@@ -160,11 +160,13 @@ struct EntityRecencyStoreTests {
         #expect(workspaceRows.map(\.entity) == [.pane(paneID: paneID)])
     }
 
-    @Test("bounded owners persist fifteen rows independently per application kind")
-    func boundedOwnersPersistPerKindRetention() throws {
+    @Test("application persistence retains every identity inside the activity horizon")
+    func applicationPersistenceRetainsActivityHorizon() throws {
         let workspaceID = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceID)
-        let atom = ApplicationEntityRecencyAtom()
+        let atom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 16) }
+        )
         for index in 0..<16 {
             atom.record(
                 try ApplicationEntityRecency(
@@ -198,7 +200,7 @@ struct EntityRecencyStoreTests {
                 }
             )
         }
-        #expect(countsByKind == ["repository": 15, "worktree": 15])
+        #expect(countsByKind == ["repository": 16, "worktree": 16])
     }
 
     @Test("application snapshot replacement is transactional across repository and worktree facts")
@@ -355,7 +357,9 @@ struct EntityRecencyStoreTests {
         )
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         _ = await datastore.prepareDatabasesForBoot()
-        let applicationAtom = ApplicationEntityRecencyAtom()
+        let applicationAtom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 300) }
+        )
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let clock = TestPushClock()
         let store = EntityRecencyStore(
@@ -441,7 +445,9 @@ struct EntityRecencyStoreTests {
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceID)
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         _ = await datastore.prepareDatabasesForBoot()
-        let applicationAtom = ApplicationEntityRecencyAtom()
+        let applicationAtom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 100) }
+        )
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
             applicationAtom: applicationAtom,
@@ -510,7 +516,9 @@ struct EntityRecencyStoreTests {
         try await fixture.databaseQueue.write { database in
             try database.execute(sql: "DROP TABLE local_entity_recency")
         }
-        let applicationAtom = ApplicationEntityRecencyAtom()
+        let applicationAtom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 100) }
+        )
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
             applicationAtom: applicationAtom,
@@ -540,7 +548,9 @@ struct EntityRecencyStoreTests {
         try await fixture.databaseQueue.write { database in
             try database.execute(sql: "DROP TABLE local_workspace_entity_recency")
         }
-        let applicationAtom = ApplicationEntityRecencyAtom()
+        let applicationAtom = ApplicationEntityRecencyAtom(
+            now: { Date(timeIntervalSince1970: 100) }
+        )
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
             applicationAtom: applicationAtom,

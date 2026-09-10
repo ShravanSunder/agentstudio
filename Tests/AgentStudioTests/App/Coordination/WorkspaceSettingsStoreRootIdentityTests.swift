@@ -4,7 +4,6 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioEditorChooser
-@testable import AgentStudioInboxNotification
 @testable import AgentStudioRepoExplorer
 
 @MainActor
@@ -24,16 +23,12 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         atomStore.editorPreference.setBookmarkedEditor("cursor")
         atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
         atomStore.repoExplorerSidebarPrefs.setSortOrder(.descending)
-        atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
-        atomStore.inboxNotificationPrefs.setBellEnabled(true)
-
         try await settingsStore.flush(for: workspaceId)
 
         #expect(try fixture.repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == "descending")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "all")
         #expect(try fixture.repository.hasSidebarState() == false)
-        #expect(try fixture.repository.fetchInboxNotificationPreferences().grouping == "byRepo")
-        #expect(try fixture.repository.fetchInboxNotificationPreferences().bellEnabled)
+        #expect(try fixture.repository.fetchInboxNotificationPreferences() == .default)
     }
 }

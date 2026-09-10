@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
+import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
 export default defineConfig({
   test: {
@@ -19,7 +20,11 @@ export default defineConfig({
           name: "browser",
           include: ["tests/**/*.browser.test.ts"],
           browser: {
-            commands: { verifySiteFooterResponsiveLayout, verifySiteHeaderScrollStability },
+            commands: {
+              verifySiteFooterResponsiveLayout,
+              verifySiteHeaderScrollStability,
+              verifyWebsiteQualityLayout,
+            },
             enabled: true,
             provider: playwright({ launchOptions: { channel: "chrome" } }),
             headless: true,

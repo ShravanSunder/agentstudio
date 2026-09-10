@@ -15,6 +15,8 @@ jobs:
   code-quality:
     name: Code quality
     runs-on: macos-26
+    env:
+      SWIFT_BUILD_DIR: .build-ci
 
     steps:
       - name: Checkout
@@ -40,7 +42,7 @@ jobs:
         id: architecture-cache-restore
         uses: actions/cache/restore@v4
         with:
-          path: Tools/AgentStudioArchitectureLint/.build
+          path: .build-ci/architecture-lint
           key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
           restore-keys: |
             architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-
@@ -52,7 +54,7 @@ jobs:
         if: steps.architecture-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: Tools/AgentStudioArchitectureLint/.build
+          path: .build-ci/architecture-lint
           key: ${{ steps.architecture-cache-restore.outputs.cache-primary-key }}
 
       - name: Lint

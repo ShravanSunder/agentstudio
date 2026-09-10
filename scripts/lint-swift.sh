@@ -6,7 +6,9 @@ cd "$repository_root"
 
 run_architecture_lint() {
   echo "--- AgentStudio architecture lint ---"
+  source "${repository_root}/scripts/swift-build-slot.sh"
   swift run --package-path Tools/AgentStudioArchitectureLint \
+    --build-path "${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint" \
     agentstudio-architecture-lint Sources Tests 2>&1 \
     && echo "agentstudio architecture lint: OK" \
     || { echo "agentstudio architecture lint: FAIL"; exit 1; }
@@ -19,7 +21,7 @@ run_release_script_checks() {
 
 if [[ $# -eq 0 ]]; then
   echo "--- swift-format lint ---"
-  swift-format lint --recursive \
+  swift-format lint --strict --recursive \
     Sources/ Tests/ \
     Tools/AgentStudioArchitectureLint/Sources \
     Tools/AgentStudioArchitectureLint/Tests 2>&1 \
@@ -66,7 +68,7 @@ done
 
 if [[ ${#swift_scoped_paths[@]} -gt 0 ]]; then
   echo "--- swift-format lint (scoped) ---"
-  swift-format lint "${swift_scoped_paths[@]}" 2>&1 \
+  swift-format lint --strict "${swift_scoped_paths[@]}" 2>&1 \
     && echo "swift-format: OK" \
     || { echo "swift-format: FAIL"; exit 1; }
 

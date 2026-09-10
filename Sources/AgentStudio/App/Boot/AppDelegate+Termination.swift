@@ -72,17 +72,8 @@ extension AppDelegate {
             appLogger.warning("Workspace settings flush failed at termination: \(error.localizedDescription)")
         }
 
-        await runTerminationDrain("inbox notification trace") { [weak self] in
-            await self?.inboxNotificationRouter?.stop()
-        }
-        await runTerminationDrain("pane focus trace") { [weak self] in
-            await self?.inboxPaneFocusTracker?.stop()
-        }
         await runTerminationDrain("terminal activity trace") { [weak self] in
             await self?.terminalActivityRouter?.stop()
-        }
-        await runTerminationDrain("pane inbox presenter trace") { [weak self] in
-            await self?.paneInboxNotificationPresenter?.drainTraceRecords()
         }
         await runTerminationDrain("trace identity refresh") { [weak self] in
             await self?.waitForTraceIdentityRefreshIdle()
@@ -99,16 +90,8 @@ extension AppDelegate {
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
-        // Run it before inbox flush so any save-failure recovery event can be
-        // persisted with the rest of the notification log.
         if !(await store.flushAsync()).succeeded {
             appLogger.warning("Workspace flush failed at termination")
-        }
-
-        do {
-            try await inboxNotificationStore?.save()
-        } catch {
-            appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
 
         await runTerminationDrain("trace flush") { [weak self] in

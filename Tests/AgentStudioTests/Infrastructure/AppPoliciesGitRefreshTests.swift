@@ -24,8 +24,8 @@ struct AppPoliciesGitRefreshTests {
         #expect(policy.backgroundMaxConcurrent == 1)
         #expect(policy.visibleSidebarStripeSize == 8)
         #expect(policy.suppressedWorktreeTombstoneLimit == 1024)
-        #expect(policy.maxNilStatusRetries == 1)
-        #expect(policy.nilStatusRetryDelay > .zero)
+        #expect(policy.lineDetailFreshnessInterval == .seconds(960))
+        #expect(policy.minimumAutomaticStartInterval == .milliseconds(300))
         #expect(AppPolicies.GitRefresh.defaultStatusReadTimeout == .seconds(1))
         #expect(AppPolicies.GitRefresh.defaultDiscoveryReadTimeout == .seconds(2))
         #expect(AppPolicies.GitRefresh.defaultDetachedStatusReadLimit == 4)
@@ -33,6 +33,10 @@ struct AppPoliciesGitRefreshTests {
         #expect(AppPolicies.GitRefresh.filesystemMaxFlushLatency == .seconds(10))
         #expect(AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow == .milliseconds(500))
         #expect(AppPolicies.GitRefresh.visibilityChangeCoalescingWindow == .milliseconds(200))
+        #expect(
+            AppPolicies.FilesystemIngress.maximumRetainedActivityOverflowParticipantScopes
+                == 256
+        )
         #expect(
             RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
                 == AppPolicies.GitRefresh.defaultDiscoveryReadTimeout
@@ -59,15 +63,16 @@ struct AppPoliciesGitRefreshTests {
         #expect((0..<policy.backgroundStripeCount).contains(secondStripe))
     }
 
-    @Test("background due check admits only the matching stripe")
-    func backgroundDueCheckAdmitsOnlyMatchingStripe() {
+    @Test("background registration phase is deterministic and inside the finite cadence")
+    func backgroundRegistrationPhaseIsDeterministicAndBounded() {
         let policy = AppPolicies.GitRefresh.defaultPolicy
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
-        let stripe = policy.backgroundStripe(for: worktreeId)
+        let firstDelay = policy.backgroundRegistrationDelay(for: worktreeId)
+        let repeatedDelay = policy.backgroundRegistrationDelay(for: worktreeId)
 
-        #expect(policy.isBackgroundWorktreeDue(worktreeId, tick: UInt64(stripe)))
-        #expect(!policy.isBackgroundWorktreeDue(worktreeId, tick: UInt64((stripe + 1) % policy.backgroundStripeCount)))
-        #expect(policy.isBackgroundWorktreeDue(worktreeId, tick: UInt64(stripe + policy.backgroundStripeCount)))
+        #expect(firstDelay == repeatedDelay)
+        #expect(firstDelay > .zero)
+        #expect(firstDelay <= policy.backgroundCadence)
     }
 
     private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {

@@ -144,13 +144,16 @@ extension BridgePaneProductFileMetadataSource {
         guard let invalidatedDescriptorsByPath else { return nil }
         let invalidationEmissions: [BridgePaneProductFileMetadataEmission] =
             try request.changedPaths.sorted().compactMap { path in
-                guard !BridgePaneProductFileMetadataEncoding.isGitInternalPath(path) else {
+                guard !BridgePaneProductFileMetadataEncoding.isGitInternalPath(path),
+                    let previousDescriptor = invalidatedDescriptorsByPath[path]
+                else {
                     return nil
                 }
+                // Tree deltas cover unmaterialized paths; a null ID would reset every descriptor.
                 return .init(
                     event: .invalidated(
                         try .init(
-                            fileId: invalidatedDescriptorsByPath[path]?.fileId,
+                            fileId: previousDescriptor.fileId,
                             path: path,
                             reason: .contentChanged,
                             replacementDescriptor: nil,

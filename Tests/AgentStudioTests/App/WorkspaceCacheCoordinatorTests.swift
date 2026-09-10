@@ -116,7 +116,6 @@ final class WorkspaceCacheCoordinatorTests {
         )
         workspaceStore.appendTab(Tab(paneId: pane.id))
         workspaceStore.markRepoUnavailable(firstRepo.id)
-        _ = workspaceStore.orphanPanesForRepo(firstRepo.id)
         repoCache.setRepoEnrichment(.awaitingOrigin(repoId: firstRepo.id))
         let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
         let coordinator = WorkspaceCacheCoordinator(
@@ -148,7 +147,7 @@ final class WorkspaceCacheCoordinatorTests {
         #expect(workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration == generationBeforeRejection)
         #expect(effectRecorder.deltas.isEmpty)
         #expect(repoCache.repoEnrichment(for: firstRepo.id) == .awaitingOrigin(repoId: firstRepo.id))
-        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
+        #expect(workspaceStore.pane(pane.id)?.residency == .active)
     }
 
     @Test
@@ -584,7 +583,7 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
-    func enrichment_pullRequestsChanged_mapsByBranch() {
+    func enrichment_repositoryProjectionMapsByBranch() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -615,11 +614,16 @@ final class WorkspaceCacheCoordinatorTests {
 
         let envelope = WorktreeEnvelope.test(
             event: .forge(
-                .pullRequestsChanged(
+                .pullRequestRepositoryProjectionChanged(
                     repoId: repoId,
-                    factsByBranch: [
-                        "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
-                    ]
+                    projection: .stable(
+                        .ready(
+                            confirmedFactsByBranch: [
+                                "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
+                            ]
+                        )
+                    ),
+                    invalidatedBranches: []
                 )
             ),
             repoId: repoId,

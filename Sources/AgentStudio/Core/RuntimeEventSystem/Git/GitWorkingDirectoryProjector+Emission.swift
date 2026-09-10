@@ -27,14 +27,9 @@ extension GitWorkingDirectoryProjector {
                 "Git projector event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
             )
         }
-        performanceTraceRecorder?.record(
-            .gitEventPosted,
-            attributes: [
-                "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                "agentstudio.performance.git.event_posted.count": .int(1),
-                "agentstudio.performance.git.dropped_subscriber.count": .int(droppedCount),
-            ]
-        )
+        aggregatePerformance.increment(\.eventPosted)
+        aggregatePerformance.increment(\.droppedSubscriber, by: droppedCount)
+        flushAggregatePerformanceSnapshotIfNeeded()
         Self.logger.debug("Posted git projector event for worktree \(worktreeId.uuidString, privacy: .public)")
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 
 package struct StubGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     package let resultHandler: @Sendable (URL, [String]?) async -> GitWorkingTreeStatusResult
+    private let materializer = StubGitWorkingTreeStatusMaterializer()
 
     /// Pathspec-ignoring convenience: the handler sees only the root path.
     package init(handler: @escaping @Sendable (URL) async -> GitWorkingTreeStatus?) {
@@ -30,6 +31,43 @@ package struct StubGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     package func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
         await resultHandler(rootPath, pathspecs)
     }
+
+    package func statusFactsResult(
+        for rootPath: URL,
+        pathspecs: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        switch await resultHandler(rootPath, pathspecs) {
+        case .available(let status):
+            await materializer.capture(status, for: rootPath)
+            return .available(GitWorkingTreeStatusFacts(status: status))
+        case .unavailable(let unavailable):
+            await materializer.clear(for: rootPath)
+            return .unavailable(unavailable)
+        }
+    }
+
+    package func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        guard let detail = await materializer.lineDetail(for: rootPath) else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(detail)
+    }
+}
+
+private actor StubGitWorkingTreeStatusMaterializer {
+    private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
+
+    func capture(_ status: GitWorkingTreeStatus, for rootPath: URL) {
+        lineDetailByRootPath[rootPath.standardizedFileURL] = GitWorkingTreeLineDetail(status: status)
+    }
+
+    func clear(for rootPath: URL) {
+        lineDetailByRootPath.removeValue(forKey: rootPath.standardizedFileURL)
+    }
+
+    func lineDetail(for rootPath: URL) -> GitWorkingTreeLineDetail? {
+        lineDetailByRootPath[rootPath.standardizedFileURL]
+    }
 }
 
 extension GitWorkingTreeStatusProvider where Self == StubGitWorkingTreeStatusProvider {
@@ -53,7 +91,10 @@ package struct StubForgeStatusProvider: ForgeStatusProvider {
         self.handler = handler
     }
 
-    package func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
+    package func pullRequests(
+        origin: String,
+        demandedBranches _: Set<String>
+    ) async -> ForgePullRequestQueryOutcome {
         await handler(origin)
     }
 }

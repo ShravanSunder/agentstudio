@@ -50,7 +50,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [ownerRepo, duplicateRepo]
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map(presentableRepo)
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
@@ -96,7 +96,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map(presentableRepo)
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
@@ -139,7 +139,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map(presentableRepo)
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
@@ -174,7 +174,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [emptyRepo, activeRepo]
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map(presentableRepo)
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
@@ -207,7 +207,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let groups = RepoPresentationGrouping.buildGroups(
-            repos: [repo].map(RepoPresentationItem.init(repo:)),
+            repos: [repo].map(presentableRepo),
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: [repo])
         )
 
@@ -247,7 +247,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
-        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repos.map(presentableRepo)
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
@@ -258,4 +258,12 @@ struct SidebarRepoGroupingTests {
         #expect(paths.contains(URL(fileURLWithPath: "/tmp/repo-a").standardizedFileURL.path))
         #expect(paths.contains(URL(fileURLWithPath: "/tmp/repo-b").standardizedFileURL.path))
     }
+}
+
+private func presentableRepo(_ repo: Repo) -> RepoPresentationItem {
+    RepoPresentationItem(
+        repo: repo,
+        stableKey: repo.stableKey,
+        worktreeStableKeysByID: Dictionary(uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) })
+    )
 }

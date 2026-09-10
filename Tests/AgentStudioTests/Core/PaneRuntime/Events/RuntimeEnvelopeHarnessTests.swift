@@ -42,7 +42,7 @@ struct RuntimeEnvelopeHarnessTests {
 
         #expect(systemEvents.count == 1)
         #expect(worktreeEvents.count == 1)
-        if case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = systemEvents[0].event {
+        if case .topology(.repoDiscovered(let repoPath, let parentPath, _, _)) = systemEvents[0].event {
             #expect(repoPath == URL(fileURLWithPath: "/tmp/repo"))
             #expect(parentPath == URL(fileURLWithPath: "/tmp"))
         } else {

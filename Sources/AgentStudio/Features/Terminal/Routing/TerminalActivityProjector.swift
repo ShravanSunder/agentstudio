@@ -18,6 +18,7 @@ enum TerminalActivityOrderedControl: Sendable, Equatable {
     case contextChanged(TerminalActivityProjectionContext)
     case observed
     case semanticSignal
+    case commandFinished
     case surfaceClosed
 }
 
@@ -64,7 +65,7 @@ package actor TerminalActivityProjector {
     /// (`TerminalLastOutputLineContract`): learned prompt-signature
     /// exclusion and unchanged-line suppression both need per-pane settle
     /// state that only the projector holds.
-    typealias LastOutputLineReader = @MainActor @Sendable (_ surfaceID: UUID) -> String?
+    typealias LastOutputLineReader = @MainActor @Sendable (_ surfaceID: UUID) -> TerminalViewportTextReadResult
 
     private struct ActivityWindow: Sendable {
         let id: UUID
@@ -165,6 +166,13 @@ package actor TerminalActivityProjector {
     /// last-output-line, so a pane with zero scrollbar signal still reaches the existing settle path
     /// (status-fact write, notification lane, and all of that lane's suppression rules) unchanged.
     func commandFinished(surfaceID: UUID, paneID: UUID) async {
+        await emit(await commandFinishedOutcomes(surfaceID: surfaceID, paneID: paneID))
+    }
+
+    private func commandFinishedOutcomes(
+        surfaceID: UUID,
+        paneID: UUID
+    ) async -> [TerminalActivityProjectionOutcome] {
         var closedWindow: ActivityWindow?
         if var state = paneStates[paneID], state.surfaceID == surfaceID,
             let window = state.unseenWindow, window.rowsAdded > 0
@@ -180,7 +188,7 @@ package actor TerminalActivityProjector {
             paneID: paneID,
             learnPromptSignature: true
         )
-        guard closedWindow != nil || lastOutputLine != nil else { return }
+        guard closedWindow != nil || lastOutputLine != nil else { return [] }
 
         let activity: TerminalSettledActivity
         if let closedWindow {
@@ -202,7 +210,7 @@ package actor TerminalActivityProjector {
                 lastOutputLine: lastOutputLine
             )
         }
-        await emit([.unseenActivitySettled(surfaceID: surfaceID, paneID: paneID, activity: activity)])
+        return [.unseenActivitySettled(surfaceID: surfaceID, paneID: paneID, activity: activity)]
     }
 
     private func consumeAggregateState(
@@ -364,6 +372,14 @@ package actor TerminalActivityProjector {
             markObserved(surfaceID: surfaceID, paneID: paneID)
         case .semanticSignal:
             semanticSignal(surfaceID: surfaceID, paneID: paneID)
+        case .commandFinished:
+            semanticSignal(surfaceID: surfaceID, paneID: paneID)
+            outcomes.append(
+                contentsOf: await commandFinishedOutcomes(
+                    surfaceID: surfaceID,
+                    paneID: paneID
+                )
+            )
         case .surfaceClosed:
             closeSurfaceState(surfaceID: surfaceID, paneID: paneID)
             outcomes.append(.surfaceClosed(surfaceID: surfaceID, paneID: paneID))
@@ -629,7 +645,8 @@ package actor TerminalActivityProjector {
         learnPromptSignature _: Bool
     ) async -> String? {
         guard let lastOutputLineReader else { return nil }
-        let rawText = await lastOutputLineReader(surfaceID)
+        let readResult = await lastOutputLineReader(surfaceID)
+        guard case .value(let rawText) = readResult else { return nil }
 
         var state: PaneState
         if let existingState = paneStates[paneID], existingState.surfaceID == surfaceID {
@@ -642,7 +659,7 @@ package actor TerminalActivityProjector {
             // already uses for a pane's first scrollbar sample.
             state = PaneState(surfaceID: surfaceID, outputBurst: .unknown)
         }
-        let candidate = rawText.flatMap(TerminalLastOutputLineContract.contractedLastLine)
+        let candidate = TerminalLastOutputLineContract.contractedLastLine(fromRawViewportText: rawText)
         let isUnchanged = candidate == state.previousLastOutputLine
         state.previousLastOutputLine = candidate
         paneStates[paneID] = state

@@ -10,15 +10,13 @@ protocol WorkspaceFilesystemSourceManaging: AnyObject, Sendable {
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async
     func unregister(worktreeId: UUID) async
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
-    func setActivePaneWorktree(worktreeId: UUID?) async
-    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async
-    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async
+    func setRepositoryFactDemand(_ snapshot: RepositoryFactDemandSnapshot) async
+    func waitForRepositoryFactDemandAdmission() async
 }
 
 extension WorkspaceFilesystemSourceManaging {
-    func setSidebarVisibleWorktrees(_: Set<UUID>) async {}
-    func setPullRequestDemandWorktrees(_: Set<UUID>) async {}
+    func setRepositoryFactDemand(_: RepositoryFactDemandSnapshot) async {}
+    func waitForRepositoryFactDemandAdmission() async {}
 }
 
 extension FilesystemActor: WorkspaceFilesystemSourceManaging {}
@@ -78,53 +76,6 @@ extension WorkspaceSurfaceCoordinator {
         )
         nextFilesystemProjectionSequenceByPaneId.removeValue(forKey: paneId)
         scheduleFilesystemPaneUpdate(update, paneId: paneId)
-    }
-
-    func scheduleActivePaneWorktreeUpdate() {
-        filesystemAffectedKeyRequestCount &+= 1
-        pendingActivePaneWorktreeUpdate = true
-        startFilesystemEffectTaskIfNeeded()
-    }
-
-    func scheduleSidebarVisibleWorktreesUpdate() {
-        guard hasPendingSidebarVisibleWorktreesUpdate else { return }
-        filesystemAffectedKeyRequestCount &+= 1
-        startFilesystemEffectTaskIfNeeded()
-    }
-
-    func startObservingActivePaneWorktree() {
-        guard !isObservingActivePaneWorktree else { return }
-        isObservingActivePaneWorktree = true
-        lastObservedActivePaneWorktreeId = activePaneWorktree()
-        observeActivePaneWorktreeChange()
-    }
-
-    func stopObservingActivePaneWorktree() {
-        isObservingActivePaneWorktree = false
-        activePaneWorktreeObservationGeneration &+= 1
-    }
-
-    private func observeActivePaneWorktreeChange() {
-        guard isObservingActivePaneWorktree else { return }
-        activePaneWorktreeObservationGeneration &+= 1
-        let observationGeneration = activePaneWorktreeObservationGeneration
-        withObservationTracking {
-            _ = activePaneWorktree()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                    self.isObservingActivePaneWorktree,
-                    self.activePaneWorktreeObservationGeneration == observationGeneration
-                else { return }
-                let nextWorktreeId = self.activePaneWorktree()
-                let didChange = self.lastObservedActivePaneWorktreeId != nextWorktreeId
-                self.lastObservedActivePaneWorktreeId = nextWorktreeId
-                self.observeActivePaneWorktreeChange()
-                if didChange {
-                    self.scheduleActivePaneWorktreeUpdate()
-                }
-            }
-        }
     }
 
     func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async -> Bool {
@@ -381,24 +332,12 @@ extension WorkspaceSurfaceCoordinator {
     private var hasPendingFilesystemEffects: Bool {
         filesystemSyncRequested
             || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
-            || pendingActivePaneWorktreeUpdate
-            || hasPendingSidebarVisibleWorktreesUpdate
-    }
-
-    private var hasPendingSidebarVisibleWorktreesUpdate: Bool {
-        atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
-            != filesystemLastSidebarVisibleWorktreeIds
     }
 
     private func performAffectedFilesystemEffectsPass() async {
         let paneUpdates = pendingFilesystemPaneUpdatesByPaneId.values
             .sorted { $0.requestGeneration < $1.requestGeneration }
         pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
-        let shouldUpdateActivePaneWorktree = pendingActivePaneWorktreeUpdate
-        pendingActivePaneWorktreeUpdate = false
-        let sidebarVisibleWorktreeIds = atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
-        let shouldUpdateSidebarVisibleWorktrees =
-            sidebarVisibleWorktreeIds != filesystemLastSidebarVisibleWorktreeIds
         var didApplyPaneEffect = false
 
         for paneUpdate in paneUpdates {
@@ -417,34 +356,8 @@ extension WorkspaceSurfaceCoordinator {
                     "agentstudio.performance.filesystem.outcome": .string(telemetryOutcome),
                 ]
             )
-            guard case .applied(let affectedActivity) = outcome else { continue }
+            guard case .applied = outcome else { continue }
             didApplyPaneEffect = true
-            for activityUpdate in affectedActivity.updates {
-                guard filesystemActivityByWorktreeId[activityUpdate.worktreeId] != activityUpdate.isActiveInApp else {
-                    continue
-                }
-                await filesystemSource.setActivity(
-                    worktreeId: activityUpdate.worktreeId,
-                    isActiveInApp: activityUpdate.isActiveInApp
-                )
-                guard !Task.isCancelled else { return }
-                filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
-            }
-        }
-
-        if shouldUpdateActivePaneWorktree {
-            let nextActivePaneWorktreeId = activePaneWorktree()
-            if filesystemLastActivePaneWorktreeId != nextActivePaneWorktreeId {
-                await filesystemSource.setActivePaneWorktree(worktreeId: nextActivePaneWorktreeId)
-                guard !Task.isCancelled else { return }
-                filesystemLastActivePaneWorktreeId = nextActivePaneWorktreeId
-            }
-        }
-
-        if shouldUpdateSidebarVisibleWorktrees {
-            await filesystemSource.setSidebarVisibleWorktrees(sidebarVisibleWorktreeIds)
-            guard !Task.isCancelled else { return }
-            filesystemLastSidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
         }
 
         if didApplyPaneEffect {
@@ -609,9 +522,9 @@ extension WorkspaceSurfaceCoordinator {
         let sourceStart = clock.now
         var unregisteredCount = 0
         var registeredCount = 0
-        var activityWriteCount = 0
-        var activePaneWriteCount = 0
-        var sidebarVisibleWriteCount = 0
+        let activityWriteCount = 0
+        let activePaneWriteCount = 0
+        let sidebarVisibleWriteCount = 0
 
         for worktreeId in writeBatch.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
@@ -642,32 +555,6 @@ extension WorkspaceSurfaceCoordinator {
             registeredCount += 1
         }
 
-        for activityUpdate in writeBatch.activityUpdates {
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            await filesystemSource.setActivity(
-                worktreeId: activityUpdate.worktreeId,
-                isActiveInApp: activityUpdate.isActiveInApp
-            )
-            filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            activityWriteCount += 1
-        }
-
-        if writeBatch.isFinal, syncDiff.shouldUpdateActivePaneWorktree {
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            await filesystemSource.setActivePaneWorktree(worktreeId: syncDiff.activePaneWorktreeId)
-            filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            activePaneWriteCount = 1
-        }
-
-        if writeBatch.isFinal, syncDiff.shouldUpdateSidebarVisibleWorktrees {
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            await filesystemSource.setSidebarVisibleWorktrees(syncDiff.sidebarVisibleWorktreeIds)
-            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-            sidebarVisibleWriteCount = 1
-        }
-
         var topologyGeneration: UInt64?
         if writeBatch.isFinal {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
@@ -676,7 +563,8 @@ extension WorkspaceSurfaceCoordinator {
             await filesystemSource.assertTopology(
                 FilesystemTopologyAssertion(
                     generation: filesystemTopologyAssertionGeneration,
-                    contextsByWorktreeId: syncDiff.contextsByWorktreeId
+                    contextsByWorktreeId: syncDiff.contextsByWorktreeId,
+                    repositoryStableKeysByWorktreeId: syncDiff.repositoryStableKeysByWorktreeId
                 )
             )
             recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
@@ -772,10 +660,14 @@ extension WorkspaceSurfaceCoordinator {
     private func filesystemProjectionTopologyEntries() -> [FilesystemProjectionTopologyEntry] {
         var entries: [FilesystemProjectionTopologyEntry] = []
         for repo in store.repositoryTopologyAtom.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
+            guard
+                let repositoryStableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repo.id)
+            else { continue }
             for worktree in repo.worktrees {
                 entries.append(
                     FilesystemProjectionTopologyEntry(
                         repoId: repo.id,
+                        repositoryStableKey: repositoryStableKey,
                         worktreeId: worktree.id,
                         rootPath: worktree.path,
                         isUnavailable: false

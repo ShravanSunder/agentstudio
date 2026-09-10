@@ -57,7 +57,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -86,6 +87,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
             #expect(posted.subscriberCount > 0)
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
+            )
 
             let resolved = await eventually("repo enrichment should resolve from projector origin") {
                 guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
@@ -116,7 +124,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -143,6 +152,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                         source: .builtin(.filesystemWatcher)
                     )
                 )
+            )
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
             )
 
             let resolved = await eventually("local-only repo enrichment should resolve") {
@@ -228,7 +244,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 await recordedScopeChanges.record(change)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -257,6 +274,13 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
 
             // Phase 2: Register worktree -> triggers enrichment via projector
             let worktreeId = UUID()
+            await projector.setRepositoryFactAttention(
+                activePaneWorktreeId: worktreeId,
+                sidebarAttendedWorktreeIds: [worktreeId],
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: [worktreeId],
+                backgroundOnlyAutomaticWorktreeIds: []
+            )
             _ = await bus.post(
                 .system(
                     SystemEnvelope.test(
@@ -274,9 +298,9 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                     return false
                 }
                 return identity.groupKey == "remote:askluna/agent-studio"
+                    && repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
             }
             #expect(enriched)
-            #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
             // Phase 3: User removes repo
             coordinator.handleRepoRemoval(repoId: repo.id)
@@ -333,11 +357,11 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
     }
 
-    @Test("authoritative scan healing availability restores orphaned pane residency")
-    func authoritativeScanAvailabilityHealForwardsTopologyEffects() throws {
+    @Test("authoritative scan healing availability preserves pane residency")
+    func authoritativeScanAvailabilityHealPreservesPaneResidency() throws {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let effectHandler = RestoringTopologyEffectHandler(workspaceStore: workspaceStore)
+        let effectHandler = RecordingTopologyEffectHandler()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -359,14 +383,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         )
         workspaceStore.appendTab(Tab(paneId: layoutPane.id))
         workspaceStore.markRepoUnavailable(repo.id)
-        workspaceStore.setResidency(
-            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
-            for: layoutPane.id
-        )
-        workspaceStore.setResidency(
-            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
-            for: backgroundPane.id
-        )
+        workspaceStore.setResidency(.backgrounded, for: backgroundPane.id)
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -858,20 +875,5 @@ private final class RecordingTopologyEffectHandler: TopologyEffectHandler {
 
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         deltas.append(delta)
-    }
-}
-
-@MainActor
-private final class RestoringTopologyEffectHandler: TopologyEffectHandler {
-    private let workspaceStore: WorkspaceStore
-    private(set) var deltas: [WorktreeTopologyDelta] = []
-
-    init(workspaceStore: WorkspaceStore) {
-        self.workspaceStore = workspaceStore
-    }
-
-    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
-        deltas.append(delta)
-        _ = workspaceStore.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
     }
 }

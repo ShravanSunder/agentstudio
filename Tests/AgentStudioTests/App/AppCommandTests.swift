@@ -457,72 +457,29 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
-        let sidebarInbox = AppCommandDispatcher.shared.definition(for: .showInboxNotifications)
-        let toggleInboxSort = AppCommandDispatcher.shared.definition(for: .toggleInboxNotificationSort)
-        let clearReadInbox = AppCommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
-        let clearAllInbox = AppCommandDispatcher.shared.definition(for: .clearAllInboxNotifications)
-        let paneInbox = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
-        let clearPaneInbox = AppCommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
+    func test_sidebarAndPaneInboxDefinitions_areRetiredWithoutShortcuts() {
+        let retiredCommands: [AppCommand] = [
+            .showInboxNotifications,
+            .toggleInboxNotificationSort,
+            .clearReadInboxNotifications,
+            .clearAllInboxNotifications,
+            .showPaneInboxNotifications,
+            .clearPaneInboxNotifications,
+            .setInboxGroupingTab,
+            .setInboxGroupingRepo,
+            .setInboxGroupingPane,
+            .setInboxGroupingNone,
+            .setInboxRowStateFilter,
+            .setInboxContentMode,
+        ]
         let worktreeSidebar = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
-        #expect(sidebarInbox.shortcut == .showInboxNotifications)
-        #expect(sidebarInbox.surfacePolicy.exposes(.commandBar))
-        #expect(sidebarInbox.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
-        #expect(sidebarInbox.targeting == .contextual)
-        #expect(toggleInboxSort.label == "Toggle Inbox Sort Order")
-        #expect(toggleInboxSort.shortcut == nil)
-        #expect(toggleInboxSort.icon == .system(.arrowUpArrowDown))
-        #expect(toggleInboxSort.commandBarGroupName == "Inbox")
-        #expect(toggleInboxSort.commandBarGroupPriority != sidebarInbox.commandBarGroupPriority)
-        #expect(toggleInboxSort.surfacePolicy.exposes(.commandBar))
-        #expect(toggleInboxSort.surfacePolicy == .exposed([.commandBar, .inlineControl]))
-        #expect(toggleInboxSort.targeting == .contextual)
-        #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
-        #expect(clearReadInbox.shortcut == nil)
-        #expect(clearReadInbox.icon == .system(.deleteLeft))
-        #expect(clearReadInbox.commandBarGroupName == "Inbox")
-        #expect(clearReadInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
-        #expect(clearReadInbox.surfacePolicy.exposes(.commandBar))
-        #expect(clearReadInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
-        #expect(clearReadInbox.targeting == .contextual)
-        #expect(clearAllInbox.label == "Clear All Inbox Notifications")
-        #expect(clearAllInbox.shortcut == nil)
-        #expect(clearAllInbox.icon == .system(.deleteLeft))
-        #expect(clearAllInbox.commandBarGroupName == "Inbox")
-        #expect(clearAllInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
-        #expect(clearAllInbox.surfacePolicy.exposes(.commandBar))
-        #expect(clearAllInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
-        #expect(clearAllInbox.targeting == .contextual)
-        #expect(paneInbox.shortcut == .showPaneInboxNotifications)
-        #expect(paneInbox.surfacePolicy.exposes(.commandBar))
-        #expect(
-            paneInbox.surfacePolicy
-                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
-        )
-        #expect(
-            paneInbox.targeting
-                == .contextualAndTargeted(
-                    [.pane, .floatingTerminal],
-                    preferredInvocation: .contextual
-                )
-        )
-        #expect(paneInbox.visibleWhen == [.hasActivePane])
-        #expect(paneInbox.commandBarGroupName == "Pane")
-        #expect(clearPaneInbox.label == "Clear Pane Inbox")
-        #expect(clearPaneInbox.shortcut == nil)
-        #expect(clearPaneInbox.icon == .system(.deleteLeft))
-        #expect(clearPaneInbox.helpText.contains("Clear notifications"))
-        #expect(clearPaneInbox.commandBarGroupName == "Pane")
-        #expect(clearPaneInbox.commandBarGroupPriority == paneInbox.commandBarGroupPriority)
-        #expect(clearPaneInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
-        #expect(
-            clearPaneInbox.targeting
-                == .contextualAndTargeted(
-                    [.pane, .floatingTerminal],
-                    preferredInvocation: .contextual
-                )
-        )
+        for command in retiredCommands {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.shortcut == nil)
+            #expect(definition.surfacePolicy == .notPresented)
+            #expect(definition.targeting == .contextual)
+        }
         #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
         #expect(worktreeSidebar.surfacePolicy.exposes(.commandBar))
         #expect(worktreeSidebar.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))

@@ -18,6 +18,7 @@ package final class CoreAtoms {
     package let windowLifecycle: WindowLifecycleAtom
     package let repoEnrichmentCache: RepoEnrichmentCacheAtom
     package let applicationEntityRecency: ApplicationEntityRecencyAtom
+    package let repositoryLocalActivity: RepositoryLocalActivityAtom
     package let workspaceEntityRecency: WorkspaceEntityRecencyAtom
     package let repoCache: RepoCacheAtom
     package let sidebarCollapsedGroup: SidebarCollapsedGroupAtom
@@ -53,6 +54,7 @@ package final class CoreAtoms {
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
         applicationEntityRecency: ApplicationEntityRecencyAtom = .init(),
+        repositoryLocalActivity: RepositoryLocalActivityAtom = .init(),
         workspaceEntityRecency: WorkspaceEntityRecencyAtom = .init(),
         sidebarCollapsedGroup: SidebarCollapsedGroupAtom = .init(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
@@ -115,6 +117,7 @@ package final class CoreAtoms {
         self.windowLifecycle = windowLifecycle
         self.repoEnrichmentCache = repoEnrichmentCache
         self.applicationEntityRecency = applicationEntityRecency
+        self.repositoryLocalActivity = repositoryLocalActivity
         self.workspaceEntityRecency = workspaceEntityRecency
         self.repoCache = RepoCacheAtom(enrichmentCacheAtom: repoEnrichmentCache)
         self.sidebarCollapsedGroup = sidebarCollapsedGroup

@@ -2,14 +2,13 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
-@testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite("FullDiskAccessHealthCheck")
 struct FullDiskAccessHealthCheckTests {
     @Test
-    func deniedProtectedDataAppendsGlobalSafetyNotification() {
+    func deniedProtectedDataDoesNotCreateRetiredInboxNotification() {
         let appDelegate = makeAppDelegate()
         let result = FullDiskAccessHealthCheckResult(
             documents: Self.outcome(.granted),
@@ -18,14 +17,7 @@ struct FullDiskAccessHealthCheckTests {
 
         appDelegate.applyFullDiskAccessHealthCheckResult(result)
 
-        let notification = appDelegate.atomStore.inboxNotification.notifications.first
-        #expect(notification?.id == InboxNotification.fullDiskAccessWarningId)
-        #expect(notification?.kind == .fullDiskAccessDenied)
-        #expect(notification?.source == .global)
-        #expect(notification?.displayLane == .safety)
-        #expect(notification?.contributesToRollUpAlert == true)
-        #expect(notification?.body?.contains("documents=granted") == true)
-        #expect(notification?.body?.contains("protected_data=denied_eperm") == true)
+        #expect(appDelegate.atomStore.inboxNotification.notifications.isEmpty)
     }
 
     @Test
@@ -43,13 +35,9 @@ struct FullDiskAccessHealthCheckTests {
     }
 
     @Test
-    func healthyResultDismissesExistingWarning() throws {
+    func healthyResultDoesNotMutateDormantInboxHistory() throws {
         let appDelegate = makeAppDelegate()
-        appDelegate.atomStore.inboxNotification.append(
-            .fullDiskAccessDenied(
-                documentsResult: .granted,
-                protectedDataResult: .deniedEPERM
-            ))
+        let notificationsBefore = appDelegate.atomStore.inboxNotification.notifications
 
         appDelegate.applyFullDiskAccessHealthCheckResult(
             FullDiskAccessHealthCheckResult(
@@ -57,10 +45,7 @@ struct FullDiskAccessHealthCheckTests {
                 protectedData: Self.outcome(.granted)
             ))
 
-        let notification = try #require(appDelegate.atomStore.inboxNotification.notifications.first)
-        #expect(notification.isRead == true)
-        #expect(notification.isDismissedFromPaneInbox == true)
-        #expect(appDelegate.atomStore.inboxNotification.globalRollUpAlertCount == 0)
+        #expect(appDelegate.atomStore.inboxNotification.notifications == notificationsBefore)
     }
 
     @Test
@@ -91,7 +76,6 @@ struct FullDiskAccessHealthCheckTests {
             startupTraceRecorder: AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
         )
         appDelegate.atomStore = AtomRegistry()
-        appDelegate.hasLoadedInboxNotificationStore = true
         return appDelegate
     }
 

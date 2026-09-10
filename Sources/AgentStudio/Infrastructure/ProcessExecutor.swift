@@ -56,9 +56,18 @@ enum ProcessError: Error, LocalizedError {
 package struct DefaultProcessExecutor: ProcessExecutor {
     /// Default timeout for process execution.
     package let timeout: TimeInterval
+    private let beforeLaunch: @Sendable () -> Void
 
     package init(timeout: TimeInterval = 15) {
         self.timeout = timeout
+        beforeLaunch = {}
+    }
+
+    /// Internal launch seam for deterministic lifecycle tests. Production execution uses
+    /// the standard package initializer above and never pauses before the launch decision.
+    init(timeout: TimeInterval, beforeLaunch: @escaping @Sendable () -> Void) {
+        self.timeout = timeout
+        self.beforeLaunch = beforeLaunch
     }
 
     private static let defaultSystemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -113,7 +122,8 @@ package struct DefaultProcessExecutor: ProcessExecutor {
             stdoutPipe: stdoutPipe,
             stderrPipe: stderrPipe,
             timeoutSeconds: timeout,
-            hardKillGraceSeconds: 0.2
+            hardKillGraceSeconds: 0.2,
+            beforeLaunch: beforeLaunch
         )
         return try await execution.run()
     }
@@ -130,6 +140,11 @@ package struct DefaultProcessExecutor: ProcessExecutor {
 private final class ProcessExecution: @unchecked Sendable {
     private typealias Continuation = CheckedContinuation<ProcessResult, Error>
 
+    private enum TerminationCause {
+        case timeout
+        case cancellation
+    }
+
     private enum PipeKind {
         case stdout
         case stderr
@@ -141,7 +156,9 @@ private final class ProcessExecution: @unchecked Sendable {
     private let stderrPipe: Pipe
     private let timeoutSeconds: TimeInterval
     private let hardKillGraceSeconds: TimeInterval
+    private let beforeLaunch: @Sendable () -> Void
     private let queue: DispatchQueue
+    private let launchDecision = ProcessLaunchDecision()
 
     private var continuation: Continuation?
     private var stdoutData = Data()
@@ -150,8 +167,7 @@ private final class ProcessExecution: @unchecked Sendable {
     private var stdoutFinished = false
     private var stderrFinished = false
     private var terminationStatus: Int32 = 0
-    private var didTimeout = false
-    private var cancelRequested = false
+    private var terminationCause: TerminationCause?
     private var completed = false
     private var processSource: DispatchSourceProcess?
     private var stdoutSource: DispatchSourceRead?
@@ -164,7 +180,8 @@ private final class ProcessExecution: @unchecked Sendable {
         stdoutPipe: Pipe,
         stderrPipe: Pipe,
         timeoutSeconds: TimeInterval,
-        hardKillGraceSeconds: TimeInterval
+        hardKillGraceSeconds: TimeInterval,
+        beforeLaunch: @escaping @Sendable () -> Void
     ) {
         self.command = command
         self.process = process
@@ -172,6 +189,7 @@ private final class ProcessExecution: @unchecked Sendable {
         self.stderrPipe = stderrPipe
         self.timeoutSeconds = timeoutSeconds
         self.hardKillGraceSeconds = hardKillGraceSeconds
+        self.beforeLaunch = beforeLaunch
         queue = DispatchQueue(label: "com.agentstudio.process-executor.\(UUID().uuidString)", qos: .userInitiated)
     }
 
@@ -189,15 +207,20 @@ private final class ProcessExecution: @unchecked Sendable {
 
     private func start(_ continuation: Continuation) {
         self.continuation = continuation
-        guard !cancelRequested else {
+        guard terminationCause != .cancellation else {
             complete(.failure(CancellationError()))
             return
         }
 
         configureTerminationHandler()
+        beforeLaunch()
 
         do {
-            try process.run()
+            guard try launchDecision.runUnlessCancelled({ try process.run() }) else {
+                terminationCause = .cancellation
+                complete(.failure(CancellationError()))
+                return
+            }
         } catch {
             complete(.failure(error))
             return
@@ -308,10 +331,10 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func markTimedOut() {
-        if completed || didTimeout {
+        if completed || terminationCause != nil {
             return
         }
-        didTimeout = true
+        terminationCause = .timeout
 
         processLogger.warning(
             "Process '\(self.command, privacy: .public)' exceeded \(Int(self.timeoutSeconds))s timeout - terminating"
@@ -339,8 +362,13 @@ private final class ProcessExecution: @unchecked Sendable {
         guard processExited, stdoutFinished, stderrFinished else {
             return nil
         }
-        if didTimeout {
+        switch terminationCause {
+        case .timeout:
             return .failure(ProcessError.timedOut(command: command, seconds: timeoutSeconds))
+        case .cancellation:
+            return .failure(CancellationError())
+        case nil:
+            break
         }
         let result = ProcessResult(
             exitCode: Int(terminationStatus),
@@ -351,20 +379,17 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func cancel() {
+        launchDecision.cancelBeforeLaunch()
         queue.async {
             self.cancelOnQueue()
         }
     }
 
     private func cancelOnQueue() {
-        cancelRequested = true
-        guard !completed, let continuation else { return }
-
-        completed = true
-        self.continuation = nil
+        guard !completed, terminationCause == nil else { return }
+        terminationCause = .cancellation
+        guard continuation != nil else { return }
         terminateForCancellation()
-        cleanupSources()
-        continuation.resume(throwing: CancellationError())
     }
 
     private func terminateForCancellation() {
@@ -397,5 +422,30 @@ private final class ProcessExecution: @unchecked Sendable {
         processSource = nil
         stdoutSource = nil
         stderrSource = nil
+    }
+}
+
+/// Linearizes task cancellation against the child launch decision. Queue ordering still
+/// owns the launched child's lifecycle, while this lock closes the interval immediately
+/// before `Process.run()` where cancellation must be able to prevent launch altogether.
+private final class ProcessLaunchDecision: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCancelled = false
+
+    func runUnlessCancelled(_ launch: () throws -> Void) rethrows -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if isCancelled {
+            return false
+        }
+        try launch()
+        return true
+    }
+
+    func cancelBeforeLaunch() {
+        lock.lock()
+        defer { lock.unlock() }
+        isCancelled = true
     }
 }

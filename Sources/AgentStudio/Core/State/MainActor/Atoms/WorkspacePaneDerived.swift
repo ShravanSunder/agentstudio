@@ -36,6 +36,23 @@ package struct WorkspacePaneDerived {
         paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
+    func activeResidencyPaneIds(in orderedPaneIds: [UUID]) -> [UUID] {
+        orderedPaneIds.filter { paneId in
+            graphAtom.paneStructuralFacts(paneId)?.residency.isActive == true
+        }
+    }
+
+    func activeResidencyPaneId(
+        preferred preferredPaneId: UUID?,
+        in orderedPaneIds: [UUID]
+    ) -> UUID? {
+        let activePaneIds = activeResidencyPaneIds(in: orderedPaneIds)
+        if let preferredPaneId, activePaneIds.contains(preferredPaneId) {
+            return preferredPaneId
+        }
+        return activePaneIds.first
+    }
+
     private func pane(from state: PaneGraphState) -> Pane {
         let drawerId = state.drawer?.drawerId
         var pane = state.pane(

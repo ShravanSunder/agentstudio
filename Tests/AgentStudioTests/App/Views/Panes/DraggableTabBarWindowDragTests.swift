@@ -399,7 +399,6 @@ struct DraggableTabBarWindowDragTests {
         let adapter = TabBarAdapter(
             store: store,
             repoCache: atoms.core.repoCache,
-            inboxAtom: InboxNotificationAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )
         let tabBar = CustomTabBar(

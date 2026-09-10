@@ -436,18 +436,6 @@ extension WorkspaceStore {
     @discardableResult
     package func addWatchedPath(_ path: URL) -> WatchedPath? { mutationCoordinator.addWatchedPath(path) }
     @discardableResult
-    package func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
-        guard let repo = repositoryTopologyAtom.repo(repoId) else { return [] }
-        let unavailablePathByWorktreeId = Dictionary(
-            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
-        )
-        return paneAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
-    }
-    @discardableResult
-    package func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
-        paneAtom.orphanPanesForWorktree(worktreeId, path: path)
-    }
-    @discardableResult
     package func reassociateRepo(
         _ repoId: UUID,
         to newPath: URL,

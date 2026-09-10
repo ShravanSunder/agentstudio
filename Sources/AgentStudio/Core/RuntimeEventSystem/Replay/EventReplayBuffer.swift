@@ -270,7 +270,7 @@ package final class EventReplayBuffer {
 
     private static func estimateSize(of event: TopologyEvent) -> Int {
         switch event {
-        case .repoDiscovered(let repoPath, let parentPath, let linkedWorktrees):
+        case .repoDiscovered(let repoPath, let parentPath, let linkedWorktrees, _):
             return 24 + repoPath.path.utf8.count + parentPath.path.utf8.count
                 + estimateSize(of: linkedWorktrees)
         case .reposDiscovered(let parentPath, let repositories):
@@ -320,24 +320,11 @@ package final class EventReplayBuffer {
 
     private static func estimateSize(of event: ForgeEvent) -> Int {
         switch event {
-        case .pullRequestRefreshStateChanged:
-            return 25
-        case .pullRequestsChanged(_, let factsByBranch):
-            return 24
-                + factsByBranch.reduce(into: 0) { partial, entry in
-                    let (branch, facts) = entry
-                    partial += branch.utf8.count
-                    partial += facts.exactOpenURL?.absoluteString.utf8.count ?? 0
+        case .pullRequestRepositoryProjectionChanged(_, let projection, let invalidatedBranches):
+            return 24 + estimateSize(of: projection)
+                + invalidatedBranches.reduce(into: 0) { size, branch in
+                    size += branch.utf8.count
                 }
-        case .pullRequestBranchesInvalidated(_, let branches):
-            return 24
-                + branches.reduce(into: 0) { partial, branch in
-                    partial += branch.utf8.count
-                }
-        case .pullRequestRepositoryInvalidated:
-            return 24
-        case .pullRequestsUnavailable:
-            return 24
         case .checksUpdated:
             return 32
         case .refreshFailed(_, let error):
@@ -345,6 +332,33 @@ package final class EventReplayBuffer {
         case .rateLimited:
             return 24
         }
+    }
+
+    private static func estimateSize(of projection: PullRequestRepositoryProjection) -> Int {
+        switch projection {
+        case .stable(let presentation):
+            return estimateSize(of: presentation)
+        case .loading(let baseline, _):
+            return 8 + estimateSize(of: baseline)
+        }
+    }
+
+    private static func estimateSize(of presentation: PullRequestStablePresentation) -> Int {
+        let factsByBranch: [String: PullRequestFacts]
+        switch presentation {
+        case .unknown:
+            return 1
+        case .ready(let confirmedFactsByBranch):
+            factsByBranch = confirmedFactsByBranch
+        case .unavailable(let previousConfirmedFactsByBranch):
+            factsByBranch = previousConfirmedFactsByBranch ?? [:]
+        }
+        return 1
+            + factsByBranch.reduce(into: 0) { partial, entry in
+                let (branch, facts) = entry
+                partial += branch.utf8.count
+                partial += facts.exactOpenURL?.absoluteString.utf8.count ?? 0
+            }
     }
 
     private static func estimateSize(of event: GhosttyEvent) -> Int {

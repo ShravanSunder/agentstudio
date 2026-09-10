@@ -7,6 +7,56 @@ import Testing
 
 @Suite("WorktreeAnnotationMigrationTests")
 struct WorktreeAnnotationMigrationTests {
+    @Test("main activity migration preserves an already populated PR A annotation database")
+    func activityMigrationPreservesExistingAnnotationDatabase() throws {
+        // Arrange the prior PR A schema and ledger, with saved comments, drafts and output history.
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue, upTo: "008_add_worktree_annotation_message_viewed_revision"
+        )
+        _ = try seedReviewSubjectMigrationFixture(in: databaseQueue)
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        try databaseQueue.write { database in
+            try database.execute(sql: "DROP TABLE local_repository_activity_cursor")
+            try database.execute(sql: "DROP TABLE local_repository_activity")
+            try database.execute(
+                sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
+                arguments: ["006_add_repository_local_activity_facts"]
+            )
+        }
+        let rowsBefore = try annotationRows(in: databaseQueue)
+        let reviewedSubjectsBefore = try databaseQueue.read { database in
+            try String.fetchAll(
+                database,
+                sql: "SELECT COALESCE(accepted_reviewed_subject_json, '') FROM annotation_session ORDER BY id"
+            )
+        }
+        let migrationsBefore = try databaseQueue.read { database in
+            try WorkspaceLocalMigrations.migrator.appliedIdentifiers(database)
+        }
+        #expect(migrationsBefore.contains("006_create_worktree_annotation_schema"))
+        #expect(migrationsBefore.contains("010_remove_worktree_annotation_workspace_provenance"))
+        #expect(!migrationsBefore.contains("006_add_repository_local_activity_facts"))
+
+        // Act: add the independent main migration, then prove the ordinary reopen is idempotent.
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        // Assert
+        #expect(try annotationRows(in: databaseQueue) == rowsBefore)
+        try databaseQueue.read { database in
+            let reviewedSubjectsAfter = try String.fetchAll(
+                database,
+                sql: "SELECT COALESCE(accepted_reviewed_subject_json, '') FROM annotation_session ORDER BY id"
+            )
+            #expect(reviewedSubjectsAfter == reviewedSubjectsBefore)
+            #expect(try database.tableExists("local_repository_activity"))
+            #expect(try database.tableExists("local_repository_activity_cursor"))
+            let migrationsAfter = try WorkspaceLocalMigrations.migrator.appliedIdentifiers(database)
+            #expect(Set(migrationsAfter) == Set(migrationsBefore).union(["006_add_repository_local_activity_facts"]))
+        }
+    }
+
     @Test("local migration creates the complete annotation authority schema")
     func localMigrationCreatesCompleteAnnotationAuthoritySchema() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

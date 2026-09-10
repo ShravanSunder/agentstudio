@@ -55,7 +55,7 @@ struct InboxNotificationRouterPayloadTests {
     }
 
     @Test("command finished duration uses Ghostty nanoseconds")
-    func commandFinishedDurationUsesGhosttyNanoseconds() async {
+    func commandFinishedDurationUsesGhosttyNanoseconds() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -67,16 +67,17 @@ struct InboxNotificationRouterPayloadTests {
             )
         )
 
-        await assertEventuallyMain("nanosecond duration should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
+        try #require(
+            await waitForNotificationState { fixture.inboxAtom.notifications.count == 1 },
+            "nanosecond duration should notify"
+        )
         #expect(fixture.inboxAtom.notifications[0].title == "Command finished")
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 18s")
         await stop(fixture)
     }
 
     @Test("command finished title branches on exit code")
-    func commandFinishedTitleBranchesOnExitCode() async {
+    func commandFinishedTitleBranchesOnExitCode() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -88,16 +89,17 @@ struct InboxNotificationRouterPayloadTests {
             )
         )
 
-        await assertEventuallyMain("failed command should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
+        try #require(
+            await waitForNotificationState { fixture.inboxAtom.notifications.count == 1 },
+            "failed command should notify"
+        )
         #expect(fixture.inboxAtom.notifications[0].title == "Command failed")
         #expect(fixture.inboxAtom.notifications[0].body == "exit 1 · 18s")
         await stop(fixture)
     }
 
     @Test("command finished duration renders minute boundary")
-    func commandFinishedDurationRendersMinuteBoundary() async {
+    func commandFinishedDurationRendersMinuteBoundary() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -109,15 +111,16 @@ struct InboxNotificationRouterPayloadTests {
             )
         )
 
-        await assertEventuallyMain("minute boundary should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
+        try #require(
+            await waitForNotificationState { fixture.inboxAtom.notifications.count == 1 },
+            "minute boundary should notify"
+        )
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 1m 0s")
         await stop(fixture)
     }
 
     @Test("command finished ignores implausible duration payloads")
-    func commandFinishedIgnoresImplausibleDurationPayloads() async {
+    func commandFinishedIgnoresImplausibleDurationPayloads() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -136,15 +139,18 @@ struct InboxNotificationRouterPayloadTests {
             )
         )
 
-        await assertEventuallyMain("sentinel event should prove the router drained prior events") {
-            fixture.inboxAtom.notifications.count >= 1
-        }
+        try #require(
+            await waitForNotificationState {
+                fixture.inboxAtom.notifications.map(\.title) == ["Sentinel"]
+            },
+            "sentinel event should prove the router drained prior events"
+        )
         #expect(fixture.inboxAtom.notifications.map(\.title) == ["Sentinel"])
         await stop(fixture)
     }
 
     @Test("blank desktop notification title promotes body preview")
-    func blankDesktopNotificationTitlePromotesBodyPreview() async {
+    func blankDesktopNotificationTitlePromotesBodyPreview() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
@@ -161,9 +167,10 @@ struct InboxNotificationRouterPayloadTests {
             )
         )
 
-        await assertEventuallyMain("blank title should still create a readable notification") {
-            fixture.inboxAtom.notifications.count == 1
-        }
+        try #require(
+            await waitForNotificationState { fixture.inboxAtom.notifications.count == 1 },
+            "blank title should still create a readable notification"
+        )
         #expect(fixture.inboxAtom.notifications[0].title == "Agent output changed while you were away")
         #expect(fixture.inboxAtom.notifications[0].body == nil)
         await stop(fixture)
@@ -208,6 +215,20 @@ struct InboxNotificationRouterPayloadTests {
         seq: UInt64 = 1
     ) -> RuntimeEnvelope {
         .pane(.test(event: event, paneId: paneId, paneKind: .terminal, seq: seq))
+    }
+
+    private func waitForNotificationState(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
     }
 
     private func stop(_ fixture: Fixture) async {

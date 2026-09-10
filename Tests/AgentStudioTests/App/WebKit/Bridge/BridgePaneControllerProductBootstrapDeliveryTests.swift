@@ -568,12 +568,13 @@ extension WebKitSerializedTests {
             )
 
             // Assert
-            let nilStreamLoadTask = try #require(nilStreamController.activeReviewRefreshTask)
-            let currentStreamLoadTask = try #require(currentStreamController.activeReviewRefreshTask)
+            let nilStreamLoadTask = nilStreamController.activeReviewRefreshTask
+            let currentStreamLoadTask = currentStreamController.activeReviewRefreshTask
             #expect(staleStreamController.activeReviewRefreshTask == nil)
             #expect(staleStreamController.paneState.diff.packageMetadata == nil)
-            await nilStreamLoadTask.value
-            await currentStreamLoadTask.value
+            // A fast admitted load may already be complete; its published result is the contract.
+            await nilStreamLoadTask?.value
+            await currentStreamLoadTask?.value
             #expect(nilStreamController.paneState.diff.status == .ready)
             #expect(nilStreamController.paneState.diff.packageMetadata != nil)
             #expect(currentStreamController.paneState.diff.status == .ready)

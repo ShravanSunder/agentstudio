@@ -16,7 +16,8 @@ extension WorkspaceSurfaceCoordinator {
         let location = bridgeReviewRepositoryLocation(for: pane, state: state)
         return BridgeReviewSourceProviderFactory.gitProvider(
             location: location,
-            gitReadContext: bridgeGitReadContext(for: pane, repositoryLocation: location)
+            gitReadContext: bridgeGitReadContext(for: pane, repositoryLocation: location),
+            statusPhysicalGate: gitStatusPhysicalGate
         )
     }
 

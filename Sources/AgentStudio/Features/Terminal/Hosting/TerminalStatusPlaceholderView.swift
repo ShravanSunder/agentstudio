@@ -4,10 +4,15 @@ import AppKit
 
 @MainActor
 /// Placeholder direction matters:
-/// `.preparing` is a transient waiting-for-geometry state, while
-/// `.failedToStart` is the resting startup-failure state until the user retries or closes.
+/// `.preparing` is the transient, imminent-creation state (bounds resolving
+/// or a claim already in flight); `.waitingForGeometry` is the settled
+/// deferral state for a member the scheduler has parked until later geometry
+/// arrives (SPEC R5) — indefinite, not imminent, so it shows no progress
+/// indicator and requests no creation retry on bounds change; `.failedToStart`
+/// is the resting startup-failure state until the user retries or closes.
 package enum TerminalStatusPlaceholderMode: Equatable {
     case preparing
+    case waitingForGeometry
     case failedToStart
 }
 
@@ -92,6 +97,9 @@ package final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
         case .preparing:
             errorOverlay.hide()
             startupOverlay.showPreparing()
+        case .waitingForGeometry:
+            errorOverlay.hide()
+            startupOverlay.showWaitingForGeometry()
         case .failedToStart:
             startupOverlay.hide()
             errorOverlay.configure(health: .unhealthy(reason: .initializationFailed))

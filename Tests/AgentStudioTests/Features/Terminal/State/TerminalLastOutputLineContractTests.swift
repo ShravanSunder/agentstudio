@@ -52,4 +52,27 @@ struct TerminalLastOutputLineContractTests {
 
         #expect(line == "done  with task")
     }
+
+    @Test("viewport preflight rejects empty and oversized reads before Ghostty text extraction")
+    func viewportPreflightBoundsReadWork() {
+        #expect(TerminalViewportTextReadAdmission.preflight(rows: 0, columns: 80) == .empty)
+        #expect(
+            TerminalViewportTextReadAdmission.preflight(
+                rows: AppPolicies.TerminalOutputCapture.maxViewportCellsPerSettleRead + 1,
+                columns: 1
+            ) == .oversized
+        )
+        #expect(TerminalViewportTextReadAdmission.preflight(rows: 100, columns: 200) == nil)
+    }
+
+    @Test("raw viewport bytes are bounded before String construction")
+    func rawViewportBytesAreBounded() {
+        #expect(TerminalViewportTextReadAdmission.classifyRawByteCount(0) == .empty)
+        #expect(
+            TerminalViewportTextReadAdmission.classifyRawByteCount(
+                AppPolicies.TerminalOutputCapture.maxRawViewportUTF8Bytes + 1
+            ) == .oversized
+        )
+        #expect(TerminalViewportTextReadAdmission.classifyRawByteCount(1024) == nil)
+    }
 }

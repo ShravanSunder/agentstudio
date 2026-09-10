@@ -29,8 +29,8 @@ struct CommandBarInboxScopeDefaultingTests {
         return (window, management, uiState)
     }
 
-    @Test("opening CommandBar with owner=.sidebar(.inbox) sets default scope to .inbox")
-    func inboxOwnerSetsInboxScope() {
+    @Test("legacy Inbox owner normalizes to Repo and keeps the default scope")
+    func legacyInboxOwnerKeepsDefaultScope() {
         let (window, management, uiState) = makeAtoms(isInboxOwner: true)
 
         let state = CommandBarState.forOpen(
@@ -39,8 +39,8 @@ struct CommandBarInboxScopeDefaultingTests {
             uiState: uiState
         )
 
-        #expect(state.activeScope == .inbox)
-        #expect(state.currentScope == .inbox)
+        #expect(state.activeScope == .everything)
+        #expect(state.currentScope == .everything)
         #expect(state.rawInput.isEmpty)
     }
 
@@ -100,8 +100,8 @@ struct CommandBarInboxScopeDefaultingTests {
         #expect(state.currentScope == .everything)
     }
 
-    @Test("focused inbox publisher flows through owner mapping into inbox default scope")
-    func inboxFocusPublisherFlowsIntoInboxDefaultScope() {
+    @Test("focused legacy Inbox publisher is owned by Repo Explorer")
+    func legacyInboxFocusPublisherFlowsIntoRepoOwner() {
         let window = WindowLifecycleAtom()
         let management = ManagementLayerAtom()
         let uiState = WorkspaceSidebarState()
@@ -118,14 +118,14 @@ struct CommandBarInboxScopeDefaultingTests {
             uiState: uiState
         )
 
-        #expect(owner == .sidebar(.inbox))
-        #expect(CommandBarState.defaultScope(for: owner) == .inbox)
+        #expect(owner == .sidebar(.repos))
+        #expect(CommandBarState.defaultScope(for: owner) == .everything)
         #expect(
             CommandBarState.forOpen(
                 windowLifecycle: window,
                 managementLayer: management,
                 uiState: uiState
-            ).currentScope == .inbox
+            ).currentScope == .everything
         )
     }
 }

@@ -115,7 +115,7 @@ package enum WorkspaceCommandResolver {
             .focusPane6, .focusPane7, .focusPane8, .focusPane9:
             return nil
 
-        case .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+        case .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
@@ -155,7 +155,7 @@ package enum WorkspaceCommandResolver {
 
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+        case .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,

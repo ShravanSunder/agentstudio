@@ -116,8 +116,8 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
     }
 
-    @Test("SQLite flush after background/reactivate preserves drawer child membership")
-    func sqliteFlushAfterBackgroundReactivatePreservesDrawerChildMembership() async throws {
+    @Test("Fresh-store reactivation preserves every backgrounded drawer arrangement exactly")
+    func freshStoreReactivationPreservesEveryBackgroundedDrawerArrangementExactly() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
@@ -147,21 +147,58 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+        store.resizeDrawerVisiblePanePair(
+            parentPaneId: parentPane.id,
+            leftPaneId: firstDrawerPane.id,
+            rightPaneId: secondDrawerPane.id,
+            ratio: 0.31
+        )
+        store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        _ = try #require(
+            store.createArrangement(name: "Custom drawer", inTab: tab.id)
+        )
+        store.moveDrawerPane(
+            secondDrawerPane.id,
+            in: parentPane.id,
+            target: .rowSlot(row: .top, insertionIndex: 0),
+            sizingMode: .halveTarget
+        )
+        store.resizeDrawerVisiblePanePair(
+            parentPaneId: parentPane.id,
+            leftPaneId: secondDrawerPane.id,
+            rightPaneId: firstDrawerPane.id,
+            ratio: 0.67
+        )
+        #expect(store.minimizeDrawerPane(secondDrawerPane.id, in: parentPane.id))
+        store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
+        let expectedTab = try #require(store.tab(tab.id))
+        #expect(
+            expectedTab.activeArrangement.drawerViews[drawerId]?.layout.paneIds
+                == [secondDrawerPane.id, firstDrawerPane.id]
+        )
+        #expect(
+            expectedTab.activeArrangement.drawerViews[drawerId]?.minimizedPaneIds
+                == [secondDrawerPane.id]
+        )
+        #expect(
+            expectedTab.activeArrangement.drawerViews[drawerId]?.activeChildId
+                == firstDrawerPane.id
+        )
 
         #expect(store.mutationCoordinator.backgroundPane(parentPane.id))
         #expect((await store.flushAsync()).succeeded)
 
-        let dormantStore = WorkspaceStore(
+        let restoredStore = WorkspaceStore(
             sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
-        _ = await dormantStore.loadCanonicalComposition()
-        #expect(dormantStore.tab(tab.id)?.allPaneIds == [anchorPane.id])
-        #expect(dormantStore.pane(parentPane.id)?.residency == .backgrounded)
-        #expect(dormantStore.pane(firstDrawerPane.id)?.residency == .backgrounded)
-        #expect(dormantStore.pane(secondDrawerPane.id)?.residency == .backgrounded)
+        _ = await restoredStore.loadCanonicalComposition()
+        #expect(restoredStore.tab(tab.id) == expectedTab)
+        #expect(restoredStore.pane(parentPane.id)?.residency == .backgrounded)
+        #expect(restoredStore.pane(firstDrawerPane.id)?.residency == .backgrounded)
+        #expect(restoredStore.pane(secondDrawerPane.id)?.residency == .backgrounded)
 
         #expect(
-            store.mutationCoordinator.reactivatePane(
+            restoredStore.mutationCoordinator.reactivatePane(
                 parentPane.id,
                 inTab: tab.id,
                 at: anchorPane.id,
@@ -170,7 +207,14 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
                 sizingMode: .halveTarget
             )
         )
-        let outcome = await store.flushAsync()
+        let reactivatedTab = try #require(restoredStore.tab(tab.id))
+        #expect(reactivatedTab == expectedTab)
+        #expect(reactivatedTab.allPaneIds.count == Set(reactivatedTab.allPaneIds).count)
+        #expect(restoredStore.pane(parentPane.id)?.residency == .active)
+        #expect(restoredStore.pane(firstDrawerPane.id)?.residency == .active)
+        #expect(restoredStore.pane(secondDrawerPane.id)?.residency == .active)
+
+        let outcome = await restoredStore.flushAsync()
 
         guard outcome.succeeded else {
             Issue.record("Expected background/reactivate SQLite flush to succeed")
@@ -178,20 +222,25 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         }
         let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
         let savedTab = try #require(tabGraph.tabs.single)
-        #expect(
-            Set(savedTab.allPaneIds) == Set([anchorPane.id, parentPane.id, firstDrawerPane.id, secondDrawerPane.id]))
-        #expect(
-            savedTab.arrangements.compactMap { $0.drawerViews[drawerId]?.layout.paneIds }
-                .contains { Set($0) == Set([firstDrawerPane.id, secondDrawerPane.id]) }
-        )
-
-        let restoredStore = WorkspaceStore(
-            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
-        )
-        await restoredStore.loadCanonicalComposition()
-        let restoredTab = try #require(restoredStore.tab(tab.id))
-        #expect(
-            Set(restoredTab.allPaneIds) == Set([anchorPane.id, parentPane.id, firstDrawerPane.id, secondDrawerPane.id]))
-        #expect(restoredStore.drawerView(forParent: parentPane.id)?.layout.paneIds.count == 2)
+        expectSavedTabGraphMatches(savedTab, expectedTab: expectedTab, drawerID: drawerId)
     }
+}
+
+private func expectSavedTabGraphMatches(
+    _ savedTab: WorkspaceCoreRepository.TabGraphStateRecord,
+    expectedTab: Tab,
+    drawerID: UUID
+) {
+    #expect(savedTab.tabId == expectedTab.id)
+    #expect(savedTab.allPaneIds == expectedTab.allPaneIds)
+    #expect(savedTab.arrangements.map(\.id) == expectedTab.arrangements.map(\.id))
+    #expect(savedTab.arrangements.map(\.layout) == expectedTab.arrangements.map(\.layout))
+    #expect(
+        savedTab.arrangements.map { $0.drawerViews[drawerID]?.layout }
+            == expectedTab.arrangements.map { $0.drawerViews[drawerID]?.layout }
+    )
+    #expect(
+        savedTab.arrangements.map { $0.drawerViews[drawerID]?.minimizedPaneIds }
+            == expectedTab.arrangements.map { $0.drawerViews[drawerID]?.minimizedPaneIds }
+    )
 }

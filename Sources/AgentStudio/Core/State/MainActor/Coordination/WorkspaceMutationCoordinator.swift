@@ -45,15 +45,10 @@ package final class WorkspaceMutationCoordinator {
         }
     }
 
-    private struct BackgroundedDrawerPayload {
-        let drawerViewsByArrangementId: [UUID: DrawerView]
-    }
-
     let repositoryTopologyAtom: RepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
-    private var backgroundedDrawerPayloadsByPaneId: [UUID: BackgroundedDrawerPayload] = [:]
 
     private var workspaceTab: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(
@@ -99,20 +94,6 @@ package final class WorkspaceMutationCoordinator {
                 .warning("backgroundPane: pane \(paneId) not found")
             return false
         }
-        let removedDrawerIds = Set([backgroundedPane.drawer?.drawerId].compactMap(\.self))
-        let removedPaneIds = Set([paneId] + (backgroundedPane.drawer?.paneIds ?? []))
-        if let drawer = backgroundedPane.drawer, !drawer.paneIds.isEmpty {
-            backgroundedDrawerPayloadsByPaneId[paneId] = BackgroundedDrawerPayload(
-                drawerViewsByArrangementId: drawerViewsByArrangementId(
-                    drawerId: drawer.drawerId,
-                    parentPaneId: paneId
-                )
-            )
-        } else {
-            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
-        }
-        workspaceTabArrangementAtom.removePaneReferences(removedPaneIds, removingDrawerIds: removedDrawerIds)
-        removeEmptyTabs()
         workspacePaneAtom.setResidency(.backgrounded, for: paneId)
         for drawerPaneId in backgroundedPane.drawer?.paneIds ?? [] {
             workspacePaneAtom.setResidency(.backgrounded, for: drawerPaneId)
@@ -138,6 +119,14 @@ package final class WorkspaceMutationCoordinator {
             return false
         }
 
+        if workspaceTab.tabContaining(paneId: paneId) != nil {
+            workspacePaneAtom.setResidency(.active, for: paneId)
+            for drawerPaneId in pane.drawer?.paneIds ?? [] {
+                workspacePaneAtom.setResidency(.active, for: drawerPaneId)
+            }
+            return true
+        }
+
         guard
             workspaceTabArrangementAtom.insertPane(
                 paneId,
@@ -157,16 +146,13 @@ package final class WorkspaceMutationCoordinator {
             for drawerPaneId in drawer.paneIds {
                 workspacePaneAtom.setResidency(.active, for: drawerPaneId)
             }
-            let payload = backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
             workspaceTabArrangementAtom.restoreDrawerPaneViews(
                 drawerId: drawer.drawerId,
                 parentPaneId: paneId,
                 drawerPaneIds: drawer.paneIds,
-                drawerViewsByArrangementId: payload?.drawerViewsByArrangementId ?? [:],
+                drawerViewsByArrangementId: [:],
                 inTab: tabId
             )
-        } else {
-            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
         }
         return true
     }
@@ -175,32 +161,6 @@ package final class WorkspaceMutationCoordinator {
         _ result: RepositoryReassociationResult
     ) -> RepositoryReassociationResult {
         result
-    }
-
-    @discardableResult
-    package func orphanPanesForRemovedWorktreeIfUnmatched(
-        _ removedWorktree: RemovedWorktreeEntry
-    ) -> [UUID] {
-        let currentWorktreeIDs = Set(repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
-        let affectedPaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
-            guard pane.residency == .active || pane.residency == .backgrounded else { return nil }
-            guard let cwd = pane.metadata.cwd?.standardizedFileURL else { return nil }
-            guard Self.path(removedWorktree.path, contains: cwd) else { return nil }
-            guard
-                repositoryTopologyAtom.repoAndWorktree(
-                    containing: cwd,
-                    among: currentWorktreeIDs
-                ) == nil
-            else { return nil }
-            return pane.id
-        }
-        for paneID in affectedPaneIDs {
-            workspacePaneAtom.setResidency(
-                .orphaned(reason: .worktreeNotFound(path: removedWorktree.path.path)),
-                for: paneID
-            )
-        }
-        return affectedPaneIDs
     }
 
     @discardableResult
@@ -269,36 +229,6 @@ package final class WorkspaceMutationCoordinator {
         return changedPaneIDs
     }
 
-    @discardableResult
-    package func restoreOrphanedPaneResidencyForCurrentTopology() -> Bool {
-        let activeLayoutPaneIDs = workspaceTab.allPaneIds
-        let currentWorktreeIDs = Set(repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
-        let restorablePaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
-            guard pane.residency.isOrphaned else { return nil }
-            guard let cwd = pane.metadata.cwd else { return nil }
-            guard
-                repositoryTopologyAtom.repoAndWorktree(
-                    containing: cwd,
-                    among: currentWorktreeIDs
-                ) != nil
-            else { return nil }
-            return pane.id
-        }
-        for paneID in restorablePaneIDs {
-            workspacePaneAtom.setResidency(
-                activeLayoutPaneIDs.contains(paneID) ? .active : .backgrounded,
-                for: paneID
-            )
-        }
-        return !restorablePaneIDs.isEmpty
-    }
-
-    private nonisolated static func path(_ root: URL, contains candidate: URL) -> Bool {
-        let rootComponents = root.standardizedFileURL.pathComponents
-        let candidateComponents = candidate.standardizedFileURL.pathComponents
-        return candidateComponents.starts(with: rootComponents)
-    }
-
     package func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
         let tabs = workspaceTab.tabs
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
@@ -354,15 +284,6 @@ package final class WorkspaceMutationCoordinator {
             tabId: tabId,
             anchorPaneId: anchorPaneId,
             direction: direction
-        )
-    }
-
-    private func drawerViewsByArrangementId(drawerId: UUID, parentPaneId: UUID) -> [UUID: DrawerView] {
-        guard let tab = workspaceTab.tabContaining(paneId: parentPaneId) else { return [:] }
-        return Dictionary(
-            uniqueKeysWithValues: tab.arrangements.compactMap { arrangement in
-                arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
-            }
         )
     }
 

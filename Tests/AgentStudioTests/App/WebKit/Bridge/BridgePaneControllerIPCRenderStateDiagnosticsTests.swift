@@ -102,7 +102,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             #expect(result.visibleHydrationStateProbe == hydrationState)
             #expect(result.visibleHydrationDiscardProbe == discardProbe)
             #expect(result.frameJankProbe == frameJankProbe)
-            expectProductMetadataStreamDiagnostic(metadataStream)
+            try expectProductMetadataStreamDiagnostic(metadataStream)
             #expect(productSession.activeProducerCount == 0)
             #expect(productSession.activeProducerTaskCount == 0)
             #expect(productSession.activeContentLeaseCount == 0)
@@ -449,11 +449,20 @@ private func encodedIPCBridgeDiagnostics(
 
 private func expectProductMetadataStreamDiagnostic(
     _ diagnostic: IPCBridgeProductMetadataStreamDiagnostic
-) {
+) throws {
+    let encodedMetadataStream = try #require(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(diagnostic)) as? [String: Any]
+    )
+    #expect(encodedMetadataStream["routeFailureSubscriptionId"] as? String == "retired-subscription")
+    let termination = try #require(encodedMetadataStream["lastSubscriptionTermination"] as? [String: Any])
+    #expect(termination["subscriptionId"] as? String == "retired-subscription")
+    #expect(termination["outcome"] as? String == "failed")
+    #expect(termination["reason"] as? String == "subscription_local_operation_failed")
     #expect(diagnostic.kind == .productMetadataStream)
     #expect(diagnostic.routeFailureSubscriptionId == "retired-subscription")
     #expect(diagnostic.lastSubscriptionTermination?.subscriptionId == "retired-subscription")
     #expect(diagnostic.lastSubscriptionTermination?.outcome == "failed")
+    #expect(diagnostic.lastSubscriptionTermination?.reason == "subscription_local_operation_failed")
     #expect(diagnostic.acknowledgedFrameCount == 1)
     #expect(diagnostic.activeSubscriptionCount == 2)
     #expect(diagnostic.committedFrameCount == 1)

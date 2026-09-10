@@ -7,6 +7,8 @@ typealias EagerDerivedAtomTestFamily = EagerDerivedAtomFamily<
     Int,
     EagerDerivedAtomTestRequest,
     Int,
+    EagerDerivedAtomTestRequest,
+    EagerDerivedAtomTestValue,
     EagerDerivedAtomTestValue
 >
 
@@ -60,9 +62,15 @@ private func makeEagerDerivedAtomTestFamily(
     completionRecorder: EagerDerivedAtomFamilyCompletionRecorder? = nil
 ) -> EagerDerivedAtomTestFamily {
     EagerDerivedAtomTestFamily(
-        requestIdentity: \EagerDerivedAtomTestRequest.identity,
-        isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+        intentIdentity: \EagerDerivedAtomTestRequest.identity,
+        combinePendingIntents: { _, latestRequest in latestRequest },
+        prepare: { request, _ in .prepared(request) },
         project: projectEagerDerivedAtomTestRequest,
+        classify: { candidate, currentValue in
+            currentValue?.content == candidate.content
+                ? .equalCurrent(candidate)
+                : .immediateAccepted(candidate)
+        },
         onProjectionCompletion: { key, completion in
             completionRecorder?.record(key: key, completion: completion)
         }
@@ -95,9 +103,15 @@ struct EagerDerivedAtomFamilyTests {
         let completionRecorder = EagerDerivedAtomFamilyCompletionRecorder()
         let family = EagerDerivedAtomTestFamily(
             telemetryLabel: "repo_explorer_projection",
-            requestIdentity: \EagerDerivedAtomTestRequest.identity,
-            isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+            intentIdentity: \EagerDerivedAtomTestRequest.identity,
+            combinePendingIntents: { _, latestRequest in latestRequest },
+            prepare: { request, _ in .prepared(request) },
             project: projectEagerDerivedAtomTestRequest,
+            classify: { candidate, currentValue in
+                currentValue?.content == candidate.content
+                    ? .equalCurrent(candidate)
+                    : .immediateAccepted(candidate)
+            },
             onProjectionCompletion: { key, completion in
                 completionRecorder.record(key: key, completion: completion)
             }
@@ -299,18 +313,15 @@ struct EagerDerivedAtomFamilyTests {
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "family successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
-
         predecessorGate.release()
         guard
             await requireEagerDerivedAtomTestEvent(
                 "keyed superseded completion",
                 wait: { await recorder.wait(forKey: 1, completion: .superseded(1)) }
+            ),
+            await requireEagerDerivedAtomTestEvent(
+                "family successor start",
+                wait: { await successorGate.waitUntilStarted() }
             )
         else { return }
 
@@ -381,7 +392,7 @@ struct EagerDerivedAtomFamilyTests {
         EagerDerivedAtomFamilyTermination.removeKey,
         .stopFamily,
     ])
-    func terminationRetainsStoppedChildUntilEveryOverlappingProjectionSettles(
+    func terminationRetainsStoppedChildUntilItsActiveProjectionSettles(
         _ termination: EagerDerivedAtomFamilyTermination
     ) async {
         let recorder = EagerDerivedAtomFamilyCompletionRecorder()
@@ -420,13 +431,6 @@ struct EagerDerivedAtomFamilyTests {
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "overlapping successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
-
         switch termination {
         case .removeKey:
             family.remove(for: 1)
@@ -438,23 +442,19 @@ struct EagerDerivedAtomFamilyTests {
             await requireEagerDerivedAtomTestEvent(
                 "removed predecessor cancellation",
                 wait: { await recorder.wait(forKey: 1, completion: .cancelled(1)) }
-            )
-        else { return }
-
-        successorGate.release()
-        guard
+            ),
             await requireEagerDerivedAtomTestEvent(
                 "removed successor cancellation",
                 wait: { await recorder.wait(forKey: 1, completion: .cancelled(2)) }
             )
         else { return }
 
-        #expect(projectionCount.count == 2)
+        #expect(projectionCount.count == 1)
         #expect(family.atom(for: 1) == nil)
     }
 
     @Test
-    func ownerReleaseRetainsStoppedChildUntilEveryOverlappingProjectionSettles() async {
+    func ownerReleaseRetainsStoppedChildUntilItsActiveProjectionSettles() async {
         let predecessorGate = EagerDerivedAtomProjectionGate()
         let successorGate = EagerDerivedAtomProjectionGate()
         defer {
@@ -462,7 +462,6 @@ struct EagerDerivedAtomFamilyTests {
             successorGate.release()
         }
         let predecessorCancellation = EagerDerivedAtomTestSignal()
-        let successorCancellation = EagerDerivedAtomTestSignal()
         let projectionCount = EagerDerivedAtomTestCounter()
         var family: EagerDerivedAtomTestFamily? = makeEagerDerivedAtomTestFamily()
         weak let stoppedChild = family?.materialize(for: 1)
@@ -490,18 +489,10 @@ struct EagerDerivedAtomFamilyTests {
                 identity: 2,
                 outputContent: 20,
                 gate: successorGate,
-                projectionCount: projectionCount,
-                observesCancellation: true,
-                cancellationSignal: successorCancellation
+                projectionCount: projectionCount
             ),
             for: 1
         )
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "owner-release successor start",
-                wait: { await successorGate.waitUntilStarted() }
-            )
-        else { return }
 
         family?.stop()
         family = nil
@@ -517,23 +508,12 @@ struct EagerDerivedAtomFamilyTests {
                 wait: { await predecessorCancellation.wait() }
             )
         else { return }
-        #expect(stoppedChild != nil)
-        #expect(stoppedChild?.freshness == .stopped)
-        #expect(stoppedChild?.value == nil)
-
-        successorGate.release()
-        guard
-            await requireEagerDerivedAtomTestEvent(
-                "owner-release successor cancellation",
-                wait: { await successorCancellation.wait() }
-            )
-        else { return }
 
         for _ in 0..<1000 where stoppedChild != nil {
             await Task.yield()
         }
         #expect(stoppedChild == nil)
-        #expect(projectionCount.count == 2)
+        #expect(projectionCount.count == 1)
     }
 
     @Test

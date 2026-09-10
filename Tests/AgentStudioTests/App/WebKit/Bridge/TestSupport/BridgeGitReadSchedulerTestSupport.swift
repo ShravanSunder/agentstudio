@@ -4,6 +4,19 @@ import Foundation
 
 @testable import AgentStudioBridge
 
+extension BridgeReviewSourceProviderFactory {
+    static func gitProvider(
+        repositoryPath: URL?,
+        gitReadContext: BridgeGitReadContext?
+    ) -> any BridgeReviewSourceProvider {
+        gitProvider(
+            repositoryPath: repositoryPath,
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: AgentStudioGitStatusPhysicalGate()
+        )
+    }
+}
+
 final class BridgeGitReadManualDeadlineScheduler: BridgeGitReadDeadlineScheduling, @unchecked Sendable {
     private struct ScheduledDeadline {
         let id: UInt64

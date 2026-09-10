@@ -23,7 +23,6 @@ struct ActiveTabContent: View {
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation? = nil
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
     let workspaceWindowId: UUID? = nil
 
     private static func traceBody(
@@ -55,31 +54,33 @@ struct ActiveTabContent: View {
             hasTree: tab != nil && registeredPaneCount > 0
         )
 
-        if let activeTabId, let tab {
-            FlatTabStripContainer(
-                layout: tab.layout,
-                octiconLoader: octiconLoader,
-                tabId: activeTabId,
-                activePaneId: tab.activePaneId,
-                minimizedPaneIds: tab.activeMinimizedPaneIds,
-                visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: activeTabId),
-                arrangementInlineRenameState: arrangementInlineRenameState,
-                closeTransitionCoordinator: closeTransitionCoordinator,
-                actionDispatcher: actionDispatcher,
-                onPaneFocusTrigger: onPaneFocusTrigger,
-                onFocusPane: onFocusPane,
-                store: store,
-                repoCache: repoCache,
-                editorChooser: editorChooser,
-                viewRegistry: viewRegistry,
-                appLifecycleStore: appLifecycleStore,
-                paneInboxPresentation: paneInboxPresentation,
-                onOpenPaneGitHub: onOpenPaneGitHub,
-                notificationCountForWorktree: notificationCountForWorktree,
-                workspaceWindowId: workspaceWindowId,
-                paneSurfaceToolbarPresentation: { _ in .hidden }
-            )
-            .background(AppStyles.Shell.PaneChrome.background)
+        if let activeTabId, tab != nil {
+            let arrangementView = atom(\.arrangementView)
+            if let activeLayout = arrangementView.activeLayout(forTab: activeTabId) {
+                FlatTabStripContainer(
+                    layout: activeLayout,
+                    octiconLoader: octiconLoader,
+                    tabId: activeTabId,
+                    activePaneId: arrangementView.activePaneId(forTab: activeTabId),
+                    minimizedPaneIds: arrangementView.activeMinimizedPaneIds(forTab: activeTabId),
+                    visiblePaneIds: arrangementView.activeVisiblePaneIds(forTab: activeTabId),
+                    arrangementInlineRenameState: arrangementInlineRenameState,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
+                    actionDispatcher: actionDispatcher,
+                    onPaneFocusTrigger: onPaneFocusTrigger,
+                    onFocusPane: onFocusPane,
+                    store: store,
+                    repoCache: repoCache,
+                    editorChooser: editorChooser,
+                    viewRegistry: viewRegistry,
+                    appLifecycleStore: appLifecycleStore,
+                    paneInboxPresentation: paneInboxPresentation,
+                    onOpenPaneGitHub: onOpenPaneGitHub,
+                    workspaceWindowId: workspaceWindowId,
+                    paneSurfaceToolbarPresentation: { _ in .hidden }
+                )
+                .background(AppStyles.Shell.PaneChrome.background)
+            }
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)
     }

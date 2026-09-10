@@ -5,6 +5,9 @@ import Foundation
 import Observation
 
 extension AppDelegate {
+    // Inbox presentation and ingestion are intentionally retired. Source and
+    // persisted rows remain only for a later data-safe removal. Do not reconnect
+    // these owners to App, command, toolbar, shortcut, IPC, or runtime-bus composition.
     func bootLoadInboxNotificationStore() async {
         let workspaceId = store.identityAtom.workspaceId
         guard let workspaceSQLiteDatastore else {
@@ -25,8 +28,6 @@ extension AppDelegate {
         )
         _ = await inboxNotificationStore.loadAsync()
         observeInboxNotificationPersistence()
-        hasLoadedInboxNotificationStore = true
-        flushPersistenceRecoveryNotifications()
     }
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
@@ -63,35 +64,6 @@ extension AppDelegate {
         }
     }
 
-    func bootStartTerminalActivityRouter(bus: EventBus<RuntimeEnvelope>) {
-        terminalActivityRouter = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atomStore.terminalActivity,
-            attendedPane: atomStore.core.attendedPane,
-            traceRuntime: traceRuntime,
-            startupTraceRecorder: startupTraceRecorder,
-            isPaneCurrentlyAttended: { [weak self] paneId in
-                self?.isPaneCurrentlyAttendedForNotifications(paneId) ?? false
-            },
-            isPaneAgentClassified: { [weak self] paneId, paneKind in
-                if paneKind == .agent { return true }
-                return self?.store.paneAtom.pane(paneId)?.metadata.contentType == .agent
-            },
-            recordSettledActivityStatus: { [weak self] paneId, lastOutputLine in
-                self?.atomStore.core.paneActivityStatus.recordSettledActivity(
-                    paneId: paneId,
-                    lastOutputLine: lastOutputLine
-                )
-            },
-            clearPaneActivityStatus: { [weak self] paneId in
-                self?.atomStore.core.paneActivityStatus.clear(paneId: paneId)
-            }
-        )
-        Task { @MainActor [weak self] in
-            await self?.terminalActivityRouter.start()
-        }
-    }
-
     private func observeInboxNotificationPersistence() {
         withObservationTracking {
             _ = atomStore.inboxNotification.notifications
@@ -106,20 +78,9 @@ extension AppDelegate {
     }
 
     func recordPersistenceRecovery(_ event: PersistenceRecoveryEvent) {
-        guard hasLoadedInboxNotificationStore else {
-            pendingPersistenceRecoveryEvents.append(event)
-            return
-        }
-        appendPersistenceRecoveryNotificationIfNeeded(for: event)
-    }
-
-    func flushPersistenceRecoveryNotifications() {
-        guard hasLoadedInboxNotificationStore else { return }
-        let pendingEvents = pendingPersistenceRecoveryEvents
-        pendingPersistenceRecoveryEvents.removeAll()
-        for event in pendingEvents {
-            appendPersistenceRecoveryNotificationIfNeeded(for: event)
-        }
+        appLogger.warning(
+            "Persistence recovery: store=\(event.store.rawValue) recovery=\(event.recovery.rawValue)"
+        )
     }
 
     private func appendPersistenceRecoveryNotificationIfNeeded(for event: PersistenceRecoveryEvent) {
@@ -135,11 +96,4 @@ extension AppDelegate {
         atomStore.inboxNotification.append(notification)
     }
 
-    private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
-        PaneObservationResolver.isPaneCurrentlyAttended(
-            paneId: paneId,
-            attendedPaneId: atomStore.core.attendedPane.attendedPaneId,
-            pane: { store.paneAtom.pane($0) }
-        )
-    }
 }

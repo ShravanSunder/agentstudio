@@ -44,10 +44,13 @@ extension E2ESerializedTests {
             store.setActiveTab(tab.id)
 
             let paneEventBus = EventBus<RuntimeEnvelope>()
+            let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let gitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(
+                processExecutor: DefaultProcessExecutor(timeout: 5)
+            )
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
-                gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
-                    processExecutor: DefaultProcessExecutor(timeout: 5))
+                gitWorkingTreeProvider: gitWorkingTreeStatusProvider
             )
             let paneProjectionSubscription = await paneEventBus.subscribe(
                 policy: .criticalUnbounded,
@@ -71,6 +74,8 @@ extension E2ESerializedTests {
                 surfaceManager: FilesystemE2ESurfaceManager(),
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
+                gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+                gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: filesystemSource,
                 windowLifecycleStore: WindowLifecycleAtom(),
                 bridgePaneAttendance: BridgePaneAttendanceAtom()

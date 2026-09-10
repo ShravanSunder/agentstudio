@@ -3,6 +3,31 @@ import Foundation
 // MARK: - AppCommand Catalog Helpers
 
 extension AppCommand {
+    func retiredGlobalInboxDefinition() -> AppCommandSpec {
+        retiredInboxDefinition(
+            label: "Toggle Inbox",
+            icon: .system(.bell),
+            helpText: "The notification inbox is retired"
+        )
+    }
+
+    func retiredInboxDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
+            commandBarGroupName: "Inbox",
+            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+        )
+    }
+
     /// Ordered array of tab selection commands (⌘1 through ⌘9)
     package static let selectTabCommands: [AppCommand] = [
         .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -89,6 +114,19 @@ extension AppCommand {
             helpText: helpText,
             surfacePolicy: surfacePolicy,
             targeting: .targeted([.worktree]),
+            commandBarGroupName: "Repo",
+            commandBarGroupPriority: CommandBarGroupPriority.repo
+        )
+    }
+
+    func repositoryFactUpdateDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Refresh",
+            icon: .system(.arrowClockwise),
+            helpText: "Fetch latest remote references and refresh repository facts",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .targeted([.repo]),
             commandBarGroupName: "Repo",
             commandBarGroupPriority: CommandBarGroupPriority.repo
         )

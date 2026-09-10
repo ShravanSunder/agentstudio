@@ -418,7 +418,6 @@ extension RepoExplorerReadModelTests {
                 showsNoResults: false
             )
         )
-
         let index = RepoExplorerRowIndex(
             projection: projection,
             collapsedGroupIds: [],
@@ -491,16 +490,14 @@ extension RepoExplorerReadModelTests {
             collapsedGroupIds: [favoriteGroup.id, normalGroup.id],
             isFiltering: false
         )
-
         #expect(
             index.entries.map(\.id) == [
-                "section-header:favorites",
-                "group:\(favoriteGroup.id)",
-                "section-header:repositories",
-                "group:\(normalGroup.id)",
+                .sectionHeader(.favorites),
+                .group(groupID: favoriteGroup.id),
+                .sectionHeader(.repositories),
+                .group(groupID: normalGroup.id),
             ])
     }
-
 }
 
 extension RepoExplorerReadModelTests {
@@ -700,13 +697,18 @@ extension RepoExplorerReadModelTests {
         #expect(group.repos.first?.worktrees.map(\.id) == [duplicateWorktree.id])
 
         let rowIndex = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
-        let rowIds = rowIndex.entries.compactMap { entry -> String? in
+        let rowIds = rowIndex.entries.compactMap { entry -> RepoExplorerRowID? in
             guard case .resolvedPaneRow(_, _, let rowId) = entry else { return nil }
             return rowId
         }
         #expect(rowIds.count == 2)
         #expect(Set(rowIds).count == 2)
-        #expect(rowIds.allSatisfy { $0.contains("pane-row:") })
+        #expect(
+            rowIds.allSatisfy { rowID in
+                if case .tabPane = rowID { return true }
+                return false
+            }
+        )
 
         let paneIds = rowIndex.entries.compactMap { entry -> UUID? in
             guard case .resolvedPaneRow(let groupId, let identity, let rowId) = entry else {

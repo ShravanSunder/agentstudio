@@ -35,24 +35,23 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_orphanedPanes_returnsBackgroundedPanes() {
+    func test_orphanedPanes_excludesBackgroundedPanesRetainedInCanonicalLayouts() {
         let (_, pane1) = createTabWithPane()
         let (_, pane2) = createTabWithPane()
 
         store.backgroundPane(pane1.id)
 
-        #expect(store.orphanedPanes.count == 1)
-        #expect(store.orphanedPanes[0].id == pane1.id)
-
-        // pane2 is still active
+        // Background residency defers rendering but retains the canonical tab
+        // location, so this pane is not an orphan-pool candidate.
+        #expect(store.tabContaining(paneId: pane1.id)?.id != nil)
+        #expect(store.orphanedPanes.isEmpty)
         #expect(!(store.orphanedPanes.contains { $0.id == pane2.id }))
     }
 
     @Test
 
     func test_orphanedPanes_includesOrphanedResidency() {
-        let (_, pane) = createTabWithPane()
-        store.backgroundPane(pane.id)
+        let pane = store.createPane()
         store.setResidency(.orphaned(reason: .worktreeNotFound(path: "/tmp/missing")), for: pane.id)
 
         #expect(store.orphanedPanes.contains { $0.id == pane.id })
@@ -62,7 +61,7 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_backgroundPane_removesFromLayout() {
+    func test_backgroundPane_preservesCanonicalLayoutAndExcludesActiveProjection() {
         let pane1 = store.createPane()
         let pane2 = store.createPane()
         let tab = Tab(paneId: pane1.id)
@@ -73,31 +72,39 @@ final class WorkspaceStoreOrphanPoolTests {
 
         store.backgroundPane(pane1.id)
 
-        // Pane1 should be gone from layout
+        // Canonical layout retains pane1 so its location survives restart.
         let updatedTab = store.tab(tab.id)!
-        #expect(!(updatedTab.panes.contains(pane1.id)))
+        #expect(updatedTab.panes.contains(pane1.id))
         #expect(updatedTab.panes.contains(pane2.id))
 
-        // But still in the store dict
+        // The active rendering projection, rather than the canonical graph,
+        // excludes the deferred pane.
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: ManagementLayerAtom()
+        )
+        #expect(arrangementView.activeVisiblePaneIds(forTab: tab.id) == [pane2.id])
+
         #expect((store.pane(pane1.id)) != nil)
         #expect(store.pane(pane1.id)!.residency == .backgrounded)
     }
 
     @Test
 
-    func test_backgroundPane_lastPaneRemovesTab() {
+    func test_backgroundPane_lastPaneRetainsTabAndCanonicalLocation() {
         let (tab, pane) = createTabWithPane()
 
         store.backgroundPane(pane.id)
 
-        #expect((store.tab(tab.id)) == nil)
+        #expect(store.tab(tab.id)?.panes == [pane.id])
         #expect((store.pane(pane.id)) != nil)
         #expect(store.pane(pane.id)!.residency == .backgrounded)
     }
 
     @Test
 
-    func test_backgroundPane_updatesActivePaneId() {
+    func test_backgroundPane_preservesCanonicalActivePaneCursor() {
         let pane1 = store.createPane()
         let pane2 = store.createPane()
         let tab = Tab(paneId: pane1.id)
@@ -109,8 +116,16 @@ final class WorkspaceStoreOrphanPoolTests {
 
         store.backgroundPane(pane1.id)
 
-        // Active pane should update to remaining pane
-        #expect(store.tab(tab.id)!.activePaneId == pane2.id)
+        // The cursor is canonical state; rendering filters the backgrounded
+        // pane rather than mutating the saved arrangement.
+        #expect(store.tab(tab.id)!.activePaneId == pane1.id)
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: ManagementLayerAtom()
+        )
+        #expect(arrangementView.activePaneId(forTab: tab.id) == pane2.id)
+        #expect(arrangementView.activeVisiblePaneIds(forTab: tab.id) == [pane2.id])
     }
 
     @Test
@@ -127,21 +142,24 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_reactivatePane_insertsIntoLayout() {
-        let (tab1, pane1) = createTabWithPane()
-        let (_, pane2) = createTabWithPane()
+    func test_reactivatePane_preservesRetainedLocationWithoutDuplicateInsertion() {
+        let (tab, pane1) = createTabWithPane()
+        let pane2 = store.createPane()
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         store.backgroundPane(pane2.id)
-        #expect(store.orphanedPanes.count == 1)
+        #expect(store.tab(tab.id)?.panes == [pane1.id, pane2.id])
+        #expect(store.orphanedPanes.isEmpty)
 
         store.reactivatePane(
-            pane2.id, inTab: tab1.id, at: pane1.id,
+            pane2.id, inTab: tab.id, at: pane1.id,
             direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
-        // Should now be in tab1's layout
-        let updatedTab = store.tab(tab1.id)!
-        #expect(updatedTab.panes.contains(pane2.id))
+        let updatedTab = store.tab(tab.id)!
+        #expect(updatedTab.panes == [pane1.id, pane2.id])
         #expect(store.pane(pane2.id)!.residency == .active)
         #expect(store.orphanedPanes.isEmpty)
     }
@@ -169,9 +187,9 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_purgeOrphanedPane_removesFromStore() {
-        let (_, pane) = createTabWithPane()
-        store.backgroundPane(pane.id)
+    func test_purgeOrphanedPane_removesUnretainedOrphanedPaneFromStore() {
+        let pane = store.createPane()
+        store.setResidency(.orphaned(reason: .worktreeNotFound(path: "/tmp/missing")), for: pane.id)
         #expect((store.pane(pane.id)) != nil)
 
         store.purgeOrphanedPane(pane.id)
@@ -204,10 +222,10 @@ final class WorkspaceStoreOrphanPoolTests {
             pane2.id, inTab: tab.id, at: pane1.id,
             direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
-        // Background pane2
+        // Background pane2 without removing its durable arrangement location.
         store.backgroundPane(pane2.id)
-        #expect(store.orphanedPanes.count == 1)
-        #expect(store.tab(tab.id)!.panes == [pane1.id])
+        #expect(store.orphanedPanes.isEmpty)
+        #expect(store.tab(tab.id)!.panes == [pane1.id, pane2.id])
 
         // Reactivate pane2 back into the same tab
         store.reactivatePane(
@@ -215,18 +233,17 @@ final class WorkspaceStoreOrphanPoolTests {
             direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
         #expect(store.orphanedPanes.isEmpty)
-        #expect(store.tab(tab.id)!.panes.contains(pane2.id))
+        #expect(store.tab(tab.id)!.panes == [pane1.id, pane2.id])
         #expect(store.pane(pane2.id)!.residency == .active)
     }
 
     @Test
 
-    func test_fullLifecycle_background_purge() {
-        let (_, pane) = createTabWithPane()
+    func test_fullLifecycle_orphan_purge() {
+        let pane = store.createPane()
+        store.setResidency(.orphaned(reason: .worktreeNotFound(path: "/tmp/missing")), for: pane.id)
 
-        store.backgroundPane(pane.id)
-        #expect((store.pane(pane.id)) != nil)
-
+        #expect(store.orphanedPanes.map(\.id) == [pane.id])
         store.purgeOrphanedPane(pane.id)
         #expect((store.pane(pane.id)) == nil)
     }

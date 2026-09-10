@@ -50,10 +50,7 @@ struct PaneManagementContextTests {
 
             let context = PaneManagementContext.project(
                 paneId: pane.id,
-                store: store,
-                notificationCountForWorktree: { resolvedWorktreeId in
-                    resolvedWorktreeId == worktree.id ? 1 : 0
-                }
+                store: store
             )
 
             #expect(context.targetPath?.path == "/tmp/agent-studio/subdir")
@@ -64,7 +61,6 @@ struct PaneManagementContextTests {
             #expect(context.identityRows.last?.icon == .system("long.text.page.and.pencil"))
             #expect(context.identityRows.last?.text == "Watch release logs")
             #expect(context.statusChips?.branchStatus.prCount == 2)
-            #expect(context.statusChips?.notificationCount == 1)
         }
     }
 

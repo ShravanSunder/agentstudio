@@ -3,42 +3,62 @@ import SwiftUI
 
 package struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
     let isCollapsed: Bool
+    let onToggle: (() -> Void)?
     @ViewBuilder let content: () -> Content
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     package init(
         isCollapsed: Bool,
+        onToggle: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder trailingContent: @escaping () -> TrailingContent
     ) {
         self.isCollapsed = isCollapsed
+        self.onToggle = onToggle
         self.content = content
         self.trailingContent = trailingContent
     }
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth, alignment: .center)
-
-            content()
-
-            Spacer(minLength: AppStyles.General.Spacing.standard)
+            if let onToggle {
+                Button(action: onToggle) {
+                    HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
+                        collapseIndicator
+                        content()
+                        Spacer(minLength: AppStyles.General.Spacing.standard)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                collapseIndicator
+                content()
+                Spacer(minLength: AppStyles.General.Spacing.standard)
+            }
 
             trailingContent()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var collapseIndicator: some View {
+        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth, alignment: .center)
     }
 }
 
 extension SidebarSectionHeaderRow where TrailingContent == EmptyView {
     package init(
         isCollapsed: Bool,
+        onToggle: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.isCollapsed = isCollapsed
+        self.onToggle = onToggle
         self.content = content
         self.trailingContent = { EmptyView() }
     }

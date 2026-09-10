@@ -86,16 +86,57 @@ package enum LinkedWorktreeInfo: Sendable, Equatable {
     case notScanned
 }
 
+package struct DiscoveredRepoStableIdentity: Sendable, Equatable {
+    package let repositoryStableKey: String
+    package let worktreeStableKeysByPath: [URL: String]
+
+    package init(repositoryStableKey: String, worktreeStableKeysByPath: [URL: String]) {
+        self.repositoryStableKey = repositoryStableKey
+        self.worktreeStableKeysByPath = worktreeStableKeysByPath
+    }
+
+    package static func prepare(
+        repoPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo
+    ) -> Self {
+        let normalizedRepoPath = repoPath.standardizedFileURL
+        var paths = [normalizedRepoPath]
+        if case .scanned(let linkedPaths) = linkedWorktrees {
+            paths.append(contentsOf: linkedPaths.map(\.standardizedFileURL))
+        }
+        return Self(
+            repositoryStableKey: StableKey.fromPath(normalizedRepoPath),
+            worktreeStableKeysByPath: Dictionary(
+                uniqueKeysWithValues: paths.map { ($0, StableKey.fromPath($0)) }
+            )
+        )
+    }
+}
+
 package struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
     package let repoPath: URL
     package let linkedWorktrees: LinkedWorktreeInfo
+    package let stableIdentity: DiscoveredRepoStableIdentity
+
+    package init(
+        repoPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo,
+        stableIdentity: DiscoveredRepoStableIdentity? = nil
+    ) {
+        self.repoPath = repoPath
+        self.linkedWorktrees = linkedWorktrees
+        self.stableIdentity =
+            stableIdentity
+            ?? .prepare(repoPath: repoPath, linkedWorktrees: linkedWorktrees)
+    }
 }
 
 package enum TopologyEvent: Sendable {
     case repoDiscovered(
         repoPath: URL,
         parentPath: URL,
-        linkedWorktrees: LinkedWorktreeInfo = .notScanned
+        linkedWorktrees: LinkedWorktreeInfo = .notScanned,
+        stableIdentity: DiscoveredRepoStableIdentity? = nil
     )
     case reposDiscovered(
         parentPath: URL,
@@ -168,17 +209,26 @@ package enum GitStatusOutcome: String, Sendable, Equatable {
     case unavailable
 }
 
+package enum PullRequestStablePresentation: Equatable, Sendable {
+    case unknown
+    case ready(confirmedFactsByBranch: [String: PullRequestFacts])
+    case unavailable(previousConfirmedFactsByBranch: [String: PullRequestFacts]?)
+}
+
+package enum PullRequestRepositoryProjection: Equatable, Sendable {
+    case stable(PullRequestStablePresentation)
+    case loading(
+        baseline: PullRequestStablePresentation,
+        requestIdentity: UInt64
+    )
+}
+
 package enum ForgeEvent: Sendable {
-    case pullRequestRefreshStateChanged(repoId: UUID, isLoading: Bool)
-    case pullRequestsChanged(repoId: UUID, factsByBranch: [String: PullRequestFacts])
-    case pullRequestBranchesInvalidated(repoId: UUID, branches: Set<String>)
-    case pullRequestRepositoryInvalidated(repoId: UUID)
-    /// Terminal resolution: this repository's pull request data will not
-    /// arrive automatically, either because it has no resolvable remote or
-    /// because provider queries have failed past the honesty threshold.
-    /// Consumers must stop presenting a pending/loading state for this repo
-    /// until a subsequent origin change or successful query clears it.
-    case pullRequestsUnavailable(repoId: UUID)
+    case pullRequestRepositoryProjectionChanged(
+        repoId: UUID,
+        projection: PullRequestRepositoryProjection,
+        invalidatedBranches: Set<String>
+    )
     case checksUpdated(repoId: UUID, status: ForgeChecksStatus)
     case refreshFailed(repoId: UUID, error: String)
     case rateLimited(repoId: UUID, retryAfterSeconds: Int?)

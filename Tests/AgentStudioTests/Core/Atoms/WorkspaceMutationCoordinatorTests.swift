@@ -216,7 +216,7 @@ struct WorkspaceMutationCoordinatorTests {
     }
 
     @Test
-    func backgroundPane_removesOwnedDrawerViewsFromVisibleTab() throws {
+    func backgroundPane_retainsOwnedDrawerViewsInCanonicalTabGraph() throws {
         let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
         let parentPane = makePane(
@@ -242,13 +242,20 @@ struct WorkspaceMutationCoordinatorTests {
 
         #expect(store.mutationCoordinator.backgroundPane(parentPane.id))
 
-        let restoredTab = try #require(store.tab(tab.id))
-        #expect(restoredTab.allPaneIds == [anchorPane.id])
-        #expect(restoredTab.arrangements.allSatisfy { $0.drawerViews[drawerId] == nil })
+        let backgroundedTab = try #require(store.tab(tab.id))
+        #expect(
+            backgroundedTab.allPaneIds
+                == [anchorPane.id, parentPane.id, drawerPane.id]
+        )
+        #expect(
+            backgroundedTab.arrangements.allSatisfy {
+                $0.drawerViews[drawerId]?.layout.paneIds == [drawerPane.id]
+            }
+        )
         #expect(store.pane(parentPane.id)?.residency == .backgrounded)
         #expect(store.pane(drawerPane.id)?.residency == .backgrounded)
         #expect(store.pane(drawerPane.id)?.kind == .drawerChild(parentPaneId: parentPane.id))
-        #expect(store.orphanedPanes.map(\.id) == [parentPane.id])
+        #expect(store.orphanedPanes.isEmpty)
     }
 
     @Test
@@ -297,6 +304,7 @@ struct WorkspaceMutationCoordinatorTests {
         )
 
         let restoredTab = try #require(store.tab(tab.id))
+        #expect(restoredTab.allPaneIds.count == Set(restoredTab.allPaneIds).count)
         #expect(restoredTab.allPaneIds.contains(parentPane.id))
         #expect(restoredTab.allPaneIds.contains(firstDrawerPane.id))
         #expect(restoredTab.allPaneIds.contains(secondDrawerPane.id))

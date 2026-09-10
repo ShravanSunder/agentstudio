@@ -11,8 +11,8 @@ struct CommandBarSurfaceCommandTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("commands scope includes sidebar and drawer commands with shortcut labels")
-    func commandsScopeIncludesSidebarAndDrawerCommandsWithShortcutLabels() {
+    @Test("commands scope omits retired Inbox commands and retains Repo sidebar")
+    func commandsScopeOmitsRetiredInboxCommandsAndRetainsRepoSidebar() {
         let store = WorkspaceStore()
         let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
@@ -30,15 +30,8 @@ struct CommandBarSurfaceCommandTests {
         let paneInbox = items.first { $0.command == .showPaneInboxNotifications }
         let worktreeSidebar = items.first { $0.command == .showWorktreeSidebar }
 
-        #expect(sidebarInbox?.title == "Toggle Inbox")
-        #expect(sidebarInbox?.group == "Window")
-        #expect(sidebarInbox?.shortcutTrigger == AppShortcut.showInboxNotifications.trigger)
-        #expect(sidebarInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘U")
-
-        #expect(paneInbox?.title == "Toggle Pane Inbox")
-        #expect(paneInbox?.group == "Pane")
-        #expect(paneInbox?.shortcutTrigger == AppShortcut.showPaneInboxNotifications.trigger)
-        #expect(paneInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧U")
+        #expect(sidebarInbox == nil)
+        #expect(paneInbox == nil)
 
         #expect(worktreeSidebar?.title == "Toggle Worktrees")
         #expect(worktreeSidebar?.group == "Window")

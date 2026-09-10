@@ -22,7 +22,7 @@ package struct CommandContextDerived {
         if workspaceTab.tabs.count > 1 {
             satisfiedRequirements.insert(.hasMultipleTabs)
         }
-        if activeTab.activePaneIds.count > 1 {
+        if workspacePane.activeResidencyPaneIds(in: activeTab.activeArrangement.layout.paneIds).count > 1 {
             satisfiedRequirements.insert(.hasMultiplePanes)
         }
         if activeTab.arrangements.count > 1 {
@@ -53,7 +53,9 @@ package struct CommandContextDerived {
             }
             if let drawer = activeMainPane.drawer {
                 satisfiedRequirements.insert(.hasDrawer)
-                if drawer.isExpanded, !drawer.paneIds.isEmpty {
+                if drawer.isExpanded,
+                    !workspacePane.activeResidencyPaneIds(in: drawer.paneIds).isEmpty
+                {
                     satisfiedRequirements.insert(.hasDrawerPanes)
                 }
             }

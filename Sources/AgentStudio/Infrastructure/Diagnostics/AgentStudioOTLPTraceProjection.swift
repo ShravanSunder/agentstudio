@@ -131,7 +131,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.pane.association_outcome",
         "agentstudio.performance.sidebar.group_mode",
-        "agentstudio.performance.sidebar.phase",
+        "agentstudio.performance.sidebar.phase", "agentstudio.performance.repo_explorer.wake_trigger",
         "agentstudio.performance.sidebar.query_state",
         "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.trigger",
@@ -426,6 +426,18 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.logical_debt.count",
         "agentstudio.performance.git.logical_pending.count",
         "agentstudio.performance.git.logical_running.count",
+        "agentstudio.performance.git.future_automatic.count",
+        "agentstudio.performance.git.future_failure.count",
+        "agentstudio.performance.git.ready_pending.count",
+        "agentstudio.performance.git.capacity_pending.count",
+        "agentstudio.performance.git.active_follow_up.count",
+        "agentstudio.performance.git.unclassified_pending.count",
+        "agentstudio.performance.git.overdue_deadline.count",
+        "agentstudio.performance.git.oldest_preparation_ms",
+        "agentstudio.performance.git.next_deadline_ms",
+        "agentstudio.performance.git.background_only_automatic.current",
+        "agentstudio.performance.git.background_only_automatic_deadline.current",
+        "agentstudio.performance.git.background_only_resolved_visible_tier.current",
         "agentstudio.performance.git.pending.count",
         "agentstudio.performance.git.registered.count",
         "agentstudio.performance.git.request.sequence",
@@ -477,6 +489,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms",
         "agentstudio.performance.repo_explorer.frame_sample.sequence",
+        "agentstudio.performance.repo_explorer.interval.count",
         "agentstudio.performance.repo_explorer.scroll_burst.sequence",
         "agentstudio.performance.repo_explorer.visible_set.count",
         "agentstudio.performance.repo_explorer.visible_set_delta.count",
@@ -502,6 +515,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.tabbar.tab.count",
         "agentstudio.performance.trace_queue.dropped_record.count",
         "agentstudio.performance.trace_queue.high_watermark",
+        "agentstudio.performance.trace_queue.pending_request.count",
         "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
         "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
         "agentstudio.performance.terminal.accumulator.mainactor_task.count",
@@ -665,8 +679,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
         "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.active_pty.count",
+        "agentstudio.startup_diagnostic.fixture.pane.count",
         "agentstudio.startup_diagnostic.fixture.repo.count",
         "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.tab.count",
         "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.startup_diagnostic.repo_explorer_key_mutation.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
@@ -683,123 +700,10 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.threshold_rows",
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
+        .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
-    private static let allowedBooleanAttributeKeys: Set<String> = Set([
-        "agentstudio.app.is_active",
-        "agentstudio.bridge.activation.source_available",
-        "agentstudio.bridge.cache_hit",
-        "agentstudio.bridge.content.binary",
-        "agentstudio.bridge.content.stale",
-        "agentstudio.bridge.worktree_file.tree.window.is_final",
-        "agentstudio.bridge.already_selected",
-        "agentstudio.bridge.focus",
-        "agentstudio.bridge.header_missing",
-        "agentstudio.bridge.header_supported",
-        "agentstudio.bridge.presentation.has_active_stream",
-        "agentstudio.bridge.refreshing.review",
-        "agentstudio.bridge.row_mounted",
-        "agentstudio.bridge.scroll.active",
-        "agentstudio.performance.repo_explorer.scroll_active",
-        "agentstudio.bridge.selected",
-        "agentstudio.bridge.telemetry.lossy",
-        "agentstudio.bridge.telemetry.proof_eligible",
-        "agentstudio.bridge.telemetry.settlement_acknowledged",
-        "agentstudio.bridge.viewer.active",
-        "agentstudio.bridge.worker.file_metadata_selected_path_resolved",
-        "agentstudio.ghostty.route.result",
-        "agentstudio.inbox.notification.coalesced",
-        "agentstudio.inbox.notification.revoked",
-        "agentstudio.pane.attended",
-        "agentstudio.pane.observed",
-        "agentstudio.pane.pinned_to_bottom",
-        "agentstudio.pane_inbox.dismissed",
-        "agentstudio.preferences.global.observability_enabled",
-        "agentstudio.performance.atom.cache_hit",
-        "agentstudio.performance.git.backoff_open",
-        "agentstudio.performance.git.has_git_internal_changes",
-        "agentstudio.ghostty.surface.initial_frame_present",
-        "agentstudio.ghostty.surface.startup_command_present",
-        "agentstudio.full_disk_access.health.healthy",
-        "agentstudio.performance.management_layer.did_exit",
-        "agentstudio.performance.management_layer.is_active",
-        "agentstudio.performance.pane_view_restore.force_when_bounds_exist",
-        "agentstudio.performance.pane_view_restore.had_placeholder",
-        "agentstudio.performance.sidebar.is_collapsed",
-        "agentstudio.performance.sidebar.is_filtering",
-        "agentstudio.performance.sidebar.was_empty",
-        "agentstudio.performance.sidebar.was_collapsed",
-        "agentstudio.performance.tabbar.active_tab.present",
-        "agentstudio.performance.tabbar.context_menu.host_hit",
-        "agentstudio.performance.tabbar.context_menu.static_menu_available",
-        "agentstudio.performance.tabbar.context_menu.tab_hit",
-        "agentstudio.performance.terminal.activity_projection.submitted",
-        "agentstudio.performance.terminal.surface.dedup_likely",
-        "agentstudio.performance.terminal.surface.hidden",
-        "agentstudio.performance.terminal.surface.has_superview",
-        "agentstudio.performance.terminal.surface.has_window",
-        "agentstudio.performance.topology.has_match",
-        "agentstudio.startup_diagnostic.bridge.code_view.visible",
-        "agentstudio.startup_diagnostic.bridge.file_view.click.open_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.click.rendered_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.click.selected_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.click.target_found",
-        "agentstudio.startup_diagnostic.bridge.file_view.second_click.open_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.second_click.rendered_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.second_click.selected_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.second_click.target_found",
-        "agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.open_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.rendered_file_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.selected_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.target_found",
-        "agentstudio.startup_diagnostic.bridge.file_view.code_view.visible",
-        "agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected",
-        "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches",
-        "agentstudio.startup_diagnostic.bridge.file_view.shell.visible",
-        "agentstudio.startup_diagnostic.bridge.file_view.tree_scroll_stress.reached_bottom",
-        "agentstudio.startup_diagnostic.bridge.file_view.tree.visible",
-        "agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied",
-        "agentstudio.startup_diagnostic.bridge.modified_click.filter_requested",
-        "agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_present",
-        "agentstudio.startup_diagnostic.bridge.modified_click.selected_matches_target",
-        "agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target",
-        "agentstudio.startup_diagnostic.bridge.modified_click.selected_content.cache_keys_present",
-        "agentstudio.startup_diagnostic.bridge.modified_click.target_found",
-        "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.had_anchor",
-        "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.had_recorder",
-        "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.selected_matched",
-        "agentstudio.startup_diagnostic.bridge.review_metadata.converged",
-        "agentstudio.startup_diagnostic.bridge.review_tree_scroll_stress.reached_bottom",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.second_click_attempted",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_connected_at_dispatch",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_same_id_at_dispatch",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.selected_matches_target",
-        "agentstudio.startup_diagnostic.bridge.review_tree_click.target_row.visible",
-        "agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches",
-        "agentstudio.startup_diagnostic.bridge.review_shell.visible",
-        "agentstudio.startup_diagnostic.bridge.review_shell.selected_path.visible",
-        "agentstudio.startup_diagnostic.bridge.selected_content.cache_keys_present",
-        "agentstudio.startup_diagnostic.bridge.selected_content.visible",
-        "agentstudio.startup_diagnostic.bridge.selected_item.visible",
-        "agentstudio.startup_diagnostic.bridge.selected_path.visible",
-        "agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed",
-        "agentstudio.startup_diagnostic.render_proof.succeeded",
-        "agentstudio.startup_diagnostic.projection_proof.succeeded",
-        "agentstudio.tcc.bundle.changed",
-        "agentstudio.tcc.bundle.executable.reachable",
-        "agentstudio.tcc.tccdb.bundle_grant.present",
-        "agentstudio.workspace.snapshot.has_tab_membership_mismatch",
-        "terminal.activity.is_agent_candidate",
-        "terminal.activity.is_agent_settled_candidate",
-        "terminal.activity.is_inferred",
-        "terminal.activity.is_pinned_to_bottom",
-    ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
-        .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
-        .union(BridgeProductPaintProjectionKeys.booleanKeys)
-        .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
-        .union(PaneAssociationRuntimeProofProjectionKeys.booleanAttributeKeys)
 }
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributes(
@@ -860,7 +764,13 @@ extension AgentStudioOTLPTraceProjection {
             else { return nil }
             return .string(operationID)
         }
-        guard !isIdentifierKey(key), !isErrorKey(key) else {
+        guard
+            !isIdentifierKey(key)
+                || AgentStudioOTLPRepoExplorerTaxonomy.controlledIdentifierAttributeKeys.contains(
+                    key
+                ),
+            !isErrorKey(key)
+        else {
             return nil
         }
         switch value {
@@ -868,7 +778,7 @@ extension AgentStudioOTLPTraceProjection {
             guard
                 !isPayloadKey(key) || allowedPayloadNamedStringAttributeKeys.contains(key),
                 allowedStringAttributeKeys.contains(key),
-                isSafeControlledString(stringValue),
+                isSafeControlledString(key: key, value: stringValue),
                 isAllowedControlledStringValue(key: key, value: stringValue)
             else { return nil }
             return .string(stringValue)
@@ -905,7 +815,7 @@ extension AgentStudioOTLPTraceProjection {
         allowedNumericAttributeKeys.contains(key)
     }
     private static func isAllowedBooleanKey(_ key: String) -> Bool {
-        allowedBooleanAttributeKeys.contains(key)
+        AgentStudioOTLPAllowedBooleanAttributes.keys.contains(key)
     }
     private static func isIdentifierKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
@@ -940,8 +850,11 @@ extension AgentStudioOTLPTraceProjection {
                 || scalar == ":"
         }
     }
-    private static func isSafeControlledString(_ value: String) -> Bool {
-        isSafeEventName(value)
+    private static func isSafeControlledString(key: String, value: String) -> Bool {
+        if AgentStudioOTLPRepoExplorerTaxonomy.structuredStringAttributeKeys.contains(key) {
+            return AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) == true
+        }
+        return isSafeEventName(value)
     }
     private static func isSafeResourceValue(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 160 else {

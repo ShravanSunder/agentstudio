@@ -7,6 +7,7 @@ struct BridgeDevelopmentProductProviderPreparationInput {
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
     let source: BridgeDevelopmentProductSource
+    let statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
 }
@@ -72,7 +73,8 @@ extension BridgeDevelopmentProductHost {
         let fileMetadataSource = makeFileMetadataSource(
             source: input.source,
             gitReadContext: input.gitReadContext,
-            constructionCoordinator: constructionCoordinator
+            constructionCoordinator: constructionCoordinator,
+            statusPhysicalGate: input.statusPhysicalGate
         )
         let reviewContentLoaderCache = BridgeReviewContentLoaderCache(
             provider: input.reviewProvider
@@ -133,6 +135,35 @@ extension BridgeDevelopmentProductHost {
                     .comparisonTargetProjection
             )
         )
+        let sessionAdmission = try makeProductSessionAdmission(
+            input: input,
+            productProvider: productProvider,
+            reviewPublicationCoordinator: reviewPublicationCoordinator
+        )
+        return BridgeDevelopmentProductProviderPreparation(
+            committedCallTarget: committedCallTarget,
+            constructionCoordinator: constructionCoordinator,
+            fileMetadataSource: fileMetadataSource,
+            productAdmission: sessionAdmission.productAdmission,
+            productAdmissionGate: sessionAdmission.productAdmissionGate,
+            productProvider: productProvider,
+            productSessionOwner: sessionAdmission.productSessionOwner,
+            refreshAdmissionCoordinator: refreshAdmissionCoordinator,
+            reviewContentLoaderCache: reviewContentLoaderCache,
+            reviewPublicationCoordinator: reviewPublicationCoordinator,
+            reviewSharedConstructionBinder: reviewSharedConstructionBinder
+        )
+    }
+
+    private static func makeProductSessionAdmission(
+        input: BridgeDevelopmentProductProviderPreparationInput,
+        productProvider: BridgePaneProductSchemeProvider,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
+    ) throws -> (
+        productAdmission: BridgeProductAdmissionContext,
+        productAdmissionGate: BridgeProductAdmissionGate,
+        productSessionOwner: BridgePaneProductSessionOwner
+    ) {
         let productAdmissionGate = BridgeProductAdmissionGate()
         guard let productAdmission = productAdmissionGate.acquire() else {
             throw BridgeDevelopmentProductHostError.shutdown
@@ -149,19 +180,7 @@ extension BridgeDevelopmentProductHost {
                 await worktreeAnnotationStore?.invalidateEditOwnerGeneration(workerInstanceId)
             }
         )
-        return BridgeDevelopmentProductProviderPreparation(
-            committedCallTarget: committedCallTarget,
-            constructionCoordinator: constructionCoordinator,
-            fileMetadataSource: fileMetadataSource,
-            productAdmission: productAdmission,
-            productAdmissionGate: productAdmissionGate,
-            productProvider: productProvider,
-            productSessionOwner: productSessionOwner,
-            refreshAdmissionCoordinator: refreshAdmissionCoordinator,
-            reviewContentLoaderCache: reviewContentLoaderCache,
-            reviewPublicationCoordinator: reviewPublicationCoordinator,
-            reviewSharedConstructionBinder: reviewSharedConstructionBinder
-        )
+        return (productAdmission, productAdmissionGate, productSessionOwner)
     }
 
     private static func makeWorktreeAnnotationHandlerDependencies(
@@ -284,7 +303,8 @@ extension BridgeDevelopmentProductHost {
     private static func makeFileMetadataSource(
         source: BridgeDevelopmentProductSource,
         gitReadContext: BridgeGitReadContext,
-        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
+        statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     ) -> BridgePaneProductFileMetadataSource {
         BridgePaneProductFileMetadataSource(
             authority: BridgePaneProductFileSourceAuthority(
@@ -297,7 +317,10 @@ extension BridgeDevelopmentProductHost {
                 )
             ),
             gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator
+            constructionCoordinator: constructionCoordinator,
+            statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                physicalGate: statusPhysicalGate
+            )
         )
     }
 

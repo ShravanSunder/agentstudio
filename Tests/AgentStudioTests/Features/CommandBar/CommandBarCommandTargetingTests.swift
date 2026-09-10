@@ -31,13 +31,13 @@ struct CommandBarCommandTargetingTests {
         )
     }
 
-    @Test("special-scope contextual rows follow command-bar presentation")
-    func specialScopeContextualRowsFollowCommandBarPresentation() {
+    @Test("special-scope contextual rows omit retired and non-contextual commands")
+    func specialScopeContextualRowsOmitRetiredAndNonContextualCommands() {
         #expect(
             CommandBarCommandPresentation.contextualSpec(
                 for: .clearReadInboxNotifications,
                 commandContext: .empty
-            )?.command == .clearReadInboxNotifications
+            ) == nil
         )
         #expect(
             CommandBarCommandPresentation.contextualSpec(

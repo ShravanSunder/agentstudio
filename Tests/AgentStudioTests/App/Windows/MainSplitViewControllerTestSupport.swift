@@ -68,8 +68,7 @@ private func makeMainSplitViewControllerHarness(
     )
     let tabBarAdapter = TabBarAdapter(
         store: store,
-        repoCache: atoms.core.repoCache,
-        inboxAtom: inboxAtom
+        repoCache: atoms.core.repoCache
     )
     let controller = MainSplitViewController(
         store: store,
@@ -80,19 +79,14 @@ private func makeMainSplitViewControllerHarness(
         appLifecycleStore: appLifecycleStore,
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
-        inboxAtom: inboxAtom,
-        inboxPrefsAtom: atoms.inboxNotificationPrefs,
-        inboxSidebarState: atoms.inboxSidebarState,
-        paneInboxPresentationState: atoms.paneInboxPresentationState,
         repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
         bridgeAttendanceSnapshot: { paneId in
             atoms.bridgePaneAttendance.ordinal(for: paneId)
         },
         bridgePaneAttendance: atoms.bridgePaneAttendance,
         editorChooser: atoms.editorChooser,
-        paneInboxPresenter: PaneInboxNotificationPresenter(),
-        sidebarRootViewBuilder: { dependencies in
-            sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)
+        sidebarRootViewBuilder: { _ in
+            sidebarRootViewBuilder(atoms.core.workspaceSidebarState, {})
         },
         paneTabRegistersAsCommandHandler: paneTabRegistersAsCommandHandler
     )

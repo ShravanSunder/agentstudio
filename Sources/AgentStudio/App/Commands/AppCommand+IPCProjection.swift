@@ -172,7 +172,7 @@ extension AppCommand {
                 .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
                 .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
                 .openPullRequest,
-                .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+                .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
                 .openWorktree, .openWorktreeInPane,
                 .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -203,24 +203,28 @@ extension AppCommand {
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .showViewer:
+            case .showViewer, .updateRepositoryFacts:
                 .notExposed
             case .openPullRequest:
+                .notExposed
+            case .showInboxNotifications, .toggleInboxNotificationSort,
+                .clearReadInboxNotifications, .clearAllInboxNotifications,
+                .showPaneInboxNotifications, .clearPaneInboxNotifications,
+                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+                .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
                 .notExposed
             case .reloadBridgeWebView:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
-            case .showInboxNotifications, .showWorktreeSidebar:
+            case .showWorktreeSidebar:
                 .headlessAndInteractive(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
                 )
             case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-                .setRepoSidebarSortOrder,
-                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
-                .setInboxRowStateFilter, .setInboxContentMode:
+                .setRepoSidebarSortOrder:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
                     requiredPrivilege: ipcRequiredPrivilege
@@ -256,9 +260,7 @@ extension AppCommand {
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
                 .managementLayerOpenDrawer, .managementLayerCreateTerminal,
                 .managementLayerCreateBrowser, .managementLayerExit,
-                .toggleSidebar, .toggleInboxNotificationSort,
-                .clearReadInboxNotifications, .clearAllInboxNotifications,
-                .showPaneInboxNotifications, .clearPaneInboxNotifications,
+                .toggleSidebar,
                 .newFloatingTerminal, .newWindow, .closeWindow,
                 .showCommandBarQuickOpen, .openWebview,
                 .showBridgeReview, .showBridgeFiles,
@@ -288,7 +290,7 @@ extension AppCommand {
             return .required(primary: .tab, additional: [])
         case .splitRight, .splitLeft:
             return .required(primary: .tab, additional: [.pane])
-        case .removeRepo, .addRepoFavorite, .removeRepoFavorite:
+        case .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite:
             return .required(primary: .repo, additional: [])
         case .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
             .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -368,7 +370,7 @@ extension AppCommand {
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .editPaneNote,
-            .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
+            .watchFolder, .updateRepositoryFacts, .removeRepo, .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,

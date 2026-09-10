@@ -1,3 +1,12 @@
+/// Memoized synchronous derivation over declared input revisions.
+///
+/// - Warning: Not used in production today. Before adopting it, note that
+///   reading ``value`` can bump ``outputRevision`` from inside a getter, so
+///   reading it during a SwiftUI body evaluation publishes a change to any
+///   observer of ``revision`` and invalidates that view pass. ``revision`` is
+///   safe only because it reads ``value`` first and registers afterwards;
+///   nothing enforces that ordering for other callers. Read it outside the view
+///   update, or replace the in-getter bump, before first production use.
 @MainActor
 package final class DerivedAtom<Value> {
     private let outputRevision = AtomRevision()

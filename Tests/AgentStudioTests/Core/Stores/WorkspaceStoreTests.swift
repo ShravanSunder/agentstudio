@@ -913,48 +913,30 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func debouncedAutosaveReportsPreparedLocalUnavailabilityWhileContinuingCoreSaves()
         async throws
     {
         let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let localRepositoryFactory = FailingThenSucceedingLocalRepositoryFactory(
-            localQueue: localQueue,
-            failuresBeforeSuccess: 1
-        )
         let saveProbe = WorkspaceSQLiteSaveProbe()
-        let retainedLocalFailure: WorkspaceSQLiteDatastoreFailure
-        do {
-            _ = try localRepositoryFactory.makeLocalRepository(workspaceId: workspaceId)
-            Issue.record("expected injected local preparation to fail")
-            return
-        } catch {
-            retainedLocalFailure = .init(error)
-        }
-        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            localUnavailable: retainedLocalFailure,
-            probe: { event in
-                await saveProbe.record(event)
-            }
-        )
-        let preparation = await sqliteDatastore.prepareDatabasesForBoot()
-        guard case .prepared(let preparationReceipt) = preparation else {
-            Issue.record("expected core preparation to succeed")
+        guard
+            let preparedDatastore = try await preparedDatastoreWithUnavailableLocal(
+                workspaceId: workspaceId,
+                saveProbe: saveProbe
+            )
+        else {
             return
         }
-        guard case .unavailable = preparationReceipt.local else {
-            Issue.record("expected injected local preparation to be unavailable")
-            return
-        }
+        let sqliteDatastore = preparedDatastore.sqliteDatastore
+        let localRepositoryFactory = preparedDatastore.localRepositoryFactory
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
-        let persistenceFailureReasonProbe = WorkspacePersistenceFailureReasonProbe()
+        let failureReports = AsyncStream.makeStream(
+            of: PaneTopologyPersistenceReason.self,
+            bufferingPolicy: .unbounded
+        )
+        defer { failureReports.continuation.finish() }
+        var failureReportIterator = failureReports.stream.makeAsyncIterator()
         let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         identityAtom.replaceIdentity(
             workspaceId: workspaceId,
@@ -967,25 +949,29 @@ final class WorkspaceStoreTests {
             persistDebounceDuration: .milliseconds(10),
             clock: clock,
             recoveryReporter: { event in recoveryEvents.append(event) },
-            persistenceReasonReporter: persistenceFailureReasonProbe.record
+            persistenceReasonReporter: { reason in
+                failureReports.continuation.yield(reason)
+            }
         )
 
-        func advanceNextDebouncedSave(after mutation: () -> Void) async {
+        func advanceNextDebouncedSave(
+            after mutation: () -> Void
+        ) async throws -> PaneTopologyPersistenceReason {
             let nextSleepGeneration = clock.scheduledSleepGeneration
             mutation()
             await clock.waitForPendingSleepGeneration(nextSleepGeneration)
             clock.advance(by: .milliseconds(10))
+            // The datastore probe precedes the throw back to WorkspaceStore.
+            // This report and any recovery callback run synchronously on MainActor,
+            // so this MainActor test resumes after both, including damped failures.
+            return try #require(await failureReportIterator.next(isolation: #isolation))
         }
 
         for attempt in 1...3 {
-            await advanceNextDebouncedSave {
+            let failureReason = try await advanceNextDebouncedSave {
                 store.setSidebarWidth(CGFloat(300 + attempt))
             }
-            await saveProbe.waitForFailedSaveCount(atLeast: attempt)
-            #expect(
-                await persistenceFailureReasonProbe.reason(at: attempt)
-                    == .workspaceSaveDatabaseFailed
-            )
+            #expect(failureReason == .workspaceSaveDatabaseFailed)
             #expect(store.isDirty)
         }
         #expect(await saveProbe.saveCount == 3)
@@ -996,11 +982,10 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.allSatisfy { $0.store == .workspace && $0.recovery == .saveFailed })
         #expect(store.isDirty)
 
-        await advanceNextDebouncedSave {
+        let fourthFailureReason = try await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
-        await saveProbe.waitForFailedSaveCount(atLeast: 4)
-        #expect(await persistenceFailureReasonProbe.reason(at: 4) == .workspaceSaveDatabaseFailed)
+        #expect(fourthFailureReason == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 4)
         #expect(await saveProbe.failedSaveCount == 4)
@@ -1009,11 +994,10 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.count == 3)
         #expect(store.isDirty)
 
-        await advanceNextDebouncedSave {
+        let fifthFailureReason = try await advanceNextDebouncedSave {
             store.setSidebarWidth(305)
         }
-        await saveProbe.waitForFailedSaveCount(atLeast: 5)
-        #expect(await persistenceFailureReasonProbe.reason(at: 5) == .workspaceSaveDatabaseFailed)
+        #expect(fifthFailureReason == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 5)
         #expect(await saveProbe.succeededSaveCount == 0)
@@ -1878,46 +1862,54 @@ final class WorkspaceStoreTests {
 
 }
 
-private actor WorkspacePersistenceFailureReasonProbe {
-    private var reasons: [PaneTopologyPersistenceReason] = []
-    private var waiters: [(index: Int, continuation: CheckedContinuation<PaneTopologyPersistenceReason, Never>)] = []
-
-    nonisolated func record(_ reason: PaneTopologyPersistenceReason) {
-        Task { await append(reason) }
+@MainActor
+private func preparedDatastoreWithUnavailableLocal(
+    workspaceId: UUID,
+    saveProbe: WorkspaceSQLiteSaveProbe
+) async throws -> (
+    sqliteDatastore: WorkspaceSQLiteDatastoreActor,
+    localRepositoryFactory: FailingThenSucceedingLocalRepositoryFactory
+)? {
+    let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
+    let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
+    try WorkspaceCoreMigrations.migrate(coreQueue)
+    try WorkspaceLocalMigrations.migrate(localQueue)
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    let localRepositoryFactory = FailingThenSucceedingLocalRepositoryFactory(
+        localQueue: localQueue,
+        failuresBeforeSuccess: 1
+    )
+    let retainedLocalFailure: WorkspaceSQLiteDatastoreFailure
+    do {
+        _ = try localRepositoryFactory.makeLocalRepository(workspaceId: workspaceId)
+        Issue.record("expected injected local preparation to fail")
+        return nil
+    } catch {
+        retainedLocalFailure = .init(error)
     }
-
-    func reason(at oneBasedIndex: Int) async -> PaneTopologyPersistenceReason {
-        let index = oneBasedIndex - 1
-        if reasons.indices.contains(index) {
-            return reasons[index]
+    let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(
+        coreRepository: coreRepository,
+        localUnavailable: retainedLocalFailure,
+        probe: { event in
+            await saveProbe.record(event)
         }
-        return await withCheckedContinuation { continuation in
-            waiters.append((index: index, continuation: continuation))
-        }
+    )
+    let preparation = await sqliteDatastore.prepareDatabasesForBoot()
+    guard case .prepared(let preparationReceipt) = preparation else {
+        Issue.record("expected core preparation to succeed")
+        return nil
     }
-
-    private func append(_ reason: PaneTopologyPersistenceReason) {
-        reasons.append(reason)
-        var remainingWaiters: [(index: Int, continuation: CheckedContinuation<PaneTopologyPersistenceReason, Never>)] =
-            []
-        for waiter in waiters {
-            if reasons.indices.contains(waiter.index) {
-                waiter.continuation.resume(returning: reasons[waiter.index])
-            } else {
-                remainingWaiters.append(waiter)
-            }
-        }
-        waiters = remainingWaiters
+    guard case .unavailable = preparationReceipt.local else {
+        Issue.record("expected injected local preparation to be unavailable")
+        return nil
     }
+    return (sqliteDatastore, localRepositoryFactory)
 }
 
 private actor WorkspaceSQLiteSaveProbe {
     private var saveEvents: Int = 0
     private var succeededSaveEvents: Int = 0
     private var failedSaveEvents: Int = 0
-    private var waiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var succeededWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var failedWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     var saveCount: Int {
         saveEvents
@@ -1935,80 +1927,15 @@ private actor WorkspaceSQLiteSaveProbe {
         switch event {
         case .saveWorkspaceSnapshot:
             saveEvents += 1
-            resumeSatisfiedWaiters()
         case .saveWorkspaceSnapshotSucceeded:
             succeededSaveEvents += 1
-            resumeSatisfiedSucceededWaiters()
         case .saveWorkspaceSnapshotFailed:
             failedSaveEvents += 1
-            resumeSatisfiedFailedWaiters()
         case .loadWorkspaceSnapshot:
             break
         }
     }
 
-    func waitForSaveCount(atLeast minimum: Int) async {
-        if saveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    func waitForSucceededSaveCount(atLeast minimum: Int) async {
-        if succeededSaveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            succeededWaiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    func waitForFailedSaveCount(atLeast minimum: Int) async {
-        if failedSaveEvents >= minimum {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            failedWaiters.append((minimum: minimum, continuation: continuation))
-        }
-    }
-
-    private func resumeSatisfiedWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in waiters {
-            if saveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        waiters = remaining
-    }
-
-    private func resumeSatisfiedSucceededWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in succeededWaiters {
-            if succeededSaveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        succeededWaiters = remaining
-    }
-
-    private func resumeSatisfiedFailedWaiters() {
-        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        for waiter in failedWaiters {
-            if failedSaveEvents >= waiter.minimum {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        failedWaiters = remaining
-    }
 }
 
 private final class FailingThenSucceedingLocalRepositoryFactory: @unchecked Sendable {

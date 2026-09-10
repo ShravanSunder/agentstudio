@@ -22,6 +22,10 @@ enum PreparedContentMountDisposition: Equatable, Sendable {
 
 enum PreparedContentMountLedgerState: Equatable, Sendable {
     case pending(owner: PreparedContentMountOwnerLane)
+    /// No-claim custody held while the prepared lane withholds admission for a
+    /// pane that has no safe geometry yet. Reversible back to `pending` when
+    /// later canonical geometry becomes safe; never reachable from `mounting`.
+    case deferredGeometry(owner: PreparedContentMountOwnerLane)
     case mounting(owner: PreparedContentMountOwnerLane)
     case completed(owner: PreparedContentMountOwnerLane, disposition: PreparedContentMountDisposition)
 }
@@ -162,6 +166,83 @@ final class ViewRegistry {
     ) -> PreparedContentMountLedgerState? {
         guard preparedContentMountGeneration == generation else { return nil }
         return preparedContentMountStatesByPaneID[paneID]
+    }
+
+    /// Move a pane's custody from `pending(owner:)` to the no-claim
+    /// `deferredGeometry(owner:)` state because no safe geometry is available
+    /// yet. Performs only that single edge; a pane already `mounting` or
+    /// `completed`, an unknown pane, or a stale generation is rejected and
+    /// left unchanged.
+    @discardableResult
+    func deferPreparedContentMount(
+        paneID: PaneId,
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration
+    ) -> Bool {
+        guard preparedContentMountGeneration == generation else { return false }
+        guard preparedContentMountStatesByPaneID[paneID] == .pending(owner: owner) else { return false }
+        preparedContentMountStatesByPaneID[paneID] = .deferredGeometry(owner: owner)
+        return true
+    }
+
+    /// Move a pane's custody from the no-claim `deferredGeometry(owner:)`
+    /// state back to `pending(owner:)` because later canonical geometry
+    /// became safe. Performs only that single reverse edge; anything other
+    /// than a matching `deferredGeometry` entry in the current generation is
+    /// rejected and left unchanged.
+    @discardableResult
+    func restorePreparedContentMountToPending(
+        paneID: PaneId,
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration
+    ) -> Bool {
+        guard preparedContentMountGeneration == generation else { return false }
+        guard preparedContentMountStatesByPaneID[paneID] == .deferredGeometry(owner: owner) else { return false }
+        preparedContentMountStatesByPaneID[paneID] = .pending(owner: owner)
+        return true
+    }
+
+    /// All pane IDs currently holding `deferredGeometry(owner:)` custody in
+    /// the given generation, for the given owner lane. Empty for a stale
+    /// generation.
+    func deferredPreparedContentMountPaneIDs(
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration
+    ) -> [PaneId] {
+        guard preparedContentMountGeneration == generation else { return [] }
+        return preparedContentMountStatesByPaneID.compactMap { paneID, state in
+            state == .deferredGeometry(owner: owner) ? paneID : nil
+        }
+    }
+
+    /// The one answer to whether a caller outside the prepared lane may
+    /// create this pane's terminal surface right now.
+    ///
+    /// Returns `.released` only when the prepared lane no longer owns the
+    /// pane: custody is `completed(owner: .terminal, ...)`, the pane has no
+    /// entry at all, or the generation is stale (so no currently installed
+    /// cohort claims the pane). Returns `nil` while the prepared lane still
+    /// owns the question: `pending`, `deferredGeometry`, or `mounting`
+    /// custody in any owner lane, and `completed` custody owned by the
+    /// nonterminal lane.
+    func terminalSurfaceCreationAuthority(
+        for paneID: PaneId,
+        generation: WorkspaceContentMountGeneration
+    ) -> TerminalSurfaceCreationAuthority? {
+        guard preparedContentMountGeneration == generation,
+            let state = preparedContentMountStatesByPaneID[paneID]
+        else {
+            return .released(paneID)
+        }
+        switch state {
+        case .completed(owner: .terminal, disposition: _):
+            return .released(paneID)
+        case .completed(owner: .nonterminal, disposition: _),
+            .pending,
+            .deferredGeometry,
+            .mounting:
+            return nil
+        }
     }
 
     /// Create the slot proactively when a pane enters workspace structure.

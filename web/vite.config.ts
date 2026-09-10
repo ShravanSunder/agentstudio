@@ -9,18 +9,29 @@ import {
 } from "./src/campaign-attribution/campaign-attribution-registry.ts";
 
 const astroOutputDirectory = resolve(import.meta.dirname, "dist");
-const campaignHtmlEntries = [
-  ...campaignChannels.map((channel) => resolve(astroOutputDirectory, channel, "index.html")),
-  ...campaignAttributionRegistry.routes.map((route) =>
+const campaignHtmlEntries = Object.fromEntries([
+  ...campaignChannels.map((channel) => [
+    `channel-${channel}`,
+    resolve(astroOutputDirectory, channel, "index.html"),
+  ]),
+  ...campaignAttributionRegistry.routes.map((route) => [
+    `campaign-${route.channel}-${route.code}`,
     resolve(astroOutputDirectory, route.path.slice(1), "index.html"),
-  ),
-];
+  ]),
+]);
 
 export default defineConfig({
   root: "dist",
-  build: {
-    rolldownOptions: {
-      input: [resolve(astroOutputDirectory, "index.html"), ...campaignHtmlEntries],
+  environments: {
+    client: {
+      build: {
+        rolldownOptions: {
+          input: {
+            home: resolve(astroOutputDirectory, "index.html"),
+            ...campaignHtmlEntries,
+          },
+        },
+      },
     },
   },
   plugins: [cloudflare()],

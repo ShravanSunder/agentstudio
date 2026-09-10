@@ -84,7 +84,7 @@ package enum AppShortcutDispatchPolicy {
             .toggleDrawer, .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath, .openPullRequest,
-            .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .watchFolder, .updateRepositoryFacts, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
             .openWorktree, .openWorktreeInPane, .toggleManagementLayer,
             .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,

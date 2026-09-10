@@ -273,7 +273,10 @@ extension WebKitSerializedTests {
                         )
                     ),
                     gitReadContext: makeBridgeGitReadContext(rootURL: repoURL),
-                    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator()
+                    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
+                    statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                        physicalGate: AgentStudioGitStatusPhysicalGate()
+                    )
                 )
             )
         }
@@ -374,7 +377,8 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
                     repositoryPath: input.repoURL,
-                    gitReadContext: gitReadContext
+                    gitReadContext: gitReadContext,
+                    statusPhysicalGate: AgentStudioGitStatusPhysicalGate()
                 ),
                 gitReadContext: gitReadContext,
                 telemetryRuntimePolicy: .live,
@@ -674,6 +678,7 @@ extension WebKitSerializedTests {
         ) -> BridgePaneController {
             let paneId = UUIDv7.generate()
             let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
+            let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
             return BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(
@@ -698,12 +703,16 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
                     repositoryPath: repoURL,
-                    gitReadContext: gitReadContext
+                    gitReadContext: gitReadContext,
+                    statusPhysicalGate: statusPhysicalGate
                 ),
                 gitReadContext: gitReadContext,
                 worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
                 worktreeAnnotationStore: worktreeAnnotationStore,
                 worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+                gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: statusPhysicalGate
+                ),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,

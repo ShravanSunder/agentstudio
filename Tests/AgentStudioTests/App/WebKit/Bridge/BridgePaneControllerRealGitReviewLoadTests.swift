@@ -358,7 +358,8 @@ private struct RealGitReviewLoadHarness {
         let reviewDataClient = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryURL,
             client: LibGit2AgentStudioGitLocalClient(),
-            gitReadContext: gitReadContext
+            gitReadContext: gitReadContext,
+            statusPhysicalGate: AgentStudioGitStatusPhysicalGate()
         )
         let reviewSourceProvider = BridgeGitReviewSourceProvider(client: reviewDataClient)
         let controller = BridgePaneController(

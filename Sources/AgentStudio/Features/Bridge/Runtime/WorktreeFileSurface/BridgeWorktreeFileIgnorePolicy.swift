@@ -37,7 +37,7 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
     static func load(
         rootURL: URL,
         gitReadContext: BridgeGitReadContext,
-        statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        statusProvider: any GitWorkingTreeStatusProvider,
         trackedFilePathsTimeout: Duration = AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout,
         trackedFilePathsLoader: @escaping BridgeWorktreeTrackedFilePathsLoader = loadTrackedFilePaths
     ) async -> Self {

@@ -410,17 +410,17 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
+		const observedReviewFile = props.oracle.reviewFiles[0];
+		if (observedReviewFile === undefined)
+			throw new Error('Stress Review fixture has no changed file.');
+		await installReviewRenderObservation({ itemId: observedReviewFile.itemId, page: createdPage });
 		let bootstrapRequestCount = 0;
 		createdPage.on('request', (request: Request): void => {
 			if (new URL(request.url()).pathname === '/__bridge-product/bootstrap') {
 				bootstrapRequestCount += 1;
 			}
 		});
-		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
-		const observedReviewFile = props.oracle.reviewFiles[0];
-		if (observedReviewFile === undefined)
-			throw new Error('Stress Review fixture has no changed file.');
-		await installReviewRenderObservation({ itemId: observedReviewFile.itemId, page: createdPage });
 		const projectionQueries = observeAnnotationProjectionQueries(createdPage);
 		const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(createdPage);
 		await runMilestone({
@@ -458,6 +458,7 @@ async function runAnnotationBackpressureJourney(props: {
 			after: 'review.item-count.waiting',
 			before: 'review.loading',
 			milestones: props.milestones,
+			// Mode switching reuses the live session; document navigation starts a new one.
 			operation: async () =>
 				createdPage
 					.getByTestId('bridge-viewer-mode-host-file')
@@ -476,8 +477,8 @@ async function runAnnotationBackpressureJourney(props: {
 					page: createdPage,
 				}),
 		});
-		const reviewFile = props.oracle.reviewFiles[0];
 		expect(bootstrapRequestCount).toBe(1);
+		const reviewFile = props.oracle.reviewFiles[0];
 		if (reviewFile === undefined) throw new Error('Stress Review fixture has no changed file.');
 		await runMilestone({
 			after: 'review.selected.waiting',
@@ -492,19 +493,20 @@ async function runAnnotationBackpressureJourney(props: {
 			operation: async () =>
 				waitForSelectedReviewReady({ itemId: reviewFile.itemId, page: createdPage }),
 		});
-		await requireReviewRenderObservationStarted(createdPage);
-		await selectedItemApplyObservation.install(reviewFile.itemId);
 		await runMilestone({
 			after: 'review.range.selected',
 			before: 'review.range.selecting',
 			milestones: props.milestones,
-			operation: async () =>
-				selectRangeForAnnotation({
+			operation: async () => {
+				await selectedItemApplyObservation.install(reviewFile.itemId);
+				await requireReviewRenderObservationStarted(createdPage);
+				return selectRangeForAnnotation({
 					endLine: 5,
 					page: createdPage,
 					startLine: 2,
 					surface: 'review',
-				}),
+				});
+			},
 		});
 
 		const rootBody = 'Backpressure root body.';

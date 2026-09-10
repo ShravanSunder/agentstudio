@@ -200,12 +200,15 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
         let probe = BridgeDevelopmentObservationProbe()
         let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentRealObservation")
+        let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let observation = BridgeDevelopmentSeededWorktreeObservation(
             source: source,
             dependencies: .init(
                 bus: bus,
                 fseventStreamClient: DarwinFSEventStreamClient(),
-                gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(),
+                gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: statusPhysicalGate
+                ),
                 filesystemDebounceWindow: .milliseconds(10),
                 filesystemMaximumFlushLatency: .milliseconds(25),
                 gitCoalescingWindow: .milliseconds(10)
@@ -256,8 +259,10 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
         let probe = BridgeDevelopmentObservationProbe()
         let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentRealDeletionObservation")
+        let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let host = try await BridgeDevelopmentProductHost(
             source: source,
+            statusPhysicalGate: statusPhysicalGate,
             contributionTargetCommit: { _ in .unchanged(source.paneState) }
         )
         let observation = BridgeDevelopmentSeededWorktreeObservation(
@@ -265,14 +270,16 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             dependencies: .init(
                 bus: bus,
                 fseventStreamClient: DarwinFSEventStreamClient(),
-                gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(),
+                gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: statusPhysicalGate
+                ),
                 filesystemDebounceWindow: .milliseconds(10),
                 filesystemMaximumFlushLatency: .milliseconds(25),
                 gitCoalescingWindow: .milliseconds(10)
             ),
             invalidationSink: { invalidation in
-                await probe.record(invalidation)
                 await host.handleObservedWorktreeInvalidation(invalidation)
+                await probe.record(invalidation)
             }
         )
         do {
@@ -288,8 +295,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             #expect(await host.diagnosticCommittedReviewPublication()?.package.reviewGeneration == 1)
             #expect(await probe.waitForStatusCount(1, timeout: .seconds(5)))
             #expect(
-                await waitForCommittedReviewGeneration(
-                    2,
+                await waitForReviewRefreshSettlement(
                     host: host,
                     timeout: .seconds(5)
                 )
@@ -297,6 +303,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             let baselinePublication = try #require(
                 await host.diagnosticCommittedReviewPublication()
             )
+            #expect(baselinePublication.package.reviewGeneration == 1)
             #expect(
                 baselinePublication.package.itemsById.values.contains {
                     $0.headPath == "tracked.txt"
@@ -313,8 +320,8 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
             )
             #expect(deletionChangeset.paths == ["tracked.txt"])
             #expect(
-                await waitForCommittedReviewGeneration(
-                    baselinePublication.package.reviewGeneration.rawValue + 1,
+                await waitForCommittedReviewDeletion(
+                    path: "tracked.txt",
                     host: host,
                     timeout: .seconds(5)
                 )
@@ -322,6 +329,8 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
 
             // Assert deletion.
             let deletedPublication = try #require(await host.diagnosticCommittedReviewPublication())
+            #expect(deletedPublication.package.reviewGeneration == baselinePublication.package.reviewGeneration)
+            #expect(deletedPublication.package.revision > baselinePublication.package.revision)
             #expect(
                 deletedPublication.package.itemsById.values.contains {
                     $0.basePath == "tracked.txt" && $0.headPath == nil
@@ -410,9 +419,10 @@ private struct BridgeDevelopmentObservationFixture {
 
     func waitForUnregisteredWorktreeCount(
         _ expectedCount: Int,
-        maximumTurns: Int = 20_000
+        timeout: Duration = .seconds(5)
     ) async -> Bool {
-        for _ in 0..<maximumTurns {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
             if fseventClient.unregisteredWorktreeIds.count >= expectedCount { return true }
             await Task.yield()
         }
@@ -454,18 +464,7 @@ private actor BridgeDevelopmentObservationProbe {
 
     func waitForFileChangesetCount(
         _ expectedCount: Int,
-        maximumTurns: Int = 20_000
-    ) async -> Bool {
-        for _ in 0..<maximumTurns {
-            if fileChangesets.count >= expectedCount { return true }
-            await Task.yield()
-        }
-        return false
-    }
-
-    func waitForFileChangesetCount(
-        _ expectedCount: Int,
-        timeout: Duration
+        timeout: Duration = .seconds(5)
     ) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
@@ -491,18 +490,7 @@ private actor BridgeDevelopmentObservationProbe {
 
     func waitForStatusCount(
         _ expectedCount: Int,
-        maximumTurns: Int = 20_000
-    ) async -> Bool {
-        for _ in 0..<maximumTurns {
-            if statuses.count >= expectedCount { return true }
-            await Task.yield()
-        }
-        return false
-    }
-
-    func waitForStatusCount(
-        _ expectedCount: Int,
-        timeout: Duration
+        timeout: Duration = .seconds(5)
     ) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
@@ -522,9 +510,10 @@ private actor BridgeDevelopmentObservationTerminalProbe {
 
     func waitForTerminalCount(
         _ expectedCount: Int,
-        maximumTurns: Int = 20_000
+        timeout: Duration = .seconds(5)
     ) async -> Bool {
-        for _ in 0..<maximumTurns {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
             if terminals.count >= expectedCount { return true }
             await Task.yield()
         }
@@ -532,15 +521,27 @@ private actor BridgeDevelopmentObservationTerminalProbe {
     }
 }
 
-private func waitForCommittedReviewGeneration(
-    _ expectedGeneration: Int,
+private func waitForReviewRefreshSettlement(
     host: BridgeDevelopmentProductHost,
     timeout: Duration
 ) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
-        if await host.diagnosticCommittedReviewPublication()?.package.reviewGeneration.rawValue
-            ?? 0 >= expectedGeneration
+        if await !host.diagnosticPanePresentation().refreshingLanes.contains(.review) { return true }
+        await Task.yield()
+    }
+    return false
+}
+
+private func waitForCommittedReviewDeletion(
+    path: String,
+    host: BridgeDevelopmentProductHost,
+    timeout: Duration
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if let publication = await host.diagnosticCommittedReviewPublication(),
+            publication.package.itemsById.values.contains(where: { $0.basePath == path && $0.headPath == nil })
         {
             return true
         }

@@ -127,7 +127,7 @@ struct CoordinationPlaneArchitectureTests {
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
         let allowedFiles: Set<String> = [
             "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift",
-            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerTableMaterializer.swift",
         ]
 
         var notificationCenterFiles: Set<String> = []

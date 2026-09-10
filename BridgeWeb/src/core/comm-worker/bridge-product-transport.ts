@@ -641,7 +641,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 						routedFrameCount: this.#metadataStreamHealthDiagnostics.routedFrameCount + 1,
 					};
 					this.#lastRoutedStreamSequence = frame.streamSequence;
-					if (frame.kind !== 'metadataStream.accepted') {
+					// Opening and pane-control replay do not establish subscription progress.
+					if ('subscriptionId' in frame) {
 						this.#metadataRecoveryAttemptedSinceProgress = false;
 					}
 					try {

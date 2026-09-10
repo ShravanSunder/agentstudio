@@ -79,6 +79,20 @@ package final class WorkspacePaneAtom {
         paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
+    package func activeResidencyPaneIds(in orderedPaneIds: [UUID]) -> [UUID] {
+        derived.activeResidencyPaneIds(in: orderedPaneIds)
+    }
+
+    package func activeResidencyPaneId(
+        preferred preferredPaneId: UUID?,
+        in orderedPaneIds: [UUID]
+    ) -> UUID? {
+        derived.activeResidencyPaneId(
+            preferred: preferredPaneId,
+            in: orderedPaneIds
+        )
+    }
+
     package func addPane(_ pane: Pane) {
         var admittedPane = pane
         admittedPane.metadata.updateFacets(
@@ -383,31 +397,8 @@ package final class WorkspacePaneAtom {
         return drawerCursorAtom.isExpanded(drawerId: drawerID)
     }
 
-    @discardableResult
-    package func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
-        graphAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
-    }
-
-    @discardableResult
-    package func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
-        graphAtom.orphanPanesForWorktree(worktreeId, path: path)
-    }
-
-    @discardableResult
-    func restoreOrphanedPaneResidency(
-        forWorktreeIds worktreeIds: Set<UUID>,
-        activeLayoutPaneIds: Set<UUID>
-    ) -> Bool {
-        let paneIds = Set<UUID>(
-            paneSnapshot().values.compactMap { pane in
-                guard let worktreeId = pane.worktreeId, worktreeIds.contains(worktreeId) else { return nil }
-                return pane.id
-            }
-        )
-        return graphAtom.restoreOrphanedPaneResidency(
-            forPaneIds: paneIds,
-            activeLayoutPaneIds: activeLayoutPaneIds
-        )
+    package var expandedDrawerID: UUID? {
+        drawerCursorAtom.expandedDrawerId
     }
 
     func snapshotPanes(with ids: [UUID]) -> [Pane] {

@@ -81,8 +81,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 repositoryURL: harness.repositoryURL,
                 store: harness.store
             )
-            try await requireEnabledButton(hostedController.page, label: "Share comments")
-            try await clickButton(hostedController.page, label: "Share comments")
+            try await requireEnabledButton(hostedController.page, label: "Annotations")
+            try await clickButton(hostedController.page, label: "Annotations")
             _ = try await requireShareSnapshot(hostedController.page, stage: "review-pending") {
                 $0.shareVisible && $0.pendingCount == 1
             }
@@ -92,7 +92,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             }
             let clipboardBytes = try #require(harness.pasteboard.data(forType: .string))
 
-            try await clickButton(hostedController.page, label: "Share comments")
+            try await clickButton(hostedController.page, label: "Annotations")
             _ = try await requireShareSnapshot(hostedController.page, stage: "review-history") {
                 $0.shareVisible && $0.historyCount == 1
             }
@@ -222,8 +222,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         guard selectedDifferentFile else {
             throw PackagedShareJourneyError.fileSelectionUnavailable
         }
-        try await requireEnabledButton(controller.page, label: "Share comments")
-        try await clickButton(controller.page, label: "Share comments")
+        try await requireEnabledButton(controller.page, label: "Annotations")
+        try await clickButton(controller.page, label: "Annotations")
         try await clickButtonWithPrefix(controller.page, prefix: "All")
         let beforeExport = try await requireShareSnapshot(controller.page, stage: "file-other") {
             $0.shareVisible && !$0.otherSavedCommentsVisible && $0.allCount == 1
@@ -235,7 +235,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         }
         let exportedJSON = try Data(contentsOf: exportedJSONURL)
 
-        try await clickButton(controller.page, label: "Share comments")
+        try await clickButton(controller.page, label: "Annotations")
         let history = try await requireShareSnapshot(controller.page, stage: "file-history") {
             $0.shareVisible && $0.historyCount == 2
         }
@@ -339,7 +339,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             (try? await page.callJavaScript(
                 """
                 const buttonLabel = String(label);
-                const button = Array.from(document.querySelectorAll('button')).find(
+                const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+                const button = Array.from(activeHost?.querySelectorAll('button') ?? []).find(
                   candidate =>
                     candidate.getAttribute('aria-label') === buttonLabel ||
                     candidate.textContent?.trim() === buttonLabel
@@ -362,9 +363,10 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 """
                 const buttonLabel = String(label);
                 const containerTestID = String(withinTestID);
+                const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
                 const container = containerTestID.length === 0
-                  ? document
-                  : document.querySelector(`[data-testid="${containerTestID}"]`);
+                  ? activeHost
+                  : activeHost?.querySelector(`[data-testid="${containerTestID}"]`);
                 const button = Array.from(container?.querySelectorAll('button') ?? []).find(
                   candidate =>
                     candidate.getAttribute('aria-label') === buttonLabel ||
@@ -384,7 +386,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             try await page.callJavaScript(
                 """
                 const buttonPrefix = String(prefix);
-                const button = Array.from(document.querySelectorAll('button')).find(
+                const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+                const button = Array.from(activeHost?.querySelectorAll('button') ?? []).find(
                   candidate => candidate.textContent?.trim().startsWith(buttonPrefix)
                 );
                 if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
@@ -418,7 +421,8 @@ enum BridgeProductPackagedShareJourneyTestSupport {
     private static func shareSnapshot(_ page: WebPage) async throws -> ShareDOMSnapshot {
         let encoded = try await page.callJavaScript(
             """
-            const buttons = Array.from(document.querySelectorAll('button'));
+            const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+            const buttons = Array.from(activeHost?.querySelectorAll('button') ?? []);
             const textForPrefix = prefix => buttons.find(
               button => button.textContent?.trim().startsWith(prefix)
             )?.textContent?.trim() ?? '';
@@ -426,21 +430,21 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             return JSON.stringify({
               allCount: integerIn(textForPrefix('All')),
               animationStates: Array.from(
-                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                activeHost?.querySelector('[data-testid="worktree-annotation-share-shelf"]')
                   ?.getAnimations({ subtree: true }) ?? []
               ).map(animation => `${animation.playState}:${animation.pending}`),
               historyCount: integerIn(textForPrefix('History (')),
               pendingCount: integerIn(textForPrefix('Pending')),
               otherSavedCommentsVisible:
-                document.querySelector('[aria-label="Other saved comments"]') !== null,
+                (activeHost?.querySelector('[aria-label="Other saved comments"]') ?? null) !== null,
               shareEndingStyle:
-                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                activeHost?.querySelector('[data-testid="worktree-annotation-share-shelf"]')
                   ?.hasAttribute('data-ending-style') === true,
               shareOpen:
-                document.querySelector('[data-testid="worktree-annotation-share-shelf"]')
+                activeHost?.querySelector('[data-testid="worktree-annotation-share-shelf"]')
                   ?.hasAttribute('data-open') === true,
               shareVisible:
-                document.querySelector('[data-testid="worktree-annotation-share-mode"]') !== null,
+                (activeHost?.querySelector('[data-testid="worktree-annotation-share-mode"]') ?? null) !== null,
               visibilityState: document.visibilityState
             });
             """

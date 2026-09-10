@@ -41,6 +41,8 @@ struct WorkspaceArrangementViewDerivedTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let paneAtom = WorkspacePaneAtom()
         let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(makePane(id: paneA))
+        paneAtom.addPane(makePane(id: paneB))
         tabLayout.appendTab(tab)
         let derived = WorkspaceArrangementViewDerived(
             tabLayoutAtom: tabLayout,
@@ -53,6 +55,208 @@ struct WorkspaceArrangementViewDerivedTests {
         managementLayer.activate()
 
         #expect(derived.activeVisiblePaneIds(forTab: tab.id) == [paneA, paneB])
+    }
+
+    @Test
+    func activeVisiblePaneIds_excludesBackgroundedCanonicalLayoutPanes() {
+        let activePane = makePane(id: UUIDv7.generate())
+        let backgroundedPane = Pane(
+            id: UUIDv7.generate(),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(),
+            residency: .backgrounded
+        )
+        let layout = Layout(paneId: activePane.id)
+            .inserting(
+                paneId: backgroundedPane.id,
+                at: activePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: activePane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [activePane.id, backgroundedPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(activePane)
+        paneAtom.addPane(backgroundedPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        #expect(derived.activeVisiblePaneIds(forTab: tab.id) == [activePane.id])
+
+        managementLayer.activate()
+
+        #expect(derived.activeVisiblePaneIds(forTab: tab.id) == [activePane.id])
+    }
+
+    @Test
+    func activeLayout_excludesBackgroundedCanonicalSegments() throws {
+        let firstActivePane = makePane(id: UUIDv7.generate())
+        let backgroundedPane = Pane(
+            id: UUIDv7.generate(),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(),
+            residency: .backgrounded
+        )
+        let secondActivePane = makePane(id: UUIDv7.generate())
+        let layout = Layout(
+            panes: [
+                .init(paneId: firstActivePane.id, ratio: 0.25),
+                .init(paneId: backgroundedPane.id, ratio: 0.5),
+                .init(paneId: secondActivePane.id, ratio: 0.25),
+            ],
+            dividerIds: [UUIDv7.generate(), UUIDv7.generate()]
+        )
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: firstActivePane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [firstActivePane.id, backgroundedPane.id, secondActivePane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(firstActivePane)
+        paneAtom.addPane(backgroundedPane)
+        paneAtom.addPane(secondActivePane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        let activeLayout = try #require(derived.activeLayout(forTab: tab.id))
+
+        #expect(activeLayout.paneIds == [firstActivePane.id, secondActivePane.id])
+        #expect(activeLayout.paneRatio(firstActivePane.id) == 0.5)
+        #expect(activeLayout.paneRatio(secondActivePane.id) == 0.5)
+        #expect(activeLayout.dividerIds.count == 1)
+
+        let metrics = FlatTabStripMetrics.compute(
+            layout: activeLayout,
+            in: CGRect(x: 0, y: 0, width: 1000, height: 500),
+            dividerThickness: 8,
+            minimizedPaneIds: [],
+            collapsedPaneWidth: 0,
+            adjacentResizeTargeting: .renderedPanePair
+        )
+        let projectedDivider = try #require(metrics.dividerSegments.single)
+        #expect(
+            projectedDivider.resizeIntent
+                == .visiblePanePair(
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id
+                )
+        )
+
+        let command = FlatPaneDivider.resizeCommand(
+            for: projectedDivider.resizeIntent,
+            tabId: tab.id,
+            ratio: 0.3
+        )
+        #expect(
+            command
+                == .resizeVisiblePanePair(
+                    tabId: tab.id,
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id,
+                    ratio: 0.3
+                )
+        )
+
+        tabLayout.resizeVisiblePanePair(
+            tabId: tab.id,
+            leftPaneId: firstActivePane.id,
+            rightPaneId: secondActivePane.id,
+            ratio: 0.3,
+            residencyExcludedPaneIds: [backgroundedPane.id]
+        )
+        let updatedLayout = try #require(tabLayout.tab(tab.id)?.activeArrangement.layout)
+        #expect(
+            abs(
+                (updatedLayout.ratioForPanePair(
+                    leftPaneId: firstActivePane.id,
+                    rightPaneId: secondActivePane.id
+                ) ?? 0) - 0.3
+            ) < 0.001
+        )
+        #expect(updatedLayout.paneRatio(backgroundedPane.id) == layout.paneRatio(backgroundedPane.id))
+    }
+
+    @Test
+    func activePaneId_fallsBackToFirstActiveResidencyLayoutPane() {
+        var backgroundedCanonicalPane = makePane(id: UUIDv7.generate())
+        backgroundedCanonicalPane.residency = .backgrounded
+        let activeFallbackPane = makePane(id: UUIDv7.generate())
+        let layout = Layout(paneId: backgroundedCanonicalPane.id)
+            .inserting(
+                paneId: activeFallbackPane.id,
+                at: backgroundedCanonicalPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: backgroundedCanonicalPane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [backgroundedCanonicalPane.id, activeFallbackPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(backgroundedCanonicalPane)
+        paneAtom.addPane(activeFallbackPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        #expect(derived.activePaneId(forTab: tab.id) == activeFallbackPane.id)
+        #expect(tabLayout.tab(tab.id)?.activePaneId == backgroundedCanonicalPane.id)
     }
 
     @Test
@@ -124,6 +328,65 @@ struct WorkspaceArrangementViewDerivedTests {
         managementLayer.activate()
 
         #expect(derived.drawerVisiblePaneIds(forParent: parentWithDrawerPanes.id) == [drawerPaneA.id, drawerPaneB.id])
+    }
+
+    @Test
+    func drawerVisiblePaneIds_excludesBackgroundedCanonicalDrawerChildren() {
+        var parentPane = makePane(id: UUIDv7.generate())
+        let activeDrawerPane = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
+        var backgroundedDrawerPane = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
+        backgroundedDrawerPane.residency = .backgrounded
+        parentPane.withDrawer { drawer in
+            drawer.paneIds = [activeDrawerPane.id, backgroundedDrawerPane.id]
+            drawer.isExpanded = true
+        }
+        let drawerID = parentPane.drawer!.drawerId
+        let drawerLayout = DrawerGridLayout(
+            topRow: Layout(paneId: activeDrawerPane.id)
+                .inserting(
+                    paneId: backgroundedDrawerPane.id,
+                    at: activeDrawerPane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!
+        )
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane.id),
+            activePaneId: parentPane.id,
+            drawerViews: [
+                drawerID: DrawerView(
+                    layout: drawerLayout,
+                    activeChildId: activeDrawerPane.id
+                )
+            ]
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [parentPane.id, activeDrawerPane.id, backgroundedDrawerPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(parentPane)
+        paneAtom.addPane(activeDrawerPane)
+        paneAtom.addPane(backgroundedDrawerPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        #expect(derived.drawerVisiblePaneIds(forParent: parentPane.id) == [activeDrawerPane.id])
+
+        managementLayer.activate()
+
+        #expect(derived.drawerVisiblePaneIds(forParent: parentPane.id) == [activeDrawerPane.id])
     }
 
     @Test

@@ -85,6 +85,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
 
     private struct IndexedWorktree: Sendable, Equatable {
         let repoId: UUID
+        let repositoryStableKey: String
         let rootPath: URL
         let canonicalRootPath: String
     }
@@ -146,6 +147,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         let nextContextsByWorktreeId = nextWorktreesById.mapValues { worktree in
             WorktreeFilesystemContext(repoId: worktree.repoId, rootPath: worktree.rootPath)
         }
+        let repositoryStableKeysByWorktreeId = nextWorktreesById.mapValues(\.repositoryStableKey)
 
         let currentWorktreeIds = Set(request.appliedContextsByWorktreeId.keys)
         let nextWorktreeIds = Set(nextContextsByWorktreeId.keys)
@@ -205,6 +207,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         return FilesystemSourceSyncDiff(
             requestGeneration: request.requestGeneration,
             contextsByWorktreeId: nextContextsByWorktreeId,
+            repositoryStableKeysByWorktreeId: repositoryStableKeysByWorktreeId,
             unregisterWorktreeIds: removedWorktreeIds,
             registerWorktrees: registrations,
             activityUpdates: activityUpdates,
@@ -373,6 +376,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             let rootPath = entry.rootPath.standardizedFileURL.resolvingSymlinksInPath()
             nextWorktreesById[entry.worktreeId] = IndexedWorktree(
                 repoId: entry.repoId,
+                repositoryStableKey: entry.repositoryStableKey,
                 rootPath: rootPath,
                 canonicalRootPath: canonicalPath(rootPath)
             )

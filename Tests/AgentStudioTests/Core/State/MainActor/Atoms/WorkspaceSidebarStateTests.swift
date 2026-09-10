@@ -22,7 +22,7 @@ struct WorkspaceSidebarStateTests {
         #expect(atom.filterText == "repo")
         #expect(atom.isFilterVisible == true)
         #expect(atom.sidebarCollapsed == true)
-        #expect(atom.sidebarSurface == .inbox)
+        #expect(atom.sidebarSurface == .repos)
     }
 
     @Test("sidebar focus runtime owns focus only")
@@ -53,7 +53,7 @@ struct WorkspaceSidebarStateTests {
         #expect(memory.filterText == "terminal")
         #expect(memory.isFilterVisible == true)
         #expect(memory.sidebarCollapsed == true)
-        #expect(memory.sidebarSurface == .inbox)
+        #expect(memory.sidebarSurface == .repos)
         #expect(focus.sidebarHasFocus == true)
 
         state.clear()

@@ -695,7 +695,10 @@ package enum ShortcutDecoder {
         in context: ShortcutContext
     ) -> AppShortcut? {
         AppShortcut.allCases.first { shortcut in
-            shortcut.spec.matches(trigger, in: context)
+            guard shortcut != .showInboxNotifications,
+                shortcut != .showPaneInboxNotifications
+            else { return false }
+            return shortcut.spec.matches(trigger, in: context)
         }
     }
 

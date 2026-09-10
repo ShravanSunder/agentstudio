@@ -7,17 +7,16 @@ struct CanonicalWorktree: Codable, Identifiable, Hashable, Sendable {
     let repoId: UUID
     var name: String
     var path: URL
+    let stableKey: String
     var isMainWorktree: Bool
     var note: String?
-
-    /// Deterministic identity derived from filesystem path via SHA-256.
-    var stableKey: String { StableKey.fromPath(path) }
 
     init(
         id: UUID = UUID(),
         repoId: UUID,
         name: String,
         path: URL,
+        stableKey: String? = nil,
         isMainWorktree: Bool = false,
         note: String? = nil
     ) {
@@ -25,6 +24,7 @@ struct CanonicalWorktree: Codable, Identifiable, Hashable, Sendable {
         self.repoId = repoId
         self.name = name
         self.path = path
+        self.stableKey = stableKey ?? StableKey.fromPath(path)
         self.isMainWorktree = isMainWorktree
         self.note = note
     }
@@ -35,6 +35,9 @@ struct CanonicalWorktree: Codable, Identifiable, Hashable, Sendable {
         self.repoId = try container.decode(UUID.self, forKey: .repoId)
         self.name = try container.decode(String.self, forKey: .name)
         self.path = try container.decode(URL.self, forKey: .path)
+        self.stableKey =
+            try container.decodeIfPresent(String.self, forKey: .stableKey)
+            ?? StableKey.fromPath(path)
         self.isMainWorktree = try container.decode(Bool.self, forKey: .isMainWorktree)
         self.note = try container.decodeIfPresent(String.self, forKey: .note)
     }

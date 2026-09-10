@@ -22,7 +22,7 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(!miseConfig.contains("scripts/check-atomlib-boundaries.sh"))
         #expect(lintScript.contains("if [[ $# -eq 0 ]]"))
         #expect(lintScript.contains("swift_scoped_paths=()"))
-        #expect(lintScript.contains("swift-format lint \"${swift_scoped_paths[@]}\""))
+        #expect(lintScript.contains("swift-format lint --strict \"${swift_scoped_paths[@]}\""))
         #expect(lintScript.contains("swiftlint lint --strict \"${swift_scoped_paths[@]}\""))
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
@@ -80,9 +80,14 @@ struct ArchitectureSwiftLintRulesTests {
 
     @Test("local architecture tool exposes expected rule inventory")
     func localArchitectureToolExposesExpectedRuleInventory() throws {
+        let buildSlot = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
+        let architectureBuildPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(buildSlot)
+            .appendingPathComponent("architecture-lint").path
         let result = try runProcess(arguments: [
             "swift", "run",
             "--package-path", "Tools/AgentStudioArchitectureLint",
+            "--build-path", architectureBuildPath,
             "agentstudio-architecture-lint",
             "--print-rules",
         ])

@@ -32,6 +32,7 @@ struct FlatPaneStripContent: View {
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let adjacentResizeTargeting: FlatTabStripMetrics.AdjacentResizeTargeting
     let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
     let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -50,7 +51,6 @@ struct FlatPaneStripContent: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     @State private var isSplitResizing = false
@@ -62,7 +62,8 @@ struct FlatPaneStripContent: View {
                 in: CGRect(origin: .zero, size: geometry.size),
                 dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
-                collapsedPaneWidth: collapsedPaneWidth
+                collapsedPaneWidth: collapsedPaneWidth,
+                adjacentResizeTargeting: adjacentResizeTargeting
             )
             // swiftlint:disable:next redundant_discardable_let
             let _ = RestoreTrace.log(
@@ -118,7 +119,6 @@ struct FlatPaneStripContent: View {
                             paneInboxPresentation: paneInboxPresentation,
                             paneNotePresentation: paneNotePresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
-                            notificationCountForWorktree: notificationCountForWorktree,
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot,
                             ordinal: ordinalMap.ordinal(forPaneId: segment.paneId),
@@ -172,7 +172,6 @@ private struct PaneSegmentSlotView: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let paneNotePresentation: PaneNotePresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let notificationCountForWorktree: (UUID) -> Int
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
     let ordinal: Int?
@@ -212,7 +211,6 @@ private struct PaneSegmentSlotView: View {
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    notificationCountForWorktree: notificationCountForWorktree,
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference,
                     paneInboxPresentation: paneInboxPresentation,

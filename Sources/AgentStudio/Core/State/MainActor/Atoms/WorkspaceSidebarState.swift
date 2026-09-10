@@ -28,7 +28,8 @@ package final class WorkspaceSidebarMemoryAtom {
     }
 
     func setSidebarSurface(_ surface: SidebarSurface) {
-        sidebarSurface = surface
+        _ = surface
+        sidebarSurface = .repos
     }
 
     func setRepoGroupingMode(_ groupingMode: RepoSidebarGroupingMode) {
@@ -45,7 +46,8 @@ package final class WorkspaceSidebarMemoryAtom {
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.sidebarCollapsed = sidebarCollapsed
-        self.sidebarSurface = sidebarSurface
+        _ = sidebarSurface
+        self.sidebarSurface = .repos
         self.repoGroupingMode = repoGroupingMode
     }
 

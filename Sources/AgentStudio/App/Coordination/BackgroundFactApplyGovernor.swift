@@ -190,6 +190,15 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         scheduleNextTickIfNeeded()
     }
 
+    /// Count of same-key `enqueue` calls superseded into the current pending
+    /// batch since the last drain. Read-only test/observability seam: proves
+    /// a later fact has already been coalesced into an earlier pending fact
+    /// for the same key, which is otherwise invisible outside the governor's
+    /// lock. Does not affect drain timing or merge behavior.
+    var supersededSinceLastDrainCount: Int {
+        lock.withLock { state.supersededSinceLastDrain }
+    }
+
     private func runDrainLoop() async {
         for await _ in tickStream {
             if Task.isCancelled { break }

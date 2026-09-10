@@ -25,11 +25,13 @@ large_non_webkit_filter_pattern() {
     TerminalActivityAgentSettledHeuristicTests
     MainWindowControllerInboxToolbarButtonTests
     ProcessExecutorTests
-    AgentStudioAppIPCServiceAuthModeTests
-    AgentStudioAppIPCServiceCommandTests
-    AgentStudioAppIPCServiceContributionTests
-    AgentStudioIPCBridgeServiceTests
-    AgentStudioAppIPCCommandExecuteContractTests
+    DarwinCompositeFSEventContinuityTests
+    DarwinFSEventStreamClientTests
+    DarwinSharedLocalFSEventObserverFailureTests
+    DarwinSharedLocalFSEventObserverTests
+    DarwinSharedExactItemObserverTests
+    FilesystemActorActivityTests
+    WorkspaceStrictStartupSubprocessTests
   )
   local IFS="|"
   echo "${patterns[*]}"
@@ -42,6 +44,60 @@ large_serial_non_webkit_filter_pattern() {
   )
   local IFS="|"
   echo "${patterns[*]}"
+}
+
+large_process_global_suite_filters() {
+  local large_suite_pattern
+  large_suite_pattern="$(large_non_webkit_filter_pattern)"
+  local webkit_leaf_suite_pattern
+  webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
+  local excluded_suite_pattern="E2E|Zmx|$webkit_leaf_suite_pattern"
+
+  {
+    serialized_main_actor_suite_matches main-actor-first
+    serialized_main_actor_suite_matches suite-first
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Infrastructure/Diagnostics/AgentStudioOTLPBootstrapSmokeTests.swift' \
+      'AgentStudioOTLPBootstrapSmokeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift' \
+      'DarwinSharedExactItemRealStreamIntegrationTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift' \
+      'DarwinCompositeFSEventContinuityTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift' \
+      'DarwinFSEventStreamClientTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift' \
+      'DarwinSharedLocalFSEventObserverFailureTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverTests.swift' \
+      'DarwinSharedLocalFSEventObserverTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemObserverTests.swift' \
+      'DarwinSharedExactItemObserverTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorActivityTests.swift' \
+      'FilesystemActorActivityTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/App/WorkspaceStrictStartupSubprocessTests.swift' \
+      'WorkspaceStrictStartupSubprocessTests'
+  } | while IFS=: read -r source_file suite_name; do
+    case "$source_file" in
+      *"/App/WebKit/"*) continue ;;
+    esac
+    if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
+      continue
+    fi
+    if printf '%s\n' "$suite_name" | grep -Eq "$large_suite_pattern"; then
+      printf '%s\n' "$suite_name"
+    fi
+  done | sort -u
+}
+
+large_process_global_filter_pattern() {
+  large_process_global_suite_filters | /usr/bin/paste -sd'|' -
 }
 
 serialized_main_actor_suite_pattern() {
@@ -95,7 +151,7 @@ aggregate_serial_non_webkit_suite_filters() {
   # attribute or type declaration while searching for the serialized trait.
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
+  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
 
   {
     serialized_main_actor_suite_matches main-actor-first
@@ -109,6 +165,24 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioBridgeDevelopmentServerTests/BridgeDevelopmentSeededWorktreeObservationTests.swift' \
       'BridgeDevelopmentSeededWorktreeObservationTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift' \
+      'AgentStudioAppIPCServiceTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceAuthModeTests.swift' \
+      'AgentStudioAppIPCServiceAuthModeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceCommandTests.swift' \
+      'AgentStudioAppIPCServiceCommandTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceContributionTests.swift' \
+      'AgentStudioAppIPCServiceContributionTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeServiceTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
+      'AgentStudioAppIPCCommandExecuteContractTests'
   } | while IFS=: read -r source_file suite_name; do
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
@@ -180,6 +254,27 @@ run_aggregate_serial_non_webkit_swift_tests() {
   fi
 }
 
+run_large_process_global_swift_tests() {
+  local swift_test_bundle
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  local swift_testing_helper
+  swift_testing_helper="$(swift_testing_helper_path)"
+  local testing_framework_path
+  testing_framework_path="$(swift_testing_framework_path)"
+  local large_process_global_suite_filter
+  while IFS= read -r large_process_global_suite_filter; do
+    [ -n "$large_process_global_suite_filter" ] || continue
+    run_swift_with_timeout \
+      "isolated large process-global suite: $large_process_global_suite_filter" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$large_process_global_suite_filter" \
+      "$swift_test_bundle" --testing-library swift-testing
+  done < <(large_process_global_suite_filters)
+}
+
 swift_testing_bundle_path() {
   local test_bundle
   test_bundle="$(find "$BUILD_PATH" -type f -path '*/debug/AgentStudioPackageTests.xctest/Contents/MacOS/AgentStudioPackageTests' -print -quit)"
@@ -244,7 +339,7 @@ run_fast_non_webkit_swift_tests() {
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-    --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
+    --skip "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests
@@ -262,7 +357,7 @@ run_large_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
-      --skip "$(large_serial_non_webkit_filter_pattern)" \
+      --skip "$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 
     run_swift_with_timeout \
@@ -277,8 +372,11 @@ run_large_non_webkit_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
+      --skip "$(large_process_global_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
+
+  run_large_process_global_swift_tests
 }
 
 webkit_suite_filters() {
@@ -408,7 +506,9 @@ run_swift_with_timeout() {
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
-      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)"
+      # A heartbeat write can fail with EINTR when the child exits mid-write; that is not a
+      # test failure and must not abort the watchdog under `set -e`.
+      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)" || true
       last_heartbeat="$now_epoch"
     fi
   done

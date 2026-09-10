@@ -111,7 +111,7 @@ struct CoreAtomsTests {
 
         coreAtoms.workspaceSidebarMemory.setSidebarSurface(.inbox)
         coreAtoms.sidebarFocusRuntime.setSidebarHasFocus(true)
-        #expect(coreAtoms.workspaceSidebarState.sidebarSurface == .inbox)
+        #expect(coreAtoms.workspaceSidebarState.sidebarSurface == .repos)
         #expect(coreAtoms.workspaceSidebarState.sidebarHasFocus)
     }
 

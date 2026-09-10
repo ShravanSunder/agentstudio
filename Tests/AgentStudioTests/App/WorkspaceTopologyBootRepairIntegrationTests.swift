@@ -73,6 +73,23 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         try fixture.assertPersistedRowsRemainUnrepaired()
     }
 
+    @Test("boot repairs and persists legacy orphaned tab panes without requiring their CWD")
+    func bootRepairsAndPersistsLegacyOrphanedTabPanesWithoutRequiringTheirCWD() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make(
+            legacyOrphanedResidency: true
+        )
+        defer { fixture.removeTemporaryFiles() }
+
+        let firstStore = try await fixture.loadStore()
+        #expect(firstStore.pane(fixture.legacyPaneID)?.residency == .active)
+        #expect(firstStore.pane(fixture.danglingPaneID)?.residency == .active)
+        try fixture.assertPersistedResidenciesAreActive()
+
+        let reloadedStore = try await fixture.loadStore()
+        #expect(reloadedStore.pane(fixture.legacyPaneID)?.residency == .active)
+        #expect(reloadedStore.pane(fixture.danglingPaneID)?.residency == .active)
+    }
+
     @Test("boot association sweep retains a known pair while its repository is unavailable")
     func bootAssociationSweepRetainsKnownPairDuringTemporaryUnavailability() async throws {
         let fixture = try await WorkspacePaneAssociationBootFixture.make(
@@ -271,7 +288,8 @@ private struct WorkspacePaneAssociationBootFixture {
     static func make(
         unavailableKnownAssociation: Bool = false,
         omitUnavailableWorktree: Bool = false,
-        knownWorktreeBelongsToForeignRepository: Bool = false
+        knownWorktreeBelongsToForeignRepository: Bool = false,
+        legacyOrphanedResidency: Bool = false
     ) async throws -> Self {
         let rootDirectory = FileManager.default.temporaryDirectory.appending(
             path: "agentstudio-pane-association-boot-\(UUIDv7.generate().uuidString)",
@@ -299,7 +317,8 @@ private struct WorkspacePaneAssociationBootFixture {
         try await fixture.seed(
             unavailableKnownAssociation: unavailableKnownAssociation,
             omitUnavailableWorktree: omitUnavailableWorktree,
-            knownWorktreeBelongsToForeignRepository: knownWorktreeBelongsToForeignRepository
+            knownWorktreeBelongsToForeignRepository: knownWorktreeBelongsToForeignRepository,
+            legacyOrphanedResidency: legacyOrphanedResidency
         )
         return fixture
     }
@@ -385,6 +404,32 @@ private struct WorkspacePaneAssociationBootFixture {
         }
     }
 
+    func assertPersistedResidenciesAreActive() throws {
+        let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.legacy-pane-residency-repair"
+        )
+        defer { try? databasePool.close() }
+        try databasePool.read { database in
+            let rows = try Row.fetchAll(
+                database,
+                sql: "SELECT id, residency_kind FROM pane WHERE id IN (?, ?)",
+                arguments: [legacyPaneID.uuidString, danglingPaneID.uuidString]
+            )
+            let residencyByPaneID = Dictionary(
+                uniqueKeysWithValues: rows.compactMap { row -> (String, String)? in
+                    guard
+                        let paneID: String = row["id"],
+                        let residency: String = row["residency_kind"]
+                    else { return nil }
+                    return (paneID, residency)
+                }
+            )
+            #expect(residencyByPaneID[legacyPaneID.uuidString] == "active")
+            #expect(residencyByPaneID[danglingPaneID.uuidString] == "active")
+        }
+    }
+
     func removeTemporaryFiles() {
         try? FileManager.default.removeItem(at: rootDirectory)
     }
@@ -392,7 +437,8 @@ private struct WorkspacePaneAssociationBootFixture {
     private func seed(
         unavailableKnownAssociation: Bool,
         omitUnavailableWorktree: Bool,
-        knownWorktreeBelongsToForeignRepository: Bool
+        knownWorktreeBelongsToForeignRepository: Bool,
+        legacyOrphanedResidency: Bool
     ) async throws {
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw WorkspacePaneAssociationBootFixtureError.databasePreparationFailed
@@ -402,6 +448,9 @@ private struct WorkspacePaneAssociationBootFixture {
         let legacyPane = makePane(
             id: legacyPaneID,
             launchDirectory: legacyCWD,
+            residency: legacyOrphanedResidency
+                ? .orphaned(reason: .worktreeNotFound(path: legacyCWD.path))
+                : .active,
             facets: unavailableKnownAssociation
                 ? PaneContextFacets(
                     repoId: repositoryID,
@@ -413,6 +462,9 @@ private struct WorkspacePaneAssociationBootFixture {
         let danglingPane = makePane(
             id: danglingPaneID,
             launchDirectory: danglingCWD,
+            residency: legacyOrphanedResidency
+                ? .orphaned(reason: .worktreeNotFound(path: danglingCWD.path))
+                : .active,
             facets: PaneContextFacets(
                 repoId: UUIDv7.generate(),
                 worktreeId: UUIDv7.generate(),

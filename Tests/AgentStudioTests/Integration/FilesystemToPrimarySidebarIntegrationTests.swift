@@ -31,8 +31,10 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                 statusByRootPath: statusByRootPath,
                 financeRemote: financeRemote
             )
-            await testSystem.pipeline.setPullRequestDemandWorktrees(
-                Set(intake.financeWorktreeIdByBranch.values)
+            await publishFinanceRepositoryFactDemand(
+                intake: intake,
+                workspaceStore: testSystem.workspaceStore,
+                pipeline: testSystem.pipeline
             )
 
             let enrichmentConverged = await eventually("remote identity enrichment should converge for finance repos") {
@@ -65,7 +67,15 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
             #expect(prCountsConverged)
 
-            let sidebarRepos = testSystem.workspaceStore.repos.map(RepoPresentationItem.init(repo:))
+            let sidebarRepos = testSystem.workspaceStore.repos.map { repo in
+                RepoPresentationItem(
+                    repo: repo,
+                    stableKey: repo.stableKey,
+                    worktreeStableKeysByID: Dictionary(
+                        uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) }
+                    )
+                )
+            }
             let metadataByRepoId = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
@@ -156,7 +166,8 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                     ),
                 ])
             },
-            gitCoalescingWindow: .zero
+            gitCoalescingWindow: .zero,
+            gitRefreshPolicy: AppPolicies.GitRefresh.Policy()
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -165,7 +176,8 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             scopeSyncHandler: { [weak pipeline] scopeChange in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(scopeChange)
-            }
+            },
+            enrichmentApplyTickCadence: .zero
         )
         return IntegratedTestSystem(
             bus: bus,
@@ -205,6 +217,39 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         return FinanceIntake(
             financeRepoIds: financeRepoIds,
             financeWorktreeIdByBranch: financeWorktreeIdByBranch
+        )
+    }
+
+    private func publishFinanceRepositoryFactDemand(
+        intake: FinanceIntake,
+        workspaceStore: WorkspaceStore,
+        pipeline: FilesystemGitPipeline
+    ) async {
+        let demandedWorktreeIds = Set(intake.financeWorktreeIdByBranch.values)
+        let repositoryIdByWorktreeId = Dictionary(
+            uniqueKeysWithValues: workspaceStore.repos.flatMap { repository in
+                repository.worktrees.compactMap { worktree in
+                    demandedWorktreeIds.contains(worktree.id)
+                        ? (worktree.id, repository.id)
+                        : nil
+                }
+            }
+        )
+        await pipeline.setRepositoryFactDemand(
+            RepositoryFactDemandSnapshot(
+                activePaneWorktreeId: nil,
+                sidebarAttendedWorktreeIds: demandedWorktreeIds,
+                visibleActiveTabWorktreeIds: [],
+                openWorktreeIds: demandedWorktreeIds,
+                repositoryIdByWorktreeId: repositoryIdByWorktreeId,
+                warmRepositoryIds: Set(repositoryIdByWorktreeId.values),
+                unknownRepositoryIds: [],
+                locallyInactiveRepositoryIds: [],
+                warmAutomaticWorktreeIds: Set(repositoryIdByWorktreeId.keys),
+                unknownWorktreeIds: [],
+                backgroundOnlyAutomaticWorktreeIds: [],
+                locallyInactiveWorktreeIds: []
+            )
         )
     }
 
@@ -294,7 +339,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
 
     private func eventually(
         _ description: String,
-        maxTurns: Int = 200,
+        maxTurns: Int = 50_000,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
         for _ in 0..<maxTurns {

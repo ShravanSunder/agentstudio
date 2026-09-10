@@ -113,50 +113,57 @@ extension WorkspaceTabArrangementAtom {
     }
 
     func composedArrangementStates() -> [TabArrangementState] {
-        graphAtom.tabStates.map { graphState in
-            let arrangements = graphState.arrangements.map { arrangementGraphState in
-                var arrangement = PaneArrangement(
-                    id: arrangementGraphState.id,
-                    name: arrangementGraphState.name,
-                    isDefault: arrangementGraphState.isDefault,
-                    layout: arrangementGraphState.layout,
-                    minimizedPaneIds: arrangementGraphState.minimizedPaneIds,
-                    activePaneId: cursorAtom.activePaneId(forArrangement: arrangementGraphState.id),
-                    drawerViews: Dictionary(
-                        uniqueKeysWithValues: arrangementGraphState.drawerViews.map { drawerId, drawerGraphState in
-                            var drawerView = DrawerView(
-                                layout: drawerGraphState.layout,
-                                activeChildId: cursorAtom.activeChildId(
-                                    forArrangement: arrangementGraphState.id,
-                                    drawerId: drawerId
-                                ),
-                                minimizedPaneIds: drawerGraphState.minimizedPaneIds
-                            )
-                            // DrawerView normalizes nil active children to the first pane.
-                            // Cursor state must win so all-minimized drawers round-trip as nil.
-                            drawerView.activeChildId = cursorAtom.activeChildId(
+        graphAtom.tabStates.compactMap { composedArrangementState(graphState: $0) }
+    }
+
+    func composedArrangementState(tabId: UUID) -> TabArrangementState? {
+        guard let graphState = graphAtom.tabState(tabId) else { return nil }
+        return composedArrangementState(graphState: graphState)
+    }
+
+    private func composedArrangementState(graphState: TabGraphState) -> TabArrangementState {
+        let arrangements = graphState.arrangements.map { arrangementGraphState in
+            var arrangement = PaneArrangement(
+                id: arrangementGraphState.id,
+                name: arrangementGraphState.name,
+                isDefault: arrangementGraphState.isDefault,
+                layout: arrangementGraphState.layout,
+                minimizedPaneIds: arrangementGraphState.minimizedPaneIds,
+                activePaneId: cursorAtom.activePaneId(forArrangement: arrangementGraphState.id),
+                drawerViews: Dictionary(
+                    uniqueKeysWithValues: arrangementGraphState.drawerViews.map { drawerId, drawerGraphState in
+                        var drawerView = DrawerView(
+                            layout: drawerGraphState.layout,
+                            activeChildId: cursorAtom.activeChildId(
                                 forArrangement: arrangementGraphState.id,
                                 drawerId: drawerId
-                            )
-                            return (drawerId, drawerView)
-                        }
-                    )
+                            ),
+                            minimizedPaneIds: drawerGraphState.minimizedPaneIds
+                        )
+                        // DrawerView normalizes nil active children to the first pane.
+                        // Cursor state must win so all-minimized drawers round-trip as nil.
+                        drawerView.activeChildId = cursorAtom.activeChildId(
+                            forArrangement: arrangementGraphState.id,
+                            drawerId: drawerId
+                        )
+                        return (drawerId, drawerView)
+                    }
                 )
-                // PaneArrangement also normalizes nil to a fallback pane; preserve the explicit cursor record.
-                arrangement.activePaneId = cursorAtom.activePaneId(forArrangement: arrangementGraphState.id)
-                return arrangement
-            }
-            let activeArrangementId =
-                cursorAtom.activeArrangementId(forTab: graphState.tabId)
-                ?? arrangements.first(where: \.isDefault)?.id
-                ?? arrangements.first?.id
-                ?? UUID()
-            return TabArrangementState(
-                tabId: graphState.tabId,
-                allPaneIds: graphState.allPaneIds,
-                arrangements: arrangements,
-                activeArrangementId: activeArrangementId
             )
+            // PaneArrangement also normalizes nil to a fallback pane; preserve the explicit cursor record.
+            arrangement.activePaneId = cursorAtom.activePaneId(forArrangement: arrangementGraphState.id)
+            return arrangement
         }
+        let activeArrangementId =
+            cursorAtom.activeArrangementId(forTab: graphState.tabId)
+            ?? arrangements.first(where: \.isDefault)?.id
+            ?? arrangements.first?.id
+            ?? UUID()
+        return TabArrangementState(
+            tabId: graphState.tabId,
+            allPaneIds: graphState.allPaneIds,
+            arrangements: arrangements,
+            activeArrangementId: activeArrangementId
+        )
     }
 }

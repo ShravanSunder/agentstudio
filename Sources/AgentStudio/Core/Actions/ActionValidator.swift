@@ -183,9 +183,11 @@ package enum WorkspaceCommandValidator {
                 return .failure(.paneNotFound(paneId: rightPaneId, tabId: tabId))
             }
             guard
-                PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+                PaneResizeVisibilityResolver.validatesRenderedPanePair(
                     layoutPaneIds: tab.layoutPaneIds,
-                    minimizedPaneIds: tab.minimizedPaneIds,
+                    resizeExcludedPaneIds: tab.minimizedPaneIds.union(
+                        Set(tab.layoutPaneIds).subtracting(tab.visiblePaneIds)
+                    ),
                     leftPaneId: leftPaneId,
                     rightPaneId: rightPaneId
                 )

@@ -201,7 +201,16 @@ package struct PaneDisplayDerived {
             return nil
         }
         guard let repoId = pane.repoId ?? pane.metadata.repoId else { return nil }
-        let sidebarRepos = workspaceRepositoryTopology.repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos: [RepoPresentationItem] = workspaceRepositoryTopology.repos.compactMap { repository in
+            guard let stableKey = workspaceRepositoryTopology.repositoryStableKey(for: repository.id) else {
+                return nil
+            }
+            return RepoPresentationItem(
+                repo: repository,
+                stableKey: stableKey,
+                worktreeStableKeysByID: workspaceRepositoryTopology.worktreeStableKeysByID
+            )
+        }
         guard let sidebarRepo = sidebarRepos.first(where: { $0.id == repoId }) else { return nil }
 
         let repoEnrichmentByRepoId = Dictionary(

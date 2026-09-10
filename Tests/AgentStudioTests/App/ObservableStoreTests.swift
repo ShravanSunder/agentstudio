@@ -209,7 +209,6 @@ final class ObservableStoreTests {
         let adapter = TabBarAdapter(
             store: store,
             repoCache: RepoCacheAtom(),
-            inboxAtom: InboxNotificationAtom()
         )
         #expect(adapter.tabs.isEmpty)
 
@@ -239,7 +238,6 @@ final class ObservableStoreTests {
         let adapter = TabBarAdapter(
             store: store,
             repoCache: RepoCacheAtom(),
-            inboxAtom: InboxNotificationAtom()
         )
         let pane = store.createPane(
             title: "WithDrawer"

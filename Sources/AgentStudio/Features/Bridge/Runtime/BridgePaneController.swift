@@ -136,6 +136,7 @@ package final class BridgePaneController {
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
+        gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
@@ -154,8 +155,7 @@ package final class BridgePaneController {
         contributionTargetCommit:
             (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
     ) {
-        self.paneId = paneId
-        self.bridgePaneState = state
+        (self.paneId, self.bridgePaneState) = (paneId, state)
         let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
         self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
         self.worktreeAnnotationStore = worktreeAnnotationStore
@@ -203,6 +203,7 @@ package final class BridgePaneController {
                     worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
                     worktreeAnnotationStore: worktreeAnnotationStore,
                     worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+                    gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
                     reviewContentLoaderCache: resolvedReviewContentLoaderCache,
                     reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                     refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,

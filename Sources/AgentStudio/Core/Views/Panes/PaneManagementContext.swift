@@ -14,11 +14,9 @@ package struct PaneManagementIdentityRow: Equatable, Identifiable {
 
 package struct WorkspaceStatusChipsModel: Equatable {
     package let branchStatus: GitBranchStatus
-    package let notificationCount: Int
 
-    package init(branchStatus: GitBranchStatus, notificationCount: Int) {
+    package init(branchStatus: GitBranchStatus) {
         self.branchStatus = branchStatus
-        self.notificationCount = notificationCount
     }
 }
 
@@ -31,8 +29,7 @@ package struct PaneManagementContext: Equatable {
 
     package static func project(
         paneId: UUID,
-        store: WorkspaceStore,
-        notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
+        store: WorkspaceStore
     ) -> Self {
         let workspacePane = store.paneAtom
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
@@ -70,10 +67,7 @@ package struct PaneManagementContext: Equatable {
                 enrichment: worktreeEnrichment,
                 pullRequestFacts: pullRequestFacts
             )
-            statusChips = WorkspaceStatusChipsModel(
-                branchStatus: branchStatus,
-                notificationCount: notificationCountForWorktree(resolvedWorktreeId)
-            )
+            statusChips = WorkspaceStatusChipsModel(branchStatus: branchStatus)
         } else {
             statusChips = nil
         }

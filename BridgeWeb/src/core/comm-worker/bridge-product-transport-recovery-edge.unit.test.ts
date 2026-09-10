@@ -5,7 +5,10 @@ import {
 	bridgeProductFileMetadataApplicationProtocol,
 	bridgeProductReviewMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-registry.js';
-import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contracts.js';
+import {
+	bridgeProductMetadataFrameSchema,
+	type BridgeProductMetadataStreamRequest,
+} from './bridge-product-session-contracts.js';
 import {
 	createTransportHarness,
 	disposeTransportHarnesses,
@@ -522,21 +525,70 @@ describe('Bridge product transport recovery edges', () => {
 		harness.server.shutdown();
 	});
 
-	test('does not retry an accepted replacement that reaches EOF without useful metadata', async () => {
-		const harness = createTransportHarness();
-		const first = await establishFileSubscription(harness);
-		const terminal = first.events.next();
-		harness.server.endMetadataStream();
-		await harness.server.waitForMetadataStream(2);
-		const replacement = harness.server.requiredMetadataRequest(1);
-		harness.server.emitMetadata(metadataAccepted(replacement, 3, 'resumed'));
-		await harness.server.waitForFrameAcknowledgementCount(4);
-		harness.server.endMetadataStream();
+	test.each(['none', 'presentation', 'selection'] as const)(
+		'does not replenish recovery from connection replay (%s)',
+		async (replayKind): Promise<void> => {
+			const harness = createTransportHarness();
+			const first = await establishFileSubscription(harness);
+			const terminal = first.events.next();
+			let terminalSettled = false;
+			observeSettlement(terminal, (): void => {
+				terminalSettled = true;
+			});
+			const emitReplay = (
+				request: BridgeProductMetadataStreamRequest,
+				streamSequence: number,
+			): void => {
+				const replay =
+					replayKind === 'presentation'
+						? {
+								fileRefreshFailure: null,
+								kind: 'pane.presentation',
+								nativeActivity: 'foreground',
+								operationCorrelationId: null,
+								presentationRevision: 1,
+								refreshingLanes: [],
+								reviewComparison: null,
+							}
+						: {
+								kind: 'pane.surfaceSelectionRequested',
+								navigationCommand: {
+									bindingRevision: 1,
+									commandId: 'retained-navigation',
+									commandKind: 'activateContext',
+									surface: 'file',
+								},
+							};
+				harness.server.emitMetadata(
+					bridgeProductMetadataFrameSchema.parse({
+						...replay,
+						metadataStreamId: request.metadataStreamId,
+						paneSessionId: request.paneSessionId,
+						streamSequence,
+						wireVersion: request.wireVersion,
+						workerInstanceId: request.workerInstanceId,
+					}),
+				);
+			};
+			let nextStreamSequence = 3;
+			if (replayKind !== 'none') {
+				emitReplay(harness.server.requiredMetadataRequest(), nextStreamSequence++);
+				await harness.server.waitForFrameAcknowledgementCount(nextStreamSequence);
+			}
+			harness.server.endMetadataStream();
+			await harness.server.waitForMetadataStream(2);
+			const replacement = harness.server.requiredMetadataRequest(1);
+			harness.server.emitMetadata(metadataAccepted(replacement, nextStreamSequence++, 'resumed'));
+			if (replayKind !== 'none') emitReplay(replacement, nextStreamSequence++);
+			await harness.server.waitForFrameAcknowledgementCount(nextStreamSequence);
+			harness.server.endMetadataStream();
 
-		await expect(terminal).rejects.toThrow(/ended unexpectedly/iu);
-		expect(harness.server.metadataFetchCount).toBe(2);
-		harness.server.shutdown();
-	});
+			await waitForCondition(() => terminalSettled || harness.server.metadataFetchCount > 2);
+			expect(harness.server.metadataFetchCount).toBe(2);
+			await expect(terminal).rejects.toThrow(/ended unexpectedly/iu);
+			harness.server.shutdown();
+		},
+	);
 
 	test('does not resync or reopen after a strict metadata identity failure', async () => {
 		const harness = createTransportHarness();

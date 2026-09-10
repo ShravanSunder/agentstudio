@@ -83,7 +83,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
 
@@ -107,7 +108,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
 
@@ -137,7 +139,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
 
@@ -192,7 +195,8 @@ struct BridgeGitReviewSourceProviderTests {
                     ),
                 ]
             ),
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
 
@@ -245,7 +249,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -309,7 +314,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -385,7 +391,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -464,7 +471,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -518,7 +526,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
 
@@ -577,7 +586,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -637,7 +647,8 @@ struct BridgeGitReviewSourceProviderTests {
         let adapter = AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: LibGit2AgentStudioGitLocalClient(),
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
         let provider = BridgeGitReviewSourceProvider(client: adapter)
         let query = makeBridgeReviewQuery(
@@ -752,7 +763,8 @@ private func makeLazyContentFixture() async throws -> GitAdapterLazyContentFixtu
         client: AgentStudioGitBridgeReviewDataClient(
             repositoryPath: repositoryPath,
             client: gitClient,
-            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath),
+            statusPhysicalGate: makeBridgeStatusPhysicalGate()
         )
     )
     let query = makeBridgeReviewQuery(
@@ -866,21 +878,19 @@ private func gitStatusEntry(
 private func gitStatusSnapshot(
     repositoryPath: URL,
     entries: [GitStatusEntry]
-) -> GitStatusSnapshot {
-    GitStatusSnapshot(
+) -> GitStatusFactsSnapshot {
+    GitStatusFactsSnapshot(
         repositoryRoot: repositoryPath,
         worktreePath: repositoryPath,
         generatedAtUnixMilliseconds: 10,
         head: GitHeadSnapshot(kind: .branch, oid: "abc123", shortName: "main"),
         originResolution: .confirmedAbsent,
-        summary: GitStatusSummary(
+        summary: GitStatusFactSummary(
             changedFileCount: entries.count,
             stagedFileCount: entries.filter { $0.indexState != nil }.count,
             unstagedFileCount: entries.filter { $0.worktreeState != nil }.count,
             untrackedFileCount: entries.filter(\.untracked).count,
             ignoredFileCount: entries.filter(\.ignored).count,
-            linesAdded: 0,
-            linesDeleted: 0,
             aheadCount: 0,
             behindCount: 0,
             hasUpstream: false

@@ -29,6 +29,8 @@ export function observeSelectedItemApplies(page: Page): {
 					if (item.id === selectedItemId) {
 						observations.push({ atMilliseconds: Math.round(performance.now()), result,
 							version: item.version, contentState: item.bridgeMetadata.contentState,
+							sourceDescriptorIdsByRole: item.bridgeMetadata.sourceDescriptorIdsByRole,
+							caller: new Error().stack?.split('\\n').slice(1, 5),
 							annotationCount: item.annotations?.length ?? 0,
 							annotationKinds: item.annotations?.map(annotation => annotation.metadata?.kind ?? null) ?? [] });
 						if (observations.length > 24) observations.shift();

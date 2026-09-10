@@ -52,72 +52,139 @@ extension GitWorkingDirectoryProjector {
         worktreeIds: Set<UUID>,
         outcome: GitVisibilityAdmissionOutcome
     ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in worktreeIds {
-            performanceTraceRecorder.record(
-                .gitAdmission,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.visibility_admission.outcome": .string(outcome.rawValue),
-                    "agentstudio.performance.git.trigger_source": .string(
-                        GitRefreshTriggerSource.visibilityChange.rawValue
-                    ),
-                    "agentstudio.performance.git.cadence_tier": .string(GitDemandTier.visibleSidebar.rawValue),
-                ]
-            )
+        let keyPath: WritableKeyPath<GitWorkingDirectoryPerformanceSnapshot, UInt64>
+        switch outcome {
+        case .batched: keyPath = \.visibilityBatched
+        case .tierDeferred: keyPath = \.visibilityTierDeferred
+        case .superseded: keyPath = \.visibilitySuperseded
+        case .admittedUncovered: keyPath = \.visibilityAdmittedUncovered
         }
-    }
-
-    func recordPeriodicRefreshTickTelemetry(
-        enqueuedWorktreeIds: [UUID],
-        registeredCount: Int,
-        pendingCount: Int,
-        tick: UInt64
-    ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in enqueuedWorktreeIds {
-            performanceTraceRecorder.record(
-                .gitTick,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.enqueued.count": .int(1),
-                    "agentstudio.performance.git.registered.count": .int(registeredCount),
-                    "agentstudio.performance.git.pending.count": .int(pendingCount),
-                    "agentstudio.performance.git.tick.count": .int(Int(tick)),
-                ]
-            )
-        }
+        aggregatePerformance.increment(keyPath, by: worktreeIds.count)
+        recordAggregatePhysicalState()
+        flushAggregatePerformanceSnapshotIfNeeded()
     }
 
     func recordGitAdmissionTelemetry(
         admittedWorktreeIds: [UUID],
         availableSlots: Int
     ) {
-        guard let performanceTraceRecorder else { return }
-        for worktreeId in admittedWorktreeIds {
-            performanceTraceRecorder.record(
-                .gitAdmission,
-                attributes: [
-                    "agentstudio.worktree.id": .string(worktreeId.uuidString),
-                    "agentstudio.performance.git.admitted.count": .int(1),
-                    "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
-                    "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
-                    "agentstudio.performance.git.available_slot.count": .int(availableSlots),
-                    "agentstudio.performance.git.demand_class": .string(
-                        refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] ?? "background"
-                    ),
-                    "agentstudio.performance.git.trigger_source": .string(
-                        (refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] ?? .registration).rawValue
-                    ),
-                    "agentstudio.performance.git.cadence_tier": .string(
-                        refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] ?? "1"
-                    ),
-                    "agentstudio.performance.git.request.sequence": .int(
-                        Int(refreshAttribution.requestSequenceByWorktreeId[worktreeId] ?? 0)
-                    ),
-                ]
-            )
+        aggregatePerformance.increment(\.admitted, by: admittedWorktreeIds.count)
+        aggregatePerformance.recordPhysicalState(
+            pending: pendingByWorktreeId.count,
+            running: worktreeTasks.count
+        )
+        _ = availableSlots
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordAggregatePhysicalState() {
+        aggregatePerformance.recordPhysicalState(
+            pending: pendingByWorktreeId.count,
+            running: worktreeTasks.count
+        )
+    }
+
+    func recordExactCleanBaselinePreparedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselinePrepared()
+    }
+
+    func recordExactCleanBaselineRejectedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselineRejected()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanBaselineAcceptedTelemetry() {
+        aggregatePerformance.recordExactCleanBaselineAccepted()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanContinuityRenewedTelemetry() {
+        aggregatePerformance.recordExactCleanContinuityRenewed()
+        aggregatePerformance.recordAvoidedPhysicalFactsRead()
+        aggregatePerformance.recordAvoidedPhysicalDetailRead()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExactCleanMutationInvalidatedTelemetry() {
+        aggregatePerformance.recordExactCleanMutationInvalidated()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordContinuityUncertaintyTelemetry(
+        _ reason: GitCleanContinuityFailureReason
+    ) {
+        aggregatePerformance.recordContinuityUncertainty(reason)
+    }
+
+    func recordExactFallbackTelemetry(admitted: Bool) {
+        if admitted {
+            aggregatePerformance.recordExactFallbackAdmitted()
+        } else {
+            aggregatePerformance.recordExactFallbackCoalesced()
         }
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordAvoidedPhysicalDetailReadTelemetry() {
+        aggregatePerformance.recordAvoidedPhysicalDetailRead()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordInactiveContractionTelemetry(
+        automaticRemoved: Bool,
+        requiredRetained: Bool
+    ) {
+        aggregatePerformance.recordInactiveContraction(
+            automaticRemoved: automaticRemoved,
+            requiredRetained: requiredRetained
+        )
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordInactiveAutomaticSourceStartTelemetry() {
+        if inactiveAutomaticSourceStartCount < .max {
+            inactiveAutomaticSourceStartCount += 1
+        }
+        aggregatePerformance.recordInactiveAutomaticSourceStart()
+        flushAggregatePerformanceSnapshotIfNeeded()
+    }
+
+    func recordExplicitUpdateAdmissionTelemetry() {
+        aggregatePerformance.recordExplicitAdmission()
+        flushAggregatePerformanceSnapshot()
+    }
+
+    func recordExplicitUpdateSettlementTelemetry(_ outcome: RepositoryFactSourceUpdateOutcome) {
+        aggregatePerformance.recordExplicitSettlement(outcome)
+        flushAggregatePerformanceSnapshot()
+    }
+
+    func flushAggregatePerformanceSnapshotIfNeeded() {
+        guard aggregatePerformance.eventCount >= AppPolicies.GitRefresh.telemetryFlushEventCount else { return }
+        flushAggregatePerformanceSnapshot()
+    }
+
+    func flushAggregatePerformanceSnapshot() {
+        recordExactCleanContinuityState()
+        let snapshot = aggregatePerformance.takeSnapshot()
+        guard !snapshot.isEmpty else { return }
+        performanceTraceRecorder?.recordGitWorkingDirectoryPerformanceSnapshot(snapshot)
+    }
+
+    private func recordExactCleanContinuityState() {
+        let acceptedCheckpointInstants = exactCleanAuthorityByWorktreeId.keys.compactMap {
+            lastAcceptedStatusAtByWorktreeId[$0]
+        }
+        let oldestCheckpointAge =
+            acceptedCheckpointInstants.min().map { acceptedAt in
+                max(Duration.zero, deadlineClock.now - acceptedAt)
+            } ?? .zero
+        aggregatePerformance.recordExactCleanContinuityState(
+            authorityCount: exactCleanAuthorityByWorktreeId.count,
+            oldestCheckpointAgeMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: oldestCheckpointAge
+            )
+        )
     }
 
     func demandClass(for worktreeId: UUID) -> String {

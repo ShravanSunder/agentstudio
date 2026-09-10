@@ -17,6 +17,8 @@ jobs:
   build:
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      SWIFT_BUILD_DIR: .build-ci
 
     steps:
       - name: Checkout
@@ -187,7 +189,7 @@ jobs:
       - name: Cache Swift build
         uses: actions/cache@v4
         with:
-          path: .build
+          path: .build-ci
           key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift') }}
           restore-keys: |
             swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
@@ -196,7 +198,7 @@ jobs:
       - name: Build AgentStudio
         run: |
           set -o pipefail
-          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh | xcbeautify --renderer github-actions
+          mise run --skip-deps build-release
 
       - name: Create App Bundle
         run: |
@@ -207,7 +209,7 @@ jobs:
           mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
           echo "APP_BUNDLE_NAME=$APP_BUNDLE_NAME" >> "$GITHUB_ENV"
 
-          cp .build/release/AgentStudio "$APP_DIR/MacOS/"
+          cp .build-ci/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
           cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
           bash scripts/inject-bundle-version.sh \
@@ -227,7 +229,7 @@ jobs:
           # in the app bundle; it's only needed at build time for SwiftPM.
 
           # SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
-          RESOURCE_BUNDLE="$(find .build -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
+          RESOURCE_BUNDLE="$(find .build-ci -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
           if [ -n "$RESOURCE_BUNDLE" ]; then
             cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
           else

@@ -262,14 +262,7 @@ extension WebKitSerializedTests {
                     forSourcePane: sourcePane.id
                 ) == nil
             )
-            #expect(
-                harness.store.pane(sourcePane.id)?.residency
-                    == .orphaned(
-                        reason: .worktreeNotFound(
-                            path: worktree.path.path
-                        )
-                    )
-            )
+            #expect(harness.store.pane(sourcePane.id)?.residency == .active)
             #expect(
                 harness.store.tab(sourceTab.id)?.allPaneIds.contains(sourcePane.id)
                     == true

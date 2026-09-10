@@ -4,7 +4,6 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
-@testable import AgentStudioInboxNotification
 @testable import AgentStudioRepoExplorer
 
 @MainActor
@@ -13,20 +12,25 @@ struct AgentStudioIPCSidebarAdapterTests {
     @Test("maps public read contracts from app atoms")
     func mapsPublicReadContractsFromAppAtoms() throws {
         let repoPrefs = RepoExplorerSidebarPrefsAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
         let sidebarState = WorkspaceSidebarState()
         let adapter = AgentStudioIPCSidebarAdapter(
             repoPrefs: repoPrefs,
-            inboxPrefs: inboxPrefs,
             sidebarState: sidebarState
         )
 
         repoPrefs.setGroupingMode(.pane)
-        inboxPrefs.setGrouping(.none)
         sidebarState.setSidebarSurface(.inbox)
 
-        #expect(try adapter.getGrouping(.init(surface: .repo)).mode == .pane)
-        #expect(try adapter.getGrouping(.init(surface: .inbox)).mode == .noGrouping)
-        #expect(try adapter.getSurface(.init()).surface == .inbox)
+        #expect(
+            try adapter.getGrouping(IPCSidebarGroupingGetParams(surface: .repo)).mode
+                == IPCSidebarGroupingMode.pane
+        )
+        #expect(throws: AppIPCQueryError(reason: .targetNotFound)) {
+            try adapter.getGrouping(IPCSidebarGroupingGetParams(surface: .inbox))
+        }
+        #expect(
+            try adapter.getSurface(IPCSidebarSurfaceGetParams()).surface
+                == IPCSidebarSurface.repo
+        )
     }
 }

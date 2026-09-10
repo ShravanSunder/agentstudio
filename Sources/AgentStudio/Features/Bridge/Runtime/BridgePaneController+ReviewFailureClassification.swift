@@ -8,6 +8,8 @@ extension BridgePaneController {
             switch providerFailure {
             case .providerUnavailable:
                 return "\(prefix):providerUnavailable"
+            case .sourceCapacityDeferred:
+                return "\(prefix):sourceCapacityDeferred"
             case .unavailableEndpoint:
                 return "\(prefix):unavailableEndpoint"
             case .missingContent:

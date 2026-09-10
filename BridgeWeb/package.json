@@ -16,7 +16,7 @@
 		"lint": "oxlint",
 		"lint:types": "oxlint --type-aware",
 		"proof:visual:dev-server": "node --experimental-strip-types scripts/capture-bridge-viewer-dev-visual-proof.ts",
-		"test": "pnpm run test:unit && pnpm run test:integration && pnpm run test:e2e",
+		"test": "pnpm run test:unit && pnpm run build:swift-dev-server && pnpm run test:integration:node:prepared && pnpm run test:browser:integration && pnpm run test:e2e:prepared",
 		"test:unit": "vitest --config vitest.config.ts run",
 		"test:integration": "pnpm run test:integration:node && pnpm run test:browser:integration",
 		"test:integration:node": "pnpm run build:swift-dev-server && vitest --config vitest.integration.config.ts run",

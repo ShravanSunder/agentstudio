@@ -2,7 +2,10 @@ import AgentStudioInfrastructure
 import Foundation
 
 package protocol ForgeStatusProvider: Sendable {
-    func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome
+    func pullRequests(
+        origin: String,
+        demandedBranches: Set<String>
+    ) async -> ForgePullRequestQueryOutcome
 }
 
 package struct ForgePullRequest: Equatable, Sendable {
@@ -29,6 +32,21 @@ package enum ForgePullRequestQueryOutcome: Equatable, Sendable {
 }
 
 package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
+    private struct DynamicCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            stringValue = String(intValue)
+            self.intValue = intValue
+        }
+    }
+
     private struct GraphQLResponse: Decodable {
         let data: ResponseData
 
@@ -37,7 +55,19 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
         }
 
         struct Repository: Decodable {
-            let pullRequests: PullRequestConnection
+            let connectionsByAlias: [String: PullRequestConnection]
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+                var connections: [String: PullRequestConnection] = [:]
+                for key in container.allKeys {
+                    connections[key.stringValue] = try container.decode(
+                        PullRequestConnection.self,
+                        forKey: key
+                    )
+                }
+                connectionsByAlias = connections
+            }
         }
 
         struct PullRequestConnection: Decodable {
@@ -65,40 +95,32 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
         }
     }
 
-    private static let graphQLPageSize = 100
-    private static let maximumPageCount =
-        (AppPolicies.Forge.pullRequestResultLimit + graphQLPageSize - 1) / graphQLPageSize
-    private static let graphQLQuery = """
-        query($owner: String!, $name: String!, $after: String) {
-          repository(owner: $owner, name: $name) {
-            pullRequests(first: \(graphQLPageSize), after: $after, states: OPEN) {
-              nodes {
-                headRefName
-                url
-                isDraft
-                reviewDecision
-                mergeable
-                mergeStateStatus
-                statusCheckRollup { state }
-              }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-        }
-        """
+    private struct BranchQuery {
+        let alias: String
+        let branch: String
+        let afterCursor: String?
+        let pageCount: Int
+    }
 
     private let processExecutor: any ProcessExecutor
 
     private enum FetchPageOutcome {
-        case success(GraphQLResponse.PullRequestConnection)
+        case success([String: GraphQLResponse.PullRequestConnection])
         case failure(ForgePullRequestQueryOutcome)
     }
 
-    package init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 8)) {
+    package init(
+        processExecutor: any ProcessExecutor = DefaultProcessExecutor(
+            timeout: AppPolicies.ForgeRefresh.providerTimeoutSeconds
+        )
+    ) {
         self.processExecutor = processExecutor
     }
 
-    package func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
+    package func pullRequests(
+        origin: String,
+        demandedBranches: Set<String>
+    ) async -> ForgePullRequestQueryOutcome {
         guard let repoSlug = RemoteIdentityNormalizer.extractSlug(origin) else {
             return .failed(message: "Unsupported GitHub remote")
         }
@@ -106,51 +128,93 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
         guard slugParts.count == 2 else {
             return .failed(message: "Unsupported GitHub repository slug")
         }
+        let branches = Set(
+            demandedBranches.compactMap { branch in
+                ForgePresentationFacts.normalizedBranch(branch)
+            }
+        ).sorted()
+        guard !branches.isEmpty else { return .complete([]) }
 
-        var pullRequests: [ForgePullRequest] = []
-        var afterCursor: String?
-        for pageIndex in 0..<Self.maximumPageCount {
-            let pageOutcome = await fetchPage(
-                owner: slugParts[0],
-                name: slugParts[1],
-                afterCursor: afterCursor
+        var pullRequestsByBranch: [String: [ForgePullRequest]] = [:]
+        for batchStart in stride(
+            from: 0,
+            to: branches.count,
+            by: AppPolicies.ForgeRefresh.maximumBranchAliasesPerBatch
+        ) {
+            let batchEnd = min(
+                batchStart + AppPolicies.ForgeRefresh.maximumBranchAliasesPerBatch,
+                branches.count
             )
-            switch pageOutcome {
-            case .success(let connection):
-                pullRequests.append(contentsOf: connection.nodes.map(Self.makePullRequest))
-                guard pullRequests.count < AppPolicies.Forge.pullRequestResultLimit else {
-                    return .truncated
+            let batchBranches = Array(branches[batchStart..<batchEnd])
+            var pendingQueries = batchBranches.enumerated().map { index, branch in
+                BranchQuery(alias: "branch\(index)", branch: branch, afterCursor: nil, pageCount: 0)
+            }
+
+            while !pendingQueries.isEmpty {
+                let pageOutcome = await fetchPage(
+                    owner: slugParts[0],
+                    name: slugParts[1],
+                    queries: pendingQueries
+                )
+                switch pageOutcome {
+                case .failure(let outcome):
+                    return outcome
+                case .success(let connectionsByAlias):
+                    guard Set(connectionsByAlias.keys) == Set(pendingQueries.map { $0.alias }) else {
+                        return .truncated
+                    }
+                    var nextQueries: [BranchQuery] = []
+                    for query in pendingQueries {
+                        guard let connection = connectionsByAlias[query.alias] else {
+                            return .truncated
+                        }
+                        guard connection.nodes.allSatisfy({ $0.headRefName == query.branch }) else {
+                            return .failed(message: "GitHub branch-filtered response contained another branch")
+                        }
+                        pullRequestsByBranch[query.branch, default: []].append(
+                            contentsOf: connection.nodes.map(Self.makePullRequest)
+                        )
+                        guard connection.pageInfo.hasNextPage else { continue }
+                        guard query.pageCount + 1 < AppPolicies.ForgeRefresh.maximumPagesPerBranch else {
+                            return .truncated
+                        }
+                        guard let endCursor = connection.pageInfo.endCursor else {
+                            return .failed(message: "GitHub pull request page omitted its end cursor")
+                        }
+                        nextQueries.append(
+                            BranchQuery(
+                                alias: query.alias,
+                                branch: query.branch,
+                                afterCursor: endCursor,
+                                pageCount: query.pageCount + 1
+                            )
+                        )
+                    }
+                    pendingQueries = nextQueries
                 }
-                guard connection.pageInfo.hasNextPage else {
-                    return .complete(pullRequests)
-                }
-                guard pageIndex + 1 < Self.maximumPageCount else {
-                    return .truncated
-                }
-                guard let endCursor = connection.pageInfo.endCursor else {
-                    return .failed(message: "GitHub pull request page omitted its end cursor")
-                }
-                afterCursor = endCursor
-            case .failure(let outcome):
-                return outcome
             }
         }
-        return .truncated
+        let pullRequests = branches.flatMap { pullRequestsByBranch[$0] ?? [] }
+        return .complete(pullRequests)
     }
 
     private func fetchPage(
         owner: String,
         name: String,
-        afterCursor: String?
+        queries: [BranchQuery]
     ) async -> FetchPageOutcome {
+        let graphQLQuery = Self.graphQLQuery(for: queries)
         var arguments = [
             "api", "graphql",
-            "-f", "query=\(Self.graphQLQuery)",
+            "-f", "query=\(graphQLQuery)",
             "-F", "owner=\(owner)",
             "-F", "name=\(name)",
         ]
-        if let afterCursor {
-            arguments.append(contentsOf: ["-F", "after=\(afterCursor)"])
+        for query in queries {
+            arguments.append(contentsOf: ["-F", "\(query.alias)=\(query.branch)"])
+            if let afterCursor = query.afterCursor {
+                arguments.append(contentsOf: ["-F", "after\(query.alias.dropFirst(6))=\(afterCursor)"])
+            }
         }
 
         let result: ProcessResult
@@ -183,10 +247,45 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
             guard let repository = response.data.repository else {
                 return .failure(.failed(message: "GitHub repository was not found"))
             }
-            return .success(repository.pullRequests)
+            return .success(repository.connectionsByAlias)
         } catch {
             return .failure(.failed(message: "Invalid gh pull request response: \(error)"))
         }
+    }
+
+    private static func graphQLQuery(for queries: [BranchQuery]) -> String {
+        let variables = queries.flatMap { query in
+            ["$\(query.alias): String!", "$after\(query.alias.dropFirst(6)): String"]
+        }.joined(separator: ", ")
+        let connections = queries.map { query -> String in
+            let cursorVariable = "after\(query.alias.dropFirst(6))"
+            return """
+                \(query.alias): pullRequests(
+                  first: \(AppPolicies.ForgeRefresh.graphQLPageSize),
+                  after: $\(cursorVariable),
+                  states: OPEN,
+                  headRefName: $\(query.alias)
+                ) {
+                  nodes {
+                    headRefName
+                    url
+                    isDraft
+                    reviewDecision
+                    mergeable
+                    mergeStateStatus
+                    statusCheckRollup { state }
+                  }
+                  pageInfo { hasNextPage endCursor }
+                }
+                """
+        }.joined(separator: "\n")
+        return """
+            query($owner: String!, $name: String!, \(variables)) {
+              repository(owner: $owner, name: $name) {
+                \(connections)
+              }
+            }
+            """
     }
 
     private static func makePullRequest(_ row: PullRequestRow) -> ForgePullRequest {

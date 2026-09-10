@@ -20,10 +20,14 @@ struct CommandSpecContractTests {
             let command = shortcut.command
             let definition = AppCommandDispatcher.shared.definition(for: command)
 
-            #expect(
-                definition.shortcut == shortcut,
-                "\(shortcut.rawValue) maps to \(command.rawValue), but its AppCommandSpec declares \(String(describing: definition.shortcut))"
-            )
+            if shortcut == .showInboxNotifications || shortcut == .showPaneInboxNotifications {
+                #expect(definition.shortcut == nil)
+            } else {
+                #expect(
+                    definition.shortcut == shortcut,
+                    "\(shortcut.rawValue) maps to \(command.rawValue), but its AppCommandSpec declares \(String(describing: definition.shortcut))"
+                )
+            }
         }
     }
 

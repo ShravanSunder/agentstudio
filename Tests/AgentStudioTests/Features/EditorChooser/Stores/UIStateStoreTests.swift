@@ -30,7 +30,7 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.sidebarCollapsed)
-        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarSurface == .repos)
         #expect(restoredAtom.repoGroupingMode == .tab)
         #expect(restoredAtom.sidebarHasFocus == false)
     }
@@ -111,7 +111,7 @@ struct UIStateStoreTests {
 
         await assertEventuallyMain("sidebar state should autosave") {
             guard let state = try? fixture.repository.fetchSidebarState() else { return false }
-            return state.filterText == "terminal" && state.sidebarSurface == .inbox
+            return state.filterText == "terminal" && state.sidebarSurface == .repos
                 && state.repoGroupingMode == .tab
         }
     }

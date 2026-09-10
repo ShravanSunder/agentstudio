@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 enum CommandBarRootQueryState: Equatable, Sendable {
@@ -217,6 +218,8 @@ extension CommandBarDataSource {
             }
             return (stableKey, repository, defaultWorktree)
         }
+        .prefix(AppPolicies.EntityRecency.maximumApplicationPresentationCountPerKind)
+        .map(\.self)
     }
 
     private static func resolvedRecentWorktrees(
@@ -233,5 +236,7 @@ extension CommandBarDataSource {
             }
             return (stableKey, repository, worktree)
         }
+        .prefix(AppPolicies.EntityRecency.maximumApplicationPresentationCountPerKind)
+        .map(\.self)
     }
 }

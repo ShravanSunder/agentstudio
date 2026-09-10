@@ -10,7 +10,15 @@ import Testing
 @Suite(.serialized)
 struct RepoExplorerFilterTests {
     private func presentableRepos(_ repos: [Repo]) -> [RepoPresentationItem] {
-        repos.map(RepoPresentationItem.init(repo:))
+        repos.map(presentableRepo)
+    }
+
+    private func presentableRepo(_ repo: Repo) -> RepoPresentationItem {
+        RepoPresentationItem(
+            repo: repo,
+            stableKey: repo.stableKey,
+            worktreeStableKeysByID: Dictionary(uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.stableKey) })
+        )
     }
 
     // MARK: - Empty Query

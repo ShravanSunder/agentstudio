@@ -2,6 +2,7 @@ import type { CodeViewLineSelection, CodeViewOptions, SelectedLineRange } from '
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
+import { Alert, AlertDescription } from '../components/ui/alert.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	bridgeCodeViewPresentationItemWithExactSource,
@@ -125,10 +126,31 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	} | null>(null);
 	useWorktreeAnnotationEditSurfaceToken(pendingAnnotationComposer?.editToken ?? null);
 	const scrollEffectVersionRef = useRef(0);
+	const lastDisplayedItemRef = useRef(props.selectedCodeViewItem);
+	const previousItem = lastDisplayedItemRef.current;
+	const candidateItem = props.selectedCodeViewItem;
+	const previousSourceId = previousItem?.bridgeMetadata.sourceDescriptorId;
+	const retainsAnnotationSource =
+		previousItem !== null &&
+		candidateItem !== null &&
+		previousItem.bridgeMetadata.itemId === candidateItem.bridgeMetadata.itemId &&
+		previousItem.bridgeMetadata.displayPath === candidateItem.bridgeMetadata.displayPath &&
+		previousSourceId !== undefined &&
+		previousSourceId !== candidateItem.bridgeMetadata.sourceDescriptorId &&
+		commandConfirmedAnnotationThreads.some(
+			(thread): boolean =>
+				thread.context.path === previousItem.bridgeMetadata.displayPath &&
+				thread.context.sourceIdentity === previousSourceId,
+		);
+	const displayedCodeViewItem = retainsAnnotationSource ? previousItem : candidateItem;
+	useLayoutEffect((): void => {
+		// Retain the committed presentation reference, never a second copy of source bytes.
+		lastDisplayedItemRef.current = displayedCodeViewItem;
+	});
 	const codeViewItems = useMemo(() => {
 		const items = bridgeFileViewerCodeViewItemsForPanelState({
 			openFileState: props.openFileState,
-			selectedCodeViewItem: props.selectedCodeViewItem,
+			selectedCodeViewItem: displayedCodeViewItem,
 		});
 		return items.map((item) => {
 			const annotations =
@@ -179,13 +201,13 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		composerPresentationRevision,
 		pendingAnnotationComposer,
 		props.openFileState,
-		props.selectedCodeViewItem,
+		displayedCodeViewItem,
 	]);
 	const shouldRenderContentState = props.openFileState.status !== 'ready';
 	useLayoutEffect((): void => {
-		if (props.selectedCodeViewItem === null) return;
+		if (displayedCodeViewItem === null) return;
 		reconcileBridgeCodeViewRenderFulfillment({
-			exactPresentationItem: props.selectedCodeViewItem,
+			exactPresentationItem: displayedCodeViewItem,
 			getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 		});
@@ -201,15 +223,15 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				phase,
 				renderedElement: node,
 				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
-				selectedCodeViewItem: props.selectedCodeViewItem,
+				selectedCodeViewItem: displayedCodeViewItem,
 				visibleCodeViewItems: undefined,
 			});
 		},
-		[props.renderFulfillmentCoordinator, props.selectedCodeViewItem],
+		[props.renderFulfillmentCoordinator, displayedCodeViewItem],
 	);
 	const admitSelectedRange = useCallback(
 		(range: SelectedLineRange | null, itemId: string): void => {
-			const selectedItem = props.selectedCodeViewItem;
+			const selectedItem = displayedCodeViewItem;
 			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
 			if (
 				range === null ||
@@ -240,7 +262,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			annotationInteraction.setPendingRange(itemId, range);
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},
-		[annotationInteraction, props.selectedCodeViewItem],
+		[annotationInteraction, displayedCodeViewItem],
 	);
 	const retainSelectedRange = useCallback(
 		(range: SelectedLineRange | null, itemId: string): void => {
@@ -255,7 +277,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			}
 			if (pendingAnnotationComposerRef.current?.committed === true) return;
 			if (range === null && pendingAnnotationComposerRef.current !== null) return;
-			const selectedItem = props.selectedCodeViewItem;
+			const selectedItem = displayedCodeViewItem;
 			const sourceDescriptorId = selectedItem?.bridgeMetadata.sourceDescriptorId;
 			if (
 				range === null ||
@@ -283,7 +305,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			annotationInteraction.setPendingRange(selectionIdentity.codeViewItemId, range);
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},
-		[annotationInteraction, props.selectedCodeViewItem],
+		[annotationInteraction, displayedCodeViewItem],
 	);
 	const annotationRangePresentation = annotationInteraction.pierreRangePresentation;
 	const selectedAnnotationLines: CodeViewLineSelection | null =
@@ -328,7 +350,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		[admitSelectedRange, handleCodeViewPostRender, props.codeViewOptions, retainSelectedRange],
 	);
 	useLayoutEffect((): void => {
-		const selectedItem = props.selectedCodeViewItem;
+		const selectedItem = displayedCodeViewItem;
 		const composerMatchesDisplayedFile =
 			pendingAnnotationComposer !== null &&
 			selectedItem !== null &&
@@ -347,10 +369,10 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		annotationInteraction,
 		annotationRangePresentation,
 		pendingAnnotationComposer,
-		props.selectedCodeViewItem,
+		displayedCodeViewItem,
 	]);
 	useLayoutEffect((): void => {
-		const selectedItem = props.selectedCodeViewItem;
+		const selectedItem = displayedCodeViewItem;
 		if (selectedItem === null) return;
 		const currentIdentity = {
 			fileId: selectedItem.bridgeMetadata.itemId,
@@ -375,7 +397,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				type: 'position',
 			});
 		});
-	}, [props.selectedCodeViewItem]);
+	}, [displayedCodeViewItem]);
 	return (
 		<section
 			aria-label="Selected file"
@@ -384,14 +406,14 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
 			data-testid="bridge-file-viewer-code-canvas"
-			data-worktree-open-file-body-preview={props.selectedCodeViewItem?.file.contents.slice(0, 160)}
-			data-worktree-rendered-file-path={props.selectedCodeViewItem?.bridgeMetadata.displayPath}
-			data-worktree-rendered-content-roles={props.selectedCodeViewItem?.bridgeMetadata.contentRoles.join(
+			data-worktree-open-file-body-preview={displayedCodeViewItem?.file.contents.slice(0, 160)}
+			data-worktree-rendered-file-path={displayedCodeViewItem?.bridgeMetadata.displayPath}
+			data-worktree-rendered-content-roles={displayedCodeViewItem?.bridgeMetadata.contentRoles.join(
 				',',
 			)}
-			data-worktree-rendered-content-state={props.selectedCodeViewItem?.bridgeMetadata.contentState}
-			data-worktree-rendered-item-id={props.selectedCodeViewItem?.bridgeMetadata.itemId}
-			data-worktree-rendered-line-count={props.selectedCodeViewItem?.bridgeMetadata.lineCount}
+			data-worktree-rendered-content-state={displayedCodeViewItem?.bridgeMetadata.contentState}
+			data-worktree-rendered-item-id={displayedCodeViewItem?.bridgeMetadata.itemId}
+			data-worktree-rendered-line-count={displayedCodeViewItem?.bridgeMetadata.lineCount}
 			data-worker-backed-highlighting={
 				props.codeViewWorkerPoolEnabled === true ? 'requested' : 'disabled'
 			}
@@ -484,7 +506,18 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					</div>
 				) : null}
 			</BridgePierreWorkerPoolProvider>
-			{props.staleNotice ?? null}
+			{props.staleNotice ??
+				(retainsAnnotationSource ? (
+					<div className="pointer-events-none absolute right-2 bottom-2">
+						<Alert role="status">
+							<AlertDescription>
+								{annotationProjection.readStatus.kind === 'unavailable'
+									? 'Annotation refresh unavailable. Showing the previous file and comments.'
+									: 'File updated. Keeping your saved comment visible while annotations refresh.'}
+							</AlertDescription>
+						</Alert>
+					</div>
+				) : null)}
 		</section>
 	);
 }

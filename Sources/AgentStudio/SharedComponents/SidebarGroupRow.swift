@@ -24,7 +24,7 @@ package struct SidebarGroupRow: View {
             )
             .frame(
                 width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
-                alignment: .trailing
+                alignment: .leading
             )
 
             HStack(spacing: AppStyles.Shell.Sidebar.groupTitleSpacing) {
