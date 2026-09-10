@@ -11,9 +11,10 @@ import Observation
 final class RepoExplorerCommandPresentationBatch {
     /// Every sidebar request's capability derives from `WorkspaceCommandValidator.validate` over
     /// `actionStateSnapshot()` plus the sidebar settings that gate the static toolbar request set.
-    /// Repo/worktree membership is tracked separately per visible key. Pane-to-worktree
-    /// association never changes a capability result, so it is intentionally absent here.
+    /// Repo/worktree membership and pane association are reflected in the request set.
+    /// CWD availability gates pane path and terminal creation actions.
     private struct CapabilityFactsFingerprint: Equatable {
+        let paneHasDirectory: [UUID: Bool]
         let activeTabID: UUID?
         let activePaneID: UUID?
         let activeTabZoom: ZoomPresentation?
@@ -148,7 +149,8 @@ final class RepoExplorerCommandPresentationBatch {
                 visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
                 visiblePaneIDs: capturedVisibleSnapshot.paneIDs,
                 progressByRepositoryID: progressByRepositoryID,
-                capabilityFactsFingerprint: observeGlobalCapabilityFacts(),
+                capabilityFactsFingerprint: observeGlobalCapabilityFacts(
+                    visiblePaneIDs: capturedVisibleSnapshot.paneIDs),
                 requests: commandPresentationRequests(
                     visibleWorktreeIDs: visibleWorktreeIDs,
                     visibleRepositoryIDs: capturedVisibleSnapshot.repositoryIDs,
@@ -379,7 +381,7 @@ final class RepoExplorerCommandPresentationBatch {
     /// capability: the active tab, its active pane, that tab's zoom presentation, management
     /// layer, sidebar surface, and Panes grouping. Never iterates tabs or panes and never
     /// assembles a `Tab`.
-    private func observeGlobalCapabilityFacts() -> CapabilityFactsFingerprint {
+    private func observeGlobalCapabilityFacts(visiblePaneIDs: Set<UUID>) -> CapabilityFactsFingerprint {
         let activeTabID = store.tabLayoutAtom.activeTabId
         let activePaneID = activeTabID.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
         let activeTabZoom = activeTabID.flatMap { store.panePresentationAtom.zoomPresentation(forTab: $0) }
@@ -387,6 +389,10 @@ final class RepoExplorerCommandPresentationBatch {
         let sidebarSurface = repoExplorerPrefs.sidebarSurface
         let paneGroupingMode = repoExplorerPrefs.groupingMode(for: .panes)
         return CapabilityFactsFingerprint(
+            paneHasDirectory: Dictionary(
+                uniqueKeysWithValues: visiblePaneIDs.map {
+                    ($0, store.paneAtom.pane($0)?.metadata.cwd != nil)
+                }),
             activeTabID: activeTabID,
             activePaneID: activePaneID,
             activeTabZoom: activeTabZoom,
@@ -426,7 +432,10 @@ final class RepoExplorerCommandPresentationBatch {
             requests.formUnion(
                 RepoExplorerPaneCommandPresentation.requests(
                     paneId: paneID,
-                    isPinned: pane.metadata.isPinned
+                    isPinned: pane.metadata.isPinned,
+                    worktreeId: store.repositoryTopologyAtom.validatedAssociation(
+                        repoId: pane.repoId, worktreeId: pane.worktreeId
+                    )?.worktree.id
                 )
             )
         }

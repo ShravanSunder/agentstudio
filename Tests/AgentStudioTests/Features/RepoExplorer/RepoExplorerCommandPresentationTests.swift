@@ -84,7 +84,7 @@ struct RepoExplorerCommandPresentationTests {
         #expect(requests.allSatisfy { $0.target != nil })
     }
 
-    @Test("one visible pane produces independent pin requests")
+    @Test("pane menu requests use the pane target and omit inline pin controls")
     func visiblePaneProducesIndependentPinRequests() {
         let paneId = UUIDv7.generate()
         let requests = RepoExplorerPaneCommandPresentation.requests(
@@ -92,8 +92,9 @@ struct RepoExplorerCommandPresentationTests {
             isPinned: false
         )
 
-        #expect(requests.count == 2)
-        #expect(requests.allSatisfy { $0.command == .pinPane })
+        #expect(requests.count == 6)
+        #expect(requests.allSatisfy { $0.surface == .contextMenu })
+        #expect(requests.contains { $0.command == .pinPane })
         #expect(requests.allSatisfy { $0.target == paneId && $0.targetType == .pane })
     }
 

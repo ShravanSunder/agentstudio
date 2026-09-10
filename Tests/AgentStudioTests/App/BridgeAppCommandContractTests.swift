@@ -45,7 +45,7 @@ struct BridgeAppCommandContractTests {
         #expect(definition.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(
             definition.surfacePolicy
-                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
+                == .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
         )
         #expect(
             definition.targeting

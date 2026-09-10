@@ -205,21 +205,23 @@ struct RepoExplorerContextMenuPresenterTests {
             representedRepoID: repoID,
             representedWorktreeID: worktreeID
         )
-        let request = try #require(
-            RepoExplorerPaneCommandPresentation.requests(paneId: paneID, isPinned: false)
-                .first { $0.surface == .contextMenu }
+        let requests = RepoExplorerPaneCommandPresentation.requests(
+            paneId: paneID, isPinned: false, worktreeId: worktreeID
         )
+        let request = try #require(requests.first { $0.command == .pinPane })
         let snapshot = RepoExplorerCommandPresentationSnapshot(
             generation: 8,
-            results: [request: true]
+            results: Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
         )
+        var openedEditorPaneIDs: [UUID] = []
         var dispatchedRequests: [RepoExplorerCommandPresentationRequest] = []
         let presenter = RepoExplorerContextMenuPresenter(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             interactions: RepoExplorerTableInteractions(
                 onCommandRequest: { dispatchedRequests.append($0) },
                 onToggleGroup: { _ in },
-                onFocusPane: { _ in }
+                onFocusPane: { _ in },
+                onOpenPaneInEditor: { paneId, _ in openedEditorPaneIDs.append(paneId) }
             ),
             isRowCurrent: { $0 == rowID }
         )
@@ -227,13 +229,32 @@ struct RepoExplorerContextMenuPresenterTests {
         let menu = try #require(
             presenter.makeMenu(for: row, commandPresentationSnapshot: snapshot)
         )
-        #expect(menu.items.map(\.title) == [AppCommand.pinPane.definition.label])
+        #expect(menu.items.first?.title == "Tab 1 · Pane 1")
+        #expect(menu.items.contains { $0.title == AppCommand.pinPane.definition.label })
 
-        menu.performActionForItem(at: 0)
+        menu.performActionForItem(
+            at: try #require(menu.items.firstIndex { $0.title == AppCommand.pinPane.definition.label }))
 
         #expect(dispatchedRequests == [request])
         #expect(dispatchedRequests.first?.target == paneID)
         #expect(dispatchedRequests.first?.targetType == .pane)
+        let createTabMenu = try #require(
+            menu.items.first { $0.title == LocalActionSpec.createNewInTab.actionSpec.label }?.submenu)
+        #expect(createTabMenu.items.map(\.title) == ["Terminal", "Review", "Files"])
+        createTabMenu.performActionForItem(at: 0)
+        #expect(dispatchedRequests.last?.target == paneID)
+        createTabMenu.performActionForItem(at: 1)
+        #expect(dispatchedRequests.last?.target == worktreeID)
+        #expect(dispatchedRequests.last?.targetType == .worktree)
+        let editorMenu = try #require(
+            menu.items.first { $0.title == LocalActionSpec.openInEditorMenu.actionSpec.label }?.submenu)
+        #expect(editorMenu.items.count == 2)
+        editorMenu.performActionForItem(at: 0)
+        #expect(openedEditorPaneIDs == [paneID])
+        #expect(
+            menu.items.suffix(2).map(\.title) == [
+                LocalActionSpec.revealInFinder.actionSpec.label, LocalActionSpec.copyPath.actionSpec.label,
+            ])
     }
 
     private func makeMaterializer(

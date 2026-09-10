@@ -134,7 +134,7 @@ struct RepoExplorerPaneProjectionTests {
         let group = try #require(projection.resolvedGroups.first)
         let rows = try #require(projection.paneRowsByGroupId[group.id])
         #expect(rows.map(\.destination.paneId) == [newerPaneId, olderPaneId])
-        #expect(rows[0].primaryText == "Pane 2 · tests running")
+        #expect(rows[0].primaryText == "agent-studio.sidebar-grouping")
         #expect(rows[0].secondaryText == "Tests passed")
         #expect(rows[0].recencyText == "Now")
         #expect(rows[0].isActive)
@@ -276,7 +276,7 @@ struct RepoExplorerPaneProjectionTests {
         #expect(projection.worktreeRowsByGroupId.isEmpty)
         let firstTabRows = try #require(projection.paneRowsByGroupId[projection.resolvedGroups[0].id])
         #expect(firstTabRows.map(\.destination.paneId) == [firstPaneId, thirdPaneId])
-        #expect(firstTabRows.map(\.primaryText) == ["Pane 1 · first terminal", "Pane 2 · third terminal"])
+        #expect(firstTabRows.map(\.primaryText) == ["main · Pane 1", "main · Pane 2"])
         #expect(firstTabRows.map(\.secondaryText) == ["First message", "Third message"])
     }
 

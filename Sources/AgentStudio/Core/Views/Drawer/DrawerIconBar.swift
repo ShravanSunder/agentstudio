@@ -43,6 +43,7 @@ enum DrawerIconBarLeadingControls {
 /// Follows the same callback-driven pattern as `ArrangementBar`.
 struct DrawerIconBar: View {
     let octiconLoader: OcticonLoader
+    let pinPaneAction: TargetedCommandControlAction?
     let leadingControls: DrawerIconBarLeadingControls
     let trailingActions: DrawerOverlay.TrailingActions?
     let paneSurfaceActions: [PaneSurfaceToolbarAction]
@@ -62,11 +63,13 @@ struct DrawerIconBar: View {
     init(
         octiconLoader: OcticonLoader,
         leadingControls: DrawerIconBarLeadingControls,
+        pinPaneAction: TargetedCommandControlAction? = nil,
         trailingActions: DrawerOverlay.TrailingActions?,
         paneSurfaceActions: [PaneSurfaceToolbarAction] = [],
         paneContextActions: [PaneSurfaceToolbarAction] = []
     ) {
         self.octiconLoader = octiconLoader
+        self.pinPaneAction = pinPaneAction
         self.leadingControls = leadingControls
         self.trailingActions = trailingActions
         self.paneSurfaceActions = paneSurfaceActions
@@ -201,6 +204,27 @@ struct DrawerIconBar: View {
                                             label: addDrawerPaneAction.commandSpec.label,
                                             isEnabled: addDrawerPaneAction.isEnabled,
                                             action: addDrawerPaneAction.perform
+                                        )
+                                    }
+                                }
+                                if let pinPaneAction {
+                                    Button(action: pinPaneAction.perform) {
+                                        pinPaneAction.commandSpec.icon.swiftUIImage(
+                                            loader: octiconLoader, size: AppStyles.General.Icon.compact
+                                        )
+                                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!pinPaneAction.isEnabled)
+                                    .controlHelp(pinPaneAction.commandSpec.controlTooltipRenderValue())
+                                    .accessibilityHidden(true)
+                                    .background {
+                                        AccessibilityPressBridge(
+                                            identifier: "paneSurfaceToolbar.pinPane",
+                                            label: pinPaneAction.commandSpec.label,
+                                            isEnabled: pinPaneAction.isEnabled,
+                                            action: pinPaneAction.perform
                                         )
                                     }
                                 }

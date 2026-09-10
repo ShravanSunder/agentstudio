@@ -37,19 +37,63 @@ final class RepoExplorerContextMenuPresenter: NSObject {
                 commandPresentationSnapshot: commandPresentationSnapshot
             )
         case .pane(let pane):
-            guard
-                let pin = RepoExplorerPaneCommandPresentation.resolve(
-                    paneId: pane.destination.paneId, isPinned: pane.isPinned, surface: .contextMenu,
-                    snapshot: commandPresentationSnapshot
-                )
-            else { return nil }
-            let menu = makeEmptyMenu()
-            addCommand(pin, rowID: row.id, to: menu)
-            return menu
+            return makePaneMenu(rowID: row.id, pane: pane, snapshot: commandPresentationSnapshot)
         case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .loadingRepository,
             .unassociatedPane, .topologyFault, .unresolved:
             return nil
         }
+    }
+
+    private func makePaneMenu(
+        rowID: RepoExplorerRowID,
+        pane: RepoExplorerProjectedPaneRow,
+        snapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> NSMenu {
+        let requests = RepoExplorerPaneCommandPresentation.requests(
+            paneId: pane.destination.paneId, isPinned: pane.isPinned,
+            worktreeId: pane.destination.worktreeId
+        )
+        func presentation(_ command: AppCommand) -> RepoExplorerPresentedCommand? {
+            guard let request = requests.first(where: { $0.command == command }) else { return nil }
+            return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
+        }
+        let menu = makeEmptyMenu()
+        let location = NSMenuItem(
+            title: "Tab \(pane.destination.tabIndex + 1) · Pane \(pane.destination.paneIndexInTab + 1)",
+            action: nil, keyEquivalent: ""
+        )
+        location.isEnabled = false
+        menu.addItem(location)
+        addSeparatorIfNeeded(to: menu)
+        for command: AppCommand in [.zoomPane, pane.isPinned ? .unpinPane : .pinPane] {
+            if let presented = presentation(command) { addCommand(presented, rowID: rowID, to: menu) }
+        }
+        addSeparatorIfNeeded(to: menu)
+        addCommandSubmenu(
+            action: .createNewInTab,
+            commands: [.openNewTerminalInTab, .openBridgeReviewInNewTab, .openBridgeFilesInNewTab].map(presentation),
+            rowID: rowID, to: menu
+        )
+        addCommandSubmenu(
+            action: .createNewInPane,
+            commands: [.openWorktreeInPane, .showBridgeReview, .showBridgeFiles].map(presentation),
+            rowID: rowID, to: menu
+        )
+        if presentation(.copyCurrentPanePath)?.isEnabled == true {
+            let editorMenu = makeEmptyMenu()
+            addLocalAction(.openInCursor, rowID: rowID, to: editorMenu) { [interactions] in
+                interactions.onOpenPaneInEditor(pane.destination.paneId, ExternalEditorTarget.cursor.id)
+            }
+            addLocalAction(.openInVSCode, rowID: rowID, to: editorMenu) { [interactions] in
+                interactions.onOpenPaneInEditor(pane.destination.paneId, ExternalEditorTarget.vscode.id)
+            }
+            addSubmenu(editorMenu, actionSpec: LocalActionSpec.openInEditorMenu.actionSpec, to: menu)
+        }
+        addSeparatorIfNeeded(to: menu)
+        for command: AppCommand in [.openPaneLocationInFinder, .copyCurrentPanePath] {
+            if let presented = presentation(command) { addCommand(presented, rowID: rowID, to: menu) }
+        }
+        return menu
     }
 
     private func makeGroupMenu(

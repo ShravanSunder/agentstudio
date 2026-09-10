@@ -8,6 +8,7 @@ import SwiftUI
 struct DrawerToolbarCommandPresentation {
     let toggleDrawer: TargetedCommandControlAction?
     let addDrawerPane: TargetedCommandControlAction?
+    let pinPane: TargetedCommandControlAction?
     let editPaneNote: TargetedCommandControlAction?
     let openEditorMenu: TargetedCommandControlAction?
     let openFinder: TargetedCommandControlAction?
@@ -19,7 +20,8 @@ struct DrawerToolbarCommandPresentation {
         anchorPaneId: UUID,
         locationTargetPaneId: UUID,
         toolbarSurface: AppCommandToolbarSurface,
-        actionResolver: TargetedCommandControlActionResolver
+        actionResolver: TargetedCommandControlActionResolver,
+        isOwnerPinned: Bool = false
     ) -> Self {
         let commandSurface = AppCommandSurface.toolbar(toolbarSurface)
         return Self(
@@ -34,6 +36,9 @@ struct DrawerToolbarCommandPresentation {
                 commandSurface,
                 anchorPaneId,
                 .pane
+            ),
+            pinPane: actionResolver(
+                isOwnerPinned ? .unpinPane : .pinPane, commandSurface, anchorPaneId, .pane
             ),
             editPaneNote: actionResolver(
                 .editPaneNote,
@@ -158,7 +163,8 @@ struct PaneSurfaceToolbarHost: View {
             anchorPaneId: anchorPaneId,
             locationTargetPaneId: locationTargetPaneId,
             toolbarSurface: toolbarSurface,
-            actionResolver: targetedCommandActionResolver
+            actionResolver: targetedCommandActionResolver,
+            isOwnerPinned: store.paneAtom.pane(anchorPaneId)?.metadata.isPinned ?? false
         )
         let locationContext = PaneManagementContext.project(
             paneId: locationTargetPaneId,
@@ -235,6 +241,7 @@ struct PaneSurfaceToolbarHost: View {
             isIconBarVisible: true,
             toggleDrawerAction: commandPresentation.toggleDrawer,
             addDrawerPaneAction: commandPresentation.addDrawerPane,
+            pinPaneAction: commandPresentation.pinPane,
             trailingActions: hostedActions,
             paneSurfaceActions: leadingToolbarActions,
             paneContextActions: contextToolbarActions
