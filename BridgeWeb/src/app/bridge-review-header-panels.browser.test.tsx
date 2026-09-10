@@ -138,11 +138,18 @@ describe('Bridge Review header peer panels', () => {
 			expect(scrollBounds.height).toBeGreaterThan(200);
 			if (!(scroll instanceof HTMLElement)) throw new Error('Expected result scroll container.');
 			expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
-			await performAction(async (): Promise<void> => {
-				scroll.scrollTop = scroll.scrollHeight;
-				scroll.dispatchEvent(new Event('scroll'));
-				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-			});
+			// The virtualizer publishes both scroll start and a debounced scroll end.
+			// Exercise both inside act without waiting on its wall-clock reset delay.
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+			try {
+				await act(async (): Promise<void> => {
+					scroll.scrollTop = scroll.scrollHeight;
+					scroll.dispatchEvent(new Event('scroll'));
+					await vi.runOnlyPendingTimersAsync();
+				});
+			} finally {
+				vi.useRealTimers();
+			}
 			await expect.element(rendered.getByTestId('comparison-branch-branch-79')).toBeVisible();
 			expect(note.getBoundingClientRect().bottom).toBeCloseTo(noteBounds.bottom, 0);
 			await page.screenshot({ path: '../../../tmp/bridgeweb-compare-filled-drawer.png' });
