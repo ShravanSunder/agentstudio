@@ -6,9 +6,9 @@ import type { ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
 const switchTrackClassName =
-	'relative inline-flex h-4 w-7 shrink-0 rounded-full border border-input bg-field-background outline-none transition-colors data-checked:border-primary data-checked:bg-primary/15 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:border-input data-disabled:bg-muted data-disabled:opacity-100';
+	'relative inline-flex h-4 w-7 shrink-0 rounded-full border border-transparent bg-input outline-none transition-colors data-checked:bg-primary/15 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:border-input data-disabled:bg-muted data-disabled:opacity-100';
 const switchThumbClassName =
-	'absolute top-px left-px size-3 rounded-full bg-muted-foreground transition-transform duration-[var(--motion-fast)] data-checked:translate-x-3 data-checked:bg-primary data-disabled:bg-faint-foreground motion-reduce:transition-none';
+	'absolute top-px left-px size-3 rounded-full bg-foreground transition-transform duration-[var(--motion-fast)] data-checked:translate-x-3 data-checked:bg-control-selected-foreground data-disabled:bg-faint-foreground motion-reduce:transition-none';
 
 function Switch({ className, ...props }: SwitchPrimitive.Root.Props): ReactElement {
 	return (

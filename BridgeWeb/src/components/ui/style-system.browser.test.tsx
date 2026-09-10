@@ -137,7 +137,11 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	const rendered = await render(
 		<div>
 			<span className="border border-input" data-testid="input-border-color" />
+			<span className="border border-border" data-testid="quiet-border-color" />
 			<span className="text-faint-foreground" data-testid="faint-foreground-color" />
+			<Button data-testid="outline-button" variant="outline">
+				Outlined action
+			</Button>
 			<Button aria-expanded="true" data-testid="open-button" variant="ghost">
 				Open panel
 			</Button>
@@ -180,6 +184,12 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	const inputBorder = getComputedStyle(
 		rendered.getByTestId('input-border-color').element(),
 	).borderColor;
+	const quietBorder = getComputedStyle(
+		rendered.getByTestId('quiet-border-color').element(),
+	).borderColor;
+	const outlineButtonStyle = getComputedStyle(rendered.getByTestId('outline-button').element());
+	expect(outlineButtonStyle.borderColor).toBe(quietBorder);
+	expect(outlineButtonStyle.borderColor).not.toBe(inputBorder);
 	const disabledToggle = rendered.getByTestId('disabled-selected-toggle').element();
 	const disabledToggleStyle = getComputedStyle(disabledToggle);
 	expect(disabledToggleStyle.opacity).toBe('1');
@@ -192,7 +202,7 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 	const disabledOpenStyle = getComputedStyle(disabledOpenButton);
 	expect(disabledOpenStyle.opacity).toBe('1');
 	expect(disabledOpenStyle.backgroundColor).toBe(transparentBackground);
-	expect(disabledOpenStyle.borderColor).toBe(inputBorder);
+	expect(disabledOpenStyle.borderColor).toBe(quietBorder);
 	expect(disabledOpenStyle.color).toBe(faintForeground);
 	expect(getComputedStyle(requiredSvg(disabledOpenButton)).color).toBe(faintForeground);
 

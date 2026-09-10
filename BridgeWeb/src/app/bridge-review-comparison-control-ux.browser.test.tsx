@@ -566,7 +566,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
-		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(28, 32, 38)');
+		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(32, 36, 42)');
 	});
 
 	test('keeps the complete selected target readable in the closed toolbar control', async () => {

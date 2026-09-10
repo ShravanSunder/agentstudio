@@ -6558,3 +6558,10 @@ Same existing SwiftUI animation paths; scoped timing/test changes only.
 
 TRANSPORT0297 final timing amendment: incoming fade100–140ms, not120–160ms.
 Only subtract full fade duration from resize end; outgoing/resize unchanged.
+
+TRANSPORT0297 checkpoint efd46f5a5 includes final140ms timing and released native
+sidebar paint dependencies. Signed commit succeeded;8sidebar tests/scoped lint
+pass. Debug1owk PID9452 relaunched. Owner requests push; aggregate running at
+tmp/pr-a-push-gate-2026-09-10.log. Keep shared source frozen during gate. UI115
+webresource slot for1owk released; native timing build is complete. New main
+c64e3cade is a substantial pane-lifecycle merge, not yet integrated here.

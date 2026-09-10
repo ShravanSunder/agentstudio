@@ -10,7 +10,7 @@ import {
 import { useEffect, useId, type ReactElement } from 'react';
 
 import { Button } from '../components/ui/button.js';
-import { Field, FieldLabel } from '../components/ui/field.js';
+import { Field, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.js';
 import { Switch } from '../components/ui/switch.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
@@ -81,36 +81,36 @@ export function BridgeViewerViewSettingsMenu(
 				aria-label="View settings"
 				align="end"
 				scrollable
-				className="w-64"
+				className={props.surface === 'review' ? 'w-72' : 'w-64'}
 				data-testid={`${testPrefix}-content`}
 				sideOffset={6}
 			>
-				<section aria-label="Appearance" className="flex flex-col gap-2 py-1">
-					<ViewSettingsToggleRow
-						checked={props.settings.lineNumbers}
-						icon={ListOrderedIcon}
-						id={`${switchIdPrefix}-line-numbers`}
-						label="Line numbers"
-						onCheckedChange={updateLineNumbers}
-					/>
-					<ViewSettingsToggleRow
-						checked={props.settings.wordWrap}
-						icon={WrapTextIcon}
-						id={`${switchIdPrefix}-word-wrap`}
-						label="Word wrap"
-						onCheckedChange={updateWordWrap}
-					/>
-				</section>
-				{props.surface === 'review' ? (
-					<div className="flex flex-col gap-2 py-1">
+				<FieldGroup layout="settings" className="px-1 py-1">
+					<section aria-label="Appearance" className="col-span-2 grid grid-cols-subgrid gap-y-2">
+						<ViewSettingsToggleRow
+							checked={props.settings.lineNumbers}
+							icon={ListOrderedIcon}
+							id={`${switchIdPrefix}-line-numbers`}
+							label="Line numbers"
+							onCheckedChange={updateLineNumbers}
+						/>
+						<ViewSettingsToggleRow
+							checked={props.settings.wordWrap}
+							icon={WrapTextIcon}
+							id={`${switchIdPrefix}-word-wrap`}
+							label="Word wrap"
+							onCheckedChange={updateWordWrap}
+						/>
+					</section>
+					{props.surface === 'review' ? (
 						<ViewSettingsRadioGroup
 							label="Layout"
 							onSelect={(diffLayout): void => props.onChange({ ...props.settings, diffLayout })}
 							options={diffLayoutOptions}
 							value={props.settings.diffLayout}
 						/>
-					</div>
-				) : null}
+					) : null}
+				</FieldGroup>
 				<Button
 					className="w-full justify-start"
 					data-testid={`${testPrefix}-reset`}
@@ -152,7 +152,7 @@ function ViewSettingsToggleRow(props: {
 }): ReactElement {
 	const Icon = props.icon;
 	return (
-		<Field className="px-1" orientation="setting">
+		<Field orientation="setting">
 			<FieldLabel htmlFor={props.id}>
 				<Icon aria-hidden="true" />
 				<span>{props.label}</span>
@@ -178,8 +178,8 @@ function ViewSettingsRadioGroup<TValue extends string>(props: {
 	readonly value: TValue;
 }): ReactElement {
 	return (
-		<section aria-label={props.label}>
-			<Field className="px-1" orientation="setting">
+		<section aria-label={props.label} className="col-span-2 grid grid-cols-subgrid">
+			<Field orientation="setting">
 				<FieldLabel>
 					<Columns2Icon aria-hidden="true" />
 					<span>{props.label}</span>

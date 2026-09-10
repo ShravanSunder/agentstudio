@@ -11,7 +11,7 @@ import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu
 describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 	test('keeps settings and reset reachable in a short viewport', async () => {
 		const originalSize = { width: window.innerWidth, height: window.innerHeight };
-		await page.viewport(480, 120);
+		await page.viewport(320, 120);
 		const defaults = {
 			changeBackgrounds: true,
 			changeIndicators: 'bars' as const,
@@ -36,6 +36,8 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 				document.querySelector('[data-testid="bridge-review-view-settings-content"]'),
 			);
 			expect(popup.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight);
+			expect(popup.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
+			expect(popup.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
 			expect(popup.scrollHeight).toBeGreaterThan(popup.clientHeight);
 			await act(async (): Promise<void> => {
 				await rendered.getByRole('button', { name: 'Reset defaults' }).click();
@@ -149,6 +151,30 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			requireHTMLElement(row.querySelector('[data-slot="field-label"]')).getBoundingClientRect(),
 		);
 		expect(new Set(labelBounds.map((bounds) => Math.round(bounds.left))).size).toBe(1);
+		const controlBounds = settingRows.map((row) =>
+			requireHTMLElement(
+				row.querySelector('[data-slot="switch"], [data-slot="toggle-group"]'),
+			).getBoundingClientRect(),
+		);
+		expect(new Set(controlBounds.map((bounds) => Math.round(bounds.right))).size).toBe(1);
+		for (const [index, label] of labelBounds.entries()) {
+			expect((controlBounds[index]?.left ?? 0) - label.right).toBeGreaterThanOrEqual(12);
+		}
+		const popupBounds = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-view-settings-content"]'),
+		).getBoundingClientRect();
+		for (const control of controlBounds) {
+			expect(control.right).toBeLessThanOrEqual(popupBounds.right - 8);
+		}
+		const settingsGrid = document.querySelector(
+			'[data-slot="field-group"][data-layout="settings"]',
+		);
+		expect(settingsGrid).not.toBeNull();
+		expect(
+			settingsGrid?.querySelector('[data-testid="bridge-review-view-settings-reset"]'),
+		).toBeNull();
+		for (const control of appearanceSwitches)
+			expect(control.getBoundingClientRect().width).toBe(28);
 		for (const row of settingRows) {
 			const label = requireHTMLElement(row.querySelector('[data-slot="field-label"]'));
 			expect(getComputedStyle(label).fontWeight).toBe('400');
@@ -161,7 +187,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			width: 24,
 		});
 		expect(elementSize('[data-testid="bridge-review-view-settings-content"]')).toMatchObject({
-			width: 256,
+			width: 288,
 		});
 		// Act
 		await act(async (): Promise<void> => {
@@ -203,26 +229,78 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 		await expect.poll(() => onOpenChange.mock.calls).toContainEqual([false]);
 	});
 
-	test('shared switch recipes preserve disabled paint and passive indicator geometry', async () => {
+	test('shared switch recipes preserve semantic states, focus, and passive indicator parity', async () => {
 		const rendered = await render(
 			<div>
+				<span className="bg-primary/15" data-testid="switch-selected-fill" />
+				<Switch aria-label="Enabled setting" checked />
+				<Switch aria-label="Off setting" checked={false} />
 				<Switch aria-label="Disabled setting" checked disabled />
 				<SwitchIndicator checked />
 				<SwitchIndicator checked={false} />
 			</div>,
 		);
+		const checkedSwitch = rendered.getByRole('switch', { name: 'Enabled setting' }).element();
+		const uncheckedSwitch = rendered.getByRole('switch', { name: 'Off setting' }).element();
 		const disabledSwitch = rendered.getByRole('switch', { name: 'Disabled setting' }).element();
 		const indicators = [
 			...document.querySelectorAll<HTMLElement>('[data-slot="switch-indicator"]'),
 		];
+		expect(checkedSwitch).toHaveAttribute('aria-checked', 'true');
+		expect(uncheckedSwitch).toHaveAttribute('aria-checked', 'false');
+		expect(getComputedStyle(checkedSwitch).backgroundColor).toBe(
+			getComputedStyle(rendered.getByTestId('switch-selected-fill').element()).backgroundColor,
+		);
+		expect(getComputedStyle(checkedSwitch).borderColor).toBe('rgba(0, 0, 0, 0)');
+		expect(
+			getComputedStyle(
+				requireHTMLElement(checkedSwitch.querySelector('[data-slot="switch-thumb"]')),
+			).backgroundColor,
+		).toBe('rgb(137, 180, 250)');
+		expect(getComputedStyle(uncheckedSwitch).backgroundColor).toBe('rgb(110, 119, 135)');
+		expect(
+			getComputedStyle(
+				requireHTMLElement(uncheckedSwitch.querySelector('[data-slot="switch-thumb"]')),
+			).backgroundColor,
+		).toBe('rgb(234, 234, 234)');
+		checkedSwitch.focus();
+		await userEvent.keyboard('{Tab}');
+		expect(uncheckedSwitch).toHaveFocus();
+		expect(getComputedStyle(uncheckedSwitch).boxShadow).toContain('0px 0px 0px 2px');
 		expect(disabledSwitch).toHaveAttribute('data-disabled');
 		expect(getComputedStyle(disabledSwitch).pointerEvents).toBe('none');
 		expect(getComputedStyle(disabledSwitch).opacity).toBe('1');
+		expect(getComputedStyle(disabledSwitch).backgroundColor).toBe('rgb(54, 54, 54)');
+		expect(getComputedStyle(disabledSwitch).borderColor).toBe('rgb(110, 119, 135)');
+		expect(
+			getComputedStyle(
+				requireHTMLElement(disabledSwitch.querySelector('[data-slot="switch-thumb"]')),
+			).backgroundColor,
+		).toBe('rgb(155, 161, 173)');
 		expect(indicators.map((indicator) => elementBounds(indicator))).toEqual([
 			{ height: 16, width: 28 },
 			{ height: 16, width: 28 },
 		]);
 		expect(indicators.map(switchThumbOffset)).toEqual([13, 1]);
+		expect(indicators.map((indicator) => getComputedStyle(indicator).backgroundColor)).toEqual([
+			getComputedStyle(checkedSwitch).backgroundColor,
+			getComputedStyle(uncheckedSwitch).backgroundColor,
+		]);
+		expect(
+			indicators.map(
+				(indicator) =>
+					getComputedStyle(
+						requireHTMLElement(indicator.querySelector('[data-slot="switch-thumb"]')),
+					).backgroundColor,
+			),
+		).toEqual([
+			getComputedStyle(
+				requireHTMLElement(checkedSwitch.querySelector('[data-slot="switch-thumb"]')),
+			).backgroundColor,
+			getComputedStyle(
+				requireHTMLElement(uncheckedSwitch.querySelector('[data-slot="switch-thumb"]')),
+			).backgroundColor,
+		]);
 	});
 });
 

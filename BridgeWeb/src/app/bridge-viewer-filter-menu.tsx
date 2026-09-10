@@ -23,9 +23,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 } from '../components/ui/dropdown-menu.js';
 import { StatusBadge } from '../components/ui/status-badge.js';
 import {
@@ -167,6 +164,7 @@ export function BridgeViewerFilterTrigger(props: {
 }
 
 export function BridgeViewerFacetMenu(props: {
+	readonly columns?: boolean;
 	readonly children: ReactNode;
 	readonly clearDisabled: boolean;
 	readonly clearLabel: string;
@@ -198,12 +196,12 @@ export function BridgeViewerFacetMenu(props: {
 			/>
 			<DropdownMenuContent
 				align="end"
-				className="w-72 max-w-[calc(100vw-32px)]"
+				className={
+					props.columns ? 'w-[520px] max-w-[calc(100vw-32px)]' : 'w-72 max-w-[calc(100vw-32px)]'
+				}
 				data-testid={props.contentTestId}
 				sideOffset={6}
 			>
-				<DropdownMenuHeader title={props.title} data-testid={props.headerTestId} />
-				<DropdownMenuSeparator />
 				{props.children}
 				<DropdownMenuSeparator />
 				<BridgeViewerFilterClearItem
@@ -227,11 +225,17 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 	readonly optionTestId: string;
 	readonly options: readonly BridgeViewerFacetMenuOption<TValue>[];
 	readonly testId: string;
-	readonly submenu?: boolean;
 }): ReactElement {
 	const options = (
 		<DropdownMenuGroup aria-label={props.label} data-testid={props.testId}>
-			<DropdownMenuLabel>{props.label}</DropdownMenuLabel>
+			<DropdownMenuLabel>
+				{props.label === 'Git status' ? (
+					<GitBranchIcon aria-hidden="true" />
+				) : (
+					<FilesIcon aria-hidden="true" />
+				)}
+				{props.label}
+			</DropdownMenuLabel>
 			<div className="space-y-0.5">
 				{props.options.map(
 					(option: BridgeViewerFacetMenuOption<TValue>): ReactElement => (
@@ -251,22 +255,7 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 			</div>
 		</DropdownMenuGroup>
 	);
-	if (props.submenu !== true) return options;
-	const selectedLabel = props.options.find((option) => option.value === props.activeValue)?.label;
-	return (
-		<DropdownMenuSub>
-			<DropdownMenuSubTrigger aria-label={props.label}>
-				{props.label === 'Git status' ? (
-					<GitBranchIcon aria-hidden="true" />
-				) : (
-					<FilesIcon aria-hidden="true" />
-				)}
-				<span>{props.label}</span>
-				<span className="ml-auto truncate">{selectedLabel}</span>
-			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className="w-64">{options}</DropdownMenuSubContent>
-		</DropdownMenuSub>
-	);
+	return options;
 }
 
 export function BridgeViewerFilterMenu<TValue extends string>(

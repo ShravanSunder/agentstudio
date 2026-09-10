@@ -323,11 +323,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const reviewFacetTrigger = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-menu-control"]'),
 		);
-		await act(async (): Promise<void> => {
-			requireReviewHTMLElement(
-				document.querySelector('[role="menuitem"][aria-label="Git status"]'),
-			).click();
-		});
 		await expect.poll(() => reviewFacetOptionContaining('Added')).not.toBeNull();
 		const reviewFacetOption = requireReviewHTMLElement(reviewFacetOptionContaining('Added'));
 		const reviewFacetClear = requireReviewHTMLElement(
@@ -353,7 +348,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await dispatchReviewViewerShortcut({ altKey: true });
 		await expect.poll(() => document.activeElement?.getAttribute('role')).toBe('menu');
 		await dispatchReviewViewerMenuKey('ArrowDown');
-		await dispatchReviewViewerMenuKey('ArrowRight');
 		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('All statuses');
 		await dispatchReviewViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('Added');

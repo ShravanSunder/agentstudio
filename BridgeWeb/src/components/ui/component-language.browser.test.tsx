@@ -1,13 +1,90 @@
+import { act } from 'react';
 import { expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Observe the actual production cascade.
 import '../../app/bridge-app.css';
+import { BridgeReviewFacetMenu } from '../../review-viewer/chrome/bridge-review-facet-menu.js';
 import { Button } from './button.js';
 import { InputGroup, InputGroupInput } from './input-group.js';
 import { Input } from './input.js';
+import { Switch } from './switch.js';
 import { ToggleGroup, ToggleGroupItem } from './toggle-group.js';
+
+test('separates compact menu headings through weight, foreground, spacing and a quiet rule', async () => {
+	await render(
+		<BridgeReviewFacetMenu
+			categoryFilter="all"
+			gitStatusFilter="all"
+			gitStatusOptions={[{ value: 'all', label: 'All statuses', description: 'Every status' }]}
+			onFilterChange={() => undefined}
+			onOpenChange={() => undefined}
+			open
+			showBinary={false}
+			showLarge={false}
+		/>,
+	);
+	const headings = document.querySelectorAll('[data-slot="dropdown-menu-label"]');
+	expect(headings).toHaveLength(2);
+	for (const heading of headings) {
+		const style = getComputedStyle(heading);
+		expect.soft(style.fontSize).toBe('11px');
+		expect.soft(style.fontWeight).toBe('600');
+		expect.soft(style.color).toBe('rgb(234, 234, 234)');
+		expect.soft(style.borderBottomWidth).toBe('1px');
+		expect.soft(style.borderBottomColor).toBe('rgba(255, 255, 255, 0.1)');
+		expect.soft(style.marginBottom).toBe('6px');
+		expect(heading.querySelector('svg')).not.toBeNull();
+	}
+});
+
+test.each(['bg-popover', 'bg-card', 'bg-background'] as const)(
+	'keeps switch thumbs distinguishable against the %s surface',
+	async (surface) => {
+		const rendered = await render(
+			<div className={surface}>
+				<Switch aria-label="Enabled" checked />
+				<Switch aria-label="Off" checked={false} />
+			</div>,
+		);
+		for (const name of ['Enabled', 'Off']) {
+			const track = rendered.getByRole('switch', { name }).element();
+			const thumb = track.querySelector('[data-slot="switch-thumb"]');
+			if (thumb === null) throw new Error('Switch thumb missing');
+			expect(
+				renderedContrast(track, getComputedStyle(thumb).backgroundColor),
+			).toBeGreaterThanOrEqual(3);
+		}
+	},
+);
+
+test('keeps selected fill on hover and a separate keyboard focus ring', async () => {
+	const rendered = await render(
+		<ToggleGroup value={['review']} variant="segmented">
+			<ToggleGroupItem value="review" data-testid="selection-focus">
+				Review
+			</ToggleGroupItem>
+		</ToggleGroup>,
+	);
+	const selected = rendered.getByTestId('selection-focus').element();
+	const restingFill = getComputedStyle(selected).backgroundColor;
+	await act(async (): Promise<void> => {
+		await userEvent.hover(selected);
+	});
+	await expect.poll(() => getComputedStyle(selected).backgroundColor).toBe(restingFill);
+	await act(async (): Promise<void> => {
+		await userEvent.unhover(selected);
+		await userEvent.keyboard('{Tab}');
+	});
+	await expect.element(selected).toHaveFocus();
+	await Promise.all(selected.getAnimations().map((animation: Animation) => animation.finished));
+	expect(getComputedStyle(selected).boxShadow).toContain('143, 152, 168');
+	expect(getComputedStyle(selected).backgroundColor).toBe(restingFill);
+	await act(async (): Promise<void> => {
+		await rendered.unmount();
+	});
+});
 
 test('quiets expanded ghost buttons without changing hover or other button variants', async () => {
 	const rendered = await render(
@@ -86,9 +163,11 @@ test('uses coherent control roles without recoloring protected annotation and co
 	const style = (testId: string): CSSStyleDeclaration =>
 		getComputedStyle(rendered.getByTestId(testId).element());
 	expect.soft(style('action').color).toBe('rgb(234, 234, 234)');
-	expect.soft(style('selected').color).toBe('rgb(234, 234, 234)');
+	expect.soft(style('selected').color).toBe('rgb(137, 180, 250)');
 	expect.soft(style('input').backgroundColor).toBe('rgb(20, 24, 30)');
 	expect.soft(style('track').backgroundColor).toBe('rgba(0, 0, 0, 0)');
+	expect.soft(style('track').borderColor).toBe('rgb(67, 75, 87)');
+	expect.soft(style('selected').borderColor).toBe('rgba(0, 0, 0, 0)');
 	expect.soft(style('disabled-selected').opacity).toBe('1');
 	expect.soft(style('disabled-selected').borderColor).not.toBe('rgba(0, 0, 0, 0)');
 	expect

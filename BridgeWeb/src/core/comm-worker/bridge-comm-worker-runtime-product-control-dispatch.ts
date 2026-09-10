@@ -18,6 +18,7 @@ import {
 } from './bridge-comm-worker-runtime-health.js';
 import type { BridgeCommWorkerProductControlSender } from './bridge-comm-worker-runtime-protocol-contracts.js';
 import { sendBridgeCommWorkerActionWithTimeout } from './bridge-comm-worker-runtime-support.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type {
 	BridgeWorkerMainToServerMessage,
@@ -90,10 +91,16 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 			props.comparisonTargetsQueryRunner.abort();
 			props.setActiveComparisonTargetsRequestId(productControlCommand.requestId);
 		}
-		void sendBridgeCommWorkerActionWithTimeout({
-			send: (): Promise<unknown> => props.sendProductControl(productControlCommand.command),
-			timeoutMilliseconds: props.productControlTimeoutMilliseconds,
-		})
+		const send = (): Promise<unknown> => props.sendProductControl(productControlCommand.command);
+		// A native Save panel has a user-controlled lifetime. Timing it out does not
+		// cancel the native effect, and would discard a later successful save.
+		const completion = annotationOutputMayOpenSavePanel(productControlCommand.command)
+			? Promise.resolve().then(send)
+			: sendBridgeCommWorkerActionWithTimeout({
+					send,
+					timeoutMilliseconds: props.productControlTimeoutMilliseconds,
+				});
+		void completion
 			.then((actionResult): void => {
 				if (
 					productControlCommand.command.method === 'review.comparisonTargets.query' &&
@@ -168,4 +175,17 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				),
 			);
 	}
+}
+
+function annotationOutputMayOpenSavePanel(command: BridgeProductControlCommand): boolean {
+	if (
+		command.method !== 'file.annotations.command' &&
+		command.method !== 'review.annotations.command'
+	)
+		return false;
+	const operation = command.params.operation;
+	return (
+		operation.kind === 'output.repeat' ||
+		(operation.kind === 'output.scope.commit' && operation.outputKind === 'jsonFile')
+	);
 }

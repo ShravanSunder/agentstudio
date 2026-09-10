@@ -54,7 +54,7 @@ describe('Bridge CodeView file corner', () => {
 		]);
 		expect(metadata.lastElementChild).toBe(button);
 		expect(button.getAttribute('data-slot')).toBe('button');
-		expect(button.classList).toContain('border-input');
+		expect(button.classList).toContain('border-border');
 		expect(button.getAttribute('data-bridge-code-view-file-path')).toBe(item.headPath);
 		expect(button.querySelector('svg')).not.toBeNull();
 		expect(Math.round(button.getBoundingClientRect().width)).toBe(24);

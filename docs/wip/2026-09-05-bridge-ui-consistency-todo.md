@@ -4,6 +4,58 @@ Owner: UI lane. This is an open-work checklist, not completion evidence or a rep
 for the governing style-system plan. Transport work must not displace these tasks.
 User screenshots and current source drive the drawer findings below.
 
+## Current UI / backend split
+
+- Settings main body: shared CSSGrid/subgrid, labels left-aligned and controls
+  right-aligned within the common second column; no overlap, minimum12px
+  label clearance. Titles/footer excluded, Reset kept separate. Review288px,
+  Files256px.25focused browser tests and quality pass; currentnative refresh pending.
+- Latest menu decision supersedes earlier colored-category and eight-choice notes:
+  Git status icons colored; category icons neutral. Expose only All, Source code,
+  Tests, Documentation, Configuration, Test data. Remove Generated, Dependencies /
+  Build, Other choices without changing classification/All visibility. Shared
+  group headings use11px semibold foreground, neutral icons, one quiet separator
+  and6px bottom space. Implemented candidate; final integrated proof underway.
+- Avatar proposal only: same cool neutral default for You/Agent, identity from
+  initial/name rather than pending/new colors. Not implemented or accepted yet.
+- Current proof: final menu22/22 browser tests and BridgeWeb quality pass;
+  Chrome5201 screenshot confirms final membership, neutral categories and shared
+  headings. Prior switch26/26 and native19/4suites pass; Chrome and native
+  click/Space/Reset verified in UI112. Native refresh for the newer menu is
+  pending after another lane's corrected E2E compilation error.
+
+- [ ] Shared switch: implemented15%primary checked track/light-blue selected
+  thumb, no redundant blue outline; off input track/foreground thumb. RED1/14,
+  GREEN26/26, three-host contrast, disabled/focus/passive parity, Chrome/native
+  interactions and bounded Astra source review complete. Owner visual acceptance
+  remains separate from these checks.
+- [ ] Toolbar outlines: one quiet shared boundary for native Repos/Panes groups,
+  Bridge Files/Review, branch and Annotations controls; editable input borders
+  remain distinct. Current shared outline candidate uses border rather than input;
+  verify current Annotations/branch and native compositions visually.
+- [ ] Selected text/icons: proposed semantic selected-control foreground#89B4FA
+  across native/Bridge,15%#409CFF fill, no inner selected border. Implemented
+  candidate; contrast tests pass, native/current visual proof remains due.
+- [ ] Section headings:80%accent proposal for shared heading text/icon; no trailing
+  parent-section rule. Implemented candidate; do not alter global secondary opacity.
+- [ ] Backend agent: native file-classification corrections and real File/Review
+  filter coverage; explicit owner handoff UI-110 in the append-only UI log.
+  TRANSPORT0293 reports realSwift/Vite1/1 retry0 for all8categories inboth viewers,
+  exact paths/ancestors, empty intersection, SearchClear and CategoryClear; source
+  freeze released. Binary/large visibility are separate, not covered by this claim.
+- [ ] UI: neutral file-category icons in Files and Review; only Git status
+  colors remain. Implemented and Chrome verified; final native refresh pending.
+- [ ] UI: remove unrequested Review submenus; direct visible status/type groups,
+  consistent icon/label scale and hierarchy. Do not independently reduce width.
+- [ ] UI: shared native/Bridge selected-control recipe and toolbar borders;
+  keep pending blue-foreground contrast decision separate from implementation.
+- [ ] UI: track owner visual acceptance separately from automated/test proof.
+  Preserve other open items below; whitespace feature stays deferred.
+
+Latest filter proof: TRANSPORT0295 reports reduced-category realSwift/Vite1/1
+and focused browser11/11. Prior8category proof is historical; the exposed choices
+are now All plus5categories. Native classes and All visibility are unchanged.
+
 ## Current delivery order — 2026-09-08
 
 - [ ] **UI-F05 Share Copy/Export unavailable or inert:** user reports both footer
@@ -219,3 +271,35 @@ or transport proof.
 - [ ] Obtain independent review, verify findings, and make scoped checkpoint commits.
 - [ ] Mark individual items complete only with current source/test/manual evidence links.
   Do not mark the whole UI complete from a transport fix or one passing slice.
+## Current owner review queue — toolbar consistency
+
+This queue is incomplete until the owner has seen the current native build.
+Passing tests or a checkpoint commit do not mark a visual item accepted.
+
+- [ ] Native Repos/Panes selector: add one quiet outer group boundary matching
+  Bridge selector framing. Requested; not implemented.
+- [ ] Branch toolbar button: remove disproportionate bright input-strength border.
+  Proposed shared toolbar boundary #434B57; preserve stronger editable-input
+  boundaries and separate keyboard-focus indication. Not implemented.
+- [ ] Selected foreground: owner finds white Bridge selected labels too muted;
+  native uses blue. Decide a shared/context-appropriate recipe with contrast
+  proof before editing; solid primary blue over15% tint fails4.5:1 on cards.
+- [ ] Section headings (Other Panes/Open Repos/Pinned Repos): proposed shared
+  accent opacity80% instead of70%; no trailing rule proposed. Await confirmation;
+  not implemented. Do not change global secondary-text opacity.
+- [ ] Selection fill/border trial: Bridge15% fill/no solid inner blue border and
+  native15% fill implemented; scoped browser/native/build proof passed and debug
+  preview refreshed. Owner reports muted selection; NOT visually accepted.
+- [ ] Metadata regular-weight trial: native12pt regular/systemsecondary implemented,
+  focused native proof passed. Do not claim all sidebar text roles aligned.
+- [ ] Simplified settings: only line numbers, wrap, layout, reset; regular labels
+  and shared row recipe implemented/tested/native previewed. Final owner acceptance
+  remains separate from these observations.
+- [ ] Palette previews: floating#20242A and hover#343A44 implemented/tested/refreshed;
+  maintain consistent whole-surface comparison, no fresh arbitrary color patches.
+- [ ] Complete current-delta independent review and full aggregate; coordinate
+  remaining source with transport; commit/push current accepted scope.
+- [ ] Final native UX proof, beta release authority/gates, and approved experiment
+  worktree cleanup remain open. Never conflate old integrated aggregate with new UI.
+- [ ] Ignore-whitespace-only diff feature: explicitly deferred by owner until UI
+  consistency is settled. No backend or renderer implementation authorized now.

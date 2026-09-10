@@ -27,9 +27,7 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 		);
 
 		// Act
-		await openFacetSubmenu('Git status');
 		const gitRows = findMenuCheckboxItems('Git status');
-		await openFacetSubmenu('File category');
 		const categoryRows = findMenuCheckboxItems('File category');
 		const visibilityRows = findMenuCheckboxItems('Visibility');
 
@@ -56,21 +54,54 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 			'Tests',
 			'Documentation',
 			'Configuration',
-			'Generated',
-			'Dependencies / build',
 			'Test data',
-			'Other',
 		]);
 		for (const row of categoryRows) {
 			expect(row.querySelector('[data-testid$="-option-badge"] svg')).not.toBeNull();
+		}
+		const categoryBadges = categoryRows.map((row) =>
+			requireHTMLElement(row.querySelector('[data-testid$="-option-badge"]')),
+		);
+		const neutralBadge = categoryBadges[0];
+		if (neutralBadge === undefined) throw new Error('All category badge missing');
+		for (const badge of categoryBadges) {
+			expect(getComputedStyle(badge).color).toBe(getComputedStyle(neutralBadge).color);
+			expect(getComputedStyle(badge).backgroundColor).toBe(
+				getComputedStyle(neutralBadge).backgroundColor,
+			);
+		}
+		expect(
+			new Set(
+				gitRows.map(
+					(row) =>
+						getComputedStyle(
+							requireHTMLElement(row.querySelector('[data-testid$="-option-badge"]')),
+						).color,
+				),
+			).size,
+		).toBe(5);
+		const groupLabels = document.querySelectorAll('[data-slot="dropdown-menu-label"]');
+		expect(groupLabels).toHaveLength(2);
+		for (const heading of groupLabels) {
+			expect(heading.querySelector('svg')).not.toBeNull();
+			expect(getComputedStyle(heading).fontSize).toBe('11px');
+		}
+		expect(document.querySelector('[data-slot="dropdown-menu-sub-trigger"]')).toBeNull();
+		for (const rows of [gitRows, categoryRows]) {
+			const firstLabel = rows[0]?.querySelector('[data-testid$="-option-label"]');
+			expect(firstLabel).not.toBeNull();
+			for (const row of rows) {
+				const label = requireHTMLElement(row.querySelector('[data-testid$="-option-label"]'));
+				expect(getComputedStyle(label).fontSize).toBe('11px');
+				expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+				expect(label.getBoundingClientRect().left).toBe(firstLabel?.getBoundingClientRect().left);
+				expect(getComputedStyle(row).height).toBe('28px');
+			}
 		}
 		expect(categoryRows.map(checkedState)).toEqual([
 			'false',
 			'false',
 			'true',
-			'false',
-			'false',
-			'false',
 			'false',
 			'false',
 			'false',
@@ -143,15 +174,6 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 		});
 	});
 });
-
-async function openFacetSubmenu(label: string): Promise<void> {
-	const trigger = document.querySelector(`[role="menuitem"][aria-label="${label}"]`);
-	expect(trigger).not.toBeNull();
-	await act(async (): Promise<void> => requireHTMLElement(trigger).click());
-	await expect
-		.poll(() => document.querySelector(`[role="group"][aria-label="${label}"]`))
-		.not.toBeNull();
-}
 
 const gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
 	{ value: 'all', label: 'All', description: 'Show every Git status' },

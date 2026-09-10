@@ -96,7 +96,7 @@ describe('worktree annotation Share comments presentation', () => {
 		const shareTrigger = rendered.getByRole('button', { name: 'Annotations', exact: true });
 		expect(shareTrigger.element().textContent).toBe('Annotations');
 		expect(shareTrigger.element().querySelector('.lucide-messages-square')).not.toBeNull();
-		expect(shareTrigger.element().classList).toContain('border-input');
+		expect(shareTrigger.element().classList).toContain('border-border');
 		expect(shareTrigger.element().getAttribute('data-slot')).toBe('drawer-trigger');
 		expect(shareTrigger.element().getAttribute('data-tooltip')).toBe('Annotations');
 		expect(shareTrigger.element().getBoundingClientRect().width).toBeGreaterThan(80);

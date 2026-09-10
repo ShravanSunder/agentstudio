@@ -122,16 +122,26 @@ or domain behavior requires an explicit product decision, not a styling shortcut
 
 - **Settings:** compose a Popover with labelled Field setting rows; booleans use
   Switch and exclusive choices use the shared segmented ToggleGroup. Align
-  label/icon starts and equivalent controls across rows. Reserve readable labels
+  label/icon starts and equivalent controls across rows. The main settings body
+  uses `FieldGroup layout="settings"` as one two-column grid; section wrappers
+  and `Field orientation="setting"` rows inherit its columns through subgrid.
+  Controls align at their right edge within the shared control column and retain
+  intrinsic sizes; labels stay left-aligned. Titles and Reset
+  stay outside this grid. Reserve readable labels
   and control clearance at supported widths; use a responsive composition when
   they cannot fit, rather than shrinking text or clipping labels. See the
   [settings consumer](../../../BridgeWeb/src/app/bridge-viewer-view-settings-menu.tsx)
   and [Field recipe](../../../BridgeWeb/src/components/ui/field.tsx).
 - **Menus:** use owned groups, labels and items. The checkbox item is the sole
-  interactive owner; SwitchIndicator is passive. Review uses status/category
-  submenus; Files exposes categories directly. Category icons are neutral; Git
-  status uses status color. Test data means fixture directories, Dependencies /
-  build includes vendor/build directories, and Other means unmatched files.
+  interactive owner; SwitchIndicator is passive. Review exposes status/category
+  groups directly in two columns where space permits; Files exposes categories
+  directly. Group labels retain the compact 11px scale, semibold foreground and
+  a neutral identifying icon, with one quiet separator and 6px space before choices.
+  Category icons are neutral; only Git status icons use semantic status colors.
+  Selectable categories are All, Source code, Tests, Documentation, Configuration
+  and Test data. Generated, vendor/build and unmatched classes remain backend
+  metadata, not exposed category choices; removing a choice does not reclassify
+  files or change default visibility. Test data means fixture directories.
 - **Persistent search:** compose search, ComboboxViewport, continuous
   [Item rows](../../../BridgeWeb/src/components/ui/item-content.tsx) and supporting
   notes. Preserve 8px search/results/note clearance, selection/checkmark clearance
@@ -232,7 +242,7 @@ is its checked, value-identical mirror for static theme consumers.
 | Meaning | Value or role |
 |---|---|
 | app/code canvas | Ghostty grey `#282C34` |
-| header / tree and file header / floating surface | `#191B1F` / `#1C2026` / `#1C2026` |
+| header / tree and file header / floating surface | `#191B1F` / `#1C2026` / `#20242A` |
 | nested card surface | `#272C34`; independent from the popover role |
 | product primary and sidebar identity | `#409CFF` |
 | syntax blue | Catppuccin `#89B4FA` |
@@ -245,7 +255,7 @@ is its checked, value-identical mirror for static theme consumers.
 
 Product primary has only solid, 15% tint, and text uses. It is not the syntax palette.
 Ghost/outline hover and open/boolean pressed states use the shared surface-relative
-`control-hover` (#3E4652); expanded ghost controls use `control-fill` (#343A44). Selected Toggles
+`control-hover` (#343A44); expanded ghost controls use `control-fill` (#343A44). Selected Toggles
 use product tint. Share/menu/panel-open buttons are not exclusive selection.
 Disabled controls use explicit neutral foreground, icon, fill, and boundary values at
 opacity 1; hover/open/selected cannot restore enabled colors. A disabled selected
@@ -253,8 +263,15 @@ toggle keeps a faint-role outline so its selected identity remains visible.
 Enabled text meets 4.5:1 and meaningful indicators 3:1 on actual composited fills.
 Inputs, input groups and combobox chips use the recessed `field-background` (#14181E);
 segmented tracks are transparent and outlined; selected
-labels use ordinary foreground over primary tint. Descriptions retain their
+labels use `control-selected-foreground` (#89B4FA) over primary tint. Descriptions retain their
 supporting role when highlighted rather than becoming uniformly bright.
+
+Switch checked tracks also use 15% primary with a `control-selected-foreground`
+thumb; thumb position is the non-color state cue. Unchecked tracks use `input`
+with a `foreground` thumb. The passive menu indicator shares the same recipe;
+it is not a nested interactive switch. Disabled paint remains explicitly neutral,
+and keyboard focus has the independent `ring` treatment. Check thumb contrast
+against the actual composited track on each supported surface.
 
 Menus, popovers, tooltips, toasts and comboboxes share the primitive-owned popover family.
 Drawers use that same floating role. Cards use their own palette value rather than
@@ -330,7 +347,11 @@ just a filename bypass.
 
 The shared refresh-status group is a noninteractive 24 px container with a separator-strength
 `border` outline; its child actions still select owned Button recipes. It is not a selected
-ToggleGroup well, whose `input` outline denotes a control boundary.
+ToggleGroup well, whose quiet `border` outline groups the choices. Selected
+segments use 15% primary fill without a solid blue inner border; keyboard focus
+keeps its separate ring. Native shared selected fill also uses 15%, with
+selected text/icons matching #89B4FA by convention. Ordinary outline buttons
+and segmented group frames use `border`; editable field boundaries use `input`.
 
 Sonner injects unlayered third-party CSS. Only its owned adapter may prioritize canonical
 toast title/description and elevation utilities with important modifiers to override those

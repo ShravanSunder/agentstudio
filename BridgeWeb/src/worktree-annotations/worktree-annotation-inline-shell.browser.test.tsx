@@ -428,7 +428,7 @@ describe('worktree annotation inline shell', () => {
 		const replyButton = thread
 			.getByRole('button', { name: 'Reply to annotation thread' })
 			.element();
-		expect(replyButton.classList).toContain('border-input');
+		expect(replyButton.classList).toContain('border-border');
 		expect(replyButton.classList).toContain('size-6');
 		const resolveButton = thread.getByRole('button', { name: 'Resolve annotation thread' });
 		await expect.element(resolveButton).toBeVisible();

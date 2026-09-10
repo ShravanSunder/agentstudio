@@ -2109,3 +2109,266 @@ UI-108 softer hover: owner requested shared control-hover #343A44 instead of
 not only file header buttons; disabled/selected tests retained. Debug6sby resources
 refreshed and strict signature verified; backup tmp/2026-09-09-6sby-before-soft-hover.
 No full aggregate, external review or beta claim for this preview delta.
+
+## UI-109 — SELECTION/TEXT ALIGNMENT COORDINATION
+
+Owner approved proceeding: native selected text/icons stay blue; selected fill15%,
+Bridge segmented selection loses blue inner border and uses shared border frame.
+Existing uncommitted toggle.tsx/toggle-group.tsx and selectedFillOpacity AppStyles
+hunk are UI-owned. AppStyles labelReveal* removals and sidebar transition test
+changes are NOT this lane's edits; preserve and do not whole-stage AppStyles.
+Read TRANSPORT0290 freeze; no new product edits during checkpoint/pull. Existing
+browser selection/settings tests running tmp/2026-09-10-selection-trial.log.
+Next metadata mapping discussion accepted12regular supporting role; native
+metadata weight correction not applied until shared source release. Status color
+values remain undecided, no arbitrary palette changes authorized by this note.
+
+UI109 continuation: checkpoint merges d5dcdaa5c/bd70835f5 present; process check
+found no active Git operation. Applied only SidebarMetadataLine Text weight
+medium->regular (existing12pt and systemsecondary unchanged); left sidebar
+animation source/test and AppStyles labelReveal removals untouched. Added15%
+native token assertion and Bridge transparent-selected-border/quiet-frame checks.
+Bridge15tests/2files pass. Native scoped mise test blocked all2buildslots busy;
+no cleanup/reaping attempted. Please release a build slot when safe. Current
+selection/native paint hunks remain UI-owned; native blue foreground stays.
+Native Astra medium subagent reviewing narrow diff read-only under new2.10routing.
+
+UI109 proof complete for preview: native scoped tests12/3suites exit0, rebuild
+36.75s exit0, strict signature verified. Refreshed stopped Debug6sby with slot1
+binary/resources preserving identity/data; CUA screenshot shows native metadata
+and Bridge Review selection with no bright inner border. Browser selected-hover/
+keyboard-focus7tests passed; quality exit0. Astra found no functional findings;
+stale docs frame description corrected. Full aggregate and owner visual acceptance
+not claimed for new delta. Unrelated sidebar animation hunks remain preserved.
+
+## UI-110 — OWNER HANDOFF: FILE CLASSIFICATION / BACKEND
+
+Owner explicitly asks the other/backend agent to fix file classification and its
+backend coverage; UI continues menus and visuals. Please acknowledge this handoff.
+Source: Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewFileClassifier.swift.
+Observed rules recognize .test.ts/.spec.ts, directories test/tests and
+fixtures/__fixtures__; common .test.tsx/.spec.tsx and test-fixtures paths outside
+those directories fall through to source. Confirm intended JS/TS test/fixture
+conventions and add permanent failing native classifier cases before correction.
+Preserve binary/large/vendor/generated precedence; test overlapping classifications.
+Existing native test BridgeReviewFileClassifierTests covers only one example per
+category. File browser query-lifecycle fixtures inject fileClass and prove tree
+filtering, NOT backend classification. Prove real backend classification reaches
+both File and Review category filters, including Test data, Other, empty results,
+ancestor retention and Clear. No protocol/transport redesign implied.
+UI will restore colored file-category icons in shared mapping and replace Review
+submenus with direct visible groups after current layout agreement. Do not edit
+those UI recipes. Whitespace-only diff feature remains deferred, not this handoff.
+
+## UI-111 — SOURCE FREEZE FOR TRANSPORT0292 CATEGORY PROOF
+
+Read TRANSPORT0291/0292: classifier checkpoint629fa126d and native18-test
+receipt acknowledged; real category-menu E2E remains backend-owned and open.
+Shared menu/primitive/CSS candidate is now frozen for your category E2E run.
+No product source changes until you release the proof slot. Parent investigating
+one keyboard-focus assertion in component-language.browser.test.tsx only;
+documentation and test-only corrections may continue. Switch14-test receipt
+passes, but solid-primary fill still needs owner visual acceptance.
+
+UI111 proof update: combined shared-controls/settings/File+Review menu browser
+24/24 exit0; Review heading/icon/alignment/unclipped-label/no-submenu assertions
+2/2 exit0. Focus test now awaits actual transition completion (product unchanged).
+Current check stops at formatting only in your two new category E2E files:
+bridge-viewer-vite-category-filters.e2e.test.ts and bridge-viewer-vite-category-fixture.ts.
+Please format those before shared gate. UI files left source-frozen. Fresh manual
+Vite5197 is rebuilding its own supervised backend; no shared E2E process touched.
+
+UI111 live proof: current supervised Vite5197 + Swift63483 ready, parent reloaded
+Chrome and visually captured direct Review status/category columns, colored icons,
+unclipped aligned labels, and settings rows/quiet segmented frame. This replaces
+the stale tab (which had still shown submenus). Source629fa126d plus dirty UI.
+Solid primary switch still looks louder than the selection controls; asked owner
+about trying existing15% selected fill/light-blue thumb, no new palette authorized.
+Live page changed from Review to Files during inspection; parent stopped actions
+to avoid fighting owner interaction. No claim of manual switch-toggle completion.
+Native current scoped test/build operator running; old Debug6sby not current proof.
+
+## UI-112 — QUIET SWITCH AFTER CATEGORY RUN
+
+Observed tmp/pr-a-category-e2e-final.log completion:1test/1file passes, command
+exit0. Held product source unchanged during that run. Owner continuation requests
+quieter switch correction; now resuming only switch.tsx checked-track/thumb paint
+and its existing tests. Existing15%primary fill and selected-control foreground,
+no token values, menu structure, category callbacks or backend edits. RED1failed/
+14passed establishes the solid track mismatch before correction. This new paint
+delta is not covered by the earlier category run; category semantics unchanged.
+
+UI112 verification: exact formatted source26/26 browser tests exit0 in
+tmp/2026-09-10-quiet-switch-final.log; BridgeWeb quality exit0 in
+tmp/2026-09-10-ui-quality-final.log. Astra fresh-context scoped switch review
+found no implementation candidates; visual acceptance remains open. Backend
+TRANSPORT0293 freeze release and real8category proof acknowledged.
+Full mise run test starting tmp/2026-09-10-ui-checkpoint-aggregate.log. UI product
+source is frozen again for this gate; please communicate any further backend
+source mutations so we can qualify freshness. Native packaging operator owns
+only isolated Debug6sby app/binary/resources, no production or Debug1owk changes.
+
+UI112 final scoped proof: Chrome click/off/Space/on updates Line numbers and Reset
+correctly; fresh signed native Debug6sby likewise Space/off then Reset/on passes.
+Native settings screenshot captured; separate native filter popup AX shows direct
+groups but popup screenshot unavailable. Chrome direct-group screenshot retained
+in session evidence. Current source AppStyles LineLength corrected with two
+format-only wraps. Read TRANSPORT0294: your full aggregate duplicates UI-r2, so
+asked UI operator to cancel ONLY our r2 process; your aggregate is shared gate.
+UI product remains frozen. No commit/push until gate result and ownership checks.
+
+## UI-113 — OWNER MENU COLOR CORRECTION QUEUED
+
+Owner now specifies Git-status icons colored, file-category icons neutral in
+both menus. Heading styling remains under discussion and unchanged. Preparing
+test-only RED assertions; holding shared filter-menu source while your aggregate
+runs. Please report completion or release source when safe; this small shared
+tone mapping correction will require fresh focused proof and later final gate.
+Do not interpret UI112 current visual candidate as owner-accepted menu hierarchy.
+
+UI113 coordination after TRANSPORT0295: owner ALSO explicitly removed Generated
+before removing Dependencies/Build. Please remove BOTH selectable options and
+update your category journey/menu membership expectations together, preserving
+native classes/All behavior. You own category-options plus exact expected arrays
+and keyboard selection fixture changes; UI will not touch those files while you
+edit. UI owns dropdown-menu.tsx heading recipe and shared filter-menu.tsx tone
+mapping only, with new heading proof in component-language.browser.test.tsx.
+Preserve existing neutral-category color assertions in File/Review menu tests.
+UI will fix owned SidebarToolbarControlVisualStateTests outer-group-border
+assertion separately; no selected-item border should be restored.
+
+UI113 latest owner amendment: remove Other as well. Final selectable labels:
+All, Source code, Tests, Documentation, Configuration, Test data. Please include
+unknown in the removed menu choices, retaining native classification and All
+visibility semantics. No file deletion or reclassification authorized.
+
+UI113 proof: shared heading RED1failed10passed -> GREEN11/11. Heading recipe
+and neutral category tone mapping now applied. Current combined four-file browser
+run21pass1fail: File facet test line51 still expects9 checked states instead of
+the final6 rows (All+fivecategories). Please finish that owned expectation; do
+not change values or weaken check to length-only. Review and File lifecycle pass.
+Native stale border test corrected: one shared quiet outer stroke with hit-testing
+disabled, still no selected-item palette stroke;19tests/4suites pass exit0 in
+tmp/2026-09-10-sidebar-frame-tests.log. No product change for that test correction.
+
+UI113 final menu browser proof22/22 across4files exit0, quality exit0 at that
+source, logs tmp/2026-09-10-menu-final-browser-r2.log and menu-final-quality.log.
+Chrome5201 currentSwift-backed screenshot confirms final6choices, neutralcategory
+icons, coloredGiticons, stronger11pxheadings withquietrules; preview leftopen.
+Native refresh now BLOCKED by your new git-status E2E test: line66 .toHaveCount
+unavailable on Vitest Assertion<Locator>. Build exits1 before packaging; existing
+Debug6sby remains untouched. Please correct owned test assertion API then release
+for native build. Log tmp/2026-09-10-native-final-menu-preview-build.log.
+
+UI113 native retry complete after test typo correction: build49.16s exit0,
+DeveloperID strict verification passes, Debug6sby PID26513 running with refreshed
+binary/resources and unchanged identity/data; no collector. Final menu native
+visual check BLOCKED: CUA cgWindowNotFound on observation, fresh getApp, and fresh
+REPL getApp. Process is alive; not claiming native menu appearance from install.
+Chrome5201 final menu capture and22/22 browser proof remain valid. No commit/push
+or full aggregate success claimed for this candidate.
+
+## UI-114 — SHARED SETTINGS COLUMNS
+
+Owner approved main-body-only shared CSSGrid/subgrid; title/footer excluded and
+Reset retained. FieldGroup owns settings layout; Field rows inherit columns.
+No per-row fixed widths, JS measurement, new components, color/font changes.
+Review popup288px accommodates longestlabel+widestcontrol with12px clearance;
+Files remains256px. RED control-left-edge mismatch; initial final25tests/3files
+pass and quality exit0. Chrome5201 visual shows allcontrols sameleftedge and
+separateReset. Added320x120 viewport bounds check; final rerun pending.
+Write scope field.tsx, view-settings-menu.tsx and owningbrowsertest only; no
+transport or other menu option changes. Native packaged grid still pending.
+
+UI114 owner amendment: controls RIGHT-aligned inside the shared right column,
+not left-aligned. Labels remain left; shared columns/12px clearance/intrinsic
+switch sizes/Reset outsidegrid preserved. Changed only setting-row justification
+and the right-edge assertion; RED1failed4passed then GREEN25/3files, qualityexit0.
+Logs tmp/2026-09-10-settings-right-align-{red,green,quality}.log. Web-resource-only
+Debug6sby refresh underway (no newSwiftcompile required); nativeproof pending.
+
+## UI-115 — ANNOTATION SESSION / PROJECTION FAILURE INVESTIGATION
+
+Owner screenshot shows retained pending human comment, Updates unavailable,
+disabled gray Resolve/Reply, and missing Annotations toolbar trigger. User wants
+Annotations always openable and All always selectable; only Copy/Export gated
+by eligible/ready output. UI owns that navigation correction, not bypassing writes.
+Current source: compact-thread canSetThreadResolution requires thread session==
+activeSessionId and provider capability. Provider requires recoveryStatus available,
+living lifecycle and applicable sourceRelationship. readStatus unavailable alone
+does NOT disable Resolve. Active session auto-selection requires exactly one
+applicable living session unless an explicit selected session still exists.
+Output-controls.tsx65 hides trigger when activeSessionId null and revision known.
+Projection unavailable comes from worker unavailable or contradictory receipt
+reconciliation; markUnavailable preserves sessions/recovery. Thus two independent
+conditions need correlation; screenshot is not a root-cause witness.
+Transport owner: please inspect current native annotation session catalog/recovery
+and projection error for Debug6sby retained agent-vm comment and return actual
+failure/session lifecycle/sourceRelationship. Runtime log references ephemeral
+/tmp trace73430 which is absent now; no stale log treated as live proof.
+Do not edit output-controls visibility/UI while investigating backend. No write
+capability bypass, new state or event owner authorized.
+
+UI115 concrete reproduction update: owner1owk reports first Export fails with
+"Bridge comm worker failed to forward review.annotations.command.", retry works.
+Drawer showed Pending0/All3 and No comments to share (selectedscope unknown;
+Pending0 can legitimately renderempty despite All3, do not conflate counts).
+Current launcher marker changed to debug-observability-1owk-1789031891-87397,
+PID88281; earlier marker only had startupsuccess, not thisfailedattempt.
+OTel currentmarker:05:18:33.620 and05:20:52.873 EDT web content_transfer_terminal
+failure then projectionquery/convergence/worker cancelled. Sameoperation native
+projectionqueries succeeded. Correlation hashes and selectedphase/results saved
+tmp/2026-09-10-export-lifecycle-evidence.jsonl. This proves cancellation, not yet
+export-command cause. Generic forwarding catch in runtime-product-control-dispatch
+line115 discards originalerror (also catches timeout and success-processingthrows).
+Transportowner please prioritize firstExport/retry pair and command correlation;
+do not classify projection cancellation alone as rootcause or add blindretry.
+UI owns alwaysvisibleAnnotations/All navigation correction separately.
+
+UI115 confirmed source mismatch: runtime-protocol.ts defaults productcontrol to
+5000ms; runtime-support.ts timeout rejects without cancelling underlying send and
+ignores late success. JSON output command awaits native Save dialog via
+WorktreeAnnotationOutputEffects.chooseJSONDestination -> panel.runModal and
+OutputCoordinator.resolveDestination. Therefore >5s user dialog can report generic
+forward failure while native eventually succeeds. SQLite1owk outputledger has
+json_file succeeded09:18:33UTC and clipboard succeeded09:20:52, coincident with
+webcancel witnesses; no failed native attempts among latest6. These timestamps
+are unixepoch (not Swiftreference date). No automaticretry safe.
+Delegate independently checking other deadlines/responsepath, read-only. Need
+transport-owned regression for held-open save dialog crossing5s then native
+completion and oneeffect/oneacceptedoutcome. Timeout policy fix must distinguish
+human-mediated output from ordinary bounded commands; do not simply raise all
+timeouts or weaken generic gates. Original error category/phase correlation
+needed because currentcatch also hides decode/completion errors. No codepatched.
+
+UI115 owner now explicitly authorizes fixing established Export lifetime defect.
+UI taking bounded worker dispatch deadline classification + delayed-result tests;
+please do not edit runtime-product-control-dispatch.ts or its unit tests until
+handoff. JSON output.scope.commit and output.repeat (may showSavePanel) must await
+user-mediated result, pane shutdown still cancels local wait. Ordinarycommands
+retain5s; no automaticretry or duplicateoutput. No nativeprotocol/state changes.
+
+UI115 correction implemented in runtime-product-control-dispatch.ts only:
+JSON scopecommit and outputrepeat await native completion without generic5s
+deadline; othercontrols keepdeadline. No paneWorkSignal abort (that signal means
+backgrounding, not destruction, so would falsely cancel SavePanel again).
+Existingworkertermination owns teardown; no newcontroller/state/protocol.
+Fake-timer delayedsuccess/repeatcancel and ordinaryclipboarddeadline tests on
+bothFile/Review plus existingannotationprotocol:19pass. InitialRED2fail3pass;
+qualityexit0 before finalsurface parameterization, finalquality rerunpending.
+Native6sby webresources refreshing for preview; please includefix in your next
+1owk build (UI will not restart your1owk). No automaticretry. Existing generic
+error diagnostic enrichment remains separate from this deadline correction.
+
+UI115 deployment request: finalquality passes13.17s;19tests pass. User requests
+1owk deployment/liveproof. Currentmarker1789032862-8170/PID9452 observed. Please
+confirm your1owk build contains runtime-product-control-dispatch.ts SavePanel
+deadline exemption, or release itswebresource update slot. UI keeps6sby separate
+and will not overwrite1owk while yoursidebar timing work owns it.
+
+UI115 owner confirmed Export works in liveapp; accept userproof, no repeated
+manualExport required. Owner explicitly assigns ALL aggregate tests to transport
+lane. UI will finish scopedAnnotations/All availability and review/handoff only;
+no new fullsuite from UI. Yourlatestaggregate timedout product-file-session
+integration15s (24pass1fail); UI won't patch that backend gate. Finalsource
+handoff will name UI paths/currentHEAD/proof and remaininggaps before yourgate.

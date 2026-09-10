@@ -38,12 +38,20 @@ function FieldLegend({
 	);
 }
 
-function FieldGroup({ className, ...props }: ComponentProps<'div'>): ReactElement {
+function FieldGroup({
+	className,
+	layout = 'default',
+	...props
+}: ComponentProps<'div'> & { readonly layout?: 'default' | 'settings' }): ReactElement {
 	return (
 		<div
 			data-slot="field-group"
+			data-layout={layout}
 			className={cn(
-				'group/field-group @container/field-group flex w-full flex-col gap-4 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4',
+				'group/field-group @container/field-group w-full',
+				layout === 'settings'
+					? 'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2'
+					: 'flex flex-col gap-4 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4',
 				className,
 			)}
 			{...props}
@@ -55,7 +63,7 @@ const fieldVariants = cva('group/field flex w-full gap-2 data-[invalid=true]:tex
 	variants: {
 		orientation: {
 			setting:
-				'grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 [&>[data-slot=field-label]]:whitespace-nowrap [&>[data-slot=field-label]]:font-normal [&>[data-slot=field-label]]:text-sm [&>[data-slot=field-label]]:leading-4',
+				'col-span-2 grid min-h-7 grid-cols-subgrid items-center justify-items-end gap-x-3 [&>[data-slot=field-label]]:justify-self-start [&>[data-slot=field-label]]:whitespace-nowrap [&>[data-slot=field-label]]:font-normal [&>[data-slot=field-label]]:text-sm [&>[data-slot=field-label]]:leading-4',
 			vertical: 'flex-col *:w-full [&>.sr-only]:w-auto',
 			horizontal:
 				'flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px',

@@ -12,7 +12,7 @@ import {
 	BridgeViewerFacetToggleRow,
 	type BridgeViewerFacetMenuOption,
 } from '../../app/bridge-viewer-filter-menu.js';
-import { DropdownMenuGroup, DropdownMenuLabel } from '../../components/ui/dropdown-menu.js';
+import { DropdownMenuGroup } from '../../components/ui/dropdown-menu.js';
 import type { BridgeFileChangeKind } from '../../foundation/review-package/bridge-review-package.js';
 
 type BridgeReviewFilterCandidate = Extract<
@@ -39,6 +39,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 
 	return (
 		<BridgeViewerFacetMenu
+			columns
 			clearDisabled={!hasActiveFacet}
 			clearLabel="Clear filters"
 			clearTestId="bridge-review-facet-clear"
@@ -64,12 +65,11 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 			triggerActiveIndicatorTestId="bridge-review-facet-active-indicator"
 			triggerGlyphTestId="bridge-review-facet-trigger-glyph"
 		>
-			<div className="grid gap-1" data-testid="bridge-review-facet-columns">
+			<div className="grid gap-2 sm:grid-cols-2" data-testid="bridge-review-facet-columns">
 				<BridgeViewerFacetGroup
 					activeValue={props.gitStatusFilter}
 					defaultValue="all"
 					label="Git status"
-					submenu
 					onChange={(gitStatusFilter) =>
 						props.onFilterChange({
 							categoryFilter: props.categoryFilter,
@@ -89,7 +89,6 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 					activeValue={props.categoryFilter}
 					defaultValue="all"
 					label="File category"
-					submenu
 					onChange={(categoryFilter) =>
 						props.onFilterChange({
 							categoryFilter,
@@ -107,9 +106,9 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 				/>
 				<DropdownMenuGroup
 					aria-label="Visibility"
+					className="sm:col-span-2"
 					data-testid="bridge-review-facet-visibility-group"
 				>
-					<DropdownMenuLabel>Visibility</DropdownMenuLabel>
 					<div className="grid gap-0.5">
 						<BridgeViewerFacetToggleRow
 							checked={props.showBinary}

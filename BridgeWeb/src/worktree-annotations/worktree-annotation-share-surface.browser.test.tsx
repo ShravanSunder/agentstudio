@@ -72,7 +72,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			.getByRole('button', { name: 'Annotations', exact: true })
 			.element();
 		expect(annotationsTrigger.textContent).toBe('Annotations');
-		expect(annotationsTrigger.classList).toContain('border-input');
+		expect(annotationsTrigger.classList).toContain('border-border');
 		expect(annotationsTrigger.querySelector('svg')).not.toBeNull();
 		const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
 		const codeCanvas = rendered.getByTestId('share-layout-code-canvas').element();

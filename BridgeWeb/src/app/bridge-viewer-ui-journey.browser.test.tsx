@@ -132,11 +132,6 @@ describe('Bridge viewer synthetic production-shell journey', () => {
 		expect(getComputedStyle(disabledFacetClear).opacity).toBe('1');
 		expect(disabledFacetClear.hasAttribute('data-disabled')).toBe(true);
 
-		await act(async (): Promise<void> => {
-			requireHTMLElement(
-				document.querySelector('[role="menuitem"][aria-label="Git status"]'),
-			).click();
-		});
 		await expect
 			.poll(() => document.querySelector('[role="group"][aria-label="Git status"]'))
 			.not.toBeNull();

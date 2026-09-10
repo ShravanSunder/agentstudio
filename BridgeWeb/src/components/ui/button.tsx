@@ -19,7 +19,7 @@ const buttonVariants = cva(
 				'success-outline':
 					'border-success/50 bg-success/10 text-success hover:border-success/70 hover:bg-success/15 hover:text-success disabled:border-input disabled:bg-transparent disabled:hover:border-input disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
 				outline:
-					'border-input bg-transparent text-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-hover aria-expanded:text-accent-foreground aria-pressed:bg-control-hover aria-pressed:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-input disabled:bg-transparent disabled:hover:border-input disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
+					'border-border bg-transparent text-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-hover aria-expanded:text-accent-foreground aria-pressed:bg-control-hover aria-pressed:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-border disabled:bg-transparent disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-faint-foreground',
 				secondary:
 					'bg-control-fill text-secondary-foreground hover:bg-control-hover hover:text-accent-foreground aria-expanded:bg-control-hover aria-expanded:text-accent-foreground data-popup-open:bg-control-hover data-popup-open:text-accent-foreground disabled:border-input disabled:bg-muted',
 				ghost:

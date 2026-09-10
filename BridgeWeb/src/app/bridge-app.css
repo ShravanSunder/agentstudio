@@ -55,6 +55,7 @@
 	--color-secondary: var(--secondary);
 	--color-control-fill: var(--control-fill);
 	--color-control-hover: var(--control-hover);
+	--color-control-selected-foreground: var(--control-selected-foreground);
 	--color-field-background: var(--field-background);
 	--color-secondary-foreground: var(--secondary-foreground);
 	--color-muted: var(--muted);
@@ -198,6 +199,7 @@
 	/* Shared controls use opaque neutral fills distinct from recessed field wells. */
 	--control-fill: var(--palette-control-fill);
 	--control-hover: var(--palette-control-hover);
+	--control-selected-foreground: var(--palette-blue);
 	--field-background: var(--palette-field-background);
 	/* High-contrast text on secondary controls. */
 	--secondary-foreground: var(--palette-text-secondary);
