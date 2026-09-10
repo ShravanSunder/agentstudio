@@ -1,18 +1,25 @@
-# PR2: zmx-only upgrade
+# PR2: zmx upgrade and optimized Ghostty September trial
 
-Current owner decision: abandon the experimental Ghostty snapshot after reported
-black flashes and tab-switch stutter under agent output. No obvious fix proven.
-Keep embedded Ghostty at stable1.3.1 (332b2aef), unchanged from main.
-Keep zmx upstream0.8.1 (8bab1f01), with task-scoped Zig0.16. Ghostty uses Zig0.15.2.
-No new vendor source patches or vendor-repository commits.
+The beta trial uses unmodified Ghostty `82232ecde55405559dec29c5466cb9e39938cb41`
+(September 7, 2026) and upstream zmx 0.8.1 `8bab1f0173b07e79835ea372d749af3dbf0d0842`.
+Zig 0.16 builds both vendors. Local Ghostty builds explicitly use ReleaseFast,
+matching the release workflow. The local helper no longer patches vendor source.
+SwiftPM archive normalization operates only on the copied framework.
 
-- Old-daemon/new-client list/history/PTY attach/resize passed in isolated fixtures.
-- zmx-only initial setup and72focusedtests passed before the Ghostty experiment.
-- Ghostty trial and clipboard/packaging changes reverted by owner direction.
-- Beta51 contains the abandoned experimental snapshot; not the zmx-only state.
-- DraftPR338 stays unmerged. No CI/release watching requested.
-- Restore stable debug build, verify focused tests, then update PR with reduced scope.
+The earlier debug resize stalls also reproduced with stable Ghostty 1.3.1.
+Captures identified expensive Debug-mode integrity checks under the terminal lock,
+with renderer and MainActor callers waiting. Building that same stable revision
+with ReleaseFast removed sampled lock waits under comparable agent redraw output,
+with zmx unchanged. This supports retrying the September revision; it does not
+prove every possible stall is fixed or establish a zmx-version regression.
 
-For restoration, reuse the primary checkout's prepared stable Ghostty framework
-and resources after checking its pin/header. Keep this worktree's locally built
-zmx0.8.1. This avoids editing Ghostty source to rebuild identical prepared inputs.
+The prior September integration and its clipboard tests are restored. The owner
+retained existing automatic clipboard approval for the beta without persistent
+session grants. The local build-mode fix is a separate commit, `84f1b53e0`.
+Its focused vendor-wiring suite passed 10 tests. The prior trial aggregate passed
+at `f374d7154`; fresh September retry checks remain separate from that evidence.
+
+Beta 51 was the original September trial; beta 52 restored stable Ghostty.
+Beta 53 is the requested September retry with the local build-mode correction.
+This is an authorized unstable beta, not a merge-readiness or production-release
+claim. PR 338 remains unmerged; no production update is requested.

@@ -2,17 +2,74 @@ import Darwin
 import Foundation
 import Testing
 
+@testable import AgentStudioInfrastructure
+
 @Suite("Vendor consumer wiring")
 struct VendorConsumerWiringScriptTests {
-    @Test("zmx uses Zig 0.16 without changing Ghostty's toolchain")
-    func zmxUsesScopedToolchain() throws {
+    @Test("zmx has its own Zig toolchain and workflows use its mise task")
+    func zmxBuildUsesScopedToolchain() throws {
         let source = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
         let zmxTask = try #require(taskBlock(named: "build-zmx", in: source))
         #expect(zmxTask.contains("tools.zig = \"0.16.0\""))
-        #expect(source.contains("zig = \"0.15.2\""))
+        #expect(source.contains("zig = \"0.16.0\""))
+        #expect(zmxTask.contains("zig build -Doptimize=ReleaseFast"))
+        #expect(!zmxTask.contains("scripts/zig.sh"))
         for workflow in ["ci", "release", "benchmarks"] {
-            let contents = try String(contentsOfFile: ".github/workflows/\(workflow).yml", encoding: .utf8)
-            #expect(contents.contains("mise run --skip-deps build-zmx"))
+            let text = try String(contentsOfFile: ".github/workflows/\(workflow).yml", encoding: .utf8)
+            #expect(text.contains("mise run --skip-deps build-zmx"))
+            #expect(!text.contains("cd vendor/zmx"))
+        }
+    }
+
+    @Test("framework normalization only mutates the copied framework", arguments: ["valid", "identifier", "symlink"])
+    func frameworkNormalizationStaysInsideCopy(scenario: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "framework-normalizer-\(UUIDv7.generate())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scripts = root.appending(path: "scripts")
+        let framework = root.appending(path: "Frameworks/GhosttyKit.xcframework")
+        let library = framework.appending(path: "macos-arm64")
+        let fakeBin = root.appending(path: "bin")
+        for directory in [scripts, library, fakeBin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let helper = scripts.appending(path: "normalize-ghostty-xcframework.py")
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: "scripts/normalize-ghostty-xcframework.py"), to: helper
+        )
+        let sentinel = root.appending(path: "external.a")
+        let sentinelBytes = Data("external archive must remain unchanged".utf8)
+        try sentinelBytes.write(to: sentinel)
+        let archive = library.appending(path: "ghostty-internal.a")
+        if scenario == "symlink" {
+            try FileManager.default.createSymbolicLink(at: archive, withDestinationURL: sentinel)
+        } else {
+            try Data("copied archive".utf8).write(to: archive)
+        }
+        let metadata: [String: Any] = [
+            "AvailableLibraries": [
+                [
+                    "LibraryIdentifier": scenario == "identifier" ? "../../.." : "macos-arm64",
+                    "LibraryPath": "ghostty-internal.a",
+                    "BinaryPath": "ghostty-internal.a",
+                ]
+            ]
+        ]
+        try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
+            .write(to: framework.appending(path: "Info.plist"))
+        let stripMarker = root.appending(path: "strip-called")
+        try writeExecutable(
+            at: fakeBin.appending(path: "xcrun"), source: "#!/bin/bash\nprintf called > \"$STRIP_MARKER\"\n")
+        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/usr/bin/python3", args: [helper.path], cwd: root,
+            environment: ["PATH": "\(fakeBin.path):/usr/bin:/bin", "STRIP_MARKER": stripMarker.path]
+        )
+        #expect(try Data(contentsOf: sentinel) == sentinelBytes)
+        #expect((result.exitCode == 0) == (scenario == "valid"), Comment(rawValue: result.stderr))
+        #expect(FileManager.default.fileExists(atPath: stripMarker.path) == (scenario == "valid"))
+        if scenario == "valid" {
+            #expect(FileManager.default.fileExists(atPath: library.appending(path: "libghostty-internal.a").path))
+            let manifest = try String(contentsOf: framework.appending(path: "Info.plist"), encoding: .utf8)
+            #expect(manifest.contains("libghostty-internal.a"))
         }
     }
 
