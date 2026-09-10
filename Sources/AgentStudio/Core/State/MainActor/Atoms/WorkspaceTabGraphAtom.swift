@@ -85,6 +85,8 @@ package final class WorkspaceTabGraphAtom {
     private var tabIDByPaneID: [UUID: UUID] = [:]
     private var tabIDByArrangementID: [UUID: UUID] = [:]
 
+    var tabGraphAcceptedCommitRevision: Int { acceptedCommitRevision.value }
+
     var tabStates: [TabGraphState] {
         tabOrder.compactMap { tabStateFamily.value(for: $0) }
     }
@@ -105,6 +107,7 @@ package final class WorkspaceTabGraphAtom {
         let indexes = Self.makeIndexes(states)
         guard tabStates != states else { return }
         let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        mutation.recordAcceptedChange()
         tabStateFamily.replaceAll(
             Dictionary(uniqueKeysWithValues: states.map { ($0.tabId, $0) }),
             mutation: mutation

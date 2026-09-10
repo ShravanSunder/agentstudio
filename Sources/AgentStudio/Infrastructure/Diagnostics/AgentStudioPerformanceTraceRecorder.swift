@@ -237,6 +237,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
+        case rendererLifecycle = "performance.renderer.lifecycle"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
         case sidebarFilterInput = "performance.sidebar.filter_input"
         case sidebarProofWorkloadChanged = "performance.sidebar.proof_workload_changed"
@@ -277,6 +278,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     )
     private var sidebarPerformanceProofWorkloadBaseline: SidebarPerformanceTerminalWorkloadSnapshot?
     private var didRecordSidebarPerformanceProofWorkloadChange = false
+    private var rendererLifecycleState = RendererLifecyclePerformanceState()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
     private let periodicSnapshotReporterRegistry: PeriodicSnapshotReporterRegistry
@@ -692,6 +694,13 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                     snapshot.equalSnapshotSuppressedCount),
             ]
         )
+    }
+
+    /// Serialized access to the renderer lifecycle counters for
+    /// `AgentStudioPerformanceTraceRecorder+RendererLifecycle.swift`; keeps `lock` and the state private
+    /// to this file.
+    func withRendererLifecycleState<T>(_ body: (inout RendererLifecyclePerformanceState) -> T) -> T {
+        lock.withLock { body(&rendererLifecycleState) }
     }
 
     func measure<T>(

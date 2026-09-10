@@ -34,10 +34,12 @@ final class ZmxTestHarness: @unchecked Sendable {
     private let clock = ContinuousClock()
 
     init() {
-        let shortId = UUIDv7.generate().uuidString.prefix(8).lowercased()
+        // UUIDv7's prefix is timestamp data shared by nearby creations. Use its random
+        // tail so independent harnesses cannot list/kill each other's session roots.
+        let shortId = UUIDv7.generate().uuidString.suffix(12).lowercased()
         // Use /tmp directly (not NSTemporaryDirectory) to keep socket paths under
         // the Darwin 103-byte usable Unix domain socket payload limit. Main
-        // session IDs are now 53 chars, so /tmp/zt-<8chars>/ leaves ample room.
+        // /tmp/zt-<12chars>/ leaves ample room for the app's generated session IDs.
         self.zmxDir = "/tmp/zt-\(shortId)"
         // Keep zmx subprocess calls short in tests; backend-level retry handles transient failures.
         self.executor = DefaultProcessExecutor(timeout: 0.5)

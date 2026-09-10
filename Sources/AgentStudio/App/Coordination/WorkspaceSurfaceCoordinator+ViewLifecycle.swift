@@ -46,12 +46,16 @@ extension WorkspaceSurfaceCoordinator {
         mountedView: NSView & PaneMountedContent,
         for paneId: UUID
     ) -> PaneHostView {
+        let priorHost = viewRegistry.view(for: paneId)
         let host = PaneHostView(paneId: paneId)
         host.onAttachedToWindow = { [weak self] attachedPaneId in
             self?.handlePaneHostAttachedToWindow(attachedPaneId)
         }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
+        if let priorHost, priorHost !== host {
+            priorHost.retire()
+        }
         return host
     }
 
@@ -124,6 +128,8 @@ extension WorkspaceSurfaceCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
+        guard isCurrentTerminalPane(pane) else { return nil }
+        if let existing = viewRegistry.terminalView(for: pane.id), existing.surfaceId != nil { return existing }
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
                 "createView deferred pane=\(pane.id) reason=missingInitialFrame"
@@ -160,7 +166,8 @@ extension WorkspaceSurfaceCoordinator {
             worktreeId: worktree.id,
             repoId: repo.id,
             contextFacets: pane.metadata.facets,
-            paneId: pane.id
+            paneId: pane.id,
+            zmxSessionID: pane.provider == .zmx ? pane.terminalState?.zmxSessionID : nil
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
@@ -191,7 +198,7 @@ extension WorkspaceSurfaceCoordinator {
                 performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
-                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+                self?.submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(managed.surface)
             if let runtime = preparedRuntime?.runtime {
@@ -237,6 +244,10 @@ extension WorkspaceSurfaceCoordinator {
         treatAsRestoredSessionStart: Bool = false,
         authority: TerminalSurfaceCreationAuthority
     ) -> TopologyIndependentTerminalMountResult {
+        guard isCurrentTerminalPane(pane) else { return .failed(.startupPreparationFailed) }
+        if let existing = viewRegistry.terminalView(for: pane.id), let surfaceID = existing.surfaceId {
+            return .mounted(.init(view: existing, surfaceID: surfaceID))
+        }
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
                 "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
@@ -275,7 +286,8 @@ extension WorkspaceSurfaceCoordinator {
             command: startupPreparation.strategy.startupCommandForSurface,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
-            paneId: pane.id
+            paneId: pane.id,
+            zmxSessionID: pane.provider == .zmx ? pane.terminalState?.zmxSessionID : nil
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
@@ -312,7 +324,7 @@ extension WorkspaceSurfaceCoordinator {
                 performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
-                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+                self?.submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(attachedSurface)
             if let runtime = preparedRuntime?.runtime {
@@ -335,11 +347,7 @@ extension WorkspaceSurfaceCoordinator {
                 startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
                 environmentVariableCount: startupPreparation.environmentVariables.count
             )
-            RestoreTrace.log(
-                "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
-            )
-            Self.logger.error(
-                "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            logFloatingSurfaceCreationFailure(for: pane, error: error)
             rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return .failed(.surfaceCreationFailed)
@@ -365,6 +373,15 @@ extension WorkspaceSurfaceCoordinator {
         }
         traceSurfaceAttached(pane: pane, surfaceID: surfaceID)
         return attachedSurface
+    }
+
+    /// A cached creation witness cannot authorize a deleted or replaced logical terminal.
+    /// This check and native construction execute without an intervening MainActor suspension.
+    func isCurrentTerminalPane(_ pane: Pane) -> Bool {
+        guard let current = store.paneAtom.pane(pane.id), case .terminal = current.content,
+            current.provider == pane.provider
+        else { return false }
+        return current.terminalState?.zmxSessionID == pane.terminalState?.zmxSessionID
     }
 
     private func prepareTerminalSurfaceStartup(
@@ -401,8 +418,8 @@ extension WorkspaceSurfaceCoordinator {
                 "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
             )
             if treatAsRestoredSessionStart {
-                // Initial restore activates the exact durable session or presents failure.
-                // It must not rewrite composition or silently launch a replacement shell.
+                // If attach preparation fails, preserve the restored pane and show failure
+                // rather than falling back to an ephemeral shell.
                 registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
                 return nil
             }
@@ -429,7 +446,9 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
-    func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+    func teardownView(
+        for paneId: UUID, shouldUnregisterRuntime: Bool = true, retainingUndoSurface: Bool = false
+    ) {
         if shouldUnregisterRuntime {
             closeBridgePaneActivityAuthority(for: paneId)
         }
@@ -441,10 +460,9 @@ extension WorkspaceSurfaceCoordinator {
             )
             return
         }
-        if let terminal = viewRegistry.terminalView(for: paneId),
-            let surfaceId = terminal.surfaceId
-        {
-            surfaceManager.detach(surfaceId, reason: .close)
+        if !retainingUndoSurface {
+            // Repair/discard releases presentation resources; only committed undo grants cache retention.
+            surfaceManager.retireActiveAndHiddenSurfaces(forPaneIDs: [paneId])
         }
 
         if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {
@@ -492,7 +510,9 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func unregisterHostedView(for paneId: UUID) {
+        let retiringHost = viewRegistry.view(for: paneId)
         viewRegistry.unregister(paneId)
+        retiringHost?.retire()
         recoverZoomCompanionAfterResourceLoss(for: paneId)
     }
 
@@ -591,6 +611,57 @@ extension WorkspaceSurfaceCoordinator {
         upsertPaneFilesystemProjectionContext(for: pane)
     }
 
+    /// Builds the mount view for a reused (undo-retained) surface: worktree-bound when both
+    /// `worktree` and `repo` resolved, otherwise the topology-independent floating initializer.
+    private func terminalMountViewForReusedSurface(
+        pane: Pane,
+        worktree: Worktree?,
+        repo: Repo?,
+        restoredSurfaceId: UUID
+    ) -> TerminalPaneMountView {
+        if let worktree, let repo {
+            return TerminalPaneMountView(
+                worktree: worktree,
+                repo: repo,
+                restoredSurfaceId: restoredSurfaceId,
+                paneId: pane.id,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+        }
+        return TerminalPaneMountView(
+            restoredSurfaceId: restoredSurfaceId,
+            paneId: pane.id,
+            title: pane.metadata.title,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    /// Mounts the retained (close-undo) surface belonging to `pane` by pane id. Returns nil when
+    /// the manager has no retained surface for this pane.
+    func remountRetainedSurfaceIfAvailable(
+        for pane: Pane,
+        worktree: Worktree?,
+        repo: Repo?
+    ) -> TerminalPaneMountView? {
+        guard let undone = surfaceManager.undoClose(forPaneId: pane.id) else {
+            return nil
+        }
+        let view = terminalMountViewForReusedSurface(
+            pane: pane,
+            worktree: worktree,
+            repo: repo,
+            restoredSurfaceId: undone.id
+        )
+        surfaceManager.attach(undone.id, to: pane.id)
+        view.displaySurface(undone.surface)
+        registerHostedView(mountedView: view, for: pane.id)
+        registerTerminalRuntimeIfNeeded(for: pane)
+        runtime.markRunning(pane.id)
+        registerPaneFilesystemContextIfNeeded(for: pane)
+        Self.logger.info("Restored view from undo for pane \(pane.id)")
+        return view
+    }
+
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
     @discardableResult
     func restoreView(
@@ -600,29 +671,8 @@ extension WorkspaceSurfaceCoordinator {
     ) -> TerminalPaneMountView? {
         let runtimePaneId = PaneId(existingUUID: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
-        if let undone = surfaceManager.undoClose() {
-            if undone.metadata.paneId == pane.id {
-                let view = TerminalPaneMountView(
-                    worktree: worktree,
-                    repo: repo,
-                    restoredSurfaceId: undone.id,
-                    paneId: pane.id,
-                    performanceTraceRecorder: performanceTraceRecorder
-                )
-                surfaceManager.attach(undone.id, to: pane.id)
-                view.displaySurface(undone.surface)
-                registerHostedView(mountedView: view, for: pane.id)
-                registerTerminalRuntimeIfNeeded(for: pane)
-                runtime.markRunning(pane.id)
-                registerPaneFilesystemContextIfNeeded(for: pane)
-                Self.logger.info("Restored view from undo for pane \(pane.id)")
-                return view
-            } else {
-                Self.logger.warning(
-                    "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
-                )
-                surfaceManager.requeueUndo(undone.id)
-            }
+        if let remounted = remountRetainedSurfaceIfAvailable(for: pane, worktree: worktree, repo: repo) {
+            return remounted
         }
 
         Self.logger.info("Creating fresh view for pane \(pane.id)")

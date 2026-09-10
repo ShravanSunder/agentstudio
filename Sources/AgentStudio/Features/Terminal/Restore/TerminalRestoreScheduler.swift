@@ -50,6 +50,16 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
         return isVisible(paneId) ? .p0Visible : .p1Hidden
     }
 
+    /// Reuse one tab composition during a synchronous attached-surface reconciliation.
+    /// Pane structural reads stay inside the caller's observation scope.
+    package func captureRendererVisibility() -> (UUID) -> Bool {
+        guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return { _ in false } }
+        return { paneID in
+            let paneId = PaneId(existingUUID: paneID)
+            return self.hasActiveResidency(paneId) && self.isVisible(paneId, in: store, activeTab: activeTab)
+        }
+    }
+
     package func isActive(_ paneId: PaneId) -> Bool {
         guard hasActiveResidency(paneId) else { return false }
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
@@ -62,24 +72,44 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
 
     private func isVisible(_ paneId: PaneId) -> Bool {
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
+        return isVisible(paneId, in: store, activeTab: activeTab)
+    }
 
+    private func isVisible(_ paneId: PaneId, in store: WorkspaceStore, activeTab: Tab) -> Bool {
         if let sourcePaneId = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId {
-            return sourcePaneId == paneId.uuid
+            if sourcePaneId == paneId.uuid {
+                return true
+            }
+            // Zoom keeps the zoom source's expanded drawer on screen (see
+            // ZoomPresentationContainer's DrawerPanelOverlay), so a drawer child of the source
+            // pane stays visible even though it is not itself the zoom source.
+            return isDisplayedDrawerChild(paneId.uuid, requiringParent: sourcePaneId, in: store, activeTab: activeTab)
         }
 
         if activeTab.activePaneIds.contains(paneId.uuid) {
             return !activeTab.activeMinimizedPaneIds.contains(paneId.uuid)
         }
 
+        return isDisplayedDrawerChild(paneId.uuid, requiringParent: nil, in: store, activeTab: activeTab)
+    }
+
+    private func isDisplayedDrawerChild(
+        _ paneId: UUID,
+        requiringParent: UUID?,
+        in store: WorkspaceStore,
+        activeTab: Tab
+    ) -> Bool {
         guard
-            let pane = store.paneAtom.pane(paneId.uuid),
-            let parentPaneId = pane.parentPaneId,
+            let facts = store.paneAtom.graphAtom.paneStructuralFacts(paneId),
+            let parentPaneId = facts.parentPaneID,
+            requiringParent == nil || requiringParent == parentPaneId,
             activeTab.activePaneIds.contains(parentPaneId),
-            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
-            drawer.isExpanded,
-            let drawerView = drawerView(forParent: parentPaneId, in: store),
-            drawerView.layout.contains(paneId.uuid),
-            !drawerView.minimizedPaneIds.contains(paneId.uuid)
+            !activeTab.activeMinimizedPaneIds.contains(parentPaneId),
+            store.paneAtom.isDrawerExpanded(for: parentPaneId),
+            let drawerID = store.paneAtom.graphAtom.paneStructuralFacts(parentPaneId)?.ownedDrawerID,
+            let drawerView = activeTab.activeArrangement.drawerViews[drawerID],
+            drawerView.layout.contains(paneId),
+            !drawerView.minimizedPaneIds.contains(paneId)
         else {
             return false
         }
@@ -88,14 +118,14 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
     }
 
     private func hasActiveResidency(_ paneId: PaneId) -> Bool {
-        guard let store, let pane = store.paneAtom.pane(paneId.uuid) else { return false }
-        return pane.residency == .active
+        guard let store, let facts = store.paneAtom.graphAtom.paneStructuralFacts(paneId.uuid) else { return false }
+        return facts.residency == .active
     }
 
     private func expandedDrawerActivePaneIds(in store: WorkspaceStore, activeTab: Tab) -> Set<UUID> {
         Set(
             activeTab.activePaneIds.compactMap { paneId in
-                guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
+                guard store.paneAtom.isDrawerExpanded(for: paneId) else {
                     return nil
                 }
                 return drawerView(forParent: paneId, in: store)?.activeChildId
@@ -106,9 +136,9 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
     private func drawerView(forParent parentPaneId: UUID, in store: WorkspaceStore) -> DrawerView? {
         guard
             let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            let drawer = store.paneAtom.pane(parentPaneId)?.drawer
+            let drawerId = store.paneAtom.graphAtom.paneStructuralFacts(parentPaneId)?.ownedDrawerID
         else { return nil }
 
-        return tab.activeArrangement.drawerViews[drawer.drawerId]
+        return tab.activeArrangement.drawerViews[drawerId]
     }
 }

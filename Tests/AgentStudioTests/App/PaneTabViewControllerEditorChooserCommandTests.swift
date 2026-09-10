@@ -147,6 +147,11 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 }
 
 private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
@@ -166,7 +171,7 @@ private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceMana
     func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? { nil }
 
     func detach(_: UUID, reason _: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
-    func requeueUndo(_: UUID) {}
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
     func destroy(_: UUID) {}
 }

@@ -98,6 +98,11 @@ struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
 
 @MainActor
 private final class RestoreMutationSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private(set) var createSurfaceCallCount = 0
 
     func syncFocus(activeSurfaceId _: UUID?) {}
@@ -112,7 +117,7 @@ private final class RestoreMutationSurfaceManager: WorkspaceSurfaceManaging {
 
     func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? { nil }
     func detach(_: UUID, reason _: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
-    func requeueUndo(_: UUID) {}
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
     func destroy(_: UUID) {}
 }

@@ -69,6 +69,78 @@ struct SurfaceManagerHotPathArchitectureTests {
         )
         #expect(recorderAssignmentRange.lowerBound < initialSizeSyncRange.lowerBound)
     }
+
+    @Test("manager membership collections are excluded from Observation")
+    func managerMembershipCollectionsAreExcludedFromObservation() throws {
+        // Reconciliation reads `activeSurfaces` inside `withObservationTracking`; if the
+        // collections were observable, every health or CWD rewrite would re-arm the observer.
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
+            ),
+            encoding: .utf8
+        )
+
+        for collectionName in [
+            "activeSurfaces",
+            "hiddenSurfaces",
+            "undoStack",
+            "surfaceHealth",
+            "surfaceViewToId",
+        ] {
+            let ignoredInternalDeclaration = "@ObservationIgnored var \(collectionName)"
+            let ignoredPrivateDeclaration = "@ObservationIgnored private var \(collectionName)"
+            #expect(
+                source.contains(ignoredInternalDeclaration) || source.contains(ignoredPrivateDeclaration),
+                "\(collectionName) must be @ObservationIgnored"
+            )
+        }
+    }
+
+    @Test("native occlusion delivery lives only in the renderer state delivery seam")
+    func nativeOcclusionDeliveryLivesOnlyInRendererStateDeliverySeam() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let terminalRoot = projectRoot.appending(path: "Sources/AgentStudio/Features/Terminal")
+        let deliveryPath = terminalRoot.appending(path: "Ghostty/SurfaceRendererStateDelivery.swift")
+        let deliverySource = try String(contentsOf: deliveryPath, encoding: .utf8)
+        #expect(deliverySource.contains("ghostty_surface_set_occlusion"))
+
+        let enumerator = try #require(
+            FileManager.default.enumerator(at: terminalRoot, includingPropertiesForKeys: nil)
+        )
+        var offendingFiles: [String] = []
+        for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+            guard fileURL.standardizedFileURL != deliveryPath.standardizedFileURL else { continue }
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            if source.contains("ghostty_surface_set_occlusion") {
+                offendingFiles.append(fileURL.lastPathComponent)
+            }
+        }
+        #expect(offendingFiles.isEmpty, "occlusion delivered outside the seam by \(offendingFiles)")
+    }
+
+    @Test("native focus delivery lives only in the renderer state delivery seam")
+    func nativeFocusDeliveryLivesOnlyInRendererStateDeliverySeam() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let terminalRoot = projectRoot.appending(path: "Sources/AgentStudio/Features/Terminal")
+        let deliveryPath = terminalRoot.appending(path: "Ghostty/SurfaceRendererStateDelivery.swift")
+        let deliverySource = try String(contentsOf: deliveryPath, encoding: .utf8)
+        #expect(deliverySource.contains("ghostty_surface_set_focus"))
+
+        let enumerator = try #require(
+            FileManager.default.enumerator(at: terminalRoot, includingPropertiesForKeys: nil)
+        )
+        var offendingFiles: [String] = []
+        for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+            guard fileURL.standardizedFileURL != deliveryPath.standardizedFileURL else { continue }
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            if source.contains("ghostty_surface_set_focus") {
+                offendingFiles.append(fileURL.lastPathComponent)
+            }
+        }
+        #expect(offendingFiles.isEmpty, "focus delivered outside the seam by \(offendingFiles)")
+    }
 }
 
 extension String {

@@ -7,6 +7,61 @@ import Testing
 
 @Suite("WorkspaceCoreMigrationTests")
 struct WorkspaceCoreMigrationTests {
+    @Test("merging independent schema steps preserves either branch's existing database", arguments: [true, false])
+    func mergingIndependentSchemaStepsPreservesExistingDatabase(journalAlreadyApplied: Bool) throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrator.migrate(databaseQueue, upTo: "016_add_pane_association_facets")
+        let workspaceID = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: "INSERT INTO workspace(id, name, created_at, updated_at) VALUES (?, 'Preserved', 1, 1)",
+                arguments: [workspaceID])
+        }
+        var branchMigrator = DatabaseMigrator()
+        if journalAlreadyApplied {
+            branchMigrator.registerMigration("017_create_session_ownership_journal") { database in
+                for statement in WorkspaceCoreMigrations.createSessionOwnershipJournalStatements {
+                    try database.execute(sql: statement)
+                }
+                try database.execute(
+                    sql: "INSERT INTO workspace_terminal_session_ownership(session_id) VALUES ('preserved-session')")
+            }
+        } else {
+            branchMigrator.registerMigration("017_add_independent_sidebar_pins") { database in
+                for statement in WorkspaceCoreMigrations.addIndependentSidebarPinsStatements {
+                    try database.execute(sql: statement)
+                }
+            }
+        }
+        try branchMigrator.migrate(databaseQueue)
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        try databaseQueue.read { database throws in
+            #expect(
+                try String.fetchOne(
+                    database, sql: "SELECT name FROM workspace WHERE id = ?",
+                    arguments: [workspaceID]) == "Preserved")
+            #expect(try database.tableExists("workspace_terminal_session_ownership"))
+            #expect(try database.tableExists("workspace_undo_close"))
+            #expect(try database.tableExists("workspace_undo_close_member"))
+            #expect(try database.columns(in: "pane").contains { $0.name == "is_pinned" })
+            #expect(try database.columns(in: "repo").contains { $0.name == "is_pinned" })
+            #expect(try Row.fetchAll(database, sql: "PRAGMA foreign_key_check").isEmpty)
+            if journalAlreadyApplied {
+                #expect(
+                    try String.fetchOne(
+                        database,
+                        sql:
+                            "SELECT cleanup_state FROM workspace_terminal_session_ownership WHERE session_id = 'preserved-session'"
+                    )
+                        == "owned")
+            }
+            #expect(try WorkspaceCoreMigrations.migrator.hasCompletedMigrations(database))
+        }
+    }
+
     @Test("fresh core database creates workspace graph tables")
     func freshCoreDatabaseCreatesWorkspaceGraphTables() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
@@ -103,6 +158,7 @@ struct WorkspaceCoreMigrationTests {
                 "015_drop_pane_topology_facets",
                 "016_add_pane_association_facets",
                 "017_add_independent_sidebar_pins",
+                "017_create_session_ownership_journal",
             ]
         )
     }

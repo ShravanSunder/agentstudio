@@ -186,9 +186,10 @@ extension TerminalPaneMountView {
             _ = runtime.cellSize
             _ = runtime.searchState
             _ = runtime.searchLifecycleState
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let currentRuntime = self.boundRuntime, currentRuntime === runtime else { return }
+        } onChange: { [weak self, weak runtime] in
+            Task { @MainActor [weak self, weak runtime] in
+                guard let self, let runtime, let currentRuntime = self.boundRuntime, currentRuntime === runtime
+                else { return }
                 self.applyRuntimeStateSnapshot(currentRuntime)
                 self.observeRuntimeState(runtime: currentRuntime)
             }

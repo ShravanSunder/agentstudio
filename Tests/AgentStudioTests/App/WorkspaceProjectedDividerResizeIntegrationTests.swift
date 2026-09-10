@@ -10,7 +10,7 @@ import Testing
 @Suite("Projected divider resize", .serialized)
 struct WorkspaceProjectedDividerResizeIntegrationTests {
     @Test("rendered pair resize skips a backgrounded canonical pane")
-    func renderedPairResizeSkipsBackgroundedCanonicalPane() throws {
+    func renderedPairResizeSkipsBackgroundedCanonicalPane() async throws {
         installTestCoreAtomsIfNeeded()
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
@@ -34,7 +34,7 @@ struct WorkspaceProjectedDividerResizeIntegrationTests {
         store.setResidency(.backgrounded, for: backgroundedPane.id)
         let canonicalLayoutBeforeResize = try #require(store.tab(tab.id)?.activeArrangement.layout)
 
-        let didExecute = executor.execute(
+        let didExecute = await executor.execute(
             .resizeVisiblePanePair(
                 tabId: tab.id,
                 leftPaneId: firstActivePane.id,
@@ -62,7 +62,7 @@ struct WorkspaceProjectedDividerResizeIntegrationTests {
         store.setResidency(.active, for: backgroundedPane.id)
         let layoutBeforeStalePair = try #require(store.tab(tab.id)?.activeArrangement.layout)
 
-        let didExecuteStalePair = executor.execute(
+        let didExecuteStalePair = await executor.execute(
             .resizeVisiblePanePair(
                 tabId: tab.id,
                 leftPaneId: firstActivePane.id,

@@ -79,45 +79,27 @@ extension WorkspaceSurfaceCoordinator {
 
     func executeInsertDrawerPane(
         parentPaneId: UUID,
-        targetDrawerPaneId: UUID,
+        targetDrawerPaneId: UUID?,
         direction: SplitNewDirection,
         sizingMode: DropSizingMode
-    ) {
+    ) async throws {
+        guard let tabID = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
+            Self.logger.warning("Drawer creation rejected a parent without an owning tab")
+            return
+        }
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
             ?? FileManager.default.homeDirectoryForCurrentUser
-
-        guard
-            let drawerPane = store.paneAtom.insertDrawerPane(
-                in: parentPaneId,
-                at: targetDrawerPaneId,
-                direction: direction,
-                sizingMode: sizingMode,
-                parentFallbackCWD: fallbackCWD,
-                zmxSessionID: .generateUUIDv7()
-            )
-        else {
-            Self.logger.warning(
-                "insertDrawerPane: failed to insert drawer pane under parent \(parentPaneId) at target \(targetDrawerPaneId)"
-            )
-            return
-        }
-
-        if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-        {
-            store.tabArrangementAtom.addDrawerPaneView(
-                drawerId: drawerId,
-                parentPaneId: parentPaneId,
-                drawerPaneId: drawerPane.id,
-                inTab: tabId,
-                targetDrawerPaneId: targetDrawerPaneId,
-                direction: direction,
-                sizingMode: sizingMode
-            )
-        }
-
-        viewRegistry.ensureSlot(for: drawerPane.id)
+        let drawerPane = try await store.createTerminalPane(
+            metadata: PaneMetadata(launchDirectory: fallbackCWD, title: "Drawer"),
+            placement: .drawer(
+                .init(
+                    tabID: tabID, parentID: parentPaneId, anchorID: targetDrawerPaneId,
+                    direction: direction, sizingMode: sizingMode)),
+            nameForPane: { [self] in tabNameForPane($0) },
+            willPublish: { [self] in prepareTerminalPaneSlot($0) })
+        registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
+        traceTerminalLayoutInsertedAndViewCreateStarted(drawerPane)
         ensureTerminalPaneView(drawerPane)
         focusVisiblePaneHost(drawerPane.id)
     }
@@ -128,6 +110,14 @@ extension WorkspaceSurfaceCoordinator {
     /// `createViewForContentUsingCurrentGeometry` below), which refuses to
     /// create while the prepared lane still owns this pane.
     func ensureTerminalPaneView(_ pane: Pane) {
+        // Layout restoration may mount the committed pane before its creating
+        // command resumes. Preserve that instance instead of allocating a second
+        // manager-owned renderer. Explicit repair tears down the host first.
+        if let mountedTerminal = viewRegistry.terminalView(for: pane.id),
+            mountedTerminal.surfaceId != nil
+        {
+            return
+        }
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
             RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")

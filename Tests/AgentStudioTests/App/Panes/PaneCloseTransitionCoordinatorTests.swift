@@ -15,7 +15,7 @@ struct PaneCloseTransitionCoordinatorTests {
     }
 
     @Test("close transition marks pane closing until the injected clock advances")
-    func beginClosingPane_marksPaneClosingUntilClockAdvances() async {
+    func beginClosingPane_marksPaneClosingUntilClockAdvances() async throws {
         let clock = TestPushClock()
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         let paneId = UUID()
@@ -46,7 +46,7 @@ struct PaneCloseTransitionCoordinatorTests {
     }
 
     @Test("cancelCloseTransition stops the pending performClose")
-    func paneCloseTransitionCoordinator_cancel_stopsPerformClose() async {
+    func paneCloseTransitionCoordinator_cancel_stopsPerformClose() async throws {
         let clock = TestPushClock()
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         let paneId = UUID()
@@ -66,7 +66,7 @@ struct PaneCloseTransitionCoordinatorTests {
     }
 
     @Test("coordinator deinitialization cancels pending close tasks")
-    func deinit_cancelsPendingCloseTask() async {
+    func deinit_cancelsPendingCloseTask() async throws {
         let clock = TestPushClock()
         weak var weakCoordinator: PaneCloseTransitionCoordinator?
 
@@ -128,10 +128,14 @@ struct PaneCloseTransitionCoordinatorTests {
         let commandDispatcher = DrawerCloseTransitionCommandDispatcher(
             paneId: drawerPane.id
         ) {
-            harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
-            closeActionFinished = true
-            closeActionContinuation?.resume()
-            closeActionContinuation = nil
+            Task {
+                do { try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id)) } catch {
+                    Issue.record(error)
+                }
+                closeActionFinished = true
+                closeActionContinuation?.resume()
+                closeActionContinuation = nil
+            }
         }
 
         let leaf = PaneLeafContainer(

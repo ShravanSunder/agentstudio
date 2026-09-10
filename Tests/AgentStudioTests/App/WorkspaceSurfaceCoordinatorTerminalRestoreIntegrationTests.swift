@@ -30,18 +30,21 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let runtime: SessionRuntime
         let coordinator: WorkspaceSurfaceCoordinator
         let windowLifecycleStore: WindowLifecycleAtom
-        let surfaceManager: CapturingSurfaceManager
+        let surfaceManager: TerminalRestoreCapturingSurfaceManager
         let tempDir: URL
     }
 
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-luna295-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore()
+        let store: WorkspaceStore
+        do { store = try makeWorkspaceJournalTestStore() } catch {
+            preconditionFailure("Could not prepare the terminal restore harness SQLite store: \(error)")
+        }
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let windowLifecycleStore = WindowLifecycleAtom()
-        let surfaceManager = CapturingSurfaceManager()
+        let surfaceManager = TerminalRestoreCapturingSurfaceManager()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -66,124 +69,139 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
     }
 
+    private func withTerminalRestoreHarness(_ operation: @MainActor (Harness) async throws -> Void) async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        do {
+            try await operation(harness)
+        } catch {
+            await harness.coordinator.shutdown()
+            throw error
+        }
+        await harness.coordinator.shutdown()
+    }
+
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test
-    func preparedTerminalCohort_publishesEveryPlaceholderBeforeSurfaceCreation() throws {
-        // Arrange
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let firstPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
-        let secondPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
-        let generation = try preparedTerminalCohortGeneration()
-        let descriptors = try [firstPane, secondPane].map { pane in
-            try preparedTerminalCohortDescriptor(
-                pane: pane,
-                visibilityPriority: .activeVisible,
-                hostPlacement: .tab(tabID: UUIDv7.generate())
-            )
-        }
-        let registry = harness.viewRegistry
-        registry.beginInitialRestore()
-        let owner = WorkspacePreparedContentMountCoordinator(
-            cohort: WorkspacePreparedContentMountCohort(
-                generation: generation,
-                terminalActivationInput: TerminalActivationInput(entries: descriptors),
-                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
-            ),
-            viewRegistry: registry,
-            terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
-                generation: generation,
-                initialFramesByPaneID: [:],
+    func preparedTerminalCohort_publishesEveryPlaceholderBeforeSurfaceCreation() async throws {
+        try await withTerminalRestoreHarness { harness in
+            // Arrange
+            let firstPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+            let secondPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+            try #require(harness.store.paneAtom.insertRestoredPane(firstPane))
+            try #require(harness.store.paneAtom.insertRestoredPane(secondPane))
+            let generation = try preparedTerminalCohortGeneration()
+            let descriptors = try [firstPane, secondPane].map { pane in
+                try preparedTerminalCohortDescriptor(
+                    pane: pane,
+                    visibilityPriority: .activeVisible,
+                    hostPlacement: .tab(tabID: UUIDv7.generate())
+                )
+            }
+            let registry = harness.viewRegistry
+            registry.beginInitialRestore()
+            let owner = WorkspacePreparedContentMountCoordinator(
+                cohort: WorkspacePreparedContentMountCohort(
+                    generation: generation,
+                    terminalActivationInput: TerminalActivationInput(entries: descriptors),
+                    nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+                ),
                 viewRegistry: registry,
-                mountHandler: harness.coordinator,
-                descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
-            ),
-            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
-                generation: generation,
-                coordinator: harness.coordinator
+                terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+                    generation: generation,
+                    initialFramesByPaneID: [:],
+                    viewRegistry: registry,
+                    mountHandler: harness.coordinator,
+                    descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
+                ),
+                nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                    generation: generation,
+                    coordinator: harness.coordinator
+                )
             )
-        )
 
-        // Act
-        let publication = owner.publishTerminalPlaceholders {
-            harness.coordinator.registerPreparedTerminalPlaceholders(for: $0)
+            // Act
+            let publication = owner.publishTerminalPlaceholders {
+                harness.coordinator.registerPreparedTerminalPlaceholders(for: $0)
+            }
+
+            // Assert
+            #expect(publication.paneIDs == descriptors.map(\.paneID))
+            #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+            for descriptor in descriptors {
+                #expect(
+                    registry.terminalStatusPlaceholderView(for: descriptor.paneID.uuid)?.mode
+                        == .preparing
+                )
+            }
         }
+    }
 
-        // Assert
-        #expect(publication.paneIDs == descriptors.map(\.paneID))
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
-        for descriptor in descriptors {
+    @Test
+    func preparedTerminalMount_rejectsMissingTrustedFrameBeforeSurfaceCreation() async throws {
+        try await withTerminalRestoreHarness { harness in
+            // Arrange
+            let pane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+            try #require(harness.store.paneAtom.insertRestoredPane(pane))
+            let admission = try makePreparedTerminalAdmission(pane: pane)
+
+            // Act
+            let result = harness.coordinator.mountPreparedTerminalContent(
+                admission: admission,
+                initialFrame: nil,
+                authority: .released(admission.descriptor.paneID)
+            )
+
+            // Assert
             #expect(
-                registry.terminalStatusPlaceholderView(for: descriptor.paneID.uuid)?.mode
-                    == .preparing
+                result
+                    == .failed(
+                        failure: .surfaceCreationFailed(code: "trusted_initial_frame_unavailable"),
+                        retry: .doNotRetry
+                    )
+            )
+            #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        }
+    }
+
+    @Test
+    func preparedTerminalMount_usesAcceptedPaneAndFrozenFrameWithoutTopologyLookup() async throws {
+        try await withTerminalRestoreHarness { harness in
+            // Arrange
+            let pane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+            try #require(harness.store.paneAtom.insertRestoredPane(pane))
+            let admission = try makePreparedTerminalAdmission(pane: pane)
+            let frozenFrame = NSRect(x: 12, y: 18, width: 880, height: 540)
+
+            // Act
+            let result = harness.coordinator.mountPreparedTerminalContent(
+                admission: admission,
+                initialFrame: frozenFrame,
+                authority: .released(admission.descriptor.paneID)
+            )
+
+            // Assert
+            #expect(
+                result
+                    == .failed(
+                        failure: .surfaceCreationFailed(code: "prepared_mount_failed"),
+                        retry: .retry
+                    )
+            )
+            #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+            #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id]?.initialFrame == frozenFrame)
+            let expectedSessionID = try #require(pane.terminalState?.zmxSessionID)
+            #expect(
+                harness.surfaceManager.createdConfigsByPaneId[pane.id]?
+                    .startupStrategy.startupCommandForSurface?
+                    .contains(expectedSessionID.rawValue) == true
             )
         }
     }
 
     @Test
-    func preparedTerminalMount_rejectsMissingTrustedFrameBeforeSurfaceCreation() throws {
-        // Arrange
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let admission = try makePreparedTerminalAdmission(
-            pane: makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
-        )
-
-        // Act
-        let result = harness.coordinator.mountPreparedTerminalContent(
-            admission: admission,
-            initialFrame: nil,
-            authority: .released(admission.descriptor.paneID)
-        )
-
-        // Assert
-        #expect(
-            result
-                == .failed(
-                    failure: .surfaceCreationFailed(code: "trusted_initial_frame_unavailable"),
-                    retry: .doNotRetry
-                )
-        )
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
-    }
-
-    @Test
-    func preparedTerminalMount_usesAcceptedPaneAndFrozenFrameWithoutTopologyLookup() throws {
-        // Arrange
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let pane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
-        let admission = try makePreparedTerminalAdmission(pane: pane)
-        let frozenFrame = NSRect(x: 12, y: 18, width: 880, height: 540)
-
-        // Act
-        let result = harness.coordinator.mountPreparedTerminalContent(
-            admission: admission,
-            initialFrame: frozenFrame,
-            authority: .released(admission.descriptor.paneID)
-        )
-
-        // Assert
-        #expect(
-            result
-                == .failed(
-                    failure: .surfaceCreationFailed(code: "prepared_mount_failed"),
-                    retry: .retry
-                )
-        )
-        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
-        #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id]?.initialFrame == frozenFrame)
-        let expectedSessionID = try #require(pane.terminalState?.zmxSessionID)
-        #expect(
-            harness.surfaceManager.createdConfigsByPaneId[pane.id]?
-                .startupStrategy.startupCommandForSurface?
-                .contains(expectedSessionID.rawValue) == true
-        )
-    }
-
-    @Test
-    func newZmxPane_uses_directSurfaceCommand_notDeferredShell() throws {
+    func newZmxPane_uses_directSurfaceCommand_notDeferredShell() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -218,7 +236,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func floatingZmxPane_uses_directSurfaceCommand_notDeferredShell() throws {
+    func floatingZmxPane_uses_directSurfaceCommand_notDeferredShell() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -240,7 +258,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func floatingZmxPane_withoutPersistedCwd_stillUsesDirectSurfaceCommand() throws {
+    func floatingZmxPane_withoutPersistedCwd_stillUsesDirectSurfaceCommand() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -303,7 +321,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
 
         let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds
 
-        harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
+        try await harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
 
         #expect(harness.surfaceManager.createdPaneIds == creationAttemptsBeforeSelection)
     }
@@ -508,7 +526,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func resolveInitialFramesByTabId_usesCanonicalMinimizedGeometry() throws {
+    func resolveInitialFramesByTabId_usesCanonicalMinimizedGeometry() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -550,7 +568,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func splitRight_newZmxPane_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+    func splitRight_newZmxPane_usesTrustedInitialFrame_notPlaceholderGeometry() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -569,7 +587,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
 
         let existingPaneIds = Set(harness.store.panes.keys)
-        harness.coordinator.execute(
+        try await harness.coordinator.execute(
             .insertPane(
                 source: .newTerminal,
                 targetTabId: tab.id,
@@ -596,7 +614,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func openNewTerminalTab_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+    func openNewTerminalTab_usesTrustedInitialFrame_notPlaceholderGeometry() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -606,7 +624,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             CGRect(x: 0, y: 0, width: 1000, height: 600)
         )
 
-        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let pane = try #require(try await harness.coordinator.openNewTerminal(for: worktree, in: repo))
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
         let activeTab = try #require(harness.store.activeTab)
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
@@ -623,7 +641,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func openFloatingTerminal_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+    func openFloatingTerminal_usesTrustedInitialFrame_notPlaceholderGeometry() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -632,7 +650,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
 
         let pane = try #require(
-            harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
+            try await harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
         )
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
         let activeTab = try #require(harness.store.activeTab)
@@ -650,14 +668,14 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func openNewTerminalTab_defersSurfaceCreation_untilBoundsExist_thenCreatesWithTrustedFrame() throws {
+    func openNewTerminalTab_defersSurfaceCreation_untilBoundsExist_thenCreatesWithTrustedFrame() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
 
-        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let pane = try #require(try await harness.coordinator.openNewTerminal(for: worktree, in: repo))
         #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
         let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(preparingPlaceholder.mode == .preparing)
@@ -686,7 +704,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = try #require(
-            harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
+            try await harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
         )
         #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
         let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
@@ -711,7 +729,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func openNewTerminalTab_failedCreation_keepsFailurePlaceholderVisible() throws {
+    func openNewTerminalTab_failedCreation_keepsFailurePlaceholderVisible() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -719,14 +737,14 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let worktree = try #require(repo.worktrees.first)
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let pane = try #require(try await harness.coordinator.openNewTerminal(for: worktree, in: repo))
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(placeholder.mode == .failedToStart)
     }
 
     @Test
-    func failedToStartPlaceholder_doesNotAutoRetryOnLaterBoundsChanges() throws {
+    func failedToStartPlaceholder_doesNotAutoRetryOnLaterBoundsChanges() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -734,7 +752,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let worktree = try #require(repo.worktrees.first)
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
-        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let pane = try #require(try await harness.coordinator.openNewTerminal(for: worktree, in: repo))
         let createAttemptsBefore = harness.surfaceManager.createdPaneIds.count
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
 
@@ -751,7 +769,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func createViewForContentUsingCurrentGeometry_withoutBounds_returnsNil_andDoesNotReachSurfaceManager() throws {
+    func createViewForContentUsingCurrentGeometry_withoutBounds_returnsNil_andDoesNotReachSurfaceManager() async throws
+    {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -773,7 +792,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func aRevealOfAPaneUnderPreparedCustodyCreatesNothing() throws {
+    func aRevealOfAPaneUnderPreparedCustodyCreatesNothing() async throws {
         // Arrange
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -825,7 +844,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func aRevealOfAReleasedPaneStillCreatesNormally() throws {
+    func aRevealOfAReleasedPaneStillCreatesNormally() async throws {
         // Arrange
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -843,157 +862,5 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
 
         // Assert
         #expect(harness.surfaceManager.createdPaneIds == [pane.id])
-    }
-}
-
-@MainActor
-private func mountPreparedTerminalCohort(
-    coordinator: WorkspaceSurfaceCoordinator,
-    viewRegistry: ViewRegistry,
-    entries: [(Pane, TerminalActivationVisibilityPriority, TerminalHostPlacementIdentity)],
-    trustedBounds: CGRect
-) async throws {
-    let generation = try preparedTerminalCohortGeneration()
-    let descriptors = try entries.map { pane, priority, placement in
-        try preparedTerminalCohortDescriptor(
-            pane: pane,
-            visibilityPriority: priority,
-            hostPlacement: placement
-        )
-    }
-    let resolvedFramesByTabID = coordinator.resolveInitialFramesByTabId(in: trustedBounds)
-    let initialFramesByPaneID = nonEmptyInitialFramesByPaneID(resolvedFramesByTabID)
-    let cohort = WorkspacePreparedContentMountCohort(
-        generation: generation,
-        terminalActivationInput: TerminalActivationInput(entries: descriptors),
-        nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
-    )
-    viewRegistry.beginInitialRestore()
-    let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
-        generation: generation,
-        viewRegistry: viewRegistry,
-        mountHandler: coordinator,
-        descriptorsByPaneID: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.paneID, $0) })
-    )
-    let owner = WorkspacePreparedContentMountCoordinator(
-        cohort: cohort,
-        viewRegistry: viewRegistry,
-        terminalAdmissionPort: terminalAdmissionPort,
-        nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
-            generation: generation, coordinator: coordinator)
-    )
-    await owner.installTerminalGeometryAvailability(
-        terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID))
-    _ = await owner.mount()
-}
-
-private func nonEmptyInitialFramesByPaneID(
-    _ framesByTabID: [UUID: [UUID: CGRect]]
-) -> [PaneId: NSRect] {
-    var framesByPaneID: [PaneId: NSRect] = [:]
-    for tabFrames in framesByTabID.values {
-        for (paneID, frame) in tabFrames where !frame.isEmpty {
-            framesByPaneID[PaneId(existingUUID: paneID)] = frame
-        }
-    }
-    return framesByPaneID
-}
-
-@MainActor
-private func preparedTerminalCohortGeneration() throws -> WorkspaceContentMountGeneration {
-    WorkspaceContentMountGeneration()
-}
-
-private func preparedTerminalCohortDescriptor(
-    pane: Pane,
-    visibilityPriority: TerminalActivationVisibilityPriority,
-    hostPlacement: TerminalHostPlacementIdentity
-) throws -> TerminalActivationDescriptor {
-    guard case .terminal = pane.content else {
-        preconditionFailure("prepared terminal cohort requires terminal content")
-    }
-    return TerminalActivationDescriptor(
-        pane: pane,
-        visibilityPriority: visibilityPriority,
-        hostPlacement: hostPlacement
-    )
-}
-
-private func makeAcceptedPreparedTerminalPane(launchDirectory: URL) -> Pane {
-    Pane(
-        id: UUIDv7.generate(),
-        content: .terminal(
-            TerminalState(
-                provider: .zmx,
-                lifetime: .persistent,
-                zmxSessionID: .generateUUIDv7()
-            )
-        ),
-        metadata: PaneMetadata(
-            launchDirectory: launchDirectory,
-            title: "Accepted Prepared Terminal"
-        )
-    )
-}
-
-@MainActor
-private func makePreparedTerminalAdmission(pane: Pane) throws -> TerminalActivationAdmission {
-    let generation = WorkspaceContentMountGeneration()
-    guard case .terminal = pane.content else {
-        preconditionFailure("prepared terminal admission requires terminal content")
-    }
-    return TerminalActivationAdmission(
-        generation: generation,
-        descriptor: TerminalActivationDescriptor(
-            pane: pane,
-            visibilityPriority: .activeVisible,
-            hostPlacement: .tab(tabID: UUIDv7.generate())
-        ),
-        attempt: 1
-    )
-}
-
-@MainActor
-private final class CapturingSurfaceManager: WorkspaceSurfaceManaging {
-    private(set) var lastConfig: Ghostty.SurfaceConfiguration?
-    private(set) var lastMetadata: SurfaceMetadata?
-    private(set) var createdPaneIds: [UUID] = []
-    private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
-
-    func syncFocus(activeSurfaceId _: UUID?) {}
-
-    func createSurface(
-        config: Ghostty.SurfaceConfiguration,
-        metadata: SurfaceMetadata
-    ) -> Result<ManagedSurface, SurfaceError> {
-        lastConfig = config
-        lastMetadata = metadata
-        if let paneId = metadata.paneId {
-            createdPaneIds.append(paneId)
-            createdConfigsByPaneId[paneId] = config
-        }
-        return .failure(.operationFailed("capture only"))
-    }
-
-    @discardableResult
-    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        _ = surfaceId
-        _ = paneId
-        return nil
-    }
-
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
-        _ = surfaceId
-        _ = reason
-    }
-
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
-
-    func destroy(_ surfaceId: UUID) {
-        _ = surfaceId
     }
 }

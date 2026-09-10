@@ -266,12 +266,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #if DEBUG
             sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
         #endif
-        mainWindowController?.shutdown()
         guard let store else { return .terminateNow }
 
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
+            await self?.executor?.stopAcceptingCommandsAndDrain()
             await self?.flushApplicationStateBeforeTermination(store: store)
+            self?.mainWindowController?.shutdown()
             self?.cancelAllRepositoryFactUpdates()
             if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
                 await workspaceSurfaceCoordinator.shutdown()

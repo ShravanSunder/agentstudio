@@ -433,35 +433,39 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Zoom rejects main-pane creation while preserving source Drawer creation")
-    func zoomRejectsMainPaneCreationAndAllowsSourceDrawerCreation() throws {
+    func zoomRejectsMainPaneCreationAndAllowsSourceDrawerCreation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let pane = harness.store.createPane()
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        harness.store.setActivePane(pane.id, inTab: tab.id)
-        enterZoom(in: tab, sourcePaneId: pane.id, viewerPresentation: .unavailable, harness: harness)
-        let durablePaneIdsBefore = Set(try #require(harness.store.tab(tab.id)).activePaneIds)
-        let tabIdsBefore = harness.store.tabs.map(\.id)
 
-        #expect(!harness.controller.canExecute(.newTerminalInTab))
-        #expect(!harness.controller.canExecute(.openWebview))
-        #expect(harness.controller.canExecute(.addDrawerPane))
+        try await withWorkspaceCommandHarness(harness) {
+            let pane = harness.store.createPane()
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(pane.id, inTab: tab.id)
+            enterZoom(in: tab, sourcePaneId: pane.id, viewerPresentation: .unavailable, harness: harness)
+            let durablePaneIdsBefore = Set(try #require(harness.store.tab(tab.id)).activePaneIds)
+            let tabIdsBefore = harness.store.tabs.map(\.id)
 
-        harness.controller.execute(.newTerminalInTab)
-        harness.controller.execute(.openWebview)
-        harness.controller.execute(.addDrawerPane)
+            #expect(!harness.controller.canExecute(.newTerminalInTab))
+            #expect(!harness.controller.canExecute(.openWebview))
+            #expect(harness.controller.canExecute(.addDrawerPane))
 
-        #expect(harness.store.tabs.map(\.id) == tabIdsBefore)
-        #expect(Set(try #require(harness.store.tab(tab.id)).activePaneIds) == durablePaneIdsBefore)
+            harness.controller.execute(.newTerminalInTab)
+            harness.controller.execute(.openWebview)
+            harness.controller.execute(.addDrawerPane)
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        let drawer = try #require(harness.store.pane(pane.id)?.drawer)
-        #expect(drawer.paneIds.count == 1)
-        let drawerPaneId = try #require(drawer.paneIds.first)
-        #expect(drawer.isExpanded)
-        #expect(harness.store.pane(drawerPaneId) != nil)
-        #expect(harness.store.tabs.allSatisfy { !$0.activePaneIds.contains(drawerPaneId) })
+            #expect(harness.store.tabs.map(\.id) == tabIdsBefore)
+            #expect(Set(try #require(harness.store.tab(tab.id)).activePaneIds) == durablePaneIdsBefore)
+
+            let drawer = try #require(harness.store.pane(pane.id)?.drawer)
+            #expect(drawer.paneIds.count == 1)
+            let drawerPaneId = try #require(drawer.paneIds.first)
+            #expect(drawer.isExpanded)
+            #expect(harness.store.pane(drawerPaneId) != nil)
+            #expect(harness.store.tabs.allSatisfy { !$0.activePaneIds.contains(drawerPaneId) })
+        }
     }
 
     @Test("Zoom-local Viewer toggles only the retained source companion")
@@ -639,70 +643,75 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("targeted arrangement traversal activates its tab, preserves Zoom, and traverses durable layouts")
-    func targetedArrangementTraversalActivatesTargetAndPreservesZoom() throws {
+    func targetedArrangementTraversalActivatesTargetAndPreservesZoom() async throws {
         // Mutation caught: targeted arrangement commands fall through instead of applying to their explicit tab.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let sourcePane = harness.store.createPane()
-        let targetPane = harness.store.createPane()
-        let sourceTab = Tab(paneId: sourcePane.id)
-        let targetTab = Tab(paneId: targetPane.id)
-        harness.store.appendTab(sourceTab)
-        harness.store.appendTab(targetTab)
-        let targetDefaultArrangementId = targetTab.activeArrangementId
-        let targetUserArrangementId = try #require(
-            harness.store.createArrangement(name: "Layout 2", inTab: targetTab.id)
-        )
-        enterZoom(in: sourceTab, sourcePaneId: sourcePane.id, harness: harness)
-        enterZoom(in: targetTab, sourcePaneId: targetPane.id, harness: harness)
-        harness.store.setActiveTab(sourceTab.id)
 
-        #expect(
-            harness.controller.canExecute(
+        try await withWorkspaceCommandHarness(harness) {
+            let sourcePane = harness.store.createPane()
+            let targetPane = harness.store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            let targetTab = Tab(paneId: targetPane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.appendTab(targetTab)
+            let targetDefaultArrangementId = targetTab.activeArrangementId
+            let targetUserArrangementId = try #require(
+                harness.store.createArrangement(name: "Layout 2", inTab: targetTab.id)
+            )
+            enterZoom(in: sourceTab, sourcePaneId: sourcePane.id, harness: harness)
+            enterZoom(in: targetTab, sourcePaneId: targetPane.id, harness: harness)
+            harness.store.setActiveTab(sourceTab.id)
+
+            #expect(
+                harness.controller.canExecute(
+                    .nextArrangement,
+                    target: targetTab.id,
+                    targetType: .tab
+                )
+            )
+            harness.controller.execute(
                 .nextArrangement,
                 target: targetTab.id,
                 targetType: .tab
             )
-        )
-        harness.controller.execute(
-            .nextArrangement,
-            target: targetTab.id,
-            targetType: .tab
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.store.activeTabId == targetTab.id)
-        #expect(harness.store.tab(targetTab.id)?.activeArrangementId == targetDefaultArrangementId)
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?.sourcePaneId
-                == targetPane.id
-        )
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?.sourcePaneId
-                == sourcePane.id
-        )
+            #expect(harness.store.activeTabId == targetTab.id)
+            #expect(harness.store.tab(targetTab.id)?.activeArrangementId == targetDefaultArrangementId)
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?.sourcePaneId
+                    == targetPane.id
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?.sourcePaneId
+                    == sourcePane.id
+            )
 
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .previousArrangement,
+                    target: targetTab.id,
+                    targetType: .tab
+                )
+            )
+            harness.controller.execute(
                 .previousArrangement,
                 target: targetTab.id,
                 targetType: .tab
             )
-        )
-        harness.controller.execute(
-            .previousArrangement,
-            target: targetTab.id,
-            targetType: .tab
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.store.tab(targetTab.id)?.activeArrangementId == targetUserArrangementId)
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?.sourcePaneId
-                == targetPane.id
-        )
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?.sourcePaneId
-                == sourcePane.id
-        )
+            #expect(harness.store.tab(targetTab.id)?.activeArrangementId == targetUserArrangementId)
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?.sourcePaneId
+                    == targetPane.id
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?.sourcePaneId
+                    == sourcePane.id
+            )
+        }
     }
 
     @Test("targeted arrangement traversal rejects stale and wrong-kind targets")

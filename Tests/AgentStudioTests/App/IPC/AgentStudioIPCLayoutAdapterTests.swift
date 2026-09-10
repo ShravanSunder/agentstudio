@@ -11,7 +11,7 @@ import Testing
 @Suite("AgentStudio IPC layout adapter")
 struct AgentStudioIPCLayoutAdapterTests {
     @Test("pane focus fails closed when no workspace window is active")
-    func paneFocusFailsClosedWhenNoWorkspaceWindowIsActive() throws {
+    func paneFocusFailsClosedWhenNoWorkspaceWindowIsActive() async throws {
         let harness = LayoutAdapterHarness(windowSnapshot: .empty)
 
         do {
@@ -23,7 +23,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("pane focus resolves friendly ordinal and delegates to focus control seam")
-    func paneFocusResolvesFriendlyOrdinalAndDelegatesToFocusControlSeam() throws {
+    func paneFocusResolvesFriendlyOrdinalAndDelegatesToFocusControlSeam() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let firstPane = store.createPane(title: "First")
         let secondPane = store.createPane(title: "Second")
@@ -40,7 +40,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("pane focus reports target not found for missing pane handle")
-    func paneFocusReportsTargetNotFoundForMissingPaneHandle() throws {
+    func paneFocusReportsTargetNotFoundForMissingPaneHandle() async throws {
         let harness = LayoutAdapterHarness()
 
         do {
@@ -52,7 +52,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("pane focus rejects non-pane handles")
-    func paneFocusRejectsNonPaneHandles() throws {
+    func paneFocusRejectsNonPaneHandles() async throws {
         let harness = LayoutAdapterHarness()
 
         do {
@@ -64,7 +64,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("pane split resolves requested pane instead of active pane")
-    func paneSplitResolvesRequestedPaneInsteadOfActivePane() throws {
+    func paneSplitResolvesRequestedPaneInsteadOfActivePane() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let activePane = store.createPane(title: "Active")
         let requestedPane = store.createPane(title: "Requested")
@@ -74,7 +74,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
-        let result = try harness.adapter.splitPane(
+        let result = try await harness.adapter.splitPane(
             IPCPaneSplitParams(handle: "pane:2", direction: .right, correlationId: nil)
         )
 
@@ -91,7 +91,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("pane close delegates explicit pane action")
-    func paneCloseDelegatesExplicitPaneAction() throws {
+    func paneCloseDelegatesExplicitPaneAction() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let firstPane = store.createPane(title: "First")
         let secondPane = store.createPane(title: "Second")
@@ -101,14 +101,14 @@ struct AgentStudioIPCLayoutAdapterTests {
         let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
-        let result = try harness.adapter.closePane(IPCPaneCloseParams(handle: "pane:2", correlationId: nil))
+        let result = try await harness.adapter.closePane(IPCPaneCloseParams(handle: "pane:2", correlationId: nil))
 
         #expect(result.paneId == secondPane.id)
         #expect(workspaceActionExecutor.actions == [.closePane(tabId: tab.id, paneId: secondPane.id)])
     }
 
     @Test("drawer methods delegate through layout action seam")
-    func drawerMethodsDelegateThroughLayoutActionSeam() throws {
+    func drawerMethodsDelegateThroughLayoutActionSeam() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let parentPane = store.createPane(title: "Parent")
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
@@ -117,10 +117,10 @@ struct AgentStudioIPCLayoutAdapterTests {
         let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
-        let addResult = try harness.adapter.addDrawerPane(
+        let addResult = try await harness.adapter.addDrawerPane(
             IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
         )
-        let toggleResult = try harness.adapter.toggleDrawer(
+        let toggleResult = try await harness.adapter.toggleDrawer(
             IPCDrawerToggleParams(parentPaneHandle: "pane:1", correlationId: nil)
         )
 
@@ -134,7 +134,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("drawer methods reject drawer child handles as parents")
-    func drawerMethodsRejectDrawerChildHandlesAsParents() throws {
+    func drawerMethodsRejectDrawerChildHandlesAsParents() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let parentPane = store.createPane(title: "Parent")
         let drawerPane = store.paneAtom.addDrawerPane(
@@ -149,7 +149,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         do {
-            _ = try harness.adapter.addDrawerPane(
+            _ = try await harness.adapter.addDrawerPane(
                 IPCDrawerAddPaneParams(parentPaneHandle: "pane:2", correlationId: nil)
             )
             Issue.record("drawer.addPane unexpectedly accepted a drawer child as parent")
@@ -158,7 +158,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         }
 
         do {
-            _ = try harness.adapter.toggleDrawer(
+            _ = try await harness.adapter.toggleDrawer(
                 IPCDrawerToggleParams(parentPaneHandle: "pane:2", correlationId: nil)
             )
             Issue.record("drawer.toggle unexpectedly accepted a drawer child as parent")
@@ -171,7 +171,7 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("layout methods report validation rejection from action owner")
-    func layoutMethodsReportValidationRejectionFromActionOwner() throws {
+    func layoutMethodsReportValidationRejectionFromActionOwner() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let parentPane = store.createPane(title: "Parent")
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
@@ -181,7 +181,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         do {
-            _ = try harness.adapter.splitPane(
+            _ = try await harness.adapter.splitPane(
                 IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
             )
             Issue.record("pane.split unexpectedly reported success after owner rejection")
@@ -191,8 +191,8 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("concrete pane focus control routes through PaneTabViewController owner chain")
-    func concretePaneFocusControlRoutesThroughPaneTabViewControllerOwnerChain() throws {
-        try withTestCoreAtoms { _ in
+    func concretePaneFocusControlRoutesThroughPaneTabViewControllerOwnerChain() async throws {
+        try await withAsyncTestCoreAtoms { _ in
             let harness = makeHarness()
             let firstPane = harness.store.createPane(title: "First")
             let secondPane = harness.store.createPane(title: "Second")
@@ -213,8 +213,8 @@ struct AgentStudioIPCLayoutAdapterTests {
     }
 
     @Test("concrete layout actions register hosts before exposing created panes")
-    func concreteLayoutActionsRegisterHostsBeforeExposingCreatedPanes() throws {
-        try withTestCoreAtoms { _ in
+    func concreteLayoutActionsRegisterHostsBeforeExposingCreatedPanes() async throws {
+        try await withAsyncTestCoreAtoms { _ in
             let harness = makeHarness()
             let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
             let parentPane = harness.store.createPane(
@@ -234,7 +234,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             )
 
             let panesBeforeSplit = harness.store.paneAtom.graphAtom.paneIDs
-            _ = try adapter.splitPane(
+            _ = try await adapter.splitPane(
                 IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
             )
             let splitPaneIds = harness.store.paneAtom.graphAtom.paneIDs.subtracting(panesBeforeSplit)
@@ -249,7 +249,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             #expect(splitFacets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
 
             let panesBeforeDrawerAdd = harness.store.paneAtom.graphAtom.paneIDs
-            _ = try adapter.addDrawerPane(
+            _ = try await adapter.addDrawerPane(
                 IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
             )
             let drawerPaneIds = harness.store.paneAtom.graphAtom.paneIDs.subtracting(panesBeforeDrawerAdd)

@@ -139,32 +139,52 @@ package struct EventBusHarness<Envelope: Sendable> {
     }
 }
 
+/// Waits for `condition`, giving up only once BOTH budgets are exhausted: a `minimumTurns`
+/// floor of cooperative-pool yields, and a wall-clock `timeout`. Turns adapt to
+/// cooperative-pool contention (a call that legitimately needs many fast turns is not cut off
+/// at an arbitrary wall-clock instant); time adapts to actor contention (a suite that only gets
+/// a handful of turns because something else is holding an actor for a long stretch still gets
+/// real wall-clock time to make progress). Neither budget alone is a reliable timeout, so a wait
+/// gives up only when both say so. A green run never pays for the larger of the two bounds: it
+/// returns the instant `condition` succeeds.
 package func assertEventuallyAsync(
     _ description: String,
-    maxTurns: Int = 200,
+    minimumTurns: Int = 200,
+    timeout: Duration = .seconds(10),
     condition: @escaping @Sendable () async -> Bool
 ) async {
-    for _ in 0..<maxTurns {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    var turn = 0
+    while turn < minimumTurns || clock.now < deadline {
         if await condition() {
             return
         }
         await Task.yield()
+        turn += 1
     }
 
     #expect(await condition(), "\(description) timed out")
 }
 
+/// See `assertEventuallyAsync` above: the same dual turn/time budget, for a `@MainActor`
+/// condition.
 @MainActor
 package func assertEventuallyMain(
     _ description: String,
-    maxTurns: Int = 200,
+    minimumTurns: Int = 200,
+    timeout: Duration = .seconds(10),
     condition: @escaping @MainActor () -> Bool
 ) async {
-    for _ in 0..<maxTurns {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    var turn = 0
+    while turn < minimumTurns || clock.now < deadline {
         if condition() {
             return
         }
         await Task.yield()
+        turn += 1
     }
 
     #expect(condition(), "\(description) timed out")
@@ -173,11 +193,11 @@ package func assertEventuallyMain(
 package func waitForBusSubscriberCount<Envelope: Sendable>(
     _ bus: EventBus<Envelope>,
     atLeast expectedCount: Int,
-    maxTurns: Int = 200
+    minimumTurns: Int = 200
 ) async {
     await assertEventuallyAsync(
         "bus subscriber count should reach \(expectedCount)",
-        maxTurns: maxTurns
+        minimumTurns: minimumTurns
     ) {
         await bus.subscriberCount >= expectedCount
     }
@@ -192,11 +212,11 @@ package func waitForBusSubscriberRegistration<Envelope: Sendable>(
 
 package func assertBusDrained<Envelope: Sendable>(
     _ bus: EventBus<Envelope>,
-    maxTurns: Int = 200
+    minimumTurns: Int = 200
 ) async {
     await assertEventuallyAsync(
         "bus should have no subscribers",
-        maxTurns: maxTurns
+        minimumTurns: minimumTurns
     ) {
         await bus.subscriberCount == 0
     }

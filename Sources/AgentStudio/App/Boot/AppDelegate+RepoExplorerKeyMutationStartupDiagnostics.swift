@@ -26,11 +26,11 @@ import Foundation
 
             let fixtureApplySequence = currentRepoExplorerMainActorApplySequence()
             guard
-                let fixture = SidebarPerformanceProofFixture.prepare(
+                let fixture = await SidebarPerformanceProofFixture.prepare(
                     store: store,
                     repositoryRoot: FileManager.default.homeDirectoryForCurrentUser,
                     openTerminal: {
-                        workspaceSurfaceCoordinator.openFloatingTerminal(
+                        try? await workspaceSurfaceCoordinator.openFloatingTerminal(
                             launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                             title: "Repo Explorer Key Mutation Proof"
                         )

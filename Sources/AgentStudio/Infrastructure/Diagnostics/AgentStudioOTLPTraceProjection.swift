@@ -229,8 +229,8 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
-        .union(BridgeProductStreamProjectionKeys.stringKeys)
-        .union(BridgeProductPaintProjectionKeys.stringKeys)
+        .union(BridgeProductStreamProjectionKeys.stringKeys).union(BridgeProductPaintProjectionKeys.stringKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.stringAttributeKeys)
     private static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.sqlite.result_code",
         "agentstudio.bridge.activation.sequence",
@@ -680,9 +680,9 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
-        .union(BridgeProductStreamProjectionKeys.numericKeys)
-        .union(BridgeProductPaintProjectionKeys.numericKeys)
+        .union(BridgeProductStreamProjectionKeys.numericKeys).union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.numericAttributeKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
         "agentstudio.bridge.activation.source_available",
@@ -797,10 +797,10 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_pinned_to_bottom",
     ]).union(AgentStudioOTLPRepoExplorerTaxonomy.booleanAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.booleanKeys)
-        .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys)
-        .union(BridgeProductPaintProjectionKeys.booleanKeys)
+        .union(AgentStudioOTLPPaneDropTaxonomy.booleanAttributeKeys).union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
         .union(PaneAssociationRuntimeProofProjectionKeys.booleanAttributeKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.booleanAttributeKeys)
 }
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributes(

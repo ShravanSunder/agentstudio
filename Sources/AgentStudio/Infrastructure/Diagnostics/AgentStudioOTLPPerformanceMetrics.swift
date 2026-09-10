@@ -270,6 +270,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         appendTerminalAccumulatorApplyOutcomeDimension(record: record, dimensions: &dimensions)
         appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
+        appendRendererLifecycleEventKindDimension(record: record, dimensions: &dimensions)
         appendPaneAssociationOutcomeDimension(record: record, dimensions: &dimensions)
         appendAtomDimensions(record: record, dimensions: &dimensions)
         appendRepoExplorerKeyedWakeDimensions(record: record, dimensions: &dimensions)
@@ -533,6 +534,17 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         )
     }
 
+    private static func appendRendererLifecycleEventKindDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.renderer.lifecycle",
+            case .string(let eventKind) = record.attributes["agentstudio.performance.renderer.event.kind"],
+            RendererLifecycleAction(rawValue: eventKind) != nil
+        else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "event_kind", value: eventKind))
+    }
+
     private static func appendBridgeDimensions(
         record: AgentStudioOTLPProjectedLogRecord,
         dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
@@ -608,6 +620,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
 
     private static func isCounterMetricLabel(_ label: String) -> Bool {
         counterMetricLabels.contains(label)
+            || (label.hasPrefix("agentstudio_performance_renderer_") && label.hasSuffix("_delta"))
             || (label.hasPrefix("agentstudio_performance_filesystem_ingress_")
                 && label.hasSuffix("_count"))
             || (label.hasPrefix("agentstudio_performance_forge_") && label.hasSuffix("_count"))

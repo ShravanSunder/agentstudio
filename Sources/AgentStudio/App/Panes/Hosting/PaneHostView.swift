@@ -103,6 +103,14 @@ class PaneHostView: NSView, Identifiable {
         }
     }
 
+    /// Permanent retirement: unmount content and leave the container cycle. Idempotent.
+    func retire() {
+        (mountedContentView as? PaneMountedContent)?.paneHostWillRetire()
+        unmountContentView()
+        onAttachedToWindow = nil
+        removeFromSuperview()
+    }
+
     var mountedContentView: NSView? {
         contentContainerView.subviews.first
     }

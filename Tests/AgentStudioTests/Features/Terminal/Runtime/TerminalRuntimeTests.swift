@@ -294,7 +294,7 @@ struct TerminalRuntimeTests {
 
         await assertEventuallyAsync(
             "subscriber should receive replayable state events",
-            maxTurns: 5000
+            minimumTurns: 5000
         ) {
             await subscriber.snapshot().count == 2
         }
@@ -409,7 +409,7 @@ struct TerminalRuntimeTests {
 
         await assertEventuallyAsync(
             "subscriber should receive non-replayable request events",
-            maxTurns: 5000
+            minimumTurns: 5000
         ) {
             await subscriber.snapshot().count == 4
         }
@@ -472,7 +472,7 @@ struct TerminalRuntimeTests {
 
         await assertEventuallyAsync(
             "subscriber should receive the changed exact title fact",
-            maxTurns: 5000
+            minimumTurns: 5000
         ) {
             await subscriber.snapshot().count == 1
         }
@@ -527,7 +527,7 @@ struct TerminalRuntimeTests {
 
         await assertEventuallyAsync(
             "subscriber should receive promoted deferred transient events",
-            maxTurns: 5000
+            minimumTurns: 5000
         ) {
             await subscriber.snapshot().count == 1
         }
