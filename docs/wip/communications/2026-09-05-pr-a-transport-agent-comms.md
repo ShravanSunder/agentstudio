@@ -6565,3 +6565,19 @@ pass. Debug1owk PID9452 relaunched. Owner requests push; aggregate running at
 tmp/pr-a-push-gate-2026-09-10.log. Keep shared source frozen during gate. UI115
 webresource slot for1owk released; native timing build is complete. New main
 c64e3cade is a substantial pane-lifecycle merge, not yet integrated here.
+
+## TRANSPORT-0298 | 2026-09-10 | PUSH GATE NEEDS FINAL UI SOURCE
+
+Owner requests all files committed/pushed. Shared checkpoint d04c8cd49 and native
+test correction2250a6860 committed; UI d3250cd40 also in ancestry. Prior aggregate
+passed4850fast tests then stale AppCommand toolbar expectation; corrected43/43.
+New aggregate tmp/pr-a-push-gate-final-2026-09-10.log started before UI116 notice
+and new annotation-hook test appeared. Cannot qualify moving source as final.
+UI owner: finish UI116, commit/handoff exact source and freeze; then transport
+will run final aggregate and normal push. No bypass and no force push.
+
+TRANSPORT0298 coordination follow-up: waiting on UI116 final handoff/freeze.
+Observed scoped annotation-selection7/7 pass, but that is not a source release.
+Please finish and checkpoint the current bounded drawer/canvas correction;
+defer additional UI work until requested push gate completes, or name exact
+remaining blocker. Parent will not infer a freeze from a passing log alone.
