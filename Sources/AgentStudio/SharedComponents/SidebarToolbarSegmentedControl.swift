@@ -27,7 +27,7 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                     guard let requestedValue = model.selectionRequest(for: segment.value) else { return }
                     onSelect(requestedValue)
                 } label: {
-                    HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
+                    HStack(spacing: 0) {
                         if model.showsIcons {
                             icon(segment.value)
                                 .frame(
@@ -36,7 +36,9 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                 )
                         }
 
-                        if model.showsLabel(for: segment.value) {
+                        SidebarToolbarLabelLayout(
+                            revealFraction: model.showsLabel(for: segment.value) ? 1 : 0
+                        ) {
                             Text(segment.label)
                                 .font(
                                     .system(
@@ -49,8 +51,14 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                     model.showsIcons ? .trailing : .horizontal,
                                     AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
                                 )
-                                .transition(.opacity)
+                                .padding(
+                                    .leading,
+                                    model.showsIcons ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
+                                )
+                                .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
                         }
+                        .clipped()
+                        .accessibilityHidden(true)
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     .clipped()
@@ -72,6 +80,26 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
         )
     }
 
+}
+
+// Keep the label mounted so insertion/removal lifetimes cannot separate the two
+// buttons' geometry. SwiftUI interpolates occupied width on their shared transaction.
+struct SidebarToolbarLabelLayout: Layout {
+    var revealFraction: CGFloat
+
+    var animatableData: CGFloat {
+        get { revealFraction }
+        set { revealFraction = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let naturalSize = subviews.first?.sizeThatFits(.unspecified) ?? .zero
+        return CGSize(width: naturalSize.width * revealFraction, height: naturalSize.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: .unspecified)
+    }
 }
 
 package enum SidebarToolbarSelectionAppearance {

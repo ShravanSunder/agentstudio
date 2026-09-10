@@ -7,6 +7,27 @@ import Testing
 
 @Suite("Sidebar toolbar control visual state")
 struct SidebarToolbarControlVisualStateTests {
+    @Test(
+        "outgoing and incoming label widths exchange together at intermediate progress",
+        arguments: [CGFloat(0), 0.25, 0.5, 0.75, 1])
+    @MainActor
+    func labelWidthsExchangeTogether(progress: CGFloat) {
+        func mountedWidth(fraction: CGFloat) -> CGFloat {
+            let host = NSHostingView(
+                rootView: SidebarToolbarLabelLayout(revealFraction: fraction) {
+                    Color.clear.frame(width: 80, height: 20)
+                })
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.width
+        }
+        let outgoing = mountedWidth(fraction: 1 - progress)
+        let incoming = mountedWidth(fraction: progress)
+        #expect(abs(outgoing - 80 * (1 - progress)) < 0.5)
+        #expect(abs(incoming - 80 * progress) < 0.5)
+        #expect(abs(outgoing + incoming - 80) < 0.5)
+    }
+
     @Test("selected segment expands to show its label")
     @MainActor
     func selectedSegmentExpandsToShowItsLabel() {
@@ -41,7 +62,9 @@ struct SidebarToolbarControlVisualStateTests {
             encoding: .utf8
         )
 
-        #expect(source.contains(".transition(.opacity)"))
+        #expect(!source.contains("if model.showsLabel(for: segment.value)"))
+        #expect(source.contains("SidebarToolbarLabelLayout("))
+        #expect(!source.contains(".transition("))
         #expect(source.contains(".clipped()"))
         #expect(source.contains("value: model.selection"))
         #expect(!source.contains(".delay("))
