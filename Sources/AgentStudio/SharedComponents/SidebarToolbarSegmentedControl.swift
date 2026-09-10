@@ -49,15 +49,11 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                     model.showsIcons ? .trailing : .horizontal,
                                     AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
                                 )
-                                .transition(
-                                    .asymmetric(
-                                        insertion: selectedLabelInsertionTransition,
-                                        removal: selectedLabelRemovalTransition
-                                    )
-                                )
+                                .transition(.opacity)
                         }
                     }
                     .fixedSize(horizontal: true, vertical: false)
+                    .clipped()
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(SidebarToolbarSegmentButtonStyle(isSelected: isSelected))
@@ -76,25 +72,6 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
         )
     }
 
-    private var selectedLabelInsertionTransition: AnyTransition {
-        AnyTransition.offset(
-            x: -AppStyles.Shell.Sidebar.ToolbarControl.labelSlideDistance,
-            y: 0
-        )
-        .combined(with: .opacity)
-        .animation(
-            .easeOut(
-                duration: AppStyles.Shell.Sidebar.ToolbarControl.labelRevealDuration
-            )
-            .delay(AppStyles.Shell.Sidebar.ToolbarControl.labelRevealDelay)
-        )
-    }
-
-    private var selectedLabelRemovalTransition: AnyTransition {
-        .opacity.animation(
-            .easeOut(duration: AppStyles.General.Animation.fast)
-        )
-    }
 }
 
 package enum SidebarToolbarSelectionAppearance {
