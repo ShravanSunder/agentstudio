@@ -57,8 +57,10 @@ describe('Bridge Review header peer panels', () => {
 			expect(scrollBounds.height).toBeGreaterThan(200);
 			if (!(scroll instanceof HTMLElement)) throw new Error('Expected result scroll container.');
 			expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
-			await performAction(() => {
+			await performAction(async (): Promise<void> => {
 				scroll.scrollTop = scroll.scrollHeight;
+				scroll.dispatchEvent(new Event('scroll'));
+				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 			});
 			await expect.element(rendered.getByTestId('comparison-branch-branch-79')).toBeVisible();
 			expect(note.getBoundingClientRect().bottom).toBeCloseTo(noteBounds.bottom, 0);
