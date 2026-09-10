@@ -3545,6 +3545,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .editPaneNote, targetType == .pane {
             guard store.paneAtom.pane(target) != nil else { return }
+            focusTargetedPane(target)
             paneNotePresentation.present(target)
             return
         }
@@ -4429,7 +4430,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 guard let target = request.target, let targetType = request.targetType else {
                     return (request, false)
                 }
-                if request.command == .zoomPane || isTargetedPaneExternalCommand(request.command) {
+                if request.command == .zoomPane || request.command == .editPaneNote
+                    || isTargetedPaneExternalCommand(request.command)
+                {
                     return (request, canExecute(request.command, target: target, targetType: targetType))
                 }
                 if Self.isTargetedBridgeCommand(request.command) {
@@ -4553,6 +4556,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return activeLayoutShowsPane(target)
         case (.editPaneNote, .layout):
             return activeLayoutShowsPane(target)
+        case (.editPaneNote, .drawerChild):
+            return drawerParentIsShown(target)
         default:
             return false
         }

@@ -92,7 +92,7 @@ struct RepoExplorerCommandPresentationTests {
             isPinned: false
         )
 
-        #expect(requests.count == 6)
+        #expect(requests.count == 7)
         #expect(requests.allSatisfy { $0.surface == .contextMenu })
         #expect(requests.contains { $0.command == .pinPane })
         #expect(requests.allSatisfy { $0.target == paneId && $0.targetType == .pane })

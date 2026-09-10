@@ -59,7 +59,7 @@ struct RepoExplorerPaneRowContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                AppEntityIcon.pane.swiftUIImage(
+                (isDrawerPane ? AppEntityIcon.drawer : .pane).swiftUIImage(
                     loader: octiconLoader,
                     size: AppStyles.Shell.Sidebar.rowIdentityIconSize
                 )

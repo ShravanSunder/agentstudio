@@ -229,8 +229,20 @@ struct RepoExplorerContextMenuPresenterTests {
         let menu = try #require(
             presenter.makeMenu(for: row, commandPresentationSnapshot: snapshot)
         )
-        #expect(menu.items.first?.title == "Tab 1 · Pane 1")
+        #expect(menu.items.last?.title == "Tab 1 · Pane 1")
         #expect(menu.items.contains { $0.title == AppCommand.pinPane.definition.label })
+        #expect(
+            menu.items.map(\.title) == [
+                LocalActionSpec.createNewInTab.actionSpec.label,
+                LocalActionSpec.createNewInPane.actionSpec.label,
+                AppCommand.zoomPane.definition.label,
+                AppCommand.editPaneNote.definition.label,
+                "", AppCommand.pinPane.definition.label,
+                LocalActionSpec.openInEditorMenu.actionSpec.label,
+                "", LocalActionSpec.revealInFinder.actionSpec.label,
+                LocalActionSpec.copyPath.actionSpec.label,
+                "", "Tab 1 · Pane 1",
+            ])
 
         menu.performActionForItem(
             at: try #require(menu.items.firstIndex { $0.title == AppCommand.pinPane.definition.label }))
@@ -252,7 +264,7 @@ struct RepoExplorerContextMenuPresenterTests {
         editorMenu.performActionForItem(at: 0)
         #expect(openedEditorPaneIDs == [paneID])
         #expect(
-            menu.items.suffix(2).map(\.title) == [
+            menu.items.dropLast(2).suffix(2).map(\.title) == [
                 LocalActionSpec.revealInFinder.actionSpec.label, LocalActionSpec.copyPath.actionSpec.label,
             ])
     }

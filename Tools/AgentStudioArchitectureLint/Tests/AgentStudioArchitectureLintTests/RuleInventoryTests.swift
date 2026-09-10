@@ -26,6 +26,7 @@ struct ExpectedRule: Comparable, Equatable {
 enum ExpectedRuleInventory {
     static let rules: [ExpectedRule] = [
         ExpectedRule(id: "agentstudio_import_direction", severity: .error),
+        ExpectedRule(id: "agentstudio_drawer_toolbar_owned_controls", severity: .error),
         ExpectedRule(id: "agentstudio_retired_worktrunk_cli", severity: .error),
         ExpectedRule(id: "agentstudio_product_atom_boundary", severity: .error),
         ExpectedRule(id: "agentstudio_canonical_atom_mutation", severity: .error),

@@ -311,7 +311,7 @@ package struct RepoExplorerPaneCommandPresentation {
         worktreeId: UUID? = nil
     ) -> Set<RepoExplorerCommandPresentationRequest> {
         let commands: [AppCommand] = [
-            isPinned ? .unpinPane : .pinPane, .zoomPane,
+            isPinned ? .unpinPane : .pinPane, .zoomPane, .editPaneNote,
             .openNewTerminalInTab, .openWorktreeInPane,
             .openPaneLocationInFinder, .copyCurrentPanePath,
         ]

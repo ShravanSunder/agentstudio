@@ -16,6 +16,7 @@ struct TrapezoidConnector: Shape {
 private enum DrawerTooltipTarget: Hashable {
     case toggle
     case add
+    case pin
     case note
     case finder
     case copyPath
@@ -51,6 +52,7 @@ struct DrawerIconBar: View {
 
     @State private var isAddHovered = false
     @State private var isToggleHovered = false
+    @State private var isPinHovered = false
     @State private var isNoteHovered = false
     @State private var isFinderHovered = false
     @State private var isCopyPathHovered = false
@@ -74,11 +76,6 @@ struct DrawerIconBar: View {
         self.trailingActions = trailingActions
         self.paneSurfaceActions = paneSurfaceActions
         self.paneContextActions = paneContextActions
-    }
-
-    private enum TrailingActionIcon {
-        case system(name: String)
-        case octicon(name: String)
     }
 
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
@@ -122,27 +119,9 @@ struct DrawerIconBar: View {
                                     let toggleToolTip = toggleDrawerAction.commandSpec.controlTooltipRenderValue(
                                         textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
                                     )
-                                    Button(action: toggleDrawerAction.perform) {
-                                        Image(systemName: "rectangle.bottomhalf.filled")
-                                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                                            .frame(
-                                                width: DrawerLayout.iconButtonSize,
-                                                height: DrawerLayout.iconButtonSize
-                                            )
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(
-                                        isExpanded ? .primary : (isToggleHovered ? .primary : .secondary)
-                                    )
-                                    .background(
-                                        RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                                            .fill(
-                                                isExpanded
-                                                    ? Color.white.opacity(AppStyles.General.Fill.active)
-                                                    : (isToggleHovered
-                                                        ? Color.white.opacity(AppStyles.General.Fill.hover)
-                                                        : Color.clear))
+                                    commandButton(
+                                        toggleDrawerAction, identifier: "paneSurfaceToolbar.drawerToggle",
+                                        tooltip: toggleToolTip, isSelected: isExpanded
                                     )
                                     .disabled(!toggleDrawerAction.isEnabled)
                                     .onHover { hovering in
@@ -155,36 +134,14 @@ struct DrawerIconBar: View {
                                         in: Self.tooltipCoordinateSpaceName
                                     )
                                     .controlHelp(toggleToolTip)
-                                    .accessibilityHidden(true)
-                                    .background {
-                                        AccessibilityPressBridge(
-                                            identifier: "paneSurfaceToolbar.drawerToggle",
-                                            label: toggleDrawerAction.commandSpec.label,
-                                            isEnabled: toggleDrawerAction.isEnabled,
-                                            action: toggleDrawerAction.perform
-                                        )
-                                    }
+
                                 }
 
                                 if let addDrawerPaneAction {
                                     let addToolTip = addDrawerPaneAction.commandSpec.controlTooltipRenderValue()
-                                    Button(action: addDrawerPaneAction.perform) {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                                            .frame(
-                                                width: DrawerLayout.iconButtonSize,
-                                                height: DrawerLayout.iconButtonSize
-                                            )
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(isAddHovered ? .primary : .secondary)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                                            .fill(
-                                                isAddHovered
-                                                    ? Color.white.opacity(AppStyles.General.Fill.hover)
-                                                    : Color.clear)
+                                    commandButton(
+                                        addDrawerPaneAction, identifier: "paneSurfaceToolbar.drawerAdd",
+                                        tooltip: addToolTip
                                     )
                                     .disabled(!addDrawerPaneAction.isEnabled)
                                     .onHover { hovering in
@@ -197,36 +154,17 @@ struct DrawerIconBar: View {
                                         in: Self.tooltipCoordinateSpaceName
                                     )
                                     .controlHelp(addToolTip)
-                                    .accessibilityHidden(true)
-                                    .background {
-                                        AccessibilityPressBridge(
-                                            identifier: "paneSurfaceToolbar.drawerAdd",
-                                            label: addDrawerPaneAction.commandSpec.label,
-                                            isEnabled: addDrawerPaneAction.isEnabled,
-                                            action: addDrawerPaneAction.perform
-                                        )
-                                    }
+
                                 }
                                 if let pinPaneAction {
-                                    Button(action: pinPaneAction.perform) {
-                                        pinPaneAction.commandSpec.icon.swiftUIImage(
-                                            loader: octiconLoader, size: AppStyles.General.Icon.compact
-                                        )
-                                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
+                                    commandButton(
+                                        pinPaneAction, identifier: "paneSurfaceToolbar.pinPane",
+                                        tooltip: pinPaneAction.commandSpec.controlTooltipRenderValue()
+                                    )
                                     .disabled(!pinPaneAction.isEnabled)
-                                    .controlHelp(pinPaneAction.commandSpec.controlTooltipRenderValue())
-                                    .accessibilityHidden(true)
-                                    .background {
-                                        AccessibilityPressBridge(
-                                            identifier: "paneSurfaceToolbar.pinPane",
-                                            label: pinPaneAction.commandSpec.label,
-                                            isEnabled: pinPaneAction.isEnabled,
-                                            action: pinPaneAction.perform
-                                        )
-                                    }
+                                    .onHover { isPinHovered = $0 }
+                                    .hoverTooltipAnchor(DrawerTooltipTarget.pin, in: Self.tooltipCoordinateSpaceName)
+
                                 }
                             }
                         }
@@ -243,22 +181,12 @@ struct DrawerIconBar: View {
                                     editPaneNoteAction.perform()
                                 }
                             }
-                            trailingActionButton(
-                                icon: trailingActionIcon(for: editPaneNoteAction.commandSpec.icon),
-                                helpValue: noteToolTip,
-                                isHovered: isNoteHovered,
-                                action: presentPaneNote
+                            commandButton(
+                                editPaneNoteAction, identifier: "paneSurfaceToolbar.note", tooltip: noteToolTip,
+                                perform: presentPaneNote
                             )
                             .disabled(!editPaneNoteAction.isEnabled)
-                            .accessibilityHidden(true)
-                            .background {
-                                AccessibilityPressBridge(
-                                    identifier: "paneSurfaceToolbar.note",
-                                    label: editPaneNoteAction.commandSpec.label,
-                                    isEnabled: editPaneNoteAction.isEnabled,
-                                    action: presentPaneNote
-                                )
-                            }
+
                             .popover(
                                 isPresented: trailingActions.notePopoverPresented,
                                 arrowEdge: .bottom
@@ -322,51 +250,11 @@ struct DrawerIconBar: View {
                                                     openEditorMenuAction.commandSpec.controlTooltipRenderValue(
                                                         textOverride: "Open in Editor"
                                                     )
-                                                Button(action: openEditorMenuAction.perform) {
-                                                    HStack(
-                                                        spacing: AppStyles.Components.EditorChooser
-                                                            .chooserButtonContentSpacing
-                                                    ) {
-                                                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                                            .font(
-                                                                .system(
-                                                                    size: AppStyles.General.Icon.compact,
-                                                                    weight: .medium
-                                                                )
-                                                            )
-                                                        if let buttonTitle = trailingActions.buttonTitle {
-                                                            Text(buttonTitle)
-                                                                .lineLimit(1)
-                                                                .truncationMode(.tail)
-                                                        }
-                                                        Image(systemName: "chevron.up.chevron.down")
-                                                            .font(
-                                                                .system(
-                                                                    size: AppStyles.Components.EditorChooser
-                                                                        .chooserChevronFontSize,
-                                                                    weight: .semibold
-                                                                )
-                                                            )
-                                                    }
-                                                    .frame(height: DrawerLayout.iconButtonSize)
-                                                    .padding(
-                                                        .horizontal,
-                                                        AppStyles.Components.EditorChooser
-                                                            .chooserButtonHorizontalPadding
-                                                    )
-                                                    .background(
-                                                        RoundedRectangle(
-                                                            cornerRadius: DrawerLayout.iconButtonCornerRadius
-                                                        )
-                                                        .fill(
-                                                            isChooserHovered
-                                                                ? Color.primary.opacity(AppStyles.General.Fill.hover)
-                                                                : Color.clear
-                                                        )
-                                                    )
-                                                }
-                                                .buttonStyle(.plain)
-                                                .foregroundStyle(isChooserHovered ? .primary : .secondary)
+                                                commandButton(
+                                                    openEditorMenuAction, identifier: "paneSurfaceToolbar.editor",
+                                                    tooltip: chooserToolTip,
+                                                    content: .editorChooser(title: trailingActions.buttonTitle)
+                                                )
                                                 .popover(
                                                     isPresented: trailingActions.editorMenuPresented,
                                                     arrowEdge: .bottom
@@ -375,15 +263,7 @@ struct DrawerIconBar: View {
                                                 }
                                                 .disabled(!openEditorMenuAction.isEnabled)
                                                 .controlHelp(chooserToolTip)
-                                                .accessibilityHidden(true)
-                                                .background {
-                                                    AccessibilityPressBridge(
-                                                        identifier: "paneSurfaceToolbar.editor",
-                                                        label: openEditorMenuAction.commandSpec.label,
-                                                        isEnabled: openEditorMenuAction.isEnabled,
-                                                        action: openEditorMenuAction.perform
-                                                    )
-                                                }
+
                                                 .onHover { hovering in
                                                     withAnimation(
                                                         .easeInOut(duration: AppStyles.General.Animation.fast)
@@ -403,24 +283,12 @@ struct DrawerIconBar: View {
                                                         openFinderAction.commandSpec.controlTooltipRenderValue(
                                                             textOverride: "Open in Finder"
                                                         )
-                                                    trailingActionButton(
-                                                        icon: trailingActionIcon(
-                                                            for: openFinderAction.commandSpec.icon
-                                                        ),
-                                                        helpValue: finderToolTip,
-                                                        isHovered: isFinderHovered,
-                                                        action: openFinderAction.perform
+                                                    commandButton(
+                                                        openFinderAction, identifier: "paneSurfaceToolbar.finder",
+                                                        tooltip: finderToolTip
                                                     )
                                                     .disabled(!openFinderAction.isEnabled)
-                                                    .accessibilityHidden(true)
-                                                    .background {
-                                                        AccessibilityPressBridge(
-                                                            identifier: "paneSurfaceToolbar.finder",
-                                                            label: openFinderAction.commandSpec.label,
-                                                            isEnabled: openFinderAction.isEnabled,
-                                                            action: openFinderAction.perform
-                                                        )
-                                                    }
+
                                                     .onHover { hovering in
                                                         withAnimation(
                                                             .easeInOut(duration: AppStyles.General.Animation.fast)
@@ -439,24 +307,12 @@ struct DrawerIconBar: View {
                                                         copyPathAction.commandSpec.controlTooltipRenderValue(
                                                             textOverride: "Copy Path"
                                                         )
-                                                    trailingActionButton(
-                                                        icon: trailingActionIcon(
-                                                            for: copyPathAction.commandSpec.icon
-                                                        ),
-                                                        helpValue: copyPathToolTip,
-                                                        isHovered: isCopyPathHovered,
-                                                        action: copyPathAction.perform
+                                                    commandButton(
+                                                        copyPathAction, identifier: "paneSurfaceToolbar.copyPath",
+                                                        tooltip: copyPathToolTip
                                                     )
                                                     .disabled(!copyPathAction.isEnabled)
-                                                    .accessibilityHidden(true)
-                                                    .background {
-                                                        AccessibilityPressBridge(
-                                                            identifier: "paneSurfaceToolbar.copyPath",
-                                                            label: copyPathAction.commandSpec.label,
-                                                            isEnabled: copyPathAction.isEnabled,
-                                                            action: copyPathAction.perform
-                                                        )
-                                                    }
+
                                                     .onHover { hovering in
                                                         withAnimation(
                                                             .easeInOut(duration: AppStyles.General.Animation.fast)
@@ -525,6 +381,7 @@ struct DrawerIconBar: View {
         if trailingActions?.editorMenuPresented.wrappedValue == true { return nil }
         if isToggleHovered { return .toggle }
         if isAddHovered { return .add }
+        if isPinHovered { return .pin }
         if isNoteHovered { return .note }
         if isChooserHovered { return .chooser }
         if isFinderHovered { return .finder }
@@ -571,6 +428,8 @@ struct DrawerIconBar: View {
                 return nil
             }
             return addDrawerPaneAction.commandSpec.controlTooltipRenderValue()
+        case .pin:
+            return pinPaneAction?.commandSpec.controlTooltipRenderValue()
         case .note:
             return trailingActions?.editPaneNoteAction?.commandSpec.controlTooltipRenderValue()
         case .finder:
@@ -609,95 +468,61 @@ struct DrawerIconBar: View {
         }
     }
 
-    private func trailingActionIcon(for descriptor: CommandIcon) -> TrailingActionIcon {
-        switch descriptor {
-        case .system(let name):
-            return .system(name: name.rawValue)
-        case .octicon(let name):
-            return .octicon(name: name.rawValue)
+    private func toolbarIcon(_ icon: CommandIcon) -> ToolbarActionButtonPresentation.Icon {
+        switch icon {
+        case .system(let symbol): .system(symbol.rawValue)
+        case .octicon(let symbol): .octicon(symbol.rawValue)
         }
     }
 
-    private func trailingActionButton(
-        icon: TrailingActionIcon,
-        helpValue: ControlTooltipRenderValue,
-        isHovered: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Group {
-                switch icon {
-                case .system(let systemName):
-                    Image(systemName: systemName)
-                        .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                case .octicon(let octiconName):
-                    OcticonImage(
-                        name: octiconName,
-                        size: AppStyles.General.Icon.compact,
-                        loader: octiconLoader
-                    )
-                }
-            }
-            .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isHovered ? .primary : .secondary)
-        .background(
-            RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                .fill(isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear)
+    private func commandButton(
+        _ command: TargetedCommandControlAction,
+        identifier: String,
+        tooltip: ControlTooltipRenderValue? = nil,
+        isSelected: Bool = false,
+        content: ToolbarActionButtonPresentation.Content = .icon(),
+        perform: (@MainActor () -> Void)? = nil
+    ) -> ToolbarActionButton {
+        ToolbarActionButton(
+            presentation: .init(
+                icon: toolbarIcon(command.commandSpec.icon), label: command.commandSpec.label,
+                identifier: identifier,
+                tooltip: tooltip ?? command.commandSpec.controlTooltipRenderValue(),
+                isEnabled: command.isEnabled, content: content,
+                selection: isSelected ? .selected : .normal
+            ),
+            octiconLoader: octiconLoader, action: perform ?? command.perform
         )
-        .controlHelp(helpValue)
     }
 
     private func paneSurfaceActionButton(_ action: PaneSurfaceToolbarAction) -> some View {
-        let isHovered = hoveredPaneSurfaceActionId == action.state.accessibilityIdentifier
-
-        return Button(action: action.perform) {
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                paneSurfaceActionIcon(action.state.icon)
-                    .foregroundStyle(paneSurfaceActionIconForeground(action, isHovered: isHovered))
-                    .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-
-                if let visibleLabel = action.state.visibleLabel {
-                    Text(visibleLabel)
-                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
-                        .lineLimit(1)
-                        .padding(.trailing, AppStyles.Shell.DrawerToolbar.labeledActionTrailingPadding)
-                        .transition(.identity)
-                }
+        let tone: ToolbarActionButtonPresentation.IconTone
+        if let status = action.state.iconStatusTone {
+            switch status {
+            case .success: tone = .success
+            case .warning: tone = .warning
+            case .danger: tone = .danger
             }
-            .frame(height: DrawerLayout.iconButtonSize)
-            .contentShape(Rectangle())
+        } else if let hex = action.state.iconAccentColorHex {
+            tone = .repository(hex)
+        } else {
+            tone = .standard
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(paneSurfaceActionForeground(action, isHovered: isHovered))
-        .background(
-            RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                .fill(paneSurfaceActionFill(action, isHovered: isHovered))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .stroke(
-                            paneSurfaceActionStroke(action, isHovered: isHovered),
-                            lineWidth: 1
-                        )
-                )
+        return ToolbarActionButton(
+            presentation: .init(
+                icon: toolbarIcon(action.state.icon), label: action.state.label,
+                identifier: action.state.accessibilityIdentifier, tooltip: action.state.tooltip,
+                isEnabled: action.state.isEnabled, content: .icon(label: action.state.visibleLabel),
+                selection: action.state.isSelected
+                    ? (action.state.selectionEmphasis == .accent ? .accent : .selected) : .normal,
+                iconTone: tone
+            ),
+            octiconLoader: octiconLoader, action: action.perform
         )
-        .disabled(!action.state.isEnabled)
         .hoverTooltipAnchor(
             DrawerTooltipTarget.paneSurfaceAction(action.state.accessibilityIdentifier),
             in: Self.tooltipCoordinateSpaceName
         )
-        .controlHelp(action.state.tooltip)
-        .accessibilityHidden(true)
-        .background {
-            AccessibilityPressBridge(
-                identifier: action.state.accessibilityIdentifier,
-                label: action.state.label,
-                isEnabled: action.state.isEnabled,
-                action: action.perform
-            )
-        }
         .onHover { hovering in
             hoveredPaneSurfaceActionId = hovering ? action.state.accessibilityIdentifier : nil
         }
@@ -761,35 +586,6 @@ struct DrawerIconBar: View {
         .onHover { isGitStatusHovered = $0 }
     }
 
-    private func paneSurfaceActionForeground(
-        _ action: PaneSurfaceToolbarAction,
-        isHovered: Bool
-    ) -> Color {
-        if action.state.isSelected, action.state.selectionEmphasis == .accent {
-            return ChromeToolbarControlPalette.foregroundColor(
-                isSelected: true,
-                isHovered: isHovered
-            )
-        }
-        return action.state.isSelected || isHovered ? .primary : .secondary
-    }
-
-    private func paneSurfaceActionIconForeground(
-        _ action: PaneSurfaceToolbarAction,
-        isHovered: Bool
-    ) -> Color {
-        if let iconStatusTone = action.state.iconStatusTone {
-            return paneSurfaceStatusToneForeground(iconStatusTone)
-        }
-        guard let iconAccentColorHex = action.state.iconAccentColorHex else {
-            return paneSurfaceActionForeground(action, isHovered: isHovered)
-        }
-        return Color(
-            nsColor: NSColor(hex: iconAccentColorHex) ?? AppStyles.General.Accent.primaryNSColor
-        )
-        .opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-    }
-
     private func paneSurfaceStatusToneForeground(
         _ iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
     ) -> Color {
@@ -800,35 +596,6 @@ struct DrawerIconBar: View {
             case .danger: AppStyles.Shell.Sidebar.chipDangerColor
             }
         return color.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-    }
-
-    private func paneSurfaceActionFill(
-        _ action: PaneSurfaceToolbarAction,
-        isHovered: Bool
-    ) -> Color {
-        if action.state.isSelected, action.state.selectionEmphasis == .accent {
-            return ChromeToolbarControlPalette.fillColor(
-                isSelected: true,
-                isHovered: isHovered
-            )
-        }
-        if action.state.isSelected {
-            return Color.white.opacity(AppStyles.General.Fill.active)
-        }
-        return isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear
-    }
-
-    private func paneSurfaceActionStroke(
-        _ action: PaneSurfaceToolbarAction,
-        isHovered: Bool
-    ) -> Color {
-        guard action.state.isSelected, action.state.selectionEmphasis == .accent else {
-            return .clear
-        }
-        return ChromeToolbarControlPalette.strokeColor(
-            isSelected: true,
-            isHovered: isHovered
-        )
     }
 
     @ViewBuilder

@@ -4,7 +4,7 @@ struct DrawerIconBar: View {
     let tooltipValue: ControlTooltipRenderValue
 
     var body: some View {
-        Button("Add") {}
+        ToolbarActionButton(presentation: presentation, octiconLoader: loader, action: action)
             .controlHelp(tooltipValue)
 
         FloatingHoverTooltipPresenter(

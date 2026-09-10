@@ -57,43 +57,16 @@ final class RepoExplorerContextMenuPresenter: NSObject {
             guard let request = requests.first(where: { $0.command == command }) else { return nil }
             return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
         }
-        let menu = makeEmptyMenu()
-        let location = NSMenuItem(
-            title: "Tab \(pane.destination.tabIndex + 1) · Pane \(pane.destination.paneIndexInTab + 1)",
-            action: nil, keyEquivalent: ""
-        )
-        location.isEnabled = false
-        menu.addItem(location)
-        addSeparatorIfNeeded(to: menu)
-        for command: AppCommand in [.zoomPane, pane.isPinned ? .unpinPane : .pinPane] {
-            if let presented = presentation(command) { addCommand(presented, rowID: rowID, to: menu) }
-        }
-        addSeparatorIfNeeded(to: menu)
-        addCommandSubmenu(
-            action: .createNewInTab,
-            commands: [.openNewTerminalInTab, .openBridgeReviewInNewTab, .openBridgeFilesInNewTab].map(presentation),
-            rowID: rowID, to: menu
-        )
-        addCommandSubmenu(
-            action: .createNewInPane,
-            commands: [.openWorktreeInPane, .showBridgeReview, .showBridgeFiles].map(presentation),
-            rowID: rowID, to: menu
-        )
-        if presentation(.copyCurrentPanePath)?.isEnabled == true {
-            let editorMenu = makeEmptyMenu()
-            addLocalAction(.openInCursor, rowID: rowID, to: editorMenu) { [interactions] in
-                interactions.onOpenPaneInEditor(pane.destination.paneId, ExternalEditorTarget.cursor.id)
-            }
-            addLocalAction(.openInVSCode, rowID: rowID, to: editorMenu) { [interactions] in
-                interactions.onOpenPaneInEditor(pane.destination.paneId, ExternalEditorTarget.vscode.id)
-            }
-            addSubmenu(editorMenu, actionSpec: LocalActionSpec.openInEditorMenu.actionSpec, to: menu)
-        }
-        addSeparatorIfNeeded(to: menu)
-        for command: AppCommand in [.openPaneLocationInFinder, .copyCurrentPanePath] {
-            if let presented = presentation(command) { addCommand(presented, rowID: rowID, to: menu) }
-        }
-        return menu
+        return makeItemMenu(
+            ItemMenu(
+                rowID: rowID,
+                location: "Tab \(pane.destination.tabIndex + 1) · Pane \(pane.destination.paneIndexInTab + 1)",
+                command: presentation,
+                navigation: .pane,
+                pin: pane.isPinned ? .unpinPane : .pinPane,
+                editor: presentation(.copyCurrentPanePath)?.isEnabled == true ? .pane(pane.destination.paneId) : nil,
+                path: .pane
+            ))
     }
 
     private func makeGroupMenu(
@@ -134,55 +107,92 @@ final class RepoExplorerContextMenuPresenter: NSObject {
             showsPinnedControl: pinnedControlVisibility.showsContextMenuAction,
             snapshot: commandPresentationSnapshot
         )
-        let menu = makeEmptyMenu()
+        return makeItemMenu(
+            ItemMenu(
+                rowID: rowID, location: nil,
+                command: commandPresentation.contextMenuCommand,
+                navigation: .worktree(worktree.paneDestinations),
+                pin: isPinned ? .unpinRepo : .pinRepo,
+                editor: .worktree(worktree.worktree.path),
+                path: .worktree(worktree.worktree.path)
+            ))
+    }
 
+    private struct ItemMenu {
+        enum Navigation {
+            case pane
+            case worktree([RepoExplorerPaneDestination])
+        }
+        enum Editor {
+            case pane(UUID)
+            case worktree(URL)
+        }
+        enum PathTarget {
+            case pane
+            case worktree(URL)
+        }
+        let rowID: RepoExplorerRowID
+        let location: String?
+        let command: (AppCommand) -> RepoExplorerPresentedCommand?
+        let navigation: Navigation
+        let pin: AppCommand
+        let editor: Editor?
+        let path: PathTarget
+    }
+
+    /// Both row kinds supply targets; this owner fixes action order and section boundaries.
+    private func makeItemMenu(_ item: ItemMenu) -> NSMenu {
+        let menu = makeEmptyMenu()
         addCommandSubmenu(
             action: .createNewInTab,
-            commands: [
-                commandPresentation.contextMenuCommand(.openNewTerminalInTab),
-                commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab),
-                commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab),
-            ],
-            rowID: rowID,
-            to: menu
+            commands: [.openNewTerminalInTab, .openBridgeReviewInNewTab, .openBridgeFilesInNewTab].map(item.command),
+            rowID: item.rowID, to: menu
         )
         addCommandSubmenu(
             action: .createNewInPane,
-            commands: [
-                commandPresentation.contextMenuCommand(.openWorktreeInPane),
-                commandPresentation.contextMenuCommand(.showBridgeReview),
-                commandPresentation.contextMenuCommand(.showBridgeFiles),
-            ],
-            rowID: rowID,
-            to: menu
+            commands: [.openWorktreeInPane, .showBridgeReview, .showBridgeFiles].map(item.command),
+            rowID: item.rowID, to: menu
         )
-        addPaneDestinationSubmenu(worktree.paneDestinations, rowID: rowID, to: menu)
-
+        switch item.navigation {
+        case .pane:
+            for command: AppCommand in [.zoomPane, .editPaneNote] {
+                if let action = item.command(command) { addCommand(action, rowID: item.rowID, to: menu) }
+            }
+        case .worktree(let destinations):
+            addPaneDestinationSubmenu(destinations, rowID: item.rowID, to: menu)
+        }
         addSeparatorIfNeeded(to: menu)
-        let pinnedCommand: AppCommand = isPinned ? .unpinRepo : .pinRepo
-        if let pinnedPresentation = commandPresentation.contextMenuCommand(pinnedCommand) {
-            addCommand(pinnedPresentation, rowID: rowID, to: menu)
+        if let pin = item.command(item.pin) { addCommand(pin, rowID: item.rowID, to: menu) }
+        if let editor = item.editor {
+            let editorMenu = makeEmptyMenu()
+            for (spec, target) in [
+                (LocalActionSpec.openInCursor, ExternalEditorTarget.cursor.id),
+                (.openInVSCode, ExternalEditorTarget.vscode.id),
+            ] {
+                addLocalAction(spec, rowID: item.rowID, to: editorMenu) { [interactions] in
+                    switch editor {
+                    case .pane(let paneID): interactions.onOpenPaneInEditor(paneID, target)
+                    case .worktree(let path): _ = ExternalWorkspaceOpener.openInEditor(id: target, path: path)
+                    }
+                }
+            }
+            addSubmenu(editorMenu, actionSpec: LocalActionSpec.openInEditorMenu.actionSpec, to: menu)
         }
-
-        let editorMenu = makeEmptyMenu()
-        addLocalAction(.openInCursor, rowID: rowID, to: editorMenu) {
-            ExternalWorkspaceOpener.openInCursor(worktree.worktree.path)
-        }
-        addLocalAction(.openInVSCode, rowID: rowID, to: editorMenu) {
-            ExternalWorkspaceOpener.openInVSCode(worktree.worktree.path)
-        }
-        addSubmenu(
-            editorMenu,
-            actionSpec: LocalActionSpec.openInEditorMenu.actionSpec,
-            to: menu
-        )
-
         addSeparatorIfNeeded(to: menu)
-        addLocalAction(.revealInFinder, rowID: rowID, to: menu) {
-            PathActions.revealInFinder(worktree.worktree.path)
+        switch item.path {
+        case .pane:
+            for command: AppCommand in [.openPaneLocationInFinder, .copyCurrentPanePath] {
+                if let action = item.command(command) { addCommand(action, rowID: item.rowID, to: menu) }
+            }
+        case .worktree(let path):
+            addLocalAction(.revealInFinder, rowID: item.rowID, to: menu) { PathActions.revealInFinder(path) }
+            addLocalAction(.copyPath, rowID: item.rowID, to: menu) { PathActions.copyPath(path) }
         }
-        addLocalAction(.copyPath, rowID: rowID, to: menu) {
-            PathActions.copyPath(worktree.worktree.path)
+        if let location = item.location {
+            addSeparatorIfNeeded(to: menu)
+            let label = NSMenuItem(title: location, action: nil, keyEquivalent: "")
+            label.isEnabled = false
+            menu.addItem(label)
         }
         return menu
     }

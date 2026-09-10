@@ -37,6 +37,21 @@ struct PaneTabViewControllerPaneNoteTests {
         #expect(harness.launchRecorder.paneNoteRequests == [pane.id])
     }
 
+    @Test("targeted note editing accepts a drawer child and preserves its owner")
+    func targetedEditPaneNote_targetsDrawerChild() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        try await withWorkspaceCommandHarness(harness) {
+            let parent = makeMainPane(in: harness)
+            let child = try #require(harness.store.addDrawerPane(to: parent.id))
+            #expect(harness.controller.canExecute(.editPaneNote, target: child.id, targetType: .pane))
+            harness.controller.execute(.editPaneNote, target: child.id, targetType: .pane)
+            _ = await harness.executor.submitGesture { _ in true }.value
+            #expect(harness.launchRecorder.paneNoteRequests == [child.id])
+            #expect(harness.store.paneAtom.pane(parent.id)?.metadata.note == nil)
+        }
+    }
+
     @Test("copyCurrentPanePath copies active main pane cwd")
     func copyCurrentPanePath_usesMainPaneCWD() {
         let harness = makeHarness()

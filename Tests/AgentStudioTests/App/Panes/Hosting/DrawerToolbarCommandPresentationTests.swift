@@ -8,6 +8,15 @@ import Testing
 @MainActor
 @Suite("Drawer toolbar command presentation", .serialized)
 struct DrawerToolbarCommandPresentationTests {
+    @Test("drawer command glyphs preserve the established toolbar and menu references")
+    func commandGlyphsMatchExistingControls() {
+        #expect(AppCommand.addDrawerPane.definition.icon == .system(.plus))
+        #expect(AppCommand.toggleDrawer.definition.icon == .system(.rectangleBottomhalfFilled))
+        #expect(AppCommand.openPaneLocationInFinder.definition.icon == LocalActionSpec.revealInFinder.actionSpec.icon)
+        #expect(
+            AppCommand.openPaneLocationInEditorMenu.definition.icon == .system(.chevronLeftForwardslashChevronRight))
+    }
+
     @Test("unpin targets the toolbar owner even when a drawer child owns location actions")
     func unpinTargetsToolbarOwner() throws {
         let owner = UUIDv7.generate()

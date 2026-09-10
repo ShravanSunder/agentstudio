@@ -102,6 +102,7 @@ struct PaneSurfaceToolbarHost: View {
 
     @State private var paneInboxPopoverOpen = false
     @State private var paneNotePopoverOpen = false
+    @State private var presentedNotePaneId: UUID?
 
     @MainActor
     static func resolveTargetedCommandAction(
@@ -181,13 +182,14 @@ struct PaneSurfaceToolbarHost: View {
             store: store,
             repoCache: repoCache
         )
-        let paneNotePopoverContent = store.paneAtom.pane(locationTargetPaneId).map { pane in
+        let noteTargetPaneId = presentedNotePaneId ?? locationTargetPaneId
+        let paneNotePopoverContent = store.paneAtom.pane(noteTargetPaneId).map { pane in
             AnyView(
                 PaneNotePopover(
                     currentNote: pane.metadata.note,
                     owningPaneSize: owningPaneSize,
                     onCommit: { note in
-                        store.paneAtom.updatePaneNote(locationTargetPaneId, note: note)
+                        store.paneAtom.updatePaneNote(noteTargetPaneId, note: note)
                         paneNotePopoverOpen = false
                     },
                     onCancel: {
@@ -195,7 +197,7 @@ struct PaneSurfaceToolbarHost: View {
                     }
                 )
                 .transientKeyboardSurface(
-                    .paneNote(paneId: locationTargetPaneId),
+                    .paneNote(paneId: noteTargetPaneId),
                     workspaceWindowId: workspaceWindowId,
                     onDismiss: {
                         paneNotePopoverOpen = false
@@ -259,6 +261,9 @@ struct PaneSurfaceToolbarHost: View {
                 isPresented
             )
         }
+        .onChange(of: paneNotePopoverOpen) { _, isPresented in
+            if !isPresented { presentedNotePaneId = nil }
+        }
         .onAppear {
             consumePendingPaneNoteRequest()
         }
@@ -284,7 +289,11 @@ struct PaneSurfaceToolbarHost: View {
 
     private func consumePendingPaneNoteRequest() {
         guard let request = paneNotePresentation?.pendingRequest() else { return }
-        guard request.paneId == locationTargetPaneId else { return }
+        guard
+            request.paneId == anchorPaneId
+                || store.paneAtom.pane(request.paneId)?.parentPaneId == anchorPaneId
+        else { return }
+        presentedNotePaneId = request.paneId
         paneNotePopoverOpen = true
         paneNotePresentation?.clearRequest(request)
     }
