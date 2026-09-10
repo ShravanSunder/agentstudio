@@ -21,10 +21,7 @@ const bridgeViewerFileCategories: readonly BridgeViewerFileCategory[] = [
 	'test',
 	'docs',
 	'config',
-	'generated',
-	'vendor',
 	'fixture',
-	'unknown',
 ];
 
 export const bridgeViewerFileCategoryOptions: readonly BridgeViewerFacetMenuOption<

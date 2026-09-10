@@ -111,10 +111,7 @@ export async function createBridgeViewerCategoryFixture(): Promise<BridgeViewerC
 			]),
 			categoryCase('Documentation', ['category-corpus/docs/guide.md']),
 			categoryCase('Configuration', ['category-corpus/config/package.json']),
-			categoryCase('Generated', ['category-corpus/generated/client.ts']),
-			categoryCase('Dependencies / build', ['category-corpus/vendor/pkg/index.js']),
 			categoryCase('Test data', ['category-corpus/test-fixtures/sample.txt']),
-			categoryCase('Other', ['category-corpus/other/NOTICE']),
 		];
 		const expectedAllTreePaths = corpusTreePathsForFiles(changedPaths);
 		const expectedReviewDefaultTreePaths = reviewTreePathsForFiles(changedPaths);

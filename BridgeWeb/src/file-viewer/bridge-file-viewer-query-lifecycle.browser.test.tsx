@@ -470,10 +470,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			'Tests',
 			'Documentation',
 			'Configuration',
-			'Generated',
-			'Dependencies / build',
 			'Test data',
-			'Other',
 		]) {
 			expect(filterPopover.textContent).toContain(fileClassLabel);
 		}
@@ -496,20 +493,20 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await waitForFileViewerMenuFocus();
 		await dispatchFileViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
-		await navigateFileViewerMenuTo('Dependencies / build');
-		const focusedVendorOption = highlightedFileViewerMenuOption();
-		expect(focusedVendorOption.textContent).toContain('Dependencies / build');
-		expect(document.activeElement).toBe(focusedVendorOption);
+		await navigateFileViewerMenuTo('Test data');
+		const focusedFixtureOption = highlightedFileViewerMenuOption();
+		expect(focusedFixtureOption.textContent).toContain('Test data');
+		expect(document.activeElement).toBe(focusedFixtureOption);
 		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 			dispatchFileViewerMenuEnter();
 		});
 		await actFrame();
-		await expect.poll(() => focusedVendorOption.getAttribute('aria-checked')).toBe('true');
+		await expect.poll(() => focusedFixtureOption.getAttribute('aria-checked')).toBe('true');
 
 		// Assert: the matching file and only its required ancestor remain.
 		await expect
 			.poll((): readonly string[] => mountedFileTreePaths())
-			.toEqual(['Vendor', 'Vendor/Library.js']);
+			.toEqual(['Fixtures', 'Fixtures/sample.txt']);
 
 		// Act / Assert: every exposed category selects real metadata-backed rows.
 		// oxlint-disable no-await-in-loop -- Each selection mutates one shared Base UI menu and must settle before the next.
@@ -540,15 +537,21 @@ const categoryFilterCases = [
 	{ expectedPaths: ['Tests', 'Tests/TextFile.test.ts'], label: 'Tests' },
 	{ expectedPaths: ['Docs', 'Docs/Guide.md'], label: 'Documentation' },
 	{ expectedPaths: ['Config', 'Config/package.json'], label: 'Configuration' },
-	{ expectedPaths: ['Generated', 'Generated/API.generated.swift'], label: 'Generated' },
-	{ expectedPaths: ['Vendor', 'Vendor/Library.js'], label: 'Dependencies / build' },
 	{ expectedPaths: ['Fixtures', 'Fixtures/sample.txt'], label: 'Test data' },
-	{ expectedPaths: ['Assets', 'Assets/logo.png'], label: 'Other' },
 ] as const;
 
 const allClassifiedFileTreePaths = categoryFilterCases
 	.flatMap((categoryCase): readonly string[] => categoryCase.expectedPaths)
-	.concat(['Large', 'Large/blob.txt'])
+	.concat([
+		'Large',
+		'Large/blob.txt',
+		'Generated',
+		'Generated/API.generated.swift',
+		'Vendor',
+		'Vendor/Library.js',
+		'Assets',
+		'Assets/logo.png',
+	])
 	.toSorted();
 
 function requireHTMLElement(element: Element | null): HTMLElement {

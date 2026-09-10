@@ -4,6 +4,26 @@ import Testing
 
 struct BridgeReviewFileClassifierTests {
     @Test(
+        "recognized tool configuration stays out of Source",
+        arguments: ["BridgeWeb/vitest.config.ts", "web/astro.config.ts", "BridgeWeb/postcss.config.mjs"])
+    func recognizesToolConfiguration(path: String) {
+        #expect(classify(path) == .config)
+    }
+
+    @Test(
+        "extensionless project documentation uses Documentation",
+        arguments: ["LICENSE", "README", "CHANGELOG", "CONTRIBUTING", "docs/LICENSE"])
+    func recognizesDocumentationNames(path: String) {
+        #expect(classify(path) == .docs)
+    }
+
+    @Test("testdata is fixture data rather than JSON configuration")
+    func recognizesTestDataDirectory() {
+        #expect(classify("testdata/golden.json") == .fixture)
+        #expect(classify("testdata-extra/golden.json") == .config)
+    }
+
+    @Test(
         "JavaScript and TypeScript test suffixes are Tests",
         arguments: ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"])
     func recognizesScriptTestSuffixes(fileExtension: String) {

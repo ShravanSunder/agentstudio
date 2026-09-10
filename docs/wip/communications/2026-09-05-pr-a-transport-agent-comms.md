@@ -6467,3 +6467,76 @@ Log tmp/pr-a-category-e2e-post-revert.log (7.28stest,10.99stotal).
 UI111 sourcefreeze is RELEASED; UI may continue. Finaltestquality/checkpoint
 pending, no fullaggregate or entirePR-readiness claim. Binary/large are separate
 visibilitytoggles, not among8categorychoices; no new claim for those toggles.
+
+## TRANSPORT-0294 | 2026-09-09 | BROWSER GATE REMEDIATION RESUMED
+
+Verified UI110 is committed in 629fa126d and 9b6903321. Remaining browser
+failures are not category failures: five stale outline/floating-palette
+expectations and two act warnings (VirtualizedBranchOptions, PopoverPositioner).
+Transport is investigating the affected browser test files only; no shared
+primitive or menu recipe changes. Preserve console guards and geometry assertions.
+UI112 aggregate stopped before tests at AppStyles.swift lines 17 and 80,
+swift-format LineLength. UI owner: please correct those owned formatting lines;
+transport will not overwrite your concurrent AppStyles changes.
+
+TRANSPORT0294 proof: five exact stale assertions corrected, no product changes.
+Seven-file browser run 68/68; full browser 415 passed/6 existing skips, exit0;
+BridgeWeb quality exit0. Two earlier named act failures did not reproduce, not
+claimed fixed. Full run printed late suspended-resource act warnings, preserved
+in tmp/pr-a-browser-full-remediation.log for attribution. AppStyles formatting
+is now corrected in live tree. Full aggregate started against shared candidate:
+tmp/pr-a-current-aggregate-remediation.log. Please keep source frozen during it.
+
+## TRANSPORT-0295 | 2026-09-09 | OWNER REMOVES DEPENDENCIES / BUILD MENU CHOICE
+
+Owner requests removing Dependencies / build. Taking the shared category option
+list and exact menu/category journey expectations; no file deletion, native
+classification or default All visibility change. UI113 may retain its neutral
+icon assertions; transport will preserve those concurrent test hunks.
+Aggregate ended with one native SidebarToolbarControlVisualStateTests failure
+(selected segment border assertion, line 54). All 25 ordinary E2E and browser
+415 passed. UI owner: please diagnose your sidebar recipe/test mismatch. Shared
+gate is no longer running; source freeze released for UI113.
+
+TRANSPORT0295 update: Generated (per UI113 owner handoff), Dependencies/build,
+and Other removed from selectable options. Native metadata/All unchanged.
+File facet checked-state expectation corrected to six exact values; focused
+three-file browser11/11 and real reduced-category Swift/Vite E2E1/1 pass.
+Live Chrome5197 File Tests->Clear proved4875->1798->4875; File->Review now stuck
+loadingInitial with HEAD, no console errors. Read-only activation diagnosis
+active. New real-Git status/Clear E2E authored in separate transport lane.
+Luna standards research identified concrete config/doc/testdata gaps; permanent
+native regression tests added, RED run pending (first prerequisite blocked by
+in-progress E2E TS typo, since corrected). No new classifier subsystem.
+
+TRANSPORT0295 coordination: E2E line66 toHaveCount corrected to awaited count
+comparison before22:01; current source is corrected, earlier build log stale.
+Native classifier RED completed7tests/8issues; minimal config/doc/testdata
+correction now under focused GREEN. New status E2E remains delegate-owned and
+in progress, so check its current source before starting another package build.
+
+## TRANSPORT-0296 | 2026-09-09 | EMPTY GIT FILTER ROOT CAUSE AND CORRECTION
+
+Live Chrome5197 fresh page: Added and Modified work; Renamed with zero matches
+replaced whole Review shell with loadingInitial and hid Clear. Not HMR: reproduced
+after reload. Root cause presentation adapter tested raw native totals instead
+of projected catalog lengths. Permanent projection->adapter regression RED1/13.
+Actual fix compares materialized items/rows to catalog itemOrderLength and
+treeRowOrderLength. Query-projection experimental count edit fully reverted;
+native metadata and protocol untouched. Added incomplete-catalog negative cases.
+GREEN21unit tests. Chrome after fix: zero Renamed result retains menu and empty
+canvas; Clear restores42mounted tree rows. Git-status E2E still verifying final
+source. Classifier research regressions GREEN7tests (parameterized) after8RED
+issues; known config/docs names and testdata only. New fixture lint corrections
+still pending; no full readiness claim.
+
+TRANSPORT0296 final scoped proof: real Git-status/visibility E2E1/1 exit0 in
+tmp/pr-a-git-status-final-e2e.log (5.66stest/8.29stask). Positive Added/Modified/
+Renamed/Deleted, All, combined Added+Tests, explicit empty states, independent
+binary/large toggles and Clear restoration; clean owned-process teardown.
+Copied only empty coverage: pinned SDK rename flags do not enable copy detection.
+Owner decision requested before removal or adding that distinct Git behavior.
+Full BridgeWeb quality exit0 tmp/pr-a-filter-final-quality-proof.log; surrounding
+browser29/29, reduced categories11/11 and realcategory1/1, adapter/query21/21,
+nativeclassifier7parameterized tests pass. Scoped checkpoint next; full aggregate
+still must rerun after final shared UI integration. No PR-ready claim.
