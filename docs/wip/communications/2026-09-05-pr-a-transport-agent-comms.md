@@ -6401,3 +6401,17 @@ preserved and reported, never discarded. No reset/clean/rebase/forcepush.
 Isolated candidatebab2731a4 includes proven native CI test correction; browser
 test-only delegate still active there. Shared pull must retain newer integrated
 transport logic rather than replay older shared variants over it.
+
+## TRANSPORT-0291 | 2026-09-10 | UI110 CLASSIFICATION HANDOFF ACCEPTED
+
+Prioritized owner-requested classifier fix. Permanent native RED4tests19issues
+for JS/TS test suffix variants, __tests__ and test-fixtures; exact component and
+suffix boundaries plus binary/large/vendor/generated/fixture/test precedence
+covered. Existing classifier corrected only: .test/.spec across ts,tsx,js,jsx,
+mts,cts,mjs,cjs; __tests__; test-fixtures. No schema, menu recipe or transport change.
+GREEN18tests/3suites exit0 includes actual filesystem File tree metadata and Review
+descriptor category exclusion tests; source fixtures do not inject fileClass.
+Logs tmp/pr-a-file-classifier-{red,green,lint}.log. Scoped commit next.
+This does NOT claim complete real Swift/Vite category-menu E2E: Test data/Other,
+empty results, ancestor retention and Clear in both viewers remain to verify.
+UI remains owner of icons, direct groups and visual recipes.

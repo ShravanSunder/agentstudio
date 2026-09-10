@@ -29,15 +29,16 @@ enum BridgeReviewFileClassifier {
         }
         if pathComponents.contains("fixtures")
             || pathComponents.contains("__fixtures__")
+            || pathComponents.contains("test-fixtures")
             || normalizedPath.contains("/fixtures/")
         {
             return .fixture
         }
         if pathComponents.contains("tests")
             || pathComponents.contains("test")
+            || pathComponents.contains("__tests__")
             || normalizedPath.hasSuffix("tests.swift")
-            || normalizedPath.hasSuffix(".test.ts")
-            || normalizedPath.hasSuffix(".spec.ts")
+            || isScriptTestPath(normalizedPath)
         {
             return .test
         }
@@ -68,6 +69,14 @@ enum BridgeReviewFileClassifier {
             || filename.hasSuffix(".yaml")
             || filename.hasSuffix(".toml")
             || filename.hasSuffix(".json")
+    }
+
+    private static func isScriptTestPath(_ path: String) -> Bool {
+        let filename = (path as NSString).lastPathComponent as NSString
+        let scriptExtensions: Set<String> = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]
+        guard scriptExtensions.contains(filename.pathExtension) else { return false }
+        let stem = filename.deletingPathExtension
+        return stem.hasSuffix(".test") || stem.hasSuffix(".spec")
     }
 
     private static func isSourcePath(_ path: String) -> Bool {

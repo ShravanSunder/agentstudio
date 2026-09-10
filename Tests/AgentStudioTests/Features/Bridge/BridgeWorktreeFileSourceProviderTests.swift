@@ -21,6 +21,9 @@ struct BridgeWorktreeFileSourceProviderTests {
             ("Generated/API.swift", Data("// generated".utf8), .generated),
             ("vendor/library.js", Data("export {}".utf8), .vendor),
             ("Fixtures/sample.txt", Data("fixture".utf8), .fixture),
+            ("src/component.test.tsx", Data("test".utf8), .test),
+            ("src/component.spec.jsx", Data("test".utf8), .test),
+            ("src/test-fixtures/sample.json", Data("{}".utf8), .fixture),
             ("assets/logo.png", Data([1, 2, 3]), .unknown),
             ("Sources/App/Large.swift", Data(repeating: 65, count: 1_000_000), .large),
         ]
