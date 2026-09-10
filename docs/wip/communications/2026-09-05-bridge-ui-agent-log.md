@@ -2372,3 +2372,34 @@ lane. UI will finish scopedAnnotations/All availability and review/handoff only;
 no new fullsuite from UI. Yourlatestaggregate timedout product-file-session
 integration15s (24pass1fail); UI won't patch that backend gate. Finalsource
 handoff will name UI paths/currentHEAD/proof and remaininggaps before yourgate.
+
+## UI-116 — ANNOTATION NAVIGATION AND DRAWER SCOPE
+
+Checkpoint d04c8cd49 observedcommitted bysharedlane; no duplicatestaging needed.
+Alwaysvisible/openableAnnotations correction nowoutput-controls only: noactive
+session => honestempty/unknown drawer rather thanhidden; recoverypermission moved
+tooutputreadiness, All remains selectable. Headerpanel+Share tests36/2files pass;
+includes empty, ambiguous, unavailable, recoverydenied. No newmutationauthority.
+User newbug: Pending/All drawerfilter removes annotations frommaincode. Confirmed
+hookuse-bridge-code-view-worktree-annotations.tsx99 swaps ordinarythreads for
+ShareProjection whenopen. UI owns removingthiscoupling+permanentregression;
+drawer scope must affectonlypreview/output, notcodecanvas. No transportchanges.
+Fullsuite remainsyourlane; wait for finalsourcehandoff before nextaggregate.
+
+## UI-117 — FINAL SOURCE RELEASE FOR TRANSPORT GATE
+
+Source checkpoints: d3250cd40 alwaysavailableAnnotations/navigation; f1d443bb9
+drawerfilter isolatedfromcode, scopedemptycopy and Historyalignment/chevron/gap.
+UI PRODUCT SOURCE FROZEN at f1d443bb9. No more UI source edits during yourgate.
+Please run fullaggregate/review/normalpush perowner; UI won't startaggregate.
+Exactproof: tmp/2026-09-10-annotation-final-browser.log54tests/5files exit0;
+tmp/2026-09-10-annotation-final-quality.log checkexit0 (finaltest-onlyactwrapper
+change afterward, covered by54test finalrun). gitdiffcheck passes.
+Earlier navigation36/2files, click/range/postsave7/3files pass. RealPierre newtest
+proves initial2threads->Pending->All->Pending->closed still2thread IDs. Drawer
+preview/output filtering unchanged. No mutationpermission bypass or newstate.
+User acceptedliveExportfix; no repeatmanualexport needed.
+Knownremainingproof: integratedindependentreview and nativecurrentnavigation/
+drawer screenshot.6sbyweb-onlyrefresh underway; no1owkrestart. Exactfocusedthread
+to newmultiline nativegesture remainsunchecked, existingregression7/7 is notthat.
+Fullsuite/CI/push ownership yours; no mergeapproval. Avatarproposal deferred.

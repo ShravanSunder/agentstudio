@@ -6,6 +6,18 @@ User screenshots and current source drive the drawer findings below.
 
 ## Current UI / backend split
 
+- [ ] Share empty/history polish after current annotation behavior fixes:
+  Pending empty copy "No pending comments."; All empty "No annotations yet.".
+  Align History heading with body content, standard section gap above, visible
+  disclosure chevron. Prefer compact empty-state text, no unnecessary empty card.
+- [ ] Annotations navigation: always-visible/openable trigger and All selectable
+  for empty/unavailable/ambiguous sessions; Copy/Export retain permission/readiness
+  guards. Implemented after d04c8cd49,36browser tests+quality pass; currentnative
+  preview and independent review pending.
+- [ ] Drawer Pending/All must not filter annotations in main code canvas.
+  Confirmed erroneous hook branch; removal with actualPierre regression in progress.
+- Current click/drag/post-save regression rerun7/7 passes. This does not alone
+  close the exact previously focused-thread-to-new-multiline native gesture proof.
 - Settings main body: shared CSSGrid/subgrid, labels left-aligned and controls
   right-aligned within the common second column; no overlap, minimum12px
   label clearance. Titles/footer excluded, Reset kept separate. Review288px,
