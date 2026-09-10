@@ -702,7 +702,7 @@ extension AppCommand {
                 label: "Toggle Sidebar",
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the sidebar",
-                surfacePolicy: .exposed([.commandBar]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
                 targeting: .contextual
             )
         case .showInboxNotifications: return showInboxNotificationsDefinition()
