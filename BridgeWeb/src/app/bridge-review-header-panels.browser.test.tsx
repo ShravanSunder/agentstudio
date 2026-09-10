@@ -191,12 +191,18 @@ describe('Bridge Review header peer panels', () => {
 				.element();
 			if (!(outgoingPanel instanceof HTMLElement) || !(outgoingAction instanceof HTMLElement))
 				throw new Error('Expected mounted outgoing panel and action.');
-			await act(async (): Promise<void> => {
-				await (outgoingKind === 'compare' ? shareTrigger : compareTrigger).click();
-			});
+			const incomingTrigger = (
+				outgoingKind === 'compare' ? shareTrigger : compareTrigger
+			).element();
+			if (!(incomingTrigger instanceof HTMLElement))
+				throw new Error('Expected peer-panel trigger.');
+			// Commit the switch and pause its animation in this browser turn. A remote
+			// locator click can return after the exit animation has already completed.
+			act((): void => incomingTrigger.click());
 			const exitAnimations = outgoingPanel.getAnimations();
 			for (const animation of exitAnimations) animation.pause();
 			try {
+				expect(exitAnimations.length).toBeGreaterThan(0);
 				expect(outgoingPanel.isConnected).toBe(true);
 				expect(outgoingPanel.inert).toBe(true);
 				await act(async (): Promise<void> => {
