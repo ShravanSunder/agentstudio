@@ -418,6 +418,207 @@ describe('Bridge main render snapshot store', () => {
 		});
 	});
 
+	test('retains hydrated Review render copies while a query projection hides and restores an item', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		const initialEvent = makeReviewDisplayPatchEvent();
+		const initialSourcePatch = initialEvent.patches[0];
+		const initialItemPatch = initialEvent.patches[1];
+		const initialTreePatch = initialEvent.patches[2];
+		if (initialItemPatch?.slice !== 'reviewItem' || initialItemPatch.operation !== 'batch') {
+			throw new Error('expected Review fixture item batch');
+		}
+		if (initialSourcePatch?.slice !== 'reviewSource' || initialTreePatch?.slice !== 'reviewTree') {
+			throw new Error('expected Review fixture source and tree patches');
+		}
+		const initialCatalogItem = initialItemPatch.payload.items[0];
+		const initialPublicationIdentity = initialEvent.reviewPublicationIdentity;
+		if (initialCatalogItem === undefined) {
+			throw new Error('expected Review fixture item');
+		}
+		if (initialPublicationIdentity === null) {
+			throw new Error('expected Review fixture publication identity');
+		}
+		const hydratedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...initialCatalogItem,
+			contentFacts: [
+				{
+					contentDigest: {
+						algorithm: 'sha256',
+						authority: 'authoritative',
+						value: 'a'.repeat(64),
+					},
+					role: 'file',
+					semanticDocumentRevision: 'semantic-item-1',
+				},
+			],
+			metadata: {
+				...initialCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1' },
+				contentRoles: ['file'],
+			},
+		};
+		const populatedItemPatch = {
+			...initialItemPatch,
+			payload: { ...initialItemPatch.payload, items: [hydratedCatalogItem] },
+		} as const;
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
+			reviewPublicationIdentity: {
+				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000001',
+				reviewGeneration: 1,
+				revision: 11,
+				sourceIdentity: 'review-source-package-1',
+			},
+		});
+		const codeViewItem = makeBridgeMainCodeViewItem('item-1');
+		const rowPaint = { contentCacheKey: 'pierre-content:item-1', status: 'ready' } as const;
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [{ operation: 'upsert', itemId: 'item-1', item: codeViewItem }],
+			workerPatches: [
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: rowPaint,
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+		store.setLocalSelection({ selectedItemId: 'item-1', source: 'user' });
+
+		// Act: query-only display publications carry no source publication identity.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 1,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 1,
+		});
+
+		// Assert
+		const hiddenSnapshot = store.getSnapshot();
+		expect(hiddenSnapshot.reviewItemById['item-1']).toBeUndefined();
+		expect(hiddenSnapshot.selectionSlice).toEqual({ selectedItemId: null, source: null });
+		expect(hiddenSnapshot.codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(hiddenSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(hiddenSnapshot.rowPaintById['item-1']).toEqual(rowPaint);
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
+			projectionRevision: initialEvent.projectionRevision + 2,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 2,
+		});
+
+		// Assert
+		const restoredSnapshot = store.getSnapshot();
+		expect(restoredSnapshot.reviewItemById['item-1']).toEqual(hydratedCatalogItem);
+		expect(restoredSnapshot.codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(restoredSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(restoredSnapshot.rowPaintById['item-1']).toEqual(rowPaint);
+
+		// Act: hide the item again, then accept a same-epoch source publication while it is absent.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 3,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 3,
+		});
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 4,
+			reviewPublicationIdentity: {
+				...initialPublicationIdentity,
+				publicationId: '00000000-0000-7000-8000-000000000002',
+			},
+			sequence: initialEvent.sequence + 4,
+		});
+
+		// Assert
+		const sameEpochSourceSnapshot = store.getSnapshot();
+		expect(sameEpochSourceSnapshot.codeViewItemsById['item-1']).toBeUndefined();
+		expect(sameEpochSourceSnapshot.contentAvailabilityById['item-1']).toBeUndefined();
+		expect(sameEpochSourceSnapshot.rowPaintById['item-1']).toBeUndefined();
+
+		// Arrange: an off-catalog retained copy must also be purged by an epoch replacement.
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [{ operation: 'upsert', itemId: 'item-1', item: codeViewItem }],
+			workerPatches: [
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: rowPaint,
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			epoch: initialEvent.epoch + 1,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: 1,
+			reviewPublicationIdentity: {
+				...initialPublicationIdentity,
+				publicationId: '00000000-0000-7000-8000-000000000003',
+			},
+			sequence: initialEvent.sequence + 5,
+		});
+
+		// Assert
+		const replacedSourceSnapshot = store.getSnapshot();
+		expect(replacedSourceSnapshot.codeViewItemsById['item-1']).toBeUndefined();
+		expect(replacedSourceSnapshot.contentAvailabilityById['item-1']).toBeUndefined();
+		expect(replacedSourceSnapshot.rowPaintById['item-1']).toBeUndefined();
+	});
+
 	test('preserves unchanged ready Review render copies while invalidating removed or semantically changed copies', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();
@@ -684,7 +885,13 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 		direction: 'serverWorkerToMain',
 		epoch: 2,
 		kind: 'reviewDisplayPatch',
-		reviewPublicationIdentity: null,
+		reviewPublicationIdentity: {
+			packageId: 'package-1',
+			publicationId: '00000000-0000-7000-8000-000000000001',
+			reviewGeneration: 1,
+			revision: 11,
+			sourceIdentity: 'review-source-package-1',
+		},
 		patches: [
 			{
 				operation: 'upsert',

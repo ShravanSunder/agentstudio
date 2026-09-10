@@ -6591,3 +6591,14 @@ merge underway;4conflicts resolved provisionally retaining bothlanes. Compiler
 caught newextensions using retired WorkspaceSQLiteDatastore name; cutover to
 Actor type/file names, noalias. Focusedmergedcompile underway. Prioraggregate
 cancelled130 for mergedsource freshness, not testfailure.
+
+## TRANSPORT-0300 | 2026-09-10 | RELEASE CI AND FILTER CONTENT STALL
+
+Mergedmain feb5e6cfd pushed; local fullaggregate exit0. CI test-lifecycle fixes
+b1c7283b9 pushed (23focused+quality pass); operator watching newhead. User6sby
+filterempty->back reproduces rowswithoutcontent. Sidekickfilter_stability owns
+main render-copy retention correction: projectionabsence must not erase fulfilled
+content; true source replacement must stillinvalidate. UnitRED captured, initial
+GREEN and realPierrecontentE2E1/1 pass; hidden-source-change safety check underway.
+UI owner: user affectedapp6sby; please keep itsresources stable until finalfilter
+checkpoint, then coordinate webresource deployment. No restart has been done.

@@ -18,6 +18,7 @@ export interface BridgeViewerGitStatusFixture {
 	readonly expectedWithBinaryTreePaths: readonly string[];
 	readonly expectedWithLargeTreePaths: readonly string[];
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
+	readonly selectedSourceContentMarker: string;
 	readonly statusCases: readonly BridgeViewerGitStatusCase[];
 }
 
@@ -45,6 +46,7 @@ const addedSourcePath = `${corpusRoot}/source/added.ts`;
 const addedTestPath = `${corpusRoot}/specimens/added.test.ts`;
 const binaryPath = `${corpusRoot}/assets/payload.bin`;
 const largePath = `${corpusRoot}/assets/large.txt`;
+const selectedSourceContentMarker = 'GIT_STATUS_FILTER_CONTENT_RECOVERY_MARKER';
 
 const hiddenByDefaultPaths = [binaryPath, largePath] as const;
 
@@ -135,6 +137,7 @@ export async function createBridgeViewerGitStatusFixture(): Promise<BridgeViewer
 				reviewFiles: [],
 				worktreeRoot,
 			},
+			selectedSourceContentMarker,
 			statusCases: [
 				statusCase('Added', fixtureMutationPaths.added),
 				statusCase('Modified', fixtureMutationPaths.modified),
@@ -204,7 +207,10 @@ async function applyWorkingTreeMutations(worktreeRoot: string): Promise<void> {
 	);
 	await unlink(join(worktreeRoot, deletedPath));
 	await runFixtureGit(worktreeRoot, ['mv', renameSourcePath, renamedPath]);
-	await writeFile(join(worktreeRoot, addedSourcePath), 'export const addedSource = true;\n');
+	await writeFile(
+		join(worktreeRoot, addedSourcePath),
+		`export const addedSource = '${selectedSourceContentMarker}';\n`,
+	);
 	await writeFile(join(worktreeRoot, addedTestPath), 'export const addedTest = true;\n');
 	await copyFile(join(worktreeRoot, copySourcePath), join(worktreeRoot, copyCandidatePath));
 }

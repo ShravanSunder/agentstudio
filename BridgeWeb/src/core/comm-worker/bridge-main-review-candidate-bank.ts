@@ -10,6 +10,7 @@ import type {
 import {
 	applyReviewDisplayPatchEventInPlace,
 	bridgeMainReviewRenderCopyInvalidationItemIds,
+	bridgeMainReviewRetainedRenderCopyItemIds,
 	invalidateBridgeMainReviewRenderCopies,
 	reconcileBridgeMainReviewRenderCopyMetadata,
 	type BridgeMainReviewDisplayPatchEffect,
@@ -159,8 +160,11 @@ export class BridgeMainReviewCandidateBankOwner {
 			itemIds: bridgeMainReviewRenderCopyInvalidationItemIds({
 				currentItemsById: candidate.snapshot.reviewItemById,
 				previousItemsById: effect.previousItemsById,
+				preserveProjectionHiddenCopies: false,
+				retainedRenderCopyItemIds: bridgeMainReviewRetainedRenderCopyItemIds(candidate.snapshot),
 				replacesWorkerDerivationEpoch,
 			}),
+			selectionItemIds: [...effect.itemIds],
 			snapshot: candidate.snapshot,
 		});
 		candidate.snapshot = reconcileBridgeMainReviewRenderCopyMetadata({

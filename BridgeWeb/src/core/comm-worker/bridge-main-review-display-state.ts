@@ -395,6 +395,18 @@ function reviewDisplayEventIsFresh(
 
 export const BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT = 256;
 
+export function bridgeMainReviewRetainedRenderCopyItemIds(
+	snapshot: BridgeMainRenderSnapshot,
+): readonly string[] {
+	return [
+		...new Set([
+			...Object.keys(snapshot.codeViewItemsById),
+			...Object.keys(snapshot.contentAvailabilityById),
+			...Object.keys(snapshot.rowPaintById),
+		]),
+	];
+}
+
 function capturePreviousBridgeMainReviewDisplayItem(props: {
 	readonly itemId: string;
 	readonly mutableState: MutableBridgeMainReviewDisplayState;
@@ -408,16 +420,30 @@ function capturePreviousBridgeMainReviewDisplayItem(props: {
 export function bridgeMainReviewRenderCopyInvalidationItemIds(props: {
 	readonly currentItemsById: Readonly<Record<string, BridgeWorkerReviewDisplayItem>>;
 	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
+	readonly preserveProjectionHiddenCopies: boolean;
+	readonly retainedRenderCopyItemIds: readonly string[];
 	readonly replacesWorkerDerivationEpoch: boolean;
 }): readonly string[] {
-	return [...props.previousItemsById].flatMap(([itemId, previousItem]) => {
-		if (props.replacesWorkerDerivationEpoch) return [itemId];
+	if (props.replacesWorkerDerivationEpoch) {
+		return [...new Set([...props.previousItemsById.keys(), ...props.retainedRenderCopyItemIds])];
+	}
+	const invalidatedItemIds = [...props.previousItemsById].flatMap(([itemId, previousItem]) => {
 		const currentItem = props.currentItemsById[itemId];
+		if (currentItem === undefined && props.preserveProjectionHiddenCopies) return [];
 		return currentItem !== undefined &&
 			bridgeMainReviewDisplayItemsShareRenderIdentity(previousItem, currentItem)
 			? []
 			: [itemId];
 	});
+	if (props.preserveProjectionHiddenCopies) return invalidatedItemIds;
+	return [
+		...new Set([
+			...invalidatedItemIds,
+			...props.retainedRenderCopyItemIds.filter(
+				(itemId): boolean => props.currentItemsById[itemId] === undefined,
+			),
+		]),
+	];
 }
 
 function bridgeMainReviewDisplayItemsShareRenderIdentity(
@@ -602,9 +628,10 @@ export interface BridgeMainReviewRenderCopyInvalidation {
 
 export function invalidateBridgeMainReviewRenderCopies(props: {
 	readonly itemIds: readonly string[];
+	readonly selectionItemIds: readonly string[];
 	readonly snapshot: MutableBridgeMainRenderSnapshot;
 }): BridgeMainReviewRenderCopyInvalidation {
-	if (props.itemIds.length === 0) {
+	if (props.itemIds.length === 0 && props.selectionItemIds.length === 0) {
 		return {
 			availabilityItemIds: [],
 			changed: false,
@@ -613,7 +640,7 @@ export function invalidateBridgeMainReviewRenderCopies(props: {
 			snapshot: props.snapshot,
 		};
 	}
-	const itemIds = new Set(props.itemIds);
+	const selectionItemIds = new Set(props.selectionItemIds);
 	const availabilityItemIds = props.itemIds.filter(
 		(itemId): boolean => props.snapshot.contentAvailabilityById[itemId] !== undefined,
 	);
@@ -626,7 +653,7 @@ export function invalidateBridgeMainReviewRenderCopies(props: {
 	const selectedItemId = props.snapshot.selectionSlice.selectedItemId;
 	const selectionChanged =
 		selectedItemId !== null &&
-		itemIds.has(selectedItemId) &&
+		selectionItemIds.has(selectedItemId) &&
 		props.snapshot.reviewItemById[selectedItemId] === undefined;
 	const changed =
 		selectionChanged ||

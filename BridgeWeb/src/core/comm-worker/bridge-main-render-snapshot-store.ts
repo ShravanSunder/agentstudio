@@ -16,6 +16,7 @@ import {
 import {
 	applyReviewDisplayPatchEventInPlace,
 	bridgeMainReviewRenderCopyInvalidationItemIds,
+	bridgeMainReviewRetainedRenderCopyItemIds,
 	BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT,
 	emptyBridgeMainReviewCatalogSnapshot,
 	emptyBridgeMainReviewDisplayState,
@@ -701,8 +702,11 @@ export function createBridgeMainRenderSnapshotStore(
 				itemIds: bridgeMainReviewRenderCopyInvalidationItemIds({
 					currentItemsById: snapshot.reviewItemById,
 					previousItemsById: effect.previousItemsById,
+					preserveProjectionHiddenCopies: incomingIdentity === null,
+					retainedRenderCopyItemIds: bridgeMainReviewRetainedRenderCopyItemIds(snapshot),
 					replacesWorkerDerivationEpoch,
 				}),
+				selectionItemIds: [...effect.itemIds],
 				snapshot,
 			});
 			const renderCopyMetadataReconciliation = reconcileBridgeMainReviewRenderCopyMetadata({
