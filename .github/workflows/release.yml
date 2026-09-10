@@ -122,8 +122,7 @@ jobs:
 
       - name: Copy XCFramework
         run: |
-          mkdir -p Frameworks
-          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+          mise run --skip-deps copy-xcframework
 
       - name: Setup dev resources
         run: |
