@@ -1,7 +1,7 @@
 [tools]
 node = "26.5.0"
 pnpm = "11.14.0"
-zig = "0.15.2"
+zig = "0.16.0"
 
 [env]
 PROJECT_ROOT = "{{config_root}}"

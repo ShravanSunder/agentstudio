@@ -4,6 +4,21 @@ import Testing
 
 @Suite("Vendor consumer wiring")
 struct VendorConsumerWiringScriptTests {
+    @Test("zmx has its own Zig toolchain and workflows use its mise task")
+    func zmxBuildUsesScopedToolchain() throws {
+        let source = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let zmxTask = try #require(taskBlock(named: "build-zmx", in: source))
+        #expect(zmxTask.contains("tools.zig = \"0.16.0\""))
+        #expect(source.contains("zig = \"0.16.0\""))
+        #expect(zmxTask.contains("zig build -Doptimize=ReleaseFast"))
+        #expect(!zmxTask.contains("scripts/zig.sh"))
+        for workflow in ["ci", "release", "benchmarks"] {
+            let text = try String(contentsOfFile: ".github/workflows/\(workflow).yml", encoding: .utf8)
+            #expect(text.contains("mise run --skip-deps build-zmx"))
+            #expect(!text.contains("cd vendor/zmx"))
+        }
+    }
+
     @Test("every mise Swift consumer verifies vendor state")
     func everyMiseSwiftConsumerVerifiesVendorState() throws {
         // Arrange
