@@ -1,4 +1,3 @@
-import { recordWorktreeAnnotationLifecycleTelemetry } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import {
 	bridgeCommWorkerAnnotationCatalogStagingEvents,
 	bridgeCommWorkerAnnotationProjectionConvergenceEvent,
@@ -677,22 +676,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				}
 			},
 			onAnnotationProjectionConvergence: ({ operationCorrelationId, state, surface }): void => {
-				if (operationCorrelationId !== null && state.kind === 'ready') {
-					for (const phase of [
-						'projection_store_started',
-						'main_thread_install_started',
-					] as const) {
-						recordWorktreeAnnotationLifecycleTelemetry({
-							operationCorrelationId,
-							phase,
-							recorder: props.telemetryClient,
-							result: 'started',
-							sourceGeneration: state.snapshot.sourceGeneration,
-							transport: 'worker',
-							viewer: surface === 'file' ? 'file' : 'review',
-						});
-					}
-				}
 				port.postMessage(
 					bridgeWorkerAnnotationProjectionConvergenceEventSchema.parse(
 						bridgeCommWorkerAnnotationProjectionConvergenceEvent({

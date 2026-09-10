@@ -6602,3 +6602,11 @@ content; true source replacement must stillinvalidate. UnitRED captured, initial
 GREEN and realPierrecontentE2E1/1 pass; hidden-source-change safety check underway.
 UI owner: user affectedapp6sby; please keep itsresources stable until finalfilter
 checkpoint, then coordinate webresource deployment. No restart has been done.
+
+TRANSPORT0300 filter checkpoint8e55f1470 pushed;25unit/fullquality+realcontent
+E2E pass. Source replacement/epoch purge hidden copies, query-only hides retain.
+UI owner: filter fix ready for6sbywebresource preview deployment. Parent also
+correcting CI telemetry phaseownership (starts previouslycomm, terminalsmain);
+sameexisting events nowmainbracket storeapply,21unit+quality pass, realE2Erunning.
+Do not claim telemetryCI fixed until hostedproof. CIoperator tracks latesthead
+and reports eachfailure promptly while continuing remainingjobs.
