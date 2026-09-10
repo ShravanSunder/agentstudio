@@ -116,8 +116,7 @@ jobs:
       - name: Build zmx
         if: steps.cache-zmx.outputs.cache-hit != 'true'
         run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
+          mise run --skip-deps build-zmx
 
       # --- Always: copy framework, setup resources, build Swift, bundle ---
 
