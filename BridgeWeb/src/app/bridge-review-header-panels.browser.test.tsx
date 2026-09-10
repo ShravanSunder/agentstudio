@@ -9,6 +9,7 @@ import {
 	annotationHeadThreadId,
 	annotationMessage,
 	annotationSessionId,
+	annotationSecondSessionId,
 	annotationSessionSummary,
 	RecordingAnnotationBrowserSurface,
 } from '../worktree-annotations/worktree-annotation-browser-test-support.js';
@@ -24,6 +25,85 @@ import {
 } from './bridge-viewer-context-panel-host.js';
 
 describe('Bridge Review header peer panels', () => {
+	test('keeps Annotations openable and All selectable for a known empty catalog', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<PeerPanelsFixture surface={surface} />);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({ expectedThreadCount: 0, revision: 1, sessions: [] });
+		});
+
+		const annotationsTrigger = rendered.getByRole('button', {
+			name: 'Annotations',
+			exact: true,
+		});
+		await expect.element(annotationsTrigger).toBeEnabled();
+		await performAction(() => annotationsTrigger.click());
+		await expect.element(rendered.getByText('No comments to share.')).toBeVisible();
+		await performAction(() => rendered.getByRole('button', { name: 'All comments, 0' }).click());
+		await expect
+			.element(rendered.getByRole('button', { name: 'All comments, 0' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+	});
+
+	test('does not infer an all-sessions export when session selection is ambiguous', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<PeerPanelsFixture surface={surface} />);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				revision: 1,
+				sessions: [
+					annotationSessionSummary({ revision: 1, sessionId: annotationSessionId }),
+					annotationSessionSummary({ revision: 1, sessionId: annotationSecondSessionId }),
+				],
+			});
+		});
+
+		const annotationsTrigger = rendered.getByRole('button', {
+			name: 'Annotations',
+			exact: true,
+		});
+		await expect.element(annotationsTrigger).toBeEnabled();
+		await performAction(() => annotationsTrigger.click());
+		await expect.element(rendered.getByText('Pending —')).toBeVisible();
+		await performAction(() =>
+			rendered.getByRole('button', { name: 'All comments, unknown' }).click(),
+		);
+		await expect
+			.element(rendered.getByRole('button', { name: 'All comments, unknown' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+		expect(surface.sentOperations.filter(({ kind }) => kind === 'output.scope.commit')).toEqual([]);
+	});
+
+	test('keeps recovery-unavailable annotations openable while disabling output effects', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<PeerPanelsFixture surface={surface} />);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				expectedThreadCount: 0,
+				recoveryStatus: 'unavailable',
+				revision: 1,
+				sessions: [annotationSessionSummary({ revision: 1, sessionId: annotationSessionId })],
+			});
+		});
+
+		const annotationsTrigger = rendered.getByRole('button', {
+			name: 'Annotations',
+			exact: true,
+		});
+		await expect.element(annotationsTrigger).toBeEnabled();
+		await performAction(() => annotationsTrigger.click());
+		await performAction(() => rendered.getByRole('button', { name: 'All comments, 0' }).click());
+		await expect
+			.element(rendered.getByRole('button', { name: 'All comments, 0' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+	});
 	test('uses a plain drawer button and leaves the branch-search focus ring unclipped', async () => {
 		const rendered = await render(
 			<PeerPanelsFixture surface={new RecordingAnnotationBrowserSurface('review')} />,

@@ -140,6 +140,29 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
 	});
 
+	test('keeps retained unavailable comments inspectable without granting output authority', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const rendered = await render(<ShareSurfaceFixture surface={surface} />);
+		await publishShareProjection(surface);
+		await act(async (): Promise<void> => {
+			surface.publishUnavailable();
+			await settleInteraction();
+		});
+
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
+		);
+		await expect.element(rendered.getByText('Last known comments')).toBeVisible();
+		await performBrowserAction(() =>
+			rendered.getByRole('button', { name: 'All comments, 3' }).click(),
+		);
+		await expect
+			.element(rendered.getByRole('button', { name: 'All comments, 3' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
+		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
+	});
+
 	test('disables output only for an active-session command receipt awaiting projection', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
 		const rendered = await render(<ShareSurfaceFixture surface={surface} />);

@@ -52,9 +52,6 @@ export function WorktreeAnnotationSharePanelControl(props: {
 	readonly outputPendingController: WorktreeAnnotationOutputPendingController;
 }): ReactElement | null {
 	const interaction = useWorktreeAnnotationInteraction();
-	const projection = useWorktreeAnnotationProjection();
-	const selection = useWorktreeAnnotationSessionSelection();
-	const membershipUnknown = projection.revision === null;
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const lastCloseReasonRef = useRef<string | null>(null);
 	const isOpen = interaction.shareMode.kind === 'open';
@@ -62,7 +59,6 @@ export function WorktreeAnnotationSharePanelControl(props: {
 		lastCloseReasonRef.current = 'imperative-action';
 		interaction.closeShareMode();
 	}, [interaction]);
-	if (selection.activeSessionId === null && !membershipUnknown) return null;
 	return (
 		<Drawer
 			modal={false}
@@ -89,11 +85,7 @@ export function WorktreeAnnotationSharePanelControl(props: {
 			open={isOpen}
 			swipeDirection="right"
 		>
-			<WorktreeAnnotationShareTrigger
-				buttonRef={triggerRef}
-				disabled={!membershipUnknown && !selection.capabilities.canOutput}
-				open={isOpen}
-			/>
+			<WorktreeAnnotationShareTrigger buttonRef={triggerRef} disabled={false} open={isOpen} />
 			<BridgeViewerContextPanel
 				ariaLabel="Share comments"
 				finalFocus={(): false | HTMLElement | null =>
@@ -130,13 +122,21 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		displayedScopeRef.current = interaction.shareMode.scope;
 	}
 	const displayedScope = displayedScopeRef.current;
-	if (projection.revision === null) {
+	const session = projection.sessions.find(
+		({ sessionId }) => sessionId === selection.activeSessionId,
+	);
+	if (projection.revision === null || session === undefined) {
+		const knownEmpty = projection.revision !== null && projection.sessions.length === 0;
 		return (
 			<WorktreeAnnotationShareModeRow
-				error={null}
+				error={
+					selection.requiresExplicitSelection ? 'Choose a review session to share comments.' : null
+				}
 				isOutputPending={props.outputPendingController.isPending}
 				isOutputReady={false}
-				membership={{ kind: 'unknown' }}
+				membership={
+					knownEmpty ? { kind: 'ready', allCount: 0, pendingCount: 0 } : { kind: 'unknown' }
+				}
 				history={null}
 				onCopy={ignoreUnknownOutput}
 				onDone={props.onClose}
@@ -144,15 +144,14 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 				onScopeChange={interaction.setShareScope}
 				scope={displayedScope}
 			>
-				<WorktreeAnnotationSharePreview inlineThreads={[]} otherThreads={[]} readiness="unknown" />
+				<WorktreeAnnotationSharePreview
+					inlineThreads={[]}
+					otherThreads={[]}
+					readiness={knownEmpty ? 'current' : 'unknown'}
+				/>
 			</WorktreeAnnotationShareModeRow>
 		);
 	}
-	if (selection.activeSessionId === null) return null;
-	const session = projection.sessions.find(
-		({ sessionId }) => sessionId === selection.activeSessionId,
-	);
-	if (session === undefined) return null;
 	const shared = deriveWorktreeAnnotationShareProjection({
 		scope: displayedScope,
 		threads: projection.threads.filter((thread) =>
@@ -163,6 +162,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		.flatMap((thread) => thread.messages)
 		.filter((message) => message.sessionId === session.sessionId);
 	const isOutputReady =
+		selection.capabilities.canOutput &&
 		projection.readStatus.kind === 'ready' &&
 		!projection.unreconciledCommandReceiptSessionIds.includes(session.sessionId) &&
 		viewedController.isOutputReady(session.sessionId, session.semanticRevision, sessionMessages);
