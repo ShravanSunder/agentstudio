@@ -75,14 +75,14 @@ private struct HTTPSavedAnnotationThreadObservation {
 }
 
 private struct HTTPSavedRootObservation {
-    let createReceipt: BridgeProductWorktreeAnnotationMessageReceiptDTO
-    let savedReceipt: BridgeProductWorktreeAnnotationMessageReceiptDTO
+    let createReceipt: BridgeProductWorktreeAnnotationMessageEntry
+    let savedReceipt: BridgeProductWorktreeAnnotationMessageEntry
     let sessionID: UUID
 }
 
 private struct HTTPAnnotationMessageMutation {
     let body: String
-    let createReceipt: BridgeProductWorktreeAnnotationMessageReceiptDTO
+    let createReceipt: BridgeProductWorktreeAnnotationMessageEntry
     let editToken: String
     let requestSequence: Int
     let sessionID: UUID
@@ -129,7 +129,7 @@ private func createHTTPRootAndFiveSavedReplies(
                 requestSequence: requestSequence
             )
             #expect(replyCreateOutcome.status == .committed)
-            let replyCreateReceipt = try #require(replyCreateOutcome.receipt)
+            let replyCreateReceipt = try requireHTTPAnnotationMessage(replyCreateOutcome)
             _ = try await waitForHTTPAnnotationCatalogCommit(
                 client: client,
                 connection: connection,
@@ -207,7 +207,7 @@ private func createHTTPSavedRoot(
     )
     #expect(createOutcome.status == .committed)
     let sessionID = try #require(createOutcome.sessionId)
-    let createReceipt = try #require(createOutcome.receipt)
+    let createReceipt = try requireHTTPAnnotationMessage(createOutcome)
     _ = try await waitForHTTPAnnotationCatalogCommit(
         client: client,
         connection: connection,
@@ -237,14 +237,14 @@ private func flushAndSaveHTTPAnnotationMessage(
     connection: HTTPProductConnection,
     recorder: HTTPMetadataFrameRecorder,
     mutation: HTTPAnnotationMessageMutation
-) async throws -> BridgeProductWorktreeAnnotationMessageReceiptDTO {
+) async throws -> BridgeProductWorktreeAnnotationMessageEntry {
     let flushOutcome = try await executeHTTPAnnotationCommand(
         client: client,
         connection: connection,
         operation: [
             "body": mutation.body,
             "editToken": mutation.editToken,
-            "expectedDraftRevision": try #require(mutation.createReceipt.draftRevision),
+            "expectedDraftRevision": try #require(mutation.createReceipt.draft?.revision),
             "expectedMessageRevision": mutation.createReceipt.messageRevision,
             "kind": "draft.flush",
             "messageId": mutation.createReceipt.messageId.uuidString.lowercased(),
@@ -254,7 +254,7 @@ private func flushAndSaveHTTPAnnotationMessage(
         requestSequence: mutation.requestSequence
     )
     #expect(flushOutcome.status == .committed)
-    let flushReceipt = try #require(flushOutcome.receipt)
+    let flushReceipt = try requireHTTPAnnotationMessage(flushOutcome)
     _ = try await waitForHTTPAnnotationSessionChange(
         client: client,
         connection: connection,
@@ -266,7 +266,7 @@ private func flushAndSaveHTTPAnnotationMessage(
         connection: connection,
         operation: [
             "editToken": mutation.editToken,
-            "expectedDraftRevision": try #require(flushReceipt.draftRevision),
+            "expectedDraftRevision": try #require(flushReceipt.draft?.revision),
             "expectedMessageRevision": flushReceipt.messageRevision,
             "kind": "draft.save",
             "messageId": flushReceipt.messageId.uuidString.lowercased(),
@@ -276,9 +276,9 @@ private func flushAndSaveHTTPAnnotationMessage(
         requestSequence: mutation.requestSequence + 1
     )
     #expect(saveOutcome.status == .committed)
-    let saveReceipt = try #require(saveOutcome.receipt)
+    let saveReceipt = try requireHTTPAnnotationMessage(saveOutcome)
     #expect(saveReceipt.messageId == mutation.createReceipt.messageId)
-    #expect(saveReceipt.draftRevision == nil)
+    #expect(saveReceipt.draft == nil)
     #expect(saveReceipt.savedRevision != nil)
     _ = try await waitForHTTPAnnotationSessionChange(
         client: client,

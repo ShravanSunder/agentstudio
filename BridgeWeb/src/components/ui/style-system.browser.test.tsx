@@ -34,17 +34,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 
 const transparentBackground = 'rgba(0, 0, 0, 0)';
 const floatingBorderColor = 'rgb(86, 97, 113)';
-const floatingSurfaceColor = 'rgb(28, 32, 38)';
+const floatingSurfaceColor = 'rgb(32, 36, 42)';
 
 test('keeps lighter chrome and navigation separate from the reading canvas', () => {
 	const style = getComputedStyle(document.documentElement);
 	expect(style.getPropertyValue('--palette-neutral-n0').trim()).toBe('#191b1f');
 	expect(style.getPropertyValue('--palette-neutral-n2').trim()).toBe('#1c2026');
 	expect(style.getPropertyValue('--palette-neutral-n1').trim()).toBe('#282c34');
-	expect(style.getPropertyValue('--palette-neutral-n3').trim()).toBe('#1c2026');
+	expect(style.getPropertyValue('--palette-neutral-n3').trim()).toBe('#20242a');
 	expect(style.getPropertyValue('--palette-surface-card').trim()).toBe('#272c34');
 	expect(style.getPropertyValue('--palette-control-fill').trim()).toBe('#343a44');
-	expect(style.getPropertyValue('--palette-control-hover').trim()).toBe('#3e4652');
+	expect(style.getPropertyValue('--palette-control-hover').trim()).toBe('#343a44');
 	expect(style.getPropertyValue('--palette-field-background').trim()).toBe('#14181e');
 	expect(style.getPropertyValue('--palette-stroke-input').trim()).toBe('#6e7787');
 	expect(style.getPropertyValue('--palette-stroke-border').trim()).toBe('#434b57');
@@ -215,7 +215,7 @@ test('keeps neutral open paint distinct from selected toggle tint and lets disab
 
 	expect(openStyle.backgroundColor).not.toBe(transparentBackground);
 	expect(openStyle.backgroundColor).toBe('rgb(52, 58, 68)');
-	expect(pressedStyle.backgroundColor).toBe('rgb(62, 70, 82)');
+	expect(pressedStyle.backgroundColor).toBe('rgb(52, 58, 68)');
 	expect(pressedStyle.color).toBe(openStyle.color);
 	expect(selectedStyle.backgroundColor).not.toBe(openStyle.backgroundColor);
 	expect(selectedStyle.color).toBe(openStyle.color);

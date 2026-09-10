@@ -5,6 +5,42 @@ import Testing
 
 @Suite("Bridge Review refresh telemetry validation")
 struct BridgeReviewRefreshTelemetryValidatorTests {
+    @Test(
+        "accepts the existing worker candidate-failure sample and rejects unknown reasons",
+        arguments: ["retryable", "not_retryable"]
+    )
+    func acceptsWorkerCandidateFailure(resultReason: String) {
+        // Arrange — exact event shape emitted by recordBridgeReviewRefreshLifecycleTelemetry.
+        let validator = BridgeTelemetryEventValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let candidateFailure = sample(
+            phase: "review_refresh_candidate_failed",
+            resultReason: resultReason,
+            extraStrings: [
+                "agentstudio.bridge.result": "failure",
+                "agentstudio.bridge.review.refresh.presentation_class": "ordinary",
+                "agentstudio.bridge.review.refresh.promotion_reason": "none",
+            ],
+            numbers: [
+                "agentstudio.bridge.review.generation": 1,
+                "agentstudio.bridge.review.refresh.affected_stable_file.count": 0,
+            ]
+        )
+
+        // Act / Assert — failure is a required observation, not an invalid wire sample.
+        #expect(validator.validate(candidateFailure) == .accepted)
+        let unknownReason = sample(
+            phase: "review_refresh_candidate_failed",
+            resultReason: "unclassified_retry_policy",
+            extraStrings: candidateFailure.stringAttributes.filter {
+                $0.key != "agentstudio.bridge.result_reason"
+            },
+            numbers: candidateFailure.numericAttributes
+        )
+        #expect(validator.validate(unknownReason) == .dropped(.unsafeAttribute))
+    }
+
     @Test("accepts only the controlled web lifecycle shapes")
     func acceptsControlledWebLifecycleShapes() {
         let validator = BridgeTelemetryEventValidator(

@@ -19,6 +19,7 @@ import {
 } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
+import { mergeWorktreeAnnotationCommandConfirmedThreads } from '../worktree-annotations/worktree-annotation-command-confirmed-presentation.js';
 import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
 import { deriveWorktreeAnnotationShareProjection } from '../worktree-annotations/worktree-annotation-share-projection.js';
 import {
@@ -80,10 +81,22 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeAnnotationSessionId = annotationSessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeAnnotationSessionId);
-	const unfilteredAnnotationThreads = annotationProjection.threads.filter(
+	const serverAnnotationThreads = annotationProjection.threads.filter(
 		(thread): boolean =>
 			activeAnnotationSessionId !== null &&
 			thread.messages.some((message) => message.sessionId === activeAnnotationSessionId) &&
+			!thread.messages.every(
+				(message): boolean =>
+					message.draft?.activeEditToken !== null &&
+					message.draft?.activeEditToken !== undefined &&
+					activeNewMessageEditTokens.has(message.draft.activeEditToken),
+			),
+	);
+	const commandConfirmedAnnotationThreads = annotationProjection.commandConfirmedThreads.filter(
+		(thread): boolean =>
+			(activeAnnotationSessionId === null
+				? annotationProjection.sessions.length === 0
+				: thread.messages.some((message) => message.sessionId === activeAnnotationSessionId)) &&
 			!thread.messages.every(
 				(message): boolean =>
 					message.draft?.activeEditToken !== null &&
@@ -95,9 +108,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		annotationInteraction.shareMode.kind === 'open'
 			? deriveWorktreeAnnotationShareProjection({
 					scope: annotationInteraction.shareMode.scope,
-					threads: unfilteredAnnotationThreads,
+					threads: serverAnnotationThreads,
 				}).inlineThreads
-			: unfilteredAnnotationThreads;
+			: mergeWorktreeAnnotationCommandConfirmedThreads({
+					commandConfirmedThreads: commandConfirmedAnnotationThreads,
+					serverThreads: serverAnnotationThreads,
+				});
 	const [pendingAnnotationComposer, setPendingAnnotationComposer] =
 		useState<PendingFileAnnotationComposer | null>(null);
 	const pendingAnnotationComposerRef = useRef(pendingAnnotationComposer);
@@ -116,10 +132,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		});
 		return items.map((item) => {
 			const annotations =
-				annotationProjection.revision === null
+				annotationProjection.revision === null &&
+				annotationProjection.commandConfirmedThreads.length === 0
 					? []
 					: filePierreAnnotationsForExistingCodeView({
 							path: item.bridgeMetadata.displayPath,
+							sourceDescriptorId: item.bridgeMetadata.sourceDescriptorIdsByRole?.file ?? null,
 							threads: activeAnnotationThreads,
 						});
 			const pendingComposerAnnotation =
@@ -130,7 +148,11 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 							editToken: pendingAnnotationComposer.editToken,
 							range: pendingAnnotationComposer.range,
 						});
-			if (annotationProjection.revision === null && pendingComposerAnnotation === null) {
+			if (
+				annotationProjection.revision === null &&
+				annotationProjection.commandConfirmedThreads.length === 0 &&
+				pendingComposerAnnotation === null
+			) {
 				return item;
 			}
 			return bridgeCodeViewPresentationItemWithExactSource({
@@ -151,6 +173,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	}, [
 		activeEditTokens.size,
 		activeAnnotationThreads,
+		annotationProjection.commandConfirmedThreads.length,
 		annotationProjection.presentationRevision,
 		annotationProjection.revision,
 		composerPresentationRevision,
@@ -356,7 +379,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	return (
 		<section
 			aria-label="Selected file"
-			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
+			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background"
 			data-bridge-code-view-overflow={codeViewOptions.overflow}
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
@@ -391,7 +414,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					: { workerFactory: props.codeViewWorkerFactory })}
 			>
 				<div
-					className={`h-full min-h-0 min-w-0 ${props.openFileState.status === 'ready' ? '' : 'invisible'}`}
+					className={`h-full min-h-0 min-w-0 ${codeViewItems.length > 0 ? '' : 'invisible'}`}
 					data-testid="bridge-file-viewer-code-view"
 				>
 					<CodeView
@@ -527,7 +550,7 @@ function BridgeFileViewerContentState(props: {
 				: 'Content unavailable';
 	return (
 		<div
-			className="relative flex min-h-full items-start justify-center text-sm text-[var(--bridge-text-secondary)]"
+			className="relative flex min-h-full items-start justify-center text-sm text-muted-foreground"
 			data-testid="bridge-file-viewer-content-state"
 			role="status"
 		>

@@ -43,6 +43,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
                 };
                 window.__bridgeProductMetadataStreamDiagnostic = {
                   kind: 'productMetadataStream',
+                  routeFailureSubscriptionId: 'retired-subscription',
+                  lastSubscriptionTermination: { subscriptionId: 'retired-subscription', outcome: 'failed', reason: 'subscription_local_operation_failed' },
                   acknowledgedFrameCount: 1,
                   activeSubscriptionCount: 2,
                   committedFrameCount: 1,
@@ -449,6 +451,9 @@ private func expectProductMetadataStreamDiagnostic(
     _ diagnostic: IPCBridgeProductMetadataStreamDiagnostic
 ) {
     #expect(diagnostic.kind == .productMetadataStream)
+    #expect(diagnostic.routeFailureSubscriptionId == "retired-subscription")
+    #expect(diagnostic.lastSubscriptionTermination?.subscriptionId == "retired-subscription")
+    #expect(diagnostic.lastSubscriptionTermination?.outcome == "failed")
     #expect(diagnostic.acknowledgedFrameCount == 1)
     #expect(diagnostic.activeSubscriptionCount == 2)
     #expect(diagnostic.committedFrameCount == 1)

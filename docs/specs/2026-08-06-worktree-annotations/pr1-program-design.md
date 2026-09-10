@@ -506,9 +506,27 @@ never application data.
 ## Complete-message framing
 
 Each authored body is at most 16 KiB UTF-8. Native projection content emits
-typed complete-message records. It dynamically packs multiple records while
-the encoded data frame remains at or below 128 KiB; a message record is never
-split.
+typed complete-message records. It dynamically packs multiple records within
+the generic data-payload budget; a message record is never split. MessageEntry
+has no separate encoded-size cap: the complete record, including thread context,
+is measured by the existing projection cursor against that payload budget.
+
+The sender and receiver retain the 256 KiB content-frame-body envelope and use
+its capacity after subtracting the data header: tag (1 byte), sequence (4),
+offset (4), and optional-operation-correlation envelope (33), totaling 42 bytes.
+The raw data budget is therefore 262,102 bytes. Command request/response bodies
+use a matching 256 KiB budget. Metadata frames remain 128 KiB, content control
+bodies remain 16 KiB, and producer queue byte/count bounds are unchanged.
+These are application resource budgets, not claimed WebKit platform maxima.
+
+Two 16 KiB bodies can require 196,608 bytes after JSON escaping. A maximum
+4,096-byte display path adds at most 24,576 encoded bytes; bounded identifiers,
+revisions, field names, and wrappers fit in the remaining budget and are exercised
+by complete-envelope boundary proof. The existing generic codecs, bounded readers,
+and replay cache enforce shared carrier budgets; they do not learn annotation
+semantics. SQLite admission and authored-body policy do not change. This spends
+more bytes per admitted data frame or command response, not more queued bytes or
+another stream, chunk-reassembly layer, or recovery mechanism.
 
 ```text
 repository snapshot

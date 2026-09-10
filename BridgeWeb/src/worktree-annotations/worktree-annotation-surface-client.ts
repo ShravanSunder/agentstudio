@@ -28,7 +28,9 @@ export {
 } from './worktree-annotation-projection-store.js';
 export type {
 	WorktreeAnnotationCatalogProjection,
+	WorktreeAnnotationCommandConfirmedThreadProjection,
 	WorktreeAnnotationCommandOutcome,
+	WorktreeAnnotationInlineThreadProjection,
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
 	WorktreeAnnotationProjectionSnapshot,

@@ -43,17 +43,17 @@ struct WorktreeAnnotationMutationClassificationTests {
                     sessionChanges: [
                         .init(
                             worktreeID: "worktree-1",
-                            sessionID: content.canonicalResult.session.id,
-                            semanticRevision: content.canonicalResult.session.semanticRevision
+                            sessionID: content.canonicalResult.detail.session.id,
+                            semanticRevision: content.canonicalResult.detail.session.semanticRevision
                         )
                     ]
                 )
         )
 
-        let thread = try #require(content.canonicalResult.threads.first?.thread)
+        let thread = try #require(content.canonicalResult.detail.threads.first?.thread)
         let noOp = try repository.setThreadResolution(
             .init(
-                sessionID: content.canonicalResult.session.id,
+                sessionID: content.canonicalResult.detail.session.id,
                 threadID: thread.id,
                 resolution: .open,
                 expectedThreadRevision: thread.semanticRevision,
@@ -61,7 +61,7 @@ struct WorktreeAnnotationMutationClassificationTests {
             )
         )
         #expect(noOp.change == .noChange)
-        #expect(noOp.canonicalResult == content.canonicalResult)
+        #expect(noOp.canonicalResult == content.canonicalResult.detail)
 
         let control = try repository.setSessionLifecycle(
             .init(
@@ -107,13 +107,13 @@ struct WorktreeAnnotationMutationClassificationTests {
             )
         )
 
-        #expect(deleted.canonicalResult.threads.isEmpty)
+        #expect(deleted.canonicalResult.detail.threads.isEmpty)
         guard case .catalog(let worktreeIDs, let sessionChanges) = deleted.change else {
             Issue.record("Expected a catalog-classified deletion")
             return
         }
         #expect(worktreeIDs == ["worktree-1"])
-        #expect(sessionChanges.map(\.semanticRevision) == [deleted.canonicalResult.session.semanticRevision])
+        #expect(sessionChanges.map(\.semanticRevision) == [deleted.canonicalResult.detail.session.semanticRevision])
     }
 }
 

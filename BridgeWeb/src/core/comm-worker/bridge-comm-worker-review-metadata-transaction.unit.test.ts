@@ -32,6 +32,33 @@ import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js'
 type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review metadata transaction staging', () => {
+	test('binds retained stale and replay-ready display status to the active publication', () => {
+		// Arrange
+		const harness = makeApplicatorHarness();
+		harness.applicator.apply(
+			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
+			workerDerivationEpoch,
+		);
+		const expectedIdentity = {
+			packageId: activeIdentity.packageId,
+			publicationId: activeIdentity.publicationId,
+			reviewGeneration: activeIdentity.generation,
+			revision: activeIdentity.revision,
+			sourceIdentity: activeIdentity.sourceIdentity,
+		};
+
+		// Act / Assert — status changes describe retained A, never an unidentified replacement.
+		harness.applicator.handleMetadataFailure(workerDerivationEpoch);
+		expect(harness.displayPublications.at(-1)?.reviewPublicationIdentity).toEqual(expectedIdentity);
+		harness.applicator.apply(reviewSourceAccepted(activeIdentity), workerDerivationEpoch);
+		harness.applicator.apply(
+			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
+			workerDerivationEpoch,
+		);
+		expect(harness.displayPublications.at(-1)?.reviewPublicationIdentity).toEqual(expectedIdentity);
+		expect(harness.applications).toHaveLength(1);
+	});
+
 	test('ignores delayed older accepted snapshots after a newer generation commits', () => {
 		// Arrange
 		const harness = makeApplicatorHarness();

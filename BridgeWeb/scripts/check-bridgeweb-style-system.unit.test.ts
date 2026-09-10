@@ -31,6 +31,310 @@ export const bridgeDesignPalette = {
 `;
 
 describe('BridgeWeb style-system checker', () => {
+	test('distinguishes renderer-internal CSS from global and slotted control styling', async () => {
+		const report = await checkFixture({
+			'src/app/renderer.ts': `export const options = { unsafeCSS: '[data-line] { color: var(--foreground); } [data-line] button { padding: 8px; } ::slotted(span) { color: var(--muted-foreground); }' };`,
+			'src/app/global.css': `[data-line] { color: var(--foreground); }`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toEqual([
+			'src/app/global.css',
+			'src/app/renderer.ts',
+			'src/app/renderer.ts',
+		]);
+	});
+
+	test('checks each selector branch and rejects unsupported unanchored appearance destinations', async () => {
+		const report = await checkFixture({
+			'src/app/unsupported-selectors.css': `
+				.semantic, span { color: var(--muted-foreground); }
+				[data-state="ready"] { opacity: 0.5; }
+				#action-label { font-size: 9px; }
+				svg { color: var(--muted-foreground); }
+				strong { font-size: 9px; }
+			`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toHaveLength(5);
+	});
+
+	test('keeps comma-bearing semantic selectors and keyframe steps separate from global recipes', async () => {
+		const report = await checkFixture({
+			'src/app/document.css': `
+				.document :where(span, code), .document [title="first, second"] { color: var(--muted-foreground); }
+				@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
+			`,
+			'src/app/document.tsx': `export function Document() { return <article className="document"><span>Text</span><code>Code</code></article>; }`,
+		});
+		expect(report.ok).toBe(true);
+	});
+
+	test('allows outer composition layout without treating its child Button as the layout owner', async () => {
+		const report = await checkFixture({
+			'src/app/composition.tsx': `import { Button } from '@/components/ui/button.js'; export function Composition(props: { className?: string }) { return <section className={props.className}><Button>Action</Button></section>; }`,
+			'src/app/consumer.tsx': `import { Composition } from './composition.js'; export function Consumer() { return <Composition className="py-2" />; }`,
+		});
+		expect(report.ok).toBe(true);
+	});
+
+	test('follows each styling prop to its actual destination instead of the component root', async () => {
+		const report = await checkFixture({
+			'src/app/wrappers.tsx': `
+				import { Button } from '@/components/ui/button.js';
+				type WrapperProps = { readonly className?: string; readonly style?: object };
+				export function InnerControl(props: WrapperProps) {
+					return <section><Button className={props.className} style={props.style}>Action</Button></section>;
+				}
+				export function OuterLayout({ className, style }: WrapperProps) {
+					return <section className={className} style={style}><Button>Action</Button></section>;
+				}
+				export function MixedDestination(props: WrapperProps) {
+					return <section className={props.className}><Button className={props.className}>Action</Button></section>;
+				}
+				export function VirtualRow({ style }: Pick<WrapperProps, 'style'>) {
+					return <div style={style}><Button>Action</Button></div>;
+				}
+				export function LayoutLeaf({ className }: Pick<WrapperProps, 'className'>) {
+					return <section className={className} />;
+				}
+				export function RepeatedLayout(props: Pick<WrapperProps, 'className'>) {
+					return <><LayoutLeaf className={props.className} /><LayoutLeaf className={props.className} /></>;
+				}
+			`,
+			'src/app/consumer.tsx': `
+				import { InnerControl, MixedDestination, OuterLayout, RepeatedLayout, VirtualRow } from './wrappers.js';
+				export function Consumer() { return <>
+					<InnerControl className="text-muted-foreground" style={{ fontSize: 11 }} />
+					<MixedDestination className="px-4" />
+					<OuterLayout className="py-2" style={{ width: 320 }} />
+					<VirtualRow style={{ height: 44, transform: 'translateY(88px)', width: '100%' }} />
+					<RepeatedLayout className="py-2" />
+				</>; }
+			`,
+		});
+
+		expect(report.findings.filter(({ ruleId }) => ruleId === 'control-style-override')).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ message: expect.stringContaining('text-muted-foreground') }),
+				expect.objectContaining({ message: expect.stringContaining('fontSize') }),
+				expect.objectContaining({ message: expect.stringContaining('px-4') }),
+			]),
+		);
+		expect(
+			report.findings.filter(({ ruleId }) => ruleId === 'control-style-override'),
+		).toHaveLength(3);
+	});
+
+	test('revisits independent forwarding branches without mistaking them for a cycle', async () => {
+		const report = await checkFixture({
+			'src/app/layout.tsx': `
+				export function LayoutLeaf(props: { readonly className?: string }) { return <section className={props.className} />; }
+				export function RepeatedLayout(props: { readonly className?: string }) {
+					return <><LayoutLeaf className={props.className} /><LayoutLeaf className={props.className} /></>;
+				}
+				export function Consumer() { return <RepeatedLayout className="py-2" />; }
+			`,
+		});
+
+		expect(report.ok).toBe(true);
+	});
+
+	test('fails closed when styling forwarding is dynamic or cyclic', async () => {
+		const report = await checkFixture({
+			'src/app/cyclic-a.tsx': `
+				import { CyclicB } from './cyclic-b.js';
+				export function CyclicA(props: { readonly className?: string }) { return <CyclicB className={props.className} />; }
+			`,
+			'src/app/cyclic-b.tsx': `
+				import { CyclicA } from './cyclic-a.js';
+				export function CyclicB(props: { readonly className?: string }) { return <CyclicA className={props.className} />; }
+			`,
+			'src/app/dynamic.tsx': `
+				import { Button } from '@/components/ui/button.js';
+				export function Dynamic(props: { readonly className?: string; readonly asButton: boolean }) {
+					const Recipient = props.asButton ? Button : 'section';
+					return <Recipient className={props.className} />;
+				}
+			`,
+			'src/app/consumer.tsx': `
+				import { CyclicA } from './cyclic-a.js';
+				import { Dynamic } from './dynamic.js';
+				export function Consumer() { return <><CyclicA className="py-2" /><Dynamic className="py-2" asButton={false} /></>; }
+			`,
+		});
+
+		expect(rulePaths(report, 'unknown-control-classes')).toEqual([
+			'src/app/consumer.tsx',
+			'src/app/consumer.tsx',
+			'src/app/cyclic-a.tsx',
+			'src/app/cyclic-b.tsx',
+			'src/app/dynamic.tsx',
+		]);
+	});
+
+	test('resolves named external namespace objects and finite intrinsic element aliases', async () => {
+		const report = await checkFixture({
+			'src/app/external-wrapper.tsx': `
+				import { Widget as WidgetPrimitive } from 'external-widget';
+				export function ExternalList(props: { readonly className?: string }) {
+					return <WidgetPrimitive.List className={props.className} />;
+				}
+			`,
+			'src/app/finite-element.tsx': `
+				interface LayoutProps { readonly bodyClassName?: string; readonly bodyElement?: 'div' | 'section' }
+				export function Layout(props: LayoutProps) {
+					const BodyElement = props.bodyElement ?? 'div';
+					return <BodyElement className={props.bodyClassName} />;
+				}
+			`,
+			'src/app/consumer.tsx': `
+				import { ExternalList } from './external-wrapper.js';
+				import { Layout } from './finite-element.js';
+				export function Consumer() { return <><ExternalList className="relative" /><Layout bodyClassName="py-2" /></>; }
+			`,
+		});
+
+		expect(report.ok).toBe(true);
+	});
+
+	test('fails closed for unresolved local imports and finite aliases that may be controls', async () => {
+		const report = await checkFixture({
+			'src/app/finite-control.tsx': `
+				interface MaybeControlProps { readonly className?: string; readonly element?: 'div' | 'button' }
+				export function MaybeControl(props: MaybeControlProps) {
+					const Element = props.element ?? 'div';
+					return <Element className={props.className} />;
+				}
+			`,
+			'src/app/consumer.tsx': `
+				import { MissingLocal } from './missing-local.js';
+				import { MaybeControl } from './finite-control.js';
+				export function Consumer() { return <><MissingLocal className="py-2" /><MaybeControl className="px-4" /></>; }
+			`,
+		});
+
+		expect(rulePaths(report, 'unknown-control-classes')).toContain('src/app/consumer.tsx');
+		expect(report.findings).toContainEqual(
+			expect.objectContaining({
+				ruleId: 'control-style-override',
+				message: expect.stringContaining('px-4'),
+			}),
+		);
+	});
+
+	test('does not lose ownership through namespace imports or local control aliases', async () => {
+		const report = await checkFixture({
+			'src/app/aliases.tsx': `import * as Controls from '@/components/ui/button.js'; import { Button } from '@/components/ui/button.js'; const Action = Button; export function View() { return <><Controls.Button className="text-muted-foreground"/><Action className="text-muted-foreground"/></>; }`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toHaveLength(2);
+	});
+
+	test('rejects nested, ancestor and imported text overrides across owned content boundaries', async () => {
+		const report = await checkFixture({
+			'src/app/revision.tsx': `export function Revision() { return <code className="text-muted-foreground">1234</code>; }`,
+			'src/app/content.tsx': `
+				import { Button } from '@/components/ui/button.js';
+				import { ComboboxItemDescription } from '@/components/ui/combobox.js';
+				import { ItemDescription } from '@/components/ui/item-content.js';
+				import { Revision } from './revision.js';
+				export function Content() { return <>
+				<section className="[&_button]:text-muted-foreground"><Button>Action</Button></section>
+				<section className="[&_span]:text-muted-foreground"><Button><span>Enabled</span></Button></section>
+				<section className="[&_code]:font-mono"><ItemDescription><code>1234</code></ItemDescription></section>
+				<section className="[&_*]:text-muted-foreground"><Button>Action</Button></section>
+				<Button><span className="text-muted-foreground">Action</span></Button>
+				<ComboboxItemDescription className="text-foreground">Metadata</ComboboxItemDescription>
+				<ItemDescription><Revision /></ItemDescription>
+				</>; }
+			`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toHaveLength(7);
+		expect(rulePaths(report, 'control-style-override')).toContain('src/app/revision.tsx');
+	});
+
+	test('rejects feature-local panel and card title recipes', async () => {
+		const report = await checkFixture({
+			'src/app/titles.tsx': `import { CardTitle, CardDescription } from '@/components/ui/card.js'; import { DrawerTitle, DrawerDescription } from '@/components/ui/drawer.js'; export function Titles() { return <><CardTitle className="text-xs"/><CardDescription className="font-medium"/><DrawerTitle className="text-muted-foreground"/><DrawerDescription className="text-foreground"/></>; }`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toHaveLength(4);
+	});
+
+	test('keeps non-button tooltip content separate from action-button content', async () => {
+		const report = await checkFixture({
+			'src/app/status-tooltip.tsx': `import { TooltipTrigger } from '@/components/ui/tooltip.js'; export function Status() { return <TooltipTrigger render={<span role="img" tabIndex={0} />}><span className="text-warning">Locked</span></TooltipTrigger>; }`,
+		});
+		expect(report.ok).toBe(true);
+	});
+
+	test('rejects CSS selectors that bypass owned item text slots', async () => {
+		const report = await checkFixture({
+			'src/app/overrides.css': `[data-slot="item-label"] { color: var(--muted-foreground); }`,
+		});
+		expect(rulePaths(report, 'control-style-override')).toEqual(['src/app/overrides.css']);
+	});
+
+	test('links CSS descendant selectors to rendering destinations without banning semantic content', async () => {
+		const report = await checkFixture({
+			'src/app/descendants.css': `
+				.owned-copy span { color: var(--muted-foreground); }
+				.bridge-markdown-document span { color: var(--muted-foreground); }
+			`,
+			'src/app/composition.tsx': `
+				import { Button } from '@/components/ui/button.js';
+				export function Composition() { return <section><Button><span>Enabled</span></Button></section>; }
+			`,
+			'src/app/content.tsx': `
+				import { Button } from '@/components/ui/button.js';
+				import { Composition } from './composition.js';
+				export function Content() { return <>
+					<section className="owned-copy"><Button><span>Enabled</span></Button></section>
+					<section className="owned-copy"><Composition /></section>
+					<section className="[&_span]:text-muted-foreground"><Composition /></section>
+					<article className="bridge-markdown-document"><span>Semantic prose</span></article>
+				</>; }
+			`,
+		});
+
+		expect(rulePaths(report, 'control-style-override')).toEqual([
+			'src/app/content.tsx',
+			'src/app/content.tsx',
+			'src/app/content.tsx',
+		]);
+		expect(report.findings.map(({ message }) => message).join('\n')).not.toContain(
+			'bridge-markdown-document',
+		);
+	});
+
+	test('fails closed for native text selectors without a destination-linkable class anchor', async () => {
+		const report = await checkFixture({
+			'src/app/unsupported-descendants.css': `
+				span { color: var(--muted-foreground); }
+				#shell span { color: var(--muted-foreground); }
+				[data-frame] code { font-size: 11px; }
+			`,
+		});
+
+		expect(rulePaths(report, 'control-style-override')).toEqual([
+			'src/app/unsupported-descendants.css',
+			'src/app/unsupported-descendants.css',
+			'src/app/unsupported-descendants.css',
+		]);
+	});
+
+	test('rejects virtual row metrics that differ from canonical CSS', async () => {
+		const report = await checkFixture(
+			{
+				'src/design-tokens/bridge-design-row-metrics.ts':
+					'export const bridgeDesignRowMetrics = { default: 28, descriptive: 28 } as const;',
+			},
+			{
+				cssSource: `${canonicalCss}\n:root { --row-height-default: 28px; --row-height-descriptive: 44px; }`,
+			},
+		);
+		expect(report.ok).toBe(false);
+		expect(
+			report.findings.some((finding) => finding.message.includes('row-height-descriptive')),
+		).toBe(true);
+	});
+
 	test('accepts canonical sources and named non-control presentation', async () => {
 		const report = await checkFixture({
 			'src/app/layout.tsx': `

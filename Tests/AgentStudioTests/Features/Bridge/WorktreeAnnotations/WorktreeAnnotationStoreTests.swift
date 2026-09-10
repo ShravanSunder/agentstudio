@@ -441,7 +441,7 @@ struct WorktreeAnnotationStoreTests {
                 body: "Updated draft",
                 now: Date(timeIntervalSince1970: 3)
             )
-        )
+        ).detail
         let updatedRoot = try #require(detail.threads.first?.messages.first)
         detail = try await store.saveDraft(
             .init(
@@ -688,7 +688,7 @@ private enum TestAnnotationAccessError: Error {
 
 extension WorktreeAnnotationRepositoryAccess {
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation
@@ -702,7 +702,7 @@ extension WorktreeAnnotationRepositoryAccess {
     }
 
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         _ = props
         throw TestAnnotationAccessError.unexpectedOperation

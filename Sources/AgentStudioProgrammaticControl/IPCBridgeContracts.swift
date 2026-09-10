@@ -492,11 +492,19 @@ public struct IPCBridgeProductSessionDiagnostic: Codable, Equatable, Sendable {
 }
 
 public struct IPCBridgeProductMetadataStreamDiagnostic: Codable, Equatable, Sendable {
+    public struct SubscriptionTermination: Codable, Equatable, Sendable {
+        public let subscriptionId: String?
+        public let outcome: String?
+        public let reason: String?
+    }
+
     public enum Kind: String, Codable, Equatable, Sendable {
         case productMetadataStream
     }
 
     public let kind: Kind
+    public let lastSubscriptionTermination: SubscriptionTermination?
+    public let routeFailureSubscriptionId: String?
     public let acknowledgedFrameCount: Int?
     public let activeSubscriptionCount: Int?
     public let committedFrameCount: Int?

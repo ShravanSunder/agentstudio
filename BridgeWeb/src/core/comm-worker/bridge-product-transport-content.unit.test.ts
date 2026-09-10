@@ -96,14 +96,26 @@ describe('Bridge product content transport', () => {
 		expect(harness.server.frameAcknowledgements).toHaveLength(1);
 	});
 
-	test('fails a metadata stream when frame acknowledgement remains pending', async () => {
+	test('bounds an unanswered metadata acknowledgement and surfaces failed reconciliation', async () => {
 		const harness = createContentTransportHarness(0, undefined, 100);
+		harness.server.resyncFailure = new Error('Controlled metadata reconciliation failure.');
 		const subscription = harness.transport.subscribe(
 			bridgeProductReviewMetadataApplicationProtocol,
 			{ interests: [] },
 		);
 		const firstEvent = subscription.events[Symbol.asyncIterator]().next();
-		const firstEventExpectation = expect(firstEvent).rejects.toThrow('timed out');
+		let terminalObserved = false;
+		void firstEvent.then(
+			(): void => {
+				terminalObserved = true;
+			},
+			(): void => {
+				terminalObserved = true;
+			},
+		);
+		const firstEventExpectation = expect(firstEvent).rejects.toThrow(
+			'Controlled metadata reconciliation failure.',
+		);
 		harness.server.holdMetadataAcknowledgement();
 		await harness.server.waitForMetadataStream();
 		const request = harness.server.requiredMetadataRequest();
@@ -112,11 +124,22 @@ describe('Bridge product content transport', () => {
 			harness.server.emitMetadata(metadataAccepted(request));
 			await vi.advanceTimersByTimeAsync(0);
 			expect(harness.server.frameAcknowledgements).toHaveLength(1);
+			expect(terminalObserved).toBe(false);
 
 			await vi.advanceTimersByTimeAsync(101);
 
 			await firstEventExpectation;
 			expect(harness.server.metadataReaderCancelCount).toBe(1);
+			expect(
+				harness.server.controlRequests.filter(
+					(controlRequest) => controlRequest.kind === 'workerSession.resync',
+				),
+			).toHaveLength(2);
+			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+				activeSubscriptionCount: 0,
+				acknowledgedFrameCount: 0,
+				failureStage: 'acknowledgement',
+			});
 		} finally {
 			harness.server.releaseHeldContentAcknowledgement();
 			vi.useRealTimers();

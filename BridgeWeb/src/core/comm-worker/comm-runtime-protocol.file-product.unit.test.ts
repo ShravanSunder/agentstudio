@@ -913,7 +913,8 @@ describe('Bridge comm worker File product runtime', () => {
 		);
 	});
 
-	test('publishes a source-clearing display reset when File metadata fails', async () => {
+	test('marks retained File metadata stale without publishing empty source truth after stream failure', async () => {
+		// Arrange: the complete File tree is already authoritative before transport fails.
 		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		let reviewWarmupCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -940,32 +941,25 @@ describe('Bridge comm worker File product runtime', () => {
 		events.push(makeFileMetadataDataFrame(makeTreeWindowEvent()));
 		await flushBridgeWorkerRuntimeContinuations();
 
+		const messageCountBeforeFailure = postedMessages.length;
+		// Act
 		events.fail(new Error('metadata stream failed'), true);
 		await flushBridgeWorkerRuntimeContinuations();
 
+		// Assert: loss of delivery is not evidence that files or rendered content were deleted.
 		const fileDisplayEvents = postedMessages
+			.slice(messageCountBeforeFailure)
 			.map(({ message }) => message)
 			.filter((message) => message.kind === 'fileDisplayPatch');
 		expect(fileDisplayEvents.at(-1)).toMatchObject({
 			epoch: 1,
-			patches: [
-				{ operation: 'clear', slice: 'fileTree' },
-				{ operation: 'reset', slice: 'fileItem' },
-				{ operation: 'reset', slice: 'fileStatus' },
-				{
-					operation: 'upsert',
-					payload: {
-						filterMode: 'all',
-						projectedRowCount: 0,
-						searchError: null,
-						searchMode: 'text',
-						searchText: '',
-						totalRowCount: 0,
-					},
-					slice: 'fileQuery',
-				},
-			],
+			patches: [{ operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' }],
 		});
+		expect(
+			postedMessages
+				.slice(messageCountBeforeFailure)
+				.flatMap(({ message }) => (message.kind === 'fileRenderPatch' ? message.patches : [])),
+		).not.toContainEqual({ operation: 'reset', slice: 'contentAvailability' });
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({
 				kind: 'health',

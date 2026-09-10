@@ -1,6 +1,10 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import {
+	BridgeViewerContextPanelProvider,
+	BridgeViewerContextPanelViewport,
+} from '../app/bridge-viewer-context-panel-host.js';
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
@@ -12,25 +16,29 @@ export function BridgeFileViewerLazyLoadingFrame(props: {
 }): ReactElement {
 	return (
 		<main
-			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground"
 			data-testid="bridge-file-viewer-lazy-loading-frame"
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
 				isActive={props.isActive}
 				content={
-					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-						<BridgeViewerContentHeader
-							controls={props.viewerHeaderControls}
-							mode="file"
-							statusText={null}
-							title="Loading file view"
-						/>
-						<section
-							className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
-							data-testid="bridge-file-viewer-lazy-loading-canvas"
-						/>
-					</section>
+					<BridgeViewerContextPanelProvider>
+						<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+							<BridgeViewerContentHeader
+								controls={props.viewerHeaderControls}
+								mode="file"
+								statusText={null}
+								title="Loading file view"
+							/>
+							<BridgeViewerContextPanelViewport testId="bridge-file-viewer-context-panel-viewport">
+								<section
+									className="h-full min-h-0 min-w-0 bg-background"
+									data-testid="bridge-file-viewer-lazy-loading-canvas"
+								/>
+							</BridgeViewerContextPanelViewport>
+						</section>
+					</BridgeViewerContextPanelProvider>
 				}
 				contentTestId="bridge-file-viewer-content-panel"
 				handleTestId="bridge-file-viewer-rail-resize-handle"

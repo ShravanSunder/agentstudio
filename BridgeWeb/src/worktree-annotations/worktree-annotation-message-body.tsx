@@ -57,7 +57,7 @@ export function WorktreeAnnotationMessageBody(
 		props.sessionRevision,
 	]);
 	return renderedHtml === null ? (
-		<p className="whitespace-pre-wrap text-xs/relaxed text-comment-foreground">{props.body}</p>
+		<p className="whitespace-pre-wrap text-xs/relaxed text-annotation-foreground">{props.body}</p>
 	) : (
 		<WorktreeAnnotationMarkdown html={renderedHtml} />
 	);

@@ -21,6 +21,8 @@ import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-to
 import {
 	WorktreeAnnotationCommandButton,
 	WorktreeAnnotationInlineSurface,
+	WorktreeAnnotationLockedStatus,
+	WorktreeAnnotationPendingStatus,
 } from './worktree-annotation-inline-surface.js';
 import { validateWorktreeAnnotationMarkdown } from './worktree-annotation-markdown-policy.js';
 import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
@@ -59,6 +61,7 @@ export interface WorktreeAnnotationMessageEditorProps {
 	readonly ordinal: number;
 	readonly path: string | null;
 	readonly registerExitHandler?: ((handler: () => Promise<void>) => () => void) | undefined;
+	readonly resolution: 'open' | 'resolved';
 	readonly timelineActions?: ReactNode | undefined;
 }
 
@@ -69,7 +72,7 @@ export interface WorktreeAnnotationThreadSummaryProps {
 	readonly hasLockedMessage: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
 	readonly messageCount: number;
-	readonly placement: 'exact' | 'outdated' | 'relocated' | 'unavailable';
+	readonly placement: 'command_confirmed' | 'exact' | 'outdated' | 'relocated' | 'unavailable';
 	readonly resolution: 'open' | 'resolved';
 }
 
@@ -85,17 +88,17 @@ export function WorktreeAnnotationThreadSummary(
 			draft={props.message.draft !== null}
 			metadata={
 				<>
-					<span className="font-medium text-comment-foreground">
-						Latest · {props.message.authorKind === 'agent' ? 'Agent' : 'You'}
+					<span className="font-medium text-annotation-foreground">
+						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
 					</span>
 					<span aria-hidden="true">·</span>
 					<span>{annotationRelativeTime(props.message.createdAt)}</span>
 					<span aria-hidden="true">·</span>
-					<span>{props.resolution === 'open' ? 'Open' : 'Resolved'}</span>
+					{props.resolution === 'resolved' ? <span>Resolved</span> : null}
 					<span aria-hidden="true">·</span>
 					<span>{props.messageCount} annotations</span>
 					{!props.hasDraft ? null : <span className="font-medium">Draft</span>}
-					{props.hasLockedMessage ? <span>Contains locked output</span> : null}
+					{props.hasLockedMessage ? <WorktreeAnnotationLockedStatus summary /> : null}
 					{props.placement === 'relocated' ? <span>Relocated</span> : null}
 					{props.placement === 'outdated' ? <span>Outdated</span> : null}
 					{props.placement === 'unavailable' ? <span>Source unavailable</span> : null}
@@ -134,7 +137,7 @@ export function WorktreeAnnotationMessageEditor(
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const editorRef = useRef<HTMLTextAreaElement | null>(null);
-	const derivedState = deriveWorktreeAnnotationMessageState(props.message);
+	const derivedState = deriveWorktreeAnnotationMessageState(props.message, props.resolution);
 	const bodyGestureStartedWithTextSelectionRef = useRef(false);
 	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
 	const editToken = props.editToken ?? inactiveEditTokenRef.current;
@@ -359,12 +362,12 @@ export function WorktreeAnnotationMessageEditor(
 			messageId={props.message.messageId}
 			metadata={
 				<>
-					<span className="font-medium text-comment-foreground">
+					<span className="font-medium text-annotation-foreground">
 						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
 					</span>
-					<span aria-hidden="true">·</span>
-					<span>{annotationRelativeTime(props.message.createdAt)}</span>
-					{annotationMessageHasExceptionalState(props.message) ? (
+					{props.message.status === 'locked' ? (
+						<WorktreeAnnotationLockedStatus />
+					) : annotationMessageHasExceptionalState(props.message) ? (
 						<>
 							<span aria-hidden="true">·</span>
 							<span className={props.message.draft === null ? undefined : 'font-medium'}>
@@ -387,15 +390,11 @@ export function WorktreeAnnotationMessageEditor(
 					{!derivedState.isPending ? null : (
 						<>
 							<span aria-hidden="true">·</span>
-							<span
-								className="inline-flex items-center gap-1 font-medium text-warning"
-								data-testid="worktree-annotation-message-pending-status"
-							>
-								<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
-								Pending
-							</span>
+							<WorktreeAnnotationPendingStatus />
 						</>
 					)}
+					<span aria-hidden="true">·</span>
+					<span>{annotationRelativeTime(props.message.createdAt)}</span>
 				</>
 			}
 			onKeyDownCapture={(event) => {
@@ -420,7 +419,6 @@ export function WorktreeAnnotationMessageEditor(
 				<Textarea
 					appearance="embedded"
 					aria-label="Annotation Markdown"
-					className="min-h-16"
 					disabled={!editOwnershipReady}
 					ref={editorRef}
 					value={body}

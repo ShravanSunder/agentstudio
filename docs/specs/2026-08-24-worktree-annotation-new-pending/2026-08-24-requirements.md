@@ -140,13 +140,18 @@ human comment was handed off.
 
 - Affected classes: human reviewer and working agent.
 - Need: Every current saved human revision whose handled boundary is unset is
-  visibly Pending when it has no working draft. Successful output clears
+  visibly Pending when it has no working draft and its thread is open. Resolved
+  threads contribute no Pending marker, count, or new Pending output. Resolving
+  does not mark messages handled; reopening reapplies the ordinary eligibility
+  rule. Successful output clears
   Pending for the exact included human revisions. Marking an eligible output
   not handled returns matching current human revisions to Pending. Viewing does
   not change Pending.
 - Why: The reviewer needs an explicit inventory of saved requests that still
   need handoff, independent of attention state.
-- Evidence: owner decision on 2026-08-24 and the accepted PR1 output contract.
+- Evidence: owner decision on 2026-08-24, the accepted PR1 output contract, and
+  the subsequent explicit UI instruction that resolved comments must not be
+  shown or sent as Pending (reconciled 2026-09-07).
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -213,7 +218,10 @@ human comment was handed off.
   attention state, and its observable command result.
 - Protected surface: PR1 draft, Save, Revert, locking, output-history,
   placement, resolution, and failure semantics remain unchanged except for the
-  authorized New-to-Pending terminology correction.
+  authorized New-to-Pending terminology correction and the subsequent exclusion
+  of resolved threads from Pending presentation and new Pending output. All
+  membership, durable handled/viewed values and immutable History Repeat remain
+  unchanged by that exclusion.
 - Non-goals: this work does not authorize agent delivery, reply admission,
   identity selection, permissions, providers, acknowledgement, retry,
   reconciliation, resolution authority, nested replies, notification center,
@@ -237,9 +245,11 @@ New
   cleared only by the deliberate view boundary
 
 Pending
-  human-authored current saved revision with handled boundary unset
+  human-authored current saved revision in an open thread,
+  with no draft and handled boundary unset
   warning/amber dot plus text
-  cleared only by successful handled output
+  successful handled output clears the underlying handoff need;
+  resolved threads suppress Pending without changing handled
 
 All
   complete eligible human-and-agent conversation

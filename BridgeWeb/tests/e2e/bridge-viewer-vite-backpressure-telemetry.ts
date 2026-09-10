@@ -135,6 +135,7 @@ export function compactTelemetryDiagnostic(
 			sample.stringAttributes['agentstudio.bridge.render_publication.outcome'] ??
 			sample.stringAttributes['agentstudio.bridge.render_disposition.outcome'],
 		pending: sample.numericAttributes['agentstudio.bridge.render_disposition.pending_count'],
+		retained: sample.numericAttributes['agentstudio.bridge.render_disposition.retained_count'],
 		phase: sample.stringAttributes['agentstudio.bridge.phase'],
 		protocol: sample.stringAttributes['agentstudio.bridge.protocol'],
 		result: sample.stringAttributes['agentstudio.bridge.result'],

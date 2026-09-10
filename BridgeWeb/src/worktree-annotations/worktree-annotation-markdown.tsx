@@ -10,7 +10,7 @@ export interface WorktreeAnnotationMarkdownProps {
 export function WorktreeAnnotationMarkdown(props: WorktreeAnnotationMarkdownProps): ReactElement {
 	return (
 		<div
-			className="worktree-annotation-markdown text-xs/relaxed text-comment-foreground"
+			className="worktree-annotation-markdown text-xs/relaxed text-annotation-foreground"
 			data-testid="worktree-annotation-markdown"
 			dangerouslySetInnerHTML={{ __html: sanitizeWorktreeAnnotationMarkdownHtml(props.html) }}
 		/>

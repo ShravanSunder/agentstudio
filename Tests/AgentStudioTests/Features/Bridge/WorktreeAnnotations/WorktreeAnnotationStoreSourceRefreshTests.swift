@@ -573,7 +573,7 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
     }
 
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try repository.flushDraft(props)
     }
@@ -585,7 +585,7 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
     }
 
     func revertDraft(_ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try repository.revertDraft(props)
     }

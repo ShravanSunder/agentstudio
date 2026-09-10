@@ -12,6 +12,10 @@ import {
 	waitForCompleteAnnotationLifecycleTelemetry,
 } from './bridge-viewer-vite-annotation-lifecycle-telemetry.ts';
 import {
+	observeAnnotationMainProjection,
+	readAnnotationMainProjectionObservation,
+} from './bridge-viewer-vite-annotation-main-projection-observation.ts';
+import {
 	type AnnotationOutputIdentityCapture,
 	verifyAnnotationOutputCaptures,
 } from './bridge-viewer-vite-annotation-output-capture.ts';
@@ -26,6 +30,7 @@ import {
 	reviewRangeSelectionDiagnostic,
 	type AnnotationRangeBounds,
 } from './bridge-viewer-vite-annotation-selection-diagnostic.ts';
+import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
@@ -34,6 +39,11 @@ import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
 } from './bridge-viewer-vite-product-url.ts';
+import {
+	installReviewRenderObservation,
+	readReviewRenderObservation,
+} from './bridge-viewer-vite-review-render-observation.ts';
+import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
 
 const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
@@ -167,12 +177,18 @@ export async function runAnnotationSaveJourney(props: {
 	const diagnostics: string[] = [];
 	let page: Page | null = null;
 	let expectedSavedBody: string | null = null;
+	let transportFailures: Awaited<ReturnType<typeof observeInteractionProfileFailures>> | null =
+		null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		transportFailures = await observeInteractionProfileFailures(page);
 		observeAnnotationJourneyDiagnostics(page, diagnostics);
 		const reviewFile = props.oracle.reviewFiles[0];
 		if (props.surface === 'review' && reviewFile === undefined) {
 			throw new Error('Review annotation Save journey requires a changed review file.');
+		}
+		if (props.surface === 'review' && reviewFile !== undefined) {
+			await installReviewRenderObservation({ itemId: reviewFile.itemId, page });
 		}
 		const initialReviewProjectionReceived =
 			props.surface === 'review' ? waitForAnnotationProjectionContentResponse(page) : null;
@@ -316,6 +332,10 @@ export async function runAnnotationSaveJourney(props: {
 		});
 		await drainAnnotationLifecycleTelemetry(page);
 
+		const reloadedItemApplies =
+			props.surface === 'review' ? observeSelectedItemApplies(page) : null;
+		const reloadedMainProjection =
+			props.surface === 'review' ? observeAnnotationMainProjection(page) : null;
 		await page.reload({
 			timeout: annotationSaveJourneyTimeoutMilliseconds,
 			waitUntil: 'domcontentloaded',
@@ -324,6 +344,8 @@ export async function runAnnotationSaveJourney(props: {
 			await waitForSelectedFileReady({ oracle: props.oracle, page });
 		} else {
 			await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });
+			await reloadedItemApplies?.install(reviewFile?.itemId ?? '');
+			await reloadedMainProjection?.install();
 		}
 		const reloadedSavedThreadBody = page
 			.getByTestId('worktree-annotation-thread')
@@ -352,6 +374,24 @@ export async function runAnnotationSaveJourney(props: {
 		};
 	} catch (error: unknown) {
 		if (page !== null) {
+			recordAnnotationDiagnostic(
+				diagnostics,
+				`transport-failures:${JSON.stringify(await transportFailures?.read())}`,
+			);
+			if (props.surface === 'review') {
+				recordAnnotationDiagnostic(
+					diagnostics,
+					`review-render:${JSON.stringify(await readReviewRenderObservation(page))}`,
+				);
+				recordAnnotationDiagnostic(
+					diagnostics,
+					`review-main-projection:${JSON.stringify(await readAnnotationMainProjectionObservation(page))}`,
+				);
+				recordAnnotationDiagnostic(
+					diagnostics,
+					`review-item-applies:${JSON.stringify(await page.evaluate((): unknown => Reflect.get(globalThis, '__bridgeSelectedItemApplies')))}`,
+				);
+			}
 			recordAnnotationDiagnostic(
 				diagnostics,
 				`projection-ui:${JSON.stringify(
@@ -607,32 +647,8 @@ export async function selectRangeForAnnotation(props: {
 		const endRow = props.page.locator(`[data-column-number="${props.endLine}"]`).first();
 		await startRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
 		await endRow.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
-		const lineUtility = props.page.locator('[data-utility-button]').first();
-		// oxlint-disable-next-line no-await-in-loop -- Each bounded pointer attempt must settle before retry.
-		for (let attempt = 0; attempt < 3; attempt += 1) {
-			startBounds = await startRow.boundingBox();
-			endBounds = await endRow.boundingBox();
-			if (startBounds === null || endBounds === null) {
-				throw new Error('File annotation range rows must have visible pointer geometry.');
-			}
-			await props.page.mouse.move(startBounds.x + 4, startBounds.y + startBounds.height / 2);
-			await props.page.mouse.down();
-			await props.page.mouse.move(endBounds.x + 4, endBounds.y + endBounds.height / 2, {
-				steps: 4,
-			});
-			await props.page.mouse.up();
-			try {
-				await lineUtility.waitFor({ state: 'visible', timeout: 2_000 });
-				await lineUtility.click();
-				await props.page
-					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-					.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
-				return;
-			} catch (error: unknown) {
-				if (attempt === 2) throw error;
-			}
-		}
-		throw new Error('File annotation range selection exhausted its bounded attempts.');
+		startBounds = await startRow.boundingBox();
+		endBounds = await endRow.boundingBox();
 	} else {
 		const interactionState = await props.page.evaluate(
 			(): {
@@ -679,12 +695,16 @@ export async function selectRangeForAnnotation(props: {
 	const endpointUtility = props.page.locator('[data-utility-button]').first();
 	await endpointUtility.waitFor({
 		state: 'visible',
-		timeout: annotationProjectionResponseTimeoutMilliseconds,
+		timeout: props.surface === 'file' ? 2_000 : annotationProjectionResponseTimeoutMilliseconds,
 	});
 	await endpointUtility.click();
-	await props.page
-		.getByRole('textbox', { name: 'Write an annotation in Markdown' })
-		.waitFor({ state: 'visible', timeout: annotationSaveJourneyTimeoutMilliseconds });
+	await props.page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).waitFor({
+		state: 'visible',
+		timeout:
+			props.surface === 'file'
+				? annotationProjectionResponseTimeoutMilliseconds
+				: annotationSaveJourneyTimeoutMilliseconds,
+	});
 }
 
 async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {

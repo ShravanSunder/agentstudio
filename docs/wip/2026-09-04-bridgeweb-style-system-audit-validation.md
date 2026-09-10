@@ -10,6 +10,9 @@ Owner clarifications, 2026-09-04:
 - Agent Studio native Swift chrome and embedded BridgeWeb support one appearance only: dark.
 - The primary app/code canvas uses the Ghostty-derived grey `#282C34`. Darker neutral steps may distinguish headers, rails, and raised surfaces, but they do not replace the Ghostty-grey canvas role.
 - Pierre code rendering must resolve its background to the same canvas role, while syntax colors remain a separate concern.
+- The unified compact density uses 12px icons in 24px toolbar controls, 11px labels in 28px menu/popover action rows, and a 48px minimum empty annotation editor.
+- Sidebar product identity uses product blue `#409CFF`; Pierre syntax remains `#89B4FA`.
+- Disabled controls use explicit neutral text, icon, border, and fill roles rather than whole-control opacity.
 
 These settle the target appearance model; they do not change the current-source finding that `.dark` conditionally activates some styles today.
 
@@ -171,13 +174,14 @@ The reviewed audit's Section A is adopted as the target contract with these clas
 | State recipes | Adopt A3: one primitive-owned rest, hover, active/open, selected, focus-visible, disabled, and invalid recipe. |
 | Primitive ownership | Adopt A4/A5: `components/ui` owns control paint/type/geometry; BridgeViewer wrappers retain composition, attributes, and test IDs only. |
 | Curated exceptions | Adopt A6, including frozen Pierre variable names, annotation context roles, status dots, sticky-header metric, Markdown prose, and named motion. |
-| Icon scale | Open D2: 14px versus native-aligned 12px for `sm`. |
-| Menu density | Open D3: current 13px/32px versus compact 11px/28px. |
-| Sidebar primary | Open D4: product-primary identity versus retained syntax-blue distinction. |
-| Disabled paint | Open D5: opacity-based recipe versus explicit disabled roles; `outline` starting from `border-input` is required either way. |
-| Textarea minimum | Open D7: compact correction is required; exact `min-h-12` remains owner-visible. |
+| Icon scale | Settled D2: 12px icons for 24px toolbar controls, aligned with native Swift. |
+| Menu density | Settled D3: 11px labels in 28px menu/popover action rows. |
+| Sidebar primary | Settled D4: product identity uses `#409CFF`; `#89B4FA` remains Pierre syntax blue. |
+| Disabled paint | Settled D5: explicit neutral disabled text, icon, border, and fill roles; no whole-control opacity. `outline` starts from `border-input`. |
+| Textarea minimum | Settled D7: 48px (`min-h-12`) for the empty annotation editor. |
 | Floating frames | Adopt one primitive-owned frame family. Distinct elevation variants remain allowed when geometry differs; a side drawer may retain a directional shadow without becoming a feature-local recipe. |
 | Drawer inset | Inventory fact: current `p-4` is 16px, outside the stated 4/6/8 compact scale. Decide whether 16px becomes a named panel-inset token or changes visually; do not leave it as an accidental local value. |
+| Half-drawer placement | Open visual TODO: current `top-2 bottom-auto h-1/2` top-anchors the half-height drawer, producing an 8px top inset and roughly half a viewport of disconnected space below. Preserve the half-height option but establish balanced, intentional vertical breathing before changing its geometry test. |
 
 ### 4.6 Residual inconsistencies in the updated reviewed audit
 
@@ -198,13 +202,59 @@ The reviewed audit's Section C is not ready to execute unchanged.
 |---|---|
 | D0 — restore or replace the deliberately removed checker | Not an owner decision. R11 already requires the gate. Planning chooses occurrence-specific allowlists in a recovered checker or equivalent rules in the existing architecture checker. Count-only allowlists are rejected. |
 | D1 — re-anchor Tailwind text names | Already selected by the 2026-08-16 Program Design section 3. It becomes an owner question only if that settled decision is intentionally reopened. |
-| D2 — 14px versus 12px `sm` icons | Genuine visible owner decision. |
-| D3 — 11/28 versus 13/32 menu rows | Genuine visible owner decision. |
-| D4 — sidebar primary identity | Genuine semantic/visual owner decision because product and syntax blues were later separated. |
-| D5 — disabled paint | Genuine visible owner decision, although the first correction is independently clear: outline must not start from the hairline separator role. |
+| D2 — 14px versus 12px `sm` icons | Accepted: 12px icons in standard 24px toolbar controls. |
+| D3 — 11/28 versus 13/32 menu rows | Accepted: 11px labels in 28px menu/popover action rows. |
+| D4 — sidebar primary identity | Accepted: product blue `#409CFF`; Pierre syntax remains `#89B4FA`. |
+| D5 — disabled paint | Accepted: explicit neutral disabled roles without whole-control opacity; outline starts from `border-input`. |
 | D6 — dissolve `BridgeViewerButton` | Internal structural decision, not inherently an owner decision. The binding contract is that it become a thin adapter with no paint/type/geometry authority; whether the component remains for attributes/test IDs is implementation structure. |
-| D7 — Textarea minimum height | Genuine visible/product-density decision. The old Program Design requires a compact correction but does not settle `min-h-12`. |
+| D7 — Textarea minimum height | Accepted: 48px (`min-h-12`) for an empty annotation editor. |
 | D8 — single-appearance realization across in-tree and body portals | Settled requirement, not an open owner decision: BridgeWeb is dark-only. Fold the intended effective dark paint into unconditional primitive recipes, verify in-tree and body-portal surfaces, then delete `dark:` variants, the custom variant, and dependence on a `.dark` ancestor. |
+
+Decision record — unified compact density:
+
+```text
+decision: Standard 24px toolbar controls use 12px icons; menu and
+          popover action rows use 11px labels in 28px rows; an empty
+          annotation editor has a 48px minimum height.
+why:      Align BridgeWeb with the compact native Swift density and
+          remove the current oversized web-only presentation.
+alternative rejected: Preserve 14px icons, 13px/32px menu rows, and
+          the 64px editor.
+consequences: D2, D3, and D7 are closed and must be encoded in the
+          reconciled Specification and Program Design.
+status:   accepted 2026-09-04
+```
+
+Decision record — product identity and disabled controls:
+
+```text
+decision: Sidebar product identity uses #409CFF while Pierre syntax
+          remains #89B4FA. Disabled controls render with explicit
+          neutral text, icon, border, and fill roles instead of
+          whole-control opacity.
+why:      Keep product identity distinct from syntax and keep disabled
+          controls readable without the washed-out screenshot result.
+alternatives rejected: Syntax blue as sidebar identity; stock 50%
+          opacity over the entire disabled control.
+consequences: D4 and D5 are closed. The primitive contract must define
+          disabled paint once per semantic variant without consumer
+          overrides.
+status:   accepted 2026-09-04
+```
+
+TODO record — half-height context-panel placement:
+
+```text
+symptom:  The half-height Share drawer has a small top inset and a much
+          larger empty region below, so it appears arbitrarily suspended.
+cause:    BridgeViewerContextPanel uses top-2 + bottom-auto + h-1/2;
+          the browser test asserts top = viewport top + 8px.
+target:   Preserve the half-height option while making the vertical
+          relationship and top/bottom breathing intentional.
+open:     Choose centered half-height versus another balanced placement
+          after a visual storyboard; do not change geometry by guess.
+status:   open 2026-09-04
+```
 
 ## 6. Canonical remediation dependency tree
 

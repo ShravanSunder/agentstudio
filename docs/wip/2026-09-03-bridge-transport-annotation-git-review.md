@@ -230,3 +230,29 @@ Question validated: after a one-file Review refresh, do unchanged items avoid re
 Metadata and content layers are designed to avoid re-sending or re-fetching unchanged items, and the main thread keeps render copies by digest. But the default production path (contribution target) defeats the delta at the generation gate, so today every refresh re-sends the whole catalog and rebuilds the worker projection, and the annotation overlay re-touches every item through Pierre. The other agent's diagram describes the non-contribution path and the intended design, not what the contribution path does now. The incremental Git seed design does not change this; it ends at the Git boundary, as its own text says.
 
 Open item for the design owner: whether a proportional refresh should also keep the review generation so the delta path becomes reachable on the contribution path, or whether the generation bump is load-bearing for currentness and the publication side needs its own change.
+
+## 10. Seed commit point (2026-09-03, later pass)
+
+Claim checked: "successor seed commits after publication commit" is wrong because the unchanged branch never commits a publication; the seed must commit at the calculation-currentness point.
+
+Verified in `BridgePaneController+DiffCommands.swift` (working tree):
+
+- Guard 1 `admitPreparedReviewPackageRefresh` (`+RefreshAdmission.swift:22-41`) after construction.
+- Guard 2 at `:699-709`: not cancelled, admission valid, refresh pass current, `refreshGeneration == nextReviewGeneration`, current publication unchanged. This is the last currentness check before branching.
+- Unchanged branch `:711-718`: `isUnchangedSameLineageLoad` true, release pin, `settleReviewComparisonAttempt`, return `.succeeded`. No publication commit.
+- Changed branch `:719-742`: `classifyReviewPackageRefresh` (may return nil = stale) then `commitClassifiedReviewPackageRefresh` → `commitReviewPackageLoad` (`+ReviewProductPublication.swift:15-110`), which can reject at stage, reserve, or commit.
+- Outcomes `.failed`/`.stale` restore the reservation's dirty fact by union (`BridgePaneRefreshAdmissionCoordinator.swift:398-403`, `:559-567`); `.succeeded` consumes it.
+- The program design (`:271-281`) currently says the seed replaces "after native commit" including for the unchanged load, which is unreachable on that branch. The claim is correct.
+
+Reachability note: `isUnchangedSameLineageLoad` requires equal review generation. On a contribution-target source every refresh allocates a new generation (`:820-840`), so today that branch is reachable only on staged, unstaged, or nil-baseline sources. If proportional refresh retains the generation (section 9 open item), the branch becomes live on the default path too.
+
+Options:
+
+| Option | Where the seed replaces | Gain | Cost or risk |
+| --- | --- | --- | --- |
+| A. Calculation-currentness point (guard 2, before the branch) | one MainActor-synchronous write after `:699-709` | one seam; covers unchanged; independent of publication; atomic against other attempts | seed may lead the published package by one attempt when publication later rejects or classify returns stale; safe because restore-by-union re-applies those paths and same-path splice is idempotent, and because the seed is not presentation authority |
+| B. Publication commit plus unchanged branch | two writes | seed never ahead of published truth | two sites drift; on the contribution path the unchanged branch is dead today so one site is silent; classify-stale and commit-reject paths need their own discard rule |
+| C. Change index (`recordCommittedLoad`) | with the committed load record | reuses an existing record keyed by package and generation | called only from publication commit, so it is B with a different name |
+| D. Construction coordinator per worktree and comparison key | when any build completes | cross-pane reuse | the design rejected a shared cache; the coordinator epoch is worktree-wide and not the pane's currentness; keep rejected unless multi-pane duplication is measured |
+
+Recommendation: A, with four rules written into the design. Replace only after guard 2 and synchronously on MainActor. Never replace on `.stale`, cancellation, or a thrown load. Keep the seed when the subsequent publication rejects; the union-restored changeset guarantees coverage. Retire on source, target, base, or worktree identity change and on close, as already written. agentstudio-git must return a successor seed on every complete or proportional result, including unchanged projections, because the seed key may bind fresher resolved identities.

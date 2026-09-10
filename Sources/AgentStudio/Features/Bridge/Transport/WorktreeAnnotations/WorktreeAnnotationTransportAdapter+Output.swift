@@ -60,7 +60,13 @@ extension WorktreeAnnotationTransportAdapter {
             case .clipboardMarkdown: .clipboardMarkdown
             case .jsonFile: .jsonFile
             }
-        let selectedMessages = sessionDetail.threads.flatMap(\.messages).filter { message in
+        let scopeEligibleThreads = sessionDetail.threads.filter { threadDetail in
+            switch body.scope {
+            case .pending: threadDetail.thread.resolution == .open
+            case .all: true
+            }
+        }
+        let selectedMessages = scopeEligibleThreads.flatMap(\.messages).filter { message in
             guard message.savedBody != nil, message.savedRevision != nil, message.draft == nil else {
                 return false
             }

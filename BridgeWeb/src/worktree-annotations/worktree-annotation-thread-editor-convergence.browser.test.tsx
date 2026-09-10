@@ -114,9 +114,10 @@ describe('worktree annotation editor convergence', () => {
 			await Promise.resolve();
 		});
 
-		await expect
-			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
-			.toBeVisible();
+		await expect.element(rendered.getByText('Single-owner reply')).toBeVisible();
+		expect(
+			document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+		).toBeNull();
 		expect(rendered.getByRole('button', { name: 'Reply to annotation thread' }).all()).toHaveLength(
 			1,
 		);
@@ -430,9 +431,10 @@ describe('worktree annotation editor convergence', () => {
 			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
 			await Promise.resolve();
 		});
-		await expect
-			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
-			.toBeVisible();
+		await expect.element(rendered.getByText('Reply one')).toBeVisible();
+		expect(
+			document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+		).toBeNull();
 
 		const latestReplyButton = rendered
 			.getByRole('button', { name: 'Reply to annotation thread' })
@@ -487,14 +489,30 @@ describe('worktree annotation editor convergence', () => {
 				commandOutcomes: [
 					{
 						receipt: {
-							draftRevision: null,
+							context: {
+								diffSide: locatedContext.diffSide,
+								endLine: locatedContext.endLine,
+								path: locatedContext.path,
+								resolution: locatedContext.resolution,
+								scope: locatedContext.scope,
+								sourceIdentity: locatedContext.sourceIdentity,
+								sourceRole: locatedContext.sourceRole,
+								startLine: locatedContext.startLine,
+								threadId: locatedContext.threadId,
+							},
 							kind: 'message',
-							messageId: secondRootMessageId,
-							messageRevision: 1,
-							savedRevision: 1,
-							sessionRevision: 4,
-							threadId: annotationHeadThreadId,
-							threadRevision: 2,
+							message: {
+								...annotationMessage({
+									messageId: secondRootMessageId,
+									ordinal: 1,
+									sessionRevision: 4,
+									threadId: annotationHeadThreadId,
+									threadRevision: 2,
+								}),
+								draft: null,
+								savedBody: 'Reply one',
+								savedRevision: 1,
+							},
 						},
 						requestId: 'product-reply-one',
 						sessionId: annotationSessionId,

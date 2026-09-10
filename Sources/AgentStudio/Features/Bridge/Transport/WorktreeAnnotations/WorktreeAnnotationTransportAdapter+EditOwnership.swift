@@ -4,9 +4,9 @@ extension WorktreeAnnotationTransportAdapter {
     func acquireEditToken(
         _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody,
         ownerGeneration: String
-    ) async throws -> WorktreeAnnotationSessionID {
+    ) async throws -> WorktreeAnnotationAppliedMessageCommand {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-        _ = try await store.acquireEditToken(
+        let detail = try await store.acquireEditToken(
             .init(
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
@@ -17,15 +17,15 @@ extension WorktreeAnnotationTransportAdapter {
             ),
             ownerGeneration: ownerGeneration
         )
-        return sessionID
+        return try appliedMessageCommand(detail: detail, messageID: body.messageId)
     }
 
     func releaseEditToken(
         _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody,
         ownerGeneration: String
-    ) async throws -> WorktreeAnnotationSessionID {
+    ) async throws -> WorktreeAnnotationAppliedMessageCommand {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-        _ = try await store.releaseEditToken(
+        let detail = try await store.releaseEditToken(
             .init(
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
@@ -36,6 +36,6 @@ extension WorktreeAnnotationTransportAdapter {
             ),
             ownerGeneration: ownerGeneration
         )
-        return sessionID
+        return try appliedMessageCommand(detail: detail, messageID: body.messageId)
     }
 }

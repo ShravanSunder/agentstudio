@@ -9,6 +9,36 @@ import type {
 } from './worktree-annotation-surface-client.js';
 
 describe('WorktreeAnnotationEditOwnershipController', () => {
+	test('uses the committed Save receipt while the server projection still contains the old draft', async () => {
+		// Arrange: Save has committed, but finite projection delivery is still behind.
+		const fixture = createOwnershipFixture(messageWithDraft('old-editor-token'));
+		const projectedSnapshot = fixture.client.getSnapshot();
+		const serverThread = projectedSnapshot.threads[0];
+		if (serverThread === undefined) throw new Error('Expected fixture thread.');
+		const snapshot: WorktreeAnnotationProjectionSnapshot = {
+			...projectedSnapshot,
+			commandConfirmedThreads: [
+				{
+					context: { ...serverThread.context, placement: 'command_confirmed' },
+					messages: [
+						{ ...messageWithDraft(null), draft: null, messageRevision: 2, savedRevision: 2 },
+					],
+				},
+			],
+		};
+		const controller = new WorktreeAnnotationEditOwnershipController({
+			annotationClient: { ...fixture.client, getSnapshot: () => snapshot },
+			editToken: 'new-editor-token',
+			messageId: fixture.messageId,
+		});
+
+		// Act: immediately edit the saved message before projection catches up.
+		await controller.acquire();
+
+		// Assert: first flush creates the next draft; acquiring the deleted draft is invalid.
+		expect(fixture.operations).toEqual([]);
+	});
+
 	test('acquires an existing draft with a new browser token and releases it in order', async () => {
 		const fixture = createOwnershipFixture(messageWithDraft('persisted-stale-token'));
 		const controller = new WorktreeAnnotationEditOwnershipController({
@@ -68,6 +98,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 	let message = initialMessage;
 	const operations: BridgeProductWorktreeAnnotationOperation[] = [];
 	const snapshot = (): WorktreeAnnotationProjectionSnapshot => ({
+		commandConfirmedThreads: [],
 		commandOutcomes: [],
 		outputHistory: [],
 		operationCorrelationId: null,
@@ -95,6 +126,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 			},
 		],
 		sourceGeneration: 0,
+		unreconciledCommandReceiptSessionIds: [],
 		worktreeId: 'worktree-1',
 	});
 	const client: WorktreeAnnotationSurfaceClient = {

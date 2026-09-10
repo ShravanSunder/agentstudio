@@ -18,25 +18,33 @@ export interface WorktreeAnnotationThreadStateCounts {
 	readonly pendingCount: number;
 }
 
+export type WorktreeAnnotationThreadResolution = 'open' | 'resolved';
+
 export function deriveWorktreeAnnotationMessageState(
 	message: WorktreeAnnotationMessageStateFacts,
+	threadResolution: WorktreeAnnotationThreadResolution,
 ): WorktreeAnnotationDerivedMessageState {
 	const isCurrentSaved =
 		message.savedBody !== null && message.savedRevision !== null && message.draft === null;
 	return {
 		isAllEligible: isCurrentSaved,
 		isNew: isCurrentSaved && message.authorKind === 'agent' && message.attentionState === 'new',
-		isPending: isCurrentSaved && message.authorKind === 'human' && !message.handled,
+		isPending:
+			isCurrentSaved &&
+			message.authorKind === 'human' &&
+			!message.handled &&
+			threadResolution === 'open',
 	};
 }
 
 export function deriveWorktreeAnnotationThreadStateCounts(
 	messages: readonly WorktreeAnnotationMessageStateFacts[],
+	threadResolution: WorktreeAnnotationThreadResolution,
 ): WorktreeAnnotationThreadStateCounts {
 	let newCount = 0;
 	let pendingCount = 0;
 	for (const message of messages) {
-		const state = deriveWorktreeAnnotationMessageState(message);
+		const state = deriveWorktreeAnnotationMessageState(message, threadResolution);
 		if (state.isNew) newCount += 1;
 		if (state.isPending) pendingCount += 1;
 	}

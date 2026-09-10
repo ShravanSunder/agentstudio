@@ -23,6 +23,7 @@ import {
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema } from './bridge-product-worktree-annotation-contracts.js';
 import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerMainToServerMessage,
@@ -45,16 +46,23 @@ import {
 } from './comm-runtime-protocol.file-product.test-support.js';
 
 const openReviewProductSources = new Set<BridgeCommWorkerReviewProductTestSource>();
+const openChannels = new Set<MessageChannel>();
 
 afterEach((): void => {
 	for (const source of openReviewProductSources) source.close();
 	openReviewProductSources.clear();
+	for (const channel of openChannels) {
+		channel.port1.close();
+		channel.port2.close();
+	}
+	openChannels.clear();
 });
 
 describe('Bridge comm worker duplex backpressure over an actual MessageChannel', () => {
 	test('drains 66 dispositions as one, 64, and one with one batch in flight', async () => {
 		// Arrange
 		const channel = new MessageChannel();
+		openChannels.add(channel);
 		const collector = createMainPortCollector(channel.port2);
 		registerBridgeCommWorkerRuntimePortProtocol(channel.port1, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -145,6 +153,7 @@ describe('Bridge comm worker duplex backpressure over an actual MessageChannel',
 
 	test('orders urgent Review outcome and receipt response before publication thirteen', async () => {
 		const channel = new MessageChannel();
+		openChannels.add(channel);
 		const collector = createMainPortCollector(channel.port2);
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 		openReviewProductSources.add(reviewProductSource);
@@ -263,10 +272,12 @@ describe('Bridge comm worker duplex backpressure over an actual MessageChannel',
 		}
 		expect(annotationOutcome.message.outcome).toMatchObject({
 			receipt: {
-				draftRevision: 2,
 				kind: 'message',
-				messageId: '00000000-0000-7000-8000-000000000072',
-				messageRevision: 3,
+				message: {
+					draft: { body: 'urgent draft body', revision: 2 },
+					messageId: '00000000-0000-7000-8000-000000000072',
+					messageRevision: 3,
+				},
 			},
 			status: { kind: 'committed' },
 		});
@@ -280,6 +291,7 @@ describe('Bridge comm worker duplex backpressure over an actual MessageChannel',
 
 	test('orders File painted response before waiting selection B publishes', async () => {
 		const channel = new MessageChannel();
+		openChannels.add(channel);
 		const collector = createMainPortCollector(channel.port2);
 		const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
 		const subscription: FileMetadataSubscription = {
@@ -520,30 +532,55 @@ function reviewSourceForItems(itemIds: readonly string[]): {
 function annotationCapableReviewProductTransport(
 	base: BridgeProductTransportSession,
 ): BridgeProductTransportSession {
+	// Validate the fake at the same decoded contract boundary as a real call,
+	// before an invalid response can turn the ordering witness into a timeout.
+	const outcome = bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema.parse({
+		receipt: {
+			kind: 'message',
+			context: {
+				diffSide: 'additions',
+				endLine: 1,
+				path: 'src/review.ts',
+				resolution: 'open',
+				scope: 'located',
+				sourceIdentity: 'review-source-duplex',
+				sourceRole: 'review_head',
+				startLine: 1,
+				threadId: '00000000-0000-7000-8000-000000000074',
+			},
+			message: {
+				attentionState: 'not_applicable',
+				authorKind: 'human',
+				createdAt: 1_700_000_000_000,
+				draft: {
+					activeEditToken: '00000000-0000-7000-8000-000000000071',
+					body: 'urgent draft body',
+					revision: 2,
+				},
+				handled: false,
+				messageId: '00000000-0000-7000-8000-000000000072',
+				messageRevision: 3,
+				ordinal: 0,
+				savedBody: null,
+				savedRevision: null,
+				sessionId: '00000000-0000-7000-8000-000000000073',
+				sessionRevision: 4,
+				status: 'editable',
+				threadId: '00000000-0000-7000-8000-000000000074',
+				threadRevision: 5,
+			},
+		},
+		requestId: 'review-annotation-product-request',
+		sessionId: '00000000-0000-7000-8000-000000000073',
+		status: { kind: 'committed' },
+		surface: 'review',
+	});
 	return {
 		...base,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This integration transport overrides one exact production call and delegates every other typed call.
 		call: (async (method: string, ...arguments_: unknown[]): Promise<unknown> => {
 			if (method === 'review.annotations.command') {
-				return {
-					kind: 'completed',
-					outcome: {
-						receipt: {
-							draftRevision: 2,
-							kind: 'message',
-							messageId: '00000000-0000-7000-8000-000000000072',
-							messageRevision: 3,
-							savedRevision: null,
-							sessionRevision: 4,
-							threadId: '00000000-0000-7000-8000-000000000074',
-							threadRevision: 5,
-						},
-						requestId: 'review-annotation-product-request',
-						sessionId: null,
-						status: { kind: 'committed' },
-						surface: 'review',
-					},
-				};
+				return { kind: 'completed', outcome };
 			}
 			return await (base.call as (...callArguments: unknown[]) => Promise<unknown>)(
 				method,

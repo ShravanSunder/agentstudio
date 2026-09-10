@@ -10,7 +10,7 @@ import {
 const lowercaseSessionId = '01890abc-def0-7abc-8def-0123456789ab';
 
 describe('Bridge product worktree annotation contracts', () => {
-	test('accepts an exact committed message correlation receipt', () => {
+	test('rejects revision-only receipts after the canonical hard cutover', () => {
 		const outcome = {
 			receipt: {
 				draftRevision: 0,
@@ -28,7 +28,9 @@ describe('Bridge product worktree annotation contracts', () => {
 			surface: 'file',
 		} as const;
 
-		expect(bridgeProductWorktreeAnnotationCommandOutcomeSchema.parse(outcome)).toEqual(outcome);
+		expect(bridgeProductWorktreeAnnotationCommandOutcomeSchema.safeParse(outcome).success).toBe(
+			false,
+		);
 	});
 
 	test('accepts the strict catalog, session-change, and control-change metadata events', () => {

@@ -27,7 +27,7 @@ import {
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 export const journeyRootMessageId = '00000000-0000-7000-8000-000000000201';
-export const journeyReplyMessageId = '00000000-0000-7000-8000-000000000202';
+export const journeyReplyMessageId = '00000000-0000-7000-8000-000000000093';
 export const journeyOutputAttemptId = '00000000-0000-7000-8000-000000000203';
 
 export const journeyOpenContext: WorktreeAnnotationThreadContext = {

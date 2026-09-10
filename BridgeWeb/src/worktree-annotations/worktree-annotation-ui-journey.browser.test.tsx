@@ -38,6 +38,8 @@ describe('worktree annotation synthetic end-user journey', () => {
 
 	test('edits, saves, replies, resolves, reopens, shares, and restores focus', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
+		let savedRoot = makeJourneySavedRoot(5);
+		let savedReply = makeJourneySavedReply(7);
 		const rendered = await renderWorktreeAnnotationUiJourney(surface);
 		const initialDraft = makeJourneyRootDraft('persisted-journey-edit', 1);
 		await publishJourneyThread({
@@ -92,7 +94,12 @@ describe('worktree annotation synthetic end-user journey', () => {
 			messageId: journeyRootMessageId,
 		});
 		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+			const receipt = surface.settleMostRecentCommittedWithoutProjection(
+				annotationSessionId,
+				'draft.save',
+			);
+			if (receipt?.kind !== 'message') throw new Error('Expected canonical saved root.');
+			savedRoot = receipt.message;
 			await settleJourneyInteraction();
 		});
 		await waitForJourneyCondition(
@@ -100,9 +107,10 @@ describe('worktree annotation synthetic end-user journey', () => {
 			'Expected the committed Save receipt to close the root editor.',
 		);
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
+		if (!(thread instanceof HTMLElement))
+			throw new Error('Expected the annotation thread HTML surface.');
 		expect(thread.contains(document.activeElement)).toBe(true);
 
-		const savedRoot = makeJourneySavedRoot(5);
 		await publishJourneyThread({
 			context: journeyOpenContext,
 			messages: [savedRoot],
@@ -149,14 +157,20 @@ describe('worktree annotation synthetic end-user journey', () => {
 		);
 		await waitForOperation(surface, 'draft.save', journeyReplyMessageId);
 		await act(async (): Promise<void> => {
-			surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'draft.save');
+			const receipt = surface.settleMostRecentCommittedWithoutProjection(
+				annotationSessionId,
+				'draft.save',
+			);
+			if (receipt?.kind !== 'message') throw new Error('Expected canonical saved reply.');
+			savedReply = receipt.message;
 			await settleJourneyInteraction();
 		});
-		await expect
-			.element(rendered.getByTestId('worktree-annotation-committed-pending-projection'))
-			.toBeVisible();
+		await expect.element(rendered.getByTestId('worktree-annotation-thread')).toBeVisible();
+		expect(rendered.getByTestId('worktree-annotation-message').all()).toHaveLength(2);
+		expect(
+			document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+		).toBeNull();
 
-		const savedReply = makeJourneySavedReply(7);
 		await publishJourneyThread({
 			context: journeyOpenContext,
 			messages: [savedRoot, savedReply],
@@ -202,6 +216,10 @@ describe('worktree annotation synthetic end-user journey', () => {
 			path: '../../../tmp/worktree-annotation-ui-journey-resolved.png',
 		});
 
+		expect(thread.getAttribute('data-annotation-expanded')).toBe('false');
+		await expect
+			.element(rendered.getByRole('button', { name: 'Expand 2 annotations' }))
+			.toBeVisible();
 		await performJourneyAction(() =>
 			clickButton(rendered.getByRole('button', { name: 'Reopen annotation thread' }).element()),
 		);
@@ -216,6 +234,8 @@ describe('worktree annotation synthetic end-user journey', () => {
 			);
 			await settleJourneyInteraction();
 		});
+		expect(thread.getAttribute('data-annotation-expanded')).toBe('true');
+		await finishJourneyMotion(thread);
 		await publishJourneyThread({
 			context: journeyOpenContext,
 			messages: [savedRoot, savedReply],
@@ -224,7 +244,7 @@ describe('worktree annotation synthetic end-user journey', () => {
 		});
 		expect(thread.getAttribute('data-annotation-resolution')).toBe('open');
 
-		const shareTrigger = rendered.getByRole('button', { name: 'Share comments' });
+		const shareTrigger = rendered.getByRole('button', { name: 'Annotations', exact: true });
 		await performJourneyAction(() => clickButton(shareTrigger.element()));
 		const shareShelf = rendered.getByTestId('worktree-annotation-share-shelf').element();
 		if (!(shareShelf instanceof HTMLElement)) throw new Error('Expected the Share shelf.');

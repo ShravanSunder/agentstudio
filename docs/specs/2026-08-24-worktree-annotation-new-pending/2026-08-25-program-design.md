@@ -51,7 +51,9 @@ BridgeWeb explicit interaction
 
 The structural crux is exact revision identity. A message has one current saved
 body and an integer `savedRevision`; it does not gain a saved-revision history.
-Pending is derived from the current human revision's handled boundary. New is
+Pending is derived from the current human revision's handled boundary and the
+canonical thread resolution; resolved threads suppress Pending without changing
+handled. New is
 derived from whether the current agent revision equals the last durably viewed
 saved revision. Output never writes the viewed marker, and viewing never writes
 handled.
@@ -203,7 +205,7 @@ The repository and strict decoders enforce:
 | agent `handled` remains false | output finalization and unhandle operations target human rows only; decoding rejects an agent handled value |
 | an agent viewed marker is null or a positive saved revision no newer than the current saved revision | migration constraint for positivity plus domain validation for author/current-revision relationship |
 | a current agent revision is New exactly when `viewedSavedRevision != savedRevision` | one pure domain predicate used by native projection; browser consumes projected attention state |
-| a current human revision is Pending exactly when it has saved content, has no draft, and `handled == false` | existing handled truth plus shared native/browser scope predicate |
+| a current human revision is Pending exactly when its thread is open, it has saved content, has no draft, and `handled == false` | canonical thread resolution plus existing handled truth and shared browser/native scope rules |
 
 The SQLite schema changes in place:
 
@@ -216,7 +218,7 @@ annotation_message
 
 Existing rows remain `author_kind = human`, keep their current handled value,
 and receive `viewed_saved_revision = NULL`. Therefore existing unhandled saved
-messages become Pending, handled human messages remain neither Pending nor New,
+messages in open threads become Pending, handled human messages remain neither Pending nor New,
 and no existing row becomes New.
 
 SQLite continues to avoid product-enum `CHECK` constraints. Swift owns the
@@ -251,8 +253,9 @@ isNew(message)
     + no matching command-confirmed viewed overlay
     + projected attentionState == new
 
-isPending(message)
+isPending(message, threadResolution)
   = human
+    + threadResolution == open
     + current saved body exists
     + draft absent
     + handled == false
@@ -277,6 +280,14 @@ durable truth. A complete projection reconciles it as follows:
 
 Pending and All membership never read the viewed overlay. New presentation
 never reads `handled`.
+
+Canonical resolution already travels on thread context. The shared browser
+message-state derivation takes that resolution explicitly; thread counts, exact
+message badges and Share filtering all consume it, rather than each inventing a
+suppression rule. The message editor receives the existing thread resolution as
+a presentation input from its parent. No message/DTO field or persisted flag is
+added. Native validation of message-only author/viewed facts stays separate from
+the thread-aware new-output membership decision.
 
 Each surface also retains the greatest command-confirmed viewed
 `committedSessionRevision` per session as an output-readiness fence. The fence
@@ -494,13 +505,43 @@ The browser projection and native scope assembler use the same domain rules:
 
 | Scope | Complete membership |
 | --- | --- |
-| Pending | every current saved, draft-free, unhandled human revision |
+| Pending | every current saved, draft-free, unhandled human revision whose thread is open |
 | All | every current saved, draft-free human or agent revision |
 
 Browser filtering decides what the reviewer sees. Native re-derives the same
 scope from repository truth after validating displayed projection, session,
 and source-generation fences. The output coordinator still receives one exact
 ordered selection and uses the existing prepare/effect/finalize lifecycle.
+
+For new Pending output, the native assembler checks each canonical
+`WorktreeAnnotationThreadDetail.thread.resolution` before flattening its messages.
+All does not apply that thread filter. Existing projection/session/source fences
+and durable preparation remain authoritative: a concurrent Resolve/Reopen that
+advances the session cannot silently change a previously displayed selection.
+The browser reads the same already-projected thread context; it does not submit
+a client-selected message list as authority. History Repeat remains on its
+existing immutable-byte route and does not recompute today's Pending scope.
+
+```text
+Resolve/Reopen [existing command]
+  -> existing repository updates thread resolution + session revision
+  -> existing projection publishes canonical thread context
+  -> shared browser state derives badges/counts/Share membership [changed]
+
+New output.scope.commit [existing command]
+  -> existing displayed revision/source fences [preserved]
+  -> canonical thread filter for Pending [added before message flattening]
+  -> existing saved/draft/author/handled selection [preserved]
+  -> existing prepare/effect/finalize and result/error path [preserved]
+
+History Repeat -> stored bytes and existing effect/result path [unchanged]
+```
+
+The correction spends no storage, event, retry or protocol complexity. Browser
+and native membership matrices must include open/resolved, draft, handled, author,
+locked and placement cases; a real output-effect capture establishes selected
+IDs/bodies and unchanged All membership. Reopen and stale-resolution cases prove
+that the condition uses canonical current context rather than a sticky UI flag.
 
 Successful finalization applies two distinct effects in the same exact
 transaction. Every matching included editable message becomes locked,

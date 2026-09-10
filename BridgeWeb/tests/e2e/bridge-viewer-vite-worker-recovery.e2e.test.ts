@@ -16,8 +16,13 @@ import {
 import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
+	readBrowserDiagnosticWithinDeadline,
 	waitForSettledReviewComparison,
 } from './bridge-viewer-vite-review-comparison-observation.ts';
+import {
+	installReviewRenderObservation,
+	readReviewRenderObservation,
+} from './bridge-viewer-vite-review-render-observation.ts';
 
 test('replaces the worker after exhausted installed receipts and installs the next Review revision', async () => {
 	// Arrange — intercept only installed receipts; all source, metadata and content remain real.
@@ -26,11 +31,21 @@ test('replaces the worker after exhausted installed receipts and installs the ne
 	let browser: Browser | null = null;
 	let diagnostics: ReturnType<typeof observeBrowserRuntimeDiagnostics> | null = null;
 	let rejectedReceiptCount = 0;
+	let phase = 'fixture-ready';
+	const markPhase = (nextPhase: string): void => {
+		phase = nextPhase;
+		console.info('Installed-receipt recovery phase', phase);
+	};
 	try {
+		markPhase('browser-starting');
 		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		markPhase('server-starting');
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
+		const unchangedFile = fixture.oracle.reviewFiles[1];
+		if (unchangedFile === undefined) throw new Error('Receipt recovery requires two Review files.');
+		await installReviewRenderObservation({ itemId: unchangedFile.itemId, page });
 		await page.route('**/__bridge-product/command', async (route): Promise<void> => {
 			const body: unknown = route.request().postDataJSON();
 			if (
@@ -65,6 +80,7 @@ test('replaces the worker after exhausted installed receipts and installs the ne
 		});
 
 		// Act — both exact-byte attempts of each of two semantic receipt attempts fail.
+		markPhase('replacement-bootstrap-waiting');
 		const [initialResponse, replacementResponse] = await Promise.all([
 			initialBootstrap,
 			replacementBootstrap,
@@ -77,19 +93,22 @@ test('replaces the worker after exhausted installed receipts and installs the ne
 		expect(await bootstrapWorkerInstanceId(replacementResponse)).not.toBe(
 			await bootstrapWorkerInstanceId(initialResponse),
 		);
+		markPhase('recovered-comparison-waiting');
 		const recoveredComparison = await waitForSettledReviewComparison({
 			expectedTargetLabel: 'HEAD',
 			expectedTargetOID: fixture.oracle.baseRef,
 			page,
 			timeoutMilliseconds: 30_000,
 		});
-		const unchangedFile = fixture.oracle.reviewFiles[1];
-		if (unchangedFile === undefined) throw new Error('Receipt recovery requires two Review files.');
+		markPhase('unchanged-file-selecting');
 		await selectReviewFile({ page, path: unchangedFile.path });
+		markPhase('unchanged-file-content-waiting');
 		await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
 
 		// Assert — a subsequent real mutation must advance displayed authority, not merely repaint.
+		markPhase('source-mutation');
 		await fixture.mutateReviewFile();
+		markPhase('successor-revision-waiting');
 		await expect
 			.poll(
 				async (): Promise<number> =>
@@ -101,20 +120,29 @@ test('replaces the worker after exhausted installed receipts and installs the ne
 				{ timeout: 30_000 },
 			)
 			.toBeGreaterThan(recoveredComparison.revision);
+		markPhase('successor-content-waiting');
 		await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
 		expect(mainFrameNavigationCount).toBe(1);
 		expect(rejectedReceiptCount).toBe(4);
+		markPhase('verified');
 	} catch (error: unknown) {
+		const activePage = browser?.contexts()[0]?.pages()[0];
+		const renderObservation =
+			activePage === undefined
+				? null
+				: await readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(activePage));
 		throw new Error(
-			`Installed-receipt recovery failed. Rejected: ${rejectedReceiptCount}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
+			`Installed-receipt recovery failed at ${phase}. Rejected: ${rejectedReceiptCount}. Render: ${JSON.stringify(renderObservation)}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
 			{ cause: error },
 		);
 	} finally {
+		markPhase('cleanup-browser');
 		try {
 			await browser?.close();
 		} finally {
 			try {
 				if (server !== null) {
+					markPhase('cleanup-server');
 					const cleanup = await server.stop();
 					expect(cleanup.ownedProcessAliveAfterStop).toBe(false);
 					expect(cleanup.forcedTerminationRequired).toBe(false);

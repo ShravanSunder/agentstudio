@@ -99,7 +99,20 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 	const publishWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
-				messages,
+				messages: messages.filter((message): boolean => {
+					if (
+						message.kind === 'filePierreRenderJob' &&
+						latestFileSelectRequestIdRef.current !== null &&
+						renderSnapshotStore.getSnapshot().selectionSlice.selectedItemId !== message.job.itemId
+					) {
+						fileViewClient.renderFulfillmentCoordinator.rejectPublication(
+							message,
+							'stale_submission',
+						);
+						return false;
+					}
+					return true;
+				}),
 				renderFulfillmentCoordinator: fileViewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore,
 				selection: selectionRef.current,
@@ -136,6 +149,8 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			readonly fileId: string;
 			readonly selectedSource: 'keyboard' | 'programmatic' | 'user';
 		}): void => {
+			const previousSelectedItemId =
+				renderSnapshotStore.getSnapshot().selectionSlice.selectedItemId;
 			renderSnapshotStore.setLocalSelection({
 				selectedItemId: dispatchProps.fileId,
 				source: dispatchProps.selectedSource,
@@ -149,11 +164,19 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 					selectedSource: dispatchProps.selectedSource,
 				}),
 			);
+			// Advance worker intent before retiring paint debt so its existing drain resumes the successor.
+			if (previousSelectedItemId !== null) {
+				fileViewClient.renderFulfillmentCoordinator.supersedeItem(
+					previousSelectedItemId,
+					'stale_submission',
+				);
+			}
 			recordLatestFileSelectLifecycleSnapshot();
 		},
 		[fileViewClient, recordLatestFileSelectLifecycleSnapshot, renderSnapshotStore],
 	);
 	const clearSelectedFileViewContent = useCallback((): void => {
+		const previousSelectedItemId = renderSnapshotStore.getSnapshot().selectionSlice.selectedItemId;
 		renderSnapshotStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
 		latestFileSelectRequestIdRef.current = fileViewClient.send(
 			encodeBridgeWorkerSelectCommand({
@@ -164,6 +187,12 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				surface: 'fileView',
 			}),
 		);
+		if (previousSelectedItemId !== null) {
+			fileViewClient.renderFulfillmentCoordinator.supersedeItem(
+				previousSelectedItemId,
+				'stale_submission',
+			);
+		}
 		recordLatestFileSelectLifecycleSnapshot();
 	}, [fileViewClient, recordLatestFileSelectLifecycleSnapshot, renderSnapshotStore]);
 	const dispatchFileViewQueryFact = useCallback(

@@ -19,6 +19,92 @@ import {
 } from './bridge-main-review-publication-integration.test-support.js';
 
 describe('Bridge main Review publication integration', () => {
+	test('retains the displayed item while exact-active metadata rebinds to a newer worker epoch', async () => {
+		// Arrange — installed content precedes a subscription-only authority replacement.
+		const harness = createHarness();
+		try {
+			await installPublication(harness, ACTIVE, 'item-a');
+			const display = reviewDisplayEvent(ACTIVE, 'item-a');
+			const identifiedDisplay = {
+				...display,
+				projectionRevision: 2,
+				sequence: 10,
+				patches: display.patches.map((patch) =>
+					patch.slice === 'reviewItem' && patch.operation === 'batch'
+						? {
+								...patch,
+								payload: {
+									...patch.payload,
+									items: patch.payload.items.map((item) => ({
+										...item,
+										metadata: { ...item.metadata, contentRoles: ['head' as const] },
+										contentFacts: [
+											{
+												role: 'head' as const,
+												semanticDocumentRevision: 'stable-document',
+												contentDigest: {
+													algorithm: 'sha256' as const,
+													authority: 'authoritative' as const,
+													value: 'a'.repeat(64),
+												},
+											},
+										],
+									})),
+								},
+							}
+						: patch,
+				),
+			};
+			harness.receive(identifiedDisplay);
+			harness.receive(reviewPierrePublication(ACTIVE, 'item-a', 14));
+			const displayedItem = harness.store.getReviewCodeViewItemSnapshot('item-a');
+			expect(displayedItem).toBeDefined();
+
+			// Act — same publication/content, no replacement content has arrived yet.
+			harness.receive({ ...candidateStarted(ACTIVE, 'ordinary', []), epoch: 2 });
+			harness.receive({
+				...identifiedDisplay,
+				epoch: 2,
+				projectionRevision: 3,
+				sequence: 20,
+			});
+
+			// Assert — a new transport epoch cannot blank the last complete display.
+			expect(harness.store.getReviewCodeViewItemSnapshot('item-a')).toBe(displayedItem);
+			expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+				mainIdentity(ACTIVE),
+			);
+
+			// Changed content must still retire the old render copy even under the same publication.
+			harness.receive({
+				...identifiedDisplay,
+				epoch: 2,
+				projectionRevision: 4,
+				sequence: 21,
+				patches: identifiedDisplay.patches.map((patch) =>
+					patch.slice === 'reviewItem' && patch.operation === 'batch'
+						? {
+								...patch,
+								payload: {
+									...patch.payload,
+									items: patch.payload.items.map((item) => ({
+										...item,
+										contentFacts: item.contentFacts.map((fact) => ({
+											...fact,
+											contentDigest: { ...fact.contentDigest, value: 'b'.repeat(64) },
+										})),
+									})),
+								},
+							}
+						: patch,
+				),
+			});
+			expect(harness.store.getReviewCodeViewItemSnapshot('item-a')).toBeUndefined();
+		} finally {
+			harness.dispose();
+		}
+	});
+
 	test('applies exact-active projection patches without staging a successor candidate', async () => {
 		// Arrange
 		const harness = createHarness();

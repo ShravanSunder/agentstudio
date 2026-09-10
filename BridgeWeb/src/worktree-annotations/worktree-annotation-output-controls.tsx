@@ -164,6 +164,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		.filter((message) => message.sessionId === session.sessionId);
 	const isOutputReady =
 		projection.readStatus.kind === 'ready' &&
+		!projection.unreconciledCommandReceiptSessionIds.includes(session.sessionId) &&
 		viewedController.isOutputReady(session.sessionId, session.semanticRevision, sessionMessages);
 	const clearHandled = async (attemptId: string, sessionId: string): Promise<void> => {
 		try {

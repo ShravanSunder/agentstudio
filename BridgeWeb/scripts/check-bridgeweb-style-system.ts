@@ -4,6 +4,7 @@ import { extname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { analyzeCssSource } from './check-bridgeweb-style-system-css.ts';
+import { rowMetricParityFindings } from './check-bridgeweb-style-system-metrics.ts';
 import {
 	compareStyleSystemFindings,
 	evaluationFailure,
@@ -47,8 +48,10 @@ export async function checkBridgeWebStyleSystem(
 
 	const sourceRecords = new Map<string, TypeScriptSourceRecord>();
 	const customClassStyleProperties = new Map<string, Set<string>>();
+	const customClassDescendantStyleProperties = new Map<string, Set<string>>();
 	let canonicalCssEntries: ReadonlyMap<string, string> | null = null;
 	let duplicateCssNames: readonly string[] = [];
+	let canonicalCssSource = '';
 	await Promise.all(
 		sourceFilePaths.map(async (filePath): Promise<void> => {
 			const relativePath = normalizePath(relative(packageRootPath, filePath));
@@ -73,7 +76,12 @@ export async function checkBridgeWebStyleSystem(
 						customClassStyleProperties,
 						result.customClassStyleProperties,
 					);
+					mergeCustomClassStyleProperties(
+						customClassDescendantStyleProperties,
+						result.customClassDescendantStyleProperties,
+					);
 					if (relativePath === canonicalCssPath) {
+						canonicalCssSource = sourceText;
 						canonicalCssEntries = result.primitiveEntries;
 						duplicateCssNames = result.duplicatePrimitiveNames;
 					}
@@ -90,8 +98,26 @@ export async function checkBridgeWebStyleSystem(
 		}),
 	);
 
-	findings.push(...analyzeTypeScriptSources(sourceRecords, customClassStyleProperties));
+	findings.push(
+		...analyzeTypeScriptSources(
+			sourceRecords,
+			customClassStyleProperties,
+			customClassDescendantStyleProperties,
+		),
+	);
 	findings.push(...paletteParityFindings(canonicalCssEntries, duplicateCssNames, sourceRecords));
+	try {
+		findings.push(
+			...rowMetricParityFindings({
+				cssSource: canonicalCssSource,
+				mirror: sourceRecords.get('src/design-tokens/bridge-design-row-metrics.ts'),
+			}),
+		);
+	} catch (error: unknown) {
+		findings.push(
+			evaluationFailure(canonicalCssPath, `Cannot evaluate row metrics: ${errorMessage(error)}`),
+		);
+	}
 	const sortedFindings = findings.toSorted(compareStyleSystemFindings);
 	return { ok: sortedFindings.length === 0, findings: sortedFindings };
 }

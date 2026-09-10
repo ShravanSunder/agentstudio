@@ -1,6 +1,6 @@
 import { parseDiffFromFile } from '@pierre/diffs';
 import { act } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 
@@ -25,8 +25,21 @@ import {
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
 
 describe('worktree annotation Pierre range selection', () => {
+	beforeEach((): void => {
+		const requestFrame = window.requestAnimationFrame.bind(window);
+		// Pierre publishes portal state from its real frame scheduler, independently
+		// of pointer dispatch. Enter React's test boundary at that external callback.
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback): number =>
+			requestFrame((timestamp): void => {
+				act((): void => callback(timestamp));
+			}),
+		);
+	});
 	afterEach(async (): Promise<void> => {
-		await cleanup();
+		await act(async (): Promise<void> => {
+			await cleanup();
+		});
+		vi.restoreAllMocks();
 	});
 
 	test('paints a dragged File range, keeps its endpoint utility, and clears on Escape', async () => {
@@ -267,7 +280,8 @@ describe('worktree annotation Pierre range selection', () => {
 				throw new Error('Expected the Review root composer before durable projection.');
 			}
 			const saveButton = rendered.getByRole('button', { name: 'Save annotation' }).element();
-			expect(saveButton.classList).toContain('text-primary');
+			expect(saveButton.classList).toContain('text-foreground');
+			expect(saveButton.classList).toContain('[&_svg]:text-primary');
 			expect(saveButton.classList).not.toContain('bg-primary');
 			expect(saveButton.querySelector('svg')?.classList).toContain('lucide-check');
 			await act(async (): Promise<void> => {
@@ -307,10 +321,10 @@ describe('worktree annotation Pierre range selection', () => {
 			});
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
 			const committedPendingProjection = requireHTMLElement(
-				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
+				document.querySelector('[data-testid="worktree-annotation-thread"]'),
 				'Expected the exact committed Save receipt presentation.',
 			);
-			expect(document.activeElement).toBe(committedPendingProjection);
+			expect(committedPendingProjection.contains(document.activeElement)).toBe(true);
 			expect(getComputedStyle(committedPendingProjection).outlineStyle).toBe('none');
 			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
 			const codeRowAfterSave = requireHTMLElement(
@@ -334,9 +348,7 @@ describe('worktree annotation Pierre range selection', () => {
 				await nextAnimationFrame();
 			});
 			await expect.element(rendered.getByText('Split projection Save')).toBeVisible();
-			expect(
-				document.querySelector('[data-testid="worktree-annotation-committed-pending-projection"]'),
-			).not.toBeNull();
+			expect(document.querySelector('[data-testid="worktree-annotation-thread"]')).not.toBeNull();
 			await act(async (): Promise<void> => {
 				surface.publishProjectionState({
 					expectedThreadCount: 1,
@@ -381,6 +393,81 @@ describe('worktree annotation Pierre range selection', () => {
 			const installedThread = rendered.getByTestId('worktree-annotation-thread').element();
 			expect(installedThread.contains(document.activeElement)).toBe(true);
 			expect(getComputedStyle(installedThread).outlineStyle).toBe('none');
+			const focusedRangeRows = reviewAdditionRows();
+			const nextRangeStart = requireHTMLElement(
+				focusedRangeRows[0] ?? null,
+				'Expected the first Review addition row for focused-thread replacement.',
+			);
+			const nextRangeEnd = requireHTMLElement(
+				focusedRangeRows[1] ?? null,
+				'Expected the second Review addition row for focused-thread replacement.',
+			);
+			const nextRangeStartBounds = nextRangeStart.getBoundingClientRect();
+			const nextRangeEndBounds = nextRangeEnd.getBoundingClientRect();
+			await act(async (): Promise<void> => {
+				dispatchPointer(nextRangeStart, 'pointerdown', {
+					clientX: nextRangeStartBounds.left + 4,
+					clientY: nextRangeStartBounds.top + nextRangeStartBounds.height / 2,
+					pointerId: 30,
+					pointerType: 'mouse',
+				});
+				dispatchPointer(document, 'pointermove', {
+					clientX: nextRangeEndBounds.left + 4,
+					clientY: nextRangeEndBounds.top + nextRangeEndBounds.height / 2,
+					pointerId: 30,
+					pointerType: 'mouse',
+				});
+				dispatchPointer(document, 'pointerup', {
+					clientX: nextRangeEndBounds.left + 4,
+					clientY: nextRangeEndBounds.top + nextRangeEndBounds.height / 2,
+					pointerId: 30,
+					pointerType: 'mouse',
+				});
+				nextRangeEnd.dispatchEvent(
+					new MouseEvent('click', {
+						bubbles: true,
+						cancelable: true,
+						clientX: nextRangeEndBounds.left + 4,
+						clientY: nextRangeEndBounds.top + nextRangeEndBounds.height / 2,
+					}),
+				);
+				await nextAnimationFrame();
+			});
+			expect(queryPierreElements('[data-selected-line]')).toHaveLength(8);
+			expect(queryPierreElements('[data-utility-button]')).toHaveLength(1);
+			const replacementRangeUtility = requireHTMLElement(
+				queryPierreElements('[data-utility-button]')[0] ?? null,
+				'Expected the replacement Review range endpoint utility.',
+			);
+			const replacementUtilityBounds = replacementRangeUtility.getBoundingClientRect();
+			await act(async (): Promise<void> => {
+				dispatchPointer(replacementRangeUtility, 'pointerdown', {
+					clientX: replacementUtilityBounds.left + replacementUtilityBounds.width / 2,
+					clientY: replacementUtilityBounds.top + replacementUtilityBounds.height / 2,
+					pointerId: 31,
+					pointerType: 'mouse',
+				});
+				dispatchPointer(document, 'pointerup', {
+					clientX: replacementUtilityBounds.left + replacementUtilityBounds.width / 2,
+					clientY: replacementUtilityBounds.top + replacementUtilityBounds.height / 2,
+					pointerId: 31,
+					pointerType: 'mouse',
+				});
+				await nextAnimationFrame();
+			});
+			expect(
+				document.querySelector('[aria-label="Write an annotation in Markdown"]'),
+			).not.toBeNull();
+			await act(async (): Promise<void> => {
+				document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+				await nextAnimationFrame();
+			});
+			await act(async (): Promise<void> => {
+				// The intervening code-row click left the saved range inactive.
+				// Reactivate the thread before exercising its scoped Reply shortcut.
+				requireHTMLElement(installedThread, 'Expected the saved thread element.').click();
+				await nextAnimationFrame();
+			});
 			await act(async (): Promise<void> => {
 				await userEvent.keyboard('r');
 			});
@@ -393,7 +480,10 @@ describe('worktree annotation Pierre range selection', () => {
 					.filter((kind) => ['draft.edit.release', 'draft.save', 'root.create'].includes(kind)),
 			).toEqual(['root.create', 'draft.save']);
 		} finally {
-			coordinator.dispose();
+			await act(async (): Promise<void> => {
+				await cleanup();
+				coordinator.dispose();
+			});
 		}
 	});
 });

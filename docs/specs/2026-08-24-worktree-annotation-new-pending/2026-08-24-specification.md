@@ -71,7 +71,7 @@ messages and therefore no New attention state.
 | Term | Observable meaning | Cleared by | Not cleared by |
 | --- | --- | --- | --- |
 | `New` | current saved agent-authored revision has not crossed its deliberate-view boundary | exact durable view success for that current revision | rendering, scrolling, refresh, Share, Copy, Export, output history |
-| `Pending` | current saved human-authored revision has no draft and its handled boundary is unset | successful output finalization for that exact current revision | viewing, expansion, focus, placement, resolution |
+| `Pending` | current saved human-authored revision in an open thread has no draft and its handled boundary is unset | successful output finalization handles that exact revision; resolution suppresses Pending without handling it | viewing, expansion, focus, placement |
 | `Viewed` | the exact current agent-authored revision crossed the deliberate-view boundary | superseded when a newer unseen agent revision becomes current | output handling |
 | `Handled` | the exact current human-authored revision crossed the PR1 successful-output boundary | `Mark as not handled` may reverse it for matching current membership | viewing |
 | `All` | every current human or agent saved revision admitted by the PR1 draft rule | not a mutable message state | New/viewed and Pending/handled do not change inclusion |
@@ -90,7 +90,8 @@ messages and therefore no New attention state.
 | newer agent revision replaces a viewed revision | absent | false for the newer revision | not applicable | yes | no |
 
 A message MUST NOT be both New and Pending. Human authorship excludes New;
-agent authorship excludes Pending.
+agent authorship excludes Pending. The Pending column above assumes an open
+thread; R-ANP-002 defines resolved-thread suppression. New is unchanged by it.
 
 ## Reviewer journeys
 
@@ -144,11 +145,18 @@ presentation, or fabricate a zero count.
 
 ### R-ANP-002 — Exact Pending membership
 
-Pending MUST contain every current human-authored saved revision whose handled
-boundary is unset and whose message has no working draft. Pending membership is
+Pending MUST contain every current human-authored saved revision in an open
+thread whose handled boundary is unset and whose message has no working draft. Pending membership is
 independent of editable or locked status. A human message with a working draft
 MUST contribute neither its draft nor its prior saved body until Save or Revert
 restores output eligibility.
+
+A resolved thread MUST contribute no Pending count, message marker, or new
+Pending Copy/Export membership. Resolution MUST NOT set handled, alter viewed
+state, or rewrite saved bodies or immutable output history. Reopening MUST
+recompute the same current-revision eligibility, without an additional pending
+flag or handoff action. All membership and exact-byte History Repeat remain
+unchanged; resolved saved comments remain eligible for All under its draft rule.
 
 Successful output finalization MUST clear Pending only for matching included
 current human revisions. `Mark as not handled` MUST return only matching current
@@ -253,8 +261,8 @@ File View and Review View Share comments MUST default to `Pending` and offer
 `Pending | All` using the existing shared compact segmented-control language.
 The visible and accessible word `New` MUST NOT remain as an alias for Pending.
 
-Pending scope MUST contain only output-eligible current human revisions whose
-handled boundary is unset. All MUST contain the complete eligible current
+Pending scope MUST use R-ANP-002's complete current membership, including its
+open-thread condition. All MUST contain the complete eligible current
 human-and-agent conversation, subject to PR1's draft exclusion. The displayed
 scope remains the complete output membership; no manual thread or message
 checklist is added.
@@ -327,7 +335,7 @@ Basis: ANP-U4, ANP-U5, ANP-U8.
 ### R-ANP-010 — Compatibility cutover and stop line
 
 Existing human saved revisions with handled boundary unset MUST appear as
-Pending without changing their handled value or output history. Existing human
+Pending when eligible under R-ANP-002, without changing their handled value or output history. Existing human
 revisions MUST NOT appear New. Existing handled human revisions remain neither
 New nor Pending. Where no agent-authored revisions exist, New is absent.
 

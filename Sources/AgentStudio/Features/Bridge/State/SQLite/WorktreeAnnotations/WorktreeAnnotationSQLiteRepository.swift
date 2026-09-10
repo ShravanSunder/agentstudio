@@ -257,7 +257,7 @@ struct WorktreeAnnotationSQLiteRepository {
     }
 
     func flushDraft(_ props: FlushDraftProps) throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try databaseWriter.write { database in
             try validateMessageRevision(
@@ -321,7 +321,11 @@ struct WorktreeAnnotationSQLiteRepository {
                 }
                 try advanceSession(database, sessionID: props.sessionID, now: props.now)
                 let detail = try loadSessionDetail(database, sessionID: props.sessionID)
-                return .catalog(detail)
+                return .catalog(
+                    detail,
+                    removedMessage: .init(
+                        messageID: props.messageID, threadID: threadID,
+                        messageRevision: props.expectedMessageRevision))
             }
 
             let body = try Self.validateFlushedDraftBody(props.body)
@@ -417,7 +421,7 @@ struct WorktreeAnnotationSQLiteRepository {
     }
 
     func revertDraft(_ props: RevertDraftProps) throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try databaseWriter.write { database in
             try validateMessageRevision(
@@ -440,8 +444,8 @@ struct WorktreeAnnotationSQLiteRepository {
                     sql: "SELECT COUNT(*) FROM annotation_message WHERE id = ? AND saved_body IS NOT NULL",
                     arguments: [props.messageID.databaseValue]
                 ) == 1
+            let threadID = try requireThreadID(database, messageID: props.messageID)
             if !hasSavedBody {
-                let threadID = try requireThreadID(database, messageID: props.messageID)
                 try database.execute(
                     sql: "DELETE FROM annotation_message WHERE id = ?",
                     arguments: [props.messageID.databaseValue]
@@ -472,7 +476,12 @@ struct WorktreeAnnotationSQLiteRepository {
                 )
             }
             let detail = try loadSessionDetail(database, sessionID: props.sessionID)
-            return hasSavedBody ? .content(detail) : .catalog(detail)
+            if hasSavedBody { return .content(detail) }
+            return .catalog(
+                detail,
+                removedMessage: .init(
+                    messageID: props.messageID, threadID: threadID,
+                    messageRevision: props.expectedMessageRevision))
         }
     }
 

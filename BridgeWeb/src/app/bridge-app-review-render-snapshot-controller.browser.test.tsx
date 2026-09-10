@@ -24,6 +24,7 @@ import {
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+import { performComparisonAction } from './bridge-review-comparison-control.browser.test-support.js';
 import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
@@ -253,7 +254,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const controlsBox = controls.getBoundingClientRect();
 		const triggerBox = trigger.getBoundingClientRect();
 		const viewSettingsBox = viewSettingsTrigger.getBoundingClientRect();
-		expect(Math.round(topbarBox.height)).toBe(36);
+		expect(Math.round(topbarBox.height)).toBe(32);
 		expect(Math.round(triggerBox.height)).toBe(24);
 		expect(Math.round(viewSettingsBox.height)).toBe(24);
 		expect(trigger.compareDocumentPosition(reviewType)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -507,9 +508,19 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(tree.hasAttribute('inert')).toBe(true);
 		expect(getComputedStyle(canvas).pointerEvents).toBe('none');
 		expect(getComputedStyle(tree).pointerEvents).toBe('none');
+		await act(async (): Promise<void> => {
+			await Promise.all(
+				[canvas, tree]
+					.flatMap((element) => element.getAnimations())
+					.map((animation) => animation.finished),
+			);
+		});
+		expect(getComputedStyle(canvas).opacity).toBe('1');
+		expect(getComputedStyle(tree).opacity).toBe('1');
 		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-status-banner'))
-			.toBeVisible();
+			.element(rendered.getByTestId('bridge-review-comparison-loading-status'))
+			.toHaveTextContent('Loading comparison with feature/new-target');
+		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
 	});
 
 	test('automatically applies a held promoted Review update when Review attention leaves', async () => {
@@ -679,12 +690,17 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		});
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Commit', exact: true }).click();
+		});
+		await act(async (): Promise<void> => {
 			await rendered.getByRole('textbox', { name: 'Commit hash' }).fill(exactCommitOID);
+		});
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
-			await Promise.resolve();
 		});
 
 		// Assert

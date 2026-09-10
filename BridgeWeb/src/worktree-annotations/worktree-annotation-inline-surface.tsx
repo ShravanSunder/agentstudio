@@ -11,7 +11,21 @@ import {
 	type WorktreeAnnotationActionId,
 } from './worktree-annotation-action-spec.js';
 
-const annotationEditingSurfaceClassName = 'border-ring ring-2 ring-inset ring-ring/30';
+const annotationEditingSurfaceClassName =
+	'ring-inset focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30';
+
+export function WorktreeAnnotationPendingStatus(): ReactElement {
+	return (
+		<span
+			aria-label="Pending"
+			className="inline-flex items-center gap-1 font-medium text-warning"
+			data-testid="worktree-annotation-message-pending-status"
+		>
+			<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+			Pending
+		</span>
+	);
+}
 
 export function WorktreeAnnotationLockedStatus(props: {
 	readonly summary?: boolean;
@@ -169,14 +183,22 @@ function WorktreeAnnotationSurfaceCard(props: WorktreeAnnotationSurfaceCardProps
 				'relative mt-1 min-w-0 overflow-hidden rounded-xl border text-annotation-foreground transition-[border-color,box-shadow]',
 				props.editing === true
 					? cn(
-							'grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-annotation-border bg-annotation-surface p-2',
+							'-ml-[9px] grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-annotation-border bg-annotation-surface p-2',
 							annotationEditingSurfaceClassName,
 						)
 					: 'border-transparent bg-transparent',
 			)}
 			data-annotation-editor-surface
+			onClick={(event) => {
+				if (props.editing !== true || !(event.target instanceof Element)) return;
+				if (event.target.closest('button, a, input, select, textarea, [role="button"]') !== null)
+					return;
+				event.currentTarget
+					.querySelector<HTMLTextAreaElement>('textarea')
+					?.focus({ preventScroll: true });
+			}}
 		>
-			<div className={props.editing === true ? 'min-w-0' : 'min-w-0 p-2 pr-10'}>
+			<div className={props.editing === true ? 'min-w-0' : 'min-w-0 py-2 pr-10'}>
 				{props.children}
 			</div>
 			{props.commands === undefined ? null : (
@@ -211,7 +233,6 @@ export interface WorktreeAnnotationCommandButtonProps {
 	readonly buttonRef?: Ref<HTMLButtonElement> | undefined;
 	readonly disabled?: boolean | undefined;
 	readonly expanded?: boolean | undefined;
-	readonly iconClassName?: string | undefined;
 	readonly onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 	readonly preserveEditorFocus?: boolean | undefined;
 }
@@ -237,15 +258,17 @@ export function WorktreeAnnotationCommandButton(
 						disabled={props.disabled}
 						ref={props.buttonRef}
 						shape="default"
-						size={appearance === 'timeline' ? 'icon' : 'icon-sm'}
+						size="icon-sm"
 						variant={
-							appearance === 'primary'
+							props.action === 'reopenThread'
 								? 'tint'
-								: appearance === 'success'
-									? 'success-outline'
-									: appearance === 'thread' || appearance === 'thread-action'
-										? 'outline'
-										: 'ghost'
+								: appearance === 'primary'
+									? 'tint'
+									: appearance === 'success'
+										? 'success-outline'
+										: appearance === 'thread' || appearance === 'thread-action'
+											? 'outline'
+											: 'ghost'
 						}
 						onClick={props.onClick}
 						onPointerDown={(event) => {
@@ -255,9 +278,12 @@ export function WorktreeAnnotationCommandButton(
 				}
 			>
 				{props.busy === true ? (
-					<LoaderCircle className="animate-spin" />
+					<LoaderCircle data-busy="true" />
 				) : (
-					<ActionIcon className={props.iconClassName} />
+					<ActionIcon
+						data-disclosure={appearance === 'timeline' ? 'true' : undefined}
+						data-expanded={props.expanded ? 'true' : undefined}
+					/>
 				)}
 			</TooltipTrigger>
 			<TooltipContent side={appearance === 'toolbar' ? 'bottom' : 'right'}>

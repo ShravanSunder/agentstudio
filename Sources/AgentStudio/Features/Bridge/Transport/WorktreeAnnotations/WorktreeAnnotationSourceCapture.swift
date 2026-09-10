@@ -635,10 +635,12 @@ extension BridgePaneProductFileMetadataSource {
             case .session:
                 continue
             case .wholeFile(let path, let sourceRole):
-                guard sourceRole == .file else { continue }
+                guard sourceRole == .file || sourceRole == .reviewHead else { continue }
                 candidatePaths.insert(path)
             case .located(let origin):
-                guard origin.sourceRole == .file else { continue }
+                guard origin.sourceRole == .file || origin.sourceRole == .reviewHead else {
+                    continue
+                }
                 candidatePaths.insert(origin.repositoryRelativePath)
             }
         }

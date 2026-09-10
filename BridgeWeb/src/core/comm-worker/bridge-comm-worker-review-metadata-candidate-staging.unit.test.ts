@@ -59,7 +59,16 @@ describe('Bridge comm worker Review metadata candidate staging', () => {
 			workerDerivationEpoch,
 		);
 		expect(harness.applicator.handleMetadataFailure(workerDerivationEpoch)).toBe('retainedActive');
-		expect(harness.publicationOrder).toEqual(['started', 'failed']);
+		expect(harness.publicationOrder).toEqual(['started', 'display', 'failed', 'display']);
+		expect(
+			harness.displayPublications
+				.slice(1)
+				.every((publication) =>
+					JSON.stringify(publication.reviewPublicationIdentity).includes(
+						activeIdentity.publicationId,
+					),
+				),
+		).toBe(true);
 		expect(harness.candidateFailedPublications).toEqual([
 			expect.objectContaining({
 				identity: expect.objectContaining({ publicationId: candidateIdentity.publicationId }),
@@ -89,7 +98,7 @@ describe('Bridge comm worker Review metadata candidate staging', () => {
 			}),
 			workerDerivationEpoch,
 		);
-		expect(harness.publicationOrder).toEqual(['started']);
+		expect(harness.publicationOrder).toEqual(['started', 'display']);
 		harness.applicator.apply(reviewSourceAccepted(candidateIdentity), workerDerivationEpoch);
 		harness.applicator.apply(
 			reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false),
@@ -109,7 +118,7 @@ describe('Bridge comm worker Review metadata candidate staging', () => {
 			JSON.stringify(publication).includes('source-candidate'),
 		);
 		expect(candidatePublications).toHaveLength(1);
-		expect(harness.publicationOrder).toEqual(['started', 'display', 'ready']);
+		expect(harness.publicationOrder).toEqual(['started', 'display', 'display', 'ready']);
 		expect(harness.candidateStartedPublications).toEqual([
 			expect.objectContaining({
 				disposition: {

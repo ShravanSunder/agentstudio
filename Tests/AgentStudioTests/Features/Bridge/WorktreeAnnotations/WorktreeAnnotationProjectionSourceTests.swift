@@ -543,7 +543,7 @@ private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAc
         try unsupportedProjectionMutation()
     }
     func flushDraft(_: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try unsupportedProjectionMutation()
     }
@@ -553,7 +553,7 @@ private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAc
         try unsupportedProjectionMutation()
     }
     func revertDraft(_: WorktreeAnnotationSQLiteRepository.RevertDraftProps) async throws
-        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
+        -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationDraftMutationResult>
     {
         try unsupportedProjectionMutation()
     }

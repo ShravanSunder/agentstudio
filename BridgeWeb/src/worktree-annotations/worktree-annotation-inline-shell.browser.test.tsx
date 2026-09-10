@@ -67,9 +67,11 @@ describe('worktree annotation inline shell', () => {
 		const compactThreadHeight = compactThread.getBoundingClientRect().height;
 		const followingDiffRowTop = followingDiffRow.getBoundingClientRect().top;
 		const expandButton = rendered.getByRole('button', { name: 'Expand 2 annotations' }).element();
+		expect(expandButton.getBoundingClientRect().width).toBe(24);
+		expect(expandButton.getBoundingClientRect().height).toBe(24);
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
-		expect(expandButton.classList).toContain('text-muted-foreground');
+		expect(getComputedStyle(expandButton).color).toBe('rgb(234, 234, 234)');
 		await expect.element(rendered.getByText('1 pending')).toBeVisible();
 		const pendingStatus = rendered.getByTestId('worktree-annotation-pending-status').element();
 		expect(pendingStatus.classList).toContain('text-annotation-status-pending');
@@ -137,7 +139,7 @@ describe('worktree annotation inline shell', () => {
 		expect(latestCommandRail.classList).toContain('bottom-2');
 		expect(latestCommandRail.classList).toContain('gap-2');
 		expect(commandButtons[0]?.getAttribute('aria-label')).toBe('Edit annotation');
-		expect(latestCardContent.classList).toContain('p-2');
+		expect(latestCardContent.classList).toContain('py-2');
 		expect(latestCardContent.classList).toContain('pr-10');
 		expect(thread.classList).toContain('p-3');
 		expect(thread.classList).not.toContain('pr-9');
@@ -290,7 +292,7 @@ describe('worktree annotation inline shell', () => {
 		const expandButton = rendered.getByRole('button', { name: 'Expand 5 annotations' }).element();
 		expect(expandButton.classList).not.toContain('rounded-full');
 		expect(expandButton.classList).not.toContain('border-comment-border');
-		expect(expandButton.classList).toContain('text-muted-foreground');
+		expect(getComputedStyle(expandButton).color).toBe('rgb(234, 234, 234)');
 		const expansionChevron = expandButton.querySelector('svg');
 		if (expansionChevron === null) throw new Error('Expected the thread expansion chevron.');
 		expect(getComputedStyle(expansionChevron).transitionDuration).toBe('0.12s');
@@ -505,9 +507,32 @@ describe('worktree annotation inline shell', () => {
 		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
 		expect(commandFocusedBoxShadow).not.toBe('none');
 		await page.screenshot({ path: '../../../tmp/bridgeweb-annotation-explicit-editing.png' });
+		await performBrowserAction(async (): Promise<void> => {
+			rendered.getByTestId('worktree-annotation-thread').element().focus();
+		});
+		await expect.element(editor).toBeVisible();
+		expect(editingMessage.getAttribute('data-annotation-editing')).toBe('true');
+		await expect.poll(() => getComputedStyle(editorSurface).boxShadow).toBe('none');
+		expect(rendered.getByTestId('worktree-annotation-thread').element().classList).toContain(
+			'ring-warning',
+		);
+		const originalEditor = editor.element();
+		if (!(originalEditor instanceof HTMLTextAreaElement))
+			throw new Error('Expected textarea editor.');
+		originalEditor.setSelectionRange(2, 2);
+		const originalBody = originalEditor.value;
+		await performBrowserAction(async (): Promise<void> => {
+			editorSurface.click();
+		});
+		expect(document.activeElement).toBe(originalEditor);
+		expect(editor.element()).toBe(originalEditor);
+		expect(originalEditor.value).toBe(originalBody);
+		expect(originalEditor.selectionStart).toBe(2);
+		await performBrowserAction(async (): Promise<void> => {
+			rendered.getByTestId('worktree-annotation-thread').element().focus();
+		});
 
 		await performBrowserAction(async (): Promise<void> => {
-			editor.element().focus();
 			await userEvent.keyboard('{Escape}');
 		});
 		await settleThreadMotion(

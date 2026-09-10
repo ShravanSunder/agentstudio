@@ -104,7 +104,7 @@ describe('Bridge CodeView theme', () => {
 			'--trees-selected-bg-override': 'var(--selection)',
 			'--trees-git-renamed-color-override': 'var(--primary)',
 			'--trees-font-family-override': 'var(--font-sans)',
-			'--trees-font-size-override': '12px',
+			'--trees-font-size-override': 'var(--text-base)',
 		});
 		expect(`${JSON.stringify(bridgeViewerTreeStyle)}${bridgeViewerTreeUnsafeCSS}`).not.toContain(
 			'--bridge-',

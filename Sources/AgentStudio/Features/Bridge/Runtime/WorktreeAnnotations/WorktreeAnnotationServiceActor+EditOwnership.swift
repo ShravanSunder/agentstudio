@@ -89,7 +89,7 @@ extension WorktreeAnnotationServiceActor {
     func flushDraft(
         _ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps,
         ownerGeneration: String
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    ) async throws -> WorktreeAnnotationDraftMutationResult {
         if props.expectedDraftRevision == nil {
             try editOwnership.register(token: props.editToken, ownerGeneration: ownerGeneration)
         } else {
@@ -97,7 +97,7 @@ extension WorktreeAnnotationServiceActor {
         }
         do {
             let detail = try await flushDraft(props)
-            if !detail.threads.flatMap(\.messages).contains(where: { $0.id == props.messageID }) {
+            if detail.removedMessage != nil {
                 editOwnership.release(token: props.editToken)
             }
             return detail
@@ -122,7 +122,7 @@ extension WorktreeAnnotationServiceActor {
     func revertDraft(
         _ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps,
         ownerGeneration: String
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    ) async throws -> WorktreeAnnotationDraftMutationResult {
         try editOwnership.require(token: props.editToken, ownerGeneration: ownerGeneration)
         let detail = try await revertDraft(props)
         editOwnership.release(token: props.editToken)

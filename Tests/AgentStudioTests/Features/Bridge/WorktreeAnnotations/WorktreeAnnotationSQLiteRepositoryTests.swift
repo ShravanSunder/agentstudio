@@ -25,7 +25,9 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 now: Date(timeIntervalSince1970: 2)
             )
         ).canonicalResult
-        #expect(committed.threads.isEmpty)
+        #expect(committed.detail.threads.isEmpty)
+        #expect(committed.removedMessage?.messageID == message.id)
+        #expect(committed.removedMessage?.messageRevision == message.semanticRevision)
         #expect(try repository.fetchSessionDetail(sessionID: detail.session.id).threads.isEmpty)
     }
 
@@ -408,7 +410,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 body: "Root edit",
                 now: Date(timeIntervalSince1970: 3)
             )
-        ).canonicalResult
+        ).canonicalResult.detail
         let editedRoot = try #require(detail.threads.first?.messages.first)
         #expect(editedRoot.draft?.body == "Root edit")
 
@@ -435,7 +437,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 expectedDraftRevision: try #require(editedRoot.draft?.draftRevision),
                 now: Date(timeIntervalSince1970: 5)
             )
-        ).canonicalResult
+        ).canonicalResult.detail
         #expect(detail.threads.first?.messages.first?.draft == nil)
 
         let threadID = try #require(detail.threads.first?.thread.id)

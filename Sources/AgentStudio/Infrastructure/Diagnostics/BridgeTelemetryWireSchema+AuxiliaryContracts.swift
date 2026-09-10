@@ -87,7 +87,9 @@ extension BridgeTelemetryWireSchema {
                             "agentstudio.bridge.result",
                             "agentstudio.bridge.viewer",
                         ],
-                        numericKeys: catalogStagingNumericKeys
+                        numericKeys: catalogStagingNumericKeys.union([
+                            "agentstudio.bridge.source.monotonic_ms"
+                        ])
                     )
                 )
             )
@@ -342,6 +344,7 @@ extension BridgeTelemetryWireSchema {
         ]
         switch contract.phase {
         case "review_refresh_candidate_ready",
+            "review_refresh_candidate_failed",
             "review_refresh_candidate_held",
             "review_refresh_candidate_superseded",
             "review_refresh_receipt_failed":

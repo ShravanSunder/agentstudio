@@ -1,6 +1,31 @@
 export type StyledElementKind = 'control' | 'floating-frame';
 
 const controlComponentNames = new Set([
+	'CardTitle',
+	'CollapsibleHeading',
+	'CardDescription',
+	'DrawerTitle',
+	'DrawerDescription',
+	'ItemContent',
+	'ItemLabel',
+	'ItemDescription',
+	'ItemMetadata',
+	'StatusBadge',
+	'ComboboxItemDescription',
+	'DropdownMenuItemDescription',
+	'DropdownMenuHeader',
+	'DropdownMenuDescription',
+	'DropdownMenuLabel',
+	'FieldTitle',
+	'FieldLabel',
+	'FieldDescription',
+	'FieldError',
+	'Label',
+	'AlertTitle',
+	'AlertDescription',
+	'AlertAction',
+	'InputGroup',
+	'InputGroupAddon',
 	'Button',
 	'Checkbox',
 	'CollapsibleTrigger',
@@ -32,6 +57,7 @@ const controlComponentNames = new Set([
 ]);
 
 const floatingFrameComponentNames = new Set([
+	'Alert',
 	'ComboboxContent',
 	'DrawerContent',
 	'DrawerOverlay',
@@ -145,7 +171,7 @@ export function isProhibitedUtility(classToken: string, elementKind: StyledEleme
 }
 
 export function isKnownLayoutUtility(classToken: string): boolean {
-	const utility = utilityWithoutVariants(classToken);
+	const utility = utilityWithoutVariants(classToken).replace(/^-+/u, '');
 	return (
 		allowedLayoutUtilityPattern.test(utility) || layoutCustomPropertyUtilityPattern.test(utility)
 	);

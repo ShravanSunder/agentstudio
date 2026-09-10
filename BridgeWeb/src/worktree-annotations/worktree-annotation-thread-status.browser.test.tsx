@@ -110,6 +110,28 @@ describe('worktree annotation thread status presentation', () => {
 		expect(document.querySelector('[data-annotation-draft="present"] .bg-warning')).toBeNull();
 	});
 
+	test('requires explicit Reopen before accepting a reply to a resolved thread', async () => {
+		// Arrange
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const message = makeSavedMessage({ body: 'Resolved discussion.', messageId: rootMessageId });
+		await publishThreadMessages(surface, [message], { ...locatedContext, resolution: 'resolved' });
+
+		// Assert the invalid action is not offered while native resolution is resolved.
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }))
+			.not.toBeInTheDocument();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reopen annotation thread' }))
+			.toBeEnabled();
+
+		// Act / Assert: canonical open state re-enables the same Reply action.
+		await publishThreadMessages(surface, [message], locatedContext);
+		await expect
+			.element(rendered.getByRole('button', { name: 'Reply to annotation thread' }))
+			.toBeEnabled();
+	});
+
 	test('keeps output inclusion controls out of the thread timeline', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await renderAnnotationProjection(surface);

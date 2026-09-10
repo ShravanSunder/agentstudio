@@ -555,7 +555,7 @@ function BridgePierreWorkerPoolEnabledProvider(
 	if (themeLoadState.kind === 'failed') {
 		return (
 			<div
-				className="flex h-full min-h-[240px] items-center justify-center bg-[var(--bridge-canvas-bg)] text-xs text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[240px] items-center justify-center bg-background text-xs text-muted-foreground"
 				data-testid="bridge-pierre-worker-pool-failed"
 				role="alert"
 			>
@@ -567,7 +567,7 @@ function BridgePierreWorkerPoolEnabledProvider(
 	if (themeLoadState.kind === 'loading' || workerLoadState.kind === 'loading') {
 		return (
 			<div
-				className="flex h-full min-h-[240px] items-center justify-center bg-[var(--bridge-canvas-bg)] text-xs text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[240px] items-center justify-center bg-background text-xs text-muted-foreground"
 				data-testid="bridge-pierre-worker-pool-loading"
 				role="status"
 			>
@@ -579,7 +579,7 @@ function BridgePierreWorkerPoolEnabledProvider(
 	if (workerLoadState.kind === 'failed' || poolOptions === null) {
 		return (
 			<div
-				className="flex h-full min-h-[240px] items-center justify-center bg-[var(--bridge-canvas-bg)] text-xs text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[240px] items-center justify-center bg-background text-xs text-muted-foreground"
 				data-testid="bridge-pierre-worker-pool-failed"
 				role="alert"
 			>
@@ -769,7 +769,7 @@ function BridgePierreWorkerPoolReadinessGate(props: {
 	if (readinessState.kind === 'failed') {
 		return (
 			<div
-				className="flex h-full min-h-[240px] items-center justify-center bg-[var(--bridge-canvas-bg)] text-xs text-[var(--bridge-text-secondary)]"
+				className="flex h-full min-h-[240px] items-center justify-center bg-background text-xs text-muted-foreground"
 				data-testid="bridge-pierre-worker-pool-failed"
 				role="alert"
 			>

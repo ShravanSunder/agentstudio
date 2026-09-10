@@ -7,6 +7,10 @@ import type { BridgeWorkerAnnotationCatalogStagingEvent } from '../core/comm-wor
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import { reviewAnnotationApplicationItemIds } from '../review-viewer/code-view/use-bridge-code-view-worktree-annotations.js';
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
+import type {
+	WorktreeAnnotationCommandOutcome,
+	WorktreeAnnotationThreadContext,
+} from './worktree-annotation-surface-client.js';
 
 describe('WorktreeAnnotationProjectionStore read convergence', () => {
 	test('starts without a pending Review annotation application', () => {
@@ -19,12 +23,332 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 		const store = new WorktreeAnnotationProjectionStore();
 
 		expect(store.getSnapshot()).toMatchObject({
+			commandConfirmedThreads: [],
 			readStatus: { kind: 'unknown' },
 			revision: null,
 			sessions: [],
 			threads: [],
 			worktreeId: null,
 		});
+	});
+
+	test('preserves empty and unchanged command-confirmed thread identities', () => {
+		const store = readyStore();
+		const initialEmptyThreads = store.getSnapshot().commandConfirmedThreads;
+
+		applyProjection(store, snapshot(1, 1));
+		expect(store.getSnapshot().commandConfirmedThreads).toBe(initialEmptyThreads);
+
+		const outcome = committedMessageOutcome({
+			message: annotationMessageEntry({ body: 'Stable body', messageRevision: 3 }),
+		});
+		store.recordCommandOutcome(outcome);
+		const initialCommittedThreads = store.getSnapshot().commandConfirmedThreads;
+
+		store.recordCommandOutcome(outcome);
+		expect(store.getSnapshot().commandConfirmedThreads).toBe(initialCommittedThreads);
+	});
+
+	test('publishes command-confirmed body, source, and removal changes', () => {
+		const store = readyStore();
+		let publicationCount = 0;
+		store.subscribe((): void => {
+			publicationCount += 1;
+		});
+		const initialMessage = annotationMessageEntry({ body: 'Initial body', messageRevision: 3 });
+		store.recordCommandOutcome(committedMessageOutcome({ message: initialMessage }));
+		let previousThreads = store.getSnapshot().commandConfirmedThreads;
+
+		const changedSavedMessage = { ...initialMessage, savedBody: 'Changed saved body' };
+		store.recordCommandOutcome(committedMessageOutcome({ message: changedSavedMessage }));
+		expect(store.getSnapshot().commandConfirmedThreads).not.toBe(previousThreads);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.savedBody).toBe(
+			'Changed saved body',
+		);
+		previousThreads = store.getSnapshot().commandConfirmedThreads;
+
+		const changedDraftMessage = {
+			...initialMessage,
+			draft: { activeEditToken: 'edit-token', body: 'Changed draft body', revision: 1 },
+			savedBody: null,
+			savedRevision: null,
+		};
+		store.recordCommandOutcome(committedMessageOutcome({ message: changedDraftMessage }));
+		expect(store.getSnapshot().commandConfirmedThreads).not.toBe(previousThreads);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.draft?.body).toBe(
+			'Changed draft body',
+		);
+		previousThreads = store.getSnapshot().commandConfirmedThreads;
+
+		const changedDraftBodyOnlyMessage = {
+			...changedDraftMessage,
+			draft: { ...changedDraftMessage.draft, body: 'Changed draft body only' },
+		};
+		store.recordCommandOutcome(committedMessageOutcome({ message: changedDraftBodyOnlyMessage }));
+		expect(store.getSnapshot().commandConfirmedThreads).not.toBe(previousThreads);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.draft?.body).toBe(
+			'Changed draft body only',
+		);
+		previousThreads = store.getSnapshot().commandConfirmedThreads;
+
+		store.recordCommandOutcome(
+			committedMessageOutcome({
+				context: { ...annotationThreadContext, sourceIdentity: 'source-2' },
+				message: changedDraftBodyOnlyMessage,
+			}),
+		);
+		expect(store.getSnapshot().commandConfirmedThreads).not.toBe(previousThreads);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.context.sourceIdentity).toBe('source-2');
+		previousThreads = store.getSnapshot().commandConfirmedThreads;
+
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+		expect(store.getSnapshot().commandConfirmedThreads).not.toBe(previousThreads);
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(publicationCount).toBe(6);
+	});
+
+	test('retains a canonical message over stale projection and reconciles an equal revision', () => {
+		const store = readyStore();
+		const receiptOutcome = committedMessageOutcome({
+			message: annotationMessageEntry({ body: 'Command-confirmed body', messageRevision: 3 }),
+		});
+		store.recordCommandOutcome(receiptOutcome);
+		store.recordCommandOutcome(receiptOutcome);
+
+		expect(store.getSnapshot().commandConfirmedThreads).toMatchObject([
+			{
+				context: { placement: 'command_confirmed' },
+				messages: [{ savedBody: 'Command-confirmed body' }],
+			},
+		]);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages).toHaveLength(1);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([
+			'01890abc-def0-7abc-8def-0123456789ab',
+		]);
+
+		applyProjection(
+			store,
+			projectionWithMessage(annotationMessageEntry({ body: 'Stale body', messageRevision: 2 }), 2),
+		);
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.savedBody).toBe(
+			'Command-confirmed body',
+		);
+
+		applyProjection(
+			store,
+			projectionWithMessage(
+				annotationMessageEntry({ body: 'Command-confirmed body', messageRevision: 3 }),
+				3,
+			),
+		);
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+	});
+
+	test('keeps a contradictory same-revision receipt visible and marks convergence unavailable', () => {
+		const store = readyStore();
+		store.recordCommandOutcome(
+			committedMessageOutcome({
+				message: annotationMessageEntry({ body: 'Committed body', messageRevision: 3 }),
+			}),
+		);
+
+		applyProjection(
+			store,
+			projectionWithMessage(
+				annotationMessageEntry({ body: 'Contradictory body', messageRevision: 3 }),
+				3,
+			),
+		);
+
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'unavailable', retryable: true });
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.savedBody).toBe(
+			'Committed body',
+		);
+	});
+
+	test('suppresses a removed message from stale projections until an absent current projection reconciles', () => {
+		const store = readyStore();
+		applyProjection(
+			store,
+			projectionWithMessage(annotationMessageEntry({ messageRevision: 2 }), 2),
+		);
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+
+		expect(store.getSnapshot().threads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([
+			'01890abc-def0-7abc-8def-0123456789ab',
+		]);
+
+		applyProjection(store, projectionWithNoMessages(4));
+		expect(store.getSnapshot().threads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+	});
+
+	test('removes only the tombstoned message while retaining its surviving thread', () => {
+		const store = readyStore();
+		const removedMessage = annotationMessageEntry({ messageRevision: 2 });
+		const survivingMessage = {
+			...annotationMessageEntry({ body: 'Surviving reply', messageRevision: 2 }),
+			messageId: '01890abc-def0-7abc-8def-012345678903',
+			ordinal: 1,
+		};
+		const projection = projectionWithMessage(removedMessage, 2);
+		applyProjection(store, {
+			...projection,
+			expectedMessageCount: 2,
+			threads: [{ context: annotationThreadContext, messages: [removedMessage, survivingMessage] }],
+		});
+
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: 5 }));
+
+		expect(store.getSnapshot().threads).toMatchObject([
+			{ messages: [{ messageId: survivingMessage.messageId, savedBody: 'Surviving reply' }] },
+		]);
+	});
+
+	test('does not resurrect a tombstoned identity from a delayed older message receipt', () => {
+		const store = readyStore();
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+
+		store.recordCommandOutcome(
+			committedMessageOutcome({ message: annotationMessageEntry({ messageRevision: 2 }) }),
+		);
+
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([
+			'01890abc-def0-7abc-8def-0123456789ab',
+		]);
+	});
+
+	test('keeps a reconciled tombstone identity terminal against later message replay', () => {
+		const store = readyStore();
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+		applyProjection(store, projectionWithNoMessages(4));
+
+		store.recordCommandOutcome(
+			committedMessageOutcome({ message: annotationMessageEntry({ messageRevision: 2 }) }),
+		);
+
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+	});
+
+	test('does not let a delayed older tombstone erase a newer message receipt', () => {
+		const store = readyStore();
+		store.recordCommandOutcome(
+			committedMessageOutcome({ message: annotationMessageEntry({ messageRevision: 5 }) }),
+		);
+
+		store.recordCommandOutcome(
+			committedRemovalOutcome({ removedMessageRevision: 4, threadRevision: 5 }),
+		);
+
+		expect(store.getSnapshot().commandConfirmedThreads[0]?.messages[0]?.messageRevision).toBe(5);
+	});
+
+	test('reconciles message-owned equality across newer containing session and thread revisions', () => {
+		const store = readyStore();
+		const firstMessage = annotationMessageEntry({ body: 'First current body', messageRevision: 3 });
+		const secondMessage = {
+			...annotationMessageEntry({ body: 'Second current body', messageRevision: 1 }),
+			messageId: '01890abc-def0-7abc-8def-012345678903',
+			ordinal: 1,
+			sessionRevision: 5,
+			threadRevision: 3,
+		};
+		store.recordCommandOutcome(committedMessageOutcome({ message: firstMessage }));
+		store.recordCommandOutcome(committedMessageOutcome({ message: secondMessage }));
+		const currentFirstMessage = { ...firstMessage, sessionRevision: 5, threadRevision: 3 };
+		const projection = projectionWithMessage(currentFirstMessage, 5);
+
+		applyProjection(store, {
+			...projection,
+			expectedMessageCount: 2,
+			threads: [
+				{ context: annotationThreadContext, messages: [currentFirstMessage, secondMessage] },
+			],
+		});
+
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
+	});
+
+	test('does not reconcile missing message content from a control-only projection', () => {
+		const store = readyStore();
+		store.recordCommandOutcome(
+			committedMessageOutcome({ message: annotationMessageEntry({ messageRevision: 3 }) }),
+		);
+
+		store.apply({
+			contentSessionIds: [],
+			expectedContentSessionIds: ['01890abc-def0-7abc-8def-0123456789ab'],
+			operationCorrelationId: 'a'.repeat(64),
+			reviewAnnotationApplication: null,
+			snapshot: projectionWithNoMessages(4),
+		});
+
+		expect(store.getSnapshot().commandConfirmedThreads).toHaveLength(1);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'refreshing' });
+	});
+
+	test('does not retain a message receipt already covered by complete installed content', () => {
+		const store = readyStore();
+		const currentMessage = annotationMessageEntry({
+			body: 'Projection arrived first',
+			messageRevision: 3,
+		});
+		applyProjection(store, projectionWithMessage(currentMessage, 3));
+
+		store.recordCommandOutcome(committedMessageOutcome({ message: currentMessage }));
+
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
+	});
+
+	test('does not retain a removal receipt already covered by complete installed absence', () => {
+		const store = readyStore();
+		applyProjection(store, projectionWithNoMessages(4));
+
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+
+		expect(store.getSnapshot().commandConfirmedThreads).toEqual([]);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([]);
+		expect(store.getSnapshot().readStatus).toEqual({ kind: 'ready' });
+	});
+
+	test('does not let a newer control-only summary authorize message absence', () => {
+		const store = readyStore();
+		applyProjection(store, projectionWithNoMessages(2));
+		store.apply({
+			contentSessionIds: [],
+			expectedContentSessionIds: ['01890abc-def0-7abc-8def-0123456789ab'],
+			operationCorrelationId: 'b'.repeat(64),
+			reviewAnnotationApplication: null,
+			snapshot: projectionWithNoMessages(4),
+		});
+
+		store.recordCommandOutcome(committedRemovalOutcome({ threadRevision: null }));
+
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([
+			'01890abc-def0-7abc-8def-0123456789ab',
+		]);
+	});
+
+	test('does not reconcile a late receipt against content from retired worker authority', () => {
+		const store = readyStore();
+		const currentMessage = annotationMessageEntry({ messageRevision: 3 });
+		applyProjection(store, projectionWithMessage(currentMessage, 3));
+		store.prepareForWorkerReplacement();
+
+		store.recordCommandOutcome(committedMessageOutcome({ message: currentMessage }));
+
+		expect(store.getSnapshot().commandConfirmedThreads).toHaveLength(1);
+		expect(store.getSnapshot().unreconciledCommandReceiptSessionIds).toEqual([
+			'01890abc-def0-7abc-8def-0123456789ab',
+		]);
 	});
 
 	test('retains the last complete projection while refreshing and unavailable', () => {
@@ -355,4 +679,132 @@ function applyProjection(
 		reviewAnnotationApplication: null,
 		snapshot: projectionSnapshot,
 	});
+}
+
+function readyStore(): WorktreeAnnotationProjectionStore {
+	const store = new WorktreeAnnotationProjectionStore();
+	for (const phase of ['catalog.begin', 'catalog.window', 'catalog.commit'] as const) {
+		store.applyCatalogStaging(catalogStaging(phase, 1));
+	}
+	return store;
+}
+
+function annotationMessageEntry(props: {
+	readonly body?: string;
+	readonly messageRevision: number;
+}): BridgeWorkerAnnotationProjectionSnapshot['threads'][number]['messages'][number] {
+	return {
+		attentionState: 'not_applicable',
+		authorKind: 'human',
+		createdAt: 1,
+		draft: null,
+		handled: false,
+		messageId: '01890abc-def0-7abc-8def-012345678901',
+		messageRevision: props.messageRevision,
+		ordinal: 0,
+		savedBody: props.body ?? 'Saved body',
+		savedRevision: 1,
+		sessionId: '01890abc-def0-7abc-8def-0123456789ab',
+		sessionRevision: props.messageRevision,
+		status: 'editable',
+		threadId: '01890abc-def0-7abc-8def-012345678902',
+		threadRevision: 1,
+	};
+}
+
+const annotationThreadContext = {
+	diffSide: null,
+	endLine: 2,
+	path: 'Sources/App.swift',
+	placement: 'exact',
+	resolution: 'open',
+	scope: 'located',
+	sourceIdentity: 'source-1',
+	sourceRole: 'file',
+	startLine: 2,
+	threadId: '01890abc-def0-7abc-8def-012345678902',
+} as const;
+
+function committedMessageOutcome(props: {
+	readonly context?: WorktreeAnnotationThreadContext;
+	readonly message: BridgeWorkerAnnotationProjectionSnapshot['threads'][number]['messages'][number];
+}): WorktreeAnnotationCommandOutcome {
+	const { placement: _placement, ...context } = props.context ?? annotationThreadContext;
+	return {
+		receipt: { context, kind: 'message', message: props.message },
+		requestId: `command-message-${props.message.messageRevision}`,
+		sessionId: props.message.sessionId,
+		status: { kind: 'committed' },
+		surface: 'file',
+	};
+}
+
+function committedRemovalOutcome(props: {
+	readonly removedMessageRevision?: number;
+	readonly threadRevision: number | null;
+}): WorktreeAnnotationCommandOutcome {
+	return {
+		receipt: {
+			kind: 'message_removed',
+			messageId: '01890abc-def0-7abc-8def-012345678901',
+			removedMessageRevision: props.removedMessageRevision ?? 3,
+			sessionId: '01890abc-def0-7abc-8def-0123456789ab',
+			sessionRevision: 4,
+			threadId: annotationThreadContext.threadId,
+			threadRevision: props.threadRevision,
+		},
+		requestId: 'command-removal-4',
+		sessionId: '01890abc-def0-7abc-8def-0123456789ab',
+		status: { kind: 'committed' },
+		surface: 'file',
+	};
+}
+
+function projectionWithMessage(
+	message: BridgeWorkerAnnotationProjectionSnapshot['threads'][number]['messages'][number],
+	semanticRevision: number,
+): BridgeWorkerAnnotationProjectionSnapshot {
+	return {
+		expectedMessageCount: 1,
+		expectedSessionCount: 1,
+		expectedThreadCount: 1,
+		projectionRevision: semanticRevision,
+		recoveryStatus: 'available',
+		sessions: [annotationSessionSummary(semanticRevision)],
+		sourceGeneration: semanticRevision,
+		threads: [{ context: annotationThreadContext, messages: [message] }],
+		worktreeId: 'worktree-1',
+	};
+}
+
+function projectionWithNoMessages(
+	semanticRevision: number,
+): BridgeWorkerAnnotationProjectionSnapshot {
+	return {
+		expectedMessageCount: 0,
+		expectedSessionCount: 1,
+		expectedThreadCount: 0,
+		projectionRevision: semanticRevision,
+		recoveryStatus: 'available',
+		sessions: [annotationSessionSummary(semanticRevision)],
+		sourceGeneration: semanticRevision,
+		threads: [],
+		worktreeId: 'worktree-1',
+	};
+}
+
+function annotationSessionSummary(
+	semanticRevision: number,
+): BridgeWorkerAnnotationProjectionSnapshot['sessions'][number] {
+	return {
+		completedAt: null,
+		createdAt: 1,
+		eligibleMessageCount: 1,
+		eligibleWithoutInlinePlacementCount: 0,
+		lifecycle: 'living',
+		semanticRevision,
+		sessionId: '01890abc-def0-7abc-8def-0123456789ab',
+		sourceRelationship: 'applicable',
+		updatedAt: semanticRevision,
+	};
 }

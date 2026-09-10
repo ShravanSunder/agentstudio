@@ -133,15 +133,15 @@ private struct WorktreeAnnotationCreateRootTransportInput {
     let ownerGeneration: String
 }
 
-private struct WorktreeAnnotationAppliedMessageCommand {
+struct WorktreeAnnotationAppliedMessageCommand {
     let sessionID: WorktreeAnnotationSessionID
-    let receipt: WorktreeAnnotationMessageCommandReceipt?
+    let receipt: BridgeProductWorktreeAnnotationMessageReceiptDTO?
 }
 
 private struct WorktreeAnnotationAppliedCommand {
     let sessionID: WorktreeAnnotationSessionID?
     let status: WorktreeAnnotationCommandOutcomeStatus
-    let receipt: WorktreeAnnotationMessageCommandReceipt?
+    let receipt: BridgeProductWorktreeAnnotationMessageReceiptDTO?
 }
 
 /// Maps committed File/Review product calls into the application-scoped Store.
@@ -206,10 +206,9 @@ final class WorktreeAnnotationTransportAdapter {
                 requestID: correlation.requestId,
                 surface: surface,
                 sessionID: applied.sessionID,
-                status: applied.status,
-                receipt: applied.receipt
+                status: applied.status
             )
-            return BridgeProductWorktreeAnnotationCommandOutcomeDTO(outcome)
+            return BridgeProductWorktreeAnnotationCommandOutcomeDTO(outcome, receipt: applied.receipt)
         } catch {
             let status: WorktreeAnnotationCommandOutcomeStatus
             if case WorktreeAnnotationRepositoryError.sessionSelectionRequired(let choice) = error {
@@ -221,8 +220,7 @@ final class WorktreeAnnotationTransportAdapter {
                 requestID: correlation.requestId,
                 surface: surface,
                 sessionID: Self.sessionID(in: request.operation),
-                status: status,
-                receipt: nil
+                status: status
             )
             return BridgeProductWorktreeAnnotationCommandOutcomeDTO(outcome)
         }
@@ -283,6 +281,15 @@ final class WorktreeAnnotationTransportAdapter {
             return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
         case .saveDraft(let body):
             let applied = try await saveDraft(body, ownerGeneration: ownerGeneration)
+            return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
+        case .revertDraft(let body):
+            let applied = try await revertDraft(body, ownerGeneration: ownerGeneration)
+            return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
+        case .acquireEditToken(let body):
+            let applied = try await acquireEditToken(body, ownerGeneration: ownerGeneration)
+            return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
+        case .releaseEditToken(let body):
+            let applied = try await releaseEditToken(body, ownerGeneration: ownerGeneration)
             return .init(sessionID: applied.sessionID, status: .committed, receipt: applied.receipt)
         case .markMessagesViewed(let body):
             let result = try await markMessagesViewed(body)
@@ -354,13 +361,13 @@ final class WorktreeAnnotationTransportAdapter {
         case .flushDraft(let body):
             return try await flushDraft(body, ownerGeneration: ownerGeneration).sessionID
         case .acquireEditToken(let body):
-            return try await acquireEditToken(body, ownerGeneration: ownerGeneration)
+            return try await acquireEditToken(body, ownerGeneration: ownerGeneration).sessionID
         case .releaseEditToken(let body):
-            return try await releaseEditToken(body, ownerGeneration: ownerGeneration)
+            return try await releaseEditToken(body, ownerGeneration: ownerGeneration).sessionID
         case .saveDraft(let body):
             return try await saveDraft(body, ownerGeneration: ownerGeneration).sessionID
         case .revertDraft(let body):
-            return try await revertDraft(body, ownerGeneration: ownerGeneration)
+            return try await revertDraft(body, ownerGeneration: ownerGeneration).sessionID
         case .setThreadResolution(let body):
             return try await setThreadResolution(body)
         case .setSessionLifecycle(let body):
@@ -481,18 +488,7 @@ final class WorktreeAnnotationTransportAdapter {
         else {
             throw WorktreeAnnotationTransportAdapterError.messageReceiptUnavailable
         }
-        return WorktreeAnnotationAppliedMessageCommand(
-            sessionID: detail.session.id,
-            receipt: .init(
-                messageID: createdMessage.id,
-                threadID: createdThread.thread.id,
-                threadRevision: createdThread.thread.semanticRevision,
-                sessionRevision: detail.session.semanticRevision,
-                messageRevision: createdMessage.semanticRevision,
-                draftRevision: createdMessage.draft?.draftRevision,
-                savedRevision: createdMessage.savedRevision
-            )
-        )
+        return try appliedMessageCommand(detail: detail, thread: createdThread, message: createdMessage)
     }
 
     private func createReply(
@@ -517,7 +513,7 @@ final class WorktreeAnnotationTransportAdapter {
         else {
             throw WorktreeAnnotationTransportAdapterError.messageReceiptUnavailable
         }
-        return appliedMessageCommand(detail: detail, thread: thread, message: message)
+        return try appliedMessageCommand(detail: detail, thread: thread, message: message)
     }
 
     private func flushDraft(
@@ -525,7 +521,7 @@ final class WorktreeAnnotationTransportAdapter {
         ownerGeneration: String
     ) async throws -> WorktreeAnnotationAppliedMessageCommand {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-        let detail = try await store.flushDraft(
+        let result = try await store.flushDraft(
             .init(
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
@@ -537,14 +533,7 @@ final class WorktreeAnnotationTransportAdapter {
             ),
             ownerGeneration: ownerGeneration
         )
-        if body.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            !detail.threads.contains(where: { thread in
-                thread.messages.contains(where: { $0.id.rawValue == body.messageId })
-            })
-        {
-            return .init(sessionID: detail.session.id, receipt: nil)
-        }
-        return try appliedMessageCommand(detail: detail, messageID: body.messageId)
+        return try appliedDraftMutationCommand(result, messageID: body.messageId)
     }
 
     private func saveDraft(
@@ -569,9 +558,9 @@ final class WorktreeAnnotationTransportAdapter {
     private func revertDraft(
         _ body: BridgeProductWorktreeAnnotationOperation.DraftRevisionBody,
         ownerGeneration: String
-    ) async throws -> WorktreeAnnotationSessionID {
+    ) async throws -> WorktreeAnnotationAppliedMessageCommand {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
-        _ = try await store.revertDraft(
+        let result = try await store.revertDraft(
             .init(
                 sessionID: sessionID,
                 messageID: .init(rawValue: body.messageId),
@@ -582,36 +571,50 @@ final class WorktreeAnnotationTransportAdapter {
             ),
             ownerGeneration: ownerGeneration
         )
-        return sessionID
+        return try appliedDraftMutationCommand(result, messageID: body.messageId)
     }
 
-    private func appliedMessageCommand(
+    private func appliedDraftMutationCommand(
+        _ result: WorktreeAnnotationDraftMutationResult, messageID: UUID
+    ) throws -> WorktreeAnnotationAppliedMessageCommand {
+        guard let removedMessage = result.removedMessage else {
+            return try appliedMessageCommand(detail: result.detail, messageID: messageID)
+        }
+        let detail = result.detail
+        let threadRevision = detail.threads.first { $0.thread.id == removedMessage.threadID }?.thread.semanticRevision
+        return .init(
+            sessionID: detail.session.id,
+            receipt: .messageRemoved(
+                .init(
+                    sessionId: detail.session.id.rawValue, sessionRevision: detail.session.semanticRevision,
+                    threadId: removedMessage.threadID.rawValue, threadRevision: threadRevision,
+                    messageId: removedMessage.messageID.rawValue, removedMessageRevision: removedMessage.messageRevision
+                )))
+    }
+
+    func appliedMessageCommand(
         detail: WorktreeAnnotationSessionDetail,
         messageID: UUID
     ) throws -> WorktreeAnnotationAppliedMessageCommand {
         for thread in detail.threads {
             if let message = thread.messages.first(where: { $0.id.rawValue == messageID }) {
-                return appliedMessageCommand(detail: detail, thread: thread, message: message)
+                return try appliedMessageCommand(detail: detail, thread: thread, message: message)
             }
         }
         throw WorktreeAnnotationTransportAdapterError.messageReceiptUnavailable
     }
 
-    private func appliedMessageCommand(
+    func appliedMessageCommand(
         detail: WorktreeAnnotationSessionDetail,
         thread: WorktreeAnnotationThreadDetail,
         message: WorktreeAnnotationMessage
-    ) -> WorktreeAnnotationAppliedMessageCommand {
-        WorktreeAnnotationAppliedMessageCommand(
+    ) throws -> WorktreeAnnotationAppliedMessageCommand {
+        try WorktreeAnnotationAppliedMessageCommand(
             sessionID: detail.session.id,
             receipt: .init(
-                messageID: message.id,
-                threadID: thread.thread.id,
-                threadRevision: thread.thread.semanticRevision,
-                sessionRevision: detail.session.semanticRevision,
-                messageRevision: message.semanticRevision,
-                draftRevision: message.draft?.draftRevision,
-                savedRevision: message.savedRevision
+                session: detail.session,
+                thread: thread.thread,
+                message: message
             )
         )
     }

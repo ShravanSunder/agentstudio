@@ -80,6 +80,15 @@ describe('worktree annotation transient admission decision', () => {
 		});
 
 		await expect.element(rendered.getByText('Choose a review session')).toBeVisible();
+		const sessionAction = rendered.getByRole('button', { name: 'Continue session 2' }).element();
+		const popover = sessionAction.closest('[data-slot="popover-content"]');
+		if (popover === null) throw new Error('Expected the session action inside its popover.');
+		await Promise.all(
+			popover.getAnimations({ subtree: true }).map((animation) => animation.finished),
+		);
+		expect(sessionAction.getBoundingClientRect().height).toBe(28);
+		expect(getComputedStyle(sessionAction).fontSize).toBe('11px');
+		await page.screenshot({ path: '../../../tmp/bridgeweb-admission-popover-density.png' });
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Continue session 2' }).click();
 			await settleInteraction();

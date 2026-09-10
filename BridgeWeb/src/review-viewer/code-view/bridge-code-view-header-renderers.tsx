@@ -3,11 +3,7 @@ import { ChevronDownIcon, ChevronRightIcon, FileCodeCornerIcon } from 'lucide-re
 import type { ReactNode } from 'react';
 import { useLayoutEffect } from 'react';
 
-import {
-	bridgeViewerChromeCompactMetadataClassName,
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-} from '../../app/bridge-viewer-chrome.js';
+import { bridgeViewerChromeCompactMetadataClassName } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
@@ -55,13 +51,6 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 			<Button
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? 'Expand file' : 'Collapse file'}
-				className={cn(
-					bridgeViewerChromeIconButtonClassName,
-					'cursor-pointer text-[var(--bridge-text-secondary)] transition-colors',
-					'aria-expanded:bg-transparent aria-expanded:text-[var(--bridge-text-secondary)]',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-				)}
 				data-bridge-code-view-item-id={itemId}
 				data-testid="bridge-code-view-header-collapse-button"
 				onClick={(event): void => {
@@ -74,9 +63,9 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 				variant="ghost"
 			>
 				{collapsed ? (
-					<ChevronRightIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+					<ChevronRightIcon aria-hidden="true" />
 				) : (
-					<ChevronDownIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+					<ChevronDownIcon aria-hidden="true" />
 				)}
 			</Button>
 		</span>
@@ -110,7 +99,7 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 		<span
 			className={cn(
 				bridgeViewerChromeCompactMetadataClassName,
-				'ml-auto inline-flex min-w-0 items-center gap-2 text-[var(--bridge-text-muted)]',
+				'ml-auto inline-flex min-w-0 items-center gap-2 text-faint-foreground',
 			)}
 			data-bridge-code-view-content-state={contentState}
 			data-testid="bridge-code-view-header-metadata"
@@ -118,8 +107,8 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 			{pendingContentLabel === null ? null : (
 				<span className="shrink-0">{pendingContentLabel}</span>
 			)}
-			<span className="shrink-0 text-[var(--bridge-deleted)]">{`-${descriptor.deletions}`}</span>
-			<span className="shrink-0 text-[var(--bridge-added)]">{`+${descriptor.additions}`}</span>
+			<span className="shrink-0 text-destructive">{`-${descriptor.deletions}`}</span>
+			<span className="shrink-0 text-success">{`+${descriptor.additions}`}</span>
 			{props.onOpenFile === undefined || filePath === null ? null : (
 				<Button
 					aria-label={`Open ${filePath} in Files`}
@@ -130,10 +119,10 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 						event.stopPropagation();
 						props.onOpenFile?.(filePath);
 					}}
-					size="icon"
+					size="icon-sm"
 					title="Open in Files"
 					type="button"
-					variant="ghost"
+					variant="outline"
 				>
 					<FileCodeCornerIcon aria-hidden="true" />
 				</Button>

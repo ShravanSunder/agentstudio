@@ -9,7 +9,6 @@ private func annotationDateFromUnixMilliseconds(_ unixMilliseconds: Int64) -> Da
 }
 
 enum BridgeProductWorktreeAnnotationProjectionError: Error, Equatable {
-    case messageEntryExceedsMaximum
     case singletonFrameExceedsMaximum
     case unsupportedThreadOrigin
 }
@@ -117,94 +116,6 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             annotationUnixMilliseconds(updatedAt),
             forKey: .updatedAtUnixMilliseconds
         )
-    }
-}
-
-struct BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Sendable {
-    let draftRevision: Int?
-    let messageId: UUID
-    let messageRevision: Int
-    let savedRevision: Int?
-    let sessionRevision: Int
-    let threadId: UUID
-    let threadRevision: Int
-
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case draftRevision, kind, messageId, messageRevision, savedRevision, sessionRevision, threadId,
-            threadRevision
-    }
-
-    init(_ receipt: WorktreeAnnotationMessageCommandReceipt) {
-        draftRevision = receipt.draftRevision
-        messageId = receipt.messageID.rawValue
-        messageRevision = receipt.messageRevision
-        savedRevision = receipt.savedRevision
-        sessionRevision = receipt.sessionRevision
-        threadId = receipt.threadID.rawValue
-        threadRevision = receipt.threadRevision
-    }
-
-    init(from decoder: Decoder) throws {
-        try rejectAnnotationProjectionUnknownKeys(decoder, keys: CodingKeys.allCases)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "message" else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Invalid annotation command receipt kind",
-                codingPath: decoder.codingPath + [CodingKeys.kind]
-            )
-        }
-        draftRevision = try container.decodeIfPresent(Int.self, forKey: .draftRevision)
-        messageId = try BridgeProductReviewPublicationIdContract.decode(
-            container.decode(String.self, forKey: .messageId),
-            codingPath: decoder.codingPath + [CodingKeys.messageId]
-        )
-        messageRevision = try container.decode(Int.self, forKey: .messageRevision)
-        savedRevision = try container.decodeIfPresent(Int.self, forKey: .savedRevision)
-        sessionRevision = try container.decode(Int.self, forKey: .sessionRevision)
-        threadId = try BridgeProductReviewPublicationIdContract.decode(
-            container.decode(String.self, forKey: .threadId),
-            codingPath: decoder.codingPath + [CodingKeys.threadId]
-        )
-        threadRevision = try container.decode(Int.self, forKey: .threadRevision)
-        for (name, value) in [
-            ("draftRevision", draftRevision),
-            ("messageRevision", Optional(messageRevision)),
-            ("sessionRevision", Optional(sessionRevision)),
-            ("threadRevision", Optional(threadRevision)),
-        ] {
-            if let value {
-                try BridgeProductContractDecoding.validateNonnegative(
-                    value,
-                    name: name,
-                    codingPath: decoder.codingPath
-                )
-            }
-        }
-        if let savedRevision {
-            try BridgeProductContractDecoding.validatePositive(
-                savedRevision,
-                name: "savedRevision",
-                codingPath: decoder.codingPath
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(draftRevision, forKey: .draftRevision)
-        try container.encode("message", forKey: .kind)
-        try container.encode(
-            BridgeProductReviewPublicationIdContract.encode(messageId),
-            forKey: .messageId
-        )
-        try container.encode(messageRevision, forKey: .messageRevision)
-        try container.encode(savedRevision, forKey: .savedRevision)
-        try container.encode(sessionRevision, forKey: .sessionRevision)
-        try container.encode(
-            BridgeProductReviewPublicationIdContract.encode(threadId),
-            forKey: .threadId
-        )
-        try container.encode(threadRevision, forKey: .threadRevision)
     }
 }
 
@@ -346,8 +257,11 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
         case surface
     }
 
-    init(_ outcome: WorktreeAnnotationCommandOutcome) {
-        receipt = outcome.receipt.map(BridgeProductWorktreeAnnotationMessageReceiptDTO.init)
+    init(
+        _ outcome: WorktreeAnnotationCommandOutcome,
+        receipt: BridgeProductWorktreeAnnotationMessageReceiptDTO? = nil
+    ) {
+        self.receipt = receipt
         requestId = outcome.requestID
         sessionId = outcome.sessionID?.rawValue
         surface = outcome.surface
@@ -399,6 +313,13 @@ struct BridgeProductWorktreeAnnotationCommandOutcomeDTO: Codable, Equatable, Sen
                 BridgeProductWorktreeAnnotationMessageReceiptDTO.self,
                 forKey: .receipt
             )
+        }
+        if let receipt {
+            guard status == .committed, sessionId == receipt.sessionId else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Annotation receipt must match its committed outcome session",
+                    codingPath: decoder.codingPath)
+            }
         }
     }
 
@@ -698,11 +619,6 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         status = message.status
         threadId = thread.id.rawValue
         threadRevision = thread.semanticRevision
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard try encoder.encode(self).count <= 64 * 1024 else {
-            throw BridgeProductWorktreeAnnotationProjectionError.messageEntryExceedsMaximum
-        }
     }
 
     init(from decoder: Decoder) throws {
@@ -740,7 +656,9 @@ struct BridgeProductWorktreeAnnotationMessageEntry: Codable, Equatable, Sendable
         status = try container.decode(WorktreeAnnotationMessageStatus.self, forKey: .status)
         threadId = try container.decode(UUID.self, forKey: .threadId)
         threadRevision = try container.decode(Int.self, forKey: .threadRevision)
-        guard (savedBody == nil) == (savedRevision == nil), savedRevision.map({ $0 > 0 }) ?? true,
+        guard messageRevision >= 0, sessionRevision >= 0, threadRevision >= 0, ordinal >= 0,
+            savedBody.map({ $0.utf8.count <= WorktreeAnnotationMessagePolicy.maximumBodyUTF8Bytes }) ?? true,
+            (savedBody == nil) == (savedRevision == nil), savedRevision.map({ $0 > 0 }) ?? true,
             savedBody != nil || draft != nil,
             !(status == .locked && draft != nil),
             draft.map({ $0.revision >= 0 && $0.body.utf8.count <= 16_384 }) ?? true,

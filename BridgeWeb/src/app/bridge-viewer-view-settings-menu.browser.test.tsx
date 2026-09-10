@@ -11,7 +11,7 @@ import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu
 describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 	test('keeps settings and reset reachable in a short viewport', async () => {
 		const originalSize = { width: window.innerWidth, height: window.innerHeight };
-		await page.viewport(480, 180);
+		await page.viewport(480, 120);
 		const defaults = {
 			changeBackgrounds: true,
 			changeIndicators: 'bars' as const,
@@ -38,7 +38,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			expect(popup.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight);
 			expect(popup.scrollHeight).toBeGreaterThan(popup.clientHeight);
 			await act(async (): Promise<void> => {
-				await rendered.getByRole('button', { name: 'Reset View Settings' }).click();
+				await rendered.getByRole('button', { name: 'Reset defaults' }).click();
 			});
 			expect(onChange).toHaveBeenCalledWith(defaults);
 		} finally {
@@ -104,7 +104,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 		expect(onChange).toHaveBeenCalledExactlyOnceWith({ lineNumbers: true, wordWrap: true });
 	});
 
-	test('Review exposes appearance toggles, layout and indicator choices, and reset', async () => {
+	test('Review exposes only two switches and aligned layout choices, with reset', async () => {
 		// Arrange
 		const onChange = vi.fn();
 		const defaults = {
@@ -133,24 +133,29 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 
 		// Act
 		const appearanceSwitches = findControls('Appearance', 'switch');
-		const layoutChoices = findControls('Diff layout', 'button');
-		const indicatorChoices = findControls('Change indicators', 'button');
+		const layoutChoices = findControls('Layout', 'button');
 
 		// Assert
-		expect(appearanceSwitches.map(accessibleControlLabel)).toEqual([
-			'Line numbers',
-			'Word wrap',
-			'Change backgrounds',
-		]);
-		expect(appearanceSwitches.map(checkedState)).toEqual(['true', 'true', 'false']);
+		expect(appearanceSwitches.map(accessibleControlLabel)).toEqual(['Line numbers', 'Word wrap']);
+		expect(appearanceSwitches.map(checkedState)).toEqual(['true', 'true']);
 		expect(layoutChoices.map(accessibleControlLabel)).toEqual(['Split', 'Unified']);
 		expect(layoutChoices.map(pressedState)).toEqual(['false', 'true']);
-		expect(indicatorChoices.map(accessibleControlLabel)).toEqual(['Bars', 'Symbols', 'None']);
-		expect(indicatorChoices.map(pressedState)).toEqual(['false', 'true', 'false']);
 		expect(layoutChoices.every(controlHasMeaningfulIcon)).toBe(true);
-		expect(indicatorChoices.every(controlHasMeaningfulIcon)).toBe(true);
-		expect(indicatorChoices.every((control) => control.textContent === '')).toBe(true);
 		expect(horizontalFieldRows()).toBe(true);
+		expect(document.body.textContent).not.toContain('Change backgrounds');
+		expect(document.body.textContent).not.toContain('Change indicators');
+		const settingRows = [...document.querySelectorAll<HTMLElement>('[data-orientation="setting"]')];
+		const labelBounds = settingRows.map((row) =>
+			requireHTMLElement(row.querySelector('[data-slot="field-label"]')).getBoundingClientRect(),
+		);
+		expect(new Set(labelBounds.map((bounds) => Math.round(bounds.left))).size).toBe(1);
+		for (const row of settingRows) {
+			const label = requireHTMLElement(row.querySelector('[data-slot="field-label"]'));
+			expect(getComputedStyle(label).fontWeight).toBe('400');
+			expect(getComputedStyle(label).fontSize).toBe('12px');
+			expect(label.getBoundingClientRect().height).toBe(16);
+			expect(row.getBoundingClientRect().height).toBe(28);
+		}
 		expect(elementSize('[data-testid="bridge-review-view-settings-trigger"]')).toEqual({
 			height: 24,
 			width: 24,
@@ -159,7 +164,6 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 			width: 256,
 		});
 		// Act
-		await act(async (): Promise<void> => indicatorChoices[2]?.click());
 		await act(async (): Promise<void> => {
 			requireHTMLElement(
 				document.querySelector('[data-testid="bridge-review-view-settings-reset"]'),
@@ -167,13 +171,7 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 		});
 
 		// Assert
-		expect(onChange).toHaveBeenNthCalledWith(1, {
-			...defaults,
-			changeBackgrounds: false,
-			changeIndicators: 'none',
-			diffLayout: 'unified',
-		});
-		expect(onChange).toHaveBeenNthCalledWith(2, defaults);
+		expect(onChange).toHaveBeenCalledExactlyOnceWith(defaults);
 	});
 
 	test('requests closure when an open menu becomes disabled', async () => {
@@ -261,7 +259,7 @@ function fieldIconSizes(groupLabel: string): Readonly<{ height: number; width: n
 
 function horizontalFieldRows(): boolean {
 	return [...document.querySelectorAll<HTMLElement>('[data-slot="field"]')].every(
-		(field) => field.getAttribute('data-orientation') === 'horizontal',
+		(field) => field.getAttribute('data-orientation') === 'setting',
 	);
 }
 

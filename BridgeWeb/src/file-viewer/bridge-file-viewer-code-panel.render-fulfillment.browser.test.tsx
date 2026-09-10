@@ -9,6 +9,7 @@ import {
 import { act } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
@@ -567,6 +568,16 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			expect(
 				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
 			).toContain('Loading file');
+			const retainedView = rendered.getByTestId('bridge-file-viewer-code-view').element();
+			expect(getComputedStyle(retainedView).visibility).toBe('visible');
+			expect(mountedCodeView.current).toBe(capturedCodeView);
+			expect(setItemReceipts.some((items) => items.length === 0)).toBe(false);
+			await act(async (): Promise<void> => {
+				await page.screenshot({
+					element: rendered.getByTestId('bridge-file-viewer-code-canvas').element(),
+					path: '../../../tmp/bridge-file-retained-during-loading.png',
+				});
+			});
 			await rendered.rerender(
 				annotationHarness.wrap(
 					<BridgeFileViewerCodePanel

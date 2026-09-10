@@ -196,7 +196,7 @@ package actor WorktreeAnnotationServiceActor {
     @discardableResult
     func flushDraft(
         _ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    ) async throws -> WorktreeAnnotationDraftMutationResult {
         try await publishCommittedMutation { try await repositoryAccess.flushDraft(props) }
     }
 
@@ -210,7 +210,7 @@ package actor WorktreeAnnotationServiceActor {
     @discardableResult
     func revertDraft(
         _ props: WorktreeAnnotationSQLiteRepository.RevertDraftProps
-    ) async throws -> WorktreeAnnotationSessionDetail {
+    ) async throws -> WorktreeAnnotationDraftMutationResult {
         try await publishCommittedMutation { try await repositoryAccess.revertDraft(props) }
     }
 
