@@ -27,6 +27,18 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("same-tree target and shared-base movement"))
     }
 
+    @Test("complete cohort requests and verifies foreground LaunchServices activation")
+    func completeCohortRequiresForegroundLaunchServicesActivation() throws {
+        let source = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1"))
+        #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
+        #expect(source.contains(#"[ "$launch_activation_mode" != "foreground" ]"#))
+    }
+
     @Test("verifier dry-run declares artifact IPC Victoria and visual proof owners")
     func verifierDryRunDeclaresProofOwners() throws {
         let fixture = try LauncherScriptFixture()
@@ -309,7 +321,14 @@ struct BridgePackagedProductJourneyScriptTests {
         )
 
         #expect(source.contains(#"/usr/bin/open -a "$state_app""#))
+        #expect(source.contains(#"AGENTSTUDIO_BRIDGE_JOURNEY_APP="$state_app""#))
+        #expect(source.contains(#"candidate_app = os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_APP", "")"#))
         #expect(source.contains("def focus_foreground_pane(handle, label):"))
+        #expect(
+            source.contains(
+                #"subprocess.run(["/usr/bin/open", "-a", candidate_app], check=False)"#
+            )
+        )
         #expect(source.contains(#"value.get("diagnostics", {}).get("nativeActivity") == "foreground""#))
         #expect(
             source.contains(#"focus_foreground_pane(review_handle, "Review pane foreground")"#)
@@ -514,6 +533,39 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(!source.contains("rm -rf"))
     }
 
+    @Test("runner isolates application state inside each packaged journey")
+    func runnerIsolatesApplicationStateInsideEachPackagedJourney() throws {
+        let runnerSource = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+        let verifierSource = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(runnerSource.contains(#"runtime_data_root="$journey_root/app-data""#))
+        #expect(runnerSource.contains(#"AGENTSTUDIO_DEBUG_DATA_DIR="$runtime_data_root""#))
+        #expect(
+            runnerSource.contains(
+                "write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT \"$runtime_data_root\""
+            )
+        )
+        #expect(verifierSource.contains("AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT"))
+        #expect(verifierSource.contains(#"if [ "$state_data_dir" != "$journey_data_root" ]; then"#))
+    }
+
+    @Test("verifier consumes the full lsof stream under pipefail")
+    func verifierConsumesFullLsofStreamUnderPipefail() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(!source.contains(#"awk '/^n/ { print substr($0, 2); exit }'"#))
+        #expect(source.contains(#"awk '/^n/ && !found { print substr($0, 2); found = 1 }'"#))
+    }
+
     @Test("runner disables commit signing only inside its disposable fixture")
     func runnerDisablesCommitSigningOnlyInsideDisposableFixture() throws {
         let source = try String(
@@ -537,6 +589,8 @@ struct BridgePackagedProductJourneyScriptTests {
         )
         let verifierOwnedKeys = [
             "AGENTSTUDIO_BRIDGE_JOURNEY_STATUS",
+            "JOURNEY_ROOT",
+            "AGENTSTUDIO_BRIDGE_JOURNEY_DATA_ROOT",
             "AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE",
             "AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT",
             "AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT",
@@ -570,7 +624,7 @@ struct BridgePackagedProductJourneyScriptTests {
 
         #expect(runnerDigestFunction == verifierDigestFunction)
         #expect(runnerDigestFunction.contains("printf 'baseline\\0%s\\0'"))
-        #expect(runnerDigestFunction.contains("ls-files -z"))
+        #expect(runnerDigestFunction.contains("ls-files -s -z"))
         #expect(runnerDigestFunction.contains("hash-object --"))
     }
 

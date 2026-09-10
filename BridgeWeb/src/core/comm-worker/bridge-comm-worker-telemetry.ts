@@ -2,11 +2,6 @@ import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-te
 import type { BridgeCommWorkerPanePresentationSnapshot } from './bridge-comm-worker-pane-presentation.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from './bridge-worker-contracts.js';
 
-export interface BridgeCommWorkerPerformanceClock {
-	readonly timeOrigin: number;
-	readonly now: () => number;
-}
-
 export type BridgeCommWorkerTelemetryTaskKind =
 	| 'content_preparation'
 	| 'message_handler'
@@ -20,6 +15,12 @@ export type BridgeCommWorkerTelemetryLane =
 	| 'selected'
 	| 'speculative'
 	| 'visible';
+
+export type BridgeCommWorkerTelemetrySemanticClass =
+	| 'demand'
+	| 'lifecycle_control'
+	| 'settlement'
+	| 'urgent_action';
 
 export type BridgeCommWorkerTelemetryAction =
 	| 'applyContentReady'
@@ -35,8 +36,12 @@ export type BridgeCommWorkerTelemetryAction =
 
 export type BridgeCommWorkerTelemetryCommand =
 	| 'activeViewerModeUpdate'
+	| 'annotationCommand'
+	| 'annotationOutputInspect'
+	| 'annotationProjectionRetry'
 	| 'fileDisplayResync'
 	| 'fileQueryUpdate'
+	| 'fileRefreshRetry'
 	| 'fileSourceDiscovery'
 	| 'hover'
 	| 'markFileViewed'
@@ -48,6 +53,8 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'reviewComparisonTargetsQueryCancel'
 	| 'reviewInvalidate'
 	| 'reviewProjectionUpdate'
+	| 'reviewPublicationInstallAdmit'
+	| 'reviewPublicationInstalled'
 	| 'renderDisposition'
 	| 'select'
 	| 'viewport';
@@ -148,12 +155,6 @@ export type BridgeCommWorkerSelectedContentDropReason =
 	| 'stale_before_fetch'
 	| 'stale_before_publish';
 
-export function readBridgeCommWorkerAbsoluteNowMilliseconds(
-	clock: BridgeCommWorkerPerformanceClock = performance,
-): number {
-	return clock.timeOrigin + clock.now();
-}
-
 export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly action?: BridgeCommWorkerTelemetryAction;
 	readonly command?: BridgeCommWorkerTelemetryCommand;
@@ -164,6 +165,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly queueWaitMilliseconds?: number;
 	readonly result?: 'failed' | 'success' | 'unavailable';
 	readonly resultReason?: BridgeCommWorkerTelemetryResultReason;
+	readonly semanticClass?: BridgeCommWorkerTelemetrySemanticClass;
 	readonly sourceEpoch?: number;
 	readonly taskKind: BridgeCommWorkerTelemetryTaskKind;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -199,6 +201,9 @@ export function recordBridgeCommWorkerTaskTelemetry(
 			...(props.resultReason === undefined
 				? {}
 				: { 'agentstudio.bridge.result_reason': props.resultReason }),
+			...(props.semanticClass === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.semantic_class': props.semanticClass }),
 			...(props.workKind === undefined
 				? {}
 				: { 'agentstudio.bridge.worker.work_kind': props.workKind }),

@@ -3,6 +3,7 @@ import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-f
 
 export interface MakeBridgeWorkerRenderReceiptIdentityProps {
 	readonly itemId: string;
+	readonly operationCorrelationId?: string | null;
 	readonly publicationSequence: number;
 	readonly surface: BridgeProductSurface;
 	readonly workerDerivationEpoch: number;
@@ -15,6 +16,7 @@ export function makeBridgeWorkerRenderReceiptIdentity(
 	return {
 		attemptId: `attempt-${identitySuffix}`,
 		itemId: props.itemId,
+		operationCorrelationId: props.operationCorrelationId ?? null,
 		paneSessionId: 'pane-session-test',
 		publicationId: `publication-${identitySuffix}`,
 		publicationSequence: props.publicationSequence,

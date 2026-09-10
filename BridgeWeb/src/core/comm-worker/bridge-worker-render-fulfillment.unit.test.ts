@@ -104,6 +104,16 @@ describe('Bridge worker semantic identity', () => {
 });
 
 describe('Bridge worker render fulfillment', () => {
+	test('carries selected-content correlation through render disposition receipts', () => {
+		const operationCorrelationId = 'a'.repeat(64);
+		const receipt = bridgeWorkerRenderDispositionReceiptSchema.parse({
+			...disposition('queued'),
+			operationCorrelationId,
+		});
+
+		expect(receipt.operationCorrelationId).toBe(operationCorrelationId);
+	});
+
 	test('dispatches receipt transitions by kind', () => {
 		expect(bridgeWorkerRenderReceiptTransitionSchema).toBeInstanceOf(z.ZodDiscriminatedUnion);
 	});
@@ -483,6 +493,7 @@ function disposition(dispositionKind: BridgeWorkerRenderDisposition): RenderDisp
 function renderReceiptIdentity(): {
 	readonly attemptId: string;
 	readonly itemId: string;
+	readonly operationCorrelationId: string | null;
 	readonly paneSessionId: string;
 	readonly publicationId: string;
 	readonly publicationSequence: number;
@@ -497,6 +508,7 @@ function renderReceiptIdentity(): {
 		...canonicalRenderContext,
 		attemptId: 'attempt-1',
 		itemId: 'item-11',
+		operationCorrelationId: null,
 		publicationId: 'render-publication-review-4-11',
 		publicationSequence: 11,
 		submissionId: 'submission-1',

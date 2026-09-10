@@ -92,7 +92,7 @@ struct DrawerIconBar: View {
             GeometryReader { geo in
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius)
-                        .fill(.ultraThinMaterial)
+                        .fill(AppStyles.Shell.DrawerToolbar.background)
 
                     HStack(spacing: 0) {
                         if !paneSurfaceActions.isEmpty {

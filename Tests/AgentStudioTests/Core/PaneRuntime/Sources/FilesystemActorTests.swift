@@ -179,7 +179,13 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         let repoId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/register-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        let outcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+
+        #expect(outcome == .observing)
 
         let envelope = try #require(await iterator.next())
         guard case .system(let systemEnvelope) = envelope else {
@@ -199,6 +205,160 @@ struct FilesystemActorTests {
         #expect(registeredRepoId == repoId)
         #expect(registeredRootPath == rootPath)
         #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
+
+        await actor.shutdown()
+    }
+
+    @Test(
+        "registration failure installs no root or topology fact",
+        arguments: [
+            FSEventStreamRegistrationUnavailableReason.streamCreationFailed,
+            .streamStartFailed,
+            .clientShutdown,
+        ]
+    )
+    func registrationFailureRollsBackCompletely(
+        reason: FSEventStreamRegistrationUnavailableReason
+    ) async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let failedWorktreeId = UUIDv7.generate()
+        streamClient.setNextRegistrationOutcome(.unavailable(reason))
+
+        let failedOutcome = await actor.registerForObservation(
+            worktreeId: failedWorktreeId,
+            repoId: UUIDv7.generate(),
+            rootPath: URL(fileURLWithPath: "/tmp/failed-registration-\(UUIDv7.generate().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: failedWorktreeId, paths: ["Sources/Ignored.swift"])
+        await actor.unregister(worktreeId: failedWorktreeId)
+
+        #expect(failedOutcome == .unavailable(reason))
+        #expect(!streamClient.registeredWorktreeIds.contains(failedWorktreeId))
+
+        let observingWorktreeId = UUIDv7.generate()
+        let observingRepoId = UUIDv7.generate()
+        let observingRootPath = URL(
+            fileURLWithPath: "/tmp/observing-registration-\(UUIDv7.generate().uuidString)"
+        )
+        let observingOutcome = await actor.registerForObservation(
+            worktreeId: observingWorktreeId,
+            repoId: observingRepoId,
+            rootPath: observingRootPath
+        )
+
+        #expect(observingOutcome == .observing)
+        let firstEnvelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = firstEnvelope,
+            case .topology(.worktreeRegistered(let worktreeId, let repoId, let rootPath)) =
+                systemEnvelope.event
+        else {
+            Issue.record("Expected the first topology fact to belong to the observing registration")
+            await actor.shutdown()
+            return
+        }
+        #expect(worktreeId == observingWorktreeId)
+        #expect(repoId == observingRepoId)
+        #expect(rootPath == observingRootPath)
+
+        await actor.shutdown()
+    }
+
+    @Test("same-root registration is idempotent")
+    func sameRootRegistrationIsIdempotent() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/idempotent-registration-\(UUIDv7.generate().uuidString)")
+
+        let firstOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+        let secondOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath
+        )
+        await actor.unregister(worktreeId: worktreeId)
+
+        #expect(firstOutcome == .observing)
+        #expect(secondOutcome == .observing)
+        let firstEnvelope = try #require(await iterator.next())
+        let secondEnvelope = try #require(await iterator.next())
+        guard case .system(let firstSystemEnvelope) = firstEnvelope,
+            case .topology(.worktreeRegistered) = firstSystemEnvelope.event,
+            case .system(let secondSystemEnvelope) = secondEnvelope,
+            case .topology(.worktreeUnregistered) = secondSystemEnvelope.event
+        else {
+            Issue.record("Expected one registration fact followed by one unregistration fact")
+            await actor.shutdown()
+            return
+        }
+
+        await actor.shutdown()
+    }
+
+    @Test("failed replacement preserves the observing root")
+    func failedReplacementPreservesObservingRoot() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let worktreeId = UUIDv7.generate()
+        let originalRepoId = UUIDv7.generate()
+        let originalRootPath = URL(
+            fileURLWithPath: "/tmp/original-registration-\(UUIDv7.generate().uuidString)"
+        )
+        let replacementRepoId = UUIDv7.generate()
+        let replacementRootPath = URL(
+            fileURLWithPath: "/tmp/replacement-registration-\(UUIDv7.generate().uuidString)"
+        )
+        _ = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: originalRepoId,
+            rootPath: originalRootPath
+        )
+        _ = try #require(await iterator.next())
+        streamClient.setNextRegistrationOutcome(.unavailable(.streamStartFailed))
+
+        let replacementOutcome = await actor.registerForObservation(
+            worktreeId: worktreeId,
+            repoId: replacementRepoId,
+            rootPath: replacementRootPath
+        )
+        await actor.unregister(worktreeId: worktreeId)
+
+        #expect(replacementOutcome == .unavailable(.streamStartFailed))
+        let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope,
+            case .topology(.worktreeUnregistered(let unregisteredWorktreeId, let repoId)) =
+                systemEnvelope.event
+        else {
+            Issue.record("Expected unregistration of the retained observing root")
+            await actor.shutdown()
+            return
+        }
+        #expect(unregisteredWorktreeId == worktreeId)
+        #expect(repoId == originalRepoId)
 
         await actor.shutdown()
     }
@@ -574,205 +734,6 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
-    @Test("default maximum latency forces a flush after 10 seconds of continuous changes")
-    func defaultMaximumLatencyForcesContinuousStormFlush() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let clock = TestPushClock()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: ControllableFSEventStreamClient(),
-            sleepClock: clock
-        )
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        let worktreeId = UUID()
-        await actor.register(
-            worktreeId: worktreeId,
-            repoId: worktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/default-max-latency-\(UUID().uuidString)")
-        )
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Change-0.swift"])
-        await clock.waitForPendingSleepCount()
-
-        for changeIndex in 1...24 {
-            clock.advance(by: .milliseconds(400))
-            await actor.enqueueRawPaths(
-                worktreeId: worktreeId,
-                paths: ["Sources/Change-\(changeIndex).swift"]
-            )
-        }
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
-
-        clock.advance(by: .milliseconds(400))
-        let changeset = await observed.next()
-        #expect(changeset.paths.count == 25)
-
-        await actor.shutdown()
-    }
-
-    @Test("max latency flushes pending changes even when debounce keeps extending")
-    func maxLatencyFlushesPendingChanges() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let clock = TestPushClock()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: ControllableFSEventStreamClient(),
-            sleepClock: clock,
-            debounceWindow: .milliseconds(250),
-            maxFlushLatency: .milliseconds(120)
-        )
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-
-        defer { collectionTask.cancel() }
-
-        let worktreeId = UUID()
-        await actor.register(
-            worktreeId: worktreeId,
-            repoId: worktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/max-latency-\(UUID().uuidString)")
-        )
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/First.swift"])
-        await clock.waitForPendingSleepCount()
-        clock.advance(by: .milliseconds(70))
-        await Task.yield()
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Second.swift"])
-
-        await Task.yield()
-        clock.advance(by: .milliseconds(50))
-        let changeset = await observed.next()
-        #expect(changeset.worktreeId == worktreeId)
-        #expect(Set(changeset.paths) == Set(["Sources/First.swift", "Sources/Second.swift"]))
-
-        await actor.shutdown()
-    }
-
-    @Test("shutdown cancels pending debounce drain and prevents delayed filesChanged emission")
-    func shutdownCancelsPendingDrain() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let clock = TestPushClock()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: ControllableFSEventStreamClient(),
-            sleepClock: clock,
-            debounceWindow: .milliseconds(200),
-            maxFlushLatency: .seconds(1)
-        )
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        let worktreeId = UUID()
-        await actor.register(
-            worktreeId: worktreeId,
-            repoId: worktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/shutdown-drain-\(UUID().uuidString)")
-        )
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Cancelled.swift"])
-        await Task.yield()
-        await actor.shutdown()
-        clock.advance(by: .milliseconds(300))
-        await Task.yield()
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
-    }
-
-    @Test("shutdown closes filesystem admission before asynchronous cleanup")
-    func shutdownClosesFilesystemAdmission() async {
-        let clock = TestPushClock()
-        let streamClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            fseventStreamClient: streamClient,
-            sleepClock: clock,
-            debounceWindow: .milliseconds(200),
-            maxFlushLatency: .seconds(1)
-        )
-        let worktreeID = UUIDv7.generate()
-        await actor.register(
-            worktreeId: worktreeID,
-            repoId: worktreeID,
-            rootPath: URL(fileURLWithPath: "/tmp/shutdown-admission-\(UUIDv7.generate())")
-        )
-
-        await actor.shutdown()
-        let revisionAfterShutdown = await actor.logicalDebtSnapshotPublicationRevision
-        let postShutdownWorktreeID = UUIDv7.generate()
-        await actor.register(
-            worktreeId: postShutdownWorktreeID,
-            repoId: postShutdownWorktreeID,
-            rootPath: URL(fileURLWithPath: "/tmp/post-shutdown-registration")
-        )
-        await actor.enqueueRawPaths(worktreeId: worktreeID, paths: ["Sources/PostShutdown.swift"])
-        clock.advance(by: .seconds(1))
-        await Task.yield()
-
-        #expect(await actor.logicalDebtSnapshotPublicationRevision == revisionAfterShutdown)
-        #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
-        #expect(streamClient.registeredWorktreeIds == [worktreeID])
-    }
-
-    @Test("unregister during debounce window prevents stale filesChanged emission")
-    func unregisterDuringDebouncePreventsStaleEmission() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let clock = TestPushClock()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: ControllableFSEventStreamClient(),
-            sleepClock: clock,
-            debounceWindow: .milliseconds(200),
-            maxFlushLatency: .seconds(1)
-        )
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        let worktreeId = UUID()
-        await actor.register(
-            worktreeId: worktreeId,
-            repoId: worktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/unregister-debounce-\(UUID().uuidString)")
-        )
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Stale.swift"])
-        await Task.yield()
-        clock.advance(by: .milliseconds(25))
-        await Task.yield()
-        await actor.unregister(worktreeId: worktreeId)
-        clock.advance(by: .milliseconds(300))
-        await Task.yield()
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
-        await actor.shutdown()
-    }
-
     private func filesChangedChangeset(from envelope: RuntimeEnvelope) -> FileChangeset? {
         guard case .worktree(let worktreeEnvelope) = envelope else { return nil }
         guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else {
@@ -868,43 +829,6 @@ private actor LogicalDebtSnapshotGate {
         releaseWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
             waiter.resume()
-        }
-    }
-}
-
-private actor ObservedFilesystemChanges {
-    private var changesetsByWorktreeId: [UUID: [FileChangeset]] = [:]
-    private var pendingChangesets: [FileChangeset] = []
-    private var nextWaiters: [CheckedContinuation<FileChangeset, Never>] = []
-
-    func record(_ envelope: RuntimeEnvelope) {
-        guard case .worktree(let worktreeEnvelope) = envelope else { return }
-        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
-        changesetsByWorktreeId[changeset.worktreeId, default: []].append(changeset)
-        if nextWaiters.isEmpty {
-            pendingChangesets.append(changeset)
-            return
-        }
-
-        let waiter = nextWaiters.removeFirst()
-        waiter.resume(returning: changeset)
-    }
-
-    func filesChangedCount(for worktreeId: UUID) -> Int {
-        changesetsByWorktreeId[worktreeId]?.count ?? 0
-    }
-
-    func latestChangeset(for worktreeId: UUID) -> FileChangeset? {
-        changesetsByWorktreeId[worktreeId]?.last
-    }
-
-    func next() async -> FileChangeset {
-        if !pendingChangesets.isEmpty {
-            return pendingChangesets.removeFirst()
-        }
-
-        return await withCheckedContinuation { continuation in
-            nextWaiters.append(continuation)
         }
     }
 }

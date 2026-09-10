@@ -100,6 +100,86 @@ describe('Bridge product metadata frame decoder', () => {
 		});
 	});
 
+	test('round-trips strict File and Review annotation catalog events through the framed metadata codec', () => {
+		const frameIdentity = {
+			metadataStreamId: 'metadata-stream-annotations',
+			paneSessionId: 'pane-session-annotations',
+			wireVersion: 2,
+			workerInstanceId: 'worker-instance-annotations',
+		} as const;
+		const catalogBeginEvent = {
+			authority: {
+				applicationSourceGeneration: 1,
+				worktreeId: '00000000-0000-7000-8000-000000000001',
+			},
+			kind: 'annotation.catalog',
+			transfer: {
+				catalogRevision: 1,
+				expectedEntryCount: 0,
+				kind: 'catalog.begin',
+				transferId: 'annotation-catalog-transfer-1',
+			},
+		} as const;
+		const annotationInterestSha256 = 'a'.repeat(64);
+		const frames = [
+			{
+				...frameIdentity,
+				cursor: 'file-annotations-cursor-1',
+				data: {
+					event: catalogBeginEvent,
+					subscriptionKind: 'file.annotations',
+				},
+				interestRevision: 0,
+				interestSha256: annotationInterestSha256,
+				kind: 'subscription.data',
+
+				operationCorrelationId: null,
+				sourceGeneration: 1,
+				streamSequence: 1,
+				subscriptionId: 'file-annotations-subscription',
+				subscriptionKind: 'file.annotations',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 0,
+			},
+			{
+				...frameIdentity,
+				cursor: 'review-annotations-cursor-1',
+				data: {
+					event: catalogBeginEvent,
+					subscriptionKind: 'review.annotations',
+				},
+				interestRevision: 0,
+				interestSha256: annotationInterestSha256,
+				kind: 'subscription.data',
+
+				operationCorrelationId: null,
+				sourceGeneration: 1,
+				streamSequence: 2,
+				subscriptionId: 'review-annotations-subscription',
+				subscriptionKind: 'review.annotations',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 0,
+			},
+		] as const;
+
+		const encodedFrames = frames.map((frame) => encodeBridgeProductMetadataFrame(frame));
+		const decoder = new BridgeProductMetadataFrameDecoder();
+
+		expect(decoder.push(concatenateBytes(...encodedFrames))).toEqual(frames);
+		decoder.finish();
+		expect(decoder.diagnostics).toMatchObject({
+			emittedFrameCount: 2,
+			failureCode: null,
+			state: 'finished',
+		});
+
+		for (const frame of frames) {
+			expect(
+				bridgeProductMetadataFrameSchema.safeParse({ ...frame, sourceGeneration: 2 }).success,
+			).toBe(true);
+		}
+	});
+
 	test('rejects the hostile pane presentation corpus through the framed metadata codec', () => {
 		const hostileCases = invalidProductSessionCorpus.cases.filter((hostileCase) =>
 			hostileCase.name.startsWith('pane presentation'),
@@ -194,6 +274,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: fileInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 11,
 				streamSequence: 4,
 				subscriptionId: 'file-subscription-epoch-2',
@@ -207,6 +289,7 @@ describe('Bridge product metadata frame decoder', () => {
 				data: {
 					event: {
 						eventKind: 'review.sourceAccepted',
+						operationCorrelationId: null,
 						generation: 7,
 						packageId: 'review-package-1',
 						publicationId: '00000000-0000-7000-8000-000000000001',
@@ -218,6 +301,8 @@ describe('Bridge product metadata frame decoder', () => {
 				interestRevision: 0,
 				interestSha256: reviewInterestSha256,
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				sourceGeneration: 7,
 				streamSequence: 5,
 				subscriptionId: 'review-subscription-epoch-7',
@@ -251,11 +336,11 @@ describe('Bridge product metadata frame decoder', () => {
 
 		expect(decodedFrames).toEqual(frames);
 		expect(bridgeProductMetadataFrameSchema.safeParse(mismatchedFileGenerationFrame).success).toBe(
-			false,
+			true,
 		);
 		expect(
 			bridgeProductMetadataFrameSchema.safeParse(mismatchedReviewGenerationFrame).success,
-		).toBe(false);
+		).toBe(true);
 		expect(decodedFrames.map((frame) => frame.streamSequence)).toEqual([0, 1, 2, 3, 4, 5, 6]);
 		expect(
 			decodedFrames

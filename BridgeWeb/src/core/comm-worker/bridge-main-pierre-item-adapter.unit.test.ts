@@ -91,6 +91,34 @@ describe('Bridge main Pierre item adapter', () => {
 		expect(retryPresentationItem.collapsed).toBeUndefined();
 		expect(retryPresentationItem.version).toBe(1_200);
 	});
+
+	test('replaces a painted Review item when its role-specific source descriptors change', () => {
+		// Arrange
+		const currentItem = makeReviewPresentationItem({ revision: 4, version: 12 });
+		const presentationItem = makeReviewPresentationItem({
+			revision: 4,
+			sourceDescriptorIdsByRole: {
+				base: 'descriptor-review-base',
+				diff: null,
+				file: null,
+				head: 'descriptor-review-head',
+			},
+			version: 1_200,
+		});
+
+		// Act
+		const prepared = prepareBridgeMainPierreItemForPresentation({
+			currentItem,
+			presentationItem,
+		});
+
+		// Assert
+		expect(prepared.residency).toBe('replaced');
+		expect(prepared.item).not.toBe(currentItem);
+		expect(prepared.item.bridgeMetadata.sourceDescriptorIdsByRole).toEqual(
+			presentationItem.bridgeMetadata.sourceDescriptorIdsByRole,
+		);
+	});
 });
 
 function makeFilePresentationItem(props: {
@@ -122,6 +150,7 @@ function makeFilePresentationItem(props: {
 function makeReviewPresentationItem(props: {
 	readonly collapsed?: boolean;
 	readonly revision: number;
+	readonly sourceDescriptorIdsByRole?: BridgeMainReviewPierreItem['bridgeMetadata']['sourceDescriptorIdsByRole'];
 	readonly version: number;
 }): BridgeMainReviewPierreItem {
 	const contentCacheKey = `review:${props.revision}`;
@@ -133,6 +162,9 @@ function makeReviewPresentationItem(props: {
 			displayPath: 'Sources/Review.ts',
 			itemId: 'review-item',
 			lineCount: 2,
+			...(props.sourceDescriptorIdsByRole === undefined
+				? {}
+				: { sourceDescriptorIdsByRole: props.sourceDescriptorIdsByRole }),
 		},
 		fileDiff: {
 			additionLines: [`export const revision = ${props.revision};`],

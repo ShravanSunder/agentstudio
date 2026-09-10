@@ -99,10 +99,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/health",
                     method: .get
@@ -111,6 +109,32 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     #expect(response.body.readableBytes == 0)
                 }
             }
+        }
+    }
+
+    @Test("health route reports unavailable after runtime readiness is lost")
+    func healthRouteReportsUnavailable() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-unavailable"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            // Act / Assert
+            try await withBridgeDevelopmentHTTPRouterTestClient(
+                host: host,
+                healthIsReady: { false },
+                test: { client in
+                    try await client.execute(
+                        uri: "/__bridge-product/health",
+                        method: .get
+                    ) { response in
+                        #expect(response.status == .serviceUnavailable)
+                        #expect(response.body.readableBytes == 0)
+                    }
+                })
         }
     }
 
@@ -124,14 +148,13 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
             let body = ByteBuffer(
                 string:
                     #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
             )
 
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -147,8 +170,170 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
-    @Test("command route forwards worker admission through the existing product adapter")
-    func commandRouteForwardsWorkerAdmission() async throws {
+    @Test("a second page cannot replace a session with an open metadata stream")
+    func secondPageCannotReplaceOpenMetadataStream() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-occupied-session")
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
+                let connection = try await openHTTPProductConnection(client: client)
+                let metadata = try await startHTTPMetadataStream(
+                    host: host, connection: connection, streamID: "occupied-session-stream"
+                )
+                do {
+                    _ = try await waitForAcknowledgedMetadataFrame(
+                        client: client, connection: connection, recorder: metadata.recorder
+                    ) { frame -> Bool? in
+                        if case .metadataStreamAccepted = frame { return true }
+                        return nil
+                    }
+                    // Act
+                    let response = try await client.execute(
+                        uri: "/__bridge-product/bootstrap", method: .post,
+                        headers: [.contentType: "application/json"],
+                        body: ByteBuffer(
+                            string:
+                                #"{"navigationIntent":{"commandId":"second-page","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                        )
+                    )
+                    // Assert: no new capability is issued; the original session still serves calls.
+                    #expect(response.status == .conflict)
+                    _ = try await queryHTTPFileSource(client: client, connection: connection, requestSequence: 2)
+                } catch {
+                    try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+                    throw error
+                }
+                try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+            }
+        }
+    }
+
+    @MainActor
+    @Test("first Review bootstrap does not create eager shared content files")
+    func firstReviewBootstrapDoesNotCreateEagerSharedContentFiles() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-review-bootstrap"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let dataRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-http-review-data-\(PaneId.generateUUIDv7().uuid.uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: dataRoot) }
+        let harness = try await makeHTTPDevelopmentServerHarness(
+            dataRoot: dataRoot,
+            worktreeRoot: repositoryURL
+        )
+
+        // Act / Assert
+        try await withDevelopmentServerHarness(harness) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: harness.host) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"dev:worktree:review","commandKind":"activateContext","surface":"review"},"reason":"initial"}"#
+                    )
+                ) { response in
+                    #expect(response.status == .ok)
+                    _ = try decodeHTTPBootstrapEnvelope(
+                        Data(response.body.readableBytesView)
+                    )
+                }
+            }
+
+            let sharedContentRoot = dataRoot.appending(path: "bridge-review-content")
+            #expect(!FileManager.default.fileExists(atPath: sharedContentRoot.path))
+        }
+    }
+
+    @Test("a cold File target publishes activation before File source discovery")
+    func coldFileTargetPublishesActivationBeforeSourceDiscovery() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-file-target-startup")
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
+                let connection = try await openHTTPProductConnection(
+                    client: client,
+                    bootstrapRequestBody: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"open-cold-file-target","commandKind":"activateTarget","surface":"file","target":{"targetKind":"file","path":"startup.txt","version":"current"}},"reason":"initial"}"#
+                    )
+                )
+                let metadata = try await startHTTPMetadataStream(
+                    host: host,
+                    connection: connection,
+                    streamID: "cold-file-target-metadata"
+                )
+                do {
+                    // Act — open only the carrier, with no File discovery or Review publication.
+                    _ = try await waitForAcknowledgedMetadataFrame(
+                        client: client,
+                        connection: connection,
+                        recorder: metadata.recorder
+                    ) { frame -> Bool? in
+                        if case .metadataStreamAccepted = frame { return true }
+                        return nil
+                    }
+                    let coordinator = await host.productProvider.metadataCoordinator
+                    await coordinator.replayPaneSurfaceSelectionRequest()
+                    let observationBoundary = BridgePaneSurfaceSelectionRequest(
+                        navigationCommand: .activateContext(
+                            commandId: "startup-observation-boundary",
+                            bindingRevision: 100,
+                            surface: .review
+                        ),
+                        paneSessionId: connection.bootstrap.paneSessionId,
+                        workerInstanceId: connection.bootstrap.workerInstanceId
+                    )
+                    #expect(
+                        await coordinator.publishPaneSurfaceSelectionRequest(
+                            observationBoundary,
+                            productAdmission: host.productAdmission,
+                            streamAbsenceDisposition: .reject
+                        )
+                    )
+                    let firstSelection = try await waitForAcknowledgedMetadataFrame(
+                        client: client,
+                        connection: connection,
+                        recorder: metadata.recorder
+                    ) { frame -> BridgeProductNavigationCommand? in
+                        guard case .paneSurfaceSelectionRequested(let selection) = frame else { return nil }
+                        return selection.navigationCommand
+                    }
+
+                    // Assert — the initial File context precedes the boundary without a source-bound target.
+                    guard case .activateContext(let commandID, let bindingRevision, let surface) = firstSelection else {
+                        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+                    }
+                    #expect(surface == .file)
+                    #expect(bindingRevision == 1)
+                    #expect(commandID != "open-cold-file-target")
+                    #expect(await host.diagnosticCommittedReviewPublication() == nil)
+                } catch {
+                    try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+                    throw error
+                }
+                try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+            }
+        }
+    }
+
+    @Test(
+        "command route honors the advertised product body budget",
+        arguments: ["normal", "at_limit", "over_limit"]
+    )
+    func commandRouteForwardsWorkerAdmission(bodySize: String) async throws {
         // Arrange
         let repositoryURL = try FilesystemTestGitRepo.create(
             named: "bridge-development-http-command"
@@ -157,10 +342,8 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
-            let application = BridgeDevelopmentHTTPApplication.make(host: host)
-
             // Act / Assert
-            try await application.test(.router) { client in
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
                 let bootstrapResponse = try await client.execute(
                     uri: "/__bridge-product/bootstrap",
                     method: .post,
@@ -176,7 +359,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                 let capability = try BridgeProductCapabilityHeaderEncoding.encode(
                     Array(envelope.capabilityBytes)
                 )
-                let requestBody = try JSONSerialization.data(
+                var requestBody = try JSONSerialization.data(
                     withJSONObject: [
                         "kind": "workerSession.open",
                         "paneSessionId": envelope.bootstrap.paneSessionId,
@@ -188,6 +371,12 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     ],
                     options: [.sortedKeys]
                 )
+                if bodySize != "normal" {
+                    let targetSize =
+                        envelope.bootstrap.policy.maximumRequestBodyBytes + (bodySize == "over_limit" ? 1 : 0)
+                    try #require(targetSize >= requestBody.count)
+                    requestBody.append(Data(repeating: 0x20, count: targetSize - requestBody.count))
+                }
                 let capabilityHeader = try #require(
                     HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
                 )
@@ -200,6 +389,10 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     ],
                     body: ByteBuffer(data: requestBody)
                 ) { response in
+                    if bodySize == "over_limit" {
+                        #expect(response.status == .contentTooLarge)
+                        return
+                    }
                     #expect(response.status == .ok)
                     #expect(response.headers[.contentType] == "application/json")
                     let controlResponse = try BridgeProductStrictJSON.decode(
@@ -330,6 +523,55 @@ private func makeHTTPDevelopmentProductHost(
     )
 }
 
+@MainActor
+private struct HTTPDevelopmentServerHarness {
+    let composition: BridgeDevelopmentServerCoreComposition
+    let host: BridgeDevelopmentProductHost
+}
+
+@MainActor
+private func makeHTTPDevelopmentServerHarness(
+    dataRoot: URL,
+    worktreeRoot: URL
+) async throws -> HTTPDevelopmentServerHarness {
+    let configuration = try BridgeDevelopmentServerConfiguration(
+        dataRoot: dataRoot,
+        paneID: PaneId.generateUUIDv7().uuid,
+        port: 43_871,
+        seedContributionTarget: .ref(name: "HEAD"),
+        seedWorktreeRoot: worktreeRoot
+    )
+    let composition = try await BridgeDevelopmentServerCoreComposition.prepare(
+        configuration: configuration
+    )
+    let host = try await BridgeDevelopmentProductHost(
+        source: composition.productSource,
+        worktreeAnnotationStore: composition.worktreeAnnotationStore,
+        worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+        contributionTargetCommit: { target in
+            composition.applyContributionTarget(target)
+        }
+    )
+    return HTTPDevelopmentServerHarness(composition: composition, host: host)
+}
+
+@MainActor
+private func withDevelopmentServerHarness<Result>(
+    _ harness: HTTPDevelopmentServerHarness,
+    operation: () async throws -> Result
+) async throws -> Result {
+    do {
+        let result = try await operation()
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        return result
+    } catch {
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        throw error
+    }
+}
+
 private func withDevelopmentHost<Result>(
     _ host: BridgeDevelopmentProductHost,
     operation: () async throws -> Result
@@ -357,12 +599,12 @@ private actor BridgeDevelopmentHTTPBodyRecorder: ResponseBodyWriter {
     }
 }
 
-private struct DecodedHTTPBootstrapEnvelope {
+struct DecodedHTTPBootstrapEnvelope {
     let bootstrap: BridgeProductSessionBootstrap
     let capabilityBytes: Data
 }
 
-private func decodeHTTPBootstrapEnvelope(
+func decodeHTTPBootstrapEnvelope(
     _ data: Data
 ) throws -> DecodedHTTPBootstrapEnvelope {
     let envelopeVersionByteCount = 1

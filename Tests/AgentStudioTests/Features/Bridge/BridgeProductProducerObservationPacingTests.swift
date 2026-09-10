@@ -147,8 +147,8 @@ struct BridgeProductProducerObservationPacingTests {
         try await fixtureB.close()
     }
 
-    @Test("a later same-lease observation wait supersedes the predecessor without failing")
-    func laterSameLeaseObservationWaitSupersedesPredecessor() async throws {
+    @Test("same-lease observation waits settle independently from one high-water")
+    func sameLeaseObservationWaitsSettleIndependently() async throws {
         // Arrange
         let registrationRecorder = ProducerObservationPacingRegistrationRecorder()
         let harness = try await BridgeProductSessionLifecycleHarness.opened(
@@ -213,13 +213,125 @@ struct BridgeProductProducerObservationPacingTests {
         )
 
         // Assert
-        #expect(!(await predecessorWait.value))
+        #expect(await predecessorWait.value)
         #expect(await successorWait.value)
         #expect(
             (await fixture.harness.session.producerSnapshot())
                 .pendingProducerObservationPacingWaiterCount == 0
         )
         try await fixture.close()
+    }
+
+    @Test("cancelling one same-lease wait preserves the other wait")
+    func cancellingOneSameLeaseWaitPreservesOtherWait() async throws {
+        // Arrange
+        let registrationRecorder = ProducerObservationPacingRegistrationRecorder()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            producerObservationPacingRegistrationObserver: { lease, sequence in
+                registrationRecorder.record(lease: lease, sequence: sequence)
+            }
+        )
+        let fixture = try await ProducerObservationPacingFixture.opened(
+            identifier: "same-lease-cancellation",
+            sourceByte: 0x61,
+            harness: harness
+        )
+        #expect(
+            await fixture.harness.session.acknowledgeProducerFrameObserved(
+                fixture.delivery.receipt
+            )
+        )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let firstFrame = try await fixture.enqueueDataFrame(
+            payload: 0x62,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+        let secondFrame = try await fixture.enqueueDataFrame(
+            payload: 0x63,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+        let firstDelivery = try await producerPacingFrameDelivery(
+            for: fixture.lease,
+            from: fixture.harness.session,
+            productAdmission: fixture.harness.productAdmission.context
+        )
+        let cancelledWait = fixture.startWaitingForObservation(sequence: firstFrame.sequence)
+        let retainedWait = fixture.startWaitingForObservation(sequence: secondFrame.sequence)
+        #expect(
+            await registrationRecorder.waitUntilRecorded(
+                lease: fixture.lease,
+                sequence: firstFrame.sequence
+            )
+        )
+        #expect(
+            await registrationRecorder.waitUntilRecorded(
+                lease: fixture.lease,
+                sequence: secondFrame.sequence
+            )
+        )
+        #expect(await waitForProducerPacingWaiterCount(2, session: fixture.harness.session))
+
+        // Act
+        cancelledWait.cancel()
+        #expect(!(await cancelledWait.value))
+        #expect(await waitForProducerPacingWaiterCount(1, session: fixture.harness.session))
+        #expect(
+            await fixture.harness.session.acknowledgeProducerFrameObserved(
+                firstDelivery.receipt
+            )
+        )
+        let secondDelivery = try await producerPacingFrameDelivery(
+            for: fixture.lease,
+            from: fixture.harness.session,
+            productAdmission: fixture.harness.productAdmission.context
+        )
+        #expect(
+            await fixture.harness.session.acknowledgeProducerFrameObserved(
+                secondDelivery.receipt
+            )
+        )
+
+        // Assert
+        #expect(await retainedWait.value)
+        #expect(
+            (await fixture.harness.session.producerSnapshot())
+                .pendingProducerObservationPacingWaiterCount == 0
+        )
+        try await fixture.close()
+    }
+
+    @Test("producer retirement cancels every same-lease observation wait")
+    func producerRetirementCancelsEverySameLeaseWait() async throws {
+        // Arrange
+        let fixture = try await ProducerObservationPacingFixture.opened(
+            identifier: "same-lease-retirement",
+            sourceByte: 0x61
+        )
+        #expect(
+            await fixture.harness.session.acknowledgeProducerFrameObserved(
+                fixture.delivery.receipt
+            )
+        )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let firstFrame = try await fixture.enqueueDataFrame(
+            payload: 0x62,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+        let secondFrame = try await fixture.enqueueDataFrame(
+            payload: 0x63,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+        let firstWait = fixture.startWaitingForObservation(sequence: firstFrame.sequence)
+        let secondWait = fixture.startWaitingForObservation(sequence: secondFrame.sequence)
+        #expect(await waitForProducerPacingWaiterCount(2, session: fixture.harness.session))
+
+        // Act
+        try await fixture.harness.closeProducer(fixture.lease)
+
+        // Assert
+        #expect(!(await firstWait.value))
+        #expect(!(await secondWait.value))
+        #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 }
 
@@ -363,6 +475,7 @@ private func producerPacingContentRequest(
         ],
         "kind": "content.open",
         "leaseId": "lease-\(identifier)",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "wireVersion": BridgeProductWireContract.version,
         "workerDerivationEpoch": 1,

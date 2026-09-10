@@ -186,7 +186,7 @@ EntityRecencyStore (application local.sqlite)
 ├── ApplicationEntityRecencyAtom       ← global repository/worktree rows
 └── WorkspaceEntityRecencyAtom         ← workspace-keyed pane rows
 
-WorkspaceSQLiteDatastore (authoritative core.sqlite + non-authoritative app-root local.sqlite)
+WorkspaceSQLiteDatastoreActor (authoritative core.sqlite + non-authoritative app-root local.sqlite)
 ├── WorkspaceCoreRepository            ← authoritative graph/topology rows
 ├── cached WorkspaceLocalRepository    ← active local UX/cache plus dormant retained Inbox rows
 └── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not a row projection
@@ -288,7 +288,7 @@ only under [`archive/`](archive/README.md).
 | [Bridge Product Transport](bridge/bridge_product_transport_architecture.md) | Native/web product transport |
 | [Bridge Native Runtime](bridge/bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime |
 | [Bridge Web Runtime](bridge/bridge_web_runtime_architecture.md) | BridgeWeb runtime |
-| [BridgeWeb Design Tokens](bridge/bridgeweb_design_token_architecture.md) | Token layer ownership |
+| [BridgeWeb Design Tokens and Component Language](bridge/bridgeweb_design_token_architecture.md#component-language-contract) | Visual hierarchy, composition, token ownership and proof |
 
 ### observability/
 

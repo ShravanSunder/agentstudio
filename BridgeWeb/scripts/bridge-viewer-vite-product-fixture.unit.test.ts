@@ -1,6 +1,46 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
-import { rejectOwnedViteStartupAfterCleanup } from '../tests/e2e/bridge-viewer-vite-product-fixture.ts';
+import {
+	createBridgeViewerViteProductFixture,
+	rejectOwnedViteStartupAfterCleanup,
+} from '../tests/e2e/bridge-viewer-vite-product-fixture.ts';
+
+describe('Bridge Viewer reviewed-head fixture', () => {
+	test('constructs the commit range privately and leaves the observed worktree bytes unchanged', async () => {
+		// Arrange
+		const fixture = await createBridgeViewerViteProductFixture();
+		const affectedPath = fixture.oracle.reviewFiles[0]?.path;
+		if (affectedPath === undefined)
+			throw new Error('Reviewed-head fixture requires one Review file.');
+		const initialBody = await readFile(join(fixture.oracle.worktreeRoot, affectedPath), 'utf8');
+
+		try {
+			// Act
+			const firstAdvance = await fixture.advanceReviewedHeadByCommitCount(10);
+			const secondAdvance = await fixture.advanceReviewedHeadByCommitCount(10);
+
+			// Assert
+			expect(firstAdvance).toMatchObject({
+				importedCommitCount: 10,
+				previousHeadOID: fixture.oracle.baseRef,
+			});
+			expect(firstAdvance.finalHeadOID).toMatch(/^[0-9a-f]{40}$/u);
+			expect(secondAdvance).toMatchObject({
+				importedCommitCount: 10,
+				previousHeadOID: firstAdvance.finalHeadOID,
+			});
+			expect(secondAdvance.finalHeadOID).not.toBe(firstAdvance.finalHeadOID);
+			expect(await readFile(join(fixture.oracle.worktreeRoot, affectedPath), 'utf8')).toBe(
+				initialBody,
+			);
+		} finally {
+			await fixture.dispose();
+		}
+	});
+});
 
 describe('Bridge Viewer owned Vite startup cleanup', () => {
 	test('does not reject startup until forced termination has an observed exit', async () => {

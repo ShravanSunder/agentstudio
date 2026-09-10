@@ -37,6 +37,30 @@ struct VendorConsumerWiringScriptTests {
             "test:swift:benchmark must verify vendors before compiling in its own slot")
     }
 
+    @Test("Bridge development server task delegates vendor verification to its direct script")
+    func bridgeDevelopmentServerTaskDoesNotDuplicateVendorVerification() throws {
+        // Arrange
+        let taskSource = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let buildScriptSource = try String(
+            contentsOfFile: "scripts/build-bridge-development-server.sh",
+            encoding: .utf8)
+        let task = try #require(
+            taskBlock(named: "build-bridge-development-server", in: taskSource),
+            "Missing mise task build-bridge-development-server")
+
+        // Act
+        let scriptVerificationOffset = try #require(
+            vendorVerificationOffset(in: buildScriptSource),
+            "Bridge development server build script must verify vendors")
+        let swiftBuildOffset = try #require(
+            buildScriptSource.range(of: "swift build")?.lowerBound,
+            "Bridge development server build script must invoke swift build")
+
+        // Assert
+        #expect(!task.contains("depends = [\"verify-vendors\"]"))
+        #expect(scriptVerificationOffset < swiftBuildOffset)
+    }
+
     @Test("direct scripts verify before build test packaging signing or launch")
     func directScriptsVerifyBeforeConsumption() throws {
         // Arrange

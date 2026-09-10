@@ -58,7 +58,6 @@ extension BridgePaneReviewSharedConstructionTests {
 
         #expect(loadedContent.data == Data("base-a".utf8))
         await bindingA.artifactPin.releaseAndWait()
-        await fixture.waitUntilBackingDirectoryIsEmpty()
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
     }
 }

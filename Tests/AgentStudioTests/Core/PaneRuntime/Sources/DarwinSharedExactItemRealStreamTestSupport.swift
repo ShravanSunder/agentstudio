@@ -11,7 +11,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     let firstRepositoryPath: URL
     let secondRepositoryPath: URL
     let externalParentPath: String
-    let includedConfigurationPath: URL
     let excludesFilePath: URL
     let unrelatedSiblingPath: URL
     let nativeStreamRecorder: NativeSharedExactItemStreamRecorder
@@ -32,17 +31,11 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         secondRepositoryPath = fixtureRoot.appending(path: "second-repository", directoryHint: .isDirectory)
         let externalParent = fixtureRoot.appending(path: "external", directoryHint: .isDirectory)
         exactItemParent = SharedExactItemParent(initialURL: externalParent)
-        includedConfigurationPath = externalParent.appending(path: "included.gitconfig")
         unrelatedSiblingPath = externalParent.appending(path: "unrelated.txt")
         excludesFilePath = externalParent.appending(path: "global-excludes")
 
         try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
-        try "[core]\n\tfilemode = false\n".write(
-            to: includedConfigurationPath,
-            atomically: true,
-            encoding: .utf8
-        )
         try "ignored.txt\n".write(
             to: excludesFilePath,
             atomically: true,
@@ -50,12 +43,10 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         )
         try Self.initializeRepository(
             at: firstRepositoryPath,
-            includedConfigurationPath: includedConfigurationPath,
             excludesFilePath: excludesFilePath
         )
         try Self.initializeRepository(
             at: secondRepositoryPath,
-            includedConfigurationPath: includedConfigurationPath,
             excludesFilePath: excludesFilePath
         )
 
@@ -174,17 +165,17 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     func perform(_ mutation: SharedExactItemReplacementMutation) throws {
         switch mutation {
         case .delete:
-            try FileManager.default.removeItem(at: includedConfigurationPath)
+            try FileManager.default.removeItem(at: excludesFilePath)
         case .rename:
             try FileManager.default.moveItem(
-                at: includedConfigurationPath,
-                to: includedConfigurationPath.deletingLastPathComponent().appending(
-                    path: "renamed.gitconfig"
+                at: excludesFilePath,
+                to: excludesFilePath.deletingLastPathComponent().appending(
+                    path: "renamed-excludes"
                 )
             )
         case .atomicReplacement:
-            try "[core]\n\tfilemode = true\n".write(
-                to: includedConfigurationPath,
+            try "ignored.txt\nanother-ignored.txt\n".write(
+                to: excludesFilePath,
                 atomically: true,
                 encoding: .utf8
             )
@@ -197,18 +188,16 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             directoryHint: .isDirectory
         )
         try FileManager.default.moveItem(
-            at: includedConfigurationPath.deletingLastPathComponent(),
+            at: excludesFilePath.deletingLastPathComponent(),
             to: replacementParent
         )
         return replacementParent
     }
 
     func pointRepositoriesToExternalParent(_ replacementParent: URL) throws {
-        let replacementConfiguration = replacementParent.appending(path: includedConfigurationPath.lastPathComponent)
         let replacementExcludes = replacementParent.appending(path: excludesFilePath.lastPathComponent)
         for repositoryPath in [firstRepositoryPath, secondRepositoryPath] {
             let git = IsolatedGitProcess(repositoryPath: repositoryPath)
-            try git.run(["config", "include.path", replacementConfiguration.path])
             try git.run(["config", "core.excludesFile", replacementExcludes.path])
         }
         exactItemParent.replace(with: replacementParent)
@@ -257,7 +246,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
 
     private static func initializeRepository(
         at repositoryPath: URL,
-        includedConfigurationPath: URL,
         excludesFilePath: URL
     ) throws {
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
@@ -270,7 +258,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         )
         try git.run(["add", "README.md"])
         try git.run(["commit", "-m", "initial"])
-        try git.run(["config", "include.path", includedConfigurationPath.path])
         try git.run(["config", "core.excludesFile", excludesFilePath.path])
     }
 

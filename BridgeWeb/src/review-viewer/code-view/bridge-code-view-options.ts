@@ -45,6 +45,8 @@ function bridgeReviewChangeIndicatorsFromCodeViewOptions(
 }
 
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
+	// A scroll-triggered pointer blackout drops gutter drags and first plus clicks.
+	pointerEventsOnScroll: true,
 	theme: {
 		dark: bridgePierreDarkThemeName,
 		light: bridgePierreDarkThemeName,
@@ -80,14 +82,12 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	},
 	unsafeCSS: `
 		[data-diffs-header] {
-			--diffs-addition-base: var(--bridge-added);
-			--diffs-deletion-base: var(--bridge-deleted);
-			--diffs-modified-base: var(--bridge-accent);
-			--diffs-fg: var(--bridge-text-primary);
-			--diffs-fg-number: var(--bridge-text-muted);
-			container-type: scroll-state;
-			container-name: bridge-code-view-sticky-header;
-			background-color: var(--bridge-surface-bg);
+			--diffs-addition-base: var(--success);
+			--diffs-deletion-base: var(--destructive);
+			--diffs-modified-base: var(--primary);
+			--diffs-fg: var(--code-foreground);
+			--diffs-fg-number: var(--faint-foreground);
+			background-color: var(--file-header);
 			cursor: default;
 			height: 40px;
 			min-height: 40px;
@@ -104,6 +104,18 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			cursor: pointer;
 		}
 
+		[data-line-annotation],
+		[data-gutter-buffer='annotation'] {
+			--diffs-annotation-bg: var(--annotation-lane-background);
+		}
+
+		[data-line-annotation][data-selected-line],
+		[data-gutter-buffer='annotation'][data-selected-line] {
+			--diffs-annotation-bg: var(--annotation-lane-active-background);
+			--diffs-computed-selected-line-bg: var(--diffs-annotation-bg);
+			--diffs-line-bg: var(--diffs-annotation-bg);
+		}
+
 		[data-diffs-header] [data-additions-count],
 		[data-diffs-header] [data-deletions-count] {
 			display: none;
@@ -111,27 +123,16 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 
 		[data-diffs-header='default'] {
 			align-items: center;
-			border-block: 1px solid var(--bridge-border-subtle);
-			color: var(--bridge-text-secondary);
+			border-block-start: 1px solid var(--separator);
+			color: var(--muted-foreground);
 			padding-inline: 12px;
 		}
 
 		[data-diffs-header='default'] [data-title],
 		[data-diffs-header='default'] [data-prev-name] {
-			color: var(--bridge-text-secondary);
+			color: var(--muted-foreground);
 			font-weight: 500;
 		}
 
-		@container bridge-code-view-sticky-header scroll-state(stuck: top) {
-			[data-diffs-header]::after {
-				position: absolute;
-				bottom: -1px;
-				left: 0;
-				width: 100%;
-				height: 1px;
-				content: '';
-				background-color: var(--bridge-border-opaque);
-			}
-		}
 	`,
 };

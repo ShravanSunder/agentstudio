@@ -297,10 +297,10 @@ final class AppCommandTests {
     }
 
     @Test
-    func test_toggleSidebar_isVisibleInCommandBar() {
+    func test_toggleSidebar_isVisibleInCommandBarAndAppToolbar() {
         let definition = AppCommandDispatcher.shared.definition(for: .toggleSidebar)
         #expect(definition.surfacePolicy.exposes(.commandBar))
-        #expect(definition.surfacePolicy == .exposed([.commandBar]))
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
         #expect(definition.targeting == .contextual)
     }
 

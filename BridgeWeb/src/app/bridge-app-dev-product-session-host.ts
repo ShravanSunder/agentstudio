@@ -21,6 +21,7 @@ export interface BridgeAppDevProductSessionHostProps {
 	readonly fetchBootstrap?: typeof fetch;
 	readonly fetchHealth?: typeof fetch;
 	readonly navigationIntent: BridgeProductDevNavigationIntent;
+	readonly onSessionInUse?: () => void;
 	readonly reloadPage?: () => void;
 	readonly target?: BridgeAppDevProductSessionTarget;
 	readonly waitForHealthProbe?: (signal: AbortSignal) => Promise<void>;
@@ -29,6 +30,7 @@ export interface BridgeAppDevProductSessionHostProps {
 type InitialBootstrapOutcome = 'failed' | 'pending' | 'succeeded';
 
 class BridgeDevelopmentBootstrapTransportUnavailableError extends Error {}
+class BridgeDevelopmentSessionInUseError extends Error {}
 
 const bridgeDevelopmentBackendUnavailableMessage = 'Bridge development backend unavailable';
 const bridgeDevelopmentHealthProbeIntervalMilliseconds = 250;
@@ -149,16 +151,17 @@ export function installBridgeAppDevProductSessionHost(
 					}
 				},
 				(error: unknown): void => {
-					if (
-						isInstalled &&
-						issuedRequestSequence === requestSequence &&
-						request.reason === 'initial'
-					) {
+					if (!isInstalled || issuedRequestSequence !== requestSequence) return;
+					if (error instanceof BridgeDevelopmentSessionInUseError) {
+						props.onSessionInUse?.();
+						return;
+					}
+					if (request.reason === 'initial') {
 						initialBootstrapOutcome = 'failed';
 						acknowledgePendingReadyRequestsIfResolved();
-						if (error instanceof BridgeDevelopmentBootstrapTransportUnavailableError) {
-							startHealthProbing();
-						}
+					}
+					if (error instanceof BridgeDevelopmentBootstrapTransportUnavailableError) {
+						startHealthProbing();
 					}
 				},
 			)
@@ -275,6 +278,10 @@ async function fetchRegisteredBootstrap(props: {
 		throw new BridgeDevelopmentBootstrapTransportUnavailableError(
 			'Bridge product development backend is unavailable.',
 		);
+	}
+	if (response.status === 409) {
+		await response.body?.cancel();
+		throw new BridgeDevelopmentSessionInUseError('This dev server is open elsewhere.');
 	}
 	if (
 		!response.ok ||

@@ -183,6 +183,18 @@ describe('Bridge verifier product File session', () => {
 			const secondDescriptor = await session.demandDescriptor(secondTargetPath);
 			const repeatedDescriptor = await session.demandDescriptor(targetPath);
 			const content = await session.openContent(descriptor);
+			await writeFile(
+				join(bridgeDevelopmentServerWorktreeRootPath, 'README.md'),
+				'# Agent Studio\n\nUpdated through the live development backend.\n',
+			);
+			if (descriptor.availability.availabilityKind !== 'available') {
+				throw new Error('Expected the original README descriptor to be available.');
+			}
+			const refresh = await session.waitForRefresh(
+				targetPath,
+				descriptor.availability.contentDescriptor.descriptorId,
+			);
+			const replacementContent = await session.openContent(refresh.descriptor);
 			await session.close();
 			await metadataStreamClosed;
 
@@ -196,6 +208,11 @@ describe('Bridge verifier product File session', () => {
 			expect(repeatedDescriptor).toBe(descriptor);
 			expect(content.byteLength).toBeGreaterThan(0);
 			expect(new TextDecoder().decode(content.bytes)).toContain('Agent Studio');
+			expect(refresh.invalidation.reason).toBe('contentChanged');
+			expect(refresh.status.patch).toMatchObject({ patchKind: 'summary', unstaged: 1 });
+			expect(new TextDecoder().decode(replacementContent.bytes)).toContain(
+				'Updated through the live development backend.',
+			);
 			expect(session.state).toBe('closed');
 		},
 		productFileSessionTestTimeoutMilliseconds,

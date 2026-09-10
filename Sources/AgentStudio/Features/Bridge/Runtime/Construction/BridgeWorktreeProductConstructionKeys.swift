@@ -231,6 +231,7 @@ struct BridgePreparedReviewFileIdentityKey: Hashable, Sendable {
 
 struct BridgeReviewConstructionKey: Hashable, Sendable {
     let owner: BridgeWorktreeProductOwnerKey
+    let attemptAuthorityGeneration: UInt64
     let queryKind: BridgeReviewQueryKindKey
     let comparisonSemantics: BridgeReviewComparisonSemanticsKey
     let canonicalWorkingDirectoryIdentity: String
@@ -246,6 +247,7 @@ struct BridgeReviewConstructionKey: Hashable, Sendable {
 
     init(
         owner: BridgeWorktreeProductOwnerKey,
+        attemptAuthorityGeneration: UInt64 = 0,
         queryKind: BridgeReviewQueryKindKey,
         comparisonSemantics: BridgeReviewComparisonSemanticsKey,
         canonicalWorkingDirectoryIdentity: String,
@@ -260,6 +262,7 @@ struct BridgeReviewConstructionKey: Hashable, Sendable {
         checkpoint: BridgeReviewCheckpointSemanticsKey?
     ) {
         self.owner = owner
+        self.attemptAuthorityGeneration = attemptAuthorityGeneration
         self.queryKind = queryKind
         self.comparisonSemantics = comparisonSemantics
         self.canonicalWorkingDirectoryIdentity = canonicalWorkingDirectoryIdentity

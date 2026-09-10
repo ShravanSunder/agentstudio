@@ -37,6 +37,7 @@ struct BridgeProductReviewMetadataContractTests {
             ],
         ]
         delta["presentationRevision"] = 19
+        addReviewRefreshImpact(to: &delta)
         delta["reviewComparison"] = reviewComparisonPresentationObject()
         delta["summary"] = reviewSummaryObject()
         delta["toRevision"] = 11
@@ -49,6 +50,7 @@ struct BridgeProductReviewMetadataContractTests {
 
         var reset = reviewIdentityObject(eventKind: "review.reset")
         reset["reason"] = "providerRestart"
+        addReviewRefreshImpact(to: &reset)
 
         let eventObjects = [
             reviewIdentityObject(eventKind: "review.sourceAccepted"),
@@ -178,8 +180,8 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(throws: (any Error).self) { try decodeReviewMetadataEvent(window) }
     }
 
-    @Test("carries comparison commit fields only on terminal Review barriers")
-    func enforcesReviewComparisonCommitBarrier() throws {
+    @Test("separates leading candidate impact from terminal comparison commit")
+    func enforcesReviewCandidateStartAndComparisonCommitBarriers() throws {
         var terminalSnapshot = reviewSnapshotObject()
         terminalSnapshot["reviewComparison"] = NSNull()
         guard case .snapshot(let decodedTerminal) = try decodeReviewMetadataEvent(terminalSnapshot) else {
@@ -188,6 +190,21 @@ struct BridgeProductReviewMetadataContractTests {
         }
         #expect(decodedTerminal.presentationRevision == 19)
         #expect(decodedTerminal.reviewComparison == nil)
+
+        var unknownImpactReset = reviewIdentityObject(eventKind: "review.reset")
+        unknownImpactReset["reason"] = "sourceChanged"
+        unknownImpactReset["preDeliveryPresentationClass"] = ["kind": "promoted", "reason": "unknown"]
+        unknownImpactReset["newlyImportedCommitCount"] = NSNull()
+        unknownImpactReset["affectedFileCount"] = NSNull()
+        unknownImpactReset["addedLineCount"] = NSNull()
+        unknownImpactReset["deletedLineCount"] = NSNull()
+        unknownImpactReset["affectedStableFileIdentities"] = []
+        guard case .reset(let decodedUnknownImpact) = try decodeReviewMetadataEvent(unknownImpactReset) else {
+            Issue.record("Expected leading Review reset with unknown impact")
+            return
+        }
+        #expect(decodedUnknownImpact.refreshImpact?.preDeliveryPresentationClass == .promoted(reason: .unknown))
+        #expect(decodedUnknownImpact.refreshImpact?.newlyImportedCommitCount == nil)
 
         for missingKey in ["presentationRevision", "reviewComparison"] {
             var invalidTerminal = reviewSnapshotObject()
@@ -218,12 +235,18 @@ struct BridgeProductReviewMetadataContractTests {
             }
         }
 
-        for missingKey in ["presentationRevision", "reviewComparison"] {
+        for missingKey in ["presentationRevision", "reviewComparison"] + reviewRefreshImpactWireKeys {
             var invalidDelta = reviewDeltaObject()
             invalidDelta.removeValue(forKey: missingKey)
             #expect(throws: (any Error).self) {
                 try decodeReviewMetadataEvent(invalidDelta)
             }
+        }
+
+        var invalidTerminalImpact = reviewSnapshotObject()
+        addReviewRefreshImpact(to: &invalidTerminalImpact)
+        #expect(throws: (any Error).self) {
+            try decodeReviewMetadataEvent(invalidTerminalImpact)
         }
     }
 
@@ -309,6 +332,7 @@ private func reviewIdentityObject(eventKind: String) -> [String: Any] {
     [
         "eventKind": eventKind,
         "generation": 7,
+        "operationCorrelationId": NSNull(),
         "packageId": "review-package-1",
         "publicationId": "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa",
         "revision": 11,
@@ -368,10 +392,29 @@ private func reviewDeltaObject(
     delta["fromRevision"] = 10
     delta["operations"] = operations
     delta["presentationRevision"] = 19
+    addReviewRefreshImpact(to: &delta)
     delta["reviewComparison"] = reviewComparisonPresentationObject()
     delta["summary"] = reviewSummaryObject()
     delta["toRevision"] = 11
     return delta
+}
+
+private let reviewRefreshImpactWireKeys = [
+    "preDeliveryPresentationClass",
+    "newlyImportedCommitCount",
+    "affectedFileCount",
+    "addedLineCount",
+    "deletedLineCount",
+    "affectedStableFileIdentities",
+]
+
+private func addReviewRefreshImpact(to event: inout [String: Any]) {
+    event["preDeliveryPresentationClass"] = ["kind": "ordinary"]
+    event["newlyImportedCommitCount"] = 0
+    event["affectedFileCount"] = 0
+    event["addedLineCount"] = 0
+    event["deletedLineCount"] = 0
+    event["affectedStableFileIdentities"] = []
 }
 
 private func reviewComparisonPresentationObject() -> [String: Any] {
@@ -529,6 +572,7 @@ private func reviewMetadataFrameObject(event: [String: Any]) -> [String: Any] {
         "interestSha256": String(repeating: "a", count: 64),
         "kind": "subscription.data",
         "metadataStreamId": "metadata-stream-1",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "sourceGeneration": 7,
         "streamSequence": 1,

@@ -138,7 +138,7 @@ At ordinary boot the owner hydrates factual rows/cursors, binds the complete cur
 
 At first cutover, one temporary replay stream per volume is created inside the same `DarwinFSEventStreamClient` owner. It uses `FSEventsGetLastEventIdForDeviceBeforeTime(device, cutoff)` and `FSEventStreamCreateRelativeToDevice` with `FullHistory` across the current repository/worktree scopes. `HistoryDone` plus zero loss/wrap/root/scope flags proves coverage from the cutoff; journal retention failure remains unknown. Historical events do not carry source time, so any qualifying historical event conservatively records replay-completion time, while a complete replay with no qualifying event may set `continuous_coverage_started_at` to the cutoff. The temporary stream remains live until current worktree/shared streams cross its handoff watermark, preventing a replay/live gap, then retires. Recursive repository scans and absence-only Git/reflog inference remain forbidden.
 
-Live owned-fetch attribution is structural. Streams request `MarkSelf`. The `agentstudio-git` hard cut moves only final canonical remote-ref promotion from child `git update-ref` into an in-process libgit2 multi-ref transaction: lock every captured ref, re-read and compare the captured old targets under lock, apply the complete update/delete set, and atomically commit. Private child-written staging refs remain identifiable by the reserved package namespace and are excluded from activity without suppressing correctness. Before promotion, the store durably installs the owned-promotion marker. Only `OwnEvent` canonical-ref events matching the active attempt's exact returned mutation set are excluded from activity; non-own same-path events qualify, and loss/overlap/mismatch becomes unknown. The marker clears only in the atomic activity/cursor commit after every participating stream crosses the promotion barrier. Because `OwnEvent` does not apply to historical replay, a crash leaving the marker set resets affected coverage to unknown rather than guessing provenance.
+Live owned-fetch attribution is structural. Streams request `MarkSelf`. The `agentstudio-git` hard cut moves only final canonical remote-ref promotion from child `git update-ref` into an in-process libgit2 multi-ref transaction: lock every captured ref, re-read and compare the captured old targets under lock, apply the complete update/delete set, and commit the locked update set. The pinned libgit2 transaction writes refs individually; commit-stage failure can leave a partially applied set and is reported as indeterminate, not rolled back. Private child-written staging refs remain identifiable by the reserved package namespace and are excluded from activity without suppressing correctness. Before promotion, the store durably installs the owned-promotion marker. Only `OwnEvent` canonical-ref events matching the active attempt's exact returned mutation set are excluded from activity; non-own same-path events qualify, and loss/overlap/mismatch becomes unknown. The marker clears only in the atomic activity/cursor commit after every participating stream crosses the promotion barrier. Because `OwnEvent` does not apply to historical replay, a crash leaving the marker set resets affected coverage to unknown rather than guessing provenance.
 
 PR1 consumes the in-process promotion cut only for conservative live attribution. A qualifying canonical-ref event marked `OwnEvent` remains a Git-correctness invalidation but does not mint repository-local activity; until exact attempt/mutation-set provenance lands, it restarts that repository's activity coverage and therefore leaves inactivity classification unknown. Non-own canonical-ref events still qualify as external local activity. Current-session authority accumulates per repository key, so one live checkpoint cannot authorize untouched persisted rows after restart. Downtime replay, the durable owned-promotion marker, and exact attempt/mutation-set matching remain the later full-provenance slice.
 
@@ -199,7 +199,7 @@ One targeted repository `AppCommand` owns the Refresh verb and its interactive d
 
 The start returns terminal `notApplicable`/`obsolete` or one accepted lease carrying captured repository/origin/topology scope. Capacity and same-repository occupancy are nonterminal for an accepted intent. After current promotion, the remote actor awaits the returned recomputation lease before resolving its explicit attempt settlement. Automatic fetches also await recomputation for currentness/physical accounting but do not create UI progress. Explicit scope bypasses successful-result freshness and cold automatic-demand suppression but not identity/currentness validation, repository single-flight, process capacity, failure backoff, child custody, local recomputation custody, or changed-only publication. Existing sufficient same-key work may absorb the attempt; otherwise the request becomes the one bounded follow-up.
 
-`AppDelegate` synchronously installs captured progress, then assigns admission and final settlement through `RepoCacheAtom`; `FilesystemGitPipeline` does not import, retain, or read that atom. Repo Explorer keeps the compact progress indicator visible while the lease remains unsettled. Failure preserves prior current-identity remote/local facts. The join never publishes Git facts or changes activity. While an attempt is active, command enablement rejects a second click for that repository.
+`AppDelegate` synchronously installs captured progress, then assigns admission and final settlement through `RepoCacheAtom`; `FilesystemGitPipeline` does not import, retain, or read that atom. Repo Explorer keeps the compact progress indicator visible while the lease remains unsettled. Failure before canonical-ref promotion preserves prior current-identity remote/local facts; promotion failure follows the authority invalidation and conditional local reread contract below. The join never publishes Git facts or changes activity. While an attempt is active, command enablement rejects a second click for that repository.
 
 ### GitWorkingDirectoryProjector
 
@@ -247,7 +247,7 @@ At the current resolved package revision `c8dbd7ef0f344293160b8f7d72d93931328761
 - status facts scoped by the existing safe pathspec contract, excluding full-worktree line-count detail;
 - exact full-worktree line-count detail;
 - an explicit complete-status composition for consumers that always require both;
-- staged remote fetch with in-process atomic canonical-ref promotion, allowing live FSEvents to identify the promotion as process-owned.
+- staged remote fetch with in-process currentness-checked canonical-ref promotion, allowing live FSEvents to identify the promotion as process-owned.
 
 Typed results distinguish facts from detail; optional integers do not encode “not requested,” “unknown,” and “failed.” The status-fact reader does not perform `git_diff_tree_to_workdir_with_index` as a hidden side effect. The detail reader owns that exact operation. The current pin already returns package-owned observation-plan and exact-clean proof information consumed by Agent Studio's continuity path. PR1 changes no package API beyond consuming the pinned in-process promotion behavior.
 
@@ -510,7 +510,7 @@ Repo Explorer memorychip -> reveal Refresh -> click
        <- terminal only after fetch custody and recomputation settle
   -> AppDelegate publishes keyed settlement
   -> Repo Explorer progress/read-back for that repository only
-  <- complete | failed | obsolete | cancelled, prior facts retained
+  <- complete | failed | obsolete | cancelled; promotion failure invalidates stale authority
   [forbidden] pull, merge, checkout, fast-forward, checked-out HEAD mutation, explicit Forge refresh
 ```
 
@@ -566,7 +566,7 @@ CURRENT
 RepositoryFactDemandSnapshot.demandedRepositoryIds
   -> existing RemoteReferenceRefreshActor freshness/single-flight/capacity admission
   -> existing staged noninteractive fetch
-  -> current origin/generation validation + atomic canonical-ref promotion
+  -> current origin/generation validation + currentness-checked canonical-ref promotion
   -> accepted RemoteReferenceAcceptance token
   -> targeted local recomputation for represented worktrees
   <- last-fetched ahead/behind publication or equality suppression
@@ -580,7 +580,7 @@ activity-classified demand
   <- terminal not-applicable/obsolete or accepted SourceAttemptLease
   -> [unchanged] staged fetch/promotion/currentness/capacity/backoff
   <- terminal settlement only after child exit and promoted local recomputation custody
-  [unchanged] accepted last-fetched facts survive demand loss/failure
+  [unchanged] demand loss alone preserves last-fetched facts; promotion outcomes still invalidate stale authority when refs may have changed
 ```
 
 ### Demanded Forge path
@@ -717,7 +717,9 @@ Observer uncertainty preserves the last accepted facts and retains exactly one e
 
 ### Remote fetch failure
 
-Fetch failure, timeout, or noninteractive credential failure preserves current-origin accepted remote refs and ahead/behind. The actor records a genuine failure deadline and presentable remote freshness remains last-fetched, never fabricated as server-current. Rate/auth failure does not trigger interactive prompts. Stale or cancelled completion cleans only its generation-scoped staging refs. A crash may leave private staged refs, but startup cleanup owns them and canonical readers never observe them. Successful current-generation fetch atomically promotes its complete staged update/delete set, accepts one origin/generation token, closes failure state, and requests token-carrying local recomputation.
+Canonical-ref promotion is not an all-or-nothing storage transaction. A commit-stage error may leave some refs changed, so it remains a failed outcome and never advances successful-fetch freshness. The existing remote actor retains promotion custody through native return and cleanup, then invalidates potentially stale same-identity authority even when demand has contracted. If the operation is still current and demanded, it may capture fresh local authority only when the current origin is also the previously accepted origin; a failed replacement-origin fetch cannot relabel old-origin refs. The existing pipeline sink passes that exact acceptance to the local projector, which validates it, starts or joins represented-worktree recomputation, and awaits settlement before the actor returns failure. No rollback, second fetch, or new recovery owner is introduced. If demand is gone or origin provenance is not valid, authority remains invalid rather than accepting an obsolete reread. A physically successful promotion that has lost demand likewise cannot retain the pre-promotion authority.
+
+Before canonical-ref promotion, fetch failure, timeout, or noninteractive credential failure preserves current-origin accepted remote refs and ahead/behind. The actor records a genuine failure deadline and presentable remote freshness remains last-fetched, never fabricated as server-current. Rate/auth failure does not trigger interactive prompts. Stale or cancelled completion cleans only its generation-scoped staging refs. A crash may leave private staged refs, but startup cleanup owns them and canonical readers never observe them. Successful current-generation fetch commits its complete staged update/delete set, accepts one origin/generation token, closes failure state, and requests token-carrying local recomputation.
 
 ### Forge failure, truncation, and rate limiting
 
@@ -824,7 +826,7 @@ strict verifier
   -> graceful exact-candidate retirement and zero required loss
 ```
 
-Final runtime proof may use controlled disposable remotes for staged-fetch and activity mutation while topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The fixture records warm, unknown, and locally inactive repository/worktree counts; proves unknown evidence never claims inactivity, never inherits visible cadence, receives at most one missing-cache baseline, retains finite background local self-heal, and creates no automatic remote-reference or Forge demand; proves cold membership survives every grouping/search mode; and observes a full inactivity interval with zero periodic local, automatic remote-reference, or automatic Forge starts for cold keys. Controlled edit, commit, pull, and external-fetch evidence in any disposable worktree must warm its repository, while one Agent Studio automatic fetch must leave activity unchanged. The native Refresh control must produce one fetch, preserve checked-out `HEAD`, exclude Forge, keep one loading lifetime through represented-worktree recomputation, and preserve prior facts on failure without moving the row.
+Final runtime proof may use controlled disposable remotes for staged-fetch and activity mutation while topology scale comes from the complete real watched roots. It must not mutate user repositories or global Git configuration. The fixture records warm, unknown, and locally inactive repository/worktree counts; proves unknown evidence never claims inactivity, never inherits visible cadence, receives at most one missing-cache baseline, retains finite background local self-heal, and creates no automatic remote-reference or Forge demand; proves cold membership survives every grouping/search mode; and observes a full inactivity interval with zero periodic local, automatic remote-reference, or automatic Forge starts for cold keys. Controlled edit, commit, pull, and external-fetch evidence in any disposable worktree must warm its repository, while one Agent Studio automatic fetch must leave activity unchanged. The native Refresh control must produce one fetch, preserve checked-out `HEAD`, exclude Forge, keep one loading lifetime through represented-worktree recomputation, and preserve truthful failure presentation without moving the row: pre-promotion failure retains prior facts; promotion failure invalidates stale authority and follows the current-origin reread contract.
 
 Immediately before the timed idle interval, the verifier injects one controlled local observer uncertainty and ends that proof action; it starts idle sampling before the retained exact fallback settles. The measured interval therefore includes fallback CPU and complete recovery without including the injection action. The same interval includes at least one complete maximum warm local self-heal checkpoint and positive continuity renewals. With the selected 240-second warm-background base and 4x adaptation, retain at least 1,000 usable one-second samples; if policy tuning lengthens the maximum, the proof horizon lengthens with it. Settlement requires no overdue warm deadline, no automatic deadline for locally inactive keys, physical work within source gates, preparation debt classified by reason, and oldest debt plus next deadline within policy. Inventory and include every debug-owned descendant/helper process so cost cannot pass by relocation. The final marker must meet idle p99 and action p95 CPU targets with zero hidden loss or uncertainty. No fake substitutes for production watched-folder discovery, production provider wiring, native UI materialization, exporter delivery, or exact process identity.
 
@@ -854,10 +856,10 @@ The current checkpoint foundation is preservation-critical and is not remaining 
 
 - one content-equal App demand snapshot already feeds filesystem, local Git, remote-reference, and Forge owners independently of search, grouping, scrolling, or rendering;
 - local Git already uses an earliest-deadline path, slow observation with true native custody, a shared process-scoped status gate, split fact/detail reads, exact-clean continuity, and fail-closed exact fallback;
-- remote references already use demand/freshness admission, generation-scoped staged fetch, currentness validation, atomic promotion, and targeted local recomputation;
+- remote references already use demand/freshness admission, generation-scoped staged fetch, currentness validation, currentness-checked promotion, and targeted local recomputation;
 - Forge already uses global CLI capacity two, bounded branch-alias query plans, atomic repository publication, and the three-minute automatic recovery floor;
 - process execution, changed-only cache publication, bounded telemetry, and reasoned preparation/physical debt proof already exist;
-- `Package.swift` pins `agentstudio-git` at `c8dbd7ef0f344293160b8f7d72d93931328761fd`, whose in-process atomic promotion lets live observation distinguish process-owned canonical-ref writes.
+- `Package.swift` pins `agentstudio-git` at `c8dbd7ef0f344293160b8f7d72d93931328761fd`, whose in-process currentness-checked promotion lets live observation distinguish process-owned canonical-ref writes.
 
 The current branch already contains the application-local activity schema/store, off-main activity projector, live-checkpoint coverage restart, shared classifier, complete demand snapshot and pipeline fan-out, inactive local/remote/Forge suppression, fetch-only command and sidebar presentation, and shared-parent ancestor recheck. The current PR1 corrective cutover is only:
 

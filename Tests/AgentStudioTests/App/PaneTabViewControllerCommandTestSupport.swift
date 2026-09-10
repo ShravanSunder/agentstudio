@@ -77,7 +77,11 @@ func makeHarness(
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
+    traceRuntime: AgentStudioTraceRuntime? = nil,
     bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil,
+    bridgeViewerOpenTelemetryAnchorFactory: @escaping @MainActor () -> BridgeViewerOpenTelemetryAnchor = {
+        .live()
+    },
     interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
@@ -88,7 +92,9 @@ func makeHarness(
         workspaceWindowId: workspaceWindowId,
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         paneEventBus: paneEventBus,
+        traceRuntime: traceRuntime,
         bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler,
+        bridgeViewerOpenTelemetryAnchorFactory: bridgeViewerOpenTelemetryAnchorFactory,
         interactionProbe: interactionProbe
     )
 }
@@ -102,7 +108,11 @@ func makePaneTabViewControllerCommandHarness(
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
+    traceRuntime: AgentStudioTraceRuntime? = nil,
     bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil,
+    bridgeViewerOpenTelemetryAnchorFactory: @escaping @MainActor () -> BridgeViewerOpenTelemetryAnchor = {
+        .live()
+    },
     interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
 ) -> PaneTabViewControllerCommandHarness {
     // Command execution still reads the app-global management-layer atom for
@@ -139,7 +149,8 @@ func makePaneTabViewControllerCommandHarness(
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         windowLifecycleStore: windowLifecycleStore,
         appLifecycleStore: appLifecycleStore,
-        bridgePaneAttendance: atomRegistry.bridgePaneAttendance
+        bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+        traceRuntime: traceRuntime
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
@@ -172,17 +183,15 @@ func makePaneTabViewControllerCommandHarness(
         copyPathHandler: { path in
             launchRecorder.copiedPaths.append(path)
         },
-        paneNotePresentation: PaneNotePresentation(
-            present: { paneId in
-                launchRecorder.paneNoteRequests.append(paneId)
-            },
-            editorContent: { _, _ in AnyView(EmptyView()) }
+        paneNotePresentation: makeCommandHarnessPaneNotePresentation(
+            launchRecorder: launchRecorder
         ),
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,
         bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler,
+        bridgeViewerOpenTelemetryAnchorFactory: bridgeViewerOpenTelemetryAnchorFactory,
         interactionProbe: interactionProbe,
         registersAsCommandHandler: false
     )
@@ -206,6 +215,18 @@ func makePaneTabViewControllerCommandHarness(
         arrangementPanelPresentation: arrangementPanelPresentation,
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
+    )
+}
+
+@MainActor
+private func makeCommandHarnessPaneNotePresentation(
+    launchRecorder: PaneTabViewControllerCommandLaunchRecorder
+) -> PaneNotePresentation {
+    PaneNotePresentation(
+        present: { paneId in
+            launchRecorder.paneNoteRequests.append(paneId)
+        },
+        editorContent: { _, _ in AnyView(EmptyView()) }
     )
 }
 

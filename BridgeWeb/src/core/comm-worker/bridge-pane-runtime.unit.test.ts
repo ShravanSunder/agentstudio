@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept target origins.
 
+import { createWorktreeAnnotationSurfaceClient } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
@@ -24,6 +25,7 @@ import { bridgePaneCommWorkerInstallSchema } from './bridge-product-session-cont
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
 	BridgeWorkerMainToServerMessage,
+	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerRpcCommandInput } from './bridge-worker-rpc-client.js';
@@ -278,6 +280,170 @@ describe('Bridge pane runtime', () => {
 			unsubscribe();
 			runtime.dispose();
 		}
+	});
+
+	test('re-anchors retained File freshness and replays current intent after replacement readiness', async () => {
+		// Arrange
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		let publishWorkerMessages:
+			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
+			| undefined;
+		let requestReplacement: ((reason: 'workerReplacement') => void) | undefined;
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (props): BridgePaneCommWorkerDispatcher => {
+				publishWorkerMessages = props.publishWorkerMessages;
+				return {
+					dispatch: (message): void => {
+						dispatchedMessages.push(message);
+					},
+					dispose: vi.fn(),
+				};
+			},
+			dispose: vi.fn(),
+			installNativeBootstrap: vi.fn(),
+			setNativeBootstrapRequester: (requester): void => {
+				requestReplacement = requester;
+			},
+		};
+		const runtime = createBridgePaneRuntime({
+			sessionFactory: (): BridgePaneSessionPort => session,
+		});
+		const replacementRequests: string[] = [];
+		runtime.setNativeBootstrapRequester((reason): void => {
+			replacementRequests.push(reason);
+		});
+		runtime.installNativeBootstrap(makeNativeBootstrap('worker-instance-before-replacement'));
+		const fileClient = runtime.surfaceClient('fileView');
+		const reviewClient = runtime.surfaceClient('review');
+		const annotationClient = createWorktreeAnnotationSurfaceClient(fileClient);
+		fileClient.renderStore.applyFileDisplayPatchEvent(
+			makeFileStatusPatchEvent({ epoch: 2, sequence: 2, state: 'stale' }),
+		);
+		reviewClient.renderStore.applyReviewDisplayPatchEvent(
+			makeReviewSourceFailurePatchEvent({ epoch: 2, sequence: 2 }),
+		);
+		runtime.paneClient.send({
+			command: 'activeViewerModeUpdate',
+			epoch: 7,
+			update: {
+				activeSource: {
+					generation: 2,
+					protocol: 'worktree-file',
+					streamId: 'file-stream-before-replacement',
+				},
+				mode: 'file',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+				sessionId: 'viewer-mode-session',
+			},
+		});
+		fileClient.send(makeFileCommandInput());
+		fileClient.send({
+			command: 'select',
+			epoch: 2,
+			selectedItemId: 'file-item-before-replacement',
+			selectedSource: 'user',
+			surface: 'fileView',
+		});
+		reviewClient.send({
+			command: 'select',
+			epoch: 3,
+			selectedItemId: 'review-item-before-replacement',
+			selectedSource: 'user',
+			surface: 'review',
+		});
+		const pendingInspection = annotationClient.inspectOutput(
+			'00000000-0000-7000-8000-000000000001',
+		);
+		const pendingInspectionRequest = Object.values(
+			fileClient.lifecycle.getSnapshot().requestsById,
+		).find((request) => request.command === 'annotationOutputInspect');
+		if (pendingInspectionRequest === undefined) {
+			throw new Error('Expected a pending annotation output inspection request.');
+		}
+		const catalogStagingBase = {
+			authority: {
+				subscriptionId: 'file-annotation-subscription-before-replacement',
+				workerDerivationEpoch: 2,
+				worktreeId: 'worktree-1',
+			},
+			direction: 'serverWorkerToMain' as const,
+			kind: 'annotationCatalogStaging' as const,
+			operationCorrelationId: 'a'.repeat(64),
+			surface: 'fileView' as const,
+			transferDescriptors: [],
+			wireVersion: 1 as const,
+		};
+		publishWorkerMessages?.([
+			{
+				...catalogStagingBase,
+				transfer: {
+					catalogRevision: 20,
+					expectedEntryCount: 0,
+					kind: 'catalog.begin',
+					transferId: 'file-annotation-catalog-before-replacement',
+				},
+			},
+			{
+				...catalogStagingBase,
+				transfer: {
+					catalogRevision: 20,
+					entryCount: 0,
+					kind: 'catalog.commit',
+					transferId: 'file-annotation-catalog-before-replacement',
+					windowCount: 0,
+				},
+			},
+		]);
+		expect(annotationClient.getCatalogSnapshot().kind).toBe('current');
+		dispatchedMessages.length = 0;
+
+		// Act
+		requestReplacement?.('workerReplacement');
+		expect(annotationClient.getCatalogSnapshot().kind).toBe('stale');
+		fileClient.send({
+			command: 'select',
+			epoch: 3,
+			selectedItemId: 'file-item-during-replacement',
+			selectedSource: 'user',
+			surface: 'fileView',
+		});
+		runtime.installNativeBootstrap(makeNativeBootstrap('worker-instance-after-replacement'));
+		publishWorkerMessages?.([makePaneRuntimeReadyHealth('pane-runtime-bootstrap')]);
+
+		// Assert
+		expect(replacementRequests).toEqual(['workerReplacement']);
+		expect(
+			fileClient.lifecycle.getSnapshot().requestsById[pendingInspectionRequest.requestId],
+		).toMatchObject({ state: 'failed' });
+		await expect(pendingInspection).rejects.toThrow(/worker.*replaced/iu);
+		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness).toBeNull();
+		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness).toBeNull();
+		expect(dispatchedMessages.map((message) => message.command)).toEqual([
+			'select',
+			'activeViewerModeUpdate',
+			'fileQueryUpdate',
+			'select',
+		]);
+		expect(dispatchedMessages[0]).toMatchObject({
+			selectedItemId: 'file-item-during-replacement',
+			surface: 'fileView',
+		});
+		expect(dispatchedMessages[3]).toMatchObject({
+			selectedItemId: 'review-item-before-replacement',
+			surface: 'review',
+		});
+		fileClient.renderStore.applyFileDisplayPatchEvent(
+			makeFileStatusPatchEvent({ epoch: 1, sequence: 1, state: 'stale' }),
+		);
+		reviewClient.renderStore.applyReviewDisplayPatchEvent(
+			makeReviewSourceFailurePatchEvent({ epoch: 1, sequence: 1 }),
+		);
+		expect(fileClient.renderStore.getSnapshot().fileDisplayFreshness?.epoch).toBe(1);
+		expect(reviewClient.renderStore.getSnapshot().reviewDisplayFreshness?.epoch).toBe(1);
+		annotationClient.dispose();
+		runtime.dispose();
 	});
 
 	test('records accepted and rejected native bootstrap install attempts without authority identity', async () => {
@@ -783,6 +949,30 @@ function makeFileStatusPatchEvent(props: {
 		projectionRevision: props.sequence,
 		sequence: props.sequence,
 		surface: 'fileView',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+function makeReviewSourceFailurePatchEvent(props: {
+	readonly epoch: number;
+	readonly sequence: number;
+}): BridgeWorkerReviewDisplayPatchEvent {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: props.epoch,
+		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
+		patches: [
+			{
+				operation: 'failed',
+				payload: { error: 'metadataUnavailable', status: 'failed' },
+				slice: 'reviewSource',
+			},
+		],
+		projectionRevision: props.sequence,
+		sequence: props.sequence,
+		surface: 'review',
 		transferDescriptors: [],
 		wireVersion: 1,
 	};

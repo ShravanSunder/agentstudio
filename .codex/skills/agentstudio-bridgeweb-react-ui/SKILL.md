@@ -11,9 +11,11 @@ BridgeWeb React UI uses shadcn-style owned source primitives.
 
 1. Inspect `BridgeWeb/src/components/ui/` before building a control.
 2. If the needed shadcn primitive is missing, add the primitive source there.
-3. Edit the owned primitive for Agent Studio tokens, sizing, focus, hover, and
-   selected states.
-4. Compose product-specific controls through a feature-neutral shared wrapper.
+3. Reuse the owned primitive unchanged when its recipe fits the intended role.
+   Change its tokens, sizing or states only to supply a missing reusable meaning,
+   not merely because the task edits a control.
+4. Compose product-specific controls from those primitives. A shared wrapper
+   needs shared composition or behavior; styling parity alone does not justify it.
 5. Keep FileViewer and ReviewViewer controls with the same interaction
    semantics on the same primitive layer and visual scale.
 

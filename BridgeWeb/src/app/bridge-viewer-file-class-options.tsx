@@ -1,4 +1,14 @@
-import { FolderIcon } from 'lucide-react';
+import {
+	BookOpenIcon,
+	DatabaseIcon,
+	FileCodeIcon,
+	FileCogIcon,
+	FileQuestionMarkIcon,
+	FilesIcon,
+	FlaskConicalIcon,
+	PackageIcon,
+	SettingsIcon,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { BridgeFileClass } from '../foundation/review-package/bridge-review-package.js';
@@ -11,16 +21,18 @@ const bridgeViewerFileCategories: readonly BridgeViewerFileCategory[] = [
 	'test',
 	'docs',
 	'config',
-	'generated',
-	'vendor',
 	'fixture',
-	'unknown',
 ];
 
 export const bridgeViewerFileCategoryOptions: readonly BridgeViewerFacetMenuOption<
 	BridgeViewerFileCategory | 'all'
 >[] = [
-	{ value: 'all', label: 'All', description: 'Show every supported category', icon: '*' },
+	{
+		value: 'all',
+		label: 'All',
+		description: 'Show every supported category',
+		icon: bridgeViewerFileCategoryIcon('all'),
+	},
 	...bridgeViewerFileCategories.map(
 		(
 			fileCategory: BridgeViewerFileCategory,
@@ -36,13 +48,27 @@ export const bridgeViewerFileCategoryOptions: readonly BridgeViewerFacetMenuOpti
 export function bridgeViewerFileCategoryIcon(
 	fileCategory: BridgeViewerFileCategory | 'all',
 ): ReactNode {
-	if (fileCategory === 'all') {
-		return '*';
+	switch (fileCategory) {
+		case 'all':
+			return <FilesIcon aria-hidden="true" />;
+		case 'source':
+			return <FileCodeIcon aria-hidden="true" />;
+		case 'test':
+			return <FlaskConicalIcon aria-hidden="true" />;
+		case 'docs':
+			return <BookOpenIcon aria-hidden="true" />;
+		case 'config':
+			return <SettingsIcon aria-hidden="true" />;
+		case 'generated':
+			return <FileCogIcon aria-hidden="true" />;
+		case 'vendor':
+			return <PackageIcon aria-hidden="true" />;
+		case 'fixture':
+			return <DatabaseIcon aria-hidden="true" />;
+		case 'unknown':
+			return <FileQuestionMarkIcon aria-hidden="true" />;
 	}
-	if (fileCategory === 'docs') {
-		return <FolderIcon aria-hidden="true" className="size-3.5" />;
-	}
-	return fileCategory.slice(0, 1).toUpperCase();
+	return assertNeverBridgeViewerFileCategory(fileCategory);
 }
 
 function labelForFileCategory(fileCategory: BridgeViewerFileCategory): string {
@@ -58,9 +84,9 @@ function labelForFileCategory(fileCategory: BridgeViewerFileCategory): string {
 		case 'generated':
 			return 'Generated';
 		case 'vendor':
-			return 'Dependencies and build output';
+			return 'Dependencies / build';
 		case 'fixture':
-			return 'Fixtures';
+			return 'Test data';
 		case 'unknown':
 			return 'Other';
 	}

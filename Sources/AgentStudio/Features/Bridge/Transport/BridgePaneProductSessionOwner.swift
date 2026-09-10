@@ -135,6 +135,7 @@ package actor BridgePaneProductSessionOwner {
     private var preparedInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
     private let provider: any BridgeProductSchemeProvider
     private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    private let didRetireWorkerInstance: @Sendable (String) async -> Void
     private var installationAwaitingRetirementRetry: BridgeProductSessionInstallation?
 
     package func activeBootstrap() -> BridgeProductSessionBootstrap? {
@@ -146,7 +147,8 @@ package actor BridgePaneProductSessionOwner {
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation? = nil,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        didRetireWorkerInstance: @escaping @Sendable (String) async -> Void = { _ in }
     ) throws {
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
         precondition(
@@ -156,6 +158,7 @@ package actor BridgePaneProductSessionOwner {
         self.paneSessionId = paneSessionId
         self.provider = provider
         self.telemetryRecorder = telemetryRecorder
+        self.didRetireWorkerInstance = didRetireWorkerInstance
         self.productAdmissionGate = productAdmissionGate
         self.activeInstallation = activeInstallation
         self.schemeRouter = BridgeProductSchemeSessionRouter(
@@ -285,6 +288,8 @@ package actor BridgePaneProductSessionOwner {
                 await schemeRouter.waitForDrain()
                 return .revocationFailed
             }
+            await didRetireWorkerInstance(retiringInstallation.bootstrap.workerInstanceId)
+            installationAwaitingRetirementRetry = nil
         }
         await schemeRouter.waitForDrain()
 
@@ -351,6 +356,7 @@ package actor BridgePaneProductSessionOwner {
             await schemeRouter.waitForDrain()
             return .revocationFailed
         }
+        await didRetireWorkerInstance(retiringInstallation.bootstrap.workerInstanceId)
         await schemeRouter.waitForDrain()
         installationAwaitingRetirementRetry = nil
         return await retirePreparedInstallationsForPaneDisposal()

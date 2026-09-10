@@ -211,6 +211,7 @@ import WebKit
         nonisolated private static let bridgeProductPaintFixtureRelativePath = "tracked.txt"
         nonisolated private static let bridgeProductPaintFixtureCanary = "bridge-product-paint-canary"
 
+        // swiftlint:disable:next function_body_length
         func runBridgeProductPaintCorrelationDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
@@ -229,13 +230,22 @@ import WebKit
                 )
             }
 
-            guard let worktreeURL = AgentStudioStartupDiagnosticAction.watchFolderURL(),
-                let oracle = Self.bridgeProductPaintCorrelationOracle(worktreeURL: worktreeURL)
-            else {
+            guard let worktreeURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
                 recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
             let worktree = store.mutationCoordinator.ensureMainWorktree(at: worktreeURL)
+            await workspaceSurfaceCoordinator.syncFilesystemRootsAndActivityUntilIdle()
+            if await runBridgeCompleteJourneyCohortIfConfigured(
+                action: action,
+                worktreeId: worktree.id
+            ) {
+                return
+            }
+            guard let oracle = Self.bridgeProductPaintCorrelationOracle(worktreeURL: worktreeURL) else {
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
+                return
+            }
             guard let pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: worktree.id) else {
                 recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return

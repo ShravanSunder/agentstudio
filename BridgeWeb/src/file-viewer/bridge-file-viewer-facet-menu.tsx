@@ -19,7 +19,6 @@ export function BridgeFileViewerFacetMenu(props: BridgeFileViewerFacetMenuProps)
 			clearDisabled={!hasActiveFilter}
 			clearLabel="Clear filter"
 			clearTestId="worktree-file-filter-menu-clear"
-			contentClassName="w-[min(520px,calc(100vw-32px))]"
 			contentTestId="worktree-file-filter-menu-popover"
 			description="Refine the file set without changing the Files mode"
 			hasActiveFilter={hasActiveFilter}

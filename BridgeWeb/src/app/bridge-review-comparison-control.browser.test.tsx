@@ -1,4 +1,4 @@
-import { act, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
@@ -9,7 +9,10 @@ import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-wo
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
+import {
+	BridgeReviewComparisonControlTestHost as BridgeReviewComparisonControl,
+	performComparisonAction,
+} from './bridge-review-comparison-control.browser.test-support.js';
 
 describe('BridgeReviewComparisonControl Browser Mode', () => {
 	test('shows the current base branch and effective comparison commit', async () => {
@@ -36,7 +39,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 			await Promise.resolve();
 		});
@@ -95,7 +98,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -134,7 +137,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -176,7 +179,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -221,7 +224,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -245,7 +248,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -289,15 +292,24 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('feature/new-target · Updating');
-		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
+			.toHaveTextContent('master');
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-trigger')
+				.element()
+				.textContent?.includes('Updating'),
+		).toBe(false);
+		await expect
+			.element(rendered.getByRole('heading', { name: 'Previous comparison' }))
+			.toBeVisible();
+		expect(rendered.getByText('Updating comparison').query()).toBeNull();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-content'))
 			.not.toHaveTextContent(
@@ -335,7 +347,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -346,7 +358,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			.toBeVisible();
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Retry' }).click();
 		});
 
@@ -374,7 +386,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -398,7 +410,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect.element(rendered.getByText('b'.repeat(40), { exact: true })).toBeInTheDocument();
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('combobox', { name: 'Search branches' }).fill('feature');
 		});
 
@@ -434,7 +446,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -447,7 +459,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect.element(firstRow).toHaveAttribute('aria-posinset', '1');
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('combobox', { name: 'Search branches' }).fill('branch-19');
 		});
 
@@ -457,7 +469,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect.element(filteredNonFirstRow).toHaveAttribute('aria-posinset', '2');
 
 		// Act: keyboard navigation must drive the virtualizer beyond its first mounted window.
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await userEvent.keyboard(Array.from({ length: 50 }, () => '{ArrowDown}').join(''));
 		});
 
@@ -471,7 +483,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		).toBeGreaterThan(0);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await userEvent.keyboard('{Enter}');
 		});
 
@@ -503,13 +515,13 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				}}
 			/>,
 		);
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 		const scrollElement = rendered.getByTestId('bridge-review-comparison-branch-scroll').element();
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			scrollElement.scrollTop = scrollElement.scrollHeight;
 			scrollElement.dispatchEvent(new Event('scroll'));
 			await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -521,7 +533,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		expect(document.querySelectorAll('[data-slot="combobox-item"]').length).toBeLessThanOrEqual(40);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await lastRow.click();
 		});
 
@@ -549,7 +561,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -576,7 +588,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const rendered = await render(comparisonControl('loading'));
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -617,7 +629,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -644,7 +656,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 
@@ -657,7 +669,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const retryButton = rendered.getByRole('button', { name: 'Retry' });
 		expect(retryButton.element().getAttribute('data-slot')).toBe('button');
 		expect(retryButton.element().querySelector('svg[aria-hidden="true"]')).not.toBeNull();
-		await retryButton.click();
+		await performComparisonAction(async (): Promise<void> => {
+			await retryButton.click();
+		});
 		expect(queryTargets).toHaveBeenCalledTimes(2);
 	});
 
@@ -669,10 +683,12 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'origin',
 			},
+			expectedAccessibleLabel: 'Compare to: origin/main · Updating',
 			rowTestId: 'comparison-branch-origin-main',
 		},
 		{
 			expectedTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
+			expectedAccessibleLabel: 'Compare to: main · Updating',
 			rowTestId: 'comparison-branch-main',
 		},
 		{
@@ -682,6 +698,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				kind: 'originDefaultBranch',
 				remoteName: 'upstream',
 			},
+			expectedAccessibleLabel: 'Compare to: upstream/release · Updating',
 			rowTestId: 'comparison-branch-upstream-release',
 		},
 	])('applies $rowTestId immediately', async (scenario) => {
@@ -701,14 +718,27 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId(scenario.rowTestId).click();
 		});
 
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(scenario.expectedTarget);
 		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
+		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+		await expect.element(trigger).toHaveTextContent('master');
+		await expect.element(trigger).toHaveAttribute('aria-label', scenario.expectedAccessibleLabel);
+		expect(trigger.element().textContent?.includes('Updating')).toBe(false);
+		expect(trigger.element()).toBeDisabled();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-pending-icon"]'),
+		).not.toBeNull();
+		expect(
+			trigger.element().querySelector('[data-testid="bridge-review-comparison-trigger-icon"]'),
+		).toBeNull();
 	});
 
 	test('accepts only a full hexadecimal commit OID', async () => {
@@ -725,14 +755,16 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				onCancelTargetQuery={cancelTargetQuery}
 			/>,
 		);
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Commit', exact: true }).click();
 		});
 		const commitInput = rendered.getByRole('textbox', { name: 'Commit hash' });
 
 		// Act
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await commitInput.fill('abc123');
 			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 		});
@@ -745,7 +777,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 		// Act
 		const fullOID = 'c'.repeat(40);
-		await act(async (): Promise<void> => {
+		await performComparisonAction(async (): Promise<void> => {
 			await commitInput.fill(fullOID);
 			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 		});
@@ -801,14 +833,26 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			/>,
 		);
 
-		// Assert — closed chrome names the requested target while popup details retain the package visible now.
+		// Assert — closed chrome retains the installed target while its accessible status names the request.
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('feature/new-target · Updating');
-		await act(async (): Promise<void> => {
+			.toHaveTextContent('master');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveAttribute('aria-label', 'Compare to: feature/new-target · Updating');
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-trigger')
+				.element()
+				.textContent?.includes('Updating'),
+		).toBe(false);
+		await performComparisonAction(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
-		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
+		await expect
+			.element(rendered.getByRole('heading', { name: 'Previous comparison' }))
+			.toBeVisible();
+		expect(rendered.getByText('Updating comparison').query()).toBeNull();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
 			.toHaveTextContent('master');

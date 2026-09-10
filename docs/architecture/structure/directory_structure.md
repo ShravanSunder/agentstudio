@@ -95,7 +95,7 @@ Sources/AgentStudio/
 │   ├── Bridge/                       # React/WebView pane system
 │   │   ├── Models/                   # Feature-owned domain types
 │   │   ├── Runtime/                  # BridgePaneController and WKWebView lifecycle
-│   │   ├── State/                    # PaneDomainState; atom: BridgePaneAttendanceAtom
+│   │   ├── State/                    # Pane state plus MainActor and SQLite annotation owners
 │   │   ├── Transport/                # Product-scheme session, admission, control dispatch
 │   │   ├── Views/                    # Composable screens
 │   │   └── BridgeNavigationDecider.swift

@@ -1,4 +1,33 @@
 extension BridgeProductSession {
+    func retireMetadataResponseBeforeResync(
+        token: BridgeProductControlAdmissionToken,
+        acknowledgeLifecycle: @escaping ProducerLifecycleAcknowledger
+    ) async throws -> Bool {
+        guard let pendingControl, pendingControl.token == token else {
+            throw BridgeProductSessionError.invalidAdmissionToken
+        }
+        guard case .workerSessionResync = pendingControl.request else { return true }
+        guard pendingControl.productAdmission.withValidAdmission({ true }) == true else {
+            throw BridgeProductSessionError.admissionClosed
+        }
+        // Close the old physical response before reporting a resume barrier.
+        // Otherwise an old-source enqueue can invalidate that barrier while
+        // the worker is opening its replacement response.
+        for lease in producerRegistry.metadataProducerLeases {
+            let retirement = beginProducerRetirement(
+                lease,
+                acknowledgeLifecycle: acknowledgeLifecycle,
+                stopRequest: nil,
+                abandonOutstandingDelivery: true
+            )
+            guard await retirement.wait() else { return false }
+        }
+        guard pendingControl.productAdmission.withValidAdmission({ true }) == true else {
+            throw BridgeProductSessionError.admissionClosed
+        }
+        return true
+    }
+
     func authoritativeControlResponse(
         token: BridgeProductControlAdmissionToken,
         providerResponse: BridgeProductControlResponse
@@ -33,7 +62,8 @@ extension BridgeProductSession {
         let reconciliation: BridgeProductSubscriptionResyncResult
         do {
             reconciliation = try candidateSubscriptions.reconcile(
-                activeSubscriptions: resyncRequest.activeSubscriptions
+                activeSubscriptions: resyncRequest.activeSubscriptions,
+                snapshotRequiredSubscriptionIds: subscriptionsRequiringSnapshot(for: pendingControl.request)
             )
         } catch let stateError as BridgeProductSubscriptionStateError {
             throw BridgeProductSessionError.subscriptionStateRejected(stateError)
@@ -68,6 +98,19 @@ extension BridgeProductSession {
             )
         }
         return nil
+    }
+
+    func subscriptionsRequiringSnapshot(
+        for request: BridgeProductControlRequest
+    ) -> [String] {
+        guard case .workerSessionResync(let resyncRequest) = request else { return [] }
+        // A physical resume barrier does not restore discarded subscription
+        // frames. Preserve an identity only when the worker has its complete
+        // admitted history; otherwise the existing fresh-open path owns catch-up.
+        return protocolSubscriptionDeliveryById.compactMap { subscriptionId, delivery in
+            delivery.lastEnqueuedStreamSequence > resyncRequest.lastAcceptedStreamSequence
+                ? subscriptionId : nil
+        }
     }
 
     func preflightResyncEpochs(

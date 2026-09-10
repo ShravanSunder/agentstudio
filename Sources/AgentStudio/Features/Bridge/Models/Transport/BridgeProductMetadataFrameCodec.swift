@@ -4,6 +4,16 @@ enum BridgeProductMetadataFrameCodec {
     private static let lengthPrefixByteCount = 4
 
     static func encode(_ frame: BridgeProductMetadataFrame) throws -> Data {
+        let frameData = try encodeJSONBody(frame)
+        var encodedFrame = Data(capacity: lengthPrefixByteCount + frameData.count)
+        try BridgeProductFrameCodecSupport.appendUInt32BigEndian(frameData.count, to: &encodedFrame)
+        encodedFrame.append(frameData)
+        return encodedFrame
+    }
+
+    static func encodeJSONBody<MetadataFrame: Encodable>(
+        _ frame: MetadataFrame
+    ) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let frameData = try encoder.encode(frame)
@@ -15,10 +25,7 @@ enum BridgeProductMetadataFrameCodec {
                 "Bridge product metadata frame exceeds its byte ceiling."
             )
         }
-        var encodedFrame = Data(capacity: lengthPrefixByteCount + frameData.count)
-        try BridgeProductFrameCodecSupport.appendUInt32BigEndian(frameData.count, to: &encodedFrame)
-        encodedFrame.append(frameData)
-        return encodedFrame
+        return frameData
     }
 }
 

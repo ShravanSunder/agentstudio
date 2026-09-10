@@ -4,7 +4,7 @@ import Foundation
 /// from the main wire schema to keep it under the file-length cap.
 extension BridgeTelemetryWireSchema {
     static func timeToFirstInteractionContractMatches(_ contract: EventContract) -> Bool {
-        contract.matches(
+        if contract.matches(
             .init(
                 phase: "time_to_first_interaction",
                 plane: .data,
@@ -19,6 +19,28 @@ extension BridgeTelemetryWireSchema {
                     ],
                     numericKeys: [
                         "agentstudio.bridge.visible_item.count"
+                    ]
+                )
+            )
+        ) {
+            return true
+        }
+        return contract.matches(
+            .init(
+                phase: "time_to_first_interaction",
+                plane: .data,
+                priority: .hot,
+                slice: .contentFetch,
+                transport: "content",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                        "agentstudio.bridge.viewer.ttfi_variant",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.activation.sequence",
+                        "agentstudio.bridge.visible_item.count",
                     ]
                 )
             )

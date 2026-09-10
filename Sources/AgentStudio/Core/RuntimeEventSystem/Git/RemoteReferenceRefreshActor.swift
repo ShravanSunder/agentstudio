@@ -2,28 +2,6 @@ import AgentStudioGit
 import AgentStudioInfrastructure
 import Foundation
 
-package struct RemoteReferenceAcceptance: Equatable, Sendable {
-    package let repoId: UUID
-    package let expectedOrigin: String
-    package let topologyGeneration: UInt64
-    package let authorityRevision: UInt64
-    package let snapshot: GitRemoteTrackingSnapshot
-
-    package init(
-        repoId: UUID,
-        expectedOrigin: String,
-        topologyGeneration: UInt64,
-        authorityRevision: UInt64,
-        snapshot: GitRemoteTrackingSnapshot
-    ) {
-        self.repoId = repoId
-        self.expectedOrigin = expectedOrigin
-        self.topologyGeneration = topologyGeneration
-        self.authorityRevision = authorityRevision
-        self.snapshot = snapshot
-    }
-}
-
 package actor RemoteReferenceRefreshActor {
     package typealias AuthorityUpdateHandler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
     package typealias PromotedRecomputationHandler =
@@ -531,9 +509,13 @@ package actor RemoteReferenceRefreshActor {
         await recordCleanup(outcome.stagedFetch.handle, repoId: attempt.repoId)
         switch outcome {
         case .failed:
+            await reconcileReferencesAfterFailedPromotion(attempt)
             finishFailedAttempt(attempt)
         case .promoted(_, let stagedFetch):
             guard accepts(attempt), let registration = registrationsByRepoId[attempt.repoId] else {
+                if acceptsCurrentIdentity(attempt) {
+                    await invalidateAuthority(repoId: attempt.repoId, topologyGeneration: attempt.topologyGeneration)
+                }
                 performanceAccumulator.increment(\.validationObsolete)
                 finishObsoleteAttempt(attempt)
                 return
@@ -572,6 +554,23 @@ package actor RemoteReferenceRefreshActor {
             admitPendingAttempts()
             flushPerformanceSnapshot()
         }
+    }
+
+    private func reconcileReferencesAfterFailedPromotion(_ attempt: RemoteReferenceAttempt) async {
+        guard acceptsCurrentIdentity(attempt) else { return }
+        // A failed multi-ref commit may already have changed refs. Do not claim fetch success
+        // or retain pre-attempt authority; publish a fresh local observation instead.
+        let invalidationRevision = await invalidateAuthority(
+            repoId: attempt.repoId,
+            topologyGeneration: attempt.topologyGeneration
+        )
+        guard accepts(attempt), lastAcceptedOriginByRepoId[attempt.repoId] == attempt.expectedOrigin else { return }
+        await establishLocalAcceptance(repoId: attempt.repoId)
+        guard accepts(attempt),
+            let acceptance = acceptedReferenceByRepoId[attempt.repoId],
+            acceptance.authorityRevision > invalidationRevision
+        else { return }
+        _ = await onPromotedRecomputation(acceptance)
     }
 
     private func finishFailedAttempt(_ attempt: RemoteReferenceAttempt) {
@@ -696,16 +695,19 @@ package actor RemoteReferenceRefreshActor {
         return authorityRevision
     }
 
-    private func invalidateAuthority(repoId: UUID, topologyGeneration: UInt64) async {
+    @discardableResult
+    private func invalidateAuthority(repoId: UUID, topologyGeneration: UInt64) async -> UInt64 {
         acceptedReferenceByRepoId.removeValue(forKey: repoId)
         performanceAccumulator.increment(\.publicationInvalidated)
+        let invalidationRevision = nextAuthorityRevision()
         await onAuthorityUpdate(
             .invalidated(
                 repoId: repoId,
                 topologyGeneration: topologyGeneration,
-                authorityRevision: nextAuthorityRevision()
+                authorityRevision: invalidationRevision
             )
         )
+        return invalidationRevision
     }
 
     private func beginIdentityInvalidation(repoId: UUID, topologyGeneration: UInt64) async {

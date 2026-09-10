@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
-import { createBridgeCodeViewHeaderRenderers } from './bridge-code-view-panel-support.js';
+import { createBridgeCodeViewHeaderRenderers } from './bridge-code-view-header-renderers.js';
 
 export function useBridgeCodeViewHeaderRenderers(props: {
 	readonly collapsedItemIds: ReadonlySet<string>;

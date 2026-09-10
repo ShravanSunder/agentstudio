@@ -71,19 +71,20 @@ describe('Bridge comm worker Review metadata reset', () => {
 		expect(scheduledPreparations.at(-1)).toMatchObject({ epoch: 8, itemId });
 	});
 
-	test('requeues active render attempts only after transaction commit', () => {
+	test('retains active render attempts for their exact receipt only after transaction commit', () => {
 		// Arrange
 		const itemId = 'item-generation-refresh';
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		let reviewStore: ScheduledSelectedReviewPreparation['store'] | null = null;
-		let resetScheduledAfterAttemptRequeue = false;
+		let resetScheduledAfterAttemptRetention = false;
 		const contentItems = [makeWorkerReviewContentMetadata(itemId)];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems,
 			rows: [{ id: itemId, parentId: null, index: 0 }],
 			scheduleReviewMetadataReset: (): void => {
-				resetScheduledAfterAttemptRequeue =
-					reviewStore?.renderFulfillmentRegistry.getItemState(itemId)?.stage === 'desired';
+				resetScheduledAfterAttemptRetention =
+					reviewStore?.renderFulfillmentRegistry.getItemState(itemId)?.stage === 'published' &&
+					reviewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds() === null;
 			},
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
@@ -115,7 +116,7 @@ describe('Bridge comm worker Review metadata reset', () => {
 			sourceEpoch: 8,
 		});
 
-		// Act: rollback retains the active attempt; commit requeues it before reset demand.
+		// Act: rollback preserves the original lease; commit retains the attempt without a local retry.
 		const rolledBackTransaction = handler.prepareReviewMetadataApplication(resetApplication);
 		rolledBackTransaction.rollback();
 		const publicationAfterRollback = reviewStore.renderFulfillmentRegistry.beginPublication({
@@ -138,14 +139,12 @@ describe('Bridge comm worker Review metadata reset', () => {
 			shouldPublish: false,
 			status: 'duplicate',
 		});
-		expect(resetScheduledAfterAttemptRequeue).toBe(true);
-		expect(publicationAfterCommit).toMatchObject({ shouldPublish: true, status: 'published' });
-		expect(publicationAfterCommit.receiptIdentity.publicationId).toBe(
-			firstPublication.receiptIdentity.publicationId,
-		);
-		expect(publicationAfterCommit.receiptIdentity.attemptId).not.toBe(
-			firstPublication.receiptIdentity.attemptId,
-		);
+		expect(resetScheduledAfterAttemptRetention).toBe(true);
+		expect(publicationAfterCommit).toMatchObject({
+			receiptIdentity: firstPublication.receiptIdentity,
+			shouldPublish: false,
+			status: 'duplicate',
+		});
 	});
 });
 

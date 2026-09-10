@@ -1,6 +1,7 @@
 protocol BridgeProductSchemeProvider: Sendable {
     func response(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext?
     ) async -> BridgeProductControlResponse
 
     func runMetadataProducer(

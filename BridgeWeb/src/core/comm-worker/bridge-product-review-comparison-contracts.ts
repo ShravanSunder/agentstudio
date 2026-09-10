@@ -54,6 +54,7 @@ export const bridgeProductReviewComparisonOriginSchema = z
 		kind: z.literal('contribution'),
 		resolvedTargetOID: z.string().min(1),
 		reviewedHeadOID: z.string().min(1),
+		reviewedSubjectBranchName: z.string().min(1).optional(),
 		symbolicTarget: bridgeProductReviewComparisonTargetSchema,
 	})
 	.strict();

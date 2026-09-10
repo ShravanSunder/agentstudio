@@ -88,6 +88,41 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		handshake.dispose();
 	});
 
+	test('hands context-switcher focus to the newly visible retained surface', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await renderFileProductApp('worktree-file', {
+			currentSource: availableFileSource,
+			initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+		});
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		const outgoingReviewButton = activeContextButton('file', 'review');
+		await actUpdate((): void => outgoingReviewButton.focus());
+		expect(document.activeElement).toBe(outgoingReviewButton);
+
+		// Act
+		await actClick(outgoingReviewButton);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+
+		// Assert
+		const incomingReviewButton = activeContextButton('review', 'review');
+		const focusWasHandedOff = await pollWithinActUntilEqual(
+			() => document.activeElement === incomingReviewButton,
+			true,
+		);
+		if (!focusWasHandedOff) {
+			throw new Error(
+				`Expected focus on incoming Review control; actual=${document.activeElement?.outerHTML ?? 'none'}`,
+			);
+		}
+		expect(
+			document
+				.querySelector<HTMLElement>('[data-bridge-viewer-mode-host="file"]')
+				?.contains(document.activeElement),
+		).toBe(false);
+		handshake.dispose();
+	});
+
 	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
 		let sourceDiscoveryCount = 0;
 		let metadataSubscriptionOpenCount = 0;
@@ -234,6 +269,19 @@ function activeViewerMode(): string | null {
 	);
 }
 
+function activeContextButton(
+	activeSurface: 'file' | 'review',
+	targetSurface: 'file' | 'review',
+): HTMLElement {
+	const button = document.querySelector<HTMLElement>(
+		`[data-bridge-viewer-mode-host="${activeSurface}"][data-bridge-viewer-mode-active="true"] [data-bridge-viewer-context-target="${targetSurface}"]`,
+	);
+	if (button === null) {
+		throw new Error(`Missing active ${activeSurface} context button for ${targetSurface}.`);
+	}
+	return button;
+}
+
 async function clickContext(context: 'file' | 'review'): Promise<void> {
 	const button = document.querySelector<HTMLElement>(
 		`[data-testid="bridge-viewer-context-${context}"]`,
@@ -300,10 +348,8 @@ function viewSettingsRow(surface: 'file' | 'review', label: string): HTMLElement
 		`[data-testid="bridge-${surface}-view-settings-content"]`,
 	);
 	if (content === null) throw new Error(`Missing ${surface} View Settings content`);
-	const row = [...content.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find(
-		(candidate): boolean =>
-			candidate.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
-			label,
+	const row = [...content.querySelectorAll<HTMLElement>('[role="switch"]')].find(
+		(candidate): boolean => candidate.getAttribute('aria-label') === label,
 	);
 	if (row === undefined) throw new Error(`Missing View Settings row: ${label}`);
 	return row;

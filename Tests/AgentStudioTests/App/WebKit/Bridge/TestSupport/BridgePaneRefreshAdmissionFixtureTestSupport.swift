@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
@@ -56,6 +57,14 @@ struct RefreshAdmissionIntegrationFixture {
         }
         let decoder = try BridgeProductMetadataFrameDecoder()
         return try #require(try decoder.append(queuedFrame.data).first)
+    }
+
+    func consumeQueuedMetadataFrames() async throws -> [BridgeProductMetadataFrame] {
+        var frames: [BridgeProductMetadataFrame] = []
+        while await productInstallation.session.producerSnapshot().queuedFrameCount > 0 {
+            frames.append(try await consumeNextMetadataFrame())
+        }
+        return frames
     }
 
     func openFileMetadataSubscription() async throws {
@@ -125,10 +134,15 @@ struct RefreshAdmissionIntegrationFixture {
 func makeRefreshAdmissionIntegrationFixture(
     comparisonGate: BridgeComparisonGate? = nil,
     failsChangesetPublication: Bool = false,
+    retryableChangesetFailureCount: Int = 0,
     failsReviewReservation: Bool = false,
     failsReviewDelivery: Bool = false,
+    fileChangesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
-    reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil
+    reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
+    initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
+    contributionTargetCommit:
+        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
@@ -142,17 +156,17 @@ func makeRefreshAdmissionIntegrationFixture(
         path: "Sources/App/Refreshed.swift",
         sizeBytes: 100
     )
-    let reviewProvider = BridgeReviewSourceProviderFake(
-        comparison: BridgeEndpointComparison(
-            baseEndpoint: baseEndpoint,
-            headEndpoint: headEndpoint,
-            changedFiles: [initialFile]
-        ),
-        contentByHandleId: [:],
+    let reviewProvider = makeRefreshAdmissionReviewProvider(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        initialFile: initialFile,
+        initialContributionTarget: initialContributionTarget,
         comparisonGate: comparisonGate
     )
     let fileMetadataSource = RefreshAdmissionTrackingFileMetadataSource(
         failsChangesetPublication: failsChangesetPublication,
+        retryableChangesetFailureCount: retryableChangesetFailureCount,
+        changesetPublicationGate: fileChangesetPublicationGate,
         metadataProducerGate: fileMetadataProducerGate
     )
     let reviewMetadataSource = RefreshAdmissionGatedReviewMetadataSource(
@@ -177,12 +191,7 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/bridge-refresh-admission",
-                baseline: .staged)
-        ),
+        state: makeRefreshAdmissionPaneState(initialContributionTarget: initialContributionTarget),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -204,8 +213,12 @@ func makeRefreshAdmissionIntegrationFixture(
                 activeInstallation: installation
             ),
             productProvider: productProvider
-        )
+        ),
+        contributionTargetCommit: contributionTargetCommit
     )
+    // These tests exercise refresh after explicit Review intake. Foreground
+    // activity alone does not request the initial package.
+    controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
     let productAdmission = try #require(productAdmissionGate.acquire())
     let metadataProducerLease = try await installRefreshAdmissionMetadataProducer(
         installation: installation,
@@ -228,4 +241,71 @@ func makeRefreshAdmissionIntegrationFixture(
         productProvider: productProvider,
         controller: controller
     )
+}
+
+private func makeRefreshAdmissionPaneState(
+    initialContributionTarget: WorkspaceReviewContributionTarget?
+) -> BridgePaneState {
+    BridgePaneState(
+        panelKind: .diffViewer,
+        source: .workspace(
+            rootPath: "/tmp/bridge-refresh-admission",
+            baseline: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:))
+                ?? .staged)
+    )
+}
+
+private func makeRefreshAdmissionReviewProvider(
+    baseEndpoint: BridgeSourceEndpoint,
+    headEndpoint: BridgeSourceEndpoint,
+    initialFile: BridgeEndpointChangedFile,
+    initialContributionTarget: WorkspaceReviewContributionTarget?,
+    comparisonGate: BridgeComparisonGate?
+) -> BridgeReviewSourceProviderFake {
+    let comparison = BridgeEndpointComparison(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        changedFiles: [initialFile]
+    )
+    let contributionCapture = initialContributionTarget.map { _ in
+        refreshAdmissionContributionCapture(comparison: comparison)
+    }
+    return BridgeReviewSourceProviderFake(
+        comparison: comparison,
+        contentByHandleId: [:],
+        contributionCapture: contributionCapture,
+        comparisonGate: comparisonGate
+    )
+}
+
+private func refreshAdmissionContributionCapture(
+    comparison: BridgeEndpointComparison
+) -> BridgeContributionComparisonCapture {
+    BridgeContributionComparisonCapture(
+        resolvedTargetOID: "resolved-target-oid",
+        reviewedHeadOID: "reviewed-head-oid",
+        baseRole: .commonCommit,
+        baseOID: "contribution-base-oid",
+        comparison: comparison,
+        gitRefreshSeed: refreshAdmissionContributionSeed(
+            targetOID: "resolved-target-oid",
+            headOID: "reviewed-head-oid",
+            baseOID: "contribution-base-oid"
+        )
+    )
+}
+
+func refreshAdmissionContributionSeed(
+    targetOID: String,
+    headOID: String,
+    baseOID: String
+) -> GitReviewRefreshSeed {
+    GitContributionDiffResult.clientFixture(
+        snapshot: GitContributionDiffSnapshot(
+            resolvedTarget: GitResolvedRevision(oid: targetOID, shortName: "target"),
+            reviewedHead: GitResolvedRevision(oid: headOID, shortName: "feature"),
+            contributionBase: GitResolvedRevision(oid: baseOID, shortName: nil),
+            diff: GitDiffSnapshot(files: [])
+        )
+    ).successorSeed
 }

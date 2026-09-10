@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	BridgeViewerRealRouterObserver,
+	freshReviewInitialWindowRequiresTraversal,
 	mountedHeaderOrderViolationForExpectedOrder,
 	nextFreshReviewTraversalScrollTop,
 } from './product-only-real-router-page.ts';
@@ -276,6 +277,7 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 					hostTopOffset: -250,
 					itemId: 'review-item-42',
 					paintIdentity: 'paint-42',
+					renderedLineCount: 42,
 				},
 			],
 		});
@@ -297,6 +299,62 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 
 		// Assert
 		expect(nextScrollTop).toBe(5_500);
+	});
+});
+
+describe('freshReviewInitialWindowRequiresTraversal', () => {
+	test('advances when one painted selected item fills the initial viewport', () => {
+		expect(
+			freshReviewInitialWindowRequiresTraversal({
+				codeScroll: { clientHeight: 944, scrollHeight: 8_150, scrollTop: 0 },
+				selectedItemId: 'selected-item',
+				visibleItems: [
+					{
+						contentState: 'windowed',
+						hostBottomOffset: 1_188,
+						hostTopOffset: 0,
+						itemId: 'selected-item',
+						paintIdentity: 'painted-selected-item',
+						renderedLineCount: 0,
+					},
+				],
+			}),
+		).toBe(true);
+	});
+
+	test('does not skip unpainted selected content or a visible non-selected item', () => {
+		const base = {
+			codeScroll: { clientHeight: 944, scrollHeight: 8_150, scrollTop: 0 },
+			selectedItemId: 'selected-item',
+		};
+		const selectedItem = {
+			contentState: 'windowed',
+			hostBottomOffset: 1_188,
+			hostTopOffset: 0,
+			itemId: 'selected-item',
+			paintIdentity: 'painted-selected-item' as string | null,
+			renderedLineCount: 0,
+		};
+
+		expect(
+			freshReviewInitialWindowRequiresTraversal({
+				...base,
+				visibleItems: [{ ...selectedItem, paintIdentity: null }],
+			}),
+		).toBe(false);
+		expect(
+			freshReviewInitialWindowRequiresTraversal({
+				...base,
+				visibleItems: [
+					selectedItem,
+					{
+						...selectedItem,
+						itemId: 'next-item',
+						paintIdentity: 'painted-next-item',
+					},
+				],
+			}),
+		).toBe(false);
 	});
 });
 

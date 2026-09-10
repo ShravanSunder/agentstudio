@@ -165,6 +165,7 @@ struct BridgeProductContentCancelledFrame: Codable, Equatable, Sendable {
         case identity
         case kind
         case leaseId
+        case operationCorrelationId
         case workerDerivationEpoch
     }
 
@@ -173,6 +174,7 @@ struct BridgeProductContentCancelledFrame: Codable, Equatable, Sendable {
     let disposition: BridgeProductContentCancellationDisposition
     let identity: BridgeProductContentIdentity
     let leaseId: String
+    let operationCorrelationID: String?
     let workerDerivationEpoch: Int
 
     var surface: BridgeProductSurface { identity.surface }
@@ -199,6 +201,12 @@ struct BridgeProductContentCancelledFrame: Codable, Equatable, Sendable {
             )
         }
         self.leaseId = try container.decode(String.self, forKey: .leaseId)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.workerDerivationEpoch = try container.decode(
             Int.self,
             forKey: .workerDerivationEpoch
@@ -207,6 +215,12 @@ struct BridgeProductContentCancelledFrame: Codable, Equatable, Sendable {
         try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(contentRequestId, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(leaseId, codingPath: decoder.codingPath)
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(
+                operationCorrelationID,
+                codingPath: decoder.codingPath
+            )
+        }
         try BridgeProductContractDecoding.validateNonnegative(
             workerDerivationEpoch,
             name: "workerDerivationEpoch",
@@ -222,6 +236,7 @@ struct BridgeProductContentCancelledFrame: Codable, Equatable, Sendable {
         try container.encode(identity, forKey: .identity)
         try container.encode("content.cancelled", forKey: .kind)
         try container.encode(leaseId, forKey: .leaseId)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(workerDerivationEpoch, forKey: .workerDerivationEpoch)
     }
 }

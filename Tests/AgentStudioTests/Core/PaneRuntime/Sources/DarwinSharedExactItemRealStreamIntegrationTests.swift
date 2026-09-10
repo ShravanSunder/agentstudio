@@ -49,12 +49,12 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         let fullGitBatchTask = fixture.collectFullGitRefreshBatches(
             expectedWorktreeIds: [fixture.firstWorktreeId, fixture.secondWorktreeId]
         )
-        try "[core]\n\tfilemode = true\n".write(
-            to: fixture.includedConfigurationPath,
+        try "ignored.txt\nanother-ignored.txt\n".write(
+            to: fixture.excludesFilePath,
             atomically: false,
             encoding: .utf8
         )
-        #expect(await fixture.waitForNativeCallback(at: fixture.includedConfigurationPath))
+        #expect(await fixture.waitForNativeCallback(at: fixture.excludesFilePath))
         let fullGitBatches = try #require(
             await fixture.firstCompletedValue(
                 from: fullGitBatchTask,

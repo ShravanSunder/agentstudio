@@ -10,8 +10,8 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
             "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
         )
 
-        #expect(source.contains("sqliteDatastore: WorkspaceSQLiteDatastore?"))
-        #expect(source.contains("private let sqliteDatastore: WorkspaceSQLiteDatastore?"))
+        #expect(source.contains("sqliteDatastore: WorkspaceSQLiteDatastoreActor?"))
+        #expect(source.contains("private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?"))
         #expect(!source.contains("private let sqliteBackend: WorkspaceSQLiteStoreBackend?"))
         #expect(!source.contains("sqliteBackend: WorkspaceSQLiteStoreBackend?"))
     }
@@ -101,7 +101,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
             "Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationBoot.swift"
         )
 
-        #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?"))
+        #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastoreActor?"))
         #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?"))
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
 
@@ -118,7 +118,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
 
     @Test("configuration starts unprepared while injected capabilities start prepared")
     func datastoreConstructionMakesPreparationHonest() throws {
-        let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift")
+        let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift")
 
         #expect(source.contains("self.databasePreparationState = .unprepared"))
         #expect(source.contains("self.databasePreparationState = .prepared(preparationReceipt)"))

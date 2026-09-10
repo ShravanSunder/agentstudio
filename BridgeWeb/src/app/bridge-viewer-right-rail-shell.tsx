@@ -16,7 +16,6 @@ export interface BridgeViewerRightRailShellProps {
 	readonly bodyOnClick?: MouseEventHandler<HTMLElement>;
 	readonly bodyTestId: string;
 	readonly bodyTabIndex?: number;
-	readonly border: 'opaque' | 'subtle';
 	readonly className?: string;
 	readonly headerTestId?: string;
 	readonly layout: 'grid' | 'stack';
@@ -34,10 +33,7 @@ export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProp
 		<aside
 			aria-label={props.ariaLabel}
 			className={cn(
-				'h-full min-h-0 min-w-0 border-l bg-[var(--bridge-surface-bg)]',
-				props.border === 'opaque'
-					? 'border-[var(--bridge-border-opaque)]'
-					: 'border-[var(--bridge-border-subtle)]',
+				'h-full min-h-0 min-w-0 bg-surface',
 				props.layout === 'grid'
 					? 'grid grid-rows-[auto_minmax(0,1fr)]'
 					: 'order-last flex flex-col',

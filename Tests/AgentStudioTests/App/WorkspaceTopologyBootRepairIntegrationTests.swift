@@ -277,7 +277,7 @@ private struct WorkspacePaneAssociationBootFixture {
     let rootDirectory: URL
     let coreDatabaseURL: URL
     let localDatabaseURL: URL
-    let datastore: WorkspaceSQLiteDatastore
+    let datastore: WorkspaceSQLiteDatastoreActor
     let repositoryID: UUID
     let foreignRepositoryID: UUID
     let worktreeID: UUID
@@ -578,7 +578,7 @@ private struct WorkspaceTopologyBootRepairFixture {
         return fixture
     }
 
-    func makeDatastore() -> WorkspaceSQLiteDatastore {
+    func makeDatastore() -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: localDatabaseURL

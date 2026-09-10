@@ -91,6 +91,8 @@ struct BridgeReviewSourceProviderFactoryTests {
         // Assert
         #expect(launchProvider is BridgeGitReviewSourceProvider)
         #expect(currentWorkingDirectoryProvider is BridgeGitReviewSourceProvider)
+        #expect(launchProvider is any BridgeReviewRefreshImpactSourceProvider)
+        #expect(currentWorkingDirectoryProvider is any BridgeReviewRefreshImpactSourceProvider)
         await scheduler.shutdown()
     }
 

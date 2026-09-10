@@ -5,6 +5,9 @@ final class BridgeProductContentFrameDecoder {
     private static let commonFramePrefixByteCount = 9
     private static let minimumFrameBodyByteCount = 5
     private static let dataOffsetByteCount = 4
+    private static let operationCorrelationDigestByteCount = 32
+    private static let operationCorrelationEnvelopeByteCount = 33
+    private static let dataHeaderByteCount = dataOffsetByteCount + operationCorrelationEnvelopeByteCount
 
     private let maximumFrameBytes: Int
     private var accounting = BridgeProductFrameDecoderIngressAccounting()
@@ -262,7 +265,7 @@ final class BridgeProductContentFrameDecoder {
         tagBodyByteLength: Int,
         prefix: BridgeProductFrameByteAccumulator
     ) throws {
-        let payloadByteLength = tagBodyByteLength - Self.dataOffsetByteCount
+        let payloadByteLength = tagBodyByteLength - Self.dataHeaderByteCount
         guard
             payloadByteLength > 0,
             payloadByteLength <= BridgeProductWireContract.maximumContentDataPayloadBytes
@@ -273,7 +276,7 @@ final class BridgeProductContentFrameDecoder {
             )
         }
         let offset = BridgeProductFrameByteAccumulator(
-            capacity: Self.dataOffsetByteCount,
+            capacity: Self.dataHeaderByteCount,
             storageAccounting: storageAccounting
         )
         decodingState = .dataOffset(
@@ -333,6 +336,7 @@ final class BridgeProductContentFrameDecoder {
         guard offset.count == offset.capacity else { return }
 
         let offsetBytes = offset.readUInt32BigEndian(at: 0)
+        let operationCorrelationID = try Self.operationCorrelationID(from: offset)
         guard offsetBytes <= BridgeProductWireContract.maximumContentStreamBytes else {
             throw failure(
                 .framePayloadInvalid,
@@ -360,6 +364,7 @@ final class BridgeProductContentFrameDecoder {
             .init(
                 contentSequence: contentSequence,
                 offsetBytes: offsetBytes,
+                operationCorrelationID: operationCorrelationID,
                 prefix: prefix,
                 offset: offset,
                 payload: payload
@@ -389,7 +394,8 @@ final class BridgeProductContentFrameDecoder {
         let payload = state.payload.takeData()
         let header = try BridgeProductContentDataHeader(
             contentSequence: state.contentSequence,
-            offsetBytes: state.offsetBytes
+            offsetBytes: state.offsetBytes,
+            operationCorrelationID: state.operationCorrelationID
         )
         observedByteLength += payload.count
         nextContentSequence += 1
@@ -552,9 +558,33 @@ final class BridgeProductContentFrameDecoder {
     private struct DataPayloadState {
         let contentSequence: Int
         let offsetBytes: Int
+        let operationCorrelationID: String?
         let prefix: BridgeProductFrameByteAccumulator
         let offset: BridgeProductFrameByteAccumulator
         let payload: BridgeProductFrameByteAccumulator
+    }
+
+    private static func operationCorrelationID(
+        from header: BridgeProductFrameByteAccumulator
+    ) throws -> String? {
+        let presence = header.byte(at: dataOffsetByteCount)
+        let bytes = (0..<operationCorrelationDigestByteCount).map {
+            header.byte(at: dataOffsetByteCount + 1 + $0)
+        }
+        if presence == 0 {
+            guard bytes.allSatisfy({ $0 == 0 }) else {
+                throw BridgeProductFrameCodecError.invalidFrame(
+                    "Bridge product null operation correlation contains digest bytes."
+                )
+            }
+            return nil
+        }
+        guard presence == 1 else {
+            throw BridgeProductFrameCodecError.invalidFrame(
+                "Bridge product operation correlation presence flag is invalid."
+            )
+        }
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     private enum DecodingState {

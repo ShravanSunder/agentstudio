@@ -269,7 +269,7 @@ private func activateActivityOrderingWindow(
     windowLifecycleStore: WindowLifecycleAtom
 ) {
     let owningWindowId = UUID()
-    coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+    coordinator.startBridgePaneActivityObservation()
     appLifecycleStore.setActive(true)
     windowLifecycleStore.recordWindowRegistered(owningWindowId)
     windowLifecycleStore.recordWindowPresentation(

@@ -29,15 +29,17 @@ enum BridgeReviewFileClassifier {
         }
         if pathComponents.contains("fixtures")
             || pathComponents.contains("__fixtures__")
+            || pathComponents.contains("test-fixtures")
+            || pathComponents.contains("testdata")
             || normalizedPath.contains("/fixtures/")
         {
             return .fixture
         }
         if pathComponents.contains("tests")
             || pathComponents.contains("test")
+            || pathComponents.contains("__tests__")
             || normalizedPath.hasSuffix("tests.swift")
-            || normalizedPath.hasSuffix(".test.ts")
-            || normalizedPath.hasSuffix(".spec.ts")
+            || isScriptTestPath(normalizedPath)
         {
             return .test
         }
@@ -45,6 +47,7 @@ enum BridgeReviewFileClassifier {
             || normalizedPath.hasPrefix("docs/")
             || normalizedPath.hasSuffix(".md")
             || normalizedPath.hasSuffix(".mdx")
+            || isDocumentationFilename(normalizedPath)
         {
             return .docs
         }
@@ -63,11 +66,27 @@ enum BridgeReviewFileClassifier {
             || filename == "package.json"
             || filename == "tsconfig.json"
             || filename == "vite.config.ts"
+            || filename == "vitest.config.ts"
+            || filename == "astro.config.ts"
+            || filename == "postcss.config.mjs"
             || filename == ".mise.toml"
             || filename.hasSuffix(".yml")
             || filename.hasSuffix(".yaml")
             || filename.hasSuffix(".toml")
             || filename.hasSuffix(".json")
+    }
+
+    private static func isDocumentationFilename(_ path: String) -> Bool {
+        let filename = (path as NSString).lastPathComponent
+        return ["readme", "license", "licence", "changelog", "contributing"].contains(filename)
+    }
+
+    private static func isScriptTestPath(_ path: String) -> Bool {
+        let filename = (path as NSString).lastPathComponent as NSString
+        let scriptExtensions: Set<String> = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]
+        guard scriptExtensions.contains(filename.pathExtension) else { return false }
+        let stem = filename.deletingPathExtension
+        return stem.hasSuffix(".test") || stem.hasSuffix(".spec")
     }
 
     private static func isSourcePath(_ path: String) -> Bool {

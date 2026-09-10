@@ -392,7 +392,7 @@ enum BridgePaneProductFileContentSource {
         "worktree-file-\(sha256(relativePath).prefix(32))"
     }
 
-    private static func stableDescriptorId(
+    static func stableDescriptorId(
         relativePath: String,
         sourceSHA256: String
     ) -> String {

@@ -181,7 +181,7 @@ extension E2ESerializedTests {
         }
 
         @MainActor
-        private func reopenedCleanupDatastore(at databaseURL: URL) throws -> WorkspaceSQLiteDatastore {
+        private func reopenedCleanupDatastore(at databaseURL: URL) throws -> WorkspaceSQLiteDatastoreActor {
             let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
             let repository = WorkspaceCoreRepository(databaseWriter: database)
             let localDatabase = try SQLiteDatabaseFactory.makeInMemoryQueue()

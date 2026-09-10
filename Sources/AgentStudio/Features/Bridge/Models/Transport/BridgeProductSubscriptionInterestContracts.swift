@@ -1,5 +1,30 @@
 import Foundation
 
+struct BridgeProductAnnotationInterestDelta: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable { case subscriptionKind }
+
+    let subscriptionKind: BridgeProductSubscriptionKind
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "annotation interest delta"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        subscriptionKind = try container.decode(
+            BridgeProductSubscriptionKind.self,
+            forKey: .subscriptionKind
+        )
+        guard subscriptionKind == .fileAnnotations || subscriptionKind == .reviewAnnotations else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation interest delta kind must be an annotation subscription",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+}
+
 struct BridgeProductReviewMetadataInterestAddition: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case itemId
@@ -145,47 +170,74 @@ struct BridgeProductFileMetadataInterestDelta: Codable, Equatable, Sendable {
     }
 }
 
-enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
-    case fileMetadata(BridgeProductFileMetadataInterestDelta)
-    case reviewMetadata(BridgeProductReviewMetadataInterestDelta)
-
+struct BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case subscriptionKind
     }
 
-    var itemCount: Int {
-        switch self {
-        case .fileMetadata(let delta):
-            delta.add.count + delta.addPathScope.count + delta.removePathScope.count + delta.removePaths.count
-        case .reviewMetadata(let delta):
-            delta.add.count + delta.removeItemIds.count
-        }
-    }
+    let subscriptionKind: BridgeProductSubscriptionKind
+    private let encodedDelta: Data
 
-    var subscriptionKind: BridgeProductSubscriptionKind {
-        switch self {
-        case .fileMetadata: .fileMetadata
-        case .reviewMetadata: .reviewMetadata
-        }
+    var itemCount: Int {
+        let registration = try! BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        )
+        let value = BridgeProductMetadataApplicationValue(
+            applicationKind: subscriptionKind,
+            encodedValue: encodedDelta
+        )
+        return try! registration.deltaItemCount(value)
     }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
-        case .fileMetadata:
-            self = .fileMetadata(try BridgeProductFileMetadataInterestDelta(from: decoder))
-        case .reviewMetadata:
-            self = .reviewMetadata(try BridgeProductReviewMetadataInterestDelta(from: decoder))
+        let payload = try BridgeProductJSONValue(from: decoder)
+        let encoded = try JSONEncoder.bridgeProductSorted.encode(payload)
+        guard case .object(let members) = payload,
+            case .string(let rawKind)? = members[CodingKeys.subscriptionKind.rawValue],
+            let decodedKind = BridgeProductSubscriptionKind(rawValue: rawKind)
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription delta requires a valid subscriptionKind",
+                codingPath: decoder.codingPath
+            )
         }
+        subscriptionKind = decodedKind
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
+        _ = try registration.decodeInterestDelta(from: encoded)
+        encodedDelta = encoded
     }
 
     func encode(to encoder: Encoder) throws {
-        switch self {
-        case .fileMetadata(let delta):
-            try delta.encode(to: encoder)
-        case .reviewMetadata(let delta):
-            try delta.encode(to: encoder)
-        }
+        try JSONDecoder().decode(BridgeProductJSONValue.self, from: encodedDelta).encode(to: encoder)
+    }
+
+    static func fileMetadata(_ delta: BridgeProductFileMetadataInterestDelta) -> Self {
+        try! registered(delta, kind: .fileMetadata)
+    }
+
+    static func reviewMetadata(_ delta: BridgeProductReviewMetadataInterestDelta) -> Self {
+        try! registered(delta, kind: .reviewMetadata)
+    }
+
+    func decode<TDelta: Decodable>(_ type: TDelta.Type) throws -> TDelta {
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
+        _ = try registration.decodeInterestDelta(from: encodedDelta)
+        return try JSONDecoder().decode(type, from: encodedDelta)
+    }
+
+    private static func registered<TDelta: Encodable>(
+        _ delta: TDelta,
+        kind: BridgeProductSubscriptionKind
+    ) throws -> Self {
+        let encoded = try JSONEncoder.bridgeProductSorted.encode(delta)
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: kind)
+        _ = try registration.decodeInterestDelta(from: encoded)
+        return Self(subscriptionKind: kind, encodedDelta: encoded)
+    }
+
+    private init(subscriptionKind: BridgeProductSubscriptionKind, encodedDelta: Data) {
+        self.subscriptionKind = subscriptionKind
+        self.encodedDelta = encodedDelta
     }
 }
 

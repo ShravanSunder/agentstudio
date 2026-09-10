@@ -9,8 +9,12 @@ import {
 	bridgeProductContentRequestSchema,
 } from './bridge-product-content-contracts.js';
 import { bridgeProductFrameAcknowledgementRequestSchema } from './bridge-product-frame-acknowledgement-contracts.js';
+import type {
+	BridgeProductMetadataApplicationInterestDelta,
+	BridgeProductMetadataApplicationOpen,
+} from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
-	type BridgeProductControlMux,
 	type BridgeProductSubscriptionOpenAccepted,
 	type BridgeProductSubscriptionUpdateBatchAccepted,
 } from './bridge-product-session-authority.js';
@@ -21,7 +25,15 @@ import {
 	bridgeProductMetadataStreamRequestSchema,
 } from './bridge-product-session-contracts.js';
 import { type BridgeProductSubscriptionInterestDeltaWire } from './bridge-product-subscription-contracts.js';
-import { BridgeProductSubscriptionState } from './bridge-product-subscription-state.js';
+import {
+	BridgeProductSubscriptionState,
+	type BridgeProductSubscriptionStateControlMux,
+} from './bridge-product-subscription-state.js';
+
+type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
+type ReviewMetadataOpen = BridgeProductMetadataApplicationOpen<ReviewMetadataProtocol>;
+type ReviewMetadataInterestDelta =
+	BridgeProductMetadataApplicationInterestDelta<ReviewMetadataProtocol>;
 
 const transcriptCodecSchema = z.enum([
 	'contentHeader',
@@ -118,7 +130,7 @@ const invalidStartupTranscriptSchema = z
 
 const frozenFixtureHashes = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: '10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173',
+	valid: 'a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3',
 } as const;
 
 describe('Bridge product startup transcript', () => {
@@ -250,21 +262,24 @@ describe('Bridge product startup transcript', () => {
 			typedOpenResponse,
 			typedUpdateResponse,
 		);
+		const updateDelta = bridgeProductReviewMetadataApplicationProtocol.interestDeltaSchema.parse(
+			updateRequest.delta,
+		);
 		const subscriptionState = new BridgeProductSubscriptionState({
 			controlMux: controlHarness.controlMux,
 			createIdentifier: (): string => updateRequest.updateId,
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: { interests: [] },
 			onTerminal: (): void => {},
+			readWorkerDerivationEpochAtAdmission: (): number => openRequest.workerDerivationEpoch,
 			subscriptionId: openRequest.subscriptionId,
-			subscriptionKind: 'review.metadata',
-			workerDerivationEpoch: openRequest.workerDerivationEpoch,
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
 		});
 		subscriptionState.start();
 
 		// Act
 		const updateCompletion = subscriptionState.publicSubscription.update({
-			interests: updateRequest.delta.add.map((addition) => ({
+			interests: updateDelta.add.map((addition) => ({
 				itemIds: [addition.itemId],
 				lane: addition.lane,
 			})),
@@ -440,18 +455,20 @@ function createStartupTranscriptReviewControlHarness(
 	updateResponse: BridgeProductSubscriptionUpdateBatchAccepted<'review.metadata'>,
 ): {
 	readonly capturedUpdate: Promise<CapturedSubscriptionUpdate>;
-	readonly controlMux: Pick<
-		BridgeProductControlMux,
-		'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
+	readonly controlMux: BridgeProductSubscriptionStateControlMux<
+		'review.metadata',
+		ReviewMetadataOpen,
+		ReviewMetadataInterestDelta
 	>;
 } {
 	let resolveCapturedUpdate: ((update: CapturedSubscriptionUpdate) => void) | null = null;
 	const capturedUpdate = new Promise<CapturedSubscriptionUpdate>((resolve): void => {
 		resolveCapturedUpdate = resolve;
 	});
-	const controlMux: Pick<
-		BridgeProductControlMux,
-		'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
+	const controlMux: BridgeProductSubscriptionStateControlMux<
+		'review.metadata',
+		ReviewMetadataOpen,
+		ReviewMetadataInterestDelta
 	> = {
 		cancelSubscription: async (): Promise<never> => {
 			throw new Error('Startup transcript harness does not cancel subscriptions.');
