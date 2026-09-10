@@ -227,7 +227,10 @@ jobs:
       - parallel:
           - name: Copy XCFramework
             run: |
-              mise run --skip-deps copy-xcframework
+              mkdir -p Frameworks
+              if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+                cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+              fi
 
           - name: Setup dev resources
             run: |
@@ -361,7 +364,10 @@ jobs:
       - parallel:
           - name: Copy XCFramework
             run: |
-              mise run --skip-deps copy-xcframework
+              mkdir -p Frameworks
+              if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+                cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+              fi
 
           - name: Setup dev resources
             run: |

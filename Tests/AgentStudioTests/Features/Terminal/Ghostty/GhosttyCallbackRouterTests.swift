@@ -1,13 +1,11 @@
 import AgentStudioCore
-import AgentStudioInfrastructure
-import AppKit
 import GhosttyKit
 import Testing
 
 @testable import AgentStudioTerminal
 
 @MainActor
-@Suite("Ghostty callback router", .serialized)
+@Suite("Ghostty callback router")
 struct GhosttyCallbackRouterTests {
     private final class RoutedActionCapture {
         var actionTag: UInt32?
@@ -15,15 +13,15 @@ struct GhosttyCallbackRouterTests {
         var handledResult: Bool?
     }
 
-    @Test("readClipboard returns unavailable when no surface userdata is available")
-    func readClipboard_withoutUserdata_returnsUnavailable() {
+    @Test("readClipboard returns false when no surface userdata is available")
+    func readClipboard_withoutUserdata_returnsFalse() {
         let handled = Ghostty.CallbackRouter.readClipboard(
             nil,
             location: GHOSTTY_CLIPBOARD_STANDARD,
             state: nil
         )
 
-        #expect(handled == GHOSTTY_CLIPBOARD_READ_UNAVAILABLE)
+        #expect(!handled)
     }
 
     @Test("runtimeConfig read clipboard callback can invoke the helper path")
@@ -31,78 +29,9 @@ struct GhosttyCallbackRouterTests {
         let userdataPointer = UnsafeMutableRawPointer(bitPattern: 0x1)!
         let config = Ghostty.CallbackRouter.runtimeConfig(userdataPointer: userdataPointer)
 
-        let handled = "text/plain".withCString { mime in
-            var requestedMime: UnsafePointer<CChar>? = mime
-            return withUnsafePointer(to: &requestedMime) { pointer in
-                config.read_clipboard_cb(nil, GHOSTTY_CLIPBOARD_STANDARD, nil, pointer, 1, false)
-            }
-        }
+        let handled = config.read_clipboard_cb(nil, GHOSTTY_CLIPBOARD_STANDARD, nil)
 
-        #expect(handled == GHOSTTY_CLIPBOARD_READ_UNAVAILABLE)
-    }
-
-    @Test("clipboard listing and unsupported representations do not read pasteboard data")
-    func unsupportedClipboardRequestsAreRejected() {
-        let config = Ghostty.CallbackRouter.runtimeConfig(
-            userdataPointer: UnsafeMutableRawPointer(bitPattern: 0x1)!
-        )
-        #expect(
-            config.read_clipboard_cb(nil, GHOSTTY_CLIPBOARD_STANDARD, nil, nil, 0, true)
-                == GHOSTTY_CLIPBOARD_READ_UNSUPPORTED)
-        let result = "image/png".withCString { mime in
-            var requestedMime: UnsafePointer<CChar>? = mime
-            return withUnsafePointer(to: &requestedMime) { pointer in
-                config.read_clipboard_cb(nil, GHOSTTY_CLIPBOARD_STANDARD, nil, pointer, 1, false)
-            }
-        }
-        #expect(result == GHOSTTY_CLIPBOARD_READ_UNSUPPORTED)
-    }
-
-    @Test("clipboard locations keep selection separate and reject primary")
-    func clipboardLocationsRemainSeparate() throws {
-        let standard = try #require(Ghostty.CallbackRouter.clipboardPasteboard(for: GHOSTTY_CLIPBOARD_STANDARD))
-        let selection = try #require(Ghostty.CallbackRouter.clipboardPasteboard(for: GHOSTTY_CLIPBOARD_SELECTION))
-        #expect(standard.name == NSPasteboard.general.name)
-        #expect(selection.name != standard.name)
-        #expect(Ghostty.CallbackRouter.clipboardPasteboard(for: GHOSTTY_CLIPBOARD_PRIMARY) == nil)
-    }
-
-    @Test("missing text differs from an available empty string")
-    func missingClipboardTextIsUnavailable() {
-        let pasteboard = NSPasteboard(name: .init("agentstudio-test-\(UUIDv7.generate())"))
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.clearContents()
-        #expect(Ghostty.CallbackRouter.clipboardText(from: pasteboard) == nil)
-        pasteboard.setString("", forType: .string)
-        #expect(Ghostty.CallbackRouter.clipboardText(from: pasteboard)?.isEmpty == true)
-    }
-
-    @Test("typed writes select plain text and preserve its complete byte length")
-    func clipboardWritesSelectPlainText() {
-        let expected = "π\0雪"
-        Array(expected.utf8).withUnsafeBytes { bytes in
-            "image/png".withCString { imageMime in
-                "text/plain".withCString { textMime in
-                    let image = ghostty_clipboard_content_s(mime: imageMime, data: nil, len: 0)
-                    let text = ghostty_clipboard_content_s(
-                        mime: textMime, data: bytes.baseAddress?.assumingMemoryBound(to: CChar.self), len: bytes.count
-                    )
-                    [image, text].withUnsafeBufferPointer { contents in
-                        #expect(Ghostty.CallbackRouter.clipboardText(from: contents.baseAddress!, count: 2) == expected)
-                        #expect(Ghostty.CallbackRouter.clipboardText(from: contents.baseAddress!, count: 1) == nil)
-                    }
-                    [text, text].withUnsafeBufferPointer { contents in
-                        #expect(Ghostty.CallbackRouter.clipboardText(from: contents.baseAddress!, count: 2) == nil)
-                    }
-                    let empty = ghostty_clipboard_content_s(mime: textMime, data: nil, len: 0)
-                    [empty].withUnsafeBufferPointer { contents in
-                        #expect(
-                            Ghostty.CallbackRouter.clipboardText(from: contents.baseAddress!, count: 1)?.isEmpty == true
-                        )
-                    }
-                }
-            }
-        }
+        #expect(!handled)
     }
 
     @Test("runtimeConfig action callback copies borrowed title before invoking the typed route")

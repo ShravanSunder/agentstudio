@@ -1,7 +1,7 @@
 [tools]
 node = "26.5.0"
 pnpm = "11.14.0"
-zig = "0.16.0"
+zig = "0.15.2"
 
 [env]
 PROJECT_ROOT = "{{config_root}}"
@@ -51,7 +51,13 @@ bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 rm -rf Frameworks/GhosttyKit.xcframework
 mkdir -p Frameworks
 cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
-python3 "${PROJECT_ROOT}/scripts/normalize-ghostty-xcframework.py"
+# Drop vendored debug info from the static archive to avoid Apple toolchain
+# symbol-resolution warnings during app/test links. This does not affect
+# linkable symbols; it only reduces unusable third-party debug metadata.
+ARCHIVE_PATH="$(find Frameworks/GhosttyKit.xcframework -type f \\( -name 'libghostty-fat.a' -o -name 'libghostty.a' \\) | head -n 1)"
+if [ -n "$ARCHIVE_PATH" ]; then
+  xcrun strip -S "$ARCHIVE_PATH"
+fi
 """
 
 [tasks.setup-dev-resources]
