@@ -171,8 +171,9 @@ private func observeProductionProviderOpening(
         productAdmission: productAdmission,
         acknowledgeLifecycle: provider.acknowledgeLifecycle
     )
-    let openingAvailable = await waitForMetadataOpening(in: session)
-    let pullResult = openingAvailable ? await pump.nextFrame() : nil
+    // Await the production frame boundary, not a scheduling-dependent queue snapshot.
+    // The owning test runner bounds a missing frame; cancellation remains joined below.
+    let pullResult = await pump.nextFrame()
     let providerInvocationCount = await invocationProbe.count
     let didRetireProducer = await pump.cancel()
     await provider.closeAndDrain()
@@ -183,17 +184,6 @@ private func observeProductionProviderOpening(
         providerInvocationCount: providerInvocationCount,
         pullResult: pullResult
     )
-}
-
-private func waitForMetadataOpening(in session: BridgeProductSession) async -> Bool {
-    let deadline = ContinuousClock.now + .seconds(2)
-    while ContinuousClock.now < deadline {
-        if await session.producerSnapshot().queuedFrameCount > 0 {
-            return true
-        }
-        await Task.yield()
-    }
-    return await session.producerSnapshot().queuedFrameCount > 0
 }
 
 private func metadataAcceptedFrame(
