@@ -113,6 +113,11 @@ exclusive peers. Their existing close/focus/busy guards and domain callbacks
 remain with the feature/controller, not with presentation slots. History stays
 collapsed initially; it is output history, not a second comment list.
 
+Annotations navigation remains visible and openable without export readiness;
+All remains selectable when empty or unavailable. Only output actions require
+eligible, ready, authorized content. Pending/All scopes the drawer preview and
+output only; it must not filter annotation membership in the main code canvas.
+
 ### Composition patterns
 
 Choose product content before choosing controls. A renderer/API option is not

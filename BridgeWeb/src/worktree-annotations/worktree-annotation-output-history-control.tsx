@@ -113,7 +113,7 @@ export function WorktreeAnnotationOutputHistoryControl(props: {
 		<Collapsible>
 			<section
 				aria-label="Output history"
-				className={cn(props.embedded === true ? 'mt-2' : bridgeViewerActionToolbarSurfaceClassName)}
+				className={cn(props.embedded === true ? 'mt-4' : bridgeViewerActionToolbarSurfaceClassName)}
 			>
 				<CollapsibleHeading>History ({history.length})</CollapsibleHeading>
 				<CollapsibleContent className="mt-2">

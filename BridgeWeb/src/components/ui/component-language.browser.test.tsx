@@ -7,10 +7,30 @@ import { userEvent } from 'vitest/browser';
 import '../../app/bridge-app.css';
 import { BridgeReviewFacetMenu } from '../../review-viewer/chrome/bridge-review-facet-menu.js';
 import { Button } from './button.js';
+import { Collapsible, CollapsibleHeading } from './collapsible.js';
 import { InputGroup, InputGroupInput } from './input-group.js';
 import { Input } from './input.js';
 import { Switch } from './switch.js';
 import { ToggleGroup, ToggleGroupItem } from './toggle-group.js';
+
+test('aligns a disclosure heading with its section and displays its expansion indicator', async () => {
+	const rendered = await render(
+		<div style={{ width: 300 }} data-testid="history-section">
+			<Collapsible>
+				<CollapsibleHeading>History (6)</CollapsibleHeading>
+			</Collapsible>
+		</div>,
+	);
+	const section = rendered.getByTestId('history-section').element();
+	const heading = rendered.getByRole('button', { name: 'History (6)' }).element();
+	expect(heading.getBoundingClientRect().left).toBe(section.getBoundingClientRect().left);
+	expect(getComputedStyle(heading).paddingLeft).toBe('0px');
+	expect(heading.querySelector('svg')).not.toBeNull();
+	await act(async (): Promise<void> => {
+		await userEvent.click(heading);
+	});
+	await expect.element(heading).toHaveAttribute('aria-expanded', 'true');
+});
 
 test('separates compact menu headings through weight, foreground, spacing and a quiet rule', async () => {
 	await render(

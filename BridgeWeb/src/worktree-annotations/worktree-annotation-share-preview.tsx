@@ -22,6 +22,7 @@ const threadPlacementLabels = {
 } satisfies Record<WorktreeAnnotationThreadProjection['context']['placement'], string | null>;
 
 export function WorktreeAnnotationSharePreview(props: {
+	readonly scope: 'pending' | 'all';
 	readonly inlineThreads: readonly WorktreeAnnotationThreadProjection[];
 	readonly otherThreads: readonly WorktreeAnnotationThreadProjection[];
 	readonly readiness: WorktreeAnnotationSharePreviewReadiness;
@@ -39,7 +40,9 @@ export function WorktreeAnnotationSharePreview(props: {
 		return (
 			<p className="mt-4 text-sm text-muted-foreground">
 				{props.readiness === 'current'
-					? 'No comments to share.'
+					? props.scope === 'pending'
+						? 'No pending comments.'
+						: 'No annotations yet.'
 					: 'Comments are still being confirmed.'}
 			</p>
 		);

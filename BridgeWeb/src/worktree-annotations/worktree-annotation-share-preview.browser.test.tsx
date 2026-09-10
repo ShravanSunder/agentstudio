@@ -17,6 +17,7 @@ describe('worktree annotation Share preview', () => {
 		const rendered = await render(
 			<div className="w-[320px] p-2">
 				<WorktreeAnnotationSharePreview
+					scope="all"
 					inlineThreads={[
 						threadFixture({
 							endLine: 14,
@@ -106,7 +107,7 @@ describe('worktree annotation Share preview', () => {
 	});
 
 	test.each([
-		['current', 'No comments to share.'],
+		['current', 'No annotations yet.'],
 		['unknown', 'Loading comments…'],
 		['unconfirmed', 'Comments are still being confirmed.'],
 	] satisfies readonly (readonly [WorktreeAnnotationSharePreviewReadiness, string])[])(
@@ -114,6 +115,7 @@ describe('worktree annotation Share preview', () => {
 		async (readiness, expectedText) => {
 			const rendered = await render(
 				<WorktreeAnnotationSharePreview
+					scope="all"
 					inlineThreads={[]}
 					otherThreads={[]}
 					readiness={readiness}
@@ -127,6 +129,7 @@ describe('worktree annotation Share preview', () => {
 	test('labels supplied last-known content as unconfirmed', async () => {
 		const rendered = await render(
 			<WorktreeAnnotationSharePreview
+				scope="all"
 				inlineThreads={[
 					threadFixture({
 						endLine: 3,

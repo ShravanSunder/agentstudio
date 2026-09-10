@@ -38,11 +38,12 @@ describe('Bridge Review header peer panels', () => {
 		});
 		await expect.element(annotationsTrigger).toBeEnabled();
 		await performAction(() => annotationsTrigger.click());
-		await expect.element(rendered.getByText('No comments to share.')).toBeVisible();
+		await expect.element(rendered.getByText('No pending comments.')).toBeVisible();
 		await performAction(() => rendered.getByRole('button', { name: 'All comments, 0' }).click());
 		await expect
 			.element(rendered.getByRole('button', { name: 'All comments, 0' }))
 			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByText('No annotations yet.')).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
 	});

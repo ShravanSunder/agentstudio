@@ -21,7 +21,6 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { useWorktreeAnnotationSelectionDismissal } from '../../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { mergeWorktreeAnnotationCommandConfirmedThreads } from '../../worktree-annotations/worktree-annotation-command-confirmed-presentation.js';
 import { createWorktreeAnnotationEditToken } from '../../worktree-annotations/worktree-annotation-edit-token.js';
-import { deriveWorktreeAnnotationShareProjection } from '../../worktree-annotations/worktree-annotation-share-projection.js';
 import type {
 	WorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationInlineThreadProjection,
@@ -96,12 +95,6 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 						activeNewMessageEditTokens.has(message.draft.activeEditToken),
 				),
 		);
-		if (interaction.shareMode.kind === 'open') {
-			return deriveWorktreeAnnotationShareProjection({
-				scope: interaction.shareMode.scope,
-				threads: serverSessionThreads,
-			}).inlineThreads;
-		}
 		const commandConfirmedThreads = projection.commandConfirmedThreads.filter(
 			(thread): boolean =>
 				(activeSessionId === null
@@ -121,7 +114,6 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	}, [
 		activeNewMessageEditTokens,
 		activeSessionId,
-		interaction.shareMode,
 		projection.commandConfirmedThreads,
 		projection.sessions.length,
 		projection.threads,

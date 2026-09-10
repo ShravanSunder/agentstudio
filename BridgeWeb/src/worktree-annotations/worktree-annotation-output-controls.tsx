@@ -145,6 +145,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 				scope={displayedScope}
 			>
 				<WorktreeAnnotationSharePreview
+					scope={displayedScope}
 					inlineThreads={[]}
 					otherThreads={[]}
 					readiness={knownEmpty ? 'current' : 'unknown'}
@@ -255,6 +256,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			scope={displayedScope}
 		>
 			<WorktreeAnnotationSharePreview
+				scope={displayedScope}
 				inlineThreads={shared.inlineThreads}
 				otherThreads={shared.otherThreads}
 				readiness={isOutputReady ? 'current' : 'unconfirmed'}

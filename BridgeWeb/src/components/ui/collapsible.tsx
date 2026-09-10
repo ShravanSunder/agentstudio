@@ -1,6 +1,7 @@
 'use client';
 
 import { Collapsible as CollapsiblePrimitive } from '@base-ui/react/collapsible';
+import { ChevronRightIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import { cn } from '@/lib/utils.js';
@@ -16,15 +17,28 @@ function CollapsibleTrigger(props: CollapsiblePrimitive.Trigger.Props): ReactEle
 }
 
 /** Section-heading hierarchy with the same action and focus recipe as other controls. */
-function CollapsibleHeading(
-	props: Omit<CollapsiblePrimitive.Trigger.Props, 'render'>,
-): ReactElement {
+function CollapsibleHeading({
+	children,
+	...props
+}: Omit<CollapsiblePrimitive.Trigger.Props, 'render'>): ReactElement {
 	return (
 		<h3>
 			<CollapsibleTrigger
 				{...props}
-				render={<Button size="sm" variant="ghost" className="text-base" />}
-			/>
+				render={
+					<Button
+						size="sm"
+						variant="ghost"
+						className="group w-full justify-between px-0 text-base"
+					/>
+				}
+			>
+				{children}
+				<ChevronRightIcon
+					aria-hidden="true"
+					className="transition-transform group-aria-expanded:rotate-90"
+				/>
+			</CollapsibleTrigger>
 		</h3>
 	);
 }
