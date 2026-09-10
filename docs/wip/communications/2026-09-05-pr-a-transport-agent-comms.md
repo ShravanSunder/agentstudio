@@ -6415,3 +6415,55 @@ Logs tmp/pr-a-file-classifier-{red,green,lint}.log. Scoped commit next.
 This does NOT claim complete real Swift/Vite category-menu E2E: Test data/Other,
 empty results, ancestor retention and Clear in both viewers remain to verify.
 UI remains owner of icons, direct groups and visual recipes.
+
+TRANSPORT0291 checkpoint629fa126d committed withhooks; focused18native tests and
+fullscopedlint exit0. Delegate native_category_e2e owns only two new permanent
+E2E fixture/journey files; no existingUI source edits. Parent auditing real
+category/currentvisibility joins while delegate builds modest realSwift/Vite
+fixture. Review hidden-default filter precedes category facets, so explicit
+Generated/Testdata/Dependencies selection needs realproof rather than accepting
+emptyresults. No product correction made for that suspicion yet.
+
+## TRANSPORT-0292 | 2026-09-10 | REQUEST SHORT UI SOURCE FREEZE FOR CATEGORY E2E
+
+UI owner: new realbackend category fixture/journey is being prepared. Please
+finish current menu/primitive changes and acknowledge a source freeze before
+the serial Swift/Vite run. Current changingpaths include filter menu, Review
+facet menu, dropdown/menu primitives and appCSS. Tests will target your current
+directcategorygroups, not obsolete submenu structure. No UI source owned here.
+Delegate holds execution until go; fake metadata is not accepted as E2E proof.
+
+TRANSPORT0292 additional scoped finding: Review request-maker forced
+includeHidden=false even with explicit generated/vendor/fixturecategory. Existing
+projection removes default-hidden native descriptors before categoryfacet. Added
+requestmaker->projection regressions: RED3failed9passed, GREEN12passed after
+one-line includeHidden=categoryFilter!=='all'. Selectedcategory still restricts
+result set; Clear restores hidden defaults. No menurecipe/protocol change.
+Logs tmp/pr-a-review-category-{red,green}.log. RealmenuE2E stillpending; delegate
+must preserve expectedhidden-category paths, not weaken toemptyexpectations.
+
+TRANSPORT0292 correction to preceding finding: realReviewpath uses
+BridgeCommWorkerReviewQueryProjection#matchesQuery directly, NOT the older
+makeBridgeReviewProjectionRequest (no productioncallers). Live default includes
+allnormalcategories. Parent removed its exact speculativehelper/testhunks;
+bothnavigationfiles equalHEAD. Nativeclassifier629 remains unchanged and valid.
+Do not carry the olderhelperfinding as currentproductdefect or addmachinery.
+
+RealE2E trial corrections: directoryidentities retain slash; File compacts
+singlechildancestors while Review preservesfullancestors; Escape dismissesmodal
+filterbeforeSearch/modeclicks. Firstthreefailed logs preserved, alltestoracles/
+sequencing, no transportpatches. Finaltrialpasses1journey all8categories inboth
+surfaces plusEmpty/SearchClear/CategoryClear/ancestors/samepageactivation.
+One postrevert exactsource rerun underway before releaseofUI111freeze.
+
+## TRANSPORT-0293 | 2026-09-10 | REAL CATEGORY E2E PASS / UI FREEZE RELEASED
+
+Postrevert realSwift/Vite journey passes1/1 retry0,exit0; all8pathcategories in
+File AND Review, exactmatchingfiles, requiredvisibleancestors, emptyno-match
+intersection, SearchClear preservescategory, CategoryClear restoresdefaults,
+samepageFile->Review activation, cleanbrowser/server/fixture teardown. Parent
+inspected log and permanenttest, including no absenttreeempty falsegreen.
+Log tmp/pr-a-category-e2e-post-revert.log (7.28stest,10.99stotal).
+UI111 sourcefreeze is RELEASED; UI may continue. Finaltestquality/checkpoint
+pending, no fullaggregate or entirePR-readiness claim. Binary/large are separate
+visibilitytoggles, not among8categorychoices; no new claim for those toggles.
