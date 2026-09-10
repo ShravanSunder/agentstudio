@@ -1,4 +1,4 @@
-import { chromium, type Page, type Request, type Response } from 'playwright';
+import { chromium, type Page, type Request } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
@@ -15,12 +15,20 @@ import {
 	waitForAnnotationCatalogCommit,
 } from './bridge-viewer-vite-annotation-catalog-performance.ts';
 import {
+	annotationReplyOpeningDiagnostic,
+	observeAnnotationReplyInput,
+} from './bridge-viewer-vite-annotation-reply-observation.ts';
+import {
 	runAnnotationSaveJourney,
 	selectRangeForAnnotation,
 	selectReviewFile,
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import {
+	type CommittedAnnotationOutcome,
+	waitForCommittedAnnotationOutcome,
+} from './bridge-viewer-vite-annotation-wire-response-observation.ts';
 import {
 	type BackpressureTelemetryObservation,
 	compactTelemetryDiagnostic,
@@ -33,13 +41,14 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
 import { bridgeViewerViteProductFileUrl } from './bridge-viewer-vite-product-url.ts';
-import { readReplyFailureObservation } from './bridge-viewer-vite-reply-failure-observation.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
+	readBrowserDiagnosticWithinDeadline,
 	type BrowserRuntimeDiagnostics,
 } from './bridge-viewer-vite-review-comparison-observation.ts';
 import {
 	installReviewRenderObservation,
+	readReviewRenderObservation,
 	requireReviewRenderObservationStarted,
 } from './bridge-viewer-vite-review-render-observation.ts';
 import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
@@ -134,6 +143,17 @@ class AnnotationBackpressureMilestones {
 
 	recordTelemetry(status: unknown, viewer: 'file' | 'review'): void {
 		this.telemetryDiagnostic = compactTelemetryDiagnostic(status, viewer);
+	}
+
+	recordFailureTelemetry(status: unknown): void {
+		this.telemetryDiagnostic = [
+			...compactTelemetryDiagnostic(status, 'file'),
+			...compactTelemetryDiagnostic(status, 'review'),
+		];
+	}
+
+	currentTelemetryDiagnostic(): readonly Readonly<Record<string, unknown>>[] {
+		return this.telemetryDiagnostic ?? [];
 	}
 
 	operationTimeoutMilliseconds(requestedTimeoutMilliseconds: number): number {
@@ -300,7 +320,7 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 							new URL('/__bridge-dev-telemetry/status', server.origin),
 						);
 						if (telemetryResponse.ok) {
-							milestones.recordTelemetry(await telemetryResponse.json(), 'review');
+							milestones.recordFailureTelemetry(await telemetryResponse.json());
 						}
 					} catch {
 						// Preserve the product failure when optional diagnostics are unavailable.
@@ -372,12 +392,6 @@ interface AnnotationCatalogTelemetryObservation {
 	readonly windowCount: number;
 }
 
-interface CommittedAnnotationOutcome {
-	readonly messageId: string;
-	readonly requestId: string;
-	readonly sessionId: string;
-}
-
 async function runAnnotationBackpressureJourney(props: {
 	readonly milestones: AnnotationBackpressureMilestones;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
@@ -398,7 +412,8 @@ async function runAnnotationBackpressureJourney(props: {
 		page = createdPage;
 		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
 		const observedReviewFile = props.oracle.reviewFiles[0];
-		if (observedReviewFile === undefined) throw new Error('Expected a Review fixture file.');
+		if (observedReviewFile === undefined)
+			throw new Error('Stress Review fixture has no changed file.');
 		await installReviewRenderObservation({ itemId: observedReviewFile.itemId, page: createdPage });
 		let bootstrapRequestCount = 0;
 		createdPage.on('request', (request: Request): void => {
@@ -510,8 +525,9 @@ async function runAnnotationBackpressureJourney(props: {
 		await beginAnnotationCatalogLongTaskObservation(createdPage);
 		let catalogTransferTelemetry: AnnotationCatalogTransferTelemetryObservation;
 		let catalogLongTaskObservation: AnnotationCatalogLongTaskObservation;
+		let rootOutcome: CommittedAnnotationOutcome;
 		try {
-			const rootOutcome = await createAndSaveRoot({
+			rootOutcome = await createAndSaveRoot({
 				body: rootBody,
 				milestones: props.milestones,
 				onPerformancePhase: async (phase): Promise<void> =>
@@ -557,6 +573,7 @@ async function runAnnotationBackpressureJourney(props: {
 			// oxlint-disable-next-line no-await-in-loop -- Every reply must commit before the next exact thread revision.
 			const replyMessageId = await createAndSaveReply({
 				body,
+				canonicalRoot: rootOutcome,
 				milestones: props.milestones,
 				page: createdPage,
 				replyOrdinal,
@@ -612,16 +629,24 @@ async function runAnnotationBackpressureJourney(props: {
 			milestones: props.milestones,
 			operation: async () => {
 				try {
-					return await waitForBackpressureTelemetry({
+					const stoppedDemandObservation = await waitForBackpressureTelemetry({
 						expectedReceiptProducedCount: null,
 						milestones: props.milestones,
 						page: createdPage,
 						timeoutMilliseconds: stressDiagnosticTimeoutMilliseconds,
 						viewer: 'review',
 					});
+					console.info(
+						'Stopped Review demand telemetry',
+						JSON.stringify({
+							observation: stoppedDemandObservation,
+							telemetry: props.milestones.currentTelemetryDiagnostic(),
+						}),
+					);
+					return stoppedDemandObservation;
 				} catch (error: unknown) {
 					throw new Error(
-						`Stopped Review demand did not quiesce: ${await runtimeDiagnostics.describe()}.`,
+						`Stopped Review demand did not quiesce: ${await runtimeDiagnostics.describe()}; publications=${JSON.stringify(await readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(createdPage)))}; cause=${error instanceof Error ? error.message : String(error)}.`,
 						{ cause: error },
 					);
 				}
@@ -795,29 +820,32 @@ async function createAndSaveRoot(props: {
 
 async function createAndSaveReply(props: {
 	readonly body: string;
+	readonly canonicalRoot: CommittedAnnotationOutcome;
 	readonly milestones: AnnotationBackpressureMilestones;
 	readonly page: Page;
 	readonly replyOrdinal: ReplyOrdinal;
 }): Promise<string> {
 	props.milestones.transition(`reply.${props.replyOrdinal}.composer.opening`);
 	const replyButton = props.page.getByRole('button', { name: 'Reply to annotation thread' }).last();
+	const composer = props.page.getByRole('textbox', { name: 'Reply with Markdown' });
+	await observeAnnotationReplyInput(props.page);
 	try {
 		await replyButton.click();
+		await withBoundedTimeout(
+			composer.waitFor({ state: 'visible', timeout: stressJourneyTimeoutMilliseconds }),
+			props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
+		);
 	} catch (error: unknown) {
-		const observation = await withBoundedTimeout(
-			readReplyFailureObservation(props.page),
-			stressDiagnosticTimeoutMilliseconds,
-		).catch(() => null);
 		throw new Error(
-			`Reply click failed: ${error instanceof Error ? error.message : String(error)}; presentation=${JSON.stringify(observation)}`,
+			`Reply ${props.replyOrdinal} composer did not open: ${JSON.stringify(
+				await annotationReplyOpeningDiagnostic({
+					canonicalRoot: props.canonicalRoot,
+					page: props.page,
+				}),
+			)}`,
 			{ cause: error },
 		);
 	}
-	const composer = props.page.getByRole('textbox', { name: 'Reply with Markdown' });
-	await withBoundedTimeout(
-		composer.waitFor({ state: 'visible', timeout: stressJourneyTimeoutMilliseconds }),
-		props.milestones.operationTimeoutMilliseconds(annotationCommandTimeoutMilliseconds),
-	);
 	props.milestones.transition(`reply.${props.replyOrdinal}.composer.open`);
 	props.milestones.transition(`reply.${props.replyOrdinal}.create.waiting`);
 	const createOutcome = waitForCommittedAnnotationOutcome(props.page, 'reply.create');
@@ -866,69 +894,6 @@ function assertSameMessage(
 	if (created.sessionId !== updated.sessionId) {
 		throw new Error('Annotation session identity changed across committed outcomes.');
 	}
-}
-
-async function waitForCommittedAnnotationOutcome(
-	page: Page,
-	operationKind: 'draft.flush' | 'draft.save' | 'reply.create' | 'root.create',
-): Promise<CommittedAnnotationOutcome> {
-	const response = await page.waitForResponse(
-		(candidate): boolean => annotationCommandResponseMatches(candidate, operationKind),
-		{ timeout: stressJourneyTimeoutMilliseconds },
-	);
-	const body: unknown = await response.json();
-	if (!isRecord(body) || body['kind'] !== 'call.completed' || !isRecord(body['call'])) {
-		throw new Error(`Malformed committed ${operationKind} response.`);
-	}
-	const result = body['call']['result'];
-	if (!isRecord(result) || result['kind'] !== 'completed' || !isRecord(result['outcome'])) {
-		throw new Error(`Missing committed ${operationKind} outcome.`);
-	}
-	const outcome = result['outcome'];
-	if (!isRecord(outcome['status']) || outcome['status']['kind'] !== 'committed') {
-		throw new Error(`Non-committed ${operationKind} outcome.`);
-	}
-	if (
-		!isRecord(outcome['receipt']) ||
-		outcome['receipt']['kind'] !== 'message' ||
-		!isRecord(outcome['receipt']['message'])
-	) {
-		throw new Error(`Committed ${operationKind} outcome is missing its message receipt.`);
-	}
-	const messageId = outcome['receipt']['message']['messageId'];
-	const requestId = outcome['requestId'];
-	const sessionId = outcome['sessionId'];
-	if (
-		typeof messageId !== 'string' ||
-		typeof requestId !== 'string' ||
-		typeof sessionId !== 'string'
-	) {
-		throw new Error(`Committed ${operationKind} outcome has invalid identity.`);
-	}
-	return { messageId, requestId, sessionId };
-}
-
-function annotationCommandResponseMatches(
-	response: Response,
-	operationKind: 'draft.flush' | 'draft.save' | 'reply.create' | 'root.create',
-): boolean {
-	const request = response.request();
-	if (
-		request.method() !== 'POST' ||
-		new URL(request.url()).pathname !== '/__bridge-product/command'
-	) {
-		return false;
-	}
-	const body: unknown = request.postDataJSON();
-	return (
-		isRecord(body) &&
-		body['kind'] === 'product.call' &&
-		isRecord(body['call']) &&
-		body['call']['method'] === 'review.annotations.command' &&
-		isRecord(body['call']['request']) &&
-		isRecord(body['call']['request']['operation']) &&
-		body['call']['request']['operation']['kind'] === operationKind
-	);
 }
 
 function fileActiveViewerModeUpdateRequestMatches(request: Request): boolean {

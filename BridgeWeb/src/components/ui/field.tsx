@@ -54,6 +54,8 @@ function FieldGroup({ className, ...props }: ComponentProps<'div'>): ReactElemen
 const fieldVariants = cva('group/field flex w-full gap-2 data-[invalid=true]:text-destructive', {
 	variants: {
 		orientation: {
+			setting:
+				'grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 [&>[data-slot=field-label]]:whitespace-nowrap [&>[data-slot=field-label]]:font-normal [&>[data-slot=field-label]]:text-sm [&>[data-slot=field-label]]:leading-4',
 			vertical: 'flex-col *:w-full [&>.sr-only]:w-auto',
 			horizontal:
 				'flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px',

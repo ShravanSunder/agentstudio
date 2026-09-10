@@ -35,7 +35,7 @@ test('coordinates floating and tree search without changing their protected canv
 	);
 	const style = (id: string): CSSStyleDeclaration =>
 		getComputedStyle(rendered.getByTestId(id).element());
-	expect(style('floating').backgroundColor).toBe('rgb(28, 32, 38)');
+	expect(style('floating').backgroundColor).toBe('rgb(32, 36, 42)');
 	expect(style('card').backgroundColor).toBe('rgb(39, 44, 52)');
 	await act(async (): Promise<void> => {
 		(rendered.getByTestId('floating').element() as HTMLElement).style.setProperty(
@@ -44,7 +44,7 @@ test('coordinates floating and tree search without changing their protected canv
 		);
 	});
 	expect(style('card').backgroundColor).toBe('rgb(70, 71, 76)');
-	expect(style('floating').backgroundColor).toBe('rgb(28, 32, 38)');
+	expect(style('floating').backgroundColor).toBe('rgb(32, 36, 42)');
 	await act(async (): Promise<void> => {
 		(rendered.getByTestId('floating').element() as HTMLElement).style.removeProperty('--card');
 	});
@@ -75,7 +75,7 @@ test('coordinates floating and tree search without changing their protected canv
 		.element()
 		.querySelector('svg');
 	expect(selectedIndicator?.getBoundingClientRect().width).toBeGreaterThan(0);
-	expect(getComputedStyle(highlighted).backgroundColor).toBe('rgb(62, 70, 82)');
+	expect(getComputedStyle(highlighted).backgroundColor).toBe('rgb(52, 58, 68)');
 	expect(getComputedStyle(highlighted).boxShadow).toContain('rgb(143, 152, 168)');
 	await page.screenshot({ path: '../../../../tmp/bridgeweb-surface-family-trial.png' });
 });

@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { expect, test } from 'vitest';
 
+import { drainAnnotationLifecycleTelemetry } from './bridge-viewer-vite-annotation-lifecycle-telemetry.ts';
+import {
+	observeAnnotationMainProjection,
+	readAnnotationMainProjectionObservation,
+} from './bridge-viewer-vite-annotation-main-projection-observation.ts';
 import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
@@ -55,6 +60,9 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 	let failureDiagnostics: Awaited<ReturnType<typeof observeInteractionProfileFailures>> | null =
 		null;
 	const samples: InteractionProfileSample[] = [];
+	let annotationMainProjection: unknown = null;
+	let annotationLifecycleTelemetry: unknown = null;
+	let profilePage: Page | null = null;
 	let completed = false;
 	let failure: string | null = null;
 	try {
@@ -83,6 +91,8 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		browser = await chromium.launch({ channel: 'chrome', headless: true });
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+		profilePage = page;
+		const mainProjectionObservation = observeAnnotationMainProjection(page);
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
 		failureDiagnostics = await observeInteractionProfileFailures(page);
 		const pageErrors: string[] = [];
@@ -96,6 +106,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		});
 		await selectReviewFile({ page, path: reviewFile.path });
 		await waitForSelectedReviewReady({ page, itemId: reviewFile.itemId });
+		await mainProjectionObservation.install();
 		const fileHost = page.getByTestId('bridge-viewer-mode-host-file');
 		const reviewHost = page.getByTestId('bridge-viewer-mode-host-review');
 
@@ -176,6 +187,10 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		);
 	} finally {
 		try {
+			if (profilePage !== null && !profilePage.isClosed()) {
+				annotationMainProjection = await readAnnotationMainProjectionObservation(profilePage);
+				annotationLifecycleTelemetry = await readAnnotationLifecycleDiagnostic(profilePage);
+			}
 			const reportDirectory = new URL('../../../tmp/bridge-interaction-profile/', import.meta.url);
 			const report = {
 				profileKind: 'diagnostic-click-to-ready-frame',
@@ -184,6 +199,8 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 				iterationCount,
 				completed,
 				failure,
+				annotationMainProjection,
+				annotationLifecycleTelemetry,
 				failureDiagnostics: await failureDiagnostics?.read(),
 				sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 				dirtyTrackedPaths: execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' })
@@ -210,6 +227,35 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		}
 	}
 });
+
+async function readAnnotationLifecycleDiagnostic(page: Page): Promise<unknown> {
+	try {
+		const drainReport = await drainAnnotationLifecycleTelemetry(page);
+		const response = await fetch(new URL('/__bridge-dev-telemetry/status', page.url()), {
+			cache: 'no-store',
+			signal: AbortSignal.timeout(5_000),
+		});
+		if (!response.ok) return { kind: 'status-unavailable', status: response.status };
+		const status: unknown = await response.json();
+		if (typeof status !== 'object' || status === null) return { kind: 'malformed-status' };
+		const recentSamples: unknown = Reflect.get(status, 'recentSamples');
+		return {
+			drainReport,
+			kind: 'report',
+			operationLifecycle: Reflect.get(status, 'operationLifecycle'),
+			samples: Array.isArray(recentSamples)
+				? recentSamples.filter((sample: unknown): boolean => {
+						if (typeof sample !== 'object' || sample === null) return false;
+						const name: unknown = Reflect.get(sample, 'name');
+						return typeof name === 'string' && name.endsWith('.annotation_lifecycle');
+					})
+				: null,
+		};
+	} catch (error: unknown) {
+		// Keep observation failure in the report without replacing the original journey failure.
+		return { kind: 'observation-failed', message: String(error) };
+	}
+}
 
 async function measureInteraction(
 	page: Page,

@@ -26,13 +26,13 @@ test('quiets expanded ghost buttons without changing hover or other button varia
 	const expanded = rendered.getByTestId('expanded-ghost').element();
 	expect(getComputedStyle(expanded).backgroundColor).toBe('rgb(52, 58, 68)');
 	expect(getComputedStyle(rendered.getByTestId('expanded-outline').element()).backgroundColor).toBe(
-		'rgb(62, 70, 82)',
+		'rgb(52, 58, 68)',
 	);
 	expect(getComputedStyle(rendered.getByTestId('idle-ghost').element()).backgroundColor).toBe(
 		'rgba(0, 0, 0, 0)',
 	);
 	await userEvent.hover(expanded);
-	await expect.poll(() => getComputedStyle(expanded).backgroundColor).toBe('rgb(62, 70, 82)');
+	await expect.poll(() => getComputedStyle(expanded).backgroundColor).toBe('rgb(52, 58, 68)');
 	await userEvent.unhover(expanded);
 	await expect.poll(() => getComputedStyle(expanded).backgroundColor).toBe('rgb(52, 58, 68)');
 });

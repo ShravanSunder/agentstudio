@@ -1204,7 +1204,12 @@ Every browser-to-native mutation and every native-to-browser finite projection
 response MUST carry each admitted message as one complete semantic record. A
 message record MUST NOT be split or reassembled across physical data frames.
 Multiple complete message records MAY be packed dynamically while the encoded
-frame remains within the existing 128 KiB wire bound. If the next complete
+frame remains within the shared transport envelope budget. That budget MUST
+carry both independently valid 16 KiB bodies together with worst-case JSON
+escaping, bounded thread context, and framing/correlation overhead. An internal
+record or envelope limit MUST NOT introduce an additional content rejection for
+an otherwise valid message. Sender and receiver MUST use matching budgets,
+validated against the supported native URL-scheme carrier. If the next complete
 message would exceed the frame, it MUST begin the next frame. Metadata
 notifications MUST contain no message body. Clipboard and JSON output size is
 not limited by the physical frame bound.
@@ -1219,8 +1224,8 @@ message records (each body <= 16 KiB)
      |
      v
 dynamic complete-message packing
-     +-- frame 1 <= 128 KiB encoded
-     +-- frame 2 <= 128 KiB encoded
+     +-- frame 1 <= shared encoded payload budget
+     +-- frame 2 <= shared encoded payload budget
      `-- never split one message
 ```
 
@@ -1260,8 +1265,10 @@ dynamic complete-message packing
   five-second maximum wait while focused; focus loss and Save request immediate
   flushes.
 - Each message body MUST remain within 16 KiB UTF-8 and complete message records
-  MUST fit dynamically into 128 KiB encoded finite-content frames without
-  chunking. Metadata invalidations contain no message bodies.
+  MUST fit dynamically into the shared finite-content envelope budget without
+  splitting a message record. The budget includes worst-case encoding expansion
+  and context; it does not narrow the admitted body vocabulary. Metadata
+  invalidations contain no message bodies.
 - A failed mutation MUST preserve the last complete durable state and MUST NOT
   publish a newer live state as successful.
 - Migration, database-corruption, or hydration failure MUST expose annotation

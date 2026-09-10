@@ -159,6 +159,22 @@ describe('worktree annotation Pierre Review integration', () => {
 				'Expected both Review threads to publish atomically into Pierre annotation slots.',
 			);
 			await settleBrowserFrame();
+			await settleBrowserCondition((): boolean => {
+				const threadIdentities = new Set(
+					(codeView.getItem('item-source')?.annotations ?? []).flatMap(
+						(annotation): readonly string[] => {
+							const metadata = worktreeAnnotationMetadataForPierreAnnotation(annotation);
+							return metadata?.kind === 'thread'
+								? [`${metadata.threadId}:${metadata.range.side ?? 'none'}`]
+								: [];
+						},
+					),
+				);
+				return (
+					threadIdentities.has(`${annotationHeadThreadId}:additions`) &&
+					threadIdentities.has(`${annotationBaseThreadId}:deletions`)
+				);
+			}, 'Expected the live selected CodeView item to apply both exact Review threads.');
 			const updatesBeforeEqualRefresh = updatedItems.length;
 			await act(async (): Promise<void> => {
 				surface.publishRefreshing();

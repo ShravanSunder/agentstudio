@@ -142,13 +142,10 @@ policy. Sidebar search uses `SharedComponents/SidebarSearchField`. Command-bar
 search stays command-bar-owned. Webview select-all stays Webview-owned until a
 second feature needs that exact AppKit behavior.
 
-**BridgeWeb.** Follow this file first, then
-[BridgeWeb AGENTS.md — Architecture Sources](BridgeWeb/AGENTS.md#architecture-sources).
-For visual changes, continue through its UI rules to the
-[component language contract](docs/architecture/bridge/bridgeweb_design_token_architecture.md#component-language-contract).
-Review the complete composition before editing recipes; importing shadcn alone
-does not establish consistent hierarchy.
-Do not rebuild the full app for Bridge UI iteration. Native Git:
+**BridgeWeb.** Start at [BridgeWeb UI task entry](BridgeWeb/AGENTS.md#ui-components)
+for composition, shared-recipe and rendering-boundary changes. That entry routes
+to the single component-language authority and its proof requirements. Use the
+documented Vite loop for iteration, not full app rebuilds. Native Git:
 [agentstudio-git](docs/architecture/state/agentstudio_git.md#agentstudio-git).
 
 **Commands.** Only add commands **and command displays** through the spec

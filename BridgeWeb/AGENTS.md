@@ -17,35 +17,27 @@ BridgeWeb-specific rules. The Vite command loop lives in
 
 ## UI Components
 
-Read progressively: root AGENTS.md → this section →
-[component language contract](../docs/architecture/bridge/bridgeweb_design_token_architecture.md#component-language-contract)
-for hierarchy/composition → that document's token/state and enforcement sections
-for recipe changes → the linked owning source and rendered tests.
-The architecture contract owns current visual decisions; older trial specs are
-not permission to restore superseded colors, sizes or panel layouts.
-Audit all consumers of a changed shared recipe. Do not add a one-feature variant
-to accommodate a screenshot without a distinct semantic role in the contract.
+Read the [component language contract](../docs/architecture/bridge/bridgeweb_design_token_architecture.md#component-language-contract)
+and the affected composition before editing. Choose the task entry:
 
-- Use owned shadcn-style primitives from `src/components/ui/` for React controls.
-  If a needed primitive is missing, add or adapt the primitive there first.
-- Do not hand-roll route-local buttons, toggles, segmented controls, inputs, or
-  icon chrome when an owned primitive can express the interaction.
-- Shared BridgeViewer chrome belongs in shared app/component modules, not in
-  FileViewer-only or ReviewViewer-only visual language.
-- FileViewer and ReviewViewer controls with the same interaction semantics must
-  share scale, focus, hover, active, spacing, and icon sizing.
-- [Design-token architecture](../docs/architecture/bridge/bridgeweb_design_token_architecture.md)
-  owns the compact scale, semantic roles, annotation context, and effective Pierre bindings.
-  CSS is canonical; the checked TypeScript mirror supplies static theme values.
-- Primitives own all control/frame paint and geometry. Consumers select variants/sizes
-  and arrange layout; do not append control styles, raw colors, or `--bridge-*` aliases.
-  Use explicit neutral disabled paint at opacity 1 and unconditional dark recipes.
-- Match native typography by role: list/tree titles `text-base`, metadata and input
-  values `text-sm`, compact actions `text-xs`, auxiliary hints `text-2xs`. Compose
-  descriptive rows with owned ItemContent/Label/Description/Metadata; do not style
-  nested text locally. Features still own domain components and outer layout.
-- Put element resets in `@layer base`, so utilities win without important overrides.
-  The style-system checker runs in the normal check with zero migration allowances.
+- Composition/content: identify the user task, visible choices and states; read
+  the [matching pattern](../docs/architecture/bridge/bridgeweb_design_token_architecture.md#composition-patterns)
+  and its current consumer before choosing controls.
+- Shared recipe: also read the role/state contract, owning primitive, every
+  affected consumer and its rendered tests.
+- Portal, annotation or Pierre boundary: also read the relevant rendering section
+  and inspect effective styling across that boundary.
+
+Reuse existing owned shadcn slots unchanged when they fit. Keep domain behavior
+and outer placement with the feature; change shared recipes only for a named
+reusable meaning. Shared wrappers need shared composition or behavior, not merely
+styling parity. Never append feature-local control paint or geometry.
+
+Resolve contradictions between the contract and current source explicitly. Use
+its [change-and-proof discipline](../docs/architecture/bridge/bridgeweb_design_token_architecture.md#change-and-proof-discipline).
+WIP receipts and old screenshots are historical evidence, not acceptance of the
+current candidate. Values and recipes have one authority; do not duplicate their
+tables here or in another design.md.
 
 ## BridgeViewer Proof
 

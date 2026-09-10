@@ -1239,11 +1239,11 @@ Required trust rules:
   payload/envelope/identity/cursor/descriptor/length is in headers or URL.
   Native authenticates before body access, decode, lease, or provider work;
 - every product request is one complete typed POST body. Worker rejects encoded bodies over
-  128 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
+  256 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
   `httpBodyStream` bytes, before decode/mutation and never trusts/requires
   synthesized `Content-Length`;
-- every correlated command response package and logical metadata JSON frame is
-  likewise capped by the same 128 KiB control-package constant before decode.
+- every correlated command response package is capped at 256 KiB before decode;
+  logical metadata JSON frames retain their separate 128 KiB ceiling.
   Binary content is a distinct streamed payload with the separate frame and
   data limits in R64;
 - WebKit may materialize that small body before the scheme handler sees it, so
@@ -1576,9 +1576,9 @@ The comm worker alone uses three fixed product routes:
 | `POST agentstudio://rpc/stream` | one pane metadata-stream open/resume body | one continuous length-prefixed typed metadata response |
 | `POST agentstudio://rpc/content` | one demanded descriptor/item/role body | one independently cancellable typed binary content response |
 
-Every route follows R59's actual-body 128 KiB admission. Correlated command
-response packages and logical metadata JSON frames have the same 128 KiB
-pre-decode ceiling. Binary content response frames use their distinct bounds
+Every route follows R59's actual-body 256 KiB admission. Correlated command
+response packages share that 256 KiB pre-decode ceiling; logical metadata JSON
+frames remain bounded at 128 KiB. Binary content response frames use their distinct bounds
 below. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
 `workerInstanceId`, and its 256-bit opaque capability. Bootstrap transfers the capability's 32 bytes into the worker and detaches main; only the capability is a privileged header. Replacement revokes old subscriptions/content/leases.
 No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This hard-cut wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
@@ -1594,7 +1594,7 @@ including lane changes; removes delete membership.
 
 Interest hashes use one canonical binary form: `u8 version=1 | u8 kind (review=1, file=2) | u32be interestCount`, then exact-UTF-8-byte-sorted records of
 `u32be keyByteLength | key bytes | u8 lane` (`foreground=1`, `active=2`, `visible=3`, `nearby=4`, `speculative=5`, `idle=6`). File state appends
-`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 128 KiB; the complete encoded control package's 128 KiB limit remains authoritative. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
+`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 128 KiB; the complete encoded control package's 256 KiB limit remains authoritative. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
 
 `workerDerivationEpoch` exists only on a surface-scoped request or push frame. Closed call/subscription/content kinds map exhaustively to Review or File; ordinary variants MUST NOT repeat `surface`.
 It is required on `product.call`, each subscription open/update/cancel, each active `workerSession.resync` subscription entry, and each content open. Pane/session open, metadata-stream open, and the top-level resync envelope carry none. Swift checks independent Review/File floors only for NEW admission. Active resync entries deriving to one surface MUST share one epoch; Review and File may differ, but a same-surface conflict atomically rejects the whole resync before floor or subscription mutation.
@@ -1661,23 +1661,29 @@ must establish the complete length before streaming. Binary response framing is:
 
 ```text
 u32be frameBodyLength | u8 frameTag | u32be contentSequence | tag-specific body
-accepted/end/error/reset: strict typed UTF-8 JSON | data: u32be offsetBytes | raw bytes
+accepted/end/error/reset: strict typed UTF-8 JSON
+data: u32be offsetBytes | correlationEnvelope[33] | raw bytes
 ```
 
 `frameBodyLength` counts every byte after its own four-byte prefix. Tags remain `0x01 content.accepted`, `0x02 content.data`, `0x03 content.end`, `0x04 content.error`, and `0x05 content.reset`; there is no separate header-length prefix.
 `content.accepted` is sequence zero. Its strict JSON body carries full request/lease/pane/worker-instance/content identity plus the admitted `workerDerivationEpoch`, declared and maximum length, and expected digest, binding this non-multiplexed response stream to one request and producer continuation.
-Every later sequence is positive and contiguous. `content.data` carries `u32be offsetBytes` followed by raw bytes; raw length is derived from `frameBodyLength`, never repeated in JSON, and is capped at 128 KiB. Data may not precede acceptance.
+Every later sequence is positive and contiguous. `content.data` carries `u32be offsetBytes`, the 33-byte operation-correlation envelope (presence byte plus 32 digest bytes), then raw bytes. Raw length is derived from `frameBodyLength`, never repeated in JSON. The raw payload budget is 262,102 bytes: the 256 KiB frame-body envelope minus tag (1), sequence (4), offset (4), and correlation envelope (33). Data may not precede acceptance.
 `content.end`, `content.error`, and `content.reset` are terminal and carry only small strict JSON terminal fields; stream context comes from acceptance. End reports observed total and SHA-256, verifies authoritative expectation, and lets the worker derive semantic identity before cache admission.
 Every content frame body has the universal hostile-input ceiling of 256 KiB;
 every content JSON control body has a separate 16 KiB ceiling. Complete source
 bodies of any admitted length stream as the necessary number of contiguous
-128 KiB-or-smaller data frames; a partial final data frame is valid.
+262,102-byte-or-smaller data payloads; a partial final data frame is valid.
+These are shared application resource budgets, not WebKit platform maxima.
+They must accommodate the complete valid application records carried by each
+route, including encoding expansion and envelope overhead, without adding a
+second content-rejection policy. Queue byte/count bounds and acknowledgement
+backpressure remain independent of the maximum size of one frame.
 WebKit may split or coalesce bytes arbitrarily. Prefix/stage caps precede allocation/decode, and both decoders use fixed-capacity reference-owned accumulators rather than repeated copy-on-write append.
 Each native producer owns exactly one `URLSchemeTask` response continuation. Cross-stream writes, wrong producer identity, pre-accepted data, gaps, duplicates, offset mismatch, overflow, invalid digest, or post-terminal bytes poison that response, discard staged bytes, and perform no product-state mutation.
 Native queues retain frame/byte caps, terminal reserve, and a safety ceiling of 16 content-producer lifecycle residues per product session, counted as active content producers plus pending content lifecycle acknowledgements. Abort closes only that response; native stops and unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. Cancellation, revoke, disposal, and replacement join one single-flight retirement owner for each lease's exact lifecycle nonce; a failed acknowledgement retains the residue and every retry reuses that exact nonce. The worker settles only after local fetch abort plus the lifecycle frame and successful acknowledgement of the same zero-residue barrier.
-Shared raw TS/Swift vectors cover exact 128 KiB control request, correlated
-command response, and metadata JSON bodies with +1 rejection; exact 128 KiB
-content data and +1 rejection; complete multi-frame source segmentation,
+Shared raw TS/Swift vectors cover exact 256 KiB control request and correlated
+command response, 128 KiB metadata JSON bodies, and 262,102-byte content data
+payloads, each with +1 rejection; complete multi-frame source segmentation,
 including a 2 MiB fixture without treating it as a cap; 1-byte/4 KiB arbitrary
 fragmentation; cross-stream/terminal hostility; strict JSON/interest semantics;
 and checksum/cancel/resume/restart. The reconciliation corpus proves positional

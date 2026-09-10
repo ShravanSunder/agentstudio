@@ -108,13 +108,13 @@
 	--palette-neutral-n0: #191b1f;
 	--palette-neutral-n1: #282c34;
 	--palette-neutral-n2: #1c2026;
-	--palette-neutral-n3: #1c2026;
+	--palette-neutral-n3: #20242a;
 	--palette-surface-card: #272c34;
 	--palette-neutral-n4: #363636;
 	--palette-neutral-n5: #454545;
 	/* Opaque control surfaces: general controls, hover feedback, and recessed fields. */
 	--palette-control-fill: #343a44;
-	--palette-control-hover: #3e4652;
+	--palette-control-hover: #343a44;
 	--palette-field-background: #14181e;
 	/* Text tiers: primary through deliberately faint supporting text. */
 	--palette-text-primary: #ffffff;

@@ -506,7 +506,9 @@ describe('worktree annotation Pierre integration', () => {
 			expect(committedPreview.contains(document.activeElement)).toBe(true);
 
 			await act(async (): Promise<void> => {
-				await rendered.rerender(renderFilePanel(successorFile));
+				// A pending descriptor is not yet the displayed source. The File
+				// controller retains the complete predecessor until placement is ready.
+				await rendered.rerender(renderFilePanel(predecessorFile));
 				await Promise.resolve();
 				await Promise.resolve();
 			});
@@ -560,6 +562,7 @@ describe('worktree annotation Pierre integration', () => {
 						savedRevision: 1,
 					},
 				});
+				await rendered.rerender(renderFilePanel(successorFile));
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(

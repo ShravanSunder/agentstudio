@@ -5,6 +5,10 @@ BridgeWeb and native Agent Studio have separate styling authorities:
 presentation and [bridge-app.css](../../../BridgeWeb/src/app/bridge-app.css) for web
 presentation. Values correlate by convention; there is no generator or runtime coupling.
 
+For equivalent native and web controls, compare the existing native composition
+and command-display contract, including label, icon and shortcut presentation.
+Reuse their meaning through each surface's owned implementation.
+
 ## Source and rendering paths
 
 ```text
@@ -64,6 +68,12 @@ descendants. Native synchronization is by convention, not generated or runtime.
 | Description / metadata | CardDescription / DrawerDescription / ItemDescription: 12/16px, regular, muted-foreground | Dates, ranges and explanations remain readable. |
 | Compact control / field label | Existing Button / Field slots: 11/14px, medium | Names an action or input, not a section. |
 
+Choose text by semantic role, not by whichever imported component is convenient.
+A setting label names a preference; it is not automatically a compact action.
+The current `Field orientation="setting"` candidate uses body-size regular text;
+its final visual acceptance remains separate from the compact-label rule above.
+Do not propagate either recipe to unrelated fields to hide this distinction.
+
 Use system sans-serif for ordinary UI; code and revisions alone use monospace.
 Heading levels follow semantic nesting independently of font size: panel heading,
 then subordinate section heading. Do not mute headings to manufacture hierarchy,
@@ -103,6 +113,43 @@ exclusive peers. Their existing close/focus/busy guards and domain callbacks
 remain with the feature/controller, not with presentation slots. History stays
 collapsed initially; it is output history, not a second comment list.
 
+### Composition patterns
+
+Choose product content before choosing controls. A renderer/API option is not
+automatically a user setting. Library examples illustrate interaction and
+composition, not product scope. Changing available choices, defaults, reset scope
+or domain behavior requires an explicit product decision, not a styling shortcut.
+
+- **Settings:** compose a Popover with labelled Field setting rows; booleans use
+  Switch and exclusive choices use the shared segmented ToggleGroup. Align
+  label/icon starts and equivalent controls across rows. Reserve readable labels
+  and control clearance at supported widths; use a responsive composition when
+  they cannot fit, rather than shrinking text or clipping labels. See the
+  [settings consumer](../../../BridgeWeb/src/app/bridge-viewer-view-settings-menu.tsx)
+  and [Field recipe](../../../BridgeWeb/src/components/ui/field.tsx).
+- **Menus:** use owned groups, labels and items. The checkbox item is the sole
+  interactive owner; SwitchIndicator is passive. Review uses status/category
+  submenus; Files exposes categories directly. Category icons are neutral; Git
+  status uses status color. Test data means fixture directories, Dependencies /
+  build includes vendor/build directories, and Other means unmatched files.
+- **Persistent search:** compose search, ComboboxViewport, continuous
+  [Item rows](../../../BridgeWeb/src/components/ui/item-content.tsx) and supporting
+  notes. Preserve 8px search/results/note clearance, selection/checkmark clearance
+  and identity/metadata hierarchy. Keyboard highlight and selected value remain
+  distinct. Results are not individual cards.
+- **Drawers:** follow the Compare/Share composition above. Shared header/body/
+  footer slots and meaningful Card groups own their insets. Preserve full comment
+  bodies, scrolling and reachable actions; no doubled padding or boundaries.
+- **Annotations:** shared controls render within the annotation context below.
+  Preserve canvas-relative text/surfaces and active-thread feedback; ordinary
+  popover/card roles do not replace annotation roles.
+
+Use established action icons where they help recognition; retain labels where an
+icon alone is ambiguous. Additional icons, headings and borders do not substitute
+for a clear action and grouping. Current consumers demonstrate wiring, not proof
+of visual acceptance; verify the actual candidate before copying its composition.
+File boundaries use one header `separator`, without top/bottom container shadows.
+
 ### Change and proof discipline
 
 1. Identify the semantic role, owner and every consumer before editing.
@@ -115,6 +162,14 @@ collapsed initially; it is output history, not a second comment list.
    assertions alone cannot establish this contract.
 6. Verify current dev and packaged-native surfaces and obtain independent visual
    review before a visible checkpoint is declared ready. Report each missing gate.
+
+Size the inventory to the change: all consumers of a shared recipe, or the changed
+composition and its matching File/Review peer. Expand only for shared dependencies.
+For visual comparisons hold content, state, viewport and scale constant. Include
+current uncommitted UI and apply each candidate consistently across surfaces that
+share the affected role; name intentional exceptions before comparing.
+Record behavior/geometry proof separately from visual acceptance. Passing tests,
+an imported primitive or an earlier screenshot cannot accept a later composition.
 
 Source owners: [Drawer](../../../BridgeWeb/src/components/ui/drawer.tsx),
 [Card](../../../BridgeWeb/src/components/ui/card.tsx),
@@ -262,22 +317,8 @@ An outer layout section containing a Button is not itself a Button. Shared class
 constants, inline styles and embedded CSS remain checked; unknown dynamic control
 classes fail closed. There are no migration allowances.
 
-Menu headings use owned menu slots within the actual Group/RadioGroup context.
-Review filters use compact Git-status and category submenus, not equal-width
-columns. Files exposes its category choices directly. Category icons are neutral;
-Git status alone uses status color. Labels describe the existing classifier:
-Test data means fixture directories, Dependencies / build includes vendor and
-build directories, and Other means unmatched files.
-Boolean settings use the owned Switch visual with explicit on/off feedback.
-Inside a menu, DropdownMenuCheckboxItem remains the sole interactive owner and
-renders a noninteractive SwitchIndicator; do not nest a switch button in a menu
-checkbox. View settings use Popover with actual switches and exclusive toggle
-groups. Shared field slots own type and icon sizing. Preserve the existing
-controlled setting values, defaults and reset callbacks.
-Persistent combobox results use ComboboxViewport for the standard recessed fill,
-border and scroll boundary. Composition provides 8px clearance from search and
-footer notes; individual results are not cards. File boundaries use one header
-separator with --separator, without top/bottom container shadows.
+Composition patterns above own menu, settings, list and drawer usage. This section
+owns enforcement mechanics, not a second pattern catalog.
 Alert owns card/banner/inline layouts and warning/destructive presentation;
 StatusBadge owns badge/indicator recipes. Features supply domain meaning and
 callbacks, not local control paint. Busy/disclosure icons expose state attributes

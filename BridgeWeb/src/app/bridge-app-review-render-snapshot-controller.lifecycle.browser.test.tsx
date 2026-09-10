@@ -6,8 +6,13 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
-import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeProductReviewTreeRow } from '../core/comm-worker/bridge-product-review-metadata-contracts.js';
+import type {
+	BridgeWorkerReviewDisplayPatchEvent,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderDispositionReceipt } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -25,6 +30,7 @@ import {
 	reviewIntakeReadyRequestIds,
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
+import { reviewDisplayItem } from './bridge-app-review-render-snapshot-controller.browser.test-support.js';
 import { createBridgeReviewWorkerPierreCourier } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 
@@ -39,6 +45,196 @@ const TEST_REVIEW_PUBLICATION_IDENTITY = {
 } as const;
 
 describe('useBridgeReviewRenderSnapshotController lifecycle Browser Mode', () => {
+	test('settles a late existing-item publication after Review becomes inactive', async () => {
+		// Arrange: establish an already-rendered item before the surface switch.
+		const harness = makeReviewSurfaceHarness();
+		const receipts: BridgeWorkerRenderDispositionReceipt[] = [];
+		const coordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (receipt): void => {
+				receipts.push(receipt);
+			},
+		});
+		const modeProps = {
+			codeViewWorkerPoolEnabled: false,
+			isNavigationCommandStillEligible: bridgeReviewNavigationCommandIsAlwaysEligible,
+			onActiveSourceChange: vi.fn(),
+			onNavigationSourceChange: vi.fn(),
+			reviewClient: { ...harness.reviewClient, renderFulfillmentCoordinator: coordinator },
+			telemetryRecorderRef: { current: createBridgeTelemetryRecorder(null) },
+			viewerContextSwitcher: <div />,
+		};
+		const rendered = await render(<BridgeReviewViewerMode {...modeProps} isActive />);
+		try {
+			await act(async (): Promise<void> => {
+				harness.publish(hierarchicalReviewDisplayEvent());
+				await import('../review-viewer/shell/review-viewer-shell.js');
+				await settleRenderedReviewFrame();
+				for (const message of reviewContentReadyEvents()) harness.publish(message);
+				await settleRenderedReviewFrame();
+			});
+			await expect
+				.poll(() => receipts.some((receipt) => receipt.disposition === 'queued'))
+				.toBe(true);
+
+			// Act: a publication already in flight arrives after demand has stopped.
+			await act(async (): Promise<void> => {
+				await rendered.rerender(<BridgeReviewViewerMode {...modeProps} isActive={false} />);
+				await settleRenderedReviewFrame();
+				for (const message of reviewContentReadyEvents(3)) harness.publish(message);
+				await settleRenderedReviewFrame();
+			});
+
+			// Assert: hidden content must not hold a worker publication position forever.
+			await expect
+				.poll(() =>
+					receipts.some(
+						(receipt) =>
+							receipt.publicationSequence === 3 &&
+							['queued', 'rejected', 'superseded'].includes(receipt.disposition),
+					),
+				)
+				.toBe(true);
+		} finally {
+			await act(async (): Promise<void> => {
+				await rendered.unmount();
+			});
+			coordinator.dispose();
+		}
+	});
+
+	test('settles a late offscreen existing-item publication after Review becomes inactive', async () => {
+		// Arrange: establish a large current catalog whose final item never enters the active viewport.
+		const harness = makeReviewSurfaceHarness();
+		const receipts: BridgeWorkerRenderDispositionReceipt[] = [];
+		const coordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (receipt): void => {
+				receipts.push(receipt);
+			},
+		});
+		const modeProps = {
+			codeViewWorkerPoolEnabled: false,
+			isNavigationCommandStillEligible: bridgeReviewNavigationCommandIsAlwaysEligible,
+			onActiveSourceChange: vi.fn(),
+			onNavigationSourceChange: vi.fn(),
+			reviewClient: { ...harness.reviewClient, renderFulfillmentCoordinator: coordinator },
+			telemetryRecorderRef: { current: createBridgeTelemetryRecorder(null) },
+			viewerContextSwitcher: <div />,
+		};
+		const renderContainer = document.createElement('div');
+		renderContainer.style.height = '240px';
+		renderContainer.style.overflow = 'hidden';
+		renderContainer.style.width = '960px';
+		document.body.append(renderContainer);
+		const rendered = await render(<BridgeReviewViewerMode {...modeProps} isActive />, {
+			container: renderContainer,
+		});
+		const offscreenItemId = 'item-64';
+		const offscreenPath = 'Sources/File-64.swift';
+		try {
+			await act(async (): Promise<void> => {
+				harness.publish(largeReviewDisplayEvent(64));
+				await import('../review-viewer/shell/review-viewer-shell.js');
+				await settleRenderedReviewFrame();
+				for (const message of reviewContentReadyEvents()) harness.publish(message);
+				await settleRenderedReviewFrame();
+				for (const message of reviewContentReadyEvents(
+					2,
+					offscreenItemId,
+					offscreenPath,
+					'nearby',
+					'initial',
+				)) {
+					harness.publish(message);
+				}
+				await settleRenderedReviewFrame();
+			});
+			await expect
+				.poll(() =>
+					receipts.some(
+						(receipt) =>
+							receipt.publicationSequence === 2 &&
+							receipt.itemId === offscreenItemId &&
+							receipt.disposition === 'queued',
+					),
+				)
+				.toBe(true);
+			await act(async (): Promise<void> => {
+				await settleRenderedReviewFrame();
+			});
+			expect(
+				harness.reviewClient.renderStore.getReviewCodeViewItemSnapshot(offscreenItemId),
+			).toMatchObject({
+				bridgeMetadata: {
+					cacheKey: 'pierre-content:item-64:initial:base|pierre-content:item-64:initial:head',
+					contentState: 'hydrated',
+				},
+			});
+			const finalActiveViewport = requireDefined(
+				harness.sentCommands.findLast(
+					(
+						command,
+					): command is Extract<
+						(typeof harness.sentCommands)[number],
+						{ readonly command: 'viewport' }
+					> => command.command === 'viewport' && command.visibleItemIds.length > 0,
+				),
+				'Expected a settled nonempty Review viewport from constrained CodeView geometry.',
+			);
+			expect(finalActiveViewport.visibleItemIds).not.toContain(offscreenItemId);
+
+			// Act: clear Review demand, then deliver a publication for the existing offscreen item.
+			await act(async (): Promise<void> => {
+				await rendered.rerender(<BridgeReviewViewerMode {...modeProps} isActive={false} />);
+				await settleRenderedReviewFrame();
+				for (const message of reviewContentReadyEvents(
+					3,
+					offscreenItemId,
+					offscreenPath,
+					'nearby',
+					'replacement',
+				)) {
+					harness.publish(message);
+				}
+				await settleRenderedReviewFrame();
+			});
+
+			// Assert: non-visible existing content cannot retain an outstanding worker position.
+			await expect
+				.poll(() =>
+					receipts.some(
+						(receipt) =>
+							receipt.publicationSequence === 3 &&
+							receipt.itemId === offscreenItemId &&
+							['queued', 'rejected', 'superseded'].includes(receipt.disposition),
+					),
+				)
+				.toBe(true);
+			expect(
+				harness.reviewClient.renderStore.getReviewCodeViewItemSnapshot(offscreenItemId),
+			).toMatchObject({
+				bridgeMetadata: {
+					cacheKey:
+						'pierre-content:item-64:replacement:base|pierre-content:item-64:replacement:head',
+					contentState: 'hydrated',
+				},
+			});
+			const latestViewport = harness.sentCommands.findLast(
+				(command) => command.command === 'viewport',
+			);
+			expect(latestViewport).toMatchObject({
+				command: 'viewport',
+				phase: 'settled',
+				visibleItemIds: [],
+			});
+		} finally {
+			await act(async (): Promise<void> => {
+				await rendered.unmount();
+			});
+			coordinator.dispose();
+			renderContainer.remove();
+		}
+	});
+
 	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
@@ -432,37 +628,106 @@ describe('useBridgeReviewRenderSnapshotController lifecycle Browser Mode', () =>
 	});
 });
 
-function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] {
+function largeReviewDisplayEvent(itemCount: number): BridgeWorkerReviewDisplayPatchEvent {
+	const baseline = hierarchicalReviewDisplayEvent();
+	const items = Array.from({ length: itemCount }, (_, index) => {
+		const itemOrdinal = index + 1;
+		return reviewDisplayItem(`item-${itemOrdinal}`, `Sources/File-${itemOrdinal}.swift`);
+	});
+	const rows: BridgeProductReviewTreeRow[] = [
+		{
+			depth: 0,
+			isDirectory: true,
+			itemId: null,
+			path: 'Sources',
+			rowId: 'row-sources',
+		},
+		...items.map((item, index) => ({
+			depth: 1,
+			isDirectory: false,
+			itemId: item.metadata.itemId,
+			path: `Sources/File-${index + 1}.swift`,
+			rowId: `row-${index + 1}`,
+		})),
+	];
+	return {
+		...baseline,
+		patches: baseline.patches.map(
+			(patch): BridgeWorkerReviewDisplayPatchEvent['patches'][number] => {
+				if (patch.slice === 'reviewSource' && patch.operation === 'upsert') {
+					return Object.assign({}, patch, {
+						payload: {
+							...patch.payload,
+							summary: {
+								additions: itemCount,
+								deletions: 0,
+								filesChanged: itemCount,
+								hiddenFileCount: 0,
+								visibleFileCount: itemCount,
+							},
+							totalItemCount: itemCount,
+							totalTreeRowCount: rows.length,
+						},
+					});
+				}
+				if (patch.slice === 'reviewItem' && patch.operation === 'batch') {
+					return Object.assign({}, patch, {
+						payload: { ...patch.payload, items },
+					});
+				}
+				if (patch.slice === 'reviewTree' && patch.operation === 'batch') {
+					return Object.assign({}, patch, {
+						payload: { ...patch.payload, windows: [{ rows, startIndex: 0 }] },
+					});
+				}
+				return patch;
+			},
+		),
+	};
+}
+
+function reviewContentReadyEvents(
+	publicationSequence = 2,
+	itemId = 'item-1',
+	displayPath = 'Sources/First.swift',
+	bridgeDemandLane: Parameters<
+		typeof buildBridgeWorkerPierreRenderJob
+	>[0]['bridgeDemandRank']['lane'] = 'selected',
+	contentVariant: string | null = null,
+): readonly BridgeWorkerServerToMainMessage[] {
+	const cacheIdentity = contentVariant === null ? itemId : `${itemId}:${contentVariant}`;
+	const baseCacheKey = `pierre-content:${cacheIdentity}:base`;
+	const headCacheKey = `pierre-content:${cacheIdentity}:head`;
 	const job = buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'selected', priority: 0 },
+		bridgeDemandRank: { lane: bridgeDemandLane, priority: 0 },
 		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-		contentCacheKey: 'pierre-content:base|pierre-content:head',
-		contentHash: 'review-content-1',
-		itemId: 'item-1',
+		contentCacheKey: `${baseCacheKey}|${headCacheKey}`,
+		contentHash: `review-content-${cacheIdentity}`,
+		itemId,
 		language: 'swift',
 		payload: {
 			item: {
 				bridgeMetadata: {
-					cacheKey: 'pierre-content:base|pierre-content:head',
+					cacheKey: `${baseCacheKey}|${headCacheKey}`,
 					contentRoles: ['base', 'head'],
 					contentState: 'hydrated',
-					displayPath: 'Sources/First.swift',
-					itemId: 'item-1',
+					displayPath,
+					itemId,
 					lineCount: 2,
 				},
 				fileDiff: parseDiffFromFile(
 					{
-						cacheKey: 'pierre-content:base',
+						cacheKey: baseCacheKey,
 						contents: 'let answer = 41\n',
-						name: 'Sources/First.swift',
+						name: displayPath,
 					},
 					{
-						cacheKey: 'pierre-content:head',
+						cacheKey: headCacheKey,
 						contents: 'let answer = 42\n',
-						name: 'Sources/First.swift',
+						name: displayPath,
 					},
 				),
-				id: 'item-1',
+				id: itemId,
 				type: 'diff',
 				version: 1,
 			},
@@ -477,10 +742,10 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 			job,
 			kind: 'reviewPierreRenderJob',
 			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
-			publicationSequence: 2,
+			publicationSequence,
 			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
 				itemId: job.itemId,
-				publicationSequence: 2,
+				publicationSequence,
 				surface: 'review',
 				workerDerivationEpoch: 1,
 			}),
@@ -502,19 +767,19 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 			reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
 			patches: [
 				{
-					itemId: 'item-1',
+					itemId,
 					operation: 'upsert',
-					payload: { contentCacheKey: 'pierre-content:base|pierre-content:head' },
+					payload: { contentCacheKey: `${baseCacheKey}|${headCacheKey}` },
 					slice: 'rowPaint',
 				},
 				{
-					itemId: 'item-1',
+					itemId,
 					operation: 'upsert',
 					payload: { state: 'ready' },
 					slice: 'contentAvailability',
 				},
 			],
-			publicationSequence: 2,
+			publicationSequence,
 			surface: 'review',
 			transferDescriptors: [],
 			wireVersion: 1,

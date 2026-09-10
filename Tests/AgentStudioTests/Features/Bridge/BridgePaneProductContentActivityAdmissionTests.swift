@@ -119,7 +119,10 @@ struct BridgePaneProductContentActivityAdmissionTests {
             )
         )
         let firstData = try await requiredActivityContentFrame(context)
-        #expect(try decoder.append(firstData.frame.data).first?.header.kind == "content.data")
+        let firstDataFrame = try #require(try decoder.append(firstData.frame.data).first)
+        #expect(firstDataFrame.header.kind == "content.data")
+        // A larger wire envelope must not silently increase ordinary File read/cancellation quanta.
+        #expect(firstDataFrame.payload.count == 128 * 1024)
         #expect(await context.fileReaderHarness.openCount == 1)
         #expect(await context.fileReaderHarness.readCount == 1)
         #expect(await context.fileReaderHarness.closeCount == 0)

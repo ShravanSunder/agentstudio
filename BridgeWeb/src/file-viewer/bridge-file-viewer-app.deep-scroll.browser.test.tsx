@@ -333,6 +333,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		});
 		const corruptedContent = makeCorruptedCompleteFileDeepScrollContent();
 		const corruptedBytes = corruptedContent.bytes;
+		const deferredContent = makeDeferredContent();
 		expect(corruptedBytes.byteLength).toBe(completeFileDeepScrollFixture.byteCount);
 		expect(logicalFileContentLineCount(corruptedBytes)).toBe(
 			completeFileDeepScrollFixture.lineCount,
@@ -348,10 +349,14 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 				codeViewWorkerPoolEnabled
 				initialMetadataEvents={makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor)}
 				fileProductSession={{
-					readContent: async () => makeFileContent(corruptedContent.text),
+					readContent: () => deferredContent.promise,
 				}}
 			/>,
 		);
+		await waitForOpenFileState('loading');
+		await actUpdate((): void => {
+			deferredContent.resolve(makeFileContent(corruptedContent.text));
+		});
 
 		expect(await waitForCompleteFileDeepScrollTerminalState()).toBe('unavailable');
 		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);

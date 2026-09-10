@@ -180,6 +180,12 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:e2e"
 
+[tasks."test:bridge-web:e2e:ordinary"]
+description = "Run focused ordinary Vite E2E journeys; aggregate stress coverage remains in test:bridge-web:e2e"
+depends = ["bridge-web-install", "build-bridge-development-server"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e:prepared:ordinary"
+
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
 depends = ["bridge-web-install"]
