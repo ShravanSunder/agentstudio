@@ -6,6 +6,7 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
     let model: SidebarToggleModel<Value>
     @ViewBuilder let icon: (Value) -> Icon
     let onSelect: (Value) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     package init(
         segments: [SidebarToolbarSegment<Value>],
@@ -56,6 +57,11 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                                     model.showsIcons ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
                                 )
                                 .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
+                                .animation(
+                                    reduceMotion
+                                        ? nil : labelAnimation(isShowing: model.showsLabel(for: segment.value)),
+                                    value: model.selection
+                                )
                         }
                         .clipped()
                         .accessibilityHidden(true)
@@ -72,12 +78,26 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .controlHelp(segment.tooltipValue)
             }
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
+                .stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .animation(
-            .easeInOut(
-                duration: AppStyles.Shell.Sidebar.ToolbarControl.selectionTransitionDuration
-            ),
+            reduceMotion
+                ? nil
+                : .easeInOut(duration: AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDuration)
+                    .delay(AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDelay),
             value: model.selection
         )
+    }
+
+    private func labelAnimation(isShowing: Bool) -> Animation {
+        if isShowing {
+            return .easeInOut(duration: AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDuration)
+                .delay(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDelay)
+        }
+        return .easeInOut(duration: AppStyles.Shell.Sidebar.ToolbarControl.labelFadeOutDuration)
     }
 
 }

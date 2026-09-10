@@ -6540,3 +6540,21 @@ Full BridgeWeb quality exit0 tmp/pr-a-filter-final-quality-proof.log; surroundin
 browser29/29, reduced categories11/11 and realcategory1/1, adapter/query21/21,
 nativeclassifier7parameterized tests pass. Scoped checkpoint next; full aggregate
 still must rerun after final shared UI integration. No PR-ready claim.
+
+## TRANSPORT-0297 | 2026-09-10 | OWNER-APPROVED SIDEBAR TIMING
+
+Owner approved old label fade-out40ms, shared resizing20–140ms using existing
+Animation.fast120ms, then new label fade-in140–180ms. Editing only timing hunks
+in AppStyles/SidebarToolbarSegmentedControl and existing visual-state tests;
+preserve all concurrent UI paint changes. No timers, tasks or new state owners.
+
+TRANSPORT0297 owner amendment: incoming label is fully opaque immediately,
+revealed by width clipping only; remove fade-in. Outgoing40ms and shared resize
+delay20ms/duration120ms unchanged. Total140ms. Scoped tests and debug refresh.
+
+TRANSPORT0297 latest amendment supersedes clip-only: fade-out0–40ms,
+resize20–140ms, fade-in120–160ms. Both labels overlap resizing by20ms.
+Same existing SwiftUI animation paths; scoped timing/test changes only.
+
+TRANSPORT0297 final timing amendment: incoming fade100–140ms, not120–160ms.
+Only subtract full fade duration from resize end; outgoing/resize unchanged.

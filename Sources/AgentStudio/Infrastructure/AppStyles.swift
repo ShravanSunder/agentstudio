@@ -14,6 +14,8 @@ package enum AppStyles {
             package static let primaryNSColor = NSColor(
                 srgbRed: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0, alpha: 1.0)
             package static let primaryColor = Color(.sRGB, red: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0)
+            package static let selectedControlForeground = Color(
+                .sRGB, red: 0x89 / 255.0, green: 0xB4 / 255.0, blue: 0xFA / 255.0)
         }
 
         package enum Icon {
@@ -76,6 +78,8 @@ package enum AppStyles {
         }
 
         package enum Stroke {
+            package static let controlGroupColor = Color(
+                .sRGB, red: 0x43 / 255.0, green: 0x4B / 255.0, blue: 0x57 / 255.0)
             package static let subtle: CGFloat = 0.10
             package static let muted: CGFloat = 0.15
             package static let hover: CGFloat = 0.20
@@ -210,10 +214,13 @@ package enum AppStyles {
                 package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
                 package static let groupingLabelMinimumWidth: CGFloat = 32
                 package static let groupingChevronSize: CGFloat = 8
-                package static let selectionTransitionDuration = AppStyles.General.Animation.standard
-                package static let labelRevealDelay = selectionTransitionDuration
-                package static let labelRevealDuration = AppStyles.General.Animation.fast
-                package static let labelSlideDistance = AppStyles.General.Spacing.tight
+                package static let labelFadeOutDuration: Double = 0.04
+                package static let selectionResizeDelay: Double = 0.02
+                package static let selectionResizeDuration = AppStyles.General.Animation.fast  // 120 ms
+                package static let labelFadeInDuration: Double = 0.04
+                // Fade in during the final 40 ms so text and geometry finish together.
+                package static let labelFadeInDelay =
+                    selectionResizeDelay + selectionResizeDuration - labelFadeInDuration
                 package static let dividerHeight: CGFloat = 16
                 package static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
                 package static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
@@ -308,7 +315,7 @@ package enum AppStyles {
                 package static let iconForegroundNSColor = NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1)
                 package static let iconForegroundColor = Color(nsColor: iconForegroundNSColor)
                 package static let hoverIconForegroundColor = Color.white
-                package static let selectedFillOpacity: CGFloat = 0.20
+                package static let selectedFillOpacity: CGFloat = AppStyles.General.Fill.selected
                 package static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
                 package static let hoverStrokeColor = Color(
                     nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
@@ -473,7 +480,7 @@ package enum AppStyles {
 
         package enum SectionSubheading {
             package static let fontSize: CGFloat = AppStyles.General.Typography.textBase
-            package static let foregroundOpacity: Double = AppStyles.General.Foreground.secondary
+            package static let foregroundOpacity: Double = 0.80
             package static let horizontalPadding: CGFloat = 12
             package static let topPadding: CGFloat = AppStyles.General.Spacing.loose + AppStyles.General.Spacing.tight
             package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight

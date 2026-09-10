@@ -7,6 +7,15 @@ import Testing
 
 @Suite("Sidebar toolbar control visual state")
 struct SidebarToolbarControlVisualStateTests {
+    @Test("outgoing label fade overlaps shared resizing")
+    func labelTimingMatchesApprovedSequence() {
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeOutDuration == 0.04)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDelay == 0.02)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDuration == AppStyles.General.Animation.fast)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDuration == 0.04)
+        #expect(abs(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDelay - 0.10) < Double.ulpOfOne)
+    }
+
     @Test(
         "outgoing and incoming label widths exchange together at intermediate progress",
         arguments: [CGFloat(0), 0.25, 0.5, 0.75, 1])
@@ -37,8 +46,8 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(allPanesWidth > repoWidth)
     }
 
-    @Test("selected segment uses accent foreground and accent-tinted fill without borders")
-    func selectedSegmentUsesBorderlessAccentPresentation() throws {
+    @Test("selected segment uses accent paint inside one quiet noninteractive group border")
+    func selectedSegmentUsesAccentWithinQuietGroupBorder() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
             encoding: .utf8
@@ -51,11 +60,13 @@ struct SidebarToolbarControlVisualStateTests {
         // only for the unselected/hover/pressed states.
         #expect(source.contains("ChromeToolbarControlPalette.fillColor"))
         #expect(source.contains("visualState.fillOpacity"))
-        #expect(!source.contains(".stroke("))
+        #expect(source.components(separatedBy: ".stroke(").count == 2)
+        #expect(source.contains(".stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)"))
+        #expect(source.contains(".allowsHitTesting(false)"))
         #expect(!source.contains("ChromeToolbarControlPalette.strokeColor"))
     }
 
-    @Test("selected label fades with segment geometry and stays clipped inside its segment")
+    @Test("selected label fades separately from shared segment resizing and stays clipped")
     func selectedLabelSharesClippedSegmentTransition() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
@@ -67,7 +78,11 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(!source.contains(".transition("))
         #expect(source.contains(".clipped()"))
         #expect(source.contains("value: model.selection"))
-        #expect(!source.contains(".delay("))
+        #expect(source.contains("labelFadeOutDuration"))
+        #expect(source.contains("labelFadeInDuration"))
+        #expect(source.contains("labelFadeInDelay"))
+        #expect(source.contains("selectionResizeDelay"))
+        #expect(source.contains("selectionResizeDuration"))
         #expect(!source.contains("AnyTransition.offset"))
     }
 
