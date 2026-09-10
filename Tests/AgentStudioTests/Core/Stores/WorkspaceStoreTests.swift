@@ -13,7 +13,7 @@ final class WorkspaceStoreTests {
 
     private var store: WorkspaceStore!
     private var tempDir: URL!
-    private var sqliteDatastore: WorkspaceSQLiteDatastore!
+    private var sqliteDatastore: WorkspaceSQLiteDatastoreActor!
 
     init() {
         // Use a temp directory to avoid polluting real workspace data
@@ -940,40 +940,17 @@ final class WorkspaceStoreTests {
         async throws
     {
         let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let localRepositoryFactory = FailingThenSucceedingLocalRepositoryFactory(
-            localQueue: localQueue,
-            failuresBeforeSuccess: 1
-        )
         let saveProbe = WorkspaceSQLiteSaveProbe()
-        let retainedLocalFailure: WorkspaceSQLiteDatastoreFailure
-        do {
-            _ = try localRepositoryFactory.makeLocalRepository(workspaceId: workspaceId)
-            Issue.record("expected injected local preparation to fail")
-            return
-        } catch {
-            retainedLocalFailure = .init(error)
-        }
-        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            localUnavailable: retainedLocalFailure,
-            probe: { event in
-                await saveProbe.record(event)
-            }
-        )
-        let preparation = await sqliteDatastore.prepareDatabasesForBoot()
-        guard case .prepared(let preparationReceipt) = preparation else {
-            Issue.record("expected core preparation to succeed")
+        guard
+            let preparedDatastore = try await preparedDatastoreWithUnavailableLocal(
+                workspaceId: workspaceId,
+                saveProbe: saveProbe
+            )
+        else {
             return
         }
-        guard case .unavailable = preparationReceipt.local else {
-            Issue.record("expected injected local preparation to be unavailable")
-            return
-        }
+        let sqliteDatastore = preparedDatastore.sqliteDatastore
+        let localRepositoryFactory = preparedDatastore.localRepositoryFactory
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let failureReports = AsyncStream.makeStream(
@@ -999,7 +976,9 @@ final class WorkspaceStoreTests {
             }
         )
 
-        func advanceNextDebouncedSave(after mutation: () -> Void) async throws {
+        func advanceNextDebouncedSave(
+            after mutation: () -> Void
+        ) async throws -> PaneTopologyPersistenceReason {
             let nextSleepGeneration = clock.scheduledSleepGeneration
             mutation()
             await clock.waitForPendingSleepGeneration(nextSleepGeneration)
@@ -1007,13 +986,14 @@ final class WorkspaceStoreTests {
             // The datastore probe precedes the throw back to WorkspaceStore.
             // This report and any recovery callback run synchronously on MainActor,
             // so this MainActor test resumes after both, including damped failures.
-            _ = try #require(await failureReportIterator.next(isolation: #isolation))
+            return try #require(await failureReportIterator.next(isolation: #isolation))
         }
 
         for attempt in 1...3 {
-            try await advanceNextDebouncedSave {
+            let failureReason = try await advanceNextDebouncedSave {
                 store.setSidebarWidth(CGFloat(300 + attempt))
             }
+            #expect(failureReason == .workspaceSaveDatabaseFailed)
             #expect(store.isDirty)
         }
         #expect(await saveProbe.saveCount == 3)
@@ -1024,9 +1004,10 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.allSatisfy { $0.store == .workspace && $0.recovery == .saveFailed })
         #expect(store.isDirty)
 
-        try await advanceNextDebouncedSave {
+        let fourthFailureReason = try await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
+        #expect(fourthFailureReason == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 4)
         #expect(await saveProbe.failedSaveCount == 4)
@@ -1035,9 +1016,10 @@ final class WorkspaceStoreTests {
         #expect(recoveryEvents.count == 3)
         #expect(store.isDirty)
 
-        try await advanceNextDebouncedSave {
+        let fifthFailureReason = try await advanceNextDebouncedSave {
             store.setSidebarWidth(305)
         }
+        #expect(fifthFailureReason == .workspaceSaveDatabaseFailed)
 
         #expect(await saveProbe.saveCount == 5)
         #expect(await saveProbe.succeededSaveCount == 0)
@@ -1902,6 +1884,50 @@ final class WorkspaceStoreTests {
 
 }
 
+@MainActor
+private func preparedDatastoreWithUnavailableLocal(
+    workspaceId: UUID,
+    saveProbe: WorkspaceSQLiteSaveProbe
+) async throws -> (
+    sqliteDatastore: WorkspaceSQLiteDatastoreActor,
+    localRepositoryFactory: FailingThenSucceedingLocalRepositoryFactory
+)? {
+    let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
+    let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
+    try WorkspaceCoreMigrations.migrate(coreQueue)
+    try WorkspaceLocalMigrations.migrate(localQueue)
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    let localRepositoryFactory = FailingThenSucceedingLocalRepositoryFactory(
+        localQueue: localQueue,
+        failuresBeforeSuccess: 1
+    )
+    let retainedLocalFailure: WorkspaceSQLiteDatastoreFailure
+    do {
+        _ = try localRepositoryFactory.makeLocalRepository(workspaceId: workspaceId)
+        Issue.record("expected injected local preparation to fail")
+        return nil
+    } catch {
+        retainedLocalFailure = .init(error)
+    }
+    let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(
+        coreRepository: coreRepository,
+        localUnavailable: retainedLocalFailure,
+        probe: { event in
+            await saveProbe.record(event)
+        }
+    )
+    let preparation = await sqliteDatastore.prepareDatabasesForBoot()
+    guard case .prepared(let preparationReceipt) = preparation else {
+        Issue.record("expected core preparation to succeed")
+        return nil
+    }
+    guard case .unavailable = preparationReceipt.local else {
+        Issue.record("expected injected local preparation to be unavailable")
+        return nil
+    }
+    return (sqliteDatastore, localRepositoryFactory)
+}
+
 private actor WorkspaceSQLiteSaveProbe {
     private var saveEvents: Int = 0
     private var succeededSaveEvents: Int = 0
@@ -1919,7 +1945,7 @@ private actor WorkspaceSQLiteSaveProbe {
         failedSaveEvents
     }
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         switch event {
         case .saveWorkspaceSnapshot:
             saveEvents += 1

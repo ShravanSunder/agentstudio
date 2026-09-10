@@ -6,7 +6,6 @@ import {
 } from './bridge-main-render-snapshot-store.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	type BridgeWorkerFileDisplayPatchEvent,
 	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
@@ -335,162 +334,6 @@ describe('Bridge main render snapshot store', () => {
 		unsubscribe();
 	});
 
-	test('atomically applies a strict File display event without product authority fields', () => {
-		const store = createBridgeMainRenderSnapshotStore();
-		let publishCount = 0;
-		const unsubscribe = store.subscribe(() => {
-			publishCount += 1;
-		});
-
-		store.applyFileDisplayPatchEvent(makeFileDisplayPatchEvent());
-
-		expect(publishCount).toBe(1);
-		const snapshot = store.getSnapshot();
-		expect(snapshot).toMatchObject({
-			fileDisplayFreshness: {
-				epoch: 4,
-				projectionRevision: 8,
-				sequence: 12,
-			},
-			fileStatusSlice: {
-				ahead: 1,
-				behind: 0,
-				branchName: 'main',
-				staged: 2,
-				state: 'ready',
-				unstaged: 3,
-				untracked: 4,
-			},
-			fileTreeSlice: {
-				sourceGeneration: 6,
-				sourceId: 'file-source-1',
-			},
-		});
-		expect(snapshot.fileItemById.size).toBe(1);
-		expect(snapshot.fileItemById.get('file-1')).toMatchObject({
-			displayPath: 'Sources/File.swift',
-			payloadByteCount: 100_000,
-			payloadLineCount: 10_000,
-			truncationKind: 'lineLimit',
-		});
-		expect(snapshot.fileTreeSlice.index.size).toBe(1);
-		expect(snapshot.fileTreeSlice.index.rowForId('row-file-1')).toMatchObject({
-			path: 'Sources/File.swift',
-			projectionIndex: 3,
-		});
-		expect(JSON.stringify(snapshot)).not.toMatch(
-			/contentDescriptor|descriptorId|expectedSha256|leaseId|sourceCursor|byteCache|demandMembership|retryAfterVersion/i,
-		);
-
-		unsubscribe();
-	});
-
-	test('rejects stale File display events and clears old display copies on epoch advance', () => {
-		const store = createBridgeMainRenderSnapshotStore();
-		const acceptedEvent = makeFileDisplayPatchEvent();
-		store.applyFileDisplayPatchEvent(acceptedEvent);
-		const acceptedSnapshot = store.getSnapshot();
-
-		for (const staleEvent of [
-			{ ...acceptedEvent, epoch: 3, sequence: 99, projectionRevision: 99 },
-			{ ...acceptedEvent, sequence: acceptedEvent.sequence },
-			{ ...acceptedEvent, sequence: 13, projectionRevision: acceptedEvent.projectionRevision },
-		]) {
-			store.applyFileDisplayPatchEvent(staleEvent);
-			expect(store.getSnapshot()).toBe(acceptedSnapshot);
-		}
-
-		store.applyFileDisplayPatchEvent({
-			...acceptedEvent,
-			epoch: 5,
-			sequence: 1,
-			projectionRevision: 9,
-			patches: [
-				{
-					slice: 'fileStatus',
-					operation: 'upsert',
-					payload: { state: 'stale' },
-				},
-			],
-		});
-
-		const nextSnapshot = store.getSnapshot();
-		expect(nextSnapshot).toMatchObject({
-			fileDisplayFreshness: { epoch: 5, projectionRevision: 9, sequence: 1 },
-			fileStatusSlice: { state: 'stale' },
-			fileTreeSlice: {
-				sourceGeneration: null,
-				sourceId: null,
-			},
-		});
-		expect(nextSnapshot.fileItemById.size).toBe(0);
-		expect(nextSnapshot.fileTreeSlice.index.size).toBe(0);
-	});
-
-	test('applies File tree removals and File item/status reset variants', () => {
-		const store = createBridgeMainRenderSnapshotStore();
-		const initialEvent = makeFileDisplayPatchEvent();
-		store.applyFileDisplayPatchEvent(initialEvent);
-
-		store.applyFileDisplayPatchEvent({
-			...initialEvent,
-			sequence: 13,
-			projectionRevision: 9,
-			patches: [
-				{
-					slice: 'fileTree',
-					operation: 'batch',
-					payload: {
-						operations: [
-							{
-								operation: 'remove',
-								path: 'Sources/File.swift',
-								rowId: 'row-file-1',
-							},
-						],
-					},
-				},
-				{ slice: 'fileItem', operation: 'delete', itemId: 'file-1' },
-				{ slice: 'fileStatus', operation: 'reset' },
-			],
-		});
-
-		const nextSnapshot = store.getSnapshot();
-		expect(nextSnapshot.fileItemById.size).toBe(0);
-		expect(nextSnapshot.fileStatusSlice).toBeNull();
-		expect(nextSnapshot.fileTreeSlice.index.size).toBe(0);
-	});
-
-	test('clears File source identity and display copies on a failure epoch', () => {
-		const store = createBridgeMainRenderSnapshotStore();
-		store.applyFileDisplayPatchEvent(makeFileDisplayPatchEvent());
-
-		store.applyFileDisplayPatchEvent({
-			direction: 'serverWorkerToMain',
-			epoch: 5,
-			kind: 'fileDisplayPatch',
-			patches: [
-				{ operation: 'clear', slice: 'fileTree' },
-				{ operation: 'reset', slice: 'fileItem' },
-				{ operation: 'reset', slice: 'fileStatus' },
-			],
-			projectionRevision: 1,
-			sequence: 13,
-			surface: 'fileView',
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		});
-
-		const nextSnapshot = store.getSnapshot();
-		expect(nextSnapshot).toMatchObject({
-			fileDisplayFreshness: { epoch: 5, projectionRevision: 1, sequence: 13 },
-			fileStatusSlice: null,
-			fileTreeSlice: { sourceGeneration: null, sourceId: null },
-		});
-		expect(nextSnapshot.fileItemById.size).toBe(0);
-		expect(nextSnapshot.fileTreeSlice.index.size).toBe(0);
-	});
-
 	test('atomically applies bounded Review display state and rejects stale publications', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const event = makeReviewDisplayPatchEvent();
@@ -575,6 +418,207 @@ describe('Bridge main render snapshot store', () => {
 		});
 	});
 
+	test('retains hydrated Review render copies while a query projection hides and restores an item', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		const initialEvent = makeReviewDisplayPatchEvent();
+		const initialSourcePatch = initialEvent.patches[0];
+		const initialItemPatch = initialEvent.patches[1];
+		const initialTreePatch = initialEvent.patches[2];
+		if (initialItemPatch?.slice !== 'reviewItem' || initialItemPatch.operation !== 'batch') {
+			throw new Error('expected Review fixture item batch');
+		}
+		if (initialSourcePatch?.slice !== 'reviewSource' || initialTreePatch?.slice !== 'reviewTree') {
+			throw new Error('expected Review fixture source and tree patches');
+		}
+		const initialCatalogItem = initialItemPatch.payload.items[0];
+		const initialPublicationIdentity = initialEvent.reviewPublicationIdentity;
+		if (initialCatalogItem === undefined) {
+			throw new Error('expected Review fixture item');
+		}
+		if (initialPublicationIdentity === null) {
+			throw new Error('expected Review fixture publication identity');
+		}
+		const hydratedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...initialCatalogItem,
+			contentFacts: [
+				{
+					contentDigest: {
+						algorithm: 'sha256',
+						authority: 'authoritative',
+						value: 'a'.repeat(64),
+					},
+					role: 'file',
+					semanticDocumentRevision: 'semantic-item-1',
+				},
+			],
+			metadata: {
+				...initialCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1' },
+				contentRoles: ['file'],
+			},
+		};
+		const populatedItemPatch = {
+			...initialItemPatch,
+			payload: { ...initialItemPatch.payload, items: [hydratedCatalogItem] },
+		} as const;
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
+			reviewPublicationIdentity: {
+				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000001',
+				reviewGeneration: 1,
+				revision: 11,
+				sourceIdentity: 'review-source-package-1',
+			},
+		});
+		const codeViewItem = makeBridgeMainCodeViewItem('item-1');
+		const rowPaint = { contentCacheKey: 'pierre-content:item-1', status: 'ready' } as const;
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [{ operation: 'upsert', itemId: 'item-1', item: codeViewItem }],
+			workerPatches: [
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: rowPaint,
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+		store.setLocalSelection({ selectedItemId: 'item-1', source: 'user' });
+
+		// Act: query-only display publications carry no source publication identity.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 1,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 1,
+		});
+
+		// Assert
+		const hiddenSnapshot = store.getSnapshot();
+		expect(hiddenSnapshot.reviewItemById['item-1']).toBeUndefined();
+		expect(hiddenSnapshot.selectionSlice).toEqual({ selectedItemId: null, source: null });
+		expect(hiddenSnapshot.codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(hiddenSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(hiddenSnapshot.rowPaintById['item-1']).toEqual(rowPaint);
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
+			projectionRevision: initialEvent.projectionRevision + 2,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 2,
+		});
+
+		// Assert
+		const restoredSnapshot = store.getSnapshot();
+		expect(restoredSnapshot.reviewItemById['item-1']).toEqual(hydratedCatalogItem);
+		expect(restoredSnapshot.codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(restoredSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(restoredSnapshot.rowPaintById['item-1']).toEqual(rowPaint);
+
+		// Act: hide the item again, then accept a same-epoch source publication while it is absent.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 3,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 3,
+		});
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 4,
+			reviewPublicationIdentity: {
+				...initialPublicationIdentity,
+				publicationId: '00000000-0000-7000-8000-000000000002',
+			},
+			sequence: initialEvent.sequence + 4,
+		});
+
+		// Assert
+		const sameEpochSourceSnapshot = store.getSnapshot();
+		expect(sameEpochSourceSnapshot.codeViewItemsById['item-1']).toBeUndefined();
+		expect(sameEpochSourceSnapshot.contentAvailabilityById['item-1']).toBeUndefined();
+		expect(sameEpochSourceSnapshot.rowPaintById['item-1']).toBeUndefined();
+
+		// Arrange: an off-catalog retained copy must also be purged by an epoch replacement.
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [{ operation: 'upsert', itemId: 'item-1', item: codeViewItem }],
+			workerPatches: [
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: rowPaint,
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			epoch: initialEvent.epoch + 1,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: 1,
+			reviewPublicationIdentity: {
+				...initialPublicationIdentity,
+				publicationId: '00000000-0000-7000-8000-000000000003',
+			},
+			sequence: initialEvent.sequence + 5,
+		});
+
+		// Assert
+		const replacedSourceSnapshot = store.getSnapshot();
+		expect(replacedSourceSnapshot.codeViewItemsById['item-1']).toBeUndefined();
+		expect(replacedSourceSnapshot.contentAvailabilityById['item-1']).toBeUndefined();
+		expect(replacedSourceSnapshot.rowPaintById['item-1']).toBeUndefined();
+	});
+
 	test('preserves unchanged ready Review render copies while invalidating removed or semantically changed copies', () => {
 		// Arrange
 		const store = createBridgeMainRenderSnapshotStore();
@@ -602,6 +646,7 @@ describe('Bridge main render snapshot store', () => {
 			],
 			metadata: {
 				...initialCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1-a' },
 				contentRoles: ['file'],
 			},
 		};
@@ -627,7 +672,18 @@ describe('Bridge main render snapshot store', () => {
 				},
 			],
 		});
-		const retainedCodeViewItem = makeBridgeMainCodeViewItem('item-1');
+		const retainedCodeViewItem: BridgeMainCodeViewItem = {
+			...makeBridgeMainCodeViewItem('item-1'),
+			bridgeMetadata: {
+				...makeBridgeMainCodeViewItem('item-1').bridgeMetadata,
+				sourceDescriptorIdsByRole: {
+					base: null,
+					diff: null,
+					file: 'descriptor-item-1-a',
+					head: null,
+				},
+			},
+		};
 		const removedCodeViewItem = makeBridgeMainCodeViewItem('item-removed');
 		const retainedRowPaint = {
 			contentCacheKey: 'pierre-content:item-1',
@@ -716,6 +772,41 @@ describe('Bridge main render snapshot store', () => {
 		expect(snapshot.contentAvailabilityById['item-removed']).toBeUndefined();
 		expect(snapshot.rowPaintById['item-removed']).toBeUndefined();
 
+		// Act: identical content retained under a successor descriptor must carry successor
+		// source authority before a newly opened annotation composer captures its origin.
+		const successorDescriptorCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			metadata: {
+				...retainedCatalogItem.metadata,
+				contentDescriptorIdsByRole: { file: 'descriptor-item-1-b' },
+			},
+			metadataWindowIdentity: 'metadata-window-item-1-successor-r13',
+		};
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [successorDescriptorCatalogItem, addedCatalogItem],
+					},
+				},
+			],
+			projectionRevision: initialEvent.projectionRevision + 2,
+			sequence: initialEvent.sequence + 2,
+		});
+
+		// Assert
+		const successorDescriptorCodeViewItem = store.getSnapshot().codeViewItemsById['item-1'];
+		expect(successorDescriptorCodeViewItem).not.toBe(retainedCodeViewItem);
+		expect(successorDescriptorCodeViewItem?.bridgeMetadata.sourceDescriptorIdsByRole).toEqual({
+			base: null,
+			diff: null,
+			file: 'descriptor-item-1-b',
+			head: null,
+		});
+
 		// Act: unchanged complete content is retained while its same-epoch display path changes.
 		const renamedRetainedCatalogItem: BridgeWorkerReviewDisplayItem = {
 			...retainedCatalogItem,
@@ -737,8 +828,8 @@ describe('Bridge main render snapshot store', () => {
 					},
 				},
 			],
-			projectionRevision: initialEvent.projectionRevision + 2,
-			sequence: initialEvent.sequence + 2,
+			projectionRevision: initialEvent.projectionRevision + 3,
+			sequence: initialEvent.sequence + 3,
 		});
 
 		// Assert
@@ -778,8 +869,8 @@ describe('Bridge main render snapshot store', () => {
 					},
 				},
 			],
-			projectionRevision: initialEvent.projectionRevision + 3,
-			sequence: initialEvent.sequence + 3,
+			projectionRevision: initialEvent.projectionRevision + 4,
+			sequence: initialEvent.sequence + 4,
 		});
 
 		// Assert
@@ -789,89 +880,18 @@ describe('Bridge main render snapshot store', () => {
 	});
 });
 
-function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
-	return {
-		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		direction: 'serverWorkerToMain',
-		transferDescriptors: [],
-		kind: 'fileDisplayPatch',
-		surface: 'fileView',
-		epoch: 4,
-		sequence: 12,
-		projectionRevision: 8,
-		patches: [
-			{
-				slice: 'fileTree',
-				operation: 'reset',
-				payload: { sourceGeneration: 6, sourceId: 'file-source-1' },
-			},
-			{
-				slice: 'fileTree',
-				operation: 'batch',
-				payload: {
-					operations: [
-						{
-							operation: 'upsert',
-							row: {
-								changeStatus: 'modified',
-								depth: 1,
-								fileId: 'file-1',
-								fileClass: 'source',
-								isDirectory: false,
-								lineCount: 12_000,
-								name: 'File.swift',
-								parentPath: 'Sources',
-								path: 'Sources/File.swift',
-								projectionIndex: 3,
-								rowId: 'row-file-1',
-								sizeBytes: 120_000,
-							},
-						},
-					],
-				},
-			},
-			{
-				slice: 'fileItem',
-				operation: 'upsert',
-				itemId: 'file-1',
-				payload: {
-					availability: { kind: 'available' },
-					displayPath: 'Sources/File.swift',
-					endsMidLine: false,
-					endsWithNewline: true,
-					extent: { kind: 'exactLineCount', lineCount: 12_000 },
-					fileExtension: 'swift',
-					language: 'swift',
-					payloadByteCount: 100_000,
-					payloadLineCount: 10_000,
-					rowId: 'row-file-1',
-					sizeBytes: 120_000,
-					totalLineCount: 12_000,
-					truncationKind: 'lineLimit',
-				},
-			},
-			{
-				slice: 'fileStatus',
-				operation: 'upsert',
-				payload: {
-					state: 'ready',
-					ahead: 1,
-					behind: 0,
-					branchName: 'main',
-					staged: 2,
-					unstaged: 3,
-					untracked: 4,
-				},
-			},
-		],
-	};
-}
-
 function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 	return {
 		direction: 'serverWorkerToMain',
 		epoch: 2,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: {
+			packageId: 'package-1',
+			publicationId: '00000000-0000-7000-8000-000000000001',
+			reviewGeneration: 1,
+			revision: 11,
+			sourceIdentity: 'review-source-package-1',
+		},
 		patches: [
 			{
 				operation: 'upsert',

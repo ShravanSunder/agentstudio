@@ -185,6 +185,7 @@ private func reviewContentRequestObject(
         ],
         "kind": "content.open",
         "leaseId": "review-content-lease-1",
+        "operationCorrelationId": NSNull(),
         "paneSessionId": "pane-session-1",
         "wireVersion": 2,
         "workerDerivationEpoch": 4,

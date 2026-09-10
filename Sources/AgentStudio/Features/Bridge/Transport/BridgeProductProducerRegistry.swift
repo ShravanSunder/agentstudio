@@ -26,6 +26,16 @@ struct BridgeProductProducerRegistry {
         self.limits = limits
     }
 
+    var metadataProducerLeases: [BridgeProductProducerLease] {
+        let activeIds = producersByLeaseId.compactMap { id, state in
+            state.key.isContent ? nil : id
+        }
+        let pendingIds = pendingAcknowledgementsByLeaseId.compactMap { id, pending in
+            pending.producerKey.isContent ? nil : id
+        }
+        return Set(activeIds + pendingIds).map(BridgeProductProducerLease.init(id:))
+    }
+
     mutating func registerMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         operation: @escaping ProducerOperation,
@@ -324,8 +334,7 @@ struct BridgeProductProducerRegistry {
         guard var state = producersByLeaseId[lease.id] else { return }
         state.lifecycle = .stopped
         state.task = nil
-        state.producerObservationPacingExpectedSequence = nil
-        state.producerObservationPacingWaiterToken = nil
+        state.producerObservationPacingSequenceByWaiterToken.removeAll(keepingCapacity: false)
         state.producerObservedSequenceHighWater = nil
         producersByLeaseId[lease.id] = state
     }
@@ -394,10 +403,9 @@ struct BridgeProductProducerRegistry {
             queuedByteCount: states.reduce(0) { $0 + $1.queuedByteCount },
             pendingFrameWaiterCount: states.reduce(into: 0) { count, state in
                 if state.frameWaiterToken != nil { count += 1 }
-                if state.producerObservationPacingWaiterToken != nil { count += 1 }
             },
             pendingProducerObservationPacingWaiterCount: states.reduce(into: 0) { count, state in
-                if state.producerObservationPacingWaiterToken != nil { count += 1 }
+                count += state.producerObservationPacingSequenceByWaiterToken.count
             },
             inFlightFrameReceiptCount: states.count { $0.inFlightFrameReceipt != nil },
             pendingLifecycleAcknowledgementCount: pendingAcknowledgementsByLeaseId.count,

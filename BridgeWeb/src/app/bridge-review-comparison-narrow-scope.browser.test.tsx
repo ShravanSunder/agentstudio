@@ -6,7 +6,7 @@ import './bridge-app.css';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
+import { BridgeReviewComparisonControlTestHost as BridgeReviewComparisonControl } from './bridge-review-comparison-control.browser.test-support.js';
 
 const narrowComparisonScenarios = [
 	{
@@ -60,6 +60,12 @@ describe('BridgeReviewComparisonControl narrow comparison scope', () => {
 			expect(descriptionId).not.toBeNull();
 			expect(document.getElementById(descriptionId ?? '')?.textContent).toBe(scenario.description);
 			expect(trigger.element().getAttribute('aria-haspopup')).toBeNull();
+			expect(trigger.element().getAttribute('role')).toBeNull();
+			expect(trigger.element().getAttribute('tabindex')).toBeNull();
+			const labelStyle = getComputedStyle(trigger.element());
+			expect(labelStyle.height).toBe('24px');
+			expect(labelStyle.fontSize).toBe('11px');
+			expect(labelStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
 			expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
 			expect(document.querySelector('[role="combobox"]')).toBeNull();
 			expect(document.querySelector('[role="button"][aria-label="Commit"]')).toBeNull();

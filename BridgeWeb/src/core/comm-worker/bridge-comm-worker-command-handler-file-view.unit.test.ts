@@ -164,10 +164,12 @@ describe('Bridge comm worker File View command handler', () => {
 
 		expect(messages).toEqual([]);
 		expect(scheduledReviewPreparations).toEqual([]);
-		expect(scheduledFileViewPreparations).toHaveLength(1);
-		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
-		expect(scheduledFileViewPreparations[0]?.epoch).toBe(2);
-		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+		expect(scheduledFileViewPreparations).toHaveLength(2);
+		expect(scheduledFileViewPreparations.map(({ epoch, itemId }) => ({ epoch, itemId }))).toEqual([
+			{ epoch: 1, itemId: 'file-1' },
+			{ epoch: 2, itemId: 'file-1' },
+		]);
+		expect(scheduledFileViewPreparations[1]?.store.getState().demandByKey.get('file-1')).toBe(
 			'selected:2',
 		);
 	});

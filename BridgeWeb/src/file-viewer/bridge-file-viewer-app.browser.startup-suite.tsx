@@ -206,8 +206,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(filterBox.left).toBeLessThan(searchBox.left);
 		expect(Math.abs(toolbarBox.right - trailingControlsBox.right - 8)).toBeLessThanOrEqual(1);
 		expect(trailingControlsBox.left).toBeGreaterThan(toolbarBox.left + toolbarBox.width / 2);
-		expect(Math.round(filterGlyphBox.width)).toBe(14);
-		expect(Math.round(filterGlyphBox.height)).toBe(14);
+		expect(Math.round(filterGlyphBox.width)).toBe(12);
+		expect(Math.round(filterGlyphBox.height)).toBe(12);
 		expect(filterGlyph.classList.contains('lucide-sliders-horizontal')).toBe(true);
 		expect(getComputedStyle(searchToggle).fontSize).toBe('11px');
 		const filterCount = requireBridgeViewerHTMLElement(
@@ -231,8 +231,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const filterClear = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-filter-menu-clear"]'),
 		);
-		expect(filterOption.offsetHeight).toBe(32);
-		expect(filterClear.offsetHeight).toBe(32);
+		expect(filterOption.offsetHeight).toBe(28);
+		expect(filterClear.offsetHeight).toBe(28);
 		expect(
 			Math.abs(filterPopover.getBoundingClientRect().right - filterBox.right),
 		).toBeLessThanOrEqual(1);
@@ -269,7 +269,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const inputBox = searchInput.getBoundingClientRect();
 		const regexBox = regexToggle.getBoundingClientRect();
 		const clearBox = clearButton.getBoundingClientRect();
-		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
+		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(28);
 		expect(Math.round(searchField.getBoundingClientRect().height)).toBe(28);
 		expect(searchField.className).toContain('m-2');
 		expect(searchField.className).not.toContain('mx-2');
@@ -292,9 +292,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				),
 			).toBeLessThanOrEqual(1);
 		}
-		expect(getComputedStyle(searchInput).fontSize).toBe('11px');
-		expect(searchInput.className).toContain('h-6');
-		expect(searchInput.className).toContain('!text-[11px]');
+		expect(getComputedStyle(searchInput).fontSize).toBe('12px');
+		expect(getComputedStyle(searchInput).lineHeight).toBe('16px');
 		expect(searchInput.getBoundingClientRect().left).toBeGreaterThanOrEqual(
 			toolbar.getBoundingClientRect().left,
 		);

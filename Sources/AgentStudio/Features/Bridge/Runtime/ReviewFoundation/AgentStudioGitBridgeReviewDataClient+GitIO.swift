@@ -1,11 +1,64 @@
 import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 
 private let libGit2NotFoundErrorCode: Int32 = -3
 
 extension AgentStudioGitBridgeReviewDataClient {
+    func loadGitCommitRangeCount(
+        _ request: GitCommitRangeCountRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitCommitRangeCount {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "commit-range-count", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.countCommitRange(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
+    func loadGitDiffImpactSummary(
+        _ request: GitDiffImpactSummaryRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitDiffImpactSummary {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "diff-impact-summary", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.summarizeDiffImpact(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitReviewDefaultTarget(
         freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> GitReviewComparisonBranchTarget? {
@@ -66,12 +119,16 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitContributionDiff(
         _ request: GitContributionDiffRequest,
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitContributionDiffSnapshot {
+    ) async throws -> GitContributionDiffResult {
         let client = self.client
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
-                coalescingKey: try gitReadCoalescingKey(domain: "contribution-diff", request: request),
+                coalescingKey: try gitReviewReadCoalescingKey(
+                    domain: "contribution-diff",
+                    repositoryPath: request.repositoryPath,
+                    target: request.target
+                ),
                 freshnessKey: freshnessKey
             ) {
                 try await client.contributionDiff(request)
@@ -92,12 +149,16 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitDirectReviewComparison(
         _ request: GitDirectReviewComparisonRequest,
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitDirectReviewComparisonSnapshot {
+    ) async throws -> GitDirectReviewComparisonResult {
         let client = self.client
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
-                coalescingKey: try gitReadCoalescingKey(domain: "direct-review-comparison", request: request),
+                coalescingKey: try gitReviewReadCoalescingKey(
+                    domain: "direct-review-comparison",
+                    repositoryPath: request.repositoryPath,
+                    target: request.target
+                ),
                 freshnessKey: freshnessKey
             ) {
                 try await client.directReviewComparison(request)
@@ -310,11 +371,33 @@ extension AgentStudioGitBridgeReviewDataClient {
         )
     }
 
+    private func gitReviewReadCoalescingKey(
+        domain: String,
+        repositoryPath: URL,
+        target: GitRevisionTarget
+    ) throws -> BridgeGitReadCoalescingKey {
+        try gitReadCoalescingKey(
+            domain: domain,
+            request: GitReviewReadCoalescingIdentity(
+                repositoryPath: repositoryPath,
+                target: target
+            )
+        )
+    }
+
     func gitReadFreshnessKey(
         for reviewGeneration: BridgeReviewGeneration
     ) -> BridgeGitReadFreshnessKey {
         BridgeGitReadFreshnessKey(
             token: "\(gitReadContext.scopeKey.token):review-generation-\(reviewGeneration.rawValue)"
+        )
+    }
+
+    func gitReadFreshnessKey(
+        forReviewAttemptAuthorityGeneration authorityGeneration: UInt64
+    ) -> BridgeGitReadFreshnessKey {
+        BridgeGitReadFreshnessKey(
+            token: "\(gitReadContext.scopeKey.token):review-attempt-\(authorityGeneration)"
         )
     }
 
@@ -372,5 +455,91 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func unexpectedGitDataPlaneErrorMessage(_ error: Error) -> String {
         "gitDataPlane:unexpected:\(String(describing: type(of: error)))"
+    }
+}
+
+private struct GitReviewReadCoalescingIdentity: Encodable {
+    let repositoryPath: URL
+    let target: GitRevisionTarget
+}
+
+extension AgentStudioGitBridgeReviewDataClient: BridgeReviewRefreshImpactDataClient {
+    func countCommitRange(
+        _ request: GitCommitRangeCountRequest,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> GitCommitRangeCount {
+        try await loadGitCommitRangeCount(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
+        )
+    }
+
+    func summarizeDiffImpact(
+        _ request: GitDiffImpactSummaryRequest,
+        candidateGeneration: BridgeReviewGeneration
+    ) async throws -> GitDiffImpactSummary {
+        try await loadGitDiffImpactSummary(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: candidateGeneration)
+        )
+    }
+}
+
+extension AgentStudioGitBridgeReviewDataClient: WorktreeAnnotationGitEvidenceSource {
+    func currentWorktreeAnnotationReviewedSubjectEvidence(
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationReviewedSubjectEvidence? {
+        do {
+            let revision = try await loadGitResolvedRevision(
+                GitRevisionResolutionRequest(repositoryPath: repositoryPath, target: .named("HEAD")),
+                unavailableEndpointId: "worktree-annotation-head",
+                freshnessKey: worktreeAnnotationFreshnessKey(sourceGeneration: sourceGeneration)
+            )
+            return try WorktreeAnnotationReviewedSubjectEvidence(
+                branchName: revision.shortName,
+                reviewedHeadOID: revision.oid
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+    }
+
+    func worktreeAnnotationAncestryDisposition(
+        acceptedReviewedHeadOID: String,
+        currentReviewedHeadOID: String,
+        sourceGeneration: Int
+    ) async throws -> WorktreeAnnotationAncestryDisposition {
+        do {
+            let result = try await loadGitCommitRangeCount(
+                GitCommitRangeCountRequest(
+                    repositoryPath: repositoryPath,
+                    base: .named(acceptedReviewedHeadOID),
+                    candidate: .named(currentReviewedHeadOID),
+                    maximumCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumCommitCount,
+                    maximumTraversalCount: AppPolicies.Bridge.worktreeAnnotationContinuityMaximumTraversalCount
+                ),
+                freshnessKey: worktreeAnnotationFreshnessKey(sourceGeneration: sourceGeneration)
+            )
+            return switch result {
+            case .exact: .exact
+            case .atLeastLimit: .atLeastLimit
+            case .traversalLimitReached: .traversalLimitReached
+            case .unrelated: .unrelated
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return .readFailure
+        }
+    }
+
+    private func worktreeAnnotationFreshnessKey(
+        sourceGeneration: Int
+    ) -> BridgeGitReadFreshnessKey {
+        BridgeGitReadFreshnessKey(
+            token: "\(gitReadContext.scopeKey.token):worktree-annotation-source-\(sourceGeneration)"
+        )
     }
 }

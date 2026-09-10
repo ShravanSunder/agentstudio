@@ -138,7 +138,9 @@ struct FilesystemActorHotPathArchitectureTests {
             )
         )
 
-        #expect(ingressBody.contains("rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)"))
+        #expect(ingressBody.contains("let classification = await ingestRawPath("))
+        #expect(ingressBody.contains("sourceWorktreeID: worktreeId,"))
+        #expect(ingressBody.contains("rootOwnership.route(sourceWorktreeId: sourceWorktreeID, rawPath: rawPath)"))
         #expect(!ingressBody.contains("roots.mapValues"))
         #expect(!ingressBody.contains("canonicalRootsByWorktree:"))
         #expect(

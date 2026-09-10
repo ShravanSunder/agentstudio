@@ -2,11 +2,11 @@ import type {
 	BridgeCommWorkerPanePresentationAuthority,
 	BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
-import type { BridgeCommWorkerReviewComparisonCommit } from './bridge-comm-worker-review-metadata-applicator.js';
 import type {
 	BridgeCommWorkerReviewMetadataApplyResult,
 	BridgeCommWorkerReviewMetadataSnapshot,
 } from './bridge-comm-worker-review-metadata-projection.js';
+import type { BridgeCommWorkerReviewComparisonCommit } from './bridge-comm-worker-review-publication-types.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
@@ -14,6 +14,7 @@ import {
 	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatch,
 	type BridgeWorkerReviewDisplayPatchEvent,
+	type BridgeWorkerReviewPublicationIdentity,
 	type BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-contracts.js';
 
@@ -47,6 +48,7 @@ export interface BridgeCommWorkerAdmittedReviewDisplayPatches {
 export function bridgeCommWorkerReviewDisplayPatchEvent(props: {
 	readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 	readonly projectionRevision: number;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 	readonly sequence: number;
 	readonly workerDerivationEpoch: number;
 }): BridgeWorkerReviewDisplayPatchEvent {
@@ -56,6 +58,7 @@ export function bridgeCommWorkerReviewDisplayPatchEvent(props: {
 		kind: 'reviewDisplayPatch',
 		patches: props.patches,
 		projectionRevision: props.projectionRevision,
+		reviewPublicationIdentity: props.reviewPublicationIdentity,
 		sequence: props.sequence,
 		surface: 'review',
 		transferDescriptors: [],

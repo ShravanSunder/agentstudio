@@ -1,6 +1,7 @@
+import AgentStudioGit
 import Foundation
 
-struct BridgeReviewPipelineRequest: Codable, Equatable, Sendable {
+struct BridgeReviewPipelineRequest: Sendable {
     let packageId: String
     let query: BridgeReviewQuery
     let baseEndpoint: BridgeSourceEndpoint
@@ -11,6 +12,9 @@ struct BridgeReviewPipelineRequest: Codable, Equatable, Sendable {
     let preparedComparison: BridgeEndpointComparison?
     let comparisonOrigin: BridgeReviewComparisonOrigin?
     let reviewedSubjectLabel: String?
+    let reviewAttemptAuthorityGeneration: UInt64
+    let gitRefreshScope: ReviewGitRefreshScope
+    let gitRefreshSeed: GitReviewRefreshSeed?
 
     init(
         packageId: String,
@@ -22,7 +26,10 @@ struct BridgeReviewPipelineRequest: Codable, Equatable, Sendable {
         generatedAtUnixMilliseconds: Int64,
         preparedComparison: BridgeEndpointComparison? = nil,
         comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
-        reviewedSubjectLabel: String? = nil
+        reviewedSubjectLabel: String? = nil,
+        reviewAttemptAuthorityGeneration: UInt64 = 0,
+        gitRefreshScope: ReviewGitRefreshScope = .complete(reason: .nonExactInput),
+        gitRefreshSeed: GitReviewRefreshSeed? = nil
     ) {
         self.packageId = packageId
         self.query = query
@@ -34,5 +41,8 @@ struct BridgeReviewPipelineRequest: Codable, Equatable, Sendable {
         self.preparedComparison = preparedComparison
         self.comparisonOrigin = comparisonOrigin
         self.reviewedSubjectLabel = reviewedSubjectLabel
+        self.reviewAttemptAuthorityGeneration = reviewAttemptAuthorityGeneration
+        self.gitRefreshScope = gitRefreshScope
+        self.gitRefreshSeed = gitRefreshSeed
     }
 }

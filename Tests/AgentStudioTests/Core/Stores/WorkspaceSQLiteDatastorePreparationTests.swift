@@ -54,15 +54,15 @@ struct WorkspaceSQLiteDatastorePreparationTests {
         let datastore = fixture.makeDatastore()
 
         let results = await withTaskGroup(
-            of: WorkspaceSQLiteDatastore.DatabasePreparationResult.self,
-            returning: [WorkspaceSQLiteDatastore.DatabasePreparationResult].self
+            of: WorkspaceSQLiteDatastoreActor.DatabasePreparationResult.self,
+            returning: [WorkspaceSQLiteDatastoreActor.DatabasePreparationResult].self
         ) { group in
             for _ in 0..<32 {
                 group.addTask {
                     await datastore.prepareDatabasesForBoot()
                 }
             }
-            var collectedResults: [WorkspaceSQLiteDatastore.DatabasePreparationResult] = []
+            var collectedResults: [WorkspaceSQLiteDatastoreActor.DatabasePreparationResult] = []
             for await result in group {
                 collectedResults.append(result)
             }
@@ -243,7 +243,7 @@ struct WorkspaceSQLiteDatastorePreparationTests {
             [.posixPermissions: 0o500],
             ofItemAtPath: localDirectory.path
         )
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = WorkspaceSQLiteDatastoreActor(
             configuration: .init(
                 coreDatabaseURL: fixture.coreDatabaseURL,
                 localDatabaseURL: localDatabaseURL
@@ -271,7 +271,7 @@ struct WorkspaceSQLiteDatastorePreparationTests {
         let fixture = try makePreparationFixture(name: "fresh-create-failure")
         defer { try? FileManager.default.removeItem(at: fixture.rootDirectory) }
         try Data("not a sqlite database".utf8).write(to: fixture.localDatabaseURL)
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = WorkspaceSQLiteDatastoreActor(
             configuration: .init(
                 coreDatabaseURL: fixture.coreDatabaseURL,
                 localDatabaseURL: fixture.localDatabaseURL
@@ -330,7 +330,7 @@ struct WorkspaceSQLiteDatastorePreparationTests {
         defer { try? FileManager.default.removeItem(at: localFixture.rootDirectory) }
         let blockingParentURL = localFixture.rootDirectory.appending(path: "blocking-parent")
         try Data("not a directory".utf8).write(to: blockingParentURL)
-        let localDatastore = WorkspaceSQLiteDatastore(
+        let localDatastore = WorkspaceSQLiteDatastoreActor(
             configuration: .init(
                 coreDatabaseURL: localFixture.coreDatabaseURL,
                 localDatabaseURL: blockingParentURL.appending(path: "local.sqlite")
@@ -363,7 +363,7 @@ private struct WorkspaceSQLitePreparationFixture {
 
     func makeDatastore(
         traceRuntime: AgentStudioTraceRuntime? = nil
-    ) -> WorkspaceSQLiteDatastore {
+    ) -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: localDatabaseURL,

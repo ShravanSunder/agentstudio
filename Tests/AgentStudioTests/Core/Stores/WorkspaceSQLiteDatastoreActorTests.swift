@@ -441,9 +441,9 @@ private final class CountingDatastoreLocalRepositoryFactory: @unchecked Sendable
 }
 
 private actor DatastoreProbeRecorder {
-    private(set) var events: [WorkspaceSQLiteDatastore.ProbeEvent] = []
+    private(set) var events: [WorkspaceSQLiteDatastoreActor.ProbeEvent] = []
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         events.append(event)
     }
 }

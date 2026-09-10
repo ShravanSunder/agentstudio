@@ -1,7 +1,7 @@
 @MainActor
 package final class RepositoryLocalActivityStore {
     private let atom: RepositoryLocalActivityAtom
-    private let sqliteDatastore: WorkspaceSQLiteDatastore
+    private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private var currentSessionAuthoritativeRepositoryStableKeys: Set<String> = []
     private var authorityRevisionByRepositoryStableKey: [String: UInt64] = [:]
 
@@ -9,7 +9,7 @@ package final class RepositoryLocalActivityStore {
 
     package init(
         atom: RepositoryLocalActivityAtom,
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) {
         self.atom = atom
         self.sqliteDatastore = sqliteDatastore

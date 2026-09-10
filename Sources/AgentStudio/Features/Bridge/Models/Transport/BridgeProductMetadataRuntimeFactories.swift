@@ -12,6 +12,18 @@ struct BridgeProductMetadataStreamCorrelation: Equatable, Sendable {
     let wireVersion: Int
     let workerInstanceId: String
 
+    init(
+        metadataStreamId: String,
+        paneSessionId: String,
+        wireVersion: Int,
+        workerInstanceId: String
+    ) {
+        self.metadataStreamId = metadataStreamId
+        self.paneSessionId = paneSessionId
+        self.wireVersion = wireVersion
+        self.workerInstanceId = workerInstanceId
+    }
+
     init(request: BridgeProductMetadataStreamRequest) {
         self.metadataStreamId = request.metadataStreamId
         self.paneSessionId = request.paneSessionId
@@ -34,8 +46,9 @@ struct BridgeProductSubscriptionFrameCorrelation: Equatable, Sendable {
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
     let workerDerivationEpoch: Int
+    private let registeredSurface: BridgeProductSurface
 
-    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var surface: BridgeProductSurface { registeredSurface }
 
     init(
         cursor: String?,
@@ -54,6 +67,9 @@ struct BridgeProductSubscriptionFrameCorrelation: Equatable, Sendable {
             name: "interestRevision",
             codingPath: []
         )
+        registeredSurface = try BridgeProductMetadataApplicationRegistry.product.registration(
+            for: subscriptionKind
+        ).surface
         try BridgeProductContractDecoding.validateSHA256(interestSha256, codingPath: [])
         try BridgeProductContractDecoding.validateNonnegative(
             sourceGeneration,
@@ -110,6 +126,7 @@ extension BridgeProductSubscriptionFrameIdentity {
         self.subscriptionKind = correlation.subscriptionKind
         self.subscriptionSequence = subscriptionSequence
         self.workerDerivationEpoch = correlation.workerDerivationEpoch
+        self.registeredSurface = correlation.surface
     }
 }
 
@@ -201,6 +218,7 @@ extension BridgeProductSubscriptionDataFrame {
         streamSequence: Int,
         subscription: BridgeProductSubscriptionFrameCorrelation,
         subscriptionSequence: Int,
+        operationCorrelationID: String? = nil,
         data: BridgeProductSubscriptionData
     ) throws {
         guard subscription.subscriptionKind == data.subscriptionKind else {
@@ -224,6 +242,10 @@ extension BridgeProductSubscriptionDataFrame {
             correlation: subscription,
             subscriptionSequence: subscriptionSequence
         )
+        self.operationCorrelationID = operationCorrelationID
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: [])
+        }
         self.data = data
     }
 }
@@ -302,6 +324,7 @@ extension BridgeProductContentCancelledFrame {
         self.disposition = disposition
         self.identity = admission.identity
         self.leaseId = admission.leaseId
+        self.operationCorrelationID = admission.operationCorrelationID
         self.workerDerivationEpoch = admission.workerDerivationEpoch
     }
 }
@@ -346,6 +369,8 @@ extension BridgeProductPanePresentationFrame {
             codingPath: []
         )
         self.frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
+        self.fileRefreshFailure = snapshot.fileRefreshFailure
+        self.operationCorrelationID = snapshot.operationCorrelationID
         self.presentationRevision = snapshot.presentationRevision
         self.nativeActivity = snapshot.nativeActivity
         self.refreshingLanes = snapshot.refreshingLanes.sorted { $0.rawValue < $1.rawValue }
@@ -430,6 +455,7 @@ extension BridgeProductMetadataFrame {
         streamSequence: Int,
         subscription: BridgeProductSubscriptionFrameCorrelation,
         subscriptionSequence: Int,
+        operationCorrelationID: String? = nil,
         data: BridgeProductSubscriptionData
     ) throws -> Self {
         .subscriptionData(
@@ -438,6 +464,7 @@ extension BridgeProductMetadataFrame {
                 streamSequence: streamSequence,
                 subscription: subscription,
                 subscriptionSequence: subscriptionSequence,
+                operationCorrelationID: operationCorrelationID,
                 data: data
             )
         )

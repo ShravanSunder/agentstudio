@@ -10,9 +10,9 @@ package struct InboxNotificationSQLiteDatastoreAdapter {
     }
 
     package let workspaceId: UUID
-    package let datastore: WorkspaceSQLiteDatastore
+    package let datastore: WorkspaceSQLiteDatastoreActor
 
-    package init(workspaceId: UUID, datastore: WorkspaceSQLiteDatastore) {
+    package init(workspaceId: UUID, datastore: WorkspaceSQLiteDatastoreActor) {
         self.workspaceId = workspaceId
         self.datastore = datastore
     }

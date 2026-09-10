@@ -6,6 +6,7 @@ import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
 import type { BridgeCodeViewRenderFulfillmentCoordinator } from './bridge-code-view-render-fulfillment.js';
 
@@ -33,7 +34,10 @@ export interface BridgeCodeViewPanelProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onOpenFile?: (path: string) => void;
+	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }
@@ -58,10 +62,18 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 	readonly remainingFrameBudget: number;
 }
 
+export interface BridgeCodeViewExactManifestPolicyReceipt {
+	readonly initialItems: readonly BridgeCodeViewItem[];
+	readonly mountVersion: number;
+	readonly policyVersion: string;
+	readonly sourceKey: string;
+}
+
 export const codeViewMaterializationRetryFrameBudget = 30;
 export const codeViewSelectionScrollRetryFrameBudget = 30;
 export const codeViewVisibleMetadataScrollThrottleMilliseconds = 120;
 export const codeViewVisibleHydrationScrollIdleMilliseconds = 120;
+export const bridgeCodeViewExactManifestPolicyVersion = 'complete-authoritative-manifest-v1';
 export const bridgeCodeViewInstantRevealPolicy = {
 	externalScrollAbortThresholdPixels: 240,
 	hydrationRearmViewportOffsetTolerancePixels: 4,

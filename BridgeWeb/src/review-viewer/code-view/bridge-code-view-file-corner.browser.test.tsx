@@ -35,7 +35,7 @@ describe('Bridge CodeView file corner', () => {
 		});
 
 		const rendered = await render(
-			<div className="flex h-10 w-80 items-center bg-[var(--bridge-header-bg)] px-2">
+			<div className="flex h-10 w-80 items-center bg-file-header px-2">
 				{headerRenderers.renderHeaderMetadata(codeViewItem)}
 			</div>,
 		);
@@ -54,10 +54,11 @@ describe('Bridge CodeView file corner', () => {
 		]);
 		expect(metadata.lastElementChild).toBe(button);
 		expect(button.getAttribute('data-slot')).toBe('button');
+		expect(button.classList).toContain('border-border');
 		expect(button.getAttribute('data-bridge-code-view-file-path')).toBe(item.headPath);
 		expect(button.querySelector('svg')).not.toBeNull();
-		expect(Math.round(button.getBoundingClientRect().width)).toBe(28);
-		expect(Math.round(button.getBoundingClientRect().height)).toBe(28);
+		expect(Math.round(button.getBoundingClientRect().width)).toBe(24);
+		expect(Math.round(button.getBoundingClientRect().height)).toBe(24);
 
 		// Act
 		await rendered.getByRole('button', { name: `Open ${item.headPath} in Files` }).click();

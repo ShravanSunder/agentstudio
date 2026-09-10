@@ -10,28 +10,41 @@ extension BridgePaneController {
         guard productAdmission.withValidAdmission({ true }) == true,
             let contributionTargetCommit
         else {
+            reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
         let mutationResult = contributionTargetCommit(request.target)
         guard productAdmission.withValidAdmission({ true }) == true else { return false }
         let canonicalState: BridgePaneState
+        let replacedLineage: Bool
         switch mutationResult {
-        case .applied(let state), .unchanged(let state):
+        case .applied(let state):
             canonicalState = state
+            replacedLineage = true
+        case .unchanged(let state):
+            canonicalState = state
+            replacedLineage = false
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
+            reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
         else {
+            reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
+            refreshAdmissionCoordinator.close()
             return false
         }
 
         bridgePaneState = canonicalState
         reviewComparisonTargetProjection.update(state: canonicalState)
+        guard replacedLineage else { return true }
+        reviewGitRefreshSeedHolder.retire()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         pendingComparisonReviewGeneration = reviewGeneration
@@ -41,7 +54,8 @@ extension BridgePaneController {
         )
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)
-        activeReviewRefreshTask?.cancel()
+        refreshAdmissionCoordinator.advanceAuthority(for: .review)
+        retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible()
         return true
     }
@@ -140,7 +154,10 @@ extension BridgePaneController {
                 symbolicTarget: symbolicTarget,
                 baseEndpoint: request.baseEndpoint,
                 headEndpoint: request.headEndpoint,
-                reviewGenerationValue: request.reviewGeneration.rawValue
+                reviewGenerationValue: request.reviewGeneration.rawValue,
+                reviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
+                gitRefreshScope: request.gitRefreshScope,
+                gitRefreshSeed: request.gitRefreshSeed
             )
         )
         return try BridgeResolvedContributionRequestBuilder.build(

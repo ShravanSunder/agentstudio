@@ -1,6 +1,67 @@
 import Foundation
+import Synchronization
 
 extension BridgePaneProductFileMetadataSource {
+    func changesetEmissionsWithRenewedDescriptors(
+        _ changesetEmissions: [BridgePaneProductFileMetadataEmission],
+        renewalEmissions: [BridgePaneProductFileMetadataEmission]
+    ) throws -> [BridgePaneProductFileMetadataEmission] {
+        let renewedByPath = renewalEmissions.reduce(
+            into: [String: BridgeProductFileDescriptorReadyPayload]()
+        ) { payloads, emission in
+            if case .descriptorReady(let ready) = emission.event {
+                payloads[ready.payload.path] = ready.payload
+            }
+        }
+        var attachedPaths = Set<String>()
+        let changesets = try changesetEmissions.map { emission in
+            guard case .invalidated(let invalidation) = emission.event,
+                let replacement = renewedByPath[invalidation.path],
+                replacement.source == invalidation.source
+            else { return emission }
+            attachedPaths.insert(invalidation.path)
+            return BridgePaneProductFileMetadataEmission(
+                event: .invalidated(
+                    try .init(
+                        fileId: invalidation.fileId,
+                        path: invalidation.path,
+                        reason: invalidation.reason,
+                        replacementDescriptor: replacement,
+                        source: invalidation.source
+                    )
+                ),
+                subscriptionId: emission.subscriptionId
+            )
+        }
+        // One invalidation carries the replacement, rather than deleting then re-adding it.
+        // Other renewal events still carry their normal tree and unavailable-path facts.
+        return changesets
+            + renewalEmissions.filter { emission in
+                guard case .descriptorReady(let ready) = emission.event else { return true }
+                return !attachedPaths.contains(ready.payload.path)
+            }
+    }
+
+    func renewInvalidatedDescriptorInterests(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async throws -> [BridgePaneProductFileMetadataEmission] {
+        // This call-local buffer adapts the existing streaming renewal to changeset publication.
+        // The source's descriptor-revision index admits only missing or invalidated interests.
+        let emissions = Mutex<[BridgePaneProductFileMetadataEmission]>([])
+        try await update(
+            subscription: subscription,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        ) { event in
+            emissions.withLock {
+                $0.append(.init(event: event, subscriptionId: subscription.subscriptionId))
+            }
+        }
+        return emissions.withLock { $0 }
+    }
+
     struct DescriptorInterestCommit: Sendable {
         let committedPayload: BridgeProductFileDescriptorReadyPayload
         let committedRevision: Int

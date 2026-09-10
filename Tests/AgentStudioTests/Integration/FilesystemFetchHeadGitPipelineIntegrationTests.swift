@@ -146,7 +146,13 @@ private final class FetchHeadSilentFSEventStreamClient: FSEventStreamClient, @un
 
     func events() -> AsyncStream<FSEventIngressItem> { stream }
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
-    func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
+    func register(
+        worktreeId _: UUID,
+        repoId _: UUID,
+        rootPath _: URL
+    ) -> FSEventStreamRegistrationOutcome {
+        .observing
+    }
     func unregister(worktreeId _: UUID) {}
     func shutdown() { continuation.finish() }
 }

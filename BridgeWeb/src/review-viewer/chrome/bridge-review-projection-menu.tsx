@@ -1,12 +1,6 @@
 import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
-import {
-	bridgeViewerChromeLucideIconClassName,
-	bridgeViewerChromeSegmentIconButtonClassName,
-	bridgeViewerChromeSegmentedControlClassName,
-} from '../../app/bridge-viewer-chrome.js';
-import { cn } from '../../app/class-name.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import type { BridgeReviewProjectionMode } from '../models/review-projection-models.js';
 
@@ -20,11 +14,11 @@ export function BridgeReviewProjectionMenu(props: {
 	return (
 		<ToggleGroup
 			aria-label="Review mode"
-			className={bridgeViewerChromeSegmentedControlClassName}
 			data-bridge-segmented-control="review-mode"
 			data-testid="bridge-review-mode-segmented-control"
 			role="radiogroup"
-			size="sm"
+			size="xs"
+			variant="segmented"
 			value={[activeProjectionKind]}
 		>
 			{projectionButtonSpecs.map((spec) => {
@@ -34,10 +28,6 @@ export function BridgeReviewProjectionMenu(props: {
 					<ToggleGroupItem
 						aria-checked={isSelected ? 'true' : 'false'}
 						aria-label={spec.label}
-						className={cn(
-							bridgeViewerChromeSegmentIconButtonClassName,
-							isSelected ? 'shadow-none' : undefined,
-						)}
 						data-testid="bridge-review-mode-segment"
 						disabled={!isEnabled}
 						key={spec.value}
@@ -47,11 +37,11 @@ export function BridgeReviewProjectionMenu(props: {
 							}
 						}}
 						role="radio"
-						size="sm"
+						size="icon-xs"
 						title={spec.label}
 						value={spec.value}
 					>
-						<spec.Icon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+						<spec.Icon aria-hidden="true" />
 					</ToggleGroupItem>
 				);
 			})}

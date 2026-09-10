@@ -37,6 +37,7 @@ export type BridgeCommWorkerReviewComparisonCommitState =
 
 export interface BridgeCommWorkerReviewMetadataIdentity {
 	readonly generation: number;
+	readonly operationCorrelationId: string | null;
 	readonly packageId: string;
 	readonly publicationId: string;
 	readonly sourceIdentity: string;
@@ -568,6 +569,7 @@ function reviewMetadataIdentity(
 ): BridgeCommWorkerReviewMetadataIdentity {
 	return {
 		generation: event.generation,
+		operationCorrelationId: event.operationCorrelationId,
 		packageId: event.packageId,
 		publicationId: event.publicationId,
 		sourceIdentity: event.sourceIdentity,

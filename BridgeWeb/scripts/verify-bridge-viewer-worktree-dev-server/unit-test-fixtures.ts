@@ -44,9 +44,16 @@ export function makePassingInteractionPerformanceProof(): WorktreeInteractionPer
 		runMarker: 'bridgeviewer-worktree-vite-123',
 		scrollToVisibleRows: summarizeInteractionSamples(passingScrollSamples),
 		startupLoadTiming: {
+			pageLoadToHandshakeWorker: summarizeInteractionSamples([12]),
+			pageLoadToPageApplication: summarizeInteractionSamples([8]),
 			pageLoadToContentReady: summarizeInteractionSamples([55]),
+			pageLoadToContentRequestStarted: summarizeInteractionSamples([40]),
+			pageLoadToContentResponseStarted: summarizeInteractionSamples([45]),
 			pageLoadToFirstVisibleContentWindow: summarizeInteractionSamples([70]),
+			pageLoadToMetadata: summarizeInteractionSamples([20]),
 			pageLoadToSelectedPath: summarizeInteractionSamples([24]),
+			pageLoadToShellMounted: summarizeInteractionSamples([10]),
+			pageLoadToSourceAccepted: summarizeInteractionSamples([15]),
 		},
 		treeScrollSettleFrameCount: summarizeInteractionSamples(
 			Array.from({ length: 100 }, (): number => 2),
@@ -105,6 +112,8 @@ export function makePassingReviewInteractionPerformanceProof(): ReviewInteractio
 			responseTotal: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 3)),
 		},
 		reviewStartupLoadTiming: {
+			pageLoadToHandshakeWorker: summarizeInteractionSamples([18]),
+			pageLoadToPageApplication: summarizeInteractionSamples([12]),
 			pageLoadToMetadata: summarizeInteractionSamples([42]),
 			pageLoadToSelectedContentReady: summarizeInteractionSamples([65]),
 		},

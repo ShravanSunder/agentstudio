@@ -49,16 +49,44 @@ struct FilesystemRootOwnership: Sendable {
         guard let sourceRoot = sourceRootByWorktreeId[sourceWorktreeId] else {
             return nil
         }
-        let canonicalPath = Self.canonicalize(rawPath: rawPath, sourceRootPath: sourceRoot.canonicalPath)
-        guard let owner = owningRoot(forCanonicalPath: canonicalPath) else {
+        let primaryCanonicalPath = Self.canonicalize(
+            rawPath: rawPath,
+            sourceRootPath: sourceRoot.canonicalPath
+        )
+        if let owner = owningRoot(forCanonicalPath: primaryCanonicalPath) {
+            return Self.ownedPath(
+                canonicalPath: primaryCanonicalPath,
+                owner: owner
+            )
+        }
+
+        // A deleted descendant can preserve an unresolved path alias even though
+        // its still-existing parent resolves to the registered canonical root.
+        let recoveredCanonicalPath = Self.canonicalizeThroughNearestExistingAncestor(
+            rawPath: rawPath,
+            sourceRootPath: sourceRoot.canonicalPath
+        )
+        guard let owner = owningRoot(forCanonicalPath: recoveredCanonicalPath) else {
             return nil
         }
 
-        let relativePath = Self.relativePath(
-            canonicalPath: canonicalPath,
-            ownerRootCanonicalPath: owner.canonicalPath
+        return Self.ownedPath(
+            canonicalPath: recoveredCanonicalPath,
+            owner: owner
         )
-        return FilesystemOwnedPath(worktreeId: owner.worktreeId, relativePath: relativePath)
+    }
+
+    private static func ownedPath(
+        canonicalPath: String,
+        owner: Root
+    ) -> FilesystemOwnedPath {
+        FilesystemOwnedPath(
+            worktreeId: owner.worktreeId,
+            relativePath: relativePath(
+                canonicalPath: canonicalPath,
+                ownerRootCanonicalPath: owner.canonicalPath
+            )
+        )
     }
 
     private func owningRoot(forCanonicalPath canonicalPath: String) -> Root? {
@@ -78,14 +106,44 @@ struct FilesystemRootOwnership: Sendable {
     }
 
     private static func canonicalize(rawPath: String, sourceRootPath: String) -> String {
-        let normalizedInput = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedInput.isEmpty else { return sourceRootPath }
+        canonicalizeKernelPath(
+            absolutePath(rawPath: rawPath, sourceRootPath: sourceRootPath)
+        )
+    }
 
-        if normalizedInput.hasPrefix("/") {
-            return canonicalizeKernelPath(normalizedInput)
+    private static func canonicalizeThroughNearestExistingAncestor(
+        rawPath: String,
+        sourceRootPath: String
+    ) -> String {
+        var existingAncestor = URL(
+            fileURLWithPath: absolutePath(rawPath: rawPath, sourceRootPath: sourceRootPath)
+        ).standardizedFileURL
+        var missingPathComponents: [String] = []
+
+        while existingAncestor.path != "/",
+            !FileManager.default.fileExists(atPath: existingAncestor.path)
+        {
+            let missingComponent = existingAncestor.lastPathComponent
+            if !missingComponent.isEmpty {
+                missingPathComponents.append(missingComponent)
+            }
+            existingAncestor.deleteLastPathComponent()
         }
 
-        return canonicalizeKernelPath(sourceRootPath + "/" + normalizedInput)
+        var canonicalURL = existingAncestor.resolvingSymlinksInPath()
+        for missingPathComponent in missingPathComponents.reversed() {
+            canonicalURL.append(path: missingPathComponent)
+        }
+        return canonicalizeKernelPath(canonicalURL.standardizedFileURL.path)
+    }
+
+    private static func absolutePath(rawPath: String, sourceRootPath: String) -> String {
+        let normalizedInput = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedInput.isEmpty else { return sourceRootPath }
+        guard !normalizedInput.hasPrefix("/") else { return normalizedInput }
+        return URL(fileURLWithPath: sourceRootPath)
+            .appending(path: normalizedInput)
+            .path
     }
 
     private static func canonicalizeKernelPath(_ path: String) -> String {

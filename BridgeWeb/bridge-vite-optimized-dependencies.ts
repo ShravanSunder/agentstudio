@@ -1,5 +1,9 @@
 export const bridgeViteOptimizedDependencies = [
+	'@base-ui/react/avatar',
 	'@base-ui/react/combobox',
+	'@base-ui/react/collapsible',
+	'@base-ui/react/switch',
+	'@base-ui/react/tooltip',
 	'@pierre/diffs/worker',
 	'@shikijs/markdown-exit',
 	'markdown-exit',

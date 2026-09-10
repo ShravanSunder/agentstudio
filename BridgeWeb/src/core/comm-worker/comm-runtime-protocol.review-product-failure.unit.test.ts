@@ -2,21 +2,24 @@ import { describe, expect, test } from 'vitest';
 
 import { expectedEmptyReviewProjectionResetPatches } from './bridge-comm-worker-entry.test-support.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
-import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
+	makeReviewMetadataDataFrame,
+	makeReviewProductTransport,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review product source failure policy', () => {
 	test('publishes a bounded Review display failure when the product subscription fails', async () => {
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-subscription-failure',
@@ -24,14 +27,17 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			update: async (): Promise<void> => {},
 		};
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const calledMethods: string[] = [];
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: makeReviewProductTransport({
+				calledMethods,
 				reviewSubscription,
 				subscribedKinds: [],
 			}),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'terminal-failure');
 		await flushBridgeWorkerRuntimeContinuations();
 
 		events.fail(new Error('private transport failure detail'), true);
@@ -42,6 +48,7 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			.filter((message) => message['kind'] === 'reviewDisplayPatch');
 		expect(reviewDisplayEvents.at(-1)).toMatchObject({
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: null,
 			patches: [
 				{
 					operation: 'failed',
@@ -53,5 +60,6 @@ describe('Bridge comm worker Review product source failure policy', () => {
 			surface: 'review',
 		});
 		expect(JSON.stringify(reviewDisplayEvents)).not.toContain('private transport failure detail');
+		expect(calledMethods).toContain('file.source.current');
 	});
 });

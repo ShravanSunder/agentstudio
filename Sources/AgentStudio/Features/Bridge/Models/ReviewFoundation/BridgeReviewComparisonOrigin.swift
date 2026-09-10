@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import Foundation
 
 package enum BridgeReviewComparisonBaseRole: String, Codable, Equatable, Sendable {
@@ -24,6 +25,7 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         case symbolicTarget
         case resolvedTargetOID
         case reviewedHeadOID
+        case reviewedSubjectBranchName
         case baseOID
     }
 
@@ -36,7 +38,7 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                 Set(container.allKeys),
                 equalTo: [
                     .kind, .baseRole, .comparedRole, .symbolicTarget,
-                    .resolvedTargetOID, .reviewedHeadOID, .baseOID,
+                    .resolvedTargetOID, .reviewedHeadOID, .reviewedSubjectBranchName, .baseOID,
                 ],
                 decoder: decoder
             )
@@ -62,6 +64,11 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                         forKey: .reviewedHeadOID,
                         decoder: decoder
                     ),
+                    reviewedSubjectBranchName: try Self.nonemptyOptionalString(
+                        from: container,
+                        forKey: .reviewedSubjectBranchName,
+                        decoder: decoder
+                    ),
                     baseRole: try container.decode(
                         BridgeReviewComparisonBaseRole.self,
                         forKey: .baseRole
@@ -82,6 +89,11 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         case .contribution(let origin):
             try Self.validateNonemptyOID(origin.resolvedTargetOID, encoder: encoder)
             try Self.validateNonemptyOID(origin.reviewedHeadOID, encoder: encoder)
+            try Self.validateNonemptyOptionalString(
+                origin.reviewedSubjectBranchName,
+                fieldName: "Reviewed subject branch name",
+                encoder: encoder
+            )
             try Self.validateNonemptyOID(origin.baseOID, encoder: encoder)
             try container.encode(Kind.contribution, forKey: .kind)
             try container.encode(origin.baseRole, forKey: .baseRole)
@@ -89,6 +101,7 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
             try container.encode(origin.symbolicTarget, forKey: .symbolicTarget)
             try container.encode(origin.resolvedTargetOID, forKey: .resolvedTargetOID)
             try container.encode(origin.reviewedHeadOID, forKey: .reviewedHeadOID)
+            try container.encode(origin.reviewedSubjectBranchName, forKey: .reviewedSubjectBranchName)
             try container.encode(origin.baseOID, forKey: .baseOID)
         }
     }
@@ -152,12 +165,49 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
             )
         }
     }
+
+    private static func nonemptyOptionalString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        decoder: Decoder
+    ) throws -> String? {
+        guard let value = try container.decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath + [key],
+                    debugDescription: "Reviewed subject branch name must not be empty"
+                )
+            )
+        }
+        return value
+    }
+
+    private static func validateNonemptyOptionalString(
+        _ value: String?,
+        fieldName: String,
+        encoder: Encoder
+    ) throws {
+        guard let value else { return }
+        guard !value.isEmpty else {
+            throw EncodingError.invalidValue(
+                value,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "\(fieldName) must not be empty"
+                )
+            )
+        }
+    }
 }
 
 package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
     package let symbolicTarget: WorkspaceReviewContributionTarget
     package let resolvedTargetOID: String
     package let reviewedHeadOID: String
+    package let reviewedSubjectBranchName: String?
     package let baseRole: BridgeReviewComparisonBaseRole
     package let baseOID: String
 
@@ -165,55 +215,78 @@ package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
         symbolicTarget: WorkspaceReviewContributionTarget,
         resolvedTargetOID: String,
         reviewedHeadOID: String,
+        reviewedSubjectBranchName: String? = nil,
         baseRole: BridgeReviewComparisonBaseRole,
         baseOID: String
     ) {
         self.symbolicTarget = symbolicTarget
         self.resolvedTargetOID = resolvedTargetOID
         self.reviewedHeadOID = reviewedHeadOID
+        self.reviewedSubjectBranchName = reviewedSubjectBranchName
         self.baseRole = baseRole
         self.baseOID = baseOID
     }
 }
 
-package struct BridgeContributionComparisonRequest: Equatable, Sendable {
+package struct BridgeContributionComparisonRequest: Sendable {
     package let symbolicTarget: WorkspaceReviewContributionTarget
     package let baseEndpoint: BridgeSourceEndpoint
     package let headEndpoint: BridgeSourceEndpoint
     package let reviewGenerationValue: Int
+    package let reviewAttemptAuthorityGeneration: UInt64
+    package let gitRefreshScope: ReviewGitRefreshScope
+    package let gitRefreshSeed: GitReviewRefreshSeed?
 
     package init(
         symbolicTarget: WorkspaceReviewContributionTarget,
         baseEndpoint: BridgeSourceEndpoint,
         headEndpoint: BridgeSourceEndpoint,
-        reviewGenerationValue: Int
+        reviewGenerationValue: Int,
+        reviewAttemptAuthorityGeneration: UInt64 = 0,
+        gitRefreshScope: ReviewGitRefreshScope = .complete(reason: .nonExactInput),
+        gitRefreshSeed: GitReviewRefreshSeed? = nil
     ) {
         self.symbolicTarget = symbolicTarget
         self.baseEndpoint = baseEndpoint
         self.headEndpoint = headEndpoint
         self.reviewGenerationValue = reviewGenerationValue
+        self.reviewAttemptAuthorityGeneration = reviewAttemptAuthorityGeneration
+        self.gitRefreshScope = gitRefreshScope
+        self.gitRefreshSeed = gitRefreshSeed
     }
 }
 
-package struct BridgeContributionComparisonCapture: Equatable, Sendable {
+package struct BridgeContributionComparisonCapture: Sendable {
     package let resolvedTargetOID: String
     package let reviewedHeadOID: String
+    package let reviewedSubjectBranchName: String?
     package let baseRole: BridgeReviewComparisonBaseRole
     package let baseOID: String
     package let comparison: BridgeEndpointComparison
+    package let gitRefreshSeed: GitReviewRefreshSeed?
+    package let calculationDisposition: GitReviewCalculationDisposition
+    package let calculationReason: GitReviewCalculationReason
 
     package init(
         resolvedTargetOID: String,
         reviewedHeadOID: String,
+        reviewedSubjectBranchName: String? = nil,
         baseRole: BridgeReviewComparisonBaseRole,
         baseOID: String,
-        comparison: BridgeEndpointComparison
+        comparison: BridgeEndpointComparison,
+        gitRefreshSeed: GitReviewRefreshSeed? = nil,
+        calculationDisposition: GitReviewCalculationDisposition = .complete,
+        calculationReason: GitReviewCalculationReason = .completeRequested
     ) {
         self.resolvedTargetOID = resolvedTargetOID
         self.reviewedHeadOID = reviewedHeadOID
+        self.reviewedSubjectBranchName = reviewedSubjectBranchName
         self.baseRole = baseRole
         self.baseOID = baseOID
         self.comparison = comparison
+        self.gitRefreshSeed = gitRefreshSeed
+        self.calculationDisposition = calculationDisposition
+        self.calculationReason = calculationReason
     }
 }
 
@@ -275,11 +348,15 @@ enum BridgeResolvedContributionRequestBuilder {
                     symbolicTarget: symbolicTarget,
                     resolvedTargetOID: capture.resolvedTargetOID,
                     reviewedHeadOID: capture.reviewedHeadOID,
+                    reviewedSubjectBranchName: capture.reviewedSubjectBranchName,
                     baseRole: capture.baseRole,
                     baseOID: capture.baseOID
                 )
             ),
-            reviewedSubjectLabel: reviewedSubjectLabel
+            reviewedSubjectLabel: reviewedSubjectLabel,
+            reviewAttemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
+            gitRefreshScope: request.gitRefreshScope,
+            gitRefreshSeed: capture.gitRefreshSeed
         )
     }
 }

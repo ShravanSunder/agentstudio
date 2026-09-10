@@ -72,7 +72,8 @@ extension WorkspaceSurfaceCoordinator {
     func createViewForContent(
         pane: Pane,
         initialFrame: NSRect? = nil,
-        treatAsRestoredSessionStart: Bool = false
+        treatAsRestoredSessionStart: Bool = false,
+        bridgeViewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil
     ) -> NSView? {
         if case .bridgePanel = pane.content,
             bridgePaneRetirementTasksByPaneId[pane.id] != nil
@@ -102,7 +103,10 @@ extension WorkspaceSurfaceCoordinator {
                 RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
                 return nil
             }
-            return mountCurrentNonterminalContent(pane: pane)
+            return mountCurrentNonterminalContent(
+                pane: pane,
+                bridgeViewerOpenTelemetryAnchor: bridgeViewerOpenTelemetryAnchor
+            )
         }
     }
 

@@ -29,73 +29,26 @@ extension FilesystemActor {
             activityObservations.lazy.filter(\.isOwnEvent).map(\.path)
         )
         let ordinaryPathSet = Set(paths)
+        let activityContext = RawPathActivityContext(
+            externallyObservedPaths: externallyObservedActivityPaths,
+            processOwnedPaths: processOwnedActivityPaths
+        )
         var qualifyingRepositoryStableKeys: Set<String> = []
         var coverageLostRepositoryStableKeys: Set<String> = []
         for rawPath in paths {
-            guard let ownedPath = rootOwnership.route(sourceWorktreeId: worktreeId, rawPath: rawPath)
-            else {
-                Self.logger.debug(
-                    "Dropped unroutable filesystem path for source worktree \(worktreeId.uuidString, privacy: .public): \(rawPath, privacy: .public)"
+            guard
+                let classification = await ingestRawPath(
+                    rawPath,
+                    sourceWorktreeID: worktreeId,
+                    activityContext: activityContext
                 )
-                continue
+            else { return }
+            if let qualifyingRepositoryStableKey = classification.qualifyingRepositoryStableKey {
+                qualifyingRepositoryStableKeys.insert(qualifyingRepositoryStableKey)
             }
-            guard let root = roots[ownedPath.worktreeId] else { continue }
-
-            if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                if externallyObservedActivityPaths.contains(rawPath)
-                    || processOwnedActivityPaths.contains(rawPath),
-                    let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
-                {
-                    qualifyingRepositoryStableKeys.insert(repositoryStableKey)
-                }
-                let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
-                guard !hasBegunShutdown else { return }
-                guard var latestRoot = roots[ownedPath.worktreeId] else { continue }
-                latestRoot.pathFilter = pathFilter
-                roots[ownedPath.worktreeId] = latestRoot
-
-                var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-                pendingChanges.containsGitInternalChanges = true
-                pendingChanges.recordPendingChange(at: schedulingClock.now())
-                pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
-                continue
+            if let coverageLostRepositoryStableKey = classification.coverageLostRepositoryStableKey {
+                coverageLostRepositoryStableKeys.insert(coverageLostRepositoryStableKey)
             }
-
-            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-            let pathDisposition = root.pathFilter.classify(relativePath: ownedPath.relativePath)
-            switch pathDisposition {
-            case .projected:
-                pendingChanges.projectedPaths.insert(ownedPath.relativePath)
-            case .gitInternal:
-                pendingChanges.containsGitInternalChanges = true
-                pendingChanges.suppressedGitInternalPathCount += 1
-            case .ignoredByPolicy:
-                pendingChanges.suppressedIgnoredPathCount += 1
-            }
-            let isProcessOwnedActivity = processOwnedActivityPaths.contains(rawPath)
-            let isQualifyingOwnedGitMetadata =
-                isProcessOwnedActivity
-                && pathDisposition == .gitInternal
-                && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(
-                    ownedPath.relativePath
-                )
-            if externallyObservedActivityPaths.contains(rawPath)
-                || (isProcessOwnedActivity && !isQualifyingOwnedGitMetadata),
-                let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId],
-                RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
-                    relativePath: ownedPath.relativePath,
-                    disposition: pathDisposition
-                )
-            {
-                qualifyingRepositoryStableKeys.insert(repositoryStableKey)
-            }
-            if isQualifyingOwnedGitMetadata,
-                let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
-            {
-                coverageLostRepositoryStableKeys.insert(repositoryStableKey)
-            }
-            pendingChanges.recordPendingChange(at: schedulingClock.now())
-            pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
         }
 
         if let activityParticipant {
@@ -115,6 +68,96 @@ extension FilesystemActor {
             scheduleDrainIfNeeded()
             await recordLogicalDebtSnapshotIfChanged()
         }
+    }
+
+    private struct RawPathActivityContext {
+        let externallyObservedPaths: Set<String>
+        let processOwnedPaths: Set<String>
+    }
+
+    private struct RawPathActivityClassification {
+        var qualifyingRepositoryStableKey: String?
+        var coverageLostRepositoryStableKey: String?
+    }
+
+    private func ingestRawPath(
+        _ rawPath: String,
+        sourceWorktreeID: UUID,
+        activityContext: RawPathActivityContext
+    ) async -> RawPathActivityClassification? {
+        guard let ownedPath = rootOwnership.route(sourceWorktreeId: sourceWorktreeID, rawPath: rawPath)
+        else {
+            Self.logger.debug(
+                "Dropped unroutable filesystem path for source worktree \(sourceWorktreeID.uuidString, privacy: .public): \(rawPath, privacy: .public)"
+            )
+            return RawPathActivityClassification()
+        }
+        guard let root = roots[ownedPath.worktreeId] else {
+            return RawPathActivityClassification()
+        }
+
+        let isExternallyObservedActivity = activityContext.externallyObservedPaths.contains(rawPath)
+        let isProcessOwnedActivity = activityContext.processOwnedPaths.contains(rawPath)
+        if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
+            var classification = RawPathActivityClassification()
+            if isExternallyObservedActivity || isProcessOwnedActivity,
+                let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
+            {
+                classification.qualifyingRepositoryStableKey = repositoryStableKey
+            }
+            let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
+            guard !hasBegunShutdown else { return nil }
+            guard var latestRoot = roots[ownedPath.worktreeId] else {
+                return classification
+            }
+            latestRoot.pathFilter = pathFilter
+            roots[ownedPath.worktreeId] = latestRoot
+
+            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+            pendingChanges.containsGitInternalChanges = true
+            pendingChanges.recordPendingChange(at: schedulingClock.now())
+            pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
+            return classification
+        }
+
+        var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+        let pathDisposition = root.pathFilter.classify(relativePath: ownedPath.relativePath)
+        switch pathDisposition {
+        case .projected:
+            pendingChanges.projectedPaths.insert(ownedPath.relativePath)
+        case .gitInternal:
+            pendingChanges.containsGitInternalChanges = true
+            pendingChanges.suppressedGitInternalPathCount += 1
+        case .ignoredByPolicy:
+            pendingChanges.suppressedIgnoredPathCount += 1
+        case .gitObjectDatabase:
+            return RawPathActivityClassification()
+        }
+
+        var classification = RawPathActivityClassification()
+        let isQualifyingOwnedGitMetadata =
+            isProcessOwnedActivity
+            && pathDisposition == .gitInternal
+            && RepositoryLocalActivityPathClassifier.qualifiesGitMetadataPath(
+                ownedPath.relativePath
+            )
+        if isExternallyObservedActivity || (isProcessOwnedActivity && !isQualifyingOwnedGitMetadata),
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId],
+            RepositoryLocalActivityPathClassifier.qualifiesWorktreePath(
+                relativePath: ownedPath.relativePath,
+                disposition: pathDisposition
+            )
+        {
+            classification.qualifyingRepositoryStableKey = repositoryStableKey
+        }
+        if isQualifyingOwnedGitMetadata,
+            let repositoryStableKey = repositoryStableKeysByWorktreeId[ownedPath.worktreeId]
+        {
+            classification.coverageLostRepositoryStableKey = repositoryStableKey
+        }
+        pendingChanges.recordPendingChange(at: schedulingClock.now())
+        pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
+        return classification
     }
 
     private struct RepositoryLocalActivityIngress {

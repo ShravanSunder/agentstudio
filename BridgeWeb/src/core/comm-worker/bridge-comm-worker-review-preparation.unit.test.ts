@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
 import { enqueueSelectedBridgeWorkerReviewContentReadyPreparation } from './bridge-comm-worker-review-preparation.js';
 import {
@@ -146,6 +147,7 @@ describe('Bridge comm worker review preparation', () => {
 				makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
 			],
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
 				executionOrder.push('selected-fetch');
@@ -222,6 +224,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 			contentRequestDescriptors: deferredContent.map(({ descriptor }) => descriptor),
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor): BridgeProductContentStream<'review.content'> => {
 				openedDescriptorRoles.push(descriptor.role);
@@ -304,6 +307,7 @@ describe('Bridge comm worker review preparation', () => {
 				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
 			],
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
 				openedDescriptorRoles.push(descriptor.role);
@@ -380,6 +384,7 @@ describe('Bridge comm worker review preparation', () => {
 				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
 			],
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
 				openedDescriptorRoles.push(descriptor.role);
@@ -455,6 +460,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 			contentRequestDescriptors: deferredContent.map(({ descriptor }) => descriptor),
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor): BridgeProductContentStream<'review.content'> => {
 				const contentStream = contentStreams.shift();
@@ -520,6 +526,7 @@ describe('Bridge comm worker review preparation', () => {
 				makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
 			],
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
 				return openReviewContentFromDescriptorMap(descriptor, abortSignal);
@@ -588,6 +595,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 			contentRequestDescriptors,
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
 				openedDescriptorRoles.push(descriptor.role);
@@ -710,6 +718,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 			contentRequestDescriptors: deferredContent.map(({ descriptor }) => descriptor),
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			openContent: (descriptor): BridgeProductContentStream<'review.content'> => {
 				openedDescriptorRoles.push(descriptor.role);
@@ -836,6 +845,7 @@ describe('Bridge comm worker review preparation', () => {
 			contentRequestDescriptors: deferredContent.map(({ descriptor }) => descriptor),
 			epoch: 7,
 			fetchReviewContentResource,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			itemId: 'item-1',
 			port: makePostedMessagePort([]),
@@ -881,6 +891,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 			contentRequestDescriptors: [],
 			epoch: 7,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			workerDerivationEpoch: 7,
 			itemId: 'item-without-metadata',
 			port: makePostedMessagePort([]),

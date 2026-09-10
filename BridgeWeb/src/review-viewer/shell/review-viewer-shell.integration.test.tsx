@@ -341,7 +341,7 @@ describe('review viewer shell', () => {
 
 		expect(toolbar?.type).toBe('div');
 		expect(classNameForElement(toolbar)).toContain('justify-between');
-		expect(classNameForElement(toolbar)).toContain('h-9');
+		expect(classNameForElement(toolbar)).toContain('h-8');
 		expect(toolbar?.props['data-bridge-shared-rail-toolbar']).toBe('true');
 		expect(classNameForElement(leadingGroup)).toContain('gap-1');
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
@@ -367,18 +367,20 @@ describe('review viewer shell', () => {
 		);
 
 		expect(element.props['data-sidebar-position']).toBe('right');
-		expect(classNameForElement(element)).toContain('bg-[var(--bridge-app-bg)]');
+		expect(classNameForElement(element)).toContain('bg-background');
 
 		const canvas = findElementByTestId(element, 'bridge-review-canvas');
 		const sidebar = findElementByTestId(element, 'bridge-review-sidebar');
 
 		expect(canvas?.type).toBe('section');
-		expect(classNameForElement(canvas)).toContain('bg-[var(--bridge-canvas-bg)]');
+		expect(classNameForElement(canvas)).toContain('bg-background');
 		expect(classNameForElement(canvas)).toContain('h-full');
 		expect(classNameForElement(canvas)).toContain('min-h-0');
 		expect(sidebar?.type).toBe('aside');
 		expect(classNameForElement(sidebar)).toContain('order-last');
-		expect(classNameForElement(sidebar)).toContain('border-l');
+		// The shared resize separator owns the boundary; the rail must not double it.
+		expect(classNameForElement(sidebar)).not.toContain('border-l');
+		expect(classNameForElement(sidebar)).toContain('bg-surface');
 	});
 
 	test('keeps CodeView and right rail scrolling owned by separate containers', () => {

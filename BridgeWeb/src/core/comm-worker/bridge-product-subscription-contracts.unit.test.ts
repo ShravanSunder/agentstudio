@@ -423,6 +423,8 @@ describe('Bridge product File metadata event contract', () => {
 				interestRevision: 0,
 				interestSha256: '51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b',
 				kind: 'subscription.data',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'metadata-stream-1',
 				paneSessionId: 'pane-session-1',
 				sourceGeneration: 11,

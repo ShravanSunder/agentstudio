@@ -28,7 +28,7 @@ describe('Bridge product content frame decoder', () => {
 	test('bounds metadata at 128 KiB and content frames at 256 KiB', () => {
 		expect(BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES).toBe(128 * 1024);
 		expect(BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES).toBe(256 * 1024);
-		expect(BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES).toBe(128 * 1024);
+		expect(BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES).toBe(256 * 1024 - 42);
 		expect(
 			() => new BridgeProductContentFrameDecoder(BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES + 1),
 		).toThrow(/frame ceiling/iu);
@@ -51,6 +51,40 @@ describe('Bridge product content frame decoder', () => {
 		expect(finalFrames).toEqual([contentDataFrame(), contentEndFrame()]);
 	});
 
+	test('round-trips the exact selected-content correlation on every binary frame kind', () => {
+		const operationCorrelationId = 'a'.repeat(64);
+		const accepted = {
+			...contentAcceptedFrame(),
+			header: { ...contentAcceptedFrame().header, operationCorrelationId },
+		};
+		const request = {
+			...contentRequestForAccepted(accepted),
+			operationCorrelationId,
+		};
+		const frames = [
+			accepted,
+			{
+				...contentDataFrame(),
+				header: { ...contentDataFrame().header, operationCorrelationId },
+			},
+			{
+				...contentEndFrame(),
+				header: { ...contentEndFrame().header, operationCorrelationId },
+			},
+		];
+		const encoder = new BridgeProductContentFrameEncoder(request);
+		const decoder = new BridgeProductContentFrameDecoder();
+
+		const decoded = decoder.push(concatenateBytes(...frames.map((frame) => encoder.encode(frame))));
+		decoder.finish();
+
+		expect(decoded.map((frame) => frame.header.operationCorrelationId)).toEqual([
+			operationCorrelationId,
+			operationCorrelationId,
+			operationCorrelationId,
+		]);
+	});
+
 	test('continues an admitted old-epoch lifecycle after the File derivation floor advances', () => {
 		const acceptedFixture = contentAcceptedFrame();
 		const admittedAcceptedFrame = {
@@ -63,6 +97,7 @@ describe('Bridge product content frame decoder', () => {
 				kind: 'content.accepted',
 				leaseId: acceptedFixture.header.leaseId,
 				maximumBytes: acceptedFixture.header.maximumBytes,
+				operationCorrelationId: null,
 				paneSessionId: acceptedFixture.header.paneSessionId,
 				wireVersion: 2,
 				workerDerivationEpoch: 2,
@@ -181,7 +216,7 @@ describe('Bridge product content frame decoder', () => {
 		const decoder = new BridgeProductContentFrameDecoder();
 
 		expect(() => decoder.push(concatenateBytes(accepted, retiredHeaderLengthDataFrame))).toThrow(
-			/sequence|offset|invalid/iu,
+			/sequence|offset|invalid|payload/iu,
 		);
 		expect(decoder.diagnostics).toMatchObject({ emittedFrameCount: 0, state: 'poisoned' });
 	});
@@ -243,8 +278,8 @@ describe('Bridge product content frame decoder', () => {
 		});
 	});
 
-	test('accepts exactly 128 KiB of raw data and rejects one byte more', () => {
-		const maximumPayload = new Uint8Array(128 * 1024).fill(0x61);
+	test('fills the content frame after its header and rejects one byte more', () => {
+		const maximumPayload = new Uint8Array(256 * 1024 - 42).fill(0x61);
 		const oversizedPayload = new Uint8Array(maximumPayload.byteLength + 1).fill(0x62);
 		const accepted = contentAcceptedFrameForByteCount(
 			maximumPayload.byteLength,

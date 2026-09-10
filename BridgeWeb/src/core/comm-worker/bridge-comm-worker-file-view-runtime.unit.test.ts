@@ -3,7 +3,10 @@ import { describe, expect, test } from 'vitest';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
-import { dispatchSelectedBridgeWorkerFileViewContentReady } from './bridge-comm-worker-file-view-runtime.js';
+import {
+	dispatchSelectedBridgeWorkerFileViewContentReady,
+	type BridgeWorkerFileViewContentPreparationOutcome,
+} from './bridge-comm-worker-file-view-runtime.js';
 import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerStore,
@@ -14,6 +17,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 interface PostedBridgeWorkerRuntimeMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -24,6 +28,7 @@ describe('Bridge comm worker File View runtime', () => {
 	test('selected File View dispatch posts lineage-bound Pierre and render publications', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const openedDescriptorIds: string[] = [];
+		const openedOperationCorrelationIds: string[] = [];
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -38,7 +43,8 @@ describe('Bridge comm worker File View runtime', () => {
 			contentRequests: [makeContentRequest('file body\n')],
 			epoch: 7,
 			itemId: 'file-1',
-			openContent: registeredContentOpen(openedDescriptorIds),
+			openContent: registeredContentOpen(openedDescriptorIds, openedOperationCorrelationIds),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -46,10 +52,19 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 
 		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
+		expect(openedOperationCorrelationIds).toEqual(['a'.repeat(64)]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'filePierreRenderJob',
 			'fileRenderPatch',
 		]);
+		const renderPublication = postedMessages.find(
+			(postedMessage) => postedMessage.message.kind === 'filePierreRenderJob',
+		)?.message;
+		expect(
+			renderPublication?.kind === 'filePierreRenderJob'
+				? renderPublication.renderReceiptIdentity.operationCorrelationId
+				: null,
+		).toBe('a'.repeat(64));
 		expect(postedMessages[0]?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
@@ -154,6 +169,7 @@ describe('Bridge comm worker File View runtime', () => {
 			epoch: 7,
 			itemId: 'file-1',
 			openContent: registeredContentOpen(),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -219,6 +235,7 @@ describe('Bridge comm worker File View runtime', () => {
 			epoch: 7,
 			itemId: 'file-1',
 			openContent: registeredContentOpen(),
+			operationCorrelationId: 'a'.repeat(64),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
@@ -328,6 +345,7 @@ describe('Bridge comm worker File View runtime', () => {
 
 	test('publishes failed instead of leaving selected File View content loading when content open rejects', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const preparationOutcomes: BridgeWorkerFileViewContentPreparationOutcome[] = [];
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -341,6 +359,9 @@ describe('Bridge comm worker File View runtime', () => {
 				postedMessages,
 				store,
 			}),
+			onPreparationOutcome: (outcome): void => {
+				preparationOutcomes.push(outcome);
+			},
 		});
 
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('failed');
@@ -359,6 +380,69 @@ describe('Bridge comm worker File View runtime', () => {
 			},
 			transferList: [],
 		});
+		expect(preparationOutcomes).toEqual([{ kind: 'terminal' }]);
+	});
+
+	test('reuses painted residency and settles a same-source reselection without another Pierre job', async () => {
+		const firstPostedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const store = createSelectedFileViewRuntimeStore();
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+		await dispatchSelectedBridgeWorkerFileViewContentReady({
+			...makeDispatchProps({
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: registeredContentOpen(),
+				postedMessages: firstPostedMessages,
+				store,
+			}),
+		});
+		const firstJob = firstPostedMessages[0]?.message;
+		if (firstJob?.kind !== 'filePierreRenderJob') {
+			throw new Error('Expected the first selection to publish a Pierre render job.');
+		}
+		for (const disposition of ['queued', 'applied', 'painted'] as const) {
+			const result = store.renderFulfillmentRegistry.applyDisposition(
+				bridgeWorkerRenderDispositionReceiptSchema.parse({
+					...firstJob.renderReceiptIdentity,
+					disposition,
+					kind: 'render.disposition',
+					receivedAtMilliseconds: performance.now(),
+				}),
+			);
+			expect(result.status).not.toBe('rejected');
+		}
+
+		store.actions.applySelectedFact({ epoch: 8, itemId: 'file-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 13 });
+		const secondPostedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const preparationOutcomes: BridgeWorkerFileViewContentPreparationOutcome[] = [];
+		await dispatchSelectedBridgeWorkerFileViewContentReady({
+			...makeDispatchProps({
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: registeredContentOpen(),
+				postedMessages: secondPostedMessages,
+				store,
+			}),
+			epoch: 8,
+			onPreparationOutcome: (outcome): void => {
+				preparationOutcomes.push(outcome);
+			},
+			sequence: 14,
+		});
+
+		expect(secondPostedMessages.map(({ message }) => message.kind)).toEqual(['fileRenderPatch']);
+		expect(secondPostedMessages[0]?.message).toMatchObject({
+			kind: 'fileRenderPatch',
+			patches: [
+				{ itemId: 'file-1', payload: { contentCacheKey: 'file-view:metadata-cache:file-1' } },
+				{ itemId: 'file-1', payload: { state: 'ready' } },
+			],
+		});
+		expect(preparationOutcomes).toMatchObject([
+			{ kind: 'renderPublication', publication: { shouldPublish: false, status: 'duplicate' } },
+			{ kind: 'paintedResidency' },
+		]);
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 
 	test('drops stale selected File View terminal dispatch before publishing content messages', async () => {
@@ -517,6 +601,7 @@ function makeDispatchProps(
 		epoch: 7,
 		itemId: 'file-1',
 		openContent: options.openContent,
+		operationCorrelationId: 'a'.repeat(64),
 		port: makePostedMessagePort(options.postedMessages),
 		sequence: 12,
 		store: options.store,
@@ -636,9 +721,11 @@ function exactTextLineCount(text: string): number {
 
 function registeredContentOpen(
 	openedDescriptorIds: string[] = [],
+	openedOperationCorrelationIds: string[] = [],
 ): BridgeWorkerFileViewContentOpen {
-	return (descriptor) => {
+	return (descriptor, _abortSignal, operationCorrelationId) => {
 		openedDescriptorIds.push(descriptor.descriptorId);
+		openedOperationCorrelationIds.push(operationCorrelationId);
 		return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
 	};
 }

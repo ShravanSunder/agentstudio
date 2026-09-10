@@ -69,6 +69,12 @@ export async function reloadWorktreeDevServerPage(page: Page): Promise<void> {
 	await assertObservedWorktreeDevServerUrl(page);
 }
 
+export async function navigateToWorktreeDevServerFileShell(page: Page): Promise<void> {
+	await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+	await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+	await assertObservedWorktreeDevServerUrl(page);
+}
+
 export async function waitForWorktreeFileViewerSurfaceReady(page: Page): Promise<void> {
 	await page.waitForFunction(
 		(): boolean => {

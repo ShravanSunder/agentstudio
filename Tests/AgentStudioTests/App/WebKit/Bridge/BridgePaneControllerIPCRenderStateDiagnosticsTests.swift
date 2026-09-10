@@ -43,6 +43,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
                 };
                 window.__bridgeProductMetadataStreamDiagnostic = {
                   kind: 'productMetadataStream',
+                  routeFailureSubscriptionId: 'retired-subscription',
+                  lastSubscriptionTermination: { subscriptionId: 'retired-subscription', outcome: 'failed', reason: 'subscription_local_operation_failed' },
                   acknowledgedFrameCount: 1,
                   activeSubscriptionCount: 2,
                   committedFrameCount: 1,
@@ -100,7 +102,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             #expect(result.visibleHydrationStateProbe == hydrationState)
             #expect(result.visibleHydrationDiscardProbe == discardProbe)
             #expect(result.frameJankProbe == frameJankProbe)
-            expectProductMetadataStreamDiagnostic(metadataStream)
+            try expectProductMetadataStreamDiagnostic(metadataStream)
             #expect(productSession.activeProducerCount == 0)
             #expect(productSession.activeProducerTaskCount == 0)
             #expect(productSession.activeContentLeaseCount == 0)
@@ -274,19 +276,18 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
                       <button
                         aria-describedby="comparison-description"
                         aria-label="Compare to: stack-base"
-                        data-state="open"
+                        data-popup-open
                         data-testid="bridge-review-comparison-trigger"
                       >Compare to: stack-base</button>
                     </div>
                   </header>
                   <span id="comparison-description">Changes only on stack-base are excluded.</span>
-                  <section data-testid="bridge-review-comparison-content">
+                  <section
+                    data-resolved-target-oid="1111111111111111111111111111111111111111"
+                    data-testid="bridge-review-comparison-current-state"
+                  >
                     <span
-                      data-testid="bridge-review-comparison-target-revision"
-                      title="1111111111111111111111111111111111111111"
-                    ></span>
-                    <span
-                      data-testid="bridge-review-comparison-shared-start-revision"
+                      data-testid="bridge-review-comparison-effective-revision"
                       title="2222222222222222222222222222222222222222"
                     ></span>
                   </section>
@@ -448,8 +449,20 @@ private func encodedIPCBridgeDiagnostics(
 
 private func expectProductMetadataStreamDiagnostic(
     _ diagnostic: IPCBridgeProductMetadataStreamDiagnostic
-) {
+) throws {
+    let encodedMetadataStream = try #require(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(diagnostic)) as? [String: Any]
+    )
+    #expect(encodedMetadataStream["routeFailureSubscriptionId"] as? String == "retired-subscription")
+    let termination = try #require(encodedMetadataStream["lastSubscriptionTermination"] as? [String: Any])
+    #expect(termination["subscriptionId"] as? String == "retired-subscription")
+    #expect(termination["outcome"] as? String == "failed")
+    #expect(termination["reason"] as? String == "subscription_local_operation_failed")
     #expect(diagnostic.kind == .productMetadataStream)
+    #expect(diagnostic.routeFailureSubscriptionId == "retired-subscription")
+    #expect(diagnostic.lastSubscriptionTermination?.subscriptionId == "retired-subscription")
+    #expect(diagnostic.lastSubscriptionTermination?.outcome == "failed")
+    #expect(diagnostic.lastSubscriptionTermination?.reason == "subscription_local_operation_failed")
     #expect(diagnostic.acknowledgedFrameCount == 1)
     #expect(diagnostic.activeSubscriptionCount == 2)
     #expect(diagnostic.committedFrameCount == 1)

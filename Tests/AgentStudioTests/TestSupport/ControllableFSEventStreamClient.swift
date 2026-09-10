@@ -12,6 +12,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var overflowRecoveryByWorktreeId: [UUID: FSEventOverflowRecovery] = [:]
     private var activityOverflowRecoveryByParticipant: [FSEventParticipant: FSEventActivityOverflowRecovery] = [:]
     private var acknowledgedActivityProcessingFenceIds: [FSEventActivityProcessingFenceID] = []
+    private var nextRegistrationOutcome: FSEventStreamRegistrationOutcome = .observing
     private var activityBarrier: FSEventActivityBarrier?
 
     package init() {
@@ -100,8 +101,23 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         }
     }
 
-    package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {
-        lock.withLock { registeredIds.append(worktreeId) }
+    package func setNextRegistrationOutcome(_ outcome: FSEventStreamRegistrationOutcome) {
+        lock.withLock { nextRegistrationOutcome = outcome }
+    }
+
+    package func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome {
+        lock.withLock {
+            let outcome = nextRegistrationOutcome
+            nextRegistrationOutcome = .observing
+            if outcome == .observing {
+                registeredIds.append(worktreeId)
+            }
+            return outcome
+        }
     }
 
     package func unregister(worktreeId: UUID) {

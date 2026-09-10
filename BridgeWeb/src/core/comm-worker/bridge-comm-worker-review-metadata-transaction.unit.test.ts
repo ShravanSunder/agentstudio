@@ -19,103 +19,44 @@ import {
 } from './bridge-comm-worker-review-metadata-transaction.test-support.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
 	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 describe('Bridge comm worker Review metadata transaction staging', () => {
-	test('retains complete A while reset, source acceptance, and partial B remain pending', () => {
+	test('binds retained stale and replay-ready display status to the active publication', () => {
 		// Arrange
 		const harness = makeApplicatorHarness();
 		harness.applicator.apply(
 			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
 			workerDerivationEpoch,
 		);
+		const expectedIdentity = {
+			packageId: activeIdentity.packageId,
+			publicationId: activeIdentity.publicationId,
+			reviewGeneration: activeIdentity.generation,
+			revision: activeIdentity.revision,
+			sourceIdentity: activeIdentity.sourceIdentity,
+		};
 
-		// Act
-		harness.applicator.apply(reviewReset(candidateIdentity), workerDerivationEpoch);
-		harness.applicator.apply(reviewSourceAccepted(candidateIdentity), workerDerivationEpoch);
+		// Act / Assert — status changes describe retained A, never an unidentified replacement.
+		harness.applicator.handleMetadataFailure(workerDerivationEpoch);
+		expect(harness.displayPublications.at(-1)?.reviewPublicationIdentity).toEqual(expectedIdentity);
+		harness.applicator.apply(reviewSourceAccepted(activeIdentity), workerDerivationEpoch);
 		harness.applicator.apply(
-			reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false),
+			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
 			workerDerivationEpoch,
 		);
-
-		// Assert
+		expect(harness.displayPublications.at(-1)?.reviewPublicationIdentity).toEqual(expectedIdentity);
 		expect(harness.applications).toHaveLength(1);
-		expect(harness.applications[0]?.source.contentItems.map(({ itemId }) => itemId)).toEqual([
-			'item-a',
-		]);
-		const pendingPublications = harness.displayPublications.slice(1);
-		expect(
-			pendingPublications.flatMap(({ patches }) =>
-				patches.filter(({ slice }) => slice === 'reviewItem' || slice === 'reviewTree'),
-			),
-		).toEqual([]);
-		expect(JSON.stringify(pendingPublications)).toContain('source-active');
-		expect(JSON.stringify(pendingPublications)).not.toContain('source-candidate');
-	});
-
-	test('swaps complete B once with one reset application and one complete display replacement', () => {
-		// Arrange
-		const harness = makeApplicatorHarness();
-		harness.applicator.apply(
-			reviewSnapshot(activeIdentity, 'item-a', 0, 1, true),
-			workerDerivationEpoch,
-		);
-		harness.applicator.apply(reviewReset(candidateIdentity), workerDerivationEpoch);
-		harness.applicator.apply(reviewSourceAccepted(candidateIdentity), workerDerivationEpoch);
-		harness.applicator.apply(
-			reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false),
-			workerDerivationEpoch,
-		);
-
-		// Act
-		harness.applicator.apply(
-			reviewWindow(candidateIdentity, 'item-b-2', 1, 2, true),
-			workerDerivationEpoch,
-		);
-
-		// Assert
-		expect(harness.applications).toHaveLength(2);
-		expect(harness.applications.map(({ sourceEpoch }) => sourceEpoch)).toEqual([1, 2]);
-		expect(harness.applications[1]).toMatchObject({
-			completeContentItemIds: ['item-b-1', 'item-b-2'],
-			reset: true,
-		});
-		expect(harness.applications[1]?.source.contentItems.map(({ itemId }) => itemId)).toEqual([
-			'item-b-1',
-			'item-b-2',
-		]);
-		const candidatePublications = harness.displayPublications.filter((publication) =>
-			JSON.stringify(publication).includes('source-candidate'),
-		);
-		expect(candidatePublications).toHaveLength(1);
-		expect(candidatePublications[0]?.patches).toEqual([
-			expect.objectContaining({ operation: 'upsert', slice: 'reviewSource' }),
-			expect.objectContaining({ operation: 'replace', slice: 'reviewComparison' }),
-			expect.objectContaining({
-				operation: 'batch',
-				payload: expect.objectContaining({ reset: true, startIndex: 0 }),
-				slice: 'reviewItem',
-			}),
-			expect.objectContaining({
-				operation: 'batch',
-				payload: expect.objectContaining({ reset: true }),
-				slice: 'reviewTree',
-			}),
-		]);
-		expect(candidatePublications[0]?.patches[0]).toMatchObject({
-			operation: 'upsert',
-			payload: {
-				comparisonOrigin: reviewComparisonOrigin,
-				reviewedSubjectLabel: 'feature/review-comments',
-			},
-			slice: 'reviewSource',
-		});
 	});
 
 	test('ignores delayed older accepted snapshots after a newer generation commits', () => {
@@ -266,9 +207,52 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(harness.applications).toHaveLength(2);
 		expect(harness.applications.map(({ reset }) => reset)).toEqual([true, false]);
 		expect(harness.applications.map(({ sourceEpoch }) => sourceEpoch)).toEqual([1, 1]);
+		expect(harness.candidateStartedPublications.at(-1)?.disposition).toEqual({
+			affectedStableFileIdentities: [],
+			kind: 'sameSource',
+			presentationClass: { kind: 'ordinary' },
+		});
+		expect(harness.candidateReadyPublications.at(-1)?.disposition).toEqual(
+			harness.candidateStartedPublications.at(-1)?.disposition,
+		);
 		expect(harness.applications.at(-1)?.source.contentItems.map(({ itemId }) => itemId)).toEqual([
 			'item-revision-delta-current',
 		]);
+	});
+
+	test('refines stale native delta impact from worker runtime signatures before candidate start', () => {
+		// Arrange
+		const harness = makeApplicatorHarness();
+		const initialIdentity = reviewIdentity('runtime-impact', 8, 21);
+		const initialSnapshot = reviewSnapshot(initialIdentity, 'item-runtime-impact', 0, 1, true);
+		const initialItem = initialSnapshot.itemMetadata[0];
+		if (initialItem === undefined) throw new Error('Review delta fixture item is missing.');
+		harness.applicator.apply(initialSnapshot, workerDerivationEpoch);
+
+		// Act
+		harness.applicator.apply(
+			{
+				...reviewDelta(initialIdentity, 22),
+				operations: [
+					{
+						item: { ...initialItem, headPath: 'Sources/item-runtime-impact-updated.swift' },
+						operationKind: 'upsertItem',
+					},
+				],
+			},
+			workerDerivationEpoch,
+		);
+
+		// Assert
+		expect(harness.candidateStartedPublications.at(-1)?.disposition).toEqual({
+			affectedStableFileIdentities: ['item-runtime-impact'],
+			kind: 'sameSource',
+			presentationClass: { kind: 'ordinary' },
+		});
+		expect(harness.candidateReadyPublications.at(-1)?.disposition).toEqual(
+			harness.candidateStartedPublications.at(-1)?.disposition,
+		);
+		expect(harness.applications.at(-1)?.affectedItemIds).toEqual(['item-runtime-impact']);
 	});
 
 	test('lets a newer successor delta supersede an older pending candidate', () => {
@@ -671,15 +655,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 	});
 
 	test('reopens Review after a final B application failure and commits replayed B once', async () => {
-		const firstEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let firstCancelCount = 0;
 		let openedSubscriptionCount = 0;
-		const subscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
+		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
 					firstCancelCount += 1;
@@ -705,13 +685,20 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				openedSubscriptionCount += 1;
 			}),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'application-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewReset(candidateIdentity));
-		firstEvents.push(reviewSourceAccepted(candidateIdentity));
-		firstEvents.push(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 3, false));
-		firstEvents.push(reviewWindow(candidateIdentity, 'item-b-3', 2, 3, true));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 3, false)),
+		);
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewWindow(candidateIdentity, 'item-b-3', 2, 3, true)),
+		);
 
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -723,8 +710,10 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).not.toContain('source-candidate');
 
-		replayEvents.push(reviewSourceAccepted(candidateIdentity));
-		replayEvents.push(reviewSnapshot(candidateIdentity, 'item-b-replay', 0, 1, true));
+		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		replayEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-replay', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		const replayPublications = postedMessages
@@ -740,17 +729,13 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 	test('rolls back the real worker store when the critical B display post fails', async () => {
 		// Arrange
-		const firstEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let firstCancelCount = 0;
 		let openedSubscriptionCount = 0;
 		let appliedReceiptCount = 0;
 		let rejectCandidateDisplay = false;
-		const subscriptions: readonly BridgeProductSubscription<'review.metadata'>[] = [
+		const subscriptions: readonly ReviewMetadataSubscription[] = [
 			{
 				cancel: async (): Promise<void> => {
 					firstCancelCount += 1;
@@ -789,8 +774,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				},
 			),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'display-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
@@ -798,15 +786,17 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		rejectCandidateDisplay = true;
 
 		// Act
-		firstEvents.push(reviewReset(candidateIdentity));
-		firstEvents.push(reviewSourceAccepted(candidateIdentity));
-		firstEvents.push(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		firstEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
 		expect(firstCancelCount).toBe(1);
 		expect(openedSubscriptionCount).toBe(2);
-		expect(appliedReceiptCount).toBe(1);
+		expect(appliedReceiptCount).toBe(0);
 		expect(postedMessages.filter(({ message }) => message.kind === 'slicePatch')).toHaveLength(
 			activeSlicePatchCount,
 		);
@@ -815,10 +805,21 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			.filter((message) => message.kind === 'reviewDisplayPatch');
 		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
 		expect(JSON.stringify(failureDisplayMessages)).not.toContain('source-candidate');
+		expect(
+			postedMessages
+				.map(({ message }) => message)
+				.filter(
+					(message) =>
+						message.kind === 'reviewCandidateFailed' &&
+						message.publicationId === candidateIdentity.publicationId,
+				),
+		).toHaveLength(1);
 
 		rejectCandidateDisplay = false;
-		replayEvents.push(reviewSourceAccepted(candidateIdentity));
-		replayEvents.push(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true));
+		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		replayEvents.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const candidateDisplayMessages = postedMessages
 			.map(({ message }) => message)
@@ -828,18 +829,16 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 					JSON.stringify(message).includes('source-candidate'),
 			);
 		expect(candidateDisplayMessages).toHaveLength(1);
-		expect(appliedReceiptCount).toBe(2);
+		expect(appliedReceiptCount).toBe(0);
 	});
 
 	test('keeps applied B when post-commit drain scheduling fails', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
 		let cancelCount = 0;
 		let openedSubscriptionCount = 0;
 		let appliedReceiptCount = 0;
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {
 				cancelCount += 1;
 			},
@@ -878,11 +877,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act
-		events.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(appliedReceiptCount).toBe(1);
+		expect(appliedReceiptCount).toBe(0);
 		expect(cancelCount).toBe(0);
 		expect(openedSubscriptionCount).toBe(1);
 		expect(
@@ -899,10 +898,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 	test('routes a pending subscription failure without replacing the active runtime source', async () => {
 		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(64);
-		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
+		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events,
 			subscriptionId: 'review-transaction-failure',
@@ -915,15 +912,18 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: reviewMetadataTransport(reviewSubscription),
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pending-subscription-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true));
+		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
 		).length;
-		events.push(reviewReset(candidateIdentity));
-		events.push(reviewSourceAccepted(candidateIdentity));
-		events.push(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false));
+		events.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
+		events.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
+		events.push(
+			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false)),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act

@@ -93,6 +93,7 @@ extension BridgeProductContentFrameCodecTests {
     func endControlBody(from headerObject: [String: Any]) -> [String: Any] {
         [
             "endOfSource": headerObject["endOfSource"] as Any,
+            "operationCorrelationId": headerObject["operationCorrelationId"] as Any,
             "observedByteLength": headerObject["observedByteLength"] as Any,
             "observedSha256": headerObject["observedSha256"] as Any,
         ]
@@ -123,14 +124,35 @@ extension BridgeProductContentFrameCodecTests {
         return data
     }
 
-    func minimalDataFrame(sequence: Int, offsetBytes: Int, payload: Data) -> Data {
-        let frameByteLength = 1 + 4 + 4 + payload.count
+    func minimalDataFrame(
+        sequence: Int,
+        offsetBytes: Int,
+        operationCorrelationID: String? = nil,
+        payload: Data
+    ) -> Data {
+        let correlationBytes = operationCorrelationEnvelope(operationCorrelationID)
+        let frameByteLength = 1 + 4 + 4 + correlationBytes.count + payload.count
         var data = dataWithUInt32Prefix(frameByteLength)
         data.append(0x02)
         data.append(dataWithUInt32Prefix(sequence))
         data.append(dataWithUInt32Prefix(offsetBytes))
+        data.append(correlationBytes)
         data.append(payload)
         return data
+    }
+
+    func operationCorrelationEnvelope(_ operationCorrelationID: String?) -> Data {
+        guard let operationCorrelationID else { return Data(repeating: 0, count: 33) }
+        var bytes = Data([1])
+        for byteOffset in stride(from: 0, to: operationCorrelationID.count, by: 2) {
+            let startIndex = operationCorrelationID.index(
+                operationCorrelationID.startIndex,
+                offsetBy: byteOffset
+            )
+            let endIndex = operationCorrelationID.index(startIndex, offsetBy: 2)
+            bytes.append(UInt8(operationCorrelationID[startIndex..<endIndex], radix: 16) ?? 0)
+        }
+        return bytes
     }
 
     func byteSubsequenceCount(_ subsequence: Data, in data: Data) -> Int {

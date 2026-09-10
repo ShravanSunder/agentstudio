@@ -40,6 +40,7 @@ describe('Bridge comm worker Review display projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: [],
 			presentationRevision: 19,
@@ -125,6 +126,7 @@ describe('Bridge comm worker Review display projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations,
 			revision: 12,
@@ -191,6 +193,7 @@ describe('Bridge comm worker Review display projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: touchedItems.map((item) => ({ item, operationKind: 'upsertItem' })),
 			revision: 12,
@@ -212,6 +215,7 @@ describe('Bridge comm worker Review display projection', () => {
 			headEndpoint: reviewEndpoint('head', 'workingTree'),
 			identity: {
 				generation: reviewIdentity.generation,
+				operationCorrelationId: reviewIdentity.operationCorrelationId,
 				packageId: reviewIdentity.packageId,
 				publicationId: reviewIdentity.publicationId,
 				sourceIdentity: reviewIdentity.sourceIdentity,
@@ -293,6 +297,7 @@ describe('Bridge comm worker Review display projection', () => {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
+			operationCorrelationId: null,
 			fromRevision: 11,
 			operations: [],
 			presentationRevision: 2,
@@ -385,6 +390,7 @@ function countArrayIndexReads<TValue>(values: readonly TValue[]): CountedArray<T
 
 const reviewIdentity = {
 	generation: 7,
+	operationCorrelationId: null,
 	packageId: 'package-1',
 	publicationId: '00000000-0000-7000-8000-000000000012',
 	sourceIdentity: 'source-1',

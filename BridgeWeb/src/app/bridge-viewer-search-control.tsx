@@ -1,11 +1,7 @@
 import { SearchIcon } from 'lucide-react';
 import type { ReactElement, Ref } from 'react';
 
-import { BridgeViewerButton, BridgeViewerIcon } from './bridge-viewer-button.js';
-import {
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-} from './bridge-viewer-chrome.js';
+import { Toggle } from '../components/ui/toggle.js';
 import {
 	bridgeViewerSearchShortcut,
 	bridgeViewerShortcutTitle,
@@ -22,22 +18,21 @@ export interface BridgeViewerSearchControlProps {
 export function BridgeViewerSearchControl(props: BridgeViewerSearchControlProps): ReactElement {
 	return (
 		<div className="relative flex min-w-0 items-center" data-testid={props.testId}>
-			<BridgeViewerButton
-				ariaLabel="Search files"
-				ariaPressed={props.isActive}
-				className={bridgeViewerChromeIconButtonClassName}
+			<Toggle
+				aria-label="Search files"
+				pressed={props.isActive}
+				size="icon-sm"
+				variant="disclosure"
 				onClick={props.onToggleSearch}
-				testId={props.searchToggleTestId}
+				data-testid={props.searchToggleTestId}
 				title={bridgeViewerShortcutTitle(
 					props.isActive ? 'Close file search' : 'Search files',
 					bridgeViewerSearchShortcut,
 				)}
-				{...(props.triggerRef === undefined ? {} : { buttonRef: props.triggerRef })}
+				ref={props.triggerRef}
 			>
-				<BridgeViewerIcon>
-					<SearchIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-				</BridgeViewerIcon>
-			</BridgeViewerButton>
+				<SearchIcon aria-hidden="true" />
+			</Toggle>
 		</div>
 	);
 }

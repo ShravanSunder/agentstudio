@@ -1,6 +1,28 @@
 import AgentStudioGit
 import Foundation
 
+package struct RemoteReferenceAcceptance: Equatable, Sendable {
+    package let repoId: UUID
+    package let expectedOrigin: String
+    package let topologyGeneration: UInt64
+    package let authorityRevision: UInt64
+    package let snapshot: GitRemoteTrackingSnapshot
+
+    package init(
+        repoId: UUID,
+        expectedOrigin: String,
+        topologyGeneration: UInt64,
+        authorityRevision: UInt64,
+        snapshot: GitRemoteTrackingSnapshot
+    ) {
+        self.repoId = repoId
+        self.expectedOrigin = expectedOrigin
+        self.topologyGeneration = topologyGeneration
+        self.authorityRevision = authorityRevision
+        self.snapshot = snapshot
+    }
+}
+
 struct RemoteReferenceRegistration: Sendable {
     let repoId: UUID
     var repositoryPath: URL
@@ -95,9 +117,9 @@ enum RemoteReferenceActiveOperation {
 
     var retainsCustodyAfterDemandContraction: Bool {
         switch self {
-        case .applyingPromotedAuthority, .recomputing:
+        case .promoting, .applyingPromotedAuthority, .recomputing:
             true
-        case .staging, .promoting:
+        case .staging:
             false
         }
     }

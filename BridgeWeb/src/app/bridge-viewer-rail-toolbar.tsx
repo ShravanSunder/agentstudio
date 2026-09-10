@@ -1,4 +1,4 @@
-import type { AriaRole, ReactElement, ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import { bridgeViewerChromeToolbarClassName } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
@@ -8,7 +8,6 @@ export interface BridgeViewerRailToolbarProps {
 	readonly leading: ReactNode;
 	readonly leadingAriaLive?: 'off' | 'polite' | 'assertive';
 	readonly leadingClassName?: string;
-	readonly leadingRole?: AriaRole;
 	readonly leadingTestId: string;
 	readonly testId: string;
 	readonly trailing: ReactNode;
@@ -31,7 +30,6 @@ export function BridgeViewerRailToolbar(props: BridgeViewerRailToolbarProps): Re
 				aria-live={props.leadingAriaLive}
 				className={cn('flex min-w-0 items-center gap-1', props.leadingClassName)}
 				data-testid={props.leadingTestId}
-				role={props.leadingRole}
 			>
 				{props.leading}
 			</div>

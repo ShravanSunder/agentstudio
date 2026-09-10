@@ -84,6 +84,7 @@ export function contentRequest(): BridgeProductContentRequestFor<'file.content'>
 		},
 		kind: 'content.open',
 		leaseId: 'lease-1',
+		operationCorrelationId: null,
 		paneSessionId: 'pane-session-1',
 		wireVersion: 2,
 		workerDerivationEpoch: 2,
@@ -117,6 +118,7 @@ export function contentRequestForAccepted(
 			window: acceptedFrame.header.identity.window,
 		},
 		leaseId: acceptedFrame.header.leaseId,
+		operationCorrelationId: acceptedFrame.header.operationCorrelationId,
 		paneSessionId: acceptedFrame.header.paneSessionId,
 		wireVersion: acceptedFrame.header.wireVersion,
 		workerDerivationEpoch: acceptedFrame.header.workerDerivationEpoch,
@@ -134,6 +136,7 @@ export function contentAcceptedFrame(): BridgeProductFileContentAcceptedFrame {
 			kind: 'content.accepted',
 			leaseId: 'lease-1',
 			maximumBytes: 3,
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			contentRequestId: 'content-request-1',
 			wireVersion: 2,
@@ -181,6 +184,7 @@ export function reviewContentRequest(): BridgeProductContentRequestFor<'review.c
 		},
 		kind: 'content.open',
 		leaseId: 'review-lease-1',
+		operationCorrelationId: null,
 		paneSessionId: 'pane-session-1',
 		wireVersion: 2,
 		workerDerivationEpoch: 2,
@@ -199,6 +203,7 @@ export function reviewContentAcceptedFrame(): BridgeProductReviewContentAccepted
 			kind: 'content.accepted',
 			leaseId: 'review-lease-1',
 			maximumBytes: reviewContentIdentity.window.maximumBytes,
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			wireVersion: 2,
 			workerDerivationEpoch: 2,
@@ -214,6 +219,7 @@ export function contentDataFrame(): BridgeProductContentFrameOfKind<'content.dat
 			contentSequence: 1,
 			kind: 'content.data',
 			offsetBytes: 0,
+			operationCorrelationId: null,
 		},
 		payload: Uint8Array.from([97, 98, 99]),
 	};
@@ -243,6 +249,7 @@ export function contentEndFrame(): BridgeProductContentFrameOfKind<'content.end'
 			kind: 'content.end',
 			observedByteLength: 3,
 			observedSha256: abcSha256,
+			operationCorrelationId: null,
 		},
 		payload: new Uint8Array(),
 	};
@@ -269,6 +276,7 @@ export function contentErrorFrame(): BridgeProductContentFrameOfKind<'content.er
 			code: 'internal',
 			contentSequence: 2,
 			kind: 'content.error',
+			operationCorrelationId: null,
 			retryable: false,
 			safeMessage: null,
 		},
@@ -281,6 +289,7 @@ export function contentResetFrame(): BridgeProductContentFrameOfKind<'content.re
 		header: {
 			contentSequence: 1,
 			kind: 'content.reset',
+			operationCorrelationId: null,
 			reason: 'stale_source',
 		},
 		payload: new Uint8Array(),
@@ -298,11 +307,17 @@ export function contentAcceptedControlBody(
 
 export function contentEndControlBody(
 	frame: BridgeProductContentFrameOfKind<'content.end'> = contentEndFrame(),
-): Readonly<{ endOfSource: boolean; observedByteLength: number; observedSha256: string }> {
+): Readonly<{
+	endOfSource: boolean;
+	observedByteLength: number;
+	observedSha256: string;
+	operationCorrelationId: string | null;
+}> {
 	return {
 		endOfSource: frame.header.endOfSource,
 		observedByteLength: frame.header.observedByteLength,
 		observedSha256: frame.header.observedSha256,
+		operationCorrelationId: frame.header.operationCorrelationId,
 	};
 }
 
@@ -351,15 +366,27 @@ export function encodeMinimalDataFrame(
 	contentSequence: number,
 	offsetBytes: number,
 	payload: Uint8Array,
+	operationCorrelationId: string | null = null,
 ): Uint8Array<ArrayBuffer> {
-	const frameBodyByteLength = 1 + 4 + 4 + payload.byteLength;
+	const correlationBytes = new Uint8Array(33);
+	if (operationCorrelationId !== null) {
+		correlationBytes[0] = 1;
+		for (let index = 0; index < 32; index += 1) {
+			correlationBytes[index + 1] = Number.parseInt(
+				operationCorrelationId.slice(index * 2, index * 2 + 2),
+				16,
+			);
+		}
+	}
+	const frameBodyByteLength = 1 + 4 + 4 + correlationBytes.byteLength + payload.byteLength;
 	const frame = new Uint8Array(4 + frameBodyByteLength);
 	const view = new DataView(frame.buffer);
 	view.setUint32(0, frameBodyByteLength, false);
 	frame[4] = 0x02;
 	view.setUint32(5, contentSequence, false);
 	view.setUint32(9, offsetBytes, false);
-	frame.set(payload, 13);
+	frame.set(correlationBytes, 13);
+	frame.set(payload, 13 + correlationBytes.byteLength);
 	return frame;
 }
 

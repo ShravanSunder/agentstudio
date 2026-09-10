@@ -54,11 +54,50 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 			'Tests',
 			'Documentation',
 			'Configuration',
-			'Generated',
-			'Dependencies and build output',
-			'Fixtures',
-			'Other',
+			'Test data',
 		]);
+		for (const row of categoryRows) {
+			expect(row.querySelector('[data-testid$="-option-badge"] svg')).not.toBeNull();
+		}
+		const categoryBadges = categoryRows.map((row) =>
+			requireHTMLElement(row.querySelector('[data-testid$="-option-badge"]')),
+		);
+		const neutralBadge = categoryBadges[0];
+		if (neutralBadge === undefined) throw new Error('All category badge missing');
+		for (const badge of categoryBadges) {
+			expect(getComputedStyle(badge).color).toBe(getComputedStyle(neutralBadge).color);
+			expect(getComputedStyle(badge).backgroundColor).toBe(
+				getComputedStyle(neutralBadge).backgroundColor,
+			);
+		}
+		expect(
+			new Set(
+				gitRows.map(
+					(row) =>
+						getComputedStyle(
+							requireHTMLElement(row.querySelector('[data-testid$="-option-badge"]')),
+						).color,
+				),
+			).size,
+		).toBe(5);
+		const groupLabels = document.querySelectorAll('[data-slot="dropdown-menu-label"]');
+		expect(groupLabels).toHaveLength(2);
+		for (const heading of groupLabels) {
+			expect(heading.querySelector('svg')).not.toBeNull();
+			expect(getComputedStyle(heading).fontSize).toBe('11px');
+		}
+		expect(document.querySelector('[data-slot="dropdown-menu-sub-trigger"]')).toBeNull();
+		for (const rows of [gitRows, categoryRows]) {
+			const firstLabel = rows[0]?.querySelector('[data-testid$="-option-label"]');
+			expect(firstLabel).not.toBeNull();
+			for (const row of rows) {
+				const label = requireHTMLElement(row.querySelector('[data-testid$="-option-label"]'));
+				expect(getComputedStyle(label).fontSize).toBe('11px');
+				expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+				expect(label.getBoundingClientRect().left).toBe(firstLabel?.getBoundingClientRect().left);
+				expect(getComputedStyle(row).height).toBe('28px');
+			}
+		}
 		expect(categoryRows.map(checkedState)).toEqual([
 			'false',
 			'false',
@@ -66,12 +105,17 @@ describe('BridgeReviewFacetMenu Browser Mode', () => {
 			'false',
 			'false',
 			'false',
-			'false',
-			'false',
-			'false',
 		]);
-		expect(visibilityRows.map(visibleRowLabel)).toEqual(['Binary', 'Large']);
+		expect(visibilityRows.map(visibleRowLabel)).toEqual([
+			'Include binary files',
+			'Include large files',
+		]);
 		expect(visibilityRows.map(checkedState)).toEqual(['true', 'false']);
+		for (const row of visibilityRows) {
+			expect(row.querySelector('[data-slot="switch-indicator"]')).not.toBeNull();
+			expect(row.querySelector('[role="switch"]')).toBeNull();
+			expect(getComputedStyle(row).height).toBe('28px');
+		}
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -141,7 +185,7 @@ const gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKin
 ];
 
 function findMenuCheckboxItems(groupLabel: string): HTMLElement[] {
-	const group = document.querySelector(`section[aria-label="${groupLabel}"]`);
+	const group = document.querySelector(`[role="group"][aria-label="${groupLabel}"]`);
 	expect(group).not.toBeNull();
 	return [...(group?.querySelectorAll('[role="menuitemcheckbox"]') ?? [])].map(
 		(element: Element): HTMLElement => requireHTMLElement(element),

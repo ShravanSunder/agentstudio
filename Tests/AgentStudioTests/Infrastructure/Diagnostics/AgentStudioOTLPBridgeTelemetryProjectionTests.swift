@@ -5,6 +5,80 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
+    @Test
+    func annotationCatalogProjectionKeepsAggregatesAndDropsPrivateIdentityAndPath() {
+        let operationID = String(repeating: "a", count: 64)
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 776,
+                severityText: .info,
+                body: "performance.bridge.web.annotation_lifecycle",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.bridge.operation.id": .string(operationID),
+                    "agentstudio.bridge.annotation.catalog.entry.count": .int(2001),
+                    "agentstudio.bridge.annotation.catalog.revision": .int(9),
+                    "agentstudio.bridge.annotation.catalog.unit.byte_count": .int(131_000),
+                    "agentstudio.bridge.annotation.catalog.window.count": .int(3),
+                    "agentstudio.bridge.presentation.revision.after": .int(8),
+                    "agentstudio.bridge.presentation.revision.before": .int(7),
+                    "agentstudio.bridge.annotation.catalog.session_id": .string("private-session"),
+                    "agentstudio.bridge.annotation.catalog.path": .string("/private/repo"),
+                ]
+            )
+        )
+
+        #expect(projection.attributes["agentstudio.bridge.operation.id"] == .string(operationID))
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.entry.count"] == .int(2001)
+        )
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.revision"] == .int(9))
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.unit.byte_count"] == .int(131_000)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.annotation.catalog.window.count"] == .int(3)
+        )
+        #expect(projection.attributes["agentstudio.bridge.presentation.revision.after"] == .int(8))
+        #expect(projection.attributes["agentstudio.bridge.presentation.revision.before"] == .int(7))
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.session_id"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.catalog.path"] == nil)
+    }
+
+    @Test
+    func lifecycleProjectionKeepsOnlyScrubbedOperationIdentityAndSafeAttempt() {
+        let operationID = String(repeating: "a", count: 64)
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 775,
+                severityText: .info,
+                body: "performance.bridge.swift.annotation_lifecycle",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.bridge.operation.id": .string(operationID),
+                    "agentstudio.bridge.stage.attempt": .int(2),
+                    "agentstudio.bridge.annotation.body": .string("private body"),
+                    "agentstudio.bridge.annotation.path": .string("/private/repo"),
+                    "agentstudio.bridge.annotation.error": .string("private error"),
+                ]
+            )
+        )
+
+        #expect(projection.attributes["agentstudio.bridge.operation.id"] == .string(operationID))
+        #expect(projection.attributes["agentstudio.bridge.stage.attempt"] == .int(2))
+        #expect(projection.attributes["agentstudio.bridge.annotation.body"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.path"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.annotation.error"] == nil)
+    }
+
     @Test(arguments: [
         ("agentstudio.bridge.phase", "authorization"),
         ("agentstudio.bridge.phase", "reservation_claim"),
@@ -416,6 +490,7 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
                 "agentstudio.bridge.worker.patch_count": .int(2),
                 "agentstudio.bridge.worker.payload_class": .string("inline"),
                 "agentstudio.bridge.worker.queue_wait_ms": .double(4.25),
+                "agentstudio.bridge.worker.semantic_class": .string("demand"),
                 "agentstudio.bridge.worker.source_epoch": .int(7),
                 "agentstudio.bridge.worker.task_kind": .string("store_action"),
                 "agentstudio.bridge.worker.touched_key_count": .int(5),
@@ -437,6 +512,7 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.worker.patch_count"] == .int(2))
         #expect(projection.attributes["agentstudio.bridge.worker.payload_class"] == .string("inline"))
         #expect(projection.attributes["agentstudio.bridge.worker.queue_wait_ms"] == .double(4.25))
+        #expect(projection.attributes["agentstudio.bridge.worker.semantic_class"] == .string("demand"))
         #expect(projection.attributes["agentstudio.bridge.worker.source_epoch"] == .int(7))
         #expect(projection.attributes["agentstudio.bridge.worker.task_kind"] == .string("store_action"))
         #expect(projection.attributes["agentstudio.bridge.worker.touched_key_count"] == .int(5))

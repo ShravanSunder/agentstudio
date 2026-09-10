@@ -422,7 +422,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 			await Promise.resolve();
 		});
 		expect(liveCodeView.getItem(firstFile.itemId)).toBeUndefined();
-		await harness.publishFileContentForItemId(selectedFile.itemId);
+		await harness.publishContentForItemIds([selectedFile.itemId]);
 
 		// Assert: public membership and geometry recover the complete authoritative order before body
 		// hydration, then viewport demand can reach real first/middle/selected/final content.

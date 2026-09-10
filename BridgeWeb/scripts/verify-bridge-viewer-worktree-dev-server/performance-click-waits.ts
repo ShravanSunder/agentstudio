@@ -153,6 +153,44 @@ export async function waitForAnyWorktreeSelectedPathTiming(props: {
 	}
 }
 
+export async function waitForWorktreeSourceAcceptedMilliseconds(props: {
+	readonly page: Page;
+	readonly startedAt: number;
+	readonly timeoutMilliseconds: number;
+}): Promise<number> {
+	await props.page.waitForFunction(
+		(): boolean => {
+			const sourceId = document
+				.querySelector('[data-testid="bridge-file-viewer-shell"]')
+				?.getAttribute('data-file-display-source-id');
+			return sourceId !== null && sourceId !== undefined && sourceId.length > 0;
+		},
+		undefined,
+		{ timeout: props.timeoutMilliseconds },
+	);
+	return Math.max(0, performance.now() - props.startedAt);
+}
+
+export async function waitForWorktreeMetadataMilliseconds(props: {
+	readonly page: Page;
+	readonly startedAt: number;
+	readonly timeoutMilliseconds: number;
+}): Promise<number> {
+	await props.page.waitForFunction(
+		(): boolean => {
+			const fileRowCount = Number(
+				document
+					.querySelector('[data-testid="bridge-file-viewer-shell"]')
+					?.getAttribute('data-worktree-metadata-file-row-count') ?? '0',
+			);
+			return Number.isInteger(fileRowCount) && fileRowCount > 0;
+		},
+		undefined,
+		{ timeout: props.timeoutMilliseconds },
+	);
+	return Math.max(0, performance.now() - props.startedAt);
+}
+
 export async function waitForWorktreeOpenFileReadyMilliseconds(props: {
 	readonly page: Page;
 	readonly path: string;

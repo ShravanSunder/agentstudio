@@ -38,6 +38,7 @@ export default defineConfig({
 	},
 	test: {
 		globals: true,
+		maxWorkers: '50%',
 		tags: [
 			{
 				description: 'Scale-bound browser workloads run outside the per-commit correctness lane.',

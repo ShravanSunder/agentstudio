@@ -16,7 +16,7 @@ export type BridgeReviewComparisonIconKind =
 
 const comparisonIconProps = {
 	'aria-hidden': true,
-	className: 'size-3.5 shrink-0 text-muted-foreground',
+	className: 'shrink-0',
 	size: 14,
 } satisfies OcticonProps;
 

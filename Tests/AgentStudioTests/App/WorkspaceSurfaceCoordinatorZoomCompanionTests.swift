@@ -53,7 +53,7 @@ extension WebKitSerializedTests {
                     == .fileViewer
             )
             #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) is BridgeRuntime)
-            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
 
             #expect(harness.store.pane(companionPaneId) == nil)
             #expect(!sourceTab.allPaneIds.contains(companionPaneId))
@@ -248,7 +248,7 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-            harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+            harness.coordinator.startBridgePaneActivityObservation()
             harness.appLifecycleStore.setActive(true)
             harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
             harness.windowLifecycleStore.recordWindowPresentation(
@@ -914,7 +914,7 @@ private func enterForegroundZoomEnvironment(
     _ harness: PaneTabViewControllerCommandHarness,
     owningWindowId: UUID
 ) {
-    harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+    harness.coordinator.startBridgePaneActivityObservation()
     harness.appLifecycleStore.setActive(true)
     harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
     harness.windowLifecycleStore.recordWindowPresentation(

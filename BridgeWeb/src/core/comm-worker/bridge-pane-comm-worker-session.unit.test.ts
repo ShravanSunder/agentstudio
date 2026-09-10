@@ -558,6 +558,30 @@ describe('Bridge pane comm worker session', () => {
 		},
 	);
 
+	test('prepares runtime replacement state before retiring the failed worker', async () => {
+		const worker = new RecordingPaneCommWorker();
+		const session = new BridgePaneCommWorkerSession({ workerFactory: (): Worker => worker });
+		const prepareWorkerReplacement = vi.fn((): void => {
+			expect(worker.terminateCount).toBe(0);
+		});
+		session.setWorkerReplacementPreparer(prepareWorkerReplacement);
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('replacement-order-bootstrap'),
+			publishWorkerMessages: (): void => {},
+		});
+		try {
+			session.installNativeBootstrap(makeNativeBootstrap('replacement-order-worker'));
+			await flushMicrotasks();
+			worker.dispatchEvent(new Event('error'));
+
+			expect(prepareWorkerReplacement).toHaveBeenCalledOnce();
+			expect(worker.terminateCount).toBe(1);
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
 	test('requests one replacement when worker bootstrap readiness times out', async () => {
 		vi.useFakeTimers();
 		const worker = new RecordingPaneCommWorker();

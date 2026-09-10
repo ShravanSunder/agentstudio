@@ -160,7 +160,7 @@ private struct WorkspaceComparisonIntentRestartFixture {
         .branch(name: "feature/restart-target", basis: .branchTip)
     }
 
-    func makeDatastore() -> WorkspaceSQLiteDatastore {
+    func makeDatastore() -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: dataRoot.appending(path: "core.sqlite"),
             localDatabaseURL: dataRoot.appending(path: "local.sqlite")

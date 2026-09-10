@@ -33,6 +33,7 @@ export const reviewSnapshotEvent = {
 	},
 	contentSources: [],
 	eventKind: 'review.snapshot',
+	operationCorrelationId: null,
 	extentFacts: [],
 	generation: 7,
 	headEndpoint: {

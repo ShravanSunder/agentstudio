@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 
 struct BridgeDevelopmentProductReviewInitialization {
     let comparisonTargetProjection: BridgeReviewComparisonTargetProjection
@@ -7,7 +8,65 @@ struct BridgeDevelopmentProductReviewInitialization {
     let defaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
 }
 
+struct BridgeDevelopmentReviewPublicationConstruction {
+    let preparedPublication: BridgeReviewPreparedPublication
+    let gitRefreshSeed: GitReviewRefreshSeed?
+}
+
 extension BridgeDevelopmentProductHost {
+    func applyCommittedActiveViewerModeUpdate(
+        _ call: BridgeProductCallRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard case .reviewActiveViewerModeUpdate = call,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return }
+        let publication = await MainActor.run {
+            reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        }
+        guard publication == nil,
+            activeReviewComparisonTask == nil,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return }
+
+        guard let target = try? Self.reviewTarget(from: paneState) else {
+            productAdmissionGate.close()
+            return
+        }
+        let reviewGeneration = nextReviewGeneration
+
+        // Mode acceptance must not wait for Git construction. Reuse the existing
+        // Review task lifetime so repeated activation cannot create parallel work.
+        let taskAttempt = allocateReviewComparisonTaskAttempt()
+        activeReviewComparisonTaskAttempt = taskAttempt
+        activeReviewComparisonTask = Task { [weak self] in
+            guard let self else { return }
+            await MainActor.run {
+                guard !Task.isCancelled,
+                    productAdmission.withValidAdmission({ true }) == true
+                else { return }
+                self.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                    activeTarget: target,
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            }
+            await self.publishCurrentPanePresentation()
+            // Unlike bootstrap replay, this path must deliver to subscriptions
+            // that may already be waiting when initial construction completes.
+            _ = await self.runReviewComparisonPublication(
+                target: target,
+                reviewGeneration: reviewGeneration,
+                classifySameSourceRefresh: false,
+                productAdmission: productAdmission
+            )
+            await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
+        }
+    }
+
     static func makeReviewInitialization(
         state: BridgePaneState,
         provider: any BridgeReviewSourceProvider
@@ -40,6 +99,31 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
+    package func handleObservedWorktreeTerminal() async {
+        guard !isShutdown, let activeTarget = try? Self.reviewTarget(from: paneState) else { return }
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        await MainActor.run {
+            _ = refreshAdmissionCoordinator.advanceAuthority(for: .file)
+            _ = refreshAdmissionCoordinator.advanceAuthority(for: .review)
+            worktreeRefreshDriver.retireActiveFileOperation()
+            refreshAdmissionCoordinator.recordFileRefreshFailure(
+                .init(failureKind: .fileRefreshFailed)
+            )
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: activeTarget,
+                reviewGeneration: reviewGeneration.rawValue
+            )
+            refreshAdmissionCoordinator.failReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration.rawValue,
+                failureKind: "observation_terminal",
+                retryable: false
+            )
+        }
+        retireActiveReviewComparisonTask()
+        await publishCurrentPanePresentation()
+    }
+
     func applyCommittedReviewComparisonUpdate(
         _ request: BridgeProductReviewComparisonUpdateRequest,
         productAdmission: BridgeProductAdmissionContext
@@ -65,11 +149,12 @@ extension BridgeDevelopmentProductHost {
         await MainActor.run {
             reviewComparisonTargetProjection.update(state: canonicalState)
         }
+        guard case .applied = mutationResult else { return }
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
-        let supersededReviewComparisonTask = activeReviewComparisonTask
+        reviewGitRefreshSeedHolder.retire()
+        retireActiveReviewComparisonTask()
         await MainActor.run {
-            supersededReviewComparisonTask?.cancel()
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
                 activeTarget: request.target,
                 reviewGeneration: reviewGeneration.rawValue
@@ -78,60 +163,274 @@ extension BridgeDevelopmentProductHost {
         await publishCurrentPanePresentation()
         guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
 
-        activeReviewComparisonTaskGeneration = reviewGeneration
+        let taskAttempt = allocateReviewComparisonTaskAttempt()
+        activeReviewComparisonTaskAttempt = taskAttempt
         activeReviewComparisonTask = Task { [weak self] in
             guard let self else { return }
-            await self.runReviewComparisonPublication(
+            _ = await self.runReviewComparisonPublication(
                 target: request.target,
                 reviewGeneration: reviewGeneration,
+                classifySameSourceRefresh: false,
                 productAdmission: productAdmission
             )
-            await self.clearReviewComparisonTask(reviewGeneration: reviewGeneration)
+            await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
         }
+    }
+
+    func scheduleObservedReviewRefreshIfPossible() async {
+        guard !isShutdown,
+            let reservation = await MainActor.run(body: {
+                refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
+            }),
+            let target = try? Self.reviewTarget(from: paneState),
+            let currentPublication = await MainActor.run(body: {
+                reviewPublicationCoordinator.committedPublicationForReplay(
+                    productAdmission: productAdmission
+                )
+            })
+        else { return }
+
+        let reviewGeneration = currentPublication.package.reviewGeneration
+        retireActiveReviewComparisonTask()
+        await MainActor.run {
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: target,
+                reviewGeneration: reviewGeneration.rawValue
+            )
+        }
+        await publishCurrentPanePresentation()
+
+        let taskAttempt = allocateReviewComparisonTaskAttempt()
+        activeReviewComparisonTaskAttempt = taskAttempt
+        activeReviewComparisonTask = Task { [weak self] in
+            guard let self else { return }
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: .success,
+                stage: .refreshReserved,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: .started,
+                stage: .reviewPrepareStarted,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            let outcome = await self.runReviewComparisonPublication(
+                target: target,
+                reviewGeneration: reviewGeneration,
+                classifySameSourceRefresh: true,
+                predecessorPublication: currentPublication,
+                refreshReservation: reservation,
+                operationCorrelationID: reservation.operationCorrelationID,
+                productAdmission: self.productAdmission
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: Self.operationResult(for: outcome),
+                stage: .reviewPrepareTerminal,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            await self.productProvider.recordOperationLifecycle(
+                operationCorrelationID: reservation.operationCorrelationID,
+                result: Self.operationResult(for: outcome),
+                stage: .refreshOperationTerminal,
+                stageAttempt: reservation.operationStageAttempt,
+                surface: .review
+            )
+            await MainActor.run {
+                self.refreshAdmissionCoordinator.completeRefreshPass(
+                    reservation,
+                    outcome: outcome
+                )
+            }
+            await self.publishCurrentPanePresentation()
+            await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
+        }
+    }
+
+    private func retireActiveReviewComparisonTask() {
+        guard let taskAttempt = activeReviewComparisonTaskAttempt,
+            let task = activeReviewComparisonTask
+        else { return }
+        task.cancel()
+        retiringReviewComparisonTasks[taskAttempt] = task
+        activeReviewComparisonTask = nil
+        activeReviewComparisonTaskAttempt = nil
     }
 
     private func runReviewComparisonPublication(
         target: WorkspaceReviewContributionTarget,
         reviewGeneration: BridgeReviewGeneration,
+        classifySameSourceRefresh: Bool,
+        predecessorPublication: BridgeReviewCommittedPublication? = nil,
+        refreshReservation: BridgePaneRefreshCatchUpReservation? = nil,
+        operationCorrelationID: String? = nil,
         productAdmission: BridgeProductAdmissionContext
-    ) async {
+    ) async -> BridgePaneRefreshCatchUpOutcome {
         guard !Task.isCancelled else {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
-            return
+            await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: refreshReservation
+            )
+            return .stale
         }
         guard
             let foregroundWorkAdmission = await MainActor.run(body: {
                 refreshAdmissionCoordinator.acquireForegroundWork()
             })
         else {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "foreground_unavailable")
-            return
+            let didFail = await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "foreground_unavailable",
+                refreshReservation: refreshReservation
+            )
+            return didFail ? .failed : .stale
         }
         guard
             await refreshRepositoryDefaultTarget(
                 reviewGeneration: reviewGeneration,
+                refreshReservation: refreshReservation,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
-        else { return }
+        else { return .stale }
 
         do {
-            let preparedPublication = try await constructReviewPublication(
+            let construction = try await constructReviewPublication(
                 target: target,
-                reviewGeneration: reviewGeneration
+                reviewGeneration: reviewGeneration,
+                predecessorPackage: predecessorPublication?.package,
+                refreshReservation: refreshReservation
             )
+            guard
+                await isCurrentReviewComparisonAttempt(
+                    reviewGeneration: reviewGeneration,
+                    refreshReservation: refreshReservation,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            else {
+                await construction.preparedPublication.artifactPin?.releaseAndWait()
+                return .stale
+            }
+            reviewGitRefreshSeedHolder.commit(construction.gitRefreshSeed)
+            if let predecessorPublication,
+                construction.preparedPublication.delta == nil,
+                construction.preparedPublication.package.hasSameReviewTruth(
+                    as: predecessorPublication.package
+                )
+            {
+                await construction.preparedPublication.artifactPin?.releaseAndWait()
+                await MainActor.run {
+                    refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+                        reviewGeneration: reviewGeneration.rawValue,
+                        displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                            packageId: predecessorPublication.package.packageId,
+                            reviewGeneration: reviewGeneration.rawValue,
+                            revision: predecessorPublication.package.revision
+                        )
+                    )
+                }
+                return .succeeded
+            }
+            guard
+                let preparedPublication = await classifiedReviewPublication(
+                    construction.preparedPublication,
+                    reviewGeneration: reviewGeneration,
+                    classifySameSourceRefresh: classifySameSourceRefresh,
+                    refreshReservation: refreshReservation,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            else {
+                await construction.preparedPublication.artifactPin?.releaseAndWait()
+                return .stale
+            }
             try await publishPreparedReviewComparison(
                 preparedPublication,
+                reviewGeneration: reviewGeneration,
+                refreshReservation: refreshReservation,
                 productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                operationCorrelationID: operationCorrelationID
             )
+            return Task.isCancelled ? .stale : .succeeded
         } catch {
-            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
+            let didFail = await failReviewComparisonAttempt(
+                reviewGeneration,
+                failureKind: "publication_failed",
+                refreshReservation: refreshReservation
+            )
+            return Task.isCancelled || !didFail ? .stale : .failed
         }
+    }
+
+    private func classifiedReviewPublication(
+        _ preparedPublication: BridgeReviewPreparedPublication,
+        reviewGeneration: BridgeReviewGeneration,
+        classifySameSourceRefresh: Bool,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> BridgeReviewPreparedPublication? {
+        guard classifySameSourceRefresh else { return preparedPublication }
+        let displayedPublication = await MainActor.run {
+            reviewPublicationCoordinator.acknowledgedDisplayedPublication(
+                productAdmission: productAdmission
+            )
+        }
+        let expectedDisplayedPublicationId = displayedPublication?.publicationId
+        let refreshImpact: BridgeReviewRefreshImpact
+        if let displayedPublication,
+            let impactProvider = reviewProvider as? any BridgeReviewRefreshImpactSourceProvider
+        {
+            do {
+                refreshImpact = try await impactProvider.measureRefreshImpact(
+                    displayedPackage: displayedPublication.package,
+                    candidatePackage: preparedPublication.package,
+                    candidateGeneration: reviewGeneration
+                )
+            } catch is CancellationError {
+                return nil
+            } catch {
+                refreshImpact = .unknown(
+                    displayedPackage: displayedPublication.package,
+                    candidatePackage: preparedPublication.package
+                )
+            }
+        } else {
+            refreshImpact = .unknown(
+                displayedPackage: displayedPublication?.package,
+                candidatePackage: preparedPublication.package
+            )
+        }
+        guard !Task.isCancelled,
+            !isShutdown,
+            reviewGeneration == nextReviewGeneration,
+            productAdmission.withValidAdmission({ true }) == true,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        let isCurrentAttempt = await MainActor.run {
+            refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
+                reviewGeneration: reviewGeneration.rawValue
+            )
+                && refreshReservation.map(refreshAdmissionCoordinator.isRefreshPassCurrent) != false
+                && reviewPublicationCoordinator.acknowledgedDisplayedPublication(
+                    productAdmission: productAdmission
+                )?.publicationId == expectedDisplayedPublicationId
+        }
+        guard isCurrentAttempt else { return nil }
+        return preparedPublication.classified(with: refreshImpact)
     }
 
     private func refreshRepositoryDefaultTarget(
         reviewGeneration: BridgeReviewGeneration,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> Bool {
@@ -146,6 +445,7 @@ extension BridgeDevelopmentProductHost {
                 refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
                     reviewGeneration: reviewGeneration.rawValue
                 )
+                    && refreshReservation.map(refreshAdmissionCoordinator.isRefreshPassCurrent) != false
             else { return false }
             return true
         }
@@ -170,6 +470,7 @@ extension BridgeDevelopmentProductHost {
                 refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
                     reviewGeneration: reviewGeneration.rawValue
                 )
+                    && refreshReservation.map(refreshAdmissionCoordinator.isRefreshPassCurrent) != false
             else { return false }
             refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
             return true
@@ -179,23 +480,46 @@ extension BridgeDevelopmentProductHost {
         return true
     }
 
-    private func clearReviewComparisonTask(reviewGeneration: BridgeReviewGeneration) {
-        guard activeReviewComparisonTaskGeneration == reviewGeneration else { return }
+    private func clearReviewComparisonTask(taskAttempt: UInt64) {
+        retiringReviewComparisonTasks.removeValue(forKey: taskAttempt)
+        guard activeReviewComparisonTaskAttempt == taskAttempt else { return }
         activeReviewComparisonTask = nil
-        activeReviewComparisonTaskGeneration = nil
+        activeReviewComparisonTaskAttempt = nil
+    }
+
+    private static func operationResult(
+        for outcome: BridgePaneRefreshCatchUpOutcome
+    ) -> BridgeOperationLifecycleTraceEvent.Result {
+        switch outcome {
+        case .succeeded:
+            .success
+        case .failed:
+            .failure
+        case .stale, .streamReset:
+            .stale
+        }
     }
 
     private func publishPreparedReviewComparison(
         _ preparedPublication: BridgeReviewPreparedPublication,
+        reviewGeneration: BridgeReviewGeneration,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        operationCorrelationID: String?
     ) async throws {
         if Task.isCancelled {
             await preparedPublication.artifactPin?.releaseAndWait()
             throw CancellationError()
         }
         guard productAdmission.withValidAdmission({ true }) == true,
-            foregroundWorkAdmission.withValidAdmission({ true }) == true
+            foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            await isCurrentReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration,
+                refreshReservation: refreshReservation,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
         else {
             await preparedPublication.artifactPin?.releaseAndWait()
             return
@@ -203,6 +527,7 @@ extension BridgeDevelopmentProductHost {
         let stagedToken = await MainActor.run {
             reviewPublicationCoordinator.stage(
                 preparedPublication,
+                operationCorrelationID: operationCorrelationID,
                 productAdmission: productAdmission
             )
         }
@@ -233,6 +558,7 @@ extension BridgeDevelopmentProductHost {
                 refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
                     reviewGeneration: preparedPublication.package.reviewGeneration.rawValue
                 )
+                    && refreshReservation.map(refreshAdmissionCoordinator.isRefreshPassCurrent) != false
             else {
                 _ = reviewPublicationCoordinator.rejectReservation(
                     stagedToken,
@@ -276,27 +602,72 @@ extension BridgeDevelopmentProductHost {
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         )
+        await recordReviewTransportDelivery(
+            delivery,
+            publication: committedPublication,
+            productAdmission: productAdmission
+        )
+    }
+
+    private func recordReviewTransportDelivery(
+        _ delivery: BridgeReviewPublicationDeliveryDisposition,
+        publication: BridgeReviewCommittedPublication,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
         _ = await MainActor.run {
             reviewPublicationCoordinator.recordTransportDeliveryDisposition(
                 delivery,
-                publicationId: committedPublication.publicationId,
+                publicationId: publication.publicationId,
                 productAdmission: productAdmission
             )
         }
     }
 
+    private func isCurrentReviewComparisonAttempt(
+        reviewGeneration: BridgeReviewGeneration,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> Bool {
+        guard !Task.isCancelled,
+            !isShutdown,
+            reviewGeneration == nextReviewGeneration,
+            productAdmission.withValidAdmission({ true }) == true,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else { return false }
+        return await MainActor.run {
+            refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
+                reviewGeneration: reviewGeneration.rawValue
+            )
+                && refreshReservation.map(refreshAdmissionCoordinator.isRefreshPassCurrent) != false
+        }
+    }
+
+    @discardableResult
     func failReviewComparisonAttempt(
         _ reviewGeneration: BridgeReviewGeneration,
-        failureKind: String
-    ) async {
-        await MainActor.run {
+        failureKind: String,
+        refreshReservation: BridgePaneRefreshCatchUpReservation?
+    ) async -> Bool {
+        let didFail = await MainActor.run {
+            // Source lineage survives ordinary edits; only the current reservation
+            // may publish a failure, just as only that reservation may commit.
+            if let refreshReservation {
+                guard !Task.isCancelled,
+                    productAdmission.withValidAdmission({ true }) == true,
+                    refreshReservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                    refreshAdmissionCoordinator.isRefreshPassCurrent(refreshReservation)
+                else { return false }
+            }
             refreshAdmissionCoordinator.failReviewComparisonAttempt(
                 reviewGeneration: reviewGeneration.rawValue,
                 failureKind: failureKind,
                 retryable: true
             )
+            return true
         }
-        await publishCurrentPanePresentation()
+        if didFail { await publishCurrentPanePresentation() }
+        return didFail
     }
 
     func publishCurrentPanePresentation() async {

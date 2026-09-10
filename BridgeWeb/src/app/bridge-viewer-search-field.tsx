@@ -7,13 +7,8 @@ import {
 	type ReactElement,
 } from 'react';
 
-import { Input } from '../components/ui/input.js';
-import { BridgeViewerButton, BridgeViewerIcon } from './bridge-viewer-button.js';
-import {
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-} from './bridge-viewer-chrome.js';
-import { cn } from './class-name.js';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '../components/ui/input-group.js';
+import { BridgeViewerButton } from './bridge-viewer-button.js';
 
 export type BridgeViewerSearchFieldMode = { readonly kind: 'regex' | 'text' };
 
@@ -38,34 +33,13 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 		inputRef.current?.select();
 	}, []);
 	return (
-		<div
-			className={cn(
-				'm-2 flex h-7 min-w-0 items-center gap-1 rounded-md border px-1.5',
-				'border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]',
-				'focus-within:border-[var(--bridge-focus-border)] focus-within:ring-1 focus-within:ring-[var(--bridge-focus-ring)]',
-				props.errorMessage === null
-					? null
-					: 'border-[var(--destructive)] ring-1 ring-[color-mix(in_oklch,var(--destructive)_25%,transparent)]',
-			)}
-			data-bridge-viewer-search-field="true"
-		>
-			<SearchIcon
-				aria-hidden="true"
-				className={cn(
-					bridgeViewerChromeLucideIconClassName,
-					'shrink-0 text-[var(--bridge-text-muted)]',
-				)}
-				data-bridge-viewer-search-icon="true"
-			/>
-			<Input
+		<InputGroup className="m-2 w-auto" data-bridge-viewer-search-field="true">
+			<InputGroupAddon>
+				<SearchIcon aria-hidden="true" data-bridge-viewer-search-icon="true" />
+			</InputGroupAddon>
+			<InputGroupInput
 				aria-invalid={props.errorMessage === null ? undefined : true}
 				aria-label="Search files"
-				className={cn(
-					'h-6 min-h-6 flex-1 border-0 bg-transparent px-1 py-0 shadow-none',
-					'!text-[11px] !leading-none text-[var(--bridge-text-primary)]',
-					'placeholder:text-[var(--bridge-text-muted)] focus-visible:border-0 focus-visible:ring-0',
-					'dark:bg-transparent dark:aria-invalid:border-0 dark:aria-invalid:ring-0',
-				)}
 				data-testid={props.inputTestId}
 				onChange={(event: ChangeEvent<HTMLInputElement>): void => {
 					props.onChange(event.currentTarget.value);
@@ -82,35 +56,30 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 				type="text"
 				value={props.value}
 			/>
-			<BridgeViewerButton
-				ariaLabel={isRegexMode ? 'Use text search' : 'Use regex search'}
-				ariaPressed={isRegexMode}
-				className={cn(bridgeViewerChromeIconButtonClassName, 'h-5 min-h-5 w-5 min-w-5')}
-				onClick={(): void => {
-					props.onSearchModeChange(isRegexMode ? { kind: 'text' } : { kind: 'regex' });
-				}}
-				testId={props.regexToggleTestId}
-				title={isRegexMode ? 'Use text search' : 'Use regex search'}
-			>
-				<BridgeViewerIcon>
-					<RegexIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-				</BridgeViewerIcon>
-			</BridgeViewerButton>
-			<BridgeViewerButton
-				ariaLabel={props.value.length === 0 ? 'Close search' : 'Clear search'}
-				className={cn(
-					bridgeViewerChromeIconButtonClassName,
-					'h-5 min-h-5 w-5 min-w-5 disabled:opacity-35',
-				)}
-				onClick={props.onClear}
-				testId={props.clearButtonTestId}
-				title={props.value.length === 0 ? 'Close search' : 'Clear search'}
-			>
-				<BridgeViewerIcon>
-					<XIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-				</BridgeViewerIcon>
-			</BridgeViewerButton>
-		</div>
+			<InputGroupAddon align="inline-end">
+				<BridgeViewerButton
+					ariaLabel={isRegexMode ? 'Use text search' : 'Use regex search'}
+					ariaPressed={isRegexMode}
+					size="icon-xs"
+					onClick={(): void => {
+						props.onSearchModeChange(isRegexMode ? { kind: 'text' } : { kind: 'regex' });
+					}}
+					testId={props.regexToggleTestId}
+					title={isRegexMode ? 'Use text search' : 'Use regex search'}
+				>
+					<RegexIcon aria-hidden="true" />
+				</BridgeViewerButton>
+				<BridgeViewerButton
+					ariaLabel={props.value.length === 0 ? 'Close search' : 'Clear search'}
+					size="icon-xs"
+					onClick={props.onClear}
+					testId={props.clearButtonTestId}
+					title={props.value.length === 0 ? 'Close search' : 'Clear search'}
+				>
+					<XIcon aria-hidden="true" />
+				</BridgeViewerButton>
+			</InputGroupAddon>
+		</InputGroup>
 	);
 }
 
