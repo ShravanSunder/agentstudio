@@ -6581,3 +6581,13 @@ Observed scoped annotation-selection7/7 pass, but that is not a source release.
 Please finish and checkpoint the current bounded drawer/canvas correction;
 defer additional UI work until requested push gate completes, or name exact
 remaining blocker. Parent will not infer a freeze from a passing log alone.
+
+## TRANSPORT-0299 | 2026-09-10 | LATEST MAIN / STABLE RELEASE AUTHORIZED
+
+Owner requests latestmain merge, PRmerge aftergates, then stable release.
+Lateststable v0.0.97; candidate nextpatch v0.0.98, recheck beforetag. UI117
+freeze received. Allfiles checkpointed7ec39348f before merge. Main c64e3cade
+merge underway;4conflicts resolved provisionally retaining bothlanes. Compiler
+caught newextensions using retired WorkspaceSQLiteDatastore name; cutover to
+Actor type/file names, noalias. Focusedmergedcompile underway. Prioraggregate
+cancelled130 for mergedsource freshness, not testfailure.

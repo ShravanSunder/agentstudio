@@ -583,6 +583,11 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
 
 @MainActor
 private final class PullRequestDemandSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     private let cwdChanges = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
         continuation.finish()
     }
@@ -600,7 +605,7 @@ private final class PullRequestDemandSurfaceManager: WorkspaceSurfaceManaging {
 
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? { nil }
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
-    func undoClose() -> ManagedSurface? { nil }
-    func requeueUndo(_ surfaceId: UUID) {}
+
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
     func destroy(_ surfaceId: UUID) {}
 }

@@ -22,10 +22,10 @@ struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
         let tempDir: URL
     }
 
-    private func makeHarness() -> Harness {
+    private func makeHarness() throws -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-drawer-undo-\(UUID().uuidString)")
-        let store = WorkspaceStore()
+        let store = try makeWorkspaceJournalTestStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = HarnessSurfaceManager()
@@ -81,8 +81,8 @@ struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
     }
 
     @Test("undoPaneClose restores a parent pane with drawer child tab membership")
-    func undoPaneCloseParentPaneRestoresDrawerChildMembership() throws {
-        let harness = makeHarness()
+    func undoPaneCloseParentPaneRestoresDrawerChildMembership() async throws {
+        let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let anchorPane = makeWebviewPane(harness.store, title: "Anchor")
@@ -106,8 +106,8 @@ struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
         )
         let drawerId = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
 
-        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: parentPane.id))
-        harness.coordinator.undoCloseTab()
+        try await harness.coordinator.execute(.closePane(tabId: tab.id, paneId: parentPane.id))
+        try await harness.coordinator.undoCloseTab()
 
         let restoredTab = try #require(harness.store.tab(tab.id))
         #expect(restoredTab.allPaneIds.contains(parentPane.id))

@@ -70,7 +70,9 @@ final class RepoExplorerCommandPresentationBatch {
     private let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     private let dispatcher: AppCommandDispatcher
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
-    private let coalescingYield: @MainActor @Sendable () async -> Void
+    /// The onChange coalescing window, isolated behind a seam so tests can hold it open
+    /// deterministically instead of racing `Task.yield()` scheduling.
+    @ObservationIgnored private let coalescingYield: @MainActor @Sendable () async -> Void
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
     @ObservationIgnored private var lastVisibleRepositoryIDs: Set<UUID> = []

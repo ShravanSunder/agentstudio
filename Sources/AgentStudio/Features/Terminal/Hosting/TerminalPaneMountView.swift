@@ -437,6 +437,10 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         surface.verifyGeometryCoherence(reason: reason)
     }
 
+    package func paneHostWillRetire() {
+        removeSurface()
+    }
+
     func removeSurface() {
         ghosttySurface?.onCloseRequested = nil
         ghosttyMountView.unmountCurrentView()

@@ -22,7 +22,7 @@ The key architectural decision is **separation of ownership from display**:
 │  │ activeSurfaces  │ │ hiddenSurfaces  │ │   undoStack     │       │
 │  │  [UUID: Surf]   │ │  [UUID: Surf]   │ │ [UndoEntry]     │       │
 │  │                 │ │                 │ │                 │       │
-│  │  Rendering: ON  │ │  Rendering: OFF │ │ TTL: 5 minutes  │       │
+│  │  Rendering: ON  │ │  Rendering: OFF │ │ Journal owned  │       │
 │  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘       │
 │           │                   │                   │                 │
 │           └───────────────────┴───────────────────┘                 │
@@ -46,7 +46,7 @@ The key architectural decision is **separation of ownership from display**:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Pane-to-surface join key:** `SurfaceMetadata.paneId` links a surface to its `Pane`. This is used during undo restore to verify the correct surface is reattached to the correct pane (multi-pane safety).
+**Pane-to-surface join key:** the current or most recent attachment ID binds a surface to its pane. Undo uses `previousPaneAttachmentId` with the retained attachment as fallback; creation metadata is not a live binding.
 
 ---
 
@@ -65,6 +65,49 @@ Design implication:
 - Background panes can be pre-sized and kept occluded.
 - Attach orchestration should treat size readiness and visibility readiness as separate signals.
 
+### Renderer visibility and focus delivery
+
+Visibility and focus reach libghostty through exactly one seam,
+`SurfaceRendererStateDelivery` (`LiveSurfaceRendererStateDelivery` in production).
+`SurfaceManager` owns every visibility and focus-on delivery; views deliver focus-off only,
+through the same seam. Nothing else in the app calls `ghostty_surface_set_occlusion` or
+`ghostty_surface_set_focus`; an architecture test pins this.
+
+- **Effective visibility** for an attached surface is
+  `window.isVisible && !window.isMiniaturized && !window.isOccluded && tier == .p0Visible`, where
+  the tier comes from `StoreVisibilityTierResolver` (active tab, zoom, minimized panes, expanded
+  drawers). `WorkspaceSurfaceCoordinator+RendererVisibility` joins those facts inside one
+  generation-guarded `withObservationTracking` pass and calls
+  `SurfaceManager.reconcileAttachedVisibility` for the exact attached set. Attach, detach, move,
+  swap and destroy re-arm the pass through the manager's attached-bindings handler; the manager's
+  collections themselves are `@ObservationIgnored`.
+- **Deliver on change.** `ManagedSurface.lastDeliveredVisibility` records the last value handed to
+  the seam; equal values are suppressed at the manager, so a reconciliation over 30 attached
+  surfaces normally delivers nothing.
+- **Detach delivers hidden while the surface is still attached.** `detach(.hide/.move/.close)`
+  turns focus off, delivers `visible == false`, and only then moves the surface between
+  collections. Bare removal used to leave the renderer believing it was visible.
+- **Focus follows delivered visibility.** `SurfaceManager.setFocus(_, focused: true)` is refused
+  unless the surface is active, its last delivered visibility is `true`, **and** it is its
+  window's first responder; focus-off is always delivered. The responder-chain callback
+  (`SurfaceManager.surfaceDidBecomeFirstResponder(_:)`, called from
+  `Ghostty.SurfaceView.becomeFirstResponder`) supplies responder truth itself and gates only on
+  active membership and delivered visibility, since AppKit may not have updated
+  `window.firstResponder` while `becomeFirstResponder` is still running. Turning visibility on
+  re-delivers focus when the view is already its window's first responder. Ghostty starts the
+  display link on focus regardless of occlusion, so an ungated focus-on would wake a hidden
+  renderer.
+- **What hidden buys at Ghostty v1.3.1.** `set_occlusion(false)` stops the display link and
+  `drawFrame` early-returns; the renderer thread still services `updateFrame` on wakeups. Hidden
+  is a CPU/compositor saving, not a memory release; memory is released only by destroying the
+  surface (see the lifecycle telemetry below).
+- **Lifecycle telemetry.** `performance.renderer.lifecycle` records
+  created/attached/hidden/closed_for_undo/undo_restored/released/freed/reconciled with the
+  manager's exact population and the conservation view `live = created − freed`,
+  `manager_owned = active + hidden + close_undo`, `orphan_candidate = live − manager_owned`.
+  `released` is emitted before the manager drops its last reference; `freed` from
+  `Ghostty.SurfaceView.retireNativeSurface` after the existing `ghostty_surface_free` returns. Only bounded aggregates are exported.
+
 ---
 
 ## Surface State Machine
@@ -77,71 +120,51 @@ stateDiagram-v2
     HIDDEN --> ACTIVE: attach()
     ACTIVE --> HIDDEN: detach(.hide) / detach(.move)
     ACTIVE --> PENDING_UNDO: detach(.close)
-    PENDING_UNDO --> HIDDEN: undoClose()
-    PENDING_UNDO --> DESTROYED: TTL expires / destroy()
+    HIDDEN --> PENDING_UNDO: detach(.close)
+    PENDING_UNDO --> HIDDEN: undoClose(forPaneId:)
+    PENDING_UNDO --> DESTROYED: committed journal retirement / destroy()
     HIDDEN --> DESTROYED: destroy()
     DESTROYED --> [*]
 ```
 
 | State | Collection | Rendering | Notes |
 |-------|-----------|-----------|-------|
-| HIDDEN | `hiddenSurfaces` | OFF | Alive but not displayed |
-| ACTIVE | `activeSurfaces` | ON | Visible in a container |
-| PENDING_UNDO | `undoStack` | OFF | Closed, awaiting undo (5 min TTL) |
-| DESTROYED | (freed) | N/A | Surface removed from all collections, ARC deallocated |
+| HIDDEN | `hiddenSurfaces` | OFF | Alive but not displayed; `detach(.close)` from here enters PENDING_UNDO (closing a background tab) |
+| ACTIVE | `activeSurfaces` | ON only while effective visibility is true | Attached to a pane; rendering follows the reconciled visibility, not attachment |
+| PENDING_UNDO | `undoStack` | OFF | Retained for an available durable Undo owner; the journal owns the 300-second deadline |
+| DESTROYED | (freed) | N/A | Native handle explicitly freed; an inert view may still be retained by AppKit |
 
 ---
 
 ## Tab Close → Undo Flow
 
-The close/undo flow is coordinated through `WorkspaceSurfaceCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
+The journal in `core.sqlite` is the durable Undo authority. SurfaceManager's retained surfaces
+are a cache of that ownership, with no independent expiration task.
 
-```
-User closes tab
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceSurfaceCoordinator.executeCloseTab(tabId)                        │
-│   ├─► store.snapshotForClose() → TabCloseSnapshot            │
-│   ├─► Push to undo stack (max 10 entries)                    │
-│   │                                                          │
-│   ├─► For each paneId in tab:                               │
-│   │     coordinator.teardownView(paneId)                    │
-│   │       ├─► ViewRegistry.unregister(paneId)             │
-│   │       └─► SurfaceManager.detach(surfaceId, reason: .close)│
-│   │             ├─► Remove from activeSurfaces               │
-│   │             ├─► ghostty_surface_set_occlusion(false)     │
-│   │             ├─► Create SurfaceUndoEntry with TTL         │
-│   │             ├─► Schedule expiration Task                 │
-│   │             └─► Append to undoStack                      │
-│   │                                                          │
-│   └─► store.removeTab(tabId)                                 │
-└──────────────────────────────────────────────────────────────┘
+```text
+Close command
+  -> prepare complete snapshot
+  -> commit pane/layout removal and Undo entry in one serialized write
+  -> hide/detach the exact surface and retain it for Undo
+  -> publish committed state
 
-User presses Cmd+Shift+T
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceSurfaceCoordinator.undoCloseTab()                                │
-│   ├─► Pop CloseEntry from undo stack                        │
-│   ├─► store.restoreFromSnapshot() → re-insert tab            │
-│   │                                                          │
-│   └─► For each pane (reversed, matching LIFO order):         │
-│         coordinator.restoreView(pane, worktree, repo)         │
-│           ├─► SurfaceManager.undoClose()                     │
-│           │     ├─► Pop from undoStack                       │
-│           │     ├─► Cancel expiration Task                   │
-│           │     ├─► Verify metadata.paneId matches          │
-│           │     └─► Move to hiddenSurfaces                   │
-│           │                                                  │
-│           ├─► SurfaceManager.attach(surfaceId, paneId)       │
-│           │     ├─► Move to activeSurfaces                   │
-│           │     ├─► ghostty_surface_set_occlusion(true)      │
-│           │     └─► Return surfaceView                       │
-│           │                                                  │
-│           └─► ViewRegistry.register(view, paneId)            │
-└──────────────────────────────────────────────────────────────┘
+Undo command
+  -> validate the newest restorable entry without consuming invalid placement
+  -> commit restored composition and consume the entry atomically
+  -> prepare/publish host placement
+  -> remount retained surface by pane attachment ID when available
+
+Deadline / oldest-first eviction / permanent discard
+  -> commit ownership transition, query remaining owners, mark unowned sessions pending
+  -> retire only unowned pane surfaces
+  -> wake verified session cleanup (subject to the startup gate)
 ```
+
+The journal keeps at most ten available operations per workspace and uses a 300-second deadline.
+Restart recovers durable Undo deadlines before runtime admission. The session cleanup consumer
+waits five minutes after boot before processing journal-known pending sessions, and rechecks native
+attachments before retirement. Failed work stays pending; completion requires the applicable
+endpoint or recorded-process evidence described in [Session Lifecycle](session_lifecycle.md).
 
 ---
 
@@ -309,9 +332,9 @@ This document defines surface lifecycle primitives. Scheduling policy belongs to
 
 | Reason | Target | Expires | Rendering | Use Case |
 |--------|--------|---------|-----------|----------|
-| `.hide` | hiddenSurfaces | No | Paused | Background terminal / view switch |
-| `.close` | undoStack | Yes (5 min) | Paused | Tab closed (undo-able) |
-| `.move` | hiddenSurfaces | No | Paused | Tab drag reorder |
+| `.hide` | hiddenSurfaces | No | Hidden delivered before removal | Background terminal / view switch (no-op if already hidden) |
+| `.close` | undoStack | Journal-owned 300-second deadline | Hidden delivered before removal | Tab or pane closed (undo-able); also from hiddenSurfaces |
+| `.move` | hiddenSurfaces | No | Hidden delivered before removal | Tab drag reorder (no-op if already hidden) |
 
 ---
 
@@ -341,7 +364,10 @@ All three initializers require `paneId:`. The view never creates its own surface
 | `SurfaceManager.createSurface()` | Create with retry and error handling |
 | `SurfaceManager.attach(to:)` | Attach to container, resume rendering |
 | `SurfaceManager.detach(reason:)` | Hide, close (undo-able), or move |
-| `SurfaceManager.undoClose()` | Restore last closed surface (LIFO) |
+| `SurfaceManager.undoClose(forPaneId:)` | Restore the retained surface for a pane, wherever it sits in the undo stack |
+| `SurfaceManager.reconcileAttachedVisibility(_:)` | Deliver effective visibility to the exact attached set; equal values suppressed |
+| `SurfaceManager.setFocus(_:focused:)` | Only focus path; focus-on gated on delivered visibility |
+| `SurfaceManager.setAttachedBindingsChangeHandler(_:)` | Re-arms the coordinator's visibility reconciliation |
 | `SurfaceManager.withSurface()` | Safe operation wrapper |
 
 ---
@@ -365,7 +391,11 @@ All three initializers require `paneId:`. The view never creates its own surface
 | File | Purpose |
 |------|---------|
 | [`Ghostty/SurfaceManager.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift) | Singleton owner, lifecycle, health monitoring, CWD propagation |
-| [`Ghostty/SurfaceTypes.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceTypes.swift) | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
+| [`Ghostty/SurfaceManager+RendererState.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager+RendererState.swift) | Visibility/focus delivery, reconciliation, lifecycle emission |
+| [`Ghostty/SurfaceRendererStateDelivery.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceRendererStateDelivery.swift) | The only seam to `ghostty_surface_set_occlusion` / `set_focus` |
+| [`App/Coordination/WorkspaceSurfaceCoordinator+RendererVisibility.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RendererVisibility.swift) | Joins window facts and visibility tier; drives reconciliation |
+| [`Infrastructure/Diagnostics/RendererLifecyclePerformanceState.swift`](../../../Sources/AgentStudio/Infrastructure/Diagnostics/RendererLifecyclePerformanceState.swift) | `performance.renderer.lifecycle` conservation counters |
+| [`Ghostty/SurfaceTypes.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceTypes.swift) | SurfaceState, ManagedSurface (`lastDeliveredVisibility`), SurfaceMetadata, protocols |
 | [`Infrastructure/CWDNormalizer.swift`](../../../Sources/AgentStudio/Infrastructure/CWDNormalizer.swift) | Pure normalizer: raw pwd string → validated file URL |
 | [`Ghostty/GhosttySurfaceView.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift) | Surface view with `pwd` property (OSC 7 CWD tracking) |
 | [`Ghostty/Ghostty.swift`](../../../Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift) | Thin composition root for the embedded Ghostty host |

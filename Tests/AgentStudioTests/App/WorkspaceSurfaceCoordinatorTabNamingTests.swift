@@ -181,6 +181,11 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
 }
 
 private final class TabNamingSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(
@@ -200,11 +205,7 @@ private final class TabNamingSurfaceManager: WorkspaceSurfaceManaging {
         _ = surfaceId
     }
 
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {
         _ = surfaceId

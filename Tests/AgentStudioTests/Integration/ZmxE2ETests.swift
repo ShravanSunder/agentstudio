@@ -1,4 +1,7 @@
+import AgentStudioInfrastructure
+import Darwin
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -14,6 +17,273 @@ import Testing
 extension E2ESerializedTests {
     @Suite(.serialized)
     struct ZmxE2ETests {
+        @Test(
+            "pending cleanup recovers from a reopened database and preserves a replacement", arguments: [false, true])
+        func pendingCleanupRecoversAfterProcessExit(withReplacement: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("proof.sqlite")
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                do {
+                    let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+                    try WorkspaceCoreMigrations.migrate(database)
+                    try await database.write { connection in
+                        try connection.execute(
+                            sql: """
+                                INSERT INTO workspace_terminal_session_ownership(
+                                    session_id, cleanup_state, cleanup_requested_at, process_identity)
+                                VALUES (?, 'pending', 100, ?)
+                                """, arguments: [sessionID.rawValue, evidence])
+                    }
+                    // Deliberately omit completion persistence, as if shutdown interrupted
+                    // the application after its external effect but before its final write.
+                    _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                    try database.close()
+                }
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                let datastore = try await reopenedCleanupDatastore(at: databaseURL)
+                let pending = try await datastore.terminalSessionCleanupBatch(after: nil)
+                try #require(pending.count == 1)
+                guard case .retire(let recoveredSessionID, let recoveredEvidence) = pending[0] else {
+                    Issue.record("Reopened journal must retain pending process evidence")
+                    return
+                }
+                #expect(recoveredSessionID == sessionID)
+                #expect(recoveredEvidence == evidence)
+                var replacementEvidence: Data?
+                if withReplacement {
+                    _ = try harness.spawnZmxSession(
+                        zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                    replacementEvidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                    #expect(replacementEvidence != evidence)
+                }
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var completed = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        completed =
+                            try await datastore.retirePendingTerminalSession(
+                                sessionID: recoveredSessionID, identity: recoveredEvidence
+                            ) {
+                                try await backend.retireVerifiedSession(sessionID, expectedIdentity: recoveredEvidence)
+                            } == .completed
+                        if completed { break }
+                    } catch is ZmxSessionControlFailure {
+                        // A replaced endpoint is never signalled; old process reaping may still be in flight.
+                    }
+                    await Task.yield()
+                }
+                #expect(completed)
+                #expect(try await datastore.terminalSessionCleanupBatch(after: nil).isEmpty)
+                if let replacementEvidence {
+                    #expect(try await backend.observeSessionIdentity(sessionID) == replacementEvidence)
+                    #expect(await backend.sessionExists(.init(id: sessionID)))
+                }
+            }
+        }
+
+        @Test("verified extinct processes complete despite an untouched stale socket")
+        func extinctProcessesCompleteWithStaleSocket() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var extinct = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        extinct =
+                            try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence) == .completed
+                        if extinct { break }
+                    } catch is ZmxSessionControlFailure {
+                        // Normal shutdown can still be reaping the recorded original processes.
+                    }
+                    await Task.yield()
+                }
+                try #require(extinct)
+                let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
+                let socketInode = try makeStaleCleanupSocket(at: socketPath)
+                let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("stale-socket.sqlite")
+                do {
+                    let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+                    try WorkspaceCoreMigrations.migrate(database)
+                    try await database.write { connection in
+                        try connection.execute(
+                            sql: """
+                                INSERT INTO workspace_terminal_session_ownership(
+                                    session_id, cleanup_state, cleanup_requested_at, process_identity)
+                                VALUES (?, 'pending', 100, ?)
+                                """, arguments: [sessionID.rawValue, evidence])
+                    }
+                    try database.close()
+                }
+                let datastore = try await reopenedCleanupDatastore(at: databaseURL)
+                let result = try await datastore.retirePendingTerminalSession(sessionID: sessionID, identity: evidence)
+                {
+                    try await backend.retireVerifiedSession(sessionID, expectedIdentity: evidence)
+                }
+                #expect(result == .completed)
+                #expect(try await datastore.terminalSessionCleanupBatch(after: nil).isEmpty)
+                var remainingSocket = stat()
+                #expect(lstat(socketPath, &remainingSocket) == 0)
+                #expect(remainingSocket.st_ino == socketInode)
+            }
+        }
+
+        private func waitForObservedSessionIdentity(_ sessionID: ZmxSessionID, backend: ZmxBackend) async throws -> Data
+        {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while ContinuousClock.now < deadline {
+                try Task.checkCancellation()
+                do {
+                    if let identity = try await backend.observeSessionIdentity(sessionID) { return identity }
+                } catch ZmxSessionControlFailure.unavailable {
+                    // Socket creation precedes the daemon accepting control requests.
+                } catch ZmxSessionControlFailure.processUnverifiable {
+                    // The daemon/terminal fork may still be settling.
+                } catch ZmxSessionControlFailure.timeout {
+                    // A busy startup may not answer within one bounded request.
+                }
+                await Task.yield()
+            }
+            throw ZmxSessionControlFailure.timeout
+        }
+
+        private func makeStaleCleanupSocket(at path: String) throws -> ino_t {
+            let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard descriptor >= 0 else { throw POSIXError(.EIO) }
+            defer { Darwin.close(descriptor) }
+            var address = sockaddr_un()
+            let bytes = Array(path.utf8)
+            guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw POSIXError(.ENAMETOOLONG) }
+            address.sun_family = sa_family_t(AF_UNIX)
+            address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes + [0]) }
+            let bound = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            guard bound == 0 else { throw POSIXError(.EIO) }
+            var information = stat()
+            guard lstat(path, &information) == 0 else { throw POSIXError(.EIO) }
+            return information.st_ino
+        }
+
+        @MainActor
+        private func reopenedCleanupDatastore(at databaseURL: URL) throws -> WorkspaceSQLiteDatastoreActor {
+            let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
+            let repository = WorkspaceCoreRepository(databaseWriter: database)
+            let localDatabase = try SQLiteDatabaseFactory.makeInMemoryQueue()
+            try WorkspaceLocalMigrations.migrate(localDatabase)
+            return try preparedWorkspaceSQLiteDatastore(
+                from: WorkspaceSQLiteStoreBackend(
+                    coreRepository: repository,
+                    makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localDatabase) },
+                    coreDatabaseStartupProvenance: .createdDuringCurrentStartup))
+        }
+
+        @Test("inspection failures are not reported as absence", arguments: [false, true])
+        func inspectionFailureIsNotAbsence(permissionDenied: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                defer {
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: harness.zmxDir)
+                }
+                if permissionDenied {
+                    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: harness.zmxDir)
+                } else {
+                    try Data().write(to: URL(fileURLWithPath: "\(harness.zmxDir)/\(sessionID.rawValue)"))
+                }
+                await #expect(throws: ZmxSessionControlFailure.unavailable) {
+                    try await backend.observeSessionIdentity(sessionID)
+                }
+            }
+        }
+
+        @Test("an already absent session needs no kill", arguments: [false, true])
+        func absentSessionNeedsNoKill(wasRunning: Bool) async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                if wasRunning {
+                    _ = try harness.spawnZmxSession(
+                        zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                        commandArgs: ["/bin/sleep", "300"])
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                    try await backend.destroySessionByID(sessionID)
+                    try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                }
+                let evidence: Data? = try await backend.observeSessionIdentity(sessionID)
+                #expect(evidence == nil)
+            }
+        }
+
+        @Test("observed identity addresses one real daemon and rejects a mismatched cleanup")
+        func observedIdentityProtectsTheRunningSession() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                _ = try harness.spawnZmxSession(
+                    zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                    commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+
+                let encoded = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let identity = try ZmxSessionIdentity.decode(encoded)
+                #expect(identity.daemon.pid != identity.terminalLeader.pid)
+                #expect(identity.processGroupID == identity.terminalLeader.pid)
+                let mismatch = ZmxSessionIdentity(
+                    version: identity.version, bootID: identity.bootID, daemon: identity.daemon,
+                    terminalLeader: identity.terminalLeader, processGroupID: identity.processGroupID,
+                    sessionCreatedAt: identity.sessionCreatedAt + 1)
+                await #expect(throws: ZmxSessionControlFailure.identityMismatch) {
+                    try await backend.retireVerifiedSession(sessionID, expectedIdentity: mismatch.encoded())
+                }
+                #expect(await backend.sessionExists(.init(id: sessionID)))
+            }
+        }
+
+        @Test("verified cleanup ends the exact real session and reconciles a repeated attempt")
+        func verifiedCleanupEndsTheOriginalSession() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                _ = try harness.spawnZmxSession(
+                    zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
+                    commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let identity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+
+                _ = try await backend.retireVerifiedSession(sessionID, expectedIdentity: identity)
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                // Socket removal precedes final process reaping. Wait for the stronger
+                // completion observation, rather than treating unlink as termination.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var completed = false
+                while ContinuousClock.now < deadline {
+                    do {
+                        completed =
+                            try await backend.retireVerifiedSession(sessionID, expectedIdentity: identity) == .completed
+                        if completed { break }
+                    } catch ZmxSessionControlFailure.processUnverifiable {
+                        // Kernel inspection can race final process reaping.
+                    } catch ZmxSessionControlFailure.unavailable {
+                        // The endpoint can disappear between inspection and connection.
+                    }
+                    await Task.yield()
+                }
+                #expect(completed, "Original processes and process group must exit, not just remove their socket")
+            }
+        }
+
         @Test("full lifecycle create healthCheck kill verify")
         func test_fullLifecycle_create_healthCheck_kill_verify() async throws {
             try await withRealBackend { harness, backend in

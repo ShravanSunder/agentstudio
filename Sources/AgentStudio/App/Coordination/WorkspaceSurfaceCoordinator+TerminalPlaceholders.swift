@@ -44,16 +44,19 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         mode: TerminalStatusPlaceholderMode
     ) -> TerminalStatusPlaceholderView? {
-        guard case .terminal = pane.content, pane.provider == .zmx else { return nil }
+        guard case .terminal = pane.content, pane.provider == .zmx, isCurrentTerminalPane(pane) else { return nil }
 
         let retryHandler: (UUID) -> Void = { [weak self] paneId in
-            self?.execute(.repair(.createMissingView(paneId: paneId)))
+            self?.submitWorkspaceAction(.repair(.createMissingView(paneId: paneId)))
         }
         let dismissHandler: (UUID) -> Void = { [weak self] paneId in
             self?.closePlaceholderPane(paneId)
         }
 
         if let terminalView = viewRegistry.terminalView(for: pane.id) {
+            // A delayed creation caller must not cover a terminal that layout
+            // restoration already mounted. Failure/deferred states remain explicit.
+            if mode == .preparing, terminalView.surfaceId != nil { return nil }
             return terminalView.showPlaceholder(
                 mode: mode,
                 onRetryRequested: retryHandler,
@@ -86,9 +89,9 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
         if tab.allPaneIds.count > 1 {
-            execute(.closePane(tabId: tab.id, paneId: paneId))
+            submitWorkspaceAction(.closePane(tabId: tab.id, paneId: paneId))
         } else {
-            execute(.closeTab(tabId: tab.id))
+            submitWorkspaceAction(.closeTab(tabId: tab.id))
         }
     }
 

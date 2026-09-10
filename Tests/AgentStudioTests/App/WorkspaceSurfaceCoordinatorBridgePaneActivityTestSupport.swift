@@ -30,20 +30,15 @@ struct BridgePaneActivityTestHarness {
 }
 
 @MainActor
-func makeSinglePaneBridgeActivityTestHarness() -> BridgePaneActivityTestHarness {
-    makeBridgePaneActivityTestHarness(includeSiblingInTab: false)
-}
-
-@MainActor
 func makeBridgePaneActivityTestHarness(
     includeSiblingInTab: Bool = true,
+    store: WorkspaceStore = WorkspaceStore(),
     filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
     worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
         BridgeWorktreeProductConstructionCoordinator()
 ) -> BridgePaneActivityTestHarness {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-bridge-pane-activity-\(UUID().uuidString)")
-    let store = WorkspaceStore()
     let bridgePane = store.createPane(
         content: .bridgePanel(
             BridgePaneState(
@@ -179,6 +174,11 @@ func expectBridgePaneActivity(
 
 @MainActor
 private final class BridgeActivityIntegrationSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(
@@ -194,11 +194,7 @@ private final class BridgeActivityIntegrationSurfaceManager: WorkspaceSurfaceMan
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? {
-        nil
-    }
-
-    func requeueUndo(_ surfaceId: UUID) {}
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {}
 }

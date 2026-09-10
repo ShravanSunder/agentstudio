@@ -55,7 +55,7 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+        await assertEventuallyAsync("subscriber registered", minimumTurns: 50) {
             await harness.bus.subscriberCount > 0
         }
 
@@ -80,7 +80,7 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+        await assertEventuallyAsync("subscriber registered", minimumTurns: 50) {
             await harness.bus.subscriberCount > 0
         }
 
@@ -104,7 +104,7 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+        await assertEventuallyAsync("subscriber registered", minimumTurns: 50) {
             await harness.bus.subscriberCount > 0
         }
 
@@ -131,7 +131,7 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+        await assertEventuallyAsync("subscriber registered", minimumTurns: 50) {
             await harness.bus.subscriberCount > 0
         }
 
@@ -155,7 +155,7 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+        await assertEventuallyAsync("subscriber registered", minimumTurns: 50) {
             await harness.bus.subscriberCount > 0
         }
 

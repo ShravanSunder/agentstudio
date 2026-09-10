@@ -30,7 +30,7 @@ extension WorkspaceSurfaceCoordinator {
 
     /// Open a terminal for a worktree.
     @discardableResult
-    func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
+    func openTerminal(for worktree: Worktree, in repo: Repo) async throws -> Pane? {
         if let existingTab = store.tabLayoutAtom.tabs.first(where: { tab in
             tab.allPaneIds.contains { paneId in
                 store.paneAtom.pane(paneId)?.worktreeId == worktree.id
@@ -41,61 +41,42 @@ extension WorkspaceSurfaceCoordinator {
             return nil
         }
 
-        return createTerminalTab(for: worktree, in: repo)
+        return try await createTerminalTab(for: worktree, in: repo)
     }
 
     /// Open a new terminal for a worktree, always creating a fresh pane+tab
     /// (never navigates to an existing one).
     @discardableResult
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        createTerminalTab(for: worktree, in: repo)
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) async throws -> Pane? {
+        try await createTerminalTab(for: worktree, in: repo)
     }
 
     /// Open a worktree terminal as a split pane in the active tab.
     /// Falls back to opening a new tab when there is no active split target.
     @discardableResult
-    func openWorktreeInPane(for worktree: Worktree, in repo: Repo) -> Pane? {
+    func openWorktreeInPane(for worktree: Worktree, in repo: Repo) async throws -> Pane? {
         guard
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let activeTab = store.tabLayoutAtom.tab(activeTabId),
             let targetPaneId = activeTab.activePaneId
         else {
-            return openNewTerminal(for: worktree, in: repo)
+            return try await openNewTerminal(for: worktree, in: repo)
         }
 
-        let pane = store.paneAtom.createPane(
-            launchDirectory: worktree.path,
-            title: worktree.name,
-            provider: .zmx,
-            lifetime: .persistent,
-            zmxSessionID: .generateUUIDv7(),
-            residency: .active,
-            facets: PaneContextFacets(
-                repoId: repo.id,
-                repoName: repo.name,
-                worktreeId: worktree.id,
-                worktreeName: worktree.name,
-                cwd: worktree.path
-            ),
-        )
-        prepareTerminalPaneSlot(pane)
-
-        guard
-            store.tabLayoutAtom.insertPane(
-                pane.id,
-                inTab: activeTabId,
-                at: targetPaneId,
-                direction: .horizontal,
-                position: .after,
-                sizingMode: .halveTarget
-            )
-        else {
-            Self.logger.error("openWorktreeInPane: failed inserting pane \(pane.id) into tab \(activeTabId)")
-            store.mutationCoordinator.removePane(pane.id)
-            viewRegistry.removeSlot(for: pane.id)
-            return nil
-        }
-        store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
+        guard activeTab.activeArrangement.layout.contains(targetPaneId) else { return nil }
+        let pane = try await store.createTerminalPane(
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: worktree.name,
+                facets: PaneContextFacets(
+                    repoId: repo.id, repoName: repo.name, worktreeId: worktree.id,
+                    worktreeName: worktree.name, cwd: worktree.path)),
+            placement: .split(
+                .init(
+                    tabID: activeTabId, anchorID: targetPaneId, direction: .horizontal,
+                    position: .after, sizingMode: .halveTarget)),
+            nameForPane: { [self] in tabNameForPane($0) },
+            willPublish: { [self] in prepareTerminalPaneSlot($0) })
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         recordWorktreeOpened(worktree, in: repo)
@@ -137,22 +118,18 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
-    func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
+    func openFloatingTerminal(launchDirectory: URL?, title: String?) async throws -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedLaunchDirectory =
             launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-        let pane = store.paneAtom.createPane(
-            launchDirectory: resolvedLaunchDirectory,
-            title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
-            provider: .zmx,
-            zmxSessionID: .generateUUIDv7(),
-            facets: PaneContextFacets(cwd: resolvedLaunchDirectory)
-        )
-        prepareTerminalPaneSlot(pane)
-
-        let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
-        store.tabLayoutAtom.appendTab(tab)
-        store.tabLayoutAtom.setActiveTab(tab.id)
+        let pane = try await store.createTerminalPane(
+            metadata: PaneMetadata(
+                launchDirectory: resolvedLaunchDirectory,
+                title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
+                facets: PaneContextFacets(cwd: resolvedLaunchDirectory)),
+            placement: .newTab,
+            nameForPane: { [self] in tabNameForPane($0) },
+            willPublish: { [self] in prepareTerminalPaneSlot($0) })
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
 
@@ -162,7 +139,7 @@ extension WorkspaceSurfaceCoordinator {
 
     // swiftlint:disable cyclomatic_complexity function_body_length
     /// Execute a resolved WorkspaceActionCommand.
-    func execute(_ action: WorkspaceActionCommand) {
+    func execute(_ action: WorkspaceActionCommand) async throws {
         Self.logger.debug("Executing: \(String(describing: action))")
         let clock = ContinuousClock()
         let actionStart = clock.now
@@ -189,7 +166,7 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("openWorktree: worktree \(worktreeId) not found")
                 return
             }
-            _ = openTerminal(for: worktree, in: repo)
+            _ = try await openTerminal(for: worktree, in: repo)
 
         case .openNewTerminalInTab(let worktreeId, let launchDirectory, let title):
             guard
@@ -199,7 +176,7 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
             }
-            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
+            _ = try await createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
             guard
@@ -209,10 +186,10 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("openWorktreeInPane: worktree \(worktreeId) not found")
                 return
             }
-            _ = openWorktreeInPane(for: worktree, in: repo)
+            _ = try await openWorktreeInPane(for: worktree, in: repo)
 
         case .openFloatingTerminal(let launchDirectory, let title):
-            _ = openFloatingTerminal(launchDirectory: launchDirectory, title: title)
+            _ = try await openFloatingTerminal(launchDirectory: launchDirectory, title: title)
 
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
@@ -228,7 +205,7 @@ extension WorkspaceSurfaceCoordinator {
             restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .closeTab(let tabId):
-            executeCloseTab(tabId)
+            try await executeCloseTab(tabId)
 
         case .breakUpTab(let tabId):
             executeBreakUpTab(tabId)
@@ -237,7 +214,7 @@ extension WorkspaceSurfaceCoordinator {
             store.tabLayoutAtom.renameTab(tabId, name: name)
 
         case .closePane(let tabId, let paneId):
-            executeClosePane(tabId: tabId, paneId: paneId)
+            try await executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
             let capturedZoomCompanions = captureZoomCompanions(
@@ -264,7 +241,7 @@ extension WorkspaceSurfaceCoordinator {
             store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
         case .insertPaneRequest(let request):
-            executeInsertPane(
+            try await executeInsertPane(
                 source: request.source,
                 targetTabId: request.targetTabId,
                 targetPaneId: request.targetPaneId,
@@ -405,11 +382,7 @@ extension WorkspaceSurfaceCoordinator {
             restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .purgeOrphanedPane(let paneId):
-            guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
-            retireZoomCompanion(forSourcePane: paneId)
-            teardownView(for: paneId)
-            _ = store.mutationCoordinator.removePane(paneId)
-            viewRegistry.retireSlot(for: paneId)
+            try await executeDiscardBackgroundedPane(paneId: paneId)
 
         case .enterDrawer,
             .focusDrawerPaneUp,
@@ -471,76 +444,14 @@ extension WorkspaceSurfaceCoordinator {
             focusVisiblePaneHost(drawerPaneId)
 
         case .addDrawerPane(let parentPaneId):
-            guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
-                Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no owning tab")
-                break
-            }
-            let fallbackCWD =
-                store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
-                    store.repositoryTopologyAtom.worktree)?
-                .path
-                ?? FileManager.default.homeDirectoryForCurrentUser
-            if let drawerPane = store.paneAtom.addDrawerPane(
-                to: parentPaneId,
-                parentFallbackCWD: fallbackCWD,
-                zmxSessionID: .generateUUIDv7()
-            ) {
-                prepareTerminalPaneSlot(drawerPane)
-                registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
-                guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
-                    Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no drawer after pane creation")
-                    store.paneAtom.removeDrawerPane(drawerPane.id, from: parentPaneId)
-                    break
-                }
-                store.tabArrangementAtom.addDrawerPaneView(
-                    drawerId: drawerId,
-                    parentPaneId: parentPaneId,
-                    drawerPaneId: drawerPane.id,
-                    inTab: tabId
-                )
-                traceTerminalLayoutInsertedAndViewCreateStarted(drawerPane)
-                ensureTerminalPaneView(drawerPane)
-                focusVisiblePaneHost(drawerPane.id)
-            }
+            try await executeInsertDrawerPane(
+                parentPaneId: parentPaneId, targetDrawerPaneId: nil, direction: .right, sizingMode: .halveTarget)
 
         case .addWebviewDrawerPane(let parentPaneId, let state):
             executeAddWebviewDrawerPane(parentPaneId: parentPaneId, state: state)
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
-            let drawerBeforeRemoval = store.paneAtom.pane(parentPaneId)?.drawer
-            let drawerViewBeforeRemoval = arrangementView.drawerView(forParent: parentPaneId)
-            let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id
-            let willBecomeEmptyDrawer =
-                drawerBeforeRemoval?.paneIds.contains { $0 != drawerPaneId } == false
-            if let drawer = drawerBeforeRemoval,
-                drawerViewBeforeRemoval?.activeChildId == drawerPaneId
-            {
-                let minimizedPaneIds = drawerViewBeforeRemoval?.minimizedPaneIds ?? []
-                let preRemovalFallbackPaneId = drawer.paneIds.first { candidatePaneId in
-                    candidatePaneId != drawerPaneId && !minimizedPaneIds.contains(candidatePaneId)
-                }
-                if let preRemovalFallbackPaneId {
-                    focusVisiblePaneHost(preRemovalFallbackPaneId)
-                } else if willBecomeEmptyDrawer {
-                    _ = clearFirstResponderToWindowContent(for: parentPaneId)
-                } else {
-                    focusVisiblePaneHost(parentPaneId)
-                }
-            }
-            teardownView(for: drawerPaneId)
-            store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
-            if let tabId, let drawerId = drawerBeforeRemoval?.drawerId {
-                store.tabArrangementAtom.removeDrawerPaneView(
-                    drawerId: drawerId, drawerPaneId: drawerPaneId, inTab: tabId)
-            }
-            viewRegistry.retireSlot(for: drawerPaneId)
-            if let activeDrawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
-                focusVisiblePaneHost(activeDrawerPaneId)
-            } else if willBecomeEmptyDrawer {
-                _ = clearFirstResponderToWindowContent(for: parentPaneId)
-            } else {
-                focusVisiblePaneHost(parentPaneId)
-            }
+            try await executeDiscardDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
@@ -609,7 +520,7 @@ extension WorkspaceSurfaceCoordinator {
             reattachForViewSwitch(paneId: drawerPaneId)
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
-            executeInsertDrawerPane(
+            try await executeInsertDrawerPane(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
                 direction: direction,
@@ -646,7 +557,7 @@ extension WorkspaceSurfaceCoordinator {
         in repo: Repo,
         cwdOverride: URL? = nil,
         titleOverride: String? = nil
-    ) -> Pane? {
+    ) async throws -> Pane? {
         let resolvedCwd = cwdOverride ?? worktree.path
         let resolvedTitle = titleOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let paneFacets = PaneContextFacets(
@@ -657,23 +568,14 @@ extension WorkspaceSurfaceCoordinator {
             cwd: resolvedCwd,
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
-        let pane = store.paneAtom.createPane(
-            launchDirectory: resolvedCwd,
-            title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
-            provider: .zmx,
-            lifetime: .persistent,
-            zmxSessionID: .generateUUIDv7(),
-            residency: .active,
-            facets: paneFacets
-        )
-        prepareTerminalPaneSlot(pane)
-
-        let tab = Tab(
-            paneId: pane.id,
-            name: tabNameForPane(pane)
-        )
-        store.tabLayoutAtom.appendTab(tab)
-        store.tabLayoutAtom.setActiveTab(tab.id)
+        let pane = try await store.createTerminalPane(
+            metadata: PaneMetadata(
+                launchDirectory: resolvedCwd,
+                title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
+                facets: paneFacets),
+            placement: .newTab,
+            nameForPane: { [self] in tabNameForPane($0) },
+            willPublish: { [self] in prepareTerminalPaneSlot($0) })
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         recordWorktreeOpened(worktree, in: repo)
@@ -694,76 +596,8 @@ extension WorkspaceSurfaceCoordinator {
         }
     }
 
-    private func executeCloseTab(_ tabId: UUID) {
-        syncWebviewStates()
-        let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId)
-        if let snapshot {
-            appendUndoEntry(.tab(snapshot))
-        } else {
-            Self.logger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
-        }
-        let closingPaneIds: [UUID]
-        if let tab = store.tabLayoutAtom.tab(tabId) {
-            retireZoomCompanions(forSourcePanes: tab.allPaneIds)
-            // Pane models remain alive for undo; only their hosts are torn down.
-            closingPaneIds = tab.allPaneIds
-            for paneId in tab.allPaneIds {
-                teardownDrawerPanes(for: paneId)
-                teardownView(for: paneId)
-            }
-        } else {
-            closingPaneIds = []
-        }
-        if let snapshot {
-            // The distant deadline marks capacity-bounded, in-memory undo state.
-            for pane in snapshot.panes {
-                store.paneAtom.setResidency(.pendingUndo(expiresAt: .distantFuture), for: pane.id)
-            }
-        }
-        store.tabLayoutAtom.removeTab(tabId)
-        if snapshot == nil {
-            for paneId in closingPaneIds where currentOwnedPaneIds().contains(paneId) == false {
-                store.mutationCoordinator.removePane(paneId)
-                viewRegistry.retireSlot(for: paneId)
-            }
-        }
-        expireOldUndoEntries()
-    }
-
-    /// Remove oldest undo entries beyond the limit, cleaning up their orphaned panes.
-    private func expireOldUndoEntries() {
-        while undoStack.count > maxUndoStackSize {
-            let expired = removeFirstUndoEntry()
-
-            let allOwnedPaneIds = currentOwnedPaneIds()
-
-            let expiredPanes: [Pane]
-            switch expired {
-            case .tab(let s): expiredPanes = s.panes
-            case .pane(let s): expiredPanes = [s.pane] + s.drawerChildPanes
-            }
-
-            for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
-                teardownView(for: pane.id)
-                store.mutationCoordinator.removePane(pane.id)
-                viewRegistry.retireSlot(for: pane.id)
-                Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
-            }
-        }
-    }
-
-    private func currentOwnedPaneIds() -> Set<UUID> {
-        Set(
-            store.tabLayoutAtom.tabs.flatMap { tab in
-                tab.allPaneIds.flatMap { paneId -> [UUID] in
-                    var paneIds = [paneId]
-                    if let drawer = store.paneAtom.pane(paneId)?.drawer {
-                        paneIds.append(contentsOf: drawer.paneIds)
-                    }
-                    return paneIds
-                }
-            }
-        )
+    private func executeCloseTab(_ tabId: UUID) async throws {
+        try await executeDurableClose(tabID: tabId, paneID: nil)
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {
@@ -787,105 +621,8 @@ extension WorkspaceSurfaceCoordinator {
         }
     }
 
-    private func executeClosePane(tabId: UUID, paneId: UUID) {
-        guard let closingPane = store.paneAtom.pane(paneId) else {
-            Self.logger.warning("closePane: pane \(paneId) not found")
-            return
-        }
-        guard let tab = store.tabLayoutAtom.tab(tabId) else {
-            Self.logger.warning("closePane: tab \(tabId) not found")
-            return
-        }
-
-        let isDrawerChild = closingPane.isDrawerChild
-        let closingEmptiesTab: Bool = {
-            guard !isDrawerChild else { return false }
-            let remainingMainPaneIds = tab.allPaneIds.filter { candidatePaneId in
-                guard candidatePaneId != paneId else { return false }
-                guard let candidatePane = store.paneAtom.pane(candidatePaneId) else { return false }
-                return !candidatePane.isDrawerChild
-            }
-            return remainingMainPaneIds.isEmpty
-        }()
-
-        if closingEmptiesTab {
-            if let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId) {
-                appendUndoEntry(.tab(snapshot))
-            } else {
-                Self.logger.warning("closePane: tab snapshot failed for last-pane close in tab \(tabId)")
-            }
-        } else {
-            let shouldSnapshotPane: Bool
-            if tab.id == store.tabLayoutAtom.activeTabId {
-                if isDrawerChild {
-                    shouldSnapshotPane =
-                        closingPane.parentPaneId.map { parentPaneId in
-                            arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(parentPaneId)
-                                && arrangementView.drawerVisiblePaneIds(forParent: parentPaneId).contains(paneId)
-                        } ?? false
-                } else {
-                    shouldSnapshotPane = arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(paneId)
-                }
-            } else {
-                shouldSnapshotPane = false
-            }
-
-            if shouldSnapshotPane {
-                if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
-                    appendUndoEntry(.pane(snapshot))
-                } else {
-                    Self.logger.warning("closePane: pane snapshot failed for pane \(paneId) in tab \(tabId)")
-                }
-            } else {
-                Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
-            }
-        }
-
-        if isDrawerChild {
-            if let parentPaneId = closingPane.parentPaneId {
-                execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            } else {
-                teardownView(for: paneId)
-                store.mutationCoordinator.removePane(paneId)
-                viewRegistry.retireSlot(for: paneId)
-            }
-            expireOldUndoEntries()
-            return
-        }
-
-        let drawerChildIds = closingPane.drawer?.paneIds ?? []
-        retireZoomCompanion(forSourcePane: paneId)
-        teardownDrawerPanes(for: paneId)
-        teardownView(for: paneId)
-        viewRegistry.retireSlot(for: paneId)
-
-        for drawerPaneId in drawerChildIds {
-            viewRegistry.retireSlot(for: drawerPaneId)
-        }
-
-        let closingDrawerId = closingPane.drawer?.drawerId
-        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: closingDrawerId)
-        for drawerPaneId in drawerChildIds {
-            if let closingDrawerId {
-                store.tabArrangementAtom.removeDrawerPaneView(
-                    drawerId: closingDrawerId,
-                    drawerPaneId: drawerPaneId,
-                    inTab: tabId
-                )
-            }
-            store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
-        }
-
-        let allOwnedPaneIds = currentOwnedPaneIds()
-        if !allOwnedPaneIds.contains(paneId) {
-            store.mutationCoordinator.removePane(paneId)
-        }
-
-        if store.tabLayoutAtom.tab(tabId)?.allPaneIds.isEmpty == true {
-            store.tabLayoutAtom.removeTab(tabId)
-        }
-
-        expireOldUndoEntries()
+    private func executeClosePane(tabId: UUID, paneId: UUID) async throws {
+        try await executeDurableClose(tabID: tabId, paneID: paneId)
     }
 
     private func drawerCommandContext(parentPaneId: UUID, command: String) -> (tabId: UUID, drawerId: UUID)? {

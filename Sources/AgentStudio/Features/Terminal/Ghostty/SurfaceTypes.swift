@@ -37,7 +37,7 @@ enum SurfaceHealth: Equatable {
 enum SurfaceState: Equatable {
     case active(paneId: UUID)  // Attached to a visible container
     case hidden  // Alive but no container
-    case pendingUndo(expiresAt: Date)  // In undo stack
+    case pendingUndo  // Retained until the durable journal ends ownership
 
     var isActive: Bool {
         if case .active = self { return true }
@@ -53,6 +53,7 @@ package struct SurfaceMetadata: Codable, Equatable {
     var command: String?
     var title: String
     package private(set) var paneId: UUID?
+    package let zmxSessionID: ZmxSessionID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -63,7 +64,8 @@ package struct SurfaceMetadata: Codable, Equatable {
         worktreeId: UUID? = nil,
         repoId: UUID? = nil,
         contextFacets: PaneContextFacets = .empty,
-        paneId: UUID? = nil
+        paneId: UUID? = nil,
+        zmxSessionID: ZmxSessionID? = nil
     ) {
         let sourceFacets = PaneContextFacets(
             repoId: repoId,
@@ -74,6 +76,7 @@ package struct SurfaceMetadata: Codable, Equatable {
         self.command = command
         self.title = title
         self.paneId = paneId
+        self.zmxSessionID = zmxSessionID
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }
@@ -102,19 +105,59 @@ package struct ManagedSurface {
     package let surface: Ghostty.SurfaceView
     package internal(set) var metadata: SurfaceMetadata
     var state: SurfaceState
+    private var mostRecentPaneAttachmentId: UUID?
     var health: SurfaceHealth
+    /// The last renderer visibility delivered to libghostty for this exact surface, or `nil`
+    /// before any delivery. Pinned Ghostty queues renderer work on every occlusion call, so
+    /// `SurfaceManager` suppresses equal deliveries against this record.
+    package internal(set) var lastDeliveredVisibility: Bool?
 
     init(
         id: UUID = UUIDv7.generate(),
         surface: Ghostty.SurfaceView,
         metadata: SurfaceMetadata,
-        state: SurfaceState = .hidden
+        state: SurfaceState = .hidden,
+        lastDeliveredVisibility: Bool? = nil
     ) {
         self.id = id
         self.surface = surface
         self.metadata = metadata
         self.state = state
+        if case .active(let paneId) = state {
+            self.mostRecentPaneAttachmentId = paneId
+        } else {
+            self.mostRecentPaneAttachmentId = metadata.paneId
+        }
         self.health = .healthy
+        self.lastDeliveredVisibility = lastDeliveredVisibility
+    }
+
+    var attachmentPaneId: UUID? {
+        if case .active(let paneId) = state { return paneId }
+        return mostRecentPaneAttachmentId
+    }
+
+    mutating func setAttachment(paneId: UUID) {
+        state = .active(paneId: paneId)
+        mostRecentPaneAttachmentId = paneId
+    }
+}
+
+// MARK: - Renderer Visibility Reconciliation
+
+/// Outcome counts of one `SurfaceManager.reconcileAttachedVisibility` pass.
+package struct SurfaceVisibilityReconciliationResult: Equatable, Sendable {
+    /// Surfaces whose desired visibility differed from the last delivered value and were delivered.
+    package let applied: Int
+    /// Surfaces whose desired visibility equalled the last delivered value; nothing was delivered.
+    package let equal: Int
+    /// Surfaces with no live native handle; nothing could be delivered.
+    package let missing: Int
+
+    package init(applied: Int, equal: Int, missing: Int) {
+        self.applied = applied
+        self.equal = equal
+        self.missing = missing
     }
 }
 
@@ -125,8 +168,6 @@ struct SurfaceUndoEntry {
     let surface: ManagedSurface
     let previousPaneAttachmentId: UUID?
     let closedAt: Date
-    let expiresAt: Date
-    var expirationTask: Task<Void, Never>?
 }
 
 // MARK: - Surface Checkpoint

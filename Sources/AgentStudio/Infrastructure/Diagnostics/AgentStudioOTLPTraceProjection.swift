@@ -234,8 +234,8 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
-        .union(BridgeProductStreamProjectionKeys.stringKeys)
-        .union(BridgeProductPaintProjectionKeys.stringKeys)
+        .union(BridgeProductStreamProjectionKeys.stringKeys).union(BridgeProductPaintProjectionKeys.stringKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.stringAttributeKeys)
     private static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.sqlite.result_code",
         "agentstudio.bridge.activation.sequence",
@@ -701,9 +701,9 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
-        .union(BridgeProductStreamProjectionKeys.numericKeys)
-        .union(BridgeProductPaintProjectionKeys.numericKeys)
+        .union(BridgeProductStreamProjectionKeys.numericKeys).union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.numericAttributeKeys)
 }
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributes(

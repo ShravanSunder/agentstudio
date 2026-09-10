@@ -19,8 +19,8 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test("switchArrangement restores a newly visible terminal pane when its host is missing")
-    func switchArrangement_restoresMissingNewlyVisibleTerminalView() {
-        withTestCoreAtoms { atoms in
+    func switchArrangement_restoresMissingNewlyVisibleTerminalView() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let harness = makeHarness()
@@ -48,7 +48,8 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
             #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id) == [visiblePane.id])
             #expect(harness.viewRegistry.view(for: hiddenPane.id) == nil)
 
-            harness.coordinator.execute(.switchArrangement(tabId: tab.id, arrangementId: allPanesArrangementId))
+            try await harness.coordinator.execute(
+                .switchArrangement(tabId: tab.id, arrangementId: allPanesArrangementId))
 
             #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(hiddenPane.id))
             #expect(harness.viewRegistry.view(for: hiddenPane.id) != nil)
@@ -115,6 +116,11 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
 
 @MainActor
 private final class ArrangementSwitchSurfaceManager: WorkspaceSurfaceManaging {
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(
@@ -129,9 +135,7 @@ private final class ArrangementSwitchSurfaceManager: WorkspaceSurfaceManaging {
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {}
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 
     func destroy(_ surfaceId: UUID) {}
 }

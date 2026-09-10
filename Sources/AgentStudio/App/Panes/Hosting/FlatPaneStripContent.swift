@@ -125,7 +125,8 @@ struct FlatPaneStripContent: View {
                             workspaceWindowId: workspaceWindowId,
                             paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
                         )
-                        .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
+                        // ForEach owns stable pane identity. Host arrival updates the slot;
+                        // only PaneLeafContainer replaces the representable for a new host.
                         .frame(width: segment.frame.width, height: segment.frame.height)
                         .offset(x: segment.frame.minX, y: segment.frame.minY)
                     }

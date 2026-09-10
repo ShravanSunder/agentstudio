@@ -236,6 +236,7 @@ struct DraggableTabBarWindowDragTests {
 
         #expect(fixture.hostingView.draggingEntered(dragInfo) == .move)
         #expect(fixture.hostingView.performDragOperation(dragInfo))
+        _ = await fixture.harness.executor.submitGesture { _ in true }.value
         #expect(fixture.harness.store.tabs.map(\.id) == [fixture.tabIds[1], fixture.tabIds[2], fixture.tabIds[0]])
     }
 

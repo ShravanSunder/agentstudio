@@ -6,6 +6,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
+@Suite(.serialized)
 struct PaneTabViewControllerPaneInboxCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
@@ -164,7 +165,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
     }
 
     @Test("targeted pane inbox commands accept panes hidden by active arrangement visibility")
-    func executePaneInboxNotificationsTargetedAcceptsArrangementHiddenPane() throws {
+    func executePaneInboxNotificationsTargetedAcceptsArrangementHiddenPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -211,7 +212,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         harness.controller.execute(.clearPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == visibleArrangementId)
 
-        harness.controller.execute(.showPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
+        await harness.executeCommand(.showPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
 
         let focusedTab = try #require(harness.store.tab(tab.id))
         #expect(focusedTab.activeArrangementId == visibleArrangementId)
@@ -225,7 +226,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
     }
 
     @Test("targeted showPaneInboxNotifications resolves drawer child and focuses owner")
-    func executeShowPaneInboxNotificationsTargetedDrawerChildFocusesOwningScope() throws {
+    func executeShowPaneInboxNotificationsTargetedDrawerChildFocusesOwningScope() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -247,7 +248,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
                 targetType: .pane
             )
         )
-        harness.controller.execute(.showPaneInboxNotifications, target: drawerPane.id, targetType: .pane)
+        await harness.executeCommand(.showPaneInboxNotifications, target: drawerPane.id, targetType: .pane)
 
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)

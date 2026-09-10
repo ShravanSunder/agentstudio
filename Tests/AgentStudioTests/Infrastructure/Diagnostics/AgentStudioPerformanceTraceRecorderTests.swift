@@ -624,10 +624,119 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(buckets == buckets.sorted())
     }
 
+    @Test("renderer lifecycle conservation exposes the release-to-free orphan interval")
+    func rendererLifecycleConservationExposesReleaseToFreeInterval() {
+        // Arrange
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+
+        // Act
+        recorder.recordRendererLifecycle(.created, active: 0, hidden: 1, closeUndo: 0, windowFacts: nil)
+        let created = recorder.rendererLifecycleSnapshot()
+        recorder.recordRendererLifecycle(.released, active: 0, hidden: 0, closeUndo: 0, windowFacts: nil)
+        let released = recorder.rendererLifecycleSnapshot()
+        recorder.recordRendererFreed()
+        let freed = recorder.rendererLifecycleSnapshot()
+
+        // Assert
+        #expect(created.liveCurrent == 1)
+        #expect(created.managerOwnedCurrent == 1)
+        #expect(created.orphanCandidateCurrent == 0)
+        #expect(released.releasedTotal == 1)
+        #expect(released.liveCurrent == 1)
+        #expect(released.managerOwnedCurrent == 0)
+        #expect(released.orphanCandidateCurrent == 1)
+        #expect(freed.freedTotal == 1)
+        #expect(freed.liveCurrent == 0)
+        #expect(freed.orphanCandidateCurrent == 0)
+        #expect(freed.sampleSequence == 3)
+    }
+
+    @Test("renderer lifecycle negative orphan is preserved rather than clamped")
+    func rendererLifecycleNegativeOrphanIsPreservedNotClamped() {
+        // Arrange
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: nil)
+
+        // Act
+        recorder.recordRendererFreed()
+        let snapshot = recorder.rendererLifecycleSnapshot()
+
+        // Assert
+        #expect(snapshot.liveCurrent == -1)
+        #expect(snapshot.orphanCandidateCurrent == -1)
+        #expect(!snapshot.isValid)
+    }
+
+    @Test("renderer lifecycle reconciliation emits only on change and carries equal count since last emit")
+    func rendererLifecycleReconciledEmitsOnlyOnChangeAndCarriesEqualCount() async throws {
+        // Arrange
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let sink = RendererLifecycleRecordingTraceSink()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "renderer-lifecycle-reconciliation",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 918,
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in sink },
+                makeOTLPSink: { _ in sink }
+            ),
+            timeUnixNano: { 120 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: runtime,
+            processMemorySampleWait: { false }
+        )
+
+        // Act
+        recorder.recordRendererVisibilityReconciliation(
+            applied: 0, equal: 3, missing: 0, elapsed: .milliseconds(1), windowFacts: nil
+        )
+        recorder.recordRendererVisibilityReconciliation(
+            applied: 0, equal: 3, missing: 0, elapsed: .milliseconds(1), windowFacts: nil
+        )
+        recorder.recordRendererVisibilityReconciliation(
+            applied: 1, equal: 2, missing: 0, elapsed: .milliseconds(1), windowFacts: nil
+        )
+        try await recorder.drain()
+
+        // Assert
+        let records = await sink.recordedRecords()
+        let reconciledRecords = records.filter { $0.body == "performance.renderer.lifecycle" }
+        #expect(reconciledRecords.count == 1)
+        #expect(
+            reconciledRecords.first?.attributes[
+                "agentstudio.performance.renderer.reconcile.equal_since_last_emit"
+            ] == .int(6)
+        )
+    }
+
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-performance-trace-recorder-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+}
+
+private actor RendererLifecycleRecordingTraceSink: AgentStudioTraceSink {
+    private var records: [AgentStudioTraceRecord] = []
+
+    func record(_ record: AgentStudioTraceRecord) {
+        records.append(record)
+    }
+
+    func flush() {}
+
+    func shutdown() {}
+
+    func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+        .empty
+    }
+
+    func recordedRecords() -> [AgentStudioTraceRecord] {
+        records
     }
 }
 

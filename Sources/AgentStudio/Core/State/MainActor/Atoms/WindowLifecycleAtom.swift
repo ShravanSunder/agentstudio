@@ -93,6 +93,7 @@ package final class WindowLifecycleAtom {
         for windowId: UUID
     ) {
         guard registeredWindowIds.contains(windowId) else { return }
+        guard presentationFactsByWindowId[windowId] != facts else { return }
         presentationFactsByWindowId[windowId] = facts
     }
 

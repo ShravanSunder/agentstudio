@@ -14,130 +14,139 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
     }
 
     @Test("Quick Open directory inserts a terminal at the exact cwd without inheriting pane identity")
-    func executeQuickOpenDirectory_currentTabUsesExactDirectory() throws {
+    func executeQuickOpenDirectory_currentTabUsesExactDirectory() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repositoryPath = harness.tempDir.appending(path: "repository")
-        let worktreePath = repositoryPath.appending(path: "main")
-        let quickOpenDirectory = harness.tempDir.appending(
-            path: "untracked-directory",
-            directoryHint: .isDirectory
-        )
-        try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
-
-        let repository = harness.store.addRepo(at: repositoryPath)
-        let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
-        let mainWorktree = try #require(existingMainWorktree)
-        let linkedWorktree = Worktree(
-            repoId: repository.id,
-            name: "main",
-            path: worktreePath,
-            isMainWorktree: false
-        )
-        harness.store.reconcileDiscoveredWorktrees(
-            repository.id,
-            worktrees: [mainWorktree, linkedWorktree]
-        )
-
-        let targetPane = harness.store.createPane(
-            launchDirectory: worktreePath,
-            provider: .zmx,
-            facets: PaneContextFacets(
-                repoId: repository.id,
-                worktreeId: linkedWorktree.id,
-                cwd: worktreePath
+        try await withWorkspaceCommandHarness(harness) {
+            let repositoryPath = harness.tempDir.appending(path: "repository")
+            let worktreePath = repositoryPath.appending(path: "main")
+            let quickOpenDirectory = harness.tempDir.appending(
+                path: "untracked-directory",
+                directoryHint: .isDirectory
             )
-        )
-        let tab = Tab(paneId: targetPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        harness.store.setActivePane(targetPane.id, inTab: tab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
+            try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
 
-        harness.controller.executeQuickOpenDirectory(
-            quickOpenDirectory,
-            placement: .currentTabPane
-        )
+            let repository = harness.store.addRepo(at: repositoryPath)
+            let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
+            let mainWorktree = try #require(existingMainWorktree)
+            let linkedWorktree = Worktree(
+                repoId: repository.id,
+                name: "main",
+                path: worktreePath,
+                isMainWorktree: false
+            )
+            harness.store.reconcileDiscoveredWorktrees(
+                repository.id,
+                worktrees: [mainWorktree, linkedWorktree]
+            )
 
-        let insertedPaneId = try #require(
-            harness.store.tab(tab.id)?.paneIds.first { $0 != targetPane.id }
-        )
-        let insertedPane = try #require(harness.store.pane(insertedPaneId))
-        #expect(insertedPane.metadata.facets.cwd == quickOpenDirectory)
-        #expect(insertedPane.repoId == nil)
-        #expect(insertedPane.worktreeId == nil)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
+            let targetPane = harness.store.createPane(
+                launchDirectory: worktreePath,
+                provider: .zmx,
+                facets: PaneContextFacets(
+                    repoId: repository.id,
+                    worktreeId: linkedWorktree.id,
+                    cwd: worktreePath
+                )
+            )
+            let tab = Tab(paneId: targetPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(targetPane.id, inTab: tab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
+
+            harness.controller.executeQuickOpenDirectory(
+                quickOpenDirectory,
+                placement: .currentTabPane
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
+
+            let insertedPaneId = try #require(
+                harness.store.tab(tab.id)?.paneIds.first { $0 != targetPane.id }
+            )
+            let insertedPane = try #require(harness.store.pane(insertedPaneId))
+            #expect(insertedPane.metadata.facets.cwd == quickOpenDirectory)
+            #expect(insertedPane.repoId == nil)
+            #expect(insertedPane.worktreeId == nil)
+            #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
+        }
     }
 
     @Test("Quick Open directory creates a new tab at the exact cwd")
-    func executeQuickOpenDirectory_newTabUsesExactDirectory() throws {
+    func executeQuickOpenDirectory_newTabUsesExactDirectory() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let quickOpenDirectory = harness.tempDir.appending(
-            path: "new-tab-directory",
-            directoryHint: .isDirectory
-        )
-        try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
+        try await withWorkspaceCommandHarness(harness) {
+            let quickOpenDirectory = harness.tempDir.appending(
+                path: "new-tab-directory",
+                directoryHint: .isDirectory
+            )
+            try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
 
-        harness.controller.executeQuickOpenDirectory(
-            quickOpenDirectory,
-            placement: .newTab
-        )
+            harness.controller.executeQuickOpenDirectory(
+                quickOpenDirectory,
+                placement: .newTab
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        let activeTabId = try #require(harness.store.activeTabId)
-        let activePaneId = try #require(harness.store.tab(activeTabId)?.activePaneId)
-        #expect(harness.store.pane(activePaneId)?.metadata.facets.cwd == quickOpenDirectory)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
+            let activeTabId = try #require(harness.store.activeTabId)
+            let activePaneId = try #require(harness.store.tab(activeTabId)?.activePaneId)
+            #expect(harness.store.pane(activePaneId)?.metadata.facets.cwd == quickOpenDirectory)
+            #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
+        }
     }
 
     @Test("Quick Open directory in a known worktree keeps topology identity in a new tab")
-    func executeQuickOpenDirectory_newTabKeepsKnownWorktreeIdentity() throws {
+    func executeQuickOpenDirectory_newTabKeepsKnownWorktreeIdentity() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repositoryPath = harness.tempDir.appending(path: "repository")
-        let worktreePath = repositoryPath.appending(path: "main")
-        let nestedDirectory = worktreePath.appending(path: "Sources", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try await withWorkspaceCommandHarness(harness) {
+            let repositoryPath = harness.tempDir.appending(path: "repository")
+            let worktreePath = repositoryPath.appending(path: "main")
+            let nestedDirectory = worktreePath.appending(path: "Sources", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
 
-        let repository = harness.store.addRepo(at: repositoryPath)
-        let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
-        let mainWorktree = try #require(existingMainWorktree)
-        let linkedWorktree = Worktree(
-            repoId: repository.id,
-            name: "main",
-            path: worktreePath,
-            isMainWorktree: false
-        )
-        harness.store.reconcileDiscoveredWorktrees(
-            repository.id,
-            worktrees: [mainWorktree, linkedWorktree]
-        )
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
+            let repository = harness.store.addRepo(at: repositoryPath)
+            let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
+            let mainWorktree = try #require(existingMainWorktree)
+            let linkedWorktree = Worktree(
+                repoId: repository.id,
+                name: "main",
+                path: worktreePath,
+                isMainWorktree: false
+            )
+            harness.store.reconcileDiscoveredWorktrees(
+                repository.id,
+                worktrees: [mainWorktree, linkedWorktree]
+            )
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
 
-        harness.controller.executeQuickOpenDirectory(
-            nestedDirectory,
-            placement: .newTab
-        )
+            harness.controller.executeQuickOpenDirectory(
+                nestedDirectory,
+                placement: .newTab
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        let activeTabId = try #require(harness.store.activeTabId)
-        let activePaneId = try #require(harness.store.tab(activeTabId)?.activePaneId)
-        let pane = try #require(harness.store.pane(activePaneId))
-        let resolvedContext = try #require(
-            harness.store.repositoryTopologyAtom.repoAndWorktree(containing: nestedDirectory)
-        )
-        #expect(pane.metadata.cwd == nestedDirectory)
-        #expect(pane.repoId == resolvedContext.repo.id)
-        #expect(pane.worktreeId == resolvedContext.worktree.id)
+            let activeTabId = try #require(harness.store.activeTabId)
+            let activePaneId = try #require(harness.store.tab(activeTabId)?.activePaneId)
+            let pane = try #require(harness.store.pane(activePaneId))
+            let resolvedContext = try #require(
+                harness.store.repositoryTopologyAtom.repoAndWorktree(containing: nestedDirectory)
+            )
+            #expect(pane.metadata.cwd == nestedDirectory)
+            #expect(pane.repoId == resolvedContext.repo.id)
+            #expect(pane.worktreeId == resolvedContext.worktree.id)
+        }
     }
 }

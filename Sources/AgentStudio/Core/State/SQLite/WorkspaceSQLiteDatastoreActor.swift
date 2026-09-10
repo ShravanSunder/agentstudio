@@ -34,8 +34,11 @@ package actor WorkspaceSQLiteDatastoreActor {
 
     private var databasePreparationState: DatabasePreparationState
     private var preparedCoreSnapshotConsumed: Bool
-    private var workspaceSaveTail: Task<Void, Error>?
-    private var workspaceSaveTailGeneration: UInt64 = 0
+    // Accessed by the datastore persistence-order extension; never exposed outside Core.
+    var workspaceSaveTail: Task<Void, Error>?
+    var workspaceSaveTailGeneration: UInt64 = 0
+    var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
+    var failedStructuralWorkspaceIDs = Set<UUID>()
 
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
@@ -135,39 +138,20 @@ package actor WorkspaceSQLiteDatastoreActor {
         return .prepared(receipt)
     }
 
-    func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
-        let previousTail = workspaceSaveTail
-        workspaceSaveTailGeneration &+= 1
-        let tailGeneration = workspaceSaveTailGeneration
-        let saveTask = Task { [self] in
-            if let previousTail {
-                do {
-                    try await previousTail.value
-                } catch {
-                    // Preserve save ordering without letting one failed flush poison the next queued save.
-                }
-            }
-            try await performWorkspaceSnapshotBundleSave(bundle)
-        }
-        workspaceSaveTail = saveTask
-        do {
-            try await saveTask.value
-            if workspaceSaveTailGeneration == tailGeneration {
-                workspaceSaveTail = nil
-            }
-        } catch {
-            if workspaceSaveTailGeneration == tailGeneration {
-                workspaceSaveTail = nil
-            }
-            throw error
-        }
+    func journalRepository() throws -> WorkspaceCoreRepository {
+        try resolvedBackend().coreRepository
     }
 
-    private func performWorkspaceSnapshotBundleSave(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+    func performWorkspaceSnapshotBundleSave(
+        _ bundle: WorkspaceSQLiteSaveBundle,
+        undoChange: WorkspaceUndoJournalChange?
+    ) async throws -> WorkspaceUndoJournalReceipt? {
         let snapshot = bundle.workspace
+        try validateWorkspaceCapture(bundle)
         await recordProbe(.saveWorkspaceSnapshot)
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
         var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
+        let journalReceipt: WorkspaceUndoJournalReceipt?
         await traceRecorder.recordOperation(
             .workspaceSave,
             phase: .commitCore,
@@ -190,8 +174,19 @@ package actor WorkspaceSQLiteDatastoreActor {
             backend = try resolvedBackend()
             failurePhase = .commitCore
             failureDatabase = .core
-            try backend.replaceWorkspaceSnapshot(bundle, updatesActiveSelection: true)
+            if undoChange != nil {
+                try requireJournalMutationAdmission(reconciling: snapshot.id)
+            }
+            journalReceipt = try backend.replaceWorkspaceSnapshot(
+                bundle, updatesActiveSelection: true, undoChange: undoChange)
+            if let revision = bundle.captureRevision {
+                acceptedWorkspaceCaptureRevisions[snapshot.id] = revision
+            }
+            failedStructuralWorkspaceIDs.remove(snapshot.id)
         } catch {
+            if (error as? WorkspaceSQLiteDatastoreError) != .unreconciledStructuralSave {
+                failedStructuralWorkspaceIDs.insert(snapshot.id)
+            }
             await recordWorkspaceSaveFailure(
                 snapshot: snapshot,
                 phase: failurePhase,
@@ -209,6 +204,10 @@ package actor WorkspaceSQLiteDatastoreActor {
             workspaceId: snapshot.id,
             database: .core
         )
+        if undoChange != nil {
+            await recordProbe(.saveWorkspaceSnapshotSucceeded)
+            return journalReceipt
+        }
         do {
             failurePhase = .openLocalSave
             failureDatabase = .local
@@ -242,6 +241,7 @@ package actor WorkspaceSQLiteDatastoreActor {
             await recordProbe(.saveWorkspaceSnapshotFailed)
             throw error
         }
+        return journalReceipt
     }
 
     private func recordLocalWorkspaceSaveFailure(

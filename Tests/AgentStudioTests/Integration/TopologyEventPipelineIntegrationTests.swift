@@ -26,7 +26,7 @@ struct TopologyEventPipelineIntegrationTests {
 
     private func settleTopologyHarness(_ harness: GitTopologyPipelineHarness) async {
         await Task.yield()
-        await waitForBusSubscriberCount(harness.bus, atLeast: 1, maxTurns: 1000)
+        await waitForBusSubscriberCount(harness.bus, atLeast: 1, minimumTurns: 1000)
     }
 
     @Test("authoritative grouped discovery creates one canonical family and syncs roots")
@@ -285,7 +285,7 @@ struct TopologyEventPipelineIntegrationTests {
 
             await assertEventuallyAsync(
                 "repoRemoved should be emitted after watched-folder FSEvent",
-                maxTurns: 1000
+                minimumTurns: 1000
             ) {
                 let envelopes = await recorder.snapshot()
                 return RuntimeEnvelopeHarness.systemEvents(from: envelopes).contains {

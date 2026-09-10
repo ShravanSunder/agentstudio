@@ -313,162 +313,174 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
     }
 
     @Test("targeted split uses the clicked inactive tab active pane and cwd")
-    func executeSplitRight_clickedInactiveTabUsesItsPaneAndCWD() {
+    func executeSplitRight_clickedInactiveTabUsesItsPaneAndCWD() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
-        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
-        let activePane = harness.store.createPane(
-            launchDirectory: activeDirectory,
-            facets: PaneContextFacets(cwd: activeDirectory)
-        )
-        let clickedPane = harness.store.createPane(
-            launchDirectory: clickedDirectory,
-            facets: PaneContextFacets(cwd: clickedDirectory)
-        )
-        let activeTab = Tab(paneId: activePane.id, name: "Active")
-        let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
-        harness.store.appendTab(activeTab)
-        harness.store.appendTab(clickedTab)
-        harness.store.setActiveTab(activeTab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
+        await withWorkspaceCommandHarness(harness) {
+            let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+            let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
+            let activePane = harness.store.createPane(
+                launchDirectory: activeDirectory,
+                facets: PaneContextFacets(cwd: activeDirectory)
+            )
+            let clickedPane = harness.store.createPane(
+                launchDirectory: clickedDirectory,
+                facets: PaneContextFacets(cwd: clickedDirectory)
+            )
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(clickedTab)
+            harness.store.setActiveTab(activeTab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
 
-        harness.controller.execute(
-            .splitRight,
-            target: clickedTab.id,
-            targetType: .tab
-        )
+            harness.controller.execute(
+                .splitRight,
+                target: clickedTab.id,
+                targetType: .tab
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == clickedDirectory)
-        #expect(harness.store.activeTabId == activeTab.id)
+            #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+            #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == clickedDirectory)
+            #expect(harness.store.activeTabId == activeTab.id)
+        }
     }
 
     @Test("targeted floating terminal uses the clicked inactive tab active pane cwd")
-    func executeNewFloatingTerminal_clickedInactiveTabUsesItsCWD() {
+    func executeNewFloatingTerminal_clickedInactiveTabUsesItsCWD() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
-        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
-        let activePane = harness.store.createPane(
-            launchDirectory: activeDirectory,
-            facets: PaneContextFacets(cwd: activeDirectory)
-        )
-        let clickedPane = harness.store.createPane(
-            launchDirectory: clickedDirectory,
-            facets: PaneContextFacets(cwd: clickedDirectory)
-        )
-        let activeTab = Tab(paneId: activePane.id, name: "Active")
-        let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
-        harness.store.appendTab(activeTab)
-        harness.store.appendTab(clickedTab)
-        harness.store.setActiveTab(activeTab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
-        let initialTabCount = harness.store.tabLayoutAtom.tabs.count
+        await withWorkspaceCommandHarness(harness) {
+            let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+            let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
+            let activePane = harness.store.createPane(
+                launchDirectory: activeDirectory,
+                facets: PaneContextFacets(cwd: activeDirectory)
+            )
+            let clickedPane = harness.store.createPane(
+                launchDirectory: clickedDirectory,
+                facets: PaneContextFacets(cwd: clickedDirectory)
+            )
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(clickedTab)
+            harness.store.setActiveTab(activeTab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
+            let initialTabCount = harness.store.tabLayoutAtom.tabs.count
 
-        harness.controller.execute(
-            .newFloatingTerminal,
-            target: clickedTab.id,
-            targetType: .tab
-        )
+            harness.controller.execute(
+                .newFloatingTerminal,
+                target: clickedTab.id,
+                targetType: .tab
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == clickedDirectory)
-        #expect(harness.store.tabLayoutAtom.tabs.count == initialTabCount + 1)
-        #expect(harness.store.activeTabId == harness.store.tabLayoutAtom.tabs.last?.id)
+            #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+            #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == clickedDirectory)
+            #expect(harness.store.tabLayoutAtom.tabs.count == initialTabCount + 1)
+            #expect(harness.store.activeTabId == harness.store.tabLayoutAtom.tabs.last?.id)
+        }
     }
 
     @Test("targeted Save Arrangement mutates the clicked inactive tab")
-    func executeSaveArrangement_clickedInactiveTab() {
+    func executeSaveArrangement_clickedInactiveTab() async {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activePane = harness.store.createPane()
-        let clickedPane = harness.store.createPane()
-        let activeTab = Tab(paneId: activePane.id, name: "Active")
-        let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
-        harness.store.appendTab(activeTab)
-        harness.store.appendTab(clickedTab)
-        harness.store.setActiveTab(activeTab.id)
-        let initialArrangementCount = clickedTab.arrangements.count
+        await withWorkspaceCommandHarness(harness) {
+            let activePane = harness.store.createPane()
+            let clickedPane = harness.store.createPane()
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(clickedTab)
+            harness.store.setActiveTab(activeTab.id)
+            let initialArrangementCount = clickedTab.arrangements.count
 
-        harness.controller.execute(
-            .saveArrangement,
-            target: clickedTab.id,
-            targetType: .tab
-        )
+            harness.controller.execute(
+                .saveArrangement,
+                target: clickedTab.id,
+                targetType: .tab
+            )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        #expect(
-            harness.store.tab(clickedTab.id)?.arrangements.count
-                == initialArrangementCount + 1
-        )
-        #expect(harness.store.activeTabId == activeTab.id)
+            #expect(
+                harness.store.tab(clickedTab.id)?.arrangements.count
+                    == initialArrangementCount + 1
+            )
+            #expect(harness.store.activeTabId == activeTab.id)
+        }
     }
 
     @Test("targeted context-free terminal uses home CWD while splits require an active pane")
-    func canExecuteTabCommands_allMinimizedClickedTab() throws {
+    func canExecuteTabCommands_allMinimizedClickedTab() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activePane = harness.store.createPane()
-        let minimizedPane = harness.store.createPane()
-        let activeTab = Tab(paneId: activePane.id, name: "Active")
-        let minimizedTab = Tab(paneId: minimizedPane.id, name: "Minimized")
-        harness.store.appendTab(activeTab)
-        harness.store.appendTab(minimizedTab)
-        #expect(harness.store.minimizePane(minimizedPane.id, inTab: minimizedTab.id))
-        harness.store.setActiveTab(activeTab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        )
-        let initialTabCount = harness.store.tabLayoutAtom.tabs.count
+        try await withWorkspaceCommandHarness(harness) {
+            let activePane = harness.store.createPane()
+            let minimizedPane = harness.store.createPane()
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let minimizedTab = Tab(paneId: minimizedPane.id, name: "Minimized")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(minimizedTab)
+            #expect(harness.store.minimizePane(minimizedPane.id, inTab: minimizedTab.id))
+            harness.store.setActiveTab(activeTab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 600)
+            )
+            let initialTabCount = harness.store.tabLayoutAtom.tabs.count
 
-        #expect(
-            !harness.controller.canExecute(
-                .splitRight,
-                target: minimizedTab.id,
-                targetType: .tab
+            #expect(
+                !harness.controller.canExecute(
+                    .splitRight,
+                    target: minimizedTab.id,
+                    targetType: .tab
+                )
             )
-        )
-        #expect(
-            !harness.controller.canExecute(
-                .splitLeft,
-                target: minimizedTab.id,
-                targetType: .tab
+            #expect(
+                !harness.controller.canExecute(
+                    .splitLeft,
+                    target: minimizedTab.id,
+                    targetType: .tab
+                )
             )
-        )
-        #expect(
-            harness.controller.canExecute(
+            #expect(
+                harness.controller.canExecute(
+                    .newFloatingTerminal,
+                    target: minimizedTab.id,
+                    targetType: .tab
+                )
+            )
+
+            harness.controller.execute(
                 .newFloatingTerminal,
                 target: minimizedTab.id,
                 targetType: .tab
             )
-        )
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        harness.controller.execute(
-            .newFloatingTerminal,
-            target: minimizedTab.id,
-            targetType: .tab
-        )
-
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.store.tabLayoutAtom.tabs.count == initialTabCount + 1)
-        let createdTab = try #require(harness.store.tabLayoutAtom.tabs.last)
-        let createdPaneId = try #require(createdTab.activePaneId)
-        let createdPane = try #require(harness.store.paneAtom.pane(createdPaneId))
-        #expect(createdPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
-        #expect(createdPane.metadata.facets.cwd == FileManager.default.homeDirectoryForCurrentUser)
-        #expect(harness.store.activeTabId == createdTab.id)
+            #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+            #expect(harness.store.tabLayoutAtom.tabs.count == initialTabCount + 1)
+            let createdTab = try #require(harness.store.tabLayoutAtom.tabs.last)
+            let createdPaneId = try #require(createdTab.activePaneId)
+            let createdPane = try #require(harness.store.paneAtom.pane(createdPaneId))
+            #expect(createdPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
+            #expect(createdPane.metadata.facets.cwd == FileManager.default.homeDirectoryForCurrentUser)
+            #expect(harness.store.activeTabId == createdTab.id)
+        }
     }
 
     @Test("Show Arrangements local action activates and opens the clicked tab panel")
-    func showArrangements_clickedInactiveTab() throws {
+    func showArrangements_clickedInactiveTab() async throws {
         let workspaceWindowId = UUID()
         let presentation = ArrangementPanelPresentationAtom()
         let harness = makeHarness(
@@ -477,19 +489,22 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         )
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activePane = harness.store.createPane()
-        let clickedPane = harness.store.createPane()
-        let activeTab = Tab(paneId: activePane.id, name: "Active")
-        let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
-        harness.store.appendTab(activeTab)
-        harness.store.appendTab(clickedTab)
-        harness.store.setActiveTab(activeTab.id)
+        try await withWorkspaceCommandHarness(harness) {
+            let activePane = harness.store.createPane()
+            let clickedPane = harness.store.createPane()
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let clickedTab = Tab(paneId: clickedPane.id, name: "Clicked")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(clickedTab)
+            harness.store.setActiveTab(activeTab.id)
 
-        harness.controller.showTabContextMenuArrangements(tabId: clickedTab.id)
+            harness.controller.showTabContextMenuArrangements(tabId: clickedTab.id)
+            _ = await harness.executor.submitGesture { _ in true }.value
 
-        let request = try #require(presentation.pendingRequest)
-        #expect(harness.store.activeTabId == clickedTab.id)
-        #expect(request.tabId == clickedTab.id)
-        #expect(request.workspaceWindowId == workspaceWindowId)
+            let request = try #require(presentation.pendingRequest)
+            #expect(harness.store.activeTabId == clickedTab.id)
+            #expect(request.tabId == clickedTab.id)
+            #expect(request.workspaceWindowId == workspaceWindowId)
+        }
     }
 }

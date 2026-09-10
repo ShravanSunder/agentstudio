@@ -117,4 +117,5 @@ enum AgentStudioOTLPAllowedBooleanAttributes {
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
         .union(PaneAssociationRuntimeProofProjectionKeys.booleanAttributeKeys)
+        .union(RendererLifecycleOTLPProjectionKeys.booleanAttributeKeys)
 }

@@ -29,6 +29,7 @@ package struct WorkspaceCoreRepository: Sendable {
         var tabShells: [TabShellRecord]
         var tabGraph: TabGraphRecord
         var updatesActiveSelection: Bool
+        var undoChange: WorkspaceUndoJournalChange?
     }
 
     let databaseWriter: any DatabaseWriter
@@ -162,25 +163,30 @@ package struct WorkspaceCoreRepository: Sendable {
         }
     }
 
+    @discardableResult
     func replaceWorkspaceSnapshot(
         workspace: WorkspaceRecord,
         paneGraph: PaneGraphRecord,
         tabShells: [TabShellRecord],
         tabGraph: TabGraphRecord,
-        updatesActiveSelection: Bool = true
-    ) throws {
+        updatesActiveSelection: Bool = true,
+        undoChange: WorkspaceUndoJournalChange? = nil
+    ) throws -> WorkspaceUndoJournalReceipt? {
         try replaceWorkspaceSnapshot(
             .init(
                 workspace: workspace,
                 paneGraph: paneGraph,
                 tabShells: tabShells,
                 tabGraph: tabGraph,
-                updatesActiveSelection: updatesActiveSelection
+                updatesActiveSelection: updatesActiveSelection,
+                undoChange: undoChange
             )
         )
     }
 
-    private func replaceWorkspaceSnapshot(_ replacement: WorkspaceSnapshotReplacement) throws {
+    private func replaceWorkspaceSnapshot(_ replacement: WorkspaceSnapshotReplacement) throws
+        -> WorkspaceUndoJournalReceipt?
+    {
         try databaseWriter.write { database in
             try database.execute(
                 sql: """
@@ -205,11 +211,41 @@ package struct WorkspaceCoreRepository: Sendable {
                 )
             }
             try validatePaneGraph(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
+            if case .restore(let closeID, let time) = replacement.undoChange {
+                // Validate and consume the undo owner before admitting its proposed live rows.
+                // The encompassing transaction rolls this back if any subsequent write fails.
+                try restoreUndoClose(
+                    closeID: closeID,
+                    workspaceID: replacement.workspace.id,
+                    time: time,
+                    paneGraph: replacement.paneGraph,
+                    database: database
+                )
+            }
             try replacePaneGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
             try validateTabShells(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try replaceTabShellRows(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try validateTabGraph(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
             try replaceTabGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
+            switch replacement.undoChange {
+            case .some(.record(let undoClose)):
+                guard undoClose.workspaceID == replacement.workspace.id else {
+                    throw WorkspaceUndoCloseWriteFailure.workspaceMismatch
+                }
+                return try writeUndoClose(undoClose, in: database)
+            case .some(.restore), .some(.create):
+                try pruneFinishedUndoRows(workspaceID: replacement.workspace.id, database: database)
+                return try readUndoJournalReceipt(
+                    workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
+            case .some(.discard(let time)):
+                try validateUndoJournalTime(time)
+                try markUnownedTerminalSessionsForCleanup(
+                    database, finishedUndoWorkspaceID: nil, requestedAt: time.utc)
+                return try readUndoJournalReceipt(
+                    workspaceID: replacement.workspace.id, retiredCloses: [], database: database)
+            case nil:
+                return nil
+            }
         }
     }
 
@@ -226,6 +262,11 @@ package struct WorkspaceCoreRepository: Sendable {
     func deleteWorkspace(_ workspaceId: UUID, updatedAt: Date) throws -> UUID? {
         try databaseWriter.write { database in
             try requireWorkspaceExists(database, id: workspaceId)
+            guard updatedAt.timeIntervalSince1970.isFinite else { throw WorkspaceUndoJournalFailure.invalidClock }
+            let affectedSessions = try terminalSessionsOwnedByWorkspace(workspaceId, database: database)
+            try database.execute(
+                sql: "UPDATE workspace_undo_close SET state = 'evicted' WHERE workspace_id = ? AND state = 'available'",
+                arguments: [workspaceId.uuidString])
             let activeWorkspaceIdStringAfterDelete = try prepareActiveWorkspaceSelectionForDelete(
                 database,
                 deletingWorkspaceId: workspaceId,
@@ -238,6 +279,11 @@ package struct WorkspaceCoreRepository: Sendable {
                     """,
                 arguments: [workspaceId.uuidString]
             )
+            for sessionID in affectedSessions {
+                try markUnownedTerminalSessionsForCleanup(
+                    database, finishedUndoWorkspaceID: nil, sessionID: sessionID, requestedAt: updatedAt)
+            }
+            try pruneFinishedUndoRows(workspaceID: workspaceId, database: database)
             guard let activeWorkspaceIdStringAfterDelete else { return nil }
             return UUID(uuidString: activeWorkspaceIdStringAfterDelete)
         }
