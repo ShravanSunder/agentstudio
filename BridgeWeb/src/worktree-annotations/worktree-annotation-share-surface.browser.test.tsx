@@ -237,7 +237,7 @@ describe('worktree annotation Annotations integrated surface', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 
 		await performBrowserAction(() =>
-			rendered.getByRole('button', { name: 'Mark agent viewed' }).click(),
+			clickHtmlButton(rendered.getByTestId('mark-agent-viewed-control').element()),
 		);
 		await settleInteraction();
 		await act(async (): Promise<void> => {
@@ -769,6 +769,8 @@ function ViewedCommandTestControl(): ReactElement {
 	const viewedController = useWorktreeAnnotationViewedController();
 	return (
 		<button
+			hidden
+			data-testid="mark-agent-viewed-control"
 			type="button"
 			onClick={() => {
 				const messages = projection.threads.flatMap((thread) => thread.messages);

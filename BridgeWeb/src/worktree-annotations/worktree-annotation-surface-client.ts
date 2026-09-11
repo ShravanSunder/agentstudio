@@ -231,6 +231,22 @@ export function createWorktreeAnnotationSurfaceClient(
 						} else if (message.state.reviewPublicationIdentity !== undefined) {
 							return;
 						}
+						// Bracket main-owned work on one telemetry producer so backpressure
+						// cannot deliver a terminal ahead of its start on another port.
+						for (const phase of [
+							'projection_store_started',
+							'main_thread_install_started',
+						] as const) {
+							recordWorktreeAnnotationLifecycleTelemetry({
+								operationCorrelationId: message.operationCorrelationId,
+								phase,
+								recorder: telemetryRecorder,
+								result: 'started',
+								sourceGeneration: message.state.snapshot.sourceGeneration,
+								transport: 'local',
+								viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
+							});
+						}
 						const projectionApplied = projectionStore.apply({
 							contentSessionIds: message.state.contentSessionIds,
 							expectedContentSessionIds,

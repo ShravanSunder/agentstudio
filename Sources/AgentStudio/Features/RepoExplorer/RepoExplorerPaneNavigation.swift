@@ -6,8 +6,6 @@ import SwiftUI
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
-    var pinPresentation: RepoExplorerPresentedCommand?
-    var onPin: () -> Void = {}
     let onFocus: () -> Void
 
     @State private var isHovering = false
@@ -23,9 +21,7 @@ struct RepoExplorerPaneRow: View {
                 recencyTier: row.recencyTier,
                 isActive: row.isActive,
                 isDrawerPane: row.isDrawerPane,
-                octiconLoader: octiconLoader,
-                pinPresentation: pinPresentation,
-                onPin: onPin
+                octiconLoader: octiconLoader
             )
         }
         .onTapGesture(perform: onFocus)
@@ -59,13 +55,11 @@ struct RepoExplorerPaneRowContent: View {
     let isActive: Bool
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
-    var pinPresentation: RepoExplorerPresentedCommand?
-    var onPin: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                AppEntityIcon.pane.swiftUIImage(
+                (isDrawerPane ? AppEntityIcon.drawer : .pane).swiftUIImage(
                     loader: octiconLoader,
                     size: AppStyles.Shell.Sidebar.rowIdentityIconSize
                 )
@@ -80,32 +74,21 @@ struct RepoExplorerPaneRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let pinPresentation {
-                    Button(action: onPin) {
-                        pinPresentation.commandSpec.icon.swiftUIImage(
-                            loader: octiconLoader, size: AppStyles.General.Icon.compact
-                        )
-                        .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!pinPresentation.isEnabled)
-                    .accessibilityLabel(pinPresentation.commandSpec.label)
-                    .controlHelp(pinPresentation.commandSpec.controlTooltipRenderValue())
-                }
+
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let branchContextText {
+                SidebarMetadataLine(
+                    icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
+                    text: branchContextText
+                )
+            }
             if let secondaryLine {
                 SidebarMetadataLine(
                     icon: .systemName(secondaryLine.iconSystemName),
                     text: secondaryLine.text
                 )
                 .saturation(secondaryLine.isTerminalOutput ? 0 : 1)
-            }
-            if let branchContextText {
-                SidebarMetadataLine(
-                    icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
-                    text: branchContextText
-                )
             }
             chipRow
         }

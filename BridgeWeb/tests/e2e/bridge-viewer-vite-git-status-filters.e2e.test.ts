@@ -32,6 +32,11 @@ test('filters the native Git working-tree review by every status and clears comb
 		});
 		await page.getByTestId('review-viewer-shell').waitFor({ state: 'visible' });
 		await expectReviewTreePaths(page, fixture.expectedAllTreePaths, 'initial All statuses');
+		await expectSelectedReviewCodeContent(
+			page,
+			fixture.selectedSourceContentMarker,
+			'initial selected source content',
+		);
 
 		for (const statusCase of fixture.statusCases) {
 			// oxlint-disable-next-line no-await-in-loop -- Each product filter must settle through Swift, the worker, and Pierre before the next selection.
@@ -46,6 +51,11 @@ test('filters the native Git working-tree review by every status and clears comb
 
 		await selectFacetOption(page, 'Git status', 'All statuses');
 		await expectReviewTreePaths(page, fixture.expectedAllTreePaths, 'selected All statuses');
+		await expectSelectedReviewCodeContent(
+			page,
+			fixture.selectedSourceContentMarker,
+			'selected source content after empty status and All statuses',
+		);
 
 		await setVisibilityToggle(page, 'bridge-review-facet-show-binary', true);
 		await expectReviewTreePaths(
@@ -106,6 +116,11 @@ test('filters the native Git working-tree review by every status and clears comb
 		await clear.click();
 		await popover.waitFor({ state: 'hidden' });
 		await expectReviewTreePaths(page, fixture.expectedAllTreePaths, 'Clear filters restore');
+		await expectSelectedReviewCodeContent(
+			page,
+			fixture.selectedSourceContentMarker,
+			'selected source content after combined empty result and Clear',
+		);
 		expect(await page.getByTestId('bridge-review-facet-active-indicator').count()).toBe(0);
 	} catch (error: unknown) {
 		primaryFailure = {
@@ -256,6 +271,65 @@ async function expectReviewEmptyState(page: Page, label: string): Promise<void> 
 	expect(await page.getByTestId('bridge-review-empty-canvas').isVisible(), label).toBe(true);
 	expect(await page.getByTestId('bridge-review-empty-file-tree').isVisible(), label).toBe(true);
 	expect(await page.getByTestId('bridge-review-facet-menu-control').isEnabled(), label).toBe(true);
+}
+
+async function expectSelectedReviewCodeContent(
+	page: Page,
+	marker: string,
+	label: string,
+): Promise<void> {
+	await page.waitForFunction(
+		(markerText: string): boolean => {
+			const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			if (!(panel instanceof HTMLElement)) return false;
+			const pending: Array<Element | ShadowRoot> = [panel];
+			while (pending.length > 0) {
+				const current = pending.shift();
+				if (current === undefined) break;
+				for (const row of current.querySelectorAll('[data-line]')) {
+					const bounds = row.getBoundingClientRect();
+					if (
+						row.closest('[data-additions]') !== null &&
+						bounds.width > 0 &&
+						bounds.height > 0 &&
+						(row.textContent?.includes(markerText) ?? false)
+					) {
+						return true;
+					}
+				}
+				for (const descendant of current.querySelectorAll('*')) {
+					if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+				}
+			}
+			return false;
+		},
+		marker,
+		{ timeout: treeSettlementTimeoutMilliseconds },
+	);
+	expect(
+		await page.evaluate((markerText: string): boolean => {
+			const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			if (panel === null) return false;
+			const pending: Array<Element | ShadowRoot> = [panel];
+			while (pending.length > 0) {
+				const current = pending.shift();
+				if (current === undefined) break;
+				for (const row of current.querySelectorAll('[data-line]')) {
+					if (
+						row.closest('[data-additions]') !== null &&
+						(row.textContent?.includes(markerText) ?? false)
+					) {
+						return true;
+					}
+				}
+				for (const descendant of current.querySelectorAll('*')) {
+					if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+				}
+			}
+			return false;
+		}, marker),
+		label,
+	).toBe(true);
 }
 
 async function readReviewTreePaths(page: Page, selector: string): Promise<readonly string[]> {

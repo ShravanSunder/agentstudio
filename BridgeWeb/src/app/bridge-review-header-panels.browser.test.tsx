@@ -138,11 +138,18 @@ describe('Bridge Review header peer panels', () => {
 			expect(scrollBounds.height).toBeGreaterThan(200);
 			if (!(scroll instanceof HTMLElement)) throw new Error('Expected result scroll container.');
 			expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
-			await performAction(async (): Promise<void> => {
-				scroll.scrollTop = scroll.scrollHeight;
-				scroll.dispatchEvent(new Event('scroll'));
-				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-			});
+			// The virtualizer publishes both scroll start and a debounced scroll end.
+			// Exercise both inside act without waiting on its wall-clock reset delay.
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+			try {
+				await act(async (): Promise<void> => {
+					scroll.scrollTop = scroll.scrollHeight;
+					scroll.dispatchEvent(new Event('scroll'));
+					await vi.runOnlyPendingTimersAsync();
+				});
+			} finally {
+				vi.useRealTimers();
+			}
 			await expect.element(rendered.getByTestId('comparison-branch-branch-79')).toBeVisible();
 			expect(note.getBoundingClientRect().bottom).toBeCloseTo(noteBounds.bottom, 0);
 			await page.screenshot({ path: '../../../tmp/bridgeweb-compare-filled-drawer.png' });
@@ -184,12 +191,18 @@ describe('Bridge Review header peer panels', () => {
 				.element();
 			if (!(outgoingPanel instanceof HTMLElement) || !(outgoingAction instanceof HTMLElement))
 				throw new Error('Expected mounted outgoing panel and action.');
-			await act(async (): Promise<void> => {
-				await (outgoingKind === 'compare' ? shareTrigger : compareTrigger).click();
-			});
+			const incomingTrigger = (
+				outgoingKind === 'compare' ? shareTrigger : compareTrigger
+			).element();
+			if (!(incomingTrigger instanceof HTMLElement))
+				throw new Error('Expected peer-panel trigger.');
+			// Commit the switch and pause its animation in this browser turn. A remote
+			// locator click can return after the exit animation has already completed.
+			act((): void => incomingTrigger.click());
 			const exitAnimations = outgoingPanel.getAnimations();
 			for (const animation of exitAnimations) animation.pause();
 			try {
+				expect(exitAnimations.length).toBeGreaterThan(0);
 				expect(outgoingPanel.isConnected).toBe(true);
 				expect(outgoingPanel.inert).toBe(true);
 				await act(async (): Promise<void> => {

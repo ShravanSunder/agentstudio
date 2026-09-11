@@ -184,6 +184,21 @@ describe('worktree annotation surface command rendezvous', () => {
 				sample.stringAttributes['agentstudio.bridge.phase'] ?? '',
 			),
 		);
+		expect(
+			harness.telemetrySamples
+				.filter(
+					(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === 'a'.repeat(64),
+				)
+				.map((sample) => sample.stringAttributes['agentstudio.bridge.phase']),
+		).toEqual([
+			'annotation_catalog_main_begin',
+			'annotation_catalog_main_window',
+			'annotation_catalog_main_commit',
+			'projection_store_started',
+			'main_thread_install_started',
+			'projection_store_terminal',
+			'main_thread_install_terminal',
+		]);
 		expect(projectionSamples).toHaveLength(2);
 		expect(projectionSamples[0]?.stringAttributes).toMatchObject({
 			'agentstudio.bridge.operation.id': 'a'.repeat(64),

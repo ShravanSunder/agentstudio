@@ -6,6 +6,13 @@ import Testing
 
 @Suite
 struct RuleParityTests {
+    @Test("drawer toolbar rejects raw button constructors while owned controls remain valid")
+    func drawerToolbarRequiresOwnedControls() throws {
+        let failures = try lintFixtureCorpus("Bad").filter { $0.ruleID == "agentstudio_drawer_toolbar_owned_controls" }
+        #expect(failures.count == 3)
+        #expect(try lintFixtureCorpus("Good").allSatisfy { $0.ruleID != "agentstudio_drawer_toolbar_owned_controls" })
+    }
+
     @Test("performance guard fixtures report all four advisory rules")
     func performanceGuardFixturesReportAllFourAdvisoryRules() throws {
         let diagnostics = try lintFixtureCorpus("Bad")

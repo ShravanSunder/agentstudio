@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import Foundation
 import Testing
 
 @testable import AgentStudio
@@ -7,6 +8,61 @@ import Testing
 @testable import AgentStudioTestSupport
 
 extension RepoExplorerCommandPresentationBatchTests {
+    @Test("pane split capability refreshes when a nonfocused target is minimized and restored")
+    func paneSplitCapabilityTracksTargetVisibility() async throws {
+        installTestCoreAtomsIfNeeded()
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        try await withWorkspaceCommandHarness(harness) {
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let directory = harness.tempDir.appending(path: "cwd", directoryHint: .isDirectory)
+                    let focused = harness.store.createPane(launchDirectory: directory)
+                    let target = harness.store.createPane(launchDirectory: directory)
+                    let tab = Tab(paneId: focused.id)
+                    harness.store.appendTab(tab)
+                    #expect(
+                        harness.store.insertPane(
+                            target.id, inTab: tab.id, at: focused.id,
+                            direction: .horizontal, position: .after, sizingMode: .halveTarget
+                        ))
+                    harness.store.setActiveTab(tab.id)
+                    harness.store.tabLayoutAtom.setActivePane(focused.id, inTab: tab.id)
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: harness.store, repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(), dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+                    let request = RepoExplorerCommandPresentationRequest(
+                        command: .openWorktreeInPane, surface: .contextMenu,
+                        target: target.id, targetType: .pane, arguments: .noArguments
+                    )
+                    batch.acceptVisibleWorktreeSnapshot(
+                        RepoExplorerVisibleWorktreeSnapshot(
+                            target: RepoExplorerCommandPresentationTarget(
+                                materializationHostLifetimeID: .init(rawValue: UUIDv7.generate()),
+                                materializationGeneration: 1, visibleRevision: 1
+                            ),
+                            worktreeIDs: [], paneIDs: [target.id]
+                        ))
+                    await eventually("initial pane split capability") { batch.snapshot.results[request] == true }
+                    #expect(harness.store.minimizePane(target.id, inTab: tab.id))
+                    #expect(harness.store.tabLayoutAtom.tab(tab.id)?.activePaneId == focused.id)
+                    #expect(!harness.controller.canExecute(.openWorktreeInPane, target: target.id, targetType: .pane))
+                    await eventually("minimized pane disables split") { batch.snapshot.results[request] == false }
+                    harness.store.tabLayoutAtom.expandPane(target.id, inTab: tab.id)
+                    harness.store.tabLayoutAtom.setActivePane(focused.id, inTab: tab.id)
+                    #expect(harness.store.tabLayoutAtom.tab(tab.id)?.activePaneId == focused.id)
+                    await eventually("restored pane enables split") { batch.snapshot.results[request] == true }
+                }
+            )
+        }
+    }
+
     @Test("sidebar screen switch re-resolves toolbar capabilities without a visible-set change")
     func sidebarScreenSwitchReresolvesToolbarCapabilitiesWithoutVisibleSetChange() async throws {
         try await withIsolatedCommandDispatcher(

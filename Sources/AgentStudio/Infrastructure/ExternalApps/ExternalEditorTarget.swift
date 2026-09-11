@@ -26,7 +26,7 @@ package struct ExternalEditorTarget: Equatable, Identifiable {
             && lhs.cliFallbacks == rhs.cliFallbacks
     }
 
-    static let cursor = Self(
+    package static let cursor = Self(
         id: "cursor",
         title: "Cursor",
         bundleIdentifier: "com.todesktop.230313mzl4w4u92",
@@ -39,7 +39,7 @@ package struct ExternalEditorTarget: Equatable, Identifiable {
         appIcon: nil
     )
 
-    static let vscode = Self(
+    package static let vscode = Self(
         id: "vscode",
         title: "VS Code",
         bundleIdentifier: "com.microsoft.VSCode",

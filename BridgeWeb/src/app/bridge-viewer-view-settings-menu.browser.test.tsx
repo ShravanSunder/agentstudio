@@ -383,8 +383,10 @@ function elementBounds(element: Element): Readonly<{ height: number; width: numb
 }
 
 async function settleMenuGeometry(selector: string): Promise<void> {
-	const menu = requireHTMLElement(document.querySelector(selector));
-	await Promise.all(
-		menu.getAnimations({ subtree: true }).map(async (animation) => animation.finished),
-	);
+	await act(async (): Promise<void> => {
+		const menu = requireHTMLElement(document.querySelector(selector));
+		await Promise.all(
+			menu.getAnimations({ subtree: true }).map(async (animation) => animation.finished),
+		);
+	});
 }

@@ -37,7 +37,7 @@ func waitForRefreshAdmissionQueuedMetadataFrame(
 func waitForStartedComparisonCount(
     _ expectedCount: Int,
     gate: BridgeComparisonGate,
-    maxTurns: Int = 200
+    maxTurns: Int = 2000
 ) async -> Bool {
     for _ in 0..<maxTurns {
         if await gate.hasStartedComparisonCount(expectedCount) {

@@ -1,6 +1,6 @@
 import { act, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
+import { cleanup, render, type RenderResult } from 'vitest-browser-react';
 
 import { ReviewNavigationControllerProbe } from './bridge-review-navigation-controller.browser.test-support.js';
 
@@ -29,8 +29,8 @@ describe('Bridge Review navigation controller', () => {
 	});
 });
 
-async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnType<typeof render>>> {
-	let rendered: Awaited<ReturnType<typeof render>> | null = null;
+async function renderInsideAct(element: ReactElement): Promise<RenderResult> {
+	let rendered: RenderResult | null = null;
 	await act(async (): Promise<void> => {
 		rendered = await render(element);
 		await Promise.resolve();

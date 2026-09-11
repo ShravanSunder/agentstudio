@@ -1,6 +1,6 @@
 import { act, useCallback, useRef, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
+import { cleanup, render, type RenderResult } from 'vitest-browser-react';
 
 import {
 	useBridgeReviewSelectionController,
@@ -942,8 +942,8 @@ function makeReadyReviewPresentationState(
 	};
 }
 
-async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnType<typeof render>>> {
-	let rendered: Awaited<ReturnType<typeof render>> | null = null;
+async function renderInsideAct(element: ReactElement): Promise<RenderResult> {
+	let rendered: RenderResult | null = null;
 	await act(async (): Promise<void> => {
 		rendered = await render(element);
 		await Promise.resolve();
@@ -951,9 +951,7 @@ async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnTyp
 	return requireRenderResult(rendered);
 }
 
-function requireRenderResult(
-	rendered: Awaited<ReturnType<typeof render>> | null,
-): Awaited<ReturnType<typeof render>> {
+function requireRenderResult(rendered: RenderResult | null): RenderResult {
 	if (rendered === null) throw new Error('Expected Browser render result.');
 	return rendered;
 }

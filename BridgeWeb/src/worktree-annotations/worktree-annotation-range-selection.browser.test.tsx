@@ -24,22 +24,44 @@ import {
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
 
+const originalWindowSetTimeout = window.setTimeout;
+
 describe('worktree annotation Pierre range selection', () => {
 	beforeEach((): void => {
 		const requestFrame = window.requestAnimationFrame.bind(window);
+		const scheduleTimeout = originalWindowSetTimeout.bind(window);
 		// Pierre publishes portal state from its real frame scheduler, independently
-		// of pointer dispatch. Enter React's test boundary at that external callback.
+		// of pointer dispatch. BridgeCodeViewPanel also schedules metadata and
+		// materialization turns through real timers. Enter React's test boundary at
+		// those external callbacks while preserving native scheduling and cancellation.
 		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback): number =>
 			requestFrame((timestamp): void => {
 				act((): void => callback(timestamp));
 			}),
 		);
+		const actWrappedSetTimeout = (
+			callback: TimerHandler,
+			delay?: number,
+			...args: unknown[]
+		): number => {
+			if (typeof callback !== 'function') return scheduleTimeout(callback, delay, ...args);
+			return scheduleTimeout((): void => {
+				act((): void => {
+					Reflect.apply(callback, window, args);
+				});
+			}, delay);
+		};
+		Object.assign(window, { setTimeout: actWrappedSetTimeout });
 	});
 	afterEach(async (): Promise<void> => {
-		await act(async (): Promise<void> => {
-			await cleanup();
-		});
-		vi.restoreAllMocks();
+		try {
+			await act(async (): Promise<void> => {
+				await cleanup();
+			});
+		} finally {
+			Object.assign(window, { setTimeout: originalWindowSetTimeout });
+			vi.restoreAllMocks();
+		}
 	});
 
 	test('paints a dragged File range, keeps its endpoint utility, and clears on Escape', async () => {

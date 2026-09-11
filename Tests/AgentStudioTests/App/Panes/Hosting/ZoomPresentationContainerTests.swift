@@ -104,6 +104,7 @@ struct ZoomPresentationContainerTests {
             toolbarIdentifiers == [
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.pinPane",
                 "paneSurfaceToolbar.note",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
@@ -154,6 +155,7 @@ struct ZoomPresentationContainerTests {
             state.accessibilityIdentifiers.filter { $0.hasPrefix("paneSurfaceToolbar.") } == [
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.pinPane",
                 "paneSurfaceToolbar.note",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
@@ -189,6 +191,7 @@ struct ZoomPresentationContainerTests {
             expectedControlOrder: [
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.pinPane",
                 "paneSurfaceToolbar.note",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
@@ -284,6 +287,7 @@ struct ZoomPresentationContainerTests {
             expectedControlOrder: [
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.pinPane",
                 "paneSurfaceToolbar.note",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
@@ -699,6 +703,7 @@ extension ZoomPresentationContainerTests {
             "paneSurfaceToolbar.viewer",
             "paneSurfaceToolbar.drawerToggle",
             "paneSurfaceToolbar.drawerAdd",
+            "paneSurfaceToolbar.pinPane",
             "paneSurfaceToolbar.note",
             "paneSurfaceToolbar.finder",
             "paneSurfaceToolbar.copyPath",
@@ -734,6 +739,12 @@ extension ZoomPresentationContainerTests {
         )
         try expectHorizontalGap(
             between: "paneSurfaceToolbar.drawerAdd",
+            and: "paneSurfaceToolbar.pinPane",
+            equals: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing,
+            in: controlFrames
+        )
+        try expectHorizontalGap(
+            between: "paneSurfaceToolbar.pinPane",
             and: "paneSurfaceToolbar.note",
             equals: expectedToolbarSeparatorWidth,
             in: controlFrames

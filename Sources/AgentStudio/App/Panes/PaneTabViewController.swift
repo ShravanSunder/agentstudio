@@ -3558,6 +3558,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .editPaneNote, targetType == .pane {
             guard store.paneAtom.pane(target) != nil else { return }
+            focusTargetedPane(target)
             paneNotePresentation.present(target)
             return
         }
@@ -4093,11 +4094,41 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    func paneTerminalCreationAction(command: AppCommand, paneId: UUID) -> WorkspaceActionCommand? {
+        guard let pane = store.paneAtom.pane(paneId),
+            let directory = targetedPaneLocationPath(paneId: paneId)
+        else { return nil }
+        if command == .openNewTerminalInTab {
+            if let association = store.repositoryTopologyAtom.validatedAssociation(
+                repoId: pane.repoId, worktreeId: pane.worktreeId
+            ) {
+                return .openNewTerminalInTab(
+                    worktreeId: association.worktree.id, launchDirectory: directory, title: nil)
+            }
+            return .openFloatingTerminal(launchDirectory: directory, title: nil)
+        }
+        guard let target = targetedPaneCapabilityTarget(paneId: paneId) else { return nil }
+        let insertionPaneId: UUID
+        switch target {
+        case .layout: insertionPaneId = paneId
+        case .drawerChild(_, let parentPaneId, _, _): insertionPaneId = parentPaneId
+        }
+        return .insertPane(
+            source: .newTerminalAtDirectory(directory), targetTabId: target.tabId,
+            targetPaneId: insertionPaneId, direction: .right, sizingMode: .halveTarget
+        )
+    }
+
     private func targetedAction(
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
     ) -> WorkspaceActionCommand? {
+        if targetType == .pane,
+            command == .openNewTerminalInTab || command == .openWorktreeInPane
+        {
+            return paneTerminalCreationAction(command: command, paneId: target)
+        }
         if let paneAction = targetedPaneWorkspaceAction(
             command: command,
             paneId: target,
@@ -4412,6 +4443,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 guard let target = request.target, let targetType = request.targetType else {
                     return (request, false)
                 }
+                if request.command == .zoomPane || request.command == .editPaneNote
+                    || isTargetedPaneExternalCommand(request.command)
+                {
+                    return (request, canExecute(request.command, target: target, targetType: targetType))
+                }
                 if Self.isTargetedBridgeCommand(request.command) {
                     return (request, targetType == .worktree && state.knownWorktreeIds.contains(target))
                 }
@@ -4533,6 +4569,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return activeLayoutShowsPane(target)
         case (.editPaneNote, .layout):
             return activeLayoutShowsPane(target)
+        case (.editPaneNote, .drawerChild):
+            return drawerParentIsShown(target)
         default:
             return false
         }
