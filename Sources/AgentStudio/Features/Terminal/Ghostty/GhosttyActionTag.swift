@@ -69,6 +69,10 @@ enum GhosttyActionTag: Sendable, CaseIterable {
     case searchSelected
     case readOnly
     case copyTitleToClipboard
+    case exportTerminalIO
+    case setWindowTitle
+    case selectionChanged
+    case moveTabToNewWindow
 
     /// Copy-title action was appended after readonly in Ghostty and may not be present
     /// in older generated headers; derive the raw value from readonly to keep compatibility.
@@ -152,6 +156,10 @@ enum GhosttyActionTag: Sendable, CaseIterable {
         case .searchSelected: return UInt32(GHOSTTY_ACTION_SEARCH_SELECTED.rawValue)
         case .readOnly: return UInt32(GHOSTTY_ACTION_READONLY.rawValue)
         case .copyTitleToClipboard: return Self.copyTitleToClipboardRawValue
+        case .exportTerminalIO: return UInt32(GHOSTTY_ACTION_EXPORT_TERMINAL_IO.rawValue)
+        case .setWindowTitle: return UInt32(GHOSTTY_ACTION_SET_WINDOW_TITLE.rawValue)
+        case .selectionChanged: return UInt32(GHOSTTY_ACTION_SELECTION_CHANGED.rawValue)
+        case .moveTabToNewWindow: return UInt32(GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW.rawValue)
         }
     }
 }

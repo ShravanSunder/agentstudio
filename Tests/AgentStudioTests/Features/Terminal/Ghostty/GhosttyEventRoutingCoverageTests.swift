@@ -11,6 +11,7 @@ struct GhosttyEventRoutingCoverageTests {
             Ghostty.ActionRouter.explicitlyRoutedTags
             .union(Ghostty.ActionRouter.deferredTags)
             .union(Ghostty.ActionRouter.interceptedTags)
+            .union(Ghostty.ActionRouter.unsupportedTags)
 
         #expect(accountedTags == Set(GhosttyActionTag.allCases))
     }
