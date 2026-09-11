@@ -459,6 +459,17 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("File mode did not activate during refresh")
         }
+        try appendTrackedChange(at: input.paneOneRepoURL)
+        let fileChangeset = try makeChangeset(
+            for: input.paneOne,
+            paths: ["tracked.txt"],
+            batchSequence: 704
+        )
+        _ = input.paneOne.worktreeRefreshDriver.recordInvalidation(
+            fileChangeset: fileChangeset,
+            requiresReviewRefresh: false
+        )
+        input.paneOne.worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
         let updatingFileStatus = try await requireStatus(
             input.paneOne.page,
             activeMode: "file",
