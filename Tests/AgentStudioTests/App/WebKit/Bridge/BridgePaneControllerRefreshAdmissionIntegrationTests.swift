@@ -551,7 +551,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
 
         // Assert — both File generations publish before either Review attempt is released, and
         // the newer Review attempt is admitted independently of its predecessor's lifetime.
-        #expect(await waitForStartedComparisonCount(2, gate: comparisonGate))
+        await comparisonGate.waitForStartedComparisonCount(2)
         #expect(await fixture.fileMetadataSource.changesetPublishAttemptCount == 2)
         #expect(await fixture.fileMetadataSource.publishedChangesets().count == 2)
         #expect(
