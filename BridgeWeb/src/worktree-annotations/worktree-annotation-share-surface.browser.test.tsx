@@ -1,7 +1,12 @@
-import { act, type ReactElement } from 'react';
+import { act, createRef, type ReactElement, type Ref } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+
+import {
+	ViewedCommandTestControl,
+	type ViewedCommandTestHandle,
+} from './worktree-annotation-viewed-command.test-support.js';
 
 const toastSpies = vi.hoisted(() => ({
 	default: vi.fn<(message: string) => void>(),
@@ -40,9 +45,7 @@ import type {
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import {
-	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSurfaceClient,
-	useWorktreeAnnotationViewedController,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
 
@@ -200,7 +203,10 @@ describe('worktree annotation Share comments integrated surface', () => {
 
 	test('preserves All membership but disables output until viewed projection convergence', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
-		const rendered = await render(<ShareSurfaceFixture includeViewedControl surface={surface} />);
+		const viewedControl = createRef<ViewedCommandTestHandle>();
+		const rendered = await render(
+			<ShareSurfaceFixture viewedControlRef={viewedControl} surface={surface} />,
+		);
 		const agentMessage = {
 			...annotationMessage({ messageId: newMessageId, threadId: annotationHeadThreadId }),
 			attentionState: 'new' as const,
@@ -224,9 +230,12 @@ describe('worktree annotation Share comments integrated surface', () => {
 		);
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 
-		await performBrowserAction(() =>
-			clickHtmlButton(rendered.getByTestId('mark-agent-viewed-control').element()),
+		await waitForShareShelfOpeningMotion(
+			requireHtmlElement(rendered.getByTestId('worktree-annotation-share-shelf').element()),
 		);
+		expect(viewedControl.current).not.toBeNull();
+		await performBrowserAction(() => viewedControl.current?.markViewed());
+		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
 		await settleInteraction();
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentViewed(5);
@@ -630,12 +639,14 @@ describe('worktree annotation Share comments integrated surface', () => {
 });
 
 function ShareSurfaceFixture(props: {
-	readonly includeViewedControl?: boolean;
+	readonly viewedControlRef?: Ref<ViewedCommandTestHandle>;
 	readonly surface: RecordingAnnotationBrowserSurface;
 }): ReactElement {
 	return (
 		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
-			{props.includeViewedControl === true ? <ViewedCommandTestControl /> : null}
+			{props.viewedControlRef === undefined ? null : (
+				<ViewedCommandTestControl controlRef={props.viewedControlRef} />
+			)}
 			<OverlayCommandTestControl />
 			<BridgeViewerContextPanelProvider>
 				<div
@@ -745,24 +756,6 @@ function assertElementOwnsItsCenterHitTarget(element: Element): void {
 		bounds.top + bounds.height / 2,
 	);
 	expect(element.contains(hitTarget)).toBe(true);
-}
-
-function ViewedCommandTestControl(): ReactElement {
-	const projection = useWorktreeAnnotationProjection();
-	const viewedController = useWorktreeAnnotationViewedController();
-	return (
-		<button
-			hidden
-			data-testid="mark-agent-viewed-control"
-			type="button"
-			onClick={() => {
-				const messages = projection.threads.flatMap((thread) => thread.messages);
-				void viewedController.markMessagesViewed(annotationSessionId, messages);
-			}}
-		>
-			Mark agent viewed
-		</button>
-	);
 }
 
 async function publishShareProjection(
