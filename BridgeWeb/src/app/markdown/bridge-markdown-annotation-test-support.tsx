@@ -5,21 +5,26 @@ import { BridgeMarkdownCanvas } from './bridge-markdown-canvas.js';
 import type { BridgeMarkdownRenderIntent } from './use-bridge-markdown-presentation.js';
 import { buildBridgeMarkdownRenderWorkerSuccessResponse } from './worker/bridge-markdown-render-worker-renderer.js';
 
-export function fileItem(contents: string, version = 1): BridgeFileViewerSelectedCodeViewItem {
-	const cacheKey = `plan:${version}`;
+export function fileItem(
+	contents: string,
+	version = 1,
+	path = 'plan.md',
+): BridgeFileViewerSelectedCodeViewItem {
+	const itemId = path.replace(/\.md$/u, '');
+	const cacheKey = `${itemId}:${version}`;
 	return {
-		id: 'file:plan',
+		id: `file:${itemId}`,
 		type: 'file',
 		version,
-		file: { name: 'plan.md', lang: 'markdown', cacheKey, contents },
+		file: { name: path, lang: 'markdown', cacheKey, contents },
 		bridgeMetadata: {
 			cacheKey,
 			contentRoles: ['file'],
 			contentState: 'hydrated',
-			displayPath: 'plan.md',
-			itemId: 'plan',
+			displayPath: path,
+			itemId,
 			lineCount: contents.split('\n').length,
-			sourceDescriptorId: `plan-descriptor-${version}`,
+			sourceDescriptorId: `${itemId}-descriptor-${version}`,
 		},
 	};
 }
@@ -30,18 +35,22 @@ export function fileIntent(item: BridgeFileViewerSelectedCodeViewItem): BridgeMa
 			surface: 'file',
 			sourceId: 'worktree',
 			sourceGeneration: 1,
-			fileId: 'plan',
+			fileId: item.bridgeMetadata.itemId,
 			fileVersion: item.version ?? 0,
 		},
 		contentCacheKey: item.bridgeMetadata.cacheKey,
 		contentHash: item.bridgeMetadata.cacheKey,
-		sourcePath: 'plan.md',
+		sourcePath: item.bridgeMetadata.displayPath,
 		markdownText: item.file.contents,
 	};
 }
 
-export async function markdownCanvas(contents: string, version = 1): Promise<ReactElement> {
-	const item = fileItem(contents, version);
+export async function markdownCanvas(
+	contents: string,
+	version = 1,
+	path = 'plan.md',
+): Promise<ReactElement> {
+	const item = fileItem(contents, version, path);
 	const intent = fileIntent(item);
 	const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({
 		request: {
@@ -61,7 +70,7 @@ export async function markdownCanvas(contents: string, version = 1): Promise<Rea
 				refresh: { kind: 'current' },
 				identity: response,
 				renderResult: response,
-				sourcePath: 'plan.md',
+				sourcePath: path,
 			}}
 			renderFulfillment={{
 				intent,

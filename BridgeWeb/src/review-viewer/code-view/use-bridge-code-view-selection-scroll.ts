@@ -1,5 +1,11 @@
 import type { CodeViewHandle } from '@pierre/diffs/react';
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import {
+	useEffect,
+	useRef,
+	type Dispatch,
+	type MutableRefObject,
+	type SetStateAction,
+} from 'react';
 
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
@@ -49,6 +55,10 @@ interface UseBridgeCodeViewSelectionScrollProps {
 export function useBridgeCodeViewSelectionScroll(
 	props: UseBridgeCodeViewSelectionScrollProps,
 ): void {
+	const annotationSelectionRef = useRef<{
+		readonly itemKey: string;
+		readonly selectionKey: string;
+	} | null>(null);
 	const {
 		annotationReveal,
 		codeViewHandleRef,
@@ -83,10 +93,17 @@ export function useBridgeCodeViewSelectionScroll(
 		}
 		const selectedAnnotationReveal =
 			annotationReveal?.itemId === selectedItemId ? annotationReveal : null;
-		const selectionScrollKey =
-			selectedAnnotationReveal === null
-				? `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`
-				: `${sourceKey}:${codeViewMountVersion}:${selectedItemId}:annotation:${selectedAnnotationReveal.requestId}:${selectedAnnotationReveal.threadId}`;
+		const itemKey = `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`;
+		if (selectedAnnotationReveal !== null) {
+			annotationSelectionRef.current = {
+				itemKey,
+				selectionKey: `${itemKey}:annotation:${selectedAnnotationReveal.requestId}:${selectedAnnotationReveal.threadId}`,
+			};
+		} else if (annotationSelectionRef.current?.itemKey !== itemKey) {
+			annotationSelectionRef.current = null;
+		}
+		// Consuming the request is not a new item selection; retain its settled viewport.
+		const selectionScrollKey = annotationSelectionRef.current?.selectionKey ?? itemKey;
 		if (lastSelectionScrollKeyRef.current === selectionScrollKey) {
 			return;
 		}

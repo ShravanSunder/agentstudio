@@ -10,11 +10,15 @@ import {
 	BridgeViewerContextPanelViewport,
 } from '../app/bridge-viewer-context-panel-host.js';
 import { markdownCanvas } from '../app/markdown/bridge-markdown-annotation-test-support.js';
+import { useBridgeAnnotationNavigation } from '../app/use-bridge-annotation-navigation.js';
+import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { useWorktreeAnnotationNavigationTarget } from './use-worktree-annotation-navigation-target.js';
 import {
 	annotationSessionId,
 	annotationHeadThreadId,
 	annotationBaseThreadId,
+	annotationSecondSessionId,
+	annotationSessionSummary,
 	createWorktreeAnnotationBrowserProviderHarness,
 } from './worktree-annotation-browser-test-support.js';
 import {
@@ -29,9 +33,140 @@ import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-s
 import {
 	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationEditorInstallationPreparation,
+	useWorktreeAnnotationProjection,
 } from './worktree-annotation-surface-provider.js';
 
 describe('annotation destination navigation', () => {
+	test('waits for an undemanded destination session while another session is already ready', async (): Promise<void> => {
+		const harness = createWorktreeAnnotationBrowserProviderHarness('fileView');
+		const subscribe = harness.surface.client.subscribeMessages;
+		let releaseDestination: (() => void) | null = null;
+		let replayPreviousSession: (() => void) | null = null;
+		vi.spyOn(harness.surface.client, 'subscribeMessages').mockImplementation((listener) =>
+			subscribe((message): void => {
+				if (message.kind !== 'annotationProjectionConvergence' || message.state.kind !== 'ready') {
+					listener(message);
+					return;
+				}
+				const previousThreads = message.state.snapshot.threads.filter((thread): boolean =>
+					thread.messages.every((entry): boolean => entry.sessionId === annotationSessionId),
+				);
+				const previousOnly = {
+					...message,
+					state: {
+						...message.state,
+						contentSessionIds: [annotationSessionId],
+						snapshot: {
+							...message.state.snapshot,
+							threads: previousThreads,
+							expectedThreadCount: previousThreads.length,
+							expectedMessageCount: previousThreads.reduce(
+								(count, thread): number => count + thread.messages.length,
+								0,
+							),
+						},
+					},
+				} satisfies BridgeWorkerServerToMainMessage;
+				releaseDestination = (): void => listener(message);
+				replayPreviousSession = (): void => listener(previousOnly);
+				listener(previousOnly);
+			}),
+		);
+		let controller: WorktreeAnnotationNavigationController | null = null;
+		function Destination(): ReactElement {
+			const target = useWorktreeAnnotationNavigationTarget('file', true);
+			const projection = useWorktreeAnnotationProjection();
+			return (
+				<>
+					<output data-testid="destination-thread">
+						{target?.thread.context.threadId ?? 'waiting'}
+					</output>
+					<output data-testid="projection-status">{projection.readStatus.kind}</output>
+				</>
+			);
+		}
+		function Fixture(): ReactElement {
+			controller = useBridgeAnnotationNavigation({
+				activeSurface: 'file',
+				activateDestination: (): boolean => true,
+			});
+			return (
+				<WorktreeAnnotationNavigationProvider controller={controller}>
+					{harness.wrap(<Destination />)}
+				</WorktreeAnnotationNavigationProvider>
+			);
+		}
+		const screen = await render(<Fixture />);
+		const otherThread = {
+			...threadFixture(9),
+			context: { ...threadFixture(9).context, threadId: annotationBaseThreadId },
+			messages: threadFixture(9).messages.map((message) => ({
+				...message,
+				messageId: '00000000-0000-7000-8000-000000000098',
+				sessionId: annotationSecondSessionId,
+				threadId: annotationBaseThreadId,
+			})),
+		};
+		await act(async (): Promise<void> => {
+			harness.surface.publishProjectionState({
+				expectedThreadCount: 2,
+				revision: 1,
+				sessions: [
+					annotationSessionSummary({ sessionId: annotationSessionId, revision: 1 }),
+					annotationSessionSummary({
+						sessionId: annotationSecondSessionId,
+						revision: 1,
+						lifecycle: 'completed',
+					}),
+				],
+			});
+			harness.surface.publishThreadMessages(threadFixture(8));
+			harness.surface.publishThreadMessages(otherThread);
+		});
+		const current = (): WorktreeAnnotationNavigationController => {
+			if (controller === null) throw new Error('Missing navigation controller');
+			return controller;
+		};
+		// Settle A's acquisition without delivering any B message content.
+		await act(async (): Promise<void> => {
+			replayPreviousSession?.();
+		});
+		await expect.element(screen.getByTestId('projection-status')).toHaveTextContent('ready');
+		await act(async (): Promise<void> => {
+			current().open({
+				destination: 'file',
+				sessionId: annotationSecondSessionId,
+				threadId: annotationBaseThreadId,
+			});
+		});
+		await expect
+			.poll(() =>
+				harness.surface.sentOperations.some(
+					(operation): boolean =>
+						operation.kind === 'demand.acquire' &&
+						operation.sessionId === annotationSecondSessionId,
+				),
+			)
+			.toBe(true);
+		await act(async (): Promise<void> => {
+			replayPreviousSession?.();
+		});
+		expect(current().request?.threadId).toBe(annotationBaseThreadId);
+		await act(async (): Promise<void> => {
+			releaseDestination?.();
+		});
+		await expect
+			.element(screen.getByTestId('destination-thread'))
+			.toHaveTextContent(annotationBaseThreadId);
+		await act(async (): Promise<void> => {
+			current().open({
+				destination: 'file',
+				sessionId: annotationSecondSessionId,
+				threadId: '00000000-0000-7000-8000-000000000197',
+			});
+		});
+		await expect.poll(() => current().request).toBeNull();
+	});
 	beforeEach((): void => {
 		const requestFrame = window.requestAnimationFrame.bind(window);
 		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback): number =>

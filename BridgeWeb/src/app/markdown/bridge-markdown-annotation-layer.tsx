@@ -62,6 +62,19 @@ export function BridgeMarkdownAnnotationLayer(props: {
 	const [composer, setComposer] = useState<RootComposer | null>(null);
 	useWorktreeAnnotationEditSurfaceToken(composer?.editToken ?? null);
 	const source = props.displayedSource;
+	const interactionRef = useRef(interaction);
+	interactionRef.current = interaction;
+	useLayoutEffect((): (() => void) => {
+		const itemId = source?.id;
+		return (): void => {
+			const current = interactionRef.current;
+			if (
+				current.pierreRangePresentation.kind === 'pending' &&
+				current.pierreRangePresentation.itemId === itemId
+			)
+				current.clearRangePresentation();
+		};
+	}, [source?.id]);
 	const navigation = useWorktreeAnnotationNavigation();
 	useLayoutEffect((): (() => void) | undefined => {
 		const request = navigation?.request;
@@ -182,29 +195,41 @@ export function BridgeMarkdownAnnotationLayer(props: {
 				: { start: target.startLine, end: target.endLine };
 		composeRange(range);
 	};
+	const displayedThreadsRef = useRef<readonly WorktreeAnnotationInlineThreadProjection[]>([]);
 	const projectedThreads = mergeWorktreeAnnotationCommandConfirmedThreads({
 		serverThreads: projection.threads,
 		commandConfirmedThreads: projection.commandConfirmedThreads,
-	}).filter(
-		(thread): boolean =>
-			source !== null &&
-			fileAnnotationThreadCanRender({
-				path: source.bridgeMetadata.displayPath,
-				sourceDescriptorId: source.bridgeMetadata.sourceDescriptorId ?? null,
-				thread,
-			}) &&
-			(session.activeSessionId === null ||
-				thread.messages.some(
-					(message): boolean => message.sessionId === session.activeSessionId,
-				)) &&
-			!thread.messages.every(
-				(message): boolean =>
-					message.draft?.activeEditToken !== null &&
-					message.draft?.activeEditToken !== undefined &&
-					newMessageTokens.has(message.draft.activeEditToken),
-			),
-	);
-	const displayedThreadsRef = useRef<readonly WorktreeAnnotationInlineThreadProjection[]>([]);
+	})
+		.filter(
+			(thread): boolean =>
+				source !== null &&
+				fileAnnotationThreadCanRender({
+					path: source.bridgeMetadata.displayPath,
+					sourceDescriptorId: source.bridgeMetadata.sourceDescriptorId ?? null,
+					thread,
+				}) &&
+				(session.activeSessionId === null ||
+					thread.messages.some(
+						(message): boolean => message.sessionId === session.activeSessionId,
+					)) &&
+				!thread.messages.every(
+					(message): boolean =>
+						message.draft?.activeEditToken !== null &&
+						message.draft?.activeEditToken !== undefined &&
+						newMessageTokens.has(message.draft.activeEditToken),
+				),
+		)
+		.flatMap((thread): readonly WorktreeAnnotationInlineThreadProjection[] => {
+			const displayedIdentity = source?.bridgeMetadata.sourceDescriptorId;
+			if (thread.context.sourceIdentity === displayedIdentity) return [thread];
+			// A successor projection may arrive while the installed article is held by an editor.
+			const predecessor = displayedThreadsRef.current.find(
+				(candidate): boolean =>
+					candidate.context.threadId === thread.context.threadId &&
+					candidate.context.sourceIdentity === displayedIdentity,
+			);
+			return predecessor === undefined ? [] : [predecessor];
+		});
 	const expansion = interaction.threadExpansion;
 	const editingThreadId =
 		expansion.kind === 'open' && expansion.editor !== null ? expansion.threadId : null;

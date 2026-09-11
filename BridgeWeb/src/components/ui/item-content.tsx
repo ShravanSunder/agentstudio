@@ -16,28 +16,16 @@ function ItemContent({ className, ...props }: ItemTextProps): ReactElement {
 	);
 }
 
-interface ItemLabelProps extends ItemTextProps {
-	readonly truncateFrom?: 'start' | 'end';
-}
-
-function ItemLabel({
-	className,
-	children,
-	truncateFrom = 'end',
-	...props
-}: ItemLabelProps): ReactElement {
+function ItemLabel({ className, ...props }: ItemTextProps): ReactElement {
 	return (
 		<span
 			data-slot="item-label"
 			className={cn(
 				'block min-w-0 truncate text-base font-normal text-foreground group-data-disabled/combobox-item:text-faint-foreground group-data-disabled/dropdown-menu-item:text-faint-foreground',
-				truncateFrom === 'start' ? 'text-left [direction:rtl]' : '',
 				className,
 			)}
 			{...props}
-		>
-			{truncateFrom === 'start' ? <bdi dir="ltr">{children}</bdi> : children}
-		</span>
+		/>
 	);
 }
 
