@@ -517,7 +517,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
                 rootPath: rootPath
             )
         )
-        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        await assertEventuallyAsync("filesystem registration starts its first read") { await calls.count == 1 }
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         for expectedCallCount in 2...3 {
@@ -611,7 +611,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
                 rootPath: URL(fileURLWithPath: "/tmp/visible-active-\(UUID().uuidString)")
             )
         )
-        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        await assertEventuallyAsync("active registration starts its first read") { await calls.count == 1 }
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[visibleWorktreeId] == nil })
 
         await actor.setActivity(worktreeId: visibleWorktreeId, isActiveInApp: false)
@@ -680,7 +680,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
                 rootPath: URL(fileURLWithPath: "/tmp/demotion-blocking-\(UUID().uuidString)")
             )
         )
-        #expect(await visibleTierWaitUntil { await gate.labels.count == 1 })
+        await assertEventuallyAsync("blocking worktree acquires its status slot") { await gate.labels.count == 1 }
 
         await actor.setSidebarVisibleWorktrees([pendingWorktreeId])
         await bus.post(
@@ -754,7 +754,9 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
                 )
             )
         }
-        #expect(await visibleTierWaitUntil { await gate.labels.count == policy.visibleSidebarMaxConcurrent })
+        await assertEventuallyAsync("visible worktrees fill their reserved slots") {
+            await gate.labels.count == policy.visibleSidebarMaxConcurrent
+        }
 
         let visibleWorktreeId = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
         let activePaneWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
