@@ -126,18 +126,9 @@ struct RepoExplorerMaterializedRowView: View {
                 }
             )
         case .pane(let pane):
-            let pinPresentation = RepoExplorerPaneCommandPresentation.resolve(
-                paneId: pane.destination.paneId, isPinned: pane.isPinned,
-                snapshot: commandPresentationSnapshot
-            )
             RepoExplorerPaneRow(
                 row: pane,
                 octiconLoader: octiconLoader,
-                pinPresentation: pinPresentation,
-                onPin: {
-                    guard let request = pinPresentation?.request else { return }
-                    onCommandRequest(request)
-                },
                 onFocus: { onFocusPane(pane.destination.paneId) }
             )
         case .unassociatedPane(let pane):

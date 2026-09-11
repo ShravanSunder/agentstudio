@@ -186,24 +186,25 @@ extension RepoExplorerProjectionDemandTests {
 
             atoms.workspaceSidebarState.setSidebarSurface(.panes)
             preferences.setGroupingMode(.repo, for: .panes)
-            for _ in 0..<300 where adapter.observationRegistration.paneIDs.isEmpty { await Task.yield() }
+            await assertEventuallyMain("Panes repo grouping installs pane observations") {
+                adapter.observationRegistration.paneIDs == [pane.id]
+            }
             #expect(adapter.observationRegistration.paneIDs == [pane.id])
             #expect(adapter.observationRegistration.tabIDs.isEmpty)
             let paneFactCaptureCountAfterGrouping = capture.paneFactCaptureCount
 
             let presentationCountBeforePaneSort = capture.presentationCaptureCount
             preferences.setSortDirection(.ascending, for: .panes)
-            for _ in 0..<200 where capture.presentationCaptureCount == presentationCountBeforePaneSort {
-                await Task.yield()
+            await assertEventuallyMain("Panes sort publishes its presentation projection") {
+                adapter.publishedResult?.snapshot.sortOrder == .ascending
             }
+            #expect(capture.presentationCaptureCount == presentationCountBeforePaneSort)
             #expect(capture.paneFactCaptureCount == paneFactCaptureCountAfterGrouping)
 
             preferences.setGroupingMode(.tab, for: .panes)
-            for _ in 0..<300
-            where adapter.observationRegistration.tabIDs.isEmpty
-                || adapter.publishedResult?.snapshot.groupingMode != .tab
-            {
-                await Task.yield()
+            await assertEventuallyMain("Panes tab grouping publishes its projection") {
+                !adapter.observationRegistration.tabIDs.isEmpty
+                    && adapter.publishedResult?.snapshot.groupingMode == .tab
             }
             // One initial Repos capture plus one structural capture for the Panes screen switch.
             #expect(capture.fullCaptureCount == 2)

@@ -15,6 +15,9 @@ export default defineConfig({
 	},
 	test: {
 		environment: 'node',
+		// Integration files share one Swift product-session authority and process-wide
+		// backend-origin configuration; run them serially to preserve ownership.
+		fileParallelism: false,
 		globals: true,
 		include: [
 			'scripts/**/*.integration.test.ts',

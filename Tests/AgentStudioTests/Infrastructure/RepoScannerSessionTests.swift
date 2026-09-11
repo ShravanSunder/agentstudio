@@ -208,8 +208,15 @@ struct RepoScannerSessionTests {
         // Arrange
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha"])
         defer { fixture.remove() }
-        let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
-        guard case .validationRequired(let request) = await nextValidationRequest(session) else {
+        let session = RepoScanner().makeSession(
+            in: fixture.root, maxDepth: 1, quantumBudget: try oneItemQuantumBudget()
+        )
+        // Force legitimate traversal suspension before entering validation custody.
+        guard case .suspended = await session.advanceOneQuantum() else {
+            Issue.record("expected root inspection to consume the first quantum")
+            return
+        }
+        guard case .validationRequired(let request) = await session.advanceOneQuantum() else {
             Issue.record("expected validation request")
             return
         }
@@ -239,7 +246,10 @@ struct RepoScannerSessionTests {
             Issue.record("expected complete result")
             return
         }
-        #expect(result.counts.scannerServiceInvocationCount == 2)
+        // Root inspection, candidate discovery, and final exhaustion acquire leases;
+        // the repeated validation wait and finished-result read must not.
+        #expect(completed.counts.scannerServiceInvocationCount == 3)
+        #expect(result == completed)
         #expect(result.counts.validationAuthoritativeNegativeCount == 1)
     }
 

@@ -44,6 +44,8 @@ Use these apps as benchmarks for quality and style:
 - **Transitions**: Use `.matchedGeometryEffect` for seamless UI state changes.
 
 ### Shared Shell Controls
+- **Drawer action rendering**: [`ToolbarActionButton`](../../Sources/AgentStudio/SharedComponents/ToolbarActionButton.swift) owns glyph sizing, hit areas, foreground/selection/hover paint, and accessibility. Drawer hosts provide typed presentation data and handlers, not custom label views or styling overrides. `DrawerIconBar` must not construct raw SwiftUI buttons; architecture lint enforces this boundary.
+- **Sidebar context menus**: repository and pane rows share the menu composition in [`RepoExplorerContextMenuPresenter`](../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerContextMenuPresenter.swift): creation/navigation, then pin/editor, then path utilities. Pane location information is a footer. Extend the shared composition instead of independently ordering another menu.
 - **Extract repeated controls**: If two sidebar surfaces, popovers, or drawers need the same control, use a `SharedComponents/` primitive instead of copying the view shape.
 - **Share interaction semantics**: If two popovers share selected-row state, arrow navigation, Return activation, Escape close, same-shortcut dismiss, focus capture, or numbered row activation, reuse or extract the shared keyboard/focus primitive even when row rendering differs.
 - **Sidebar search**: Use `SharedComponents/SidebarSearchField` with `AppStyles.Shell.Sidebar.SearchField` tokens for sidebar search surfaces. Do not hand-roll separate rounded search boxes in each feature.

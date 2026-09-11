@@ -96,7 +96,8 @@ extension RepoExplorerProjection {
                 var rows = members.map { destination in
                     var row = tabPaneRow(
                         groupId: groupId, destination: destination, reposById: reposById,
-                        paneFacts: paneFacts[destination.paneId], branchFacts: branchFacts
+                        paneFacts: paneFacts[destination.paneId], branchFacts: branchFacts,
+                        showsPaneNumber: snapshot.groupingMode == .tab
                     )
                     row.isPinned = paneFacts[destination.paneId]?.isPinned ?? false
                     if snapshot.subgroupMode == .activity && snapshot.groupingMode != .activity {

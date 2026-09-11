@@ -66,6 +66,7 @@ package struct DrawerOverlay: View {
     let toggleDrawerAction: TargetedCommandControlAction?
     let addDrawerPaneAction: TargetedCommandControlAction?
     let trailingActions: TrailingActions?
+    let pinPaneAction: TargetedCommandControlAction?
     let paneSurfaceActions: [PaneSurfaceToolbarAction]
     let paneContextActions: [PaneSurfaceToolbarAction]
 
@@ -75,6 +76,7 @@ package struct DrawerOverlay: View {
         isIconBarVisible: Bool,
         toggleDrawerAction: TargetedCommandControlAction?,
         addDrawerPaneAction: TargetedCommandControlAction?,
+        pinPaneAction: TargetedCommandControlAction? = nil,
         trailingActions: TrailingActions?,
         paneSurfaceActions: [PaneSurfaceToolbarAction] = [],
         paneContextActions: [PaneSurfaceToolbarAction] = []
@@ -84,6 +86,7 @@ package struct DrawerOverlay: View {
         self.isIconBarVisible = isIconBarVisible
         self.toggleDrawerAction = toggleDrawerAction
         self.addDrawerPaneAction = addDrawerPaneAction
+        self.pinPaneAction = pinPaneAction
         self.trailingActions = trailingActions
         self.paneSurfaceActions = paneSurfaceActions
         self.paneContextActions = paneContextActions
@@ -98,6 +101,7 @@ package struct DrawerOverlay: View {
                     addDrawerPaneAction: addDrawerPaneAction,
                     toggleDrawerAction: toggleDrawerAction
                 ),
+                pinPaneAction: pinPaneAction,
                 trailingActions: trailingActions,
                 paneSurfaceActions: paneSurfaceActions,
                 paneContextActions: paneContextActions

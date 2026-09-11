@@ -220,7 +220,11 @@ package struct RepoExplorerView: View {
         RepoExplorerTableInteractions(
             onCommandRequest: dispatchTableCommand,
             onToggleGroup: toggleGroupExpansion,
-            onFocusPane: focusPane
+            onFocusPane: focusPane,
+            onOpenPaneInEditor: { paneId, editorId in
+                guard let directory = store.paneAtom.pane(paneId)?.metadata.cwd else { return }
+                _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: directory)
+            }
         )
     }
 

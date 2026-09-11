@@ -227,7 +227,7 @@ final class AppCommandTests {
         #expect(zoomPane.helpText == "Zoom the active pane")
         #expect(
             zoomPane.surfacePolicy
-                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
+                == .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
         )
         #expect(
             zoomPane.targeting
