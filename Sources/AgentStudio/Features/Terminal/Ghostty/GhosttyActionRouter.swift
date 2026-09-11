@@ -178,7 +178,16 @@ extension Ghostty {
                     routingLookupProvider: routingLookupProvider
                 )
             }
-            if unsupportedTags.contains(actionTag) { return false }
+            if unsupportedTags.contains(actionTag) {
+                traceGhosttyAction(
+                    body: "ghostty.action.received",
+                    actionTag: rawActionTag,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "unsupported_action"
+                )
+                return false
+            }
             if let workspaceActionResult = handleWorkspaceAction(
                 actionTag,
                 rawActionTag: rawActionTag,
