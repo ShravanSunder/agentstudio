@@ -37,6 +37,10 @@ final class GhosttyAdapter: Sendable {
         .showChildExited,
         .showOnScreenKeyboard,
         .render,
+        .exportTerminalIO,
+        .setWindowTitle,
+        .selectionChanged,
+        .moveTabToNewWindow,
     ]
 
     enum ActionPayload: Sendable, Equatable {
