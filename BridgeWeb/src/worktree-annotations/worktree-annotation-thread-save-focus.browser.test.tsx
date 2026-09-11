@@ -84,8 +84,11 @@ describe('worktree annotation Save focus', () => {
 			'Expected the exact committed Save receipt to close the editor before projection.',
 		);
 		const thread = rendered.getByTestId('worktree-annotation-thread').element();
-		expect(thread.contains(document.activeElement)).toBe(true);
-		expect(getComputedStyle(document.activeElement as Element).outlineStyle).toBe('none');
+		const activeElement = document.activeElement;
+		expect(activeElement).not.toBeNull();
+		if (activeElement === null) throw new Error('Expected the annotation thread to retain focus.');
+		expect(thread.contains(activeElement)).toBe(true);
+		expect(getComputedStyle(activeElement).outlineStyle).toBe('none');
 		expect(thread.getAttribute('data-annotation-expanded')).toBe('true');
 
 		await act(async (): Promise<void> => {
