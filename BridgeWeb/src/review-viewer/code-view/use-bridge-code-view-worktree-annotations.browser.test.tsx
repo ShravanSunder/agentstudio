@@ -177,6 +177,101 @@ describe('Bridge CodeView worktree annotation membership', () => {
 			renderFulfillmentCoordinator.dispose();
 		}
 	});
+
+	test('completes a requested annotation reveal only after the inline thread is mounted and visible', async () => {
+		let mountedCodeView: CodeView | null = null;
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			// oxlint-disable-next-line typescript/no-this-alias -- Browser witness captures the live Pierre instance and restores the prototype after the test.
+			mountedCodeView = this;
+			originalCodeViewSetup.call(this, root);
+		};
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewProjection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (): void => {},
+		});
+		const completedRequests: number[] = [];
+		const panel = (reveal: boolean): ReactElement => (
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<BridgeCodeViewPanel
+					{...(reveal
+						? {
+								annotationReveal: {
+									itemId: 'item-source',
+									range: { end: 2, side: 'additions' as const, start: 2 },
+									requestId: 17,
+									threadId: annotationHeadThreadId,
+								},
+								onAnnotationRevealComplete: (requestId: number): void => {
+									completedRequests.push(requestId);
+								},
+							}
+						: {})}
+					presentationPositionKey="annotation-reveal"
+					projection={reviewProjection}
+					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+					reviewPackage={reviewPackage}
+					selectedCodeViewItem={makeReviewCodeViewItem()}
+					selectedItemId="item-source"
+					visibleCodeViewItems={[makeReviewCodeViewItem()]}
+					workerPoolEnabled={false}
+				/>
+			</WorktreeAnnotationSurfaceProvider>
+		);
+		try {
+			const rendered = await render(panel(false));
+			await settleBrowserCondition(
+				(): boolean => mountedCodeView !== null,
+				'Expected a mounted Pierre CodeView.',
+			);
+			await act(async (): Promise<void> => {
+				surface.publishProjectionState({
+					expectedThreadCount: 1,
+					revision: 1,
+					sessions: [annotationSessionSummary({ revision: 1, sessionId: annotationSessionId })],
+				});
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'additions',
+						sourceRole: 'review_head',
+						threadId: annotationHeadThreadId,
+					}),
+					message: annotationMessage({
+						messageId: handledHeadMessageId,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => renderedPierreThreadCount() === 1,
+				'Expected the destination inline thread before requesting its reveal.',
+			);
+
+			await rendered.rerender(panel(true));
+			await settleBrowserCondition(
+				(): boolean => completedRequests.includes(17),
+				'Expected completion only after the inline annotation thread became visible.',
+			);
+			const scrollOwner = document.querySelector<HTMLElement>('.bridge-code-view-scroll-owner');
+			const thread = document.querySelector<HTMLElement>(
+				`[data-annotation-thread-id="${annotationHeadThreadId}"]`,
+			);
+			if (scrollOwner === null || thread === null)
+				throw new Error('Missing revealed thread geometry.');
+			const viewportBounds = scrollOwner.getBoundingClientRect();
+			const threadBounds = thread.getBoundingClientRect();
+			expect(threadBounds.bottom).toBeGreaterThan(viewportBounds.top);
+			expect(threadBounds.top).toBeLessThan(viewportBounds.bottom);
+			expect(completedRequests).toEqual([17]);
+		} finally {
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
 });
 
 function ShareScopeTestControls(): ReactElement {

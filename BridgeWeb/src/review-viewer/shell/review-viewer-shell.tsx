@@ -44,6 +44,7 @@ import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
 import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
+import type { BridgeCodeViewAnnotationReveal } from '../code-view/bridge-code-view-panel-types.js';
 import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
@@ -61,6 +62,8 @@ import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal | null;
+	readonly onAnnotationRevealComplete?: (requestId: number) => void;
 	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner';
 	readonly activationSequence?: number;
 	readonly activationStartedAtPerfNow?: number;
@@ -418,6 +421,10 @@ export function renderReviewViewerShellPresentation(presentation: {
 										/>
 									) : (
 										<BridgeCodeViewPanel
+											annotationReveal={props.annotationReveal ?? null}
+											{...(props.onAnnotationRevealComplete === undefined
+												? {}
+												: { onAnnotationRevealComplete: props.onAnnotationRevealComplete })}
 											presentationPositionKey={props.presentationPositionKey}
 											projection={projection}
 											renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}

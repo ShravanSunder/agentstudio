@@ -66,7 +66,7 @@ export async function verifyAnnotationOutputCaptures(
 	if (copyResponseResult.kind === 'failed') throw copyResponseResult.error;
 	try {
 		await props.page
-			.getByRole('region', { name: 'Share comments' })
+			.getByRole('region', { name: 'Annotations' })
 			.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
 	} catch (error: unknown) {
 		const diagnostic = await copyDismissalDiagnostic({
@@ -77,7 +77,7 @@ export async function verifyAnnotationOutputCaptures(
 			page: props.page,
 		}).catch((): null => null);
 		if (diagnostic === null) throw error;
-		throw new Error(`Copy did not dismiss Share comments: ${diagnostic}.`, { cause: error });
+		throw new Error(`Copy did not dismiss Annotations: ${diagnostic}.`, { cause: error });
 	}
 
 	const markdownPath = await requireNewOutputCapture({
@@ -121,14 +121,14 @@ export async function verifyAnnotationOutputCaptures(
 	const exportResponseBody = await exportResponse.text();
 	try {
 		await props.page
-			.getByRole('region', { name: 'Share comments' })
+			.getByRole('region', { name: 'Annotations' })
 			.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
 	} catch (error: unknown) {
 		const alerts = await props.page.getByRole('alert').allTextContents();
 		const namesAfter = await outputCaptureNames(outputDirectory, '.json');
 		const createdNames = [...namesAfter].filter((name): boolean => !jsonNamesBefore.has(name));
 		throw new Error(
-			`Export did not dismiss Share comments: status=${exportResponse.status()} body=${exportResponseBody} alerts=${JSON.stringify(alerts)} captures=${JSON.stringify(createdNames)}.`,
+			`Export did not dismiss Annotations: status=${exportResponse.status()} body=${exportResponseBody} alerts=${JSON.stringify(alerts)} captures=${JSON.stringify(createdNames)}.`,
 			{ cause: error },
 		);
 	}
@@ -164,9 +164,9 @@ export async function verifyAnnotationOutputCaptures(
 			matchingIdentity.messageId.toLowerCase(),
 		)?.body,
 	).toBe(props.savedBody);
-	await props.page.getByRole('button', { name: 'Close Share comments' }).click();
+	await props.page.getByRole('button', { name: 'Close Annotations' }).click();
 	await props.page
-		.getByRole('region', { name: 'Share comments' })
+		.getByRole('region', { name: 'Annotations' })
 		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
 
 	const savedThread = props.page
@@ -264,12 +264,12 @@ async function executeAndReadOutputCapture(props: {
 	const response = await responsePromise;
 	const responseBody = await response.text();
 	await props.page
-		.getByRole('region', { name: 'Share comments' })
+		.getByRole('region', { name: 'Annotations' })
 		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds })
 		.catch(async (error: unknown): Promise<never> => {
 			const alerts = await props.page.getByRole('alert').allTextContents();
 			throw new Error(
-				`All ${props.outputKind} did not dismiss Share comments: status=${response.status()} body=${responseBody} alerts=${JSON.stringify(alerts)}.`,
+				`All ${props.outputKind} did not dismiss Annotations: status=${response.status()} body=${responseBody} alerts=${JSON.stringify(alerts)}.`,
 				{ cause: error },
 			);
 		});
@@ -417,7 +417,7 @@ async function copyDismissalDiagnostic(props: {
 	readonly outputDirectory: string;
 	readonly page: Page;
 }): Promise<string> {
-	const closeButton = props.page.getByRole('button', { name: 'Close Share comments' });
+	const closeButton = props.page.getByRole('button', { name: 'Close Annotations' });
 	const [responseBody, alerts, markdownNamesAfter, copyDisabled, closeDisabled] = await Promise.all(
 		[
 			props.copyResponse.text(),

@@ -13,21 +13,22 @@ export async function captureSharePreview(
 	page: Page,
 ): Promise<readonly AnnotationPreviewEntryCapture[]> {
 	return await page
-		.getByRole('region', { name: 'Comments to share' })
+		.getByRole('region', { name: 'Annotation list' })
 		.locator('[data-message-id]')
 		.evaluateAll((elements) =>
 			elements.map((element) => {
 				const messageId = element.getAttribute('data-message-id');
 				const body = element.querySelector('p')?.textContent;
 				const thread = element.closest('[data-thread-id]');
-				const path = thread
-					?.querySelector('[data-thread-path] [data-slot="item-label"]')
-					?.textContent?.trim();
+				const path =
+					element.closest('[data-file-path]')?.getAttribute('data-file-path') ?? undefined;
 				const metadata = [...element.querySelectorAll('[data-slot="item-metadata"]')].map(
 					(candidate) => candidate.textContent?.trim() ?? '',
 				);
 				const authorLabel = metadata.find((value) => value === 'Agent' || value === 'You');
-				const lineRange = metadata.find((value) => /^Lines? \d+(?:–\d+)?$/u.test(value));
+				const lineRange =
+					thread?.querySelector('[data-thread-range]')?.getAttribute('data-thread-range-label') ??
+					undefined;
 				if (
 					messageId === null ||
 					body === undefined ||
@@ -38,7 +39,7 @@ export async function captureSharePreview(
 				) {
 					throw new Error('Share preview omitted message identity, body, author, path, or range.');
 				}
-				const rangeMatch = /^Line (\d+)$|^Lines (\d+)–(\d+)$/u.exec(lineRange);
+				const rangeMatch = /^(?:Old )?Line (\d+)$|^(?:Old )?Lines (\d+)–(\d+)$/iu.exec(lineRange);
 				if (rangeMatch === null) throw new Error('Share preview contained a malformed line range.');
 				const startLine = Number(rangeMatch[1] ?? rangeMatch[2]);
 				const endLine = Number(rangeMatch[1] ?? rangeMatch[3]);

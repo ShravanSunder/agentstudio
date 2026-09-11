@@ -55,6 +55,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         let allCount: Int
         let animationStates: [String]
         let historyCount: Int
+        let inspectionText: String?
         let pendingCount: Int
         let otherSavedCommentsVisible: Bool
         let shareEndingStyle: Bool
@@ -97,6 +98,11 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                 $0.shareVisible && $0.historyCount == 1
             }
             try await clickButton(hostedController.page, label: "History (1)")
+            try await clickButton(hostedController.page, label: "Inspect output attempt 1")
+            let savedOutputText = try #require(String(data: clipboardBytes, encoding: .utf8))
+            _ = try await requireShareSnapshot(hostedController.page, stage: "review-inspect-output") {
+                $0.inspectionText == savedOutputText
+            }
             try await clickButton(
                 hostedController.page,
                 label: "Mark as not handled",
@@ -108,7 +114,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             ) {
                 $0.pendingCount == 1
             }
-            try await clickButton(hostedController.page, label: "Close Share comments")
+            try await clickButton(hostedController.page, label: "Close Annotations")
 
             let fileProof = try await performFileExport(
                 controller: hostedController,
@@ -434,6 +440,9 @@ enum BridgeProductPackagedShareJourneyTestSupport {
                   ?.getAnimations({ subtree: true }) ?? []
               ).map(animation => `${animation.playState}:${animation.pending}`),
               historyCount: integerIn(textForPrefix('History (')),
+              inspectionText: activeHost?.querySelector(
+                '[data-testid="annotation-output-inspection"] pre'
+              )?.textContent ?? null,
               pendingCount: integerIn(textForPrefix('Pending')),
               otherSavedCommentsVisible:
                 (activeHost?.querySelector('[aria-label="Other saved comments"]') ?? null) !== null,

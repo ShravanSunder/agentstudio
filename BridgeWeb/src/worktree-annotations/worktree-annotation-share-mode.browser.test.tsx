@@ -18,7 +18,7 @@ import {
 	type WorktreeAnnotationShareScope,
 } from './worktree-annotation-share-mode.js';
 
-describe('worktree annotation Share comments presentation', () => {
+describe('worktree annotation Annotations presentation', () => {
 	test('renders ordinary Share body content before History', async () => {
 		const rendered = await render(
 			<Drawer>
@@ -50,7 +50,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(
 			previewBody.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).not.toBe(0);
-		const shareMode = rendered.getByRole('region', { name: 'Share comments' }).element();
+		const shareMode = rendered.getByRole('region', { name: 'Annotations' }).element();
 		const body = shareMode.querySelector<HTMLElement>('.overflow-y-auto');
 		const footer = shareMode.querySelector<HTMLElement>('[data-slot="drawer-footer"]');
 		if (body === null || footer === null) throw new Error('Expected a scrollable body and footer.');
@@ -84,7 +84,7 @@ describe('worktree annotation Share comments presentation', () => {
 		);
 
 		const loadingSurface = rendered.getByTestId('loading-status-surface').element();
-		const shareSurface = rendered.getByRole('region', { name: 'Share comments' }).element();
+		const shareSurface = rendered.getByRole('region', { name: 'Annotations' }).element();
 		expect(getComputedStyle(shareSurface).backgroundColor).toBe('rgba(0, 0, 0, 0)');
 		expect(getComputedStyle(loadingSurface).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
 	});
@@ -103,10 +103,10 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(shareTrigger.element().getBoundingClientRect().height).toBe(24);
 
 		await performBrowserAction(() => shareTrigger.click());
-		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
+		const shareMode = rendered.getByRole('region', { name: 'Annotations' });
 		await expect.element(shareMode).toBeVisible();
-		expect(shareMode.element().textContent).toContain('Share');
-		expect(shareMode.element().textContent).not.toContain('Share comments');
+		expect(shareMode.element().textContent).toContain('Annotations');
+		expect(shareMode.element().textContent).not.toContain('Share annotations');
 		expect(shareMode.element().textContent).toContain('Copy');
 		expect(shareMode.element().textContent).not.toContain('Copy Markdown');
 		expect(shareMode.element().textContent).toContain('Export');
@@ -117,9 +117,7 @@ describe('worktree annotation Share comments presentation', () => {
 			rendered.getByRole('button', { name: 'Export JSON' }).element().querySelector('svg'),
 		).not.toBeNull();
 		expect(shareMode.element().querySelector('.lucide-x')).not.toBeNull();
-		await expect
-			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
-			.toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Close Annotations' })).toBeVisible();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Pending comments, 4' }))
 			.toHaveAttribute('aria-pressed', 'true');
@@ -144,7 +142,7 @@ describe('worktree annotation Share comments presentation', () => {
 		const body = header.nextElementSibling;
 		if (body === null) throw new Error('Expected the drawer body after its header.');
 		expect(getComputedStyle(body).padding).toBe('8px');
-		const title = rendered.getByRole('heading', { name: 'Share annotations' }).element();
+		const title = rendered.getByRole('heading', { name: 'Annotations' }).element();
 		expect(getComputedStyle(title).fontSize).toBe('14px');
 		expect(getComputedStyle(title).lineHeight).toBe('20px');
 		expect(titleIcon.closest('button')).not.toBeNull();
@@ -203,16 +201,16 @@ describe('worktree annotation Share comments presentation', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
 		await expect.element(rendered.getByRole('button', { name: 'Export JSON' })).toBeDisabled();
 		await performBrowserAction(() => {
-			clickHtmlButton(rendered.getByRole('button', { name: 'Close Share comments' }).element());
+			clickHtmlButton(rendered.getByRole('button', { name: 'Close Annotations' }).element());
 		});
 		await expect
-			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.element(rendered.getByRole('region', { name: 'Annotations' }))
 			.not.toBeInTheDocument();
 
 		await performBrowserAction(() => {
 			clickHtmlButton(rendered.getByRole('button', { name: 'Annotations', exact: true }).element());
 		});
-		const shareMode = rendered.getByRole('region', { name: 'Share comments' });
+		const shareMode = rendered.getByRole('region', { name: 'Annotations' });
 		await performBrowserAction(async (): Promise<void> => {
 			rendered
 				.getByRole('button', { name: 'Pending comments, 0' })
@@ -240,7 +238,7 @@ describe('worktree annotation Share comments presentation', () => {
 		expect(
 			rendered.getByTestId('worktree-annotation-share-shelf').element().getBoundingClientRect()
 				.width,
-		).toBeCloseTo(384, 0);
+		).toBeCloseTo(Math.min(480, 420 - 32), 0);
 	});
 });
 
@@ -265,7 +263,8 @@ function ShareModeFixture(props: {
 						<div className="h-full" />
 					</BridgeViewerContextPanelViewport>
 					<BridgeViewerContextPanel
-						ariaLabel="Share comments"
+						ariaLabel="Annotations"
+						width="wide"
 						finalFocus={triggerRef}
 						height="half"
 						testId="worktree-annotation-share-shelf"

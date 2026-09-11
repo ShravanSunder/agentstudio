@@ -31,9 +31,14 @@ type ShareThreadMessage<
 	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
 > = TThread['messages'][number];
 
-type FilteredShareThread<
+export type FilteredShareThread<
 	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
-> = Omit<TThread, 'messages'> & { readonly messages: readonly ShareThreadMessage<TThread>[] };
+> = Omit<TThread, 'messages'> & {
+	readonly messages: readonly (ShareThreadMessage<TThread> & {
+		readonly threadPosition: number;
+		readonly threadMessageCount: number;
+	})[];
+};
 
 export interface WorktreeAnnotationShareProjection<
 	TThread extends WorktreeAnnotationShareThreadFacts<WorktreeAnnotationShareMessageFacts>,
@@ -56,10 +61,17 @@ export function deriveWorktreeAnnotationShareProjection<
 	const otherThreads: FilteredShareThread<TThread>[] = [];
 
 	for (const thread of props.threads) {
-		const currentSavedMessages = thread.messages.filter(
-			(message): boolean =>
-				deriveWorktreeAnnotationMessageState(message, thread.context.resolution).isAllEligible,
-		);
+		const currentSavedMessages = thread.messages
+			.map((message, index, messages) =>
+				Object.assign({}, message, {
+					threadPosition: index + 1,
+					threadMessageCount: messages.length,
+				}),
+			)
+			.filter(
+				(message): boolean =>
+					deriveWorktreeAnnotationMessageState(message, thread.context.resolution).isAllEligible,
+			);
 		allCount += currentSavedMessages.length;
 		pendingCount += currentSavedMessages.filter(
 			(message): boolean =>

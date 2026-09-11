@@ -1,4 +1,4 @@
-import type { CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
+import type { CodeViewOptions, CodeViewScrollBehavior, SelectedLineRange } from '@pierre/diffs';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
@@ -18,6 +18,7 @@ export interface SelectedContentPaintTelemetryStart {
 }
 
 export interface BridgeCodeViewPanelProps {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal | null;
 	readonly codeViewOptions?: Readonly<CodeViewOptions<undefined>>;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -36,10 +37,18 @@ export interface BridgeCodeViewPanelProps {
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationRevealComplete?: (requestId: number) => void;
 	readonly onOpenFile?: (path: string) => void;
 	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+}
+
+export interface BridgeCodeViewAnnotationReveal {
+	readonly itemId: string;
+	readonly range: SelectedLineRange;
+	readonly requestId: number;
+	readonly threadId: string;
 }
 
 export interface BridgeCodeViewControlHandle {

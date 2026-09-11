@@ -26,6 +26,7 @@ import {
 import type { WorktreeAnnotationRange } from './worktree-annotation-interaction.js';
 import { newestCommandConfirmedThreadRevision } from './worktree-annotation-message-command-cursor.js';
 import { deriveWorktreeAnnotationThreadStateCounts } from './worktree-annotation-message-state.js';
+import { useWorktreeAnnotationNavigation } from './worktree-annotation-navigation.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationInlineThreadProjection,
@@ -40,6 +41,7 @@ import {
 	useWorktreeAnnotationSurfaceClient,
 	useWorktreeAnnotationViewedController,
 } from './worktree-annotation-surface-provider.js';
+import { useWorktreeAnnotationSurface } from './worktree-annotation-surface-provider.js';
 import { WorktreeAnnotationMessageEditor } from './worktree-annotation-thread-message.js';
 
 const annotationHistoryMaskStyle: CSSProperties = {
@@ -75,6 +77,28 @@ export function WorktreeAnnotationThread(
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const threadFrameRef = useRef<HTMLElement | null>(null);
 	const threadId = props.thread.context.threadId;
+	const navigation = useWorktreeAnnotationNavigation();
+	const surface = useWorktreeAnnotationSurface();
+	const revealedRequestRef = useRef<number | null>(null);
+	useLayoutEffect((): void => {
+		const request = navigation?.request;
+		const frame = threadFrameRef.current;
+		if (
+			request == null ||
+			request.phase !== 'ready' ||
+			request.destination !== surface ||
+			request.destination !== navigation?.activeSurface ||
+			request.threadId !== threadId ||
+			frame === null ||
+			props.rangeIdentity === undefined ||
+			revealedRequestRef.current === request.requestId
+		)
+			return;
+		revealedRequestRef.current = request.requestId;
+		interaction.activateSavedThread({ threadId, ...props.rangeIdentity });
+		interaction.expandThread(threadId, frame);
+		frame.focus({ preventScroll: true });
+	}, [interaction, navigation, props.rangeIdentity, surface, threadId]);
 	const threadExpansion =
 		interaction.threadExpansion.kind === 'open' && interaction.threadExpansion.threadId === threadId
 			? interaction.threadExpansion

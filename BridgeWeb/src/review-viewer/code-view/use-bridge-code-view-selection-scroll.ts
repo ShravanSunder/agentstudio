@@ -9,12 +9,14 @@ import {
 } from './bridge-code-view-panel-support.js';
 import {
 	codeViewSelectionScrollRetryFrameBudget,
+	type BridgeCodeViewAnnotationReveal,
 	type BridgeCodeViewScrollToItemOptions,
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
 import type { BridgeCodeViewProgrammaticRevealGate } from './bridge-code-view-programmatic-reveal-gate.js';
 
 interface UseBridgeCodeViewSelectionScrollProps {
+	readonly annotationReveal: BridgeCodeViewAnnotationReveal | null;
 	readonly codeViewHandleRef: MutableRefObject<CodeViewHandle<undefined> | null>;
 	readonly codeViewMountVersion: number;
 	readonly completedSelectionScrollKeyRef: MutableRefObject<string | null>;
@@ -32,6 +34,10 @@ interface UseBridgeCodeViewSelectionScrollProps {
 	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly scrollToAnnotation: (
+		reveal: BridgeCodeViewAnnotationReveal,
+		options: BridgeCodeViewScrollToItemOptions,
+	) => boolean;
 	readonly scrollToItem: (itemId: string, options?: BridgeCodeViewScrollToItemOptions) => boolean;
 	readonly selectedItemId: string | null;
 	readonly setSelectionScrollDiagnostic: Dispatch<
@@ -44,6 +50,7 @@ export function useBridgeCodeViewSelectionScroll(
 	props: UseBridgeCodeViewSelectionScrollProps,
 ): void {
 	const {
+		annotationReveal,
 		codeViewHandleRef,
 		codeViewMountVersion,
 		completedSelectionScrollKeyRef,
@@ -56,6 +63,7 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSmoothSelectionScrollKeyRef,
 		programmaticRevealGate,
 		reviewPackage,
+		scrollToAnnotation,
 		scrollToItem,
 		selectedItemId,
 		setSelectionScrollDiagnostic,
@@ -73,7 +81,12 @@ export function useBridgeCodeViewSelectionScroll(
 		if (codeViewHandle === null) {
 			return;
 		}
-		const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`;
+		const selectedAnnotationReveal =
+			annotationReveal?.itemId === selectedItemId ? annotationReveal : null;
+		const selectionScrollKey =
+			selectedAnnotationReveal === null
+				? `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`
+				: `${sourceKey}:${codeViewMountVersion}:${selectedItemId}:annotation:${selectedAnnotationReveal.requestId}:${selectedAnnotationReveal.threadId}`;
 		if (lastSelectionScrollKeyRef.current === selectionScrollKey) {
 			return;
 		}
@@ -102,6 +115,7 @@ export function useBridgeCodeViewSelectionScroll(
 			return;
 		}
 		const shouldUseInitialPlacement =
+			selectedAnnotationReveal === null &&
 			initialSelectedItemByViewerKeyRef.current?.sourceKey === sourceKey &&
 			(initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId ||
 				initialSelectedItemByViewerKeyRef.current.selectedItemId === null) &&
@@ -192,11 +206,15 @@ export function useBridgeCodeViewSelectionScroll(
 				// navigation; landing precision is held by the R3/R4 gates and
 				// the F9 instant re-target loop in bridge-code-view-panel.
 				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'instant';
-				const didScroll = scrollToItem(selectedItemId, {
+				const scrollOptions = {
 					behavior: scrollBehavior,
-					revealIntent: 'selection-effect',
+					revealIntent: 'selection-effect' as const,
 					selectionScrollKey,
-				});
+				};
+				const didScroll =
+					selectedAnnotationReveal === null
+						? scrollToItem(selectedItemId, scrollOptions)
+						: scrollToAnnotation(selectedAnnotationReveal, scrollOptions);
 				if (!didScroll) {
 					if (remainingFrameBudget > 0) {
 						scheduleSelectionScrollAttempt(remainingFrameBudget - 1);
@@ -217,7 +235,8 @@ export function useBridgeCodeViewSelectionScroll(
 					? currentItem.bridgeMetadata.contentState
 					: 'placeholder';
 				const didScrollHydratedContent =
-					currentContentState === 'hydrated' || currentContentState === 'windowed';
+					selectedAnnotationReveal === null &&
+					(currentContentState === 'hydrated' || currentContentState === 'windowed');
 				if (didScrollHydratedContent) {
 					completedSelectionScrollKeyRef.current = selectionScrollKey;
 					pendingPreHydrationSelectionScrollKeyRef.current = null;
@@ -239,6 +258,7 @@ export function useBridgeCodeViewSelectionScroll(
 		};
 		scheduleSelectionScrollAttempt(codeViewSelectionScrollRetryFrameBudget);
 	}, [
+		annotationReveal,
 		codeViewHandleRef,
 		codeViewMountVersion,
 		completedSelectionScrollKeyRef,
@@ -251,6 +271,7 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSmoothSelectionScrollKeyRef,
 		programmaticRevealGate,
 		reviewPackage,
+		scrollToAnnotation,
 		scrollToItem,
 		selectedItemId,
 		setSelectionScrollDiagnostic,

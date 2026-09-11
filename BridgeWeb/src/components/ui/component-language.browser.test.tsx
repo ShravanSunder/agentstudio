@@ -24,7 +24,7 @@ test('aligns a disclosure heading with its section and displays its expansion in
 	const section = rendered.getByTestId('history-section').element();
 	const heading = rendered.getByRole('button', { name: 'History (6)' }).element();
 	expect(heading.getBoundingClientRect().left).toBe(section.getBoundingClientRect().left);
-	expect(getComputedStyle(heading).paddingLeft).toBe('0px');
+	expect(getComputedStyle(heading).paddingLeft).toBe('8px');
 	expect(heading.querySelector('svg')).not.toBeNull();
 	await act(async (): Promise<void> => {
 		await userEvent.click(heading);
