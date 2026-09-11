@@ -2,6 +2,8 @@ import type { DiffsThemeNames } from '@pierre/diffs';
 import { hasResolvedThemes, registerCustomTheme, resolveThemes } from '@pierre/diffs';
 import catppuccinMochaTheme from '@shikijs/themes/catppuccin-mocha';
 
+import { bridgeDesignPalette } from '../../design-tokens/bridge-design-palette.js';
+
 export const bridgePierreDarkThemeName = 'agentstudio-ghostty-dark' satisfies DiffsThemeNames;
 
 const bridgePierreDarkTheme = {
@@ -10,9 +12,9 @@ const bridgePierreDarkTheme = {
 	displayName: 'Agent Studio Ghostty Dark',
 	colors: {
 		...catppuccinMochaTheme.colors,
-		'editor.background': '#282C34',
-		'editor.foreground': '#FFFFFF',
-		'editorCursor.background': '#282C34',
+		'editor.background': bridgeDesignPalette['--palette-neutral-n1'],
+		'editor.foreground': bridgeDesignPalette['--palette-text-primary'],
+		'editorCursor.background': bridgeDesignPalette['--palette-neutral-n1'],
 	},
 };
 

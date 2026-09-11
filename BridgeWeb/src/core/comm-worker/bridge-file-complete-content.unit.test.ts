@@ -78,6 +78,7 @@ describe('Bridge File complete content', () => {
 				sizeBytes: sourceBytes.byteLength,
 			},
 			openContent: fragmentedCompleteContentOpen(sourceBytes),
+			operationCorrelationId: 'a'.repeat(64),
 		});
 
 		// Act
@@ -184,8 +185,12 @@ function makeCompleteFileContentDescriptor(props: {
 }
 
 function fragmentedCompleteContentOpen(sourceBytes: Uint8Array): BridgeWorkerFileViewContentOpen {
-	return (descriptor) => {
-		const decodedStream = decodeFragmentedCompleteContent({ descriptor, sourceBytes });
+	return (descriptor, _abortSignal, operationCorrelationId) => {
+		const decodedStream = decodeFragmentedCompleteContent({
+			descriptor,
+			operationCorrelationId,
+			sourceBytes,
+		});
 		return {
 			contentKind: 'file.content',
 			contentRequestId: 'complete-file-content-request',
@@ -202,6 +207,7 @@ interface DecodedCompleteContent {
 
 async function decodeFragmentedCompleteContent(props: {
 	readonly descriptor: BridgeProductFileContentDescriptor;
+	readonly operationCorrelationId: string;
 	readonly sourceBytes: Uint8Array;
 }): Promise<DecodedCompleteContent> {
 	const request = bridgeProductContentRequestSchema.parse({
@@ -210,6 +216,7 @@ async function decodeFragmentedCompleteContent(props: {
 		descriptor: props.descriptor,
 		kind: 'content.open',
 		leaseId: 'complete-file-lease',
+		operationCorrelationId: props.operationCorrelationId,
 		paneSessionId: 'complete-file-pane-session',
 		wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 		workerDerivationEpoch: 1,
@@ -225,6 +232,7 @@ async function decodeFragmentedCompleteContent(props: {
 		identity: bridgeProductContentIdentityFromDescriptor(props.descriptor),
 		leaseId: request.leaseId,
 		maximumBytes: props.descriptor.maximumBytes,
+		operationCorrelationId: request.operationCorrelationId,
 		paneSessionId: request.paneSessionId,
 		wireVersion: request.wireVersion,
 		workerDerivationEpoch: request.workerDerivationEpoch,
@@ -245,6 +253,7 @@ async function decodeFragmentedCompleteContent(props: {
 					offsetBytes,
 					offsetBytes + BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
 				),
+				request.operationCorrelationId,
 			),
 		);
 		contentSequence += 1;
@@ -254,6 +263,7 @@ async function decodeFragmentedCompleteContent(props: {
 			endOfSource: true,
 			observedByteLength: props.sourceBytes.byteLength,
 			observedSha256: props.descriptor.expectedSha256,
+			operationCorrelationId: request.operationCorrelationId,
 		}),
 	);
 

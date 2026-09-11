@@ -347,7 +347,10 @@ private actor ActivityMetadataReviewSource: BridgePaneProductReviewMetadataProdu
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         openCallCount += 1
-        _ = try await emit(try activityReviewSourceAcceptedEvent(), productAdmission)
+        _ = try await emit(
+            try sealBridgeReviewMetadataEvent(activityReviewSourceAcceptedEvent()),
+            productAdmission
+        )
     }
 
     func update(
@@ -356,7 +359,10 @@ private actor ActivityMetadataReviewSource: BridgePaneProductReviewMetadataProdu
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         updateCallCount += 1
-        _ = try await emit(try activityReviewSourceAcceptedEvent(), productAdmission)
+        _ = try await emit(
+            try sealBridgeReviewMetadataEvent(activityReviewSourceAcceptedEvent()),
+            productAdmission
+        )
     }
 
     func reserve(
@@ -370,7 +376,11 @@ private actor ActivityMetadataReviewSource: BridgePaneProductReviewMetadataProdu
             packageId: package.packageId,
             publicationId: publicationId,
             reviewGeneration: package.reviewGeneration,
-            revision: package.revision
+            revision: package.revision,
+            projectionPlan: try BridgeReviewMetadataPublicationProjectionPlan.prepare(
+                package: package,
+                publicationId: publicationId
+            )
         )
     }
 

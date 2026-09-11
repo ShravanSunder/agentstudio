@@ -282,6 +282,7 @@ struct BridgeProductWebKitCarrierReviewMetadataSnapshot: Equatable, Sendable {
     let deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt]
     let openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity]
     let replayIsBlocked: Bool
+    let successorEventKinds: [String]
 }
 
 actor BridgeWebKitFailingReviewMetadataSource:
@@ -296,6 +297,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
     private var replayIsBlocked = false
     private var replayIsReleased = false
+    private var successorEventKinds: [String] = []
     private var replayRelease: CheckedContinuation<Void, Never>?
     private var nextReplayFailureStateWaiterID: UInt64 = 0
     private var replayFailureStateWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
@@ -408,15 +410,27 @@ actor BridgeWebKitFailingReviewMetadataSource:
             didCorruptFinalWindow: didCorruptFinalWindow,
             deliveryAttempts: deliveryAttempts,
             openedSubscriptions: openedSubscriptions,
-            replayIsBlocked: replayIsBlocked
+            replayIsBlocked: replayIsBlocked,
+            successorEventKinds: successorEventKinds
         )
     }
 
     private func emitPossiblyCorrupted(
-        _ event: BridgeProductReviewMetadataEvent,
+        _ sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
         productAdmission: BridgeProductAdmissionContext,
         emit: BridgePaneProductReviewMetadataEventSink
     ) async throws -> BridgeProductProducerEnqueueResult {
+        let event = sealedEvent.event
+        if event.publicationId == corruptedPublicationId {
+            switch event {
+            case .sourceAccepted: successorEventKinds.append("sourceAccepted")
+            case .snapshot: successorEventKinds.append("snapshot")
+            case .window: successorEventKinds.append("window")
+            case .delta: successorEventKinds.append("delta")
+            case .invalidated: successorEventKinds.append("invalidated")
+            case .reset: successorEventKinds.append("reset")
+            }
+        }
         guard event.publicationId == corruptedPublicationId,
             !didCorruptFinalWindow,
             case .window(let window) = event,
@@ -424,7 +438,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
             window.treeWindow.finalWindow,
             window.itemMetadata.count > 1
         else {
-            return try await emit(event, productAdmission)
+            return try await emit(sealedEvent, productAdmission)
         }
         let gappedItemWindow = try BridgeProductReviewItemWindow(
             finalWindow: true,
@@ -446,7 +460,10 @@ actor BridgeWebKitFailingReviewMetadataSource:
         )
         didCorruptFinalWindow = true
         resumeReplayFailureStateWaitersIfReady()
-        return try await emit(.window(gappedFinalWindow), productAdmission)
+        return try await emit(
+            try sealBridgeReviewMetadataEvent(.window(gappedFinalWindow)),
+            productAdmission
+        )
     }
 
     func waitForReplayFailureState(timeout: Duration) async -> Bool {
@@ -627,12 +644,13 @@ struct BridgeProductWebKitCarrierHostSnapshot: Equatable, Sendable, CustomString
 @MainActor
 enum BridgeProductWebKitCarrierTestSupport {
     private static var retainedPage: WebPage?
+    private static var retainedWindow: NSWindow?
 
     static func withHostedController<Value>(
         _ controller: BridgePaneController,
+        frame: NSRect = NSRect(x: 0, y: 0, width: 960, height: 720),
         operation: @MainActor (BridgePaneController) async throws -> Value
     ) async throws -> BridgeProductWebKitCarrierRunResult<Value> {
-        let frame = NSRect(x: 0, y: 0, width: 960, height: 720)
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],
@@ -645,6 +663,8 @@ enum BridgeProductWebKitCarrierTestSupport {
         window.alphaValue = 0.01
         window.ignoresMouseEvents = true
         window.makeKeyAndOrderFront(nil)
+        retainedWindow?.orderOut(nil)
+        retainedWindow = nil
 
         do {
             let value = try await operation(controller)
@@ -880,11 +900,11 @@ enum BridgeProductWebKitCarrierTestSupport {
         for _ in 0..<10_000 where controller.page.isLoading {
             await Task.yield()
         }
-        window.orderOut(nil)
         window.contentView = nil
         await settleAsyncCallbacks()
         let snapshot = await controller.productSessionOwner.snapshot()
         retainedPage = controller.page
+        retainedWindow = window
         return snapshot
     }
 

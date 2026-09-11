@@ -8,6 +8,7 @@ import Testing
 
 @Suite("RemoteReferenceRefreshActor")
 struct RemoteReferenceRefreshActorTests {
+
     @Test("explicit performance outcomes count each terminal attempt and suppress zero")
     func explicitPerformanceOutcomesAreBounded() {
         var accumulator = RemoteReferencePerformanceAccumulator()
@@ -30,7 +31,7 @@ struct RemoteReferenceRefreshActorTests {
     @Test("explicit repository update reports a genuine promotion failure")
     func explicitRepositoryUpdateReportsPromotionFailure() async throws {
         let fixture = RemoteReferenceRefreshFixture(promotionFailuresRemaining: 1)
-        let actor = RemoteReferenceRefreshActor(provider: fixture.provider)
+        let actor = makeFailedPromotionReconciliationTestActor(fixture)
         await actor.register(
             repoId: fixture.repoId,
             worktreeId: fixture.worktreeId,
@@ -46,6 +47,10 @@ struct RemoteReferenceRefreshActorTests {
         let lease = try #require(admission.acceptedLease)
 
         #expect(await lease.settlement() == .failed)
+        #expect(await fixture.acceptanceRecorder.localInstallationCount == 2)
+        #expect(await fixture.acceptanceRecorder.invalidationCount == 1)
+        #expect(await fixture.acceptanceRecorder.acceptanceCount == 0)
+        #expect(await fixture.acceptanceRecorder.recomputationOrigins == [fixture.originA])
         await actor.shutdown()
     }
 

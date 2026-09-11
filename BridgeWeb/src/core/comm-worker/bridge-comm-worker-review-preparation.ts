@@ -350,7 +350,13 @@ function reviewItemPreparationIdentityParts(props: {
 	);
 	const renderSemantics =
 		props.source.renderSemantics.find((semantics) => semantics.itemId === props.itemId) ?? null;
-	return [props.itemId, contentMetadata, contentRequestDescriptors, renderSemantics];
+	return [
+		props.itemId,
+		props.source.reviewPublicationIdentity,
+		contentMetadata,
+		contentRequestDescriptors,
+		renderSemantics,
+	];
 }
 
 function canonicalReviewPreparationIdentityValue(value: unknown): unknown {

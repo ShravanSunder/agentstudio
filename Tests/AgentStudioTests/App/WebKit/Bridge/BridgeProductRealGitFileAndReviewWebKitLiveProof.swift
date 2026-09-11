@@ -37,12 +37,19 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     hostedController,
                     sourceOracle: sourceOracle
                 )
+                var nativeCompletionSnapshot = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(
+                    hostedController)
+                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
+                    nativeCompletionSnapshot = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(
+                        hostedController)
+                    return nativeCompletionSnapshot.inFlightControlRequestSequence == nil
+                }
                 return LiveProof(
                     fileDOMAfterFileSwitch: fileState.dom,
                     fileModeActivated: fileState.activated,
                     filePathSelected: fileState.pathSelected,
                     initialReviewGeneration: reviewState.initialGeneration,
-                    native: await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(hostedController),
+                    native: nativeCompletionSnapshot,
                     reviewDOMBeforeFileSwitch: reviewState.dom,
                     reviewMetadataItemCount: reviewState.itemCount,
                     reviewSelectedContentHashes: reviewState.expectedSelectedContentHashes,

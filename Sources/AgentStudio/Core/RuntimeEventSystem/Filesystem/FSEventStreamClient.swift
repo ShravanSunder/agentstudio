@@ -141,6 +141,21 @@ package struct FSEventBatch: Sendable {
     }
 }
 
+package enum FSEventStreamRegistrationUnavailableReason: Sendable, Equatable {
+    case streamCreationFailed
+    case streamStartFailed
+    case clientShutdown
+}
+
+package enum FSEventStreamRegistrationOutcome: Sendable, Equatable {
+    case observing
+    case unavailable(FSEventStreamRegistrationUnavailableReason)
+}
+
+package enum FSEventStreamRuntimeTerminal: Sendable, Equatable {
+    case eventsEnded
+}
+
 package struct FSEventOverflowRecovery: Equatable, Sendable {
     package let worktreeId: UUID
     package let paths: Set<String>?
@@ -165,7 +180,12 @@ package protocol FSEventStreamClient: Sendable {
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery]
     func consumeActivityOverflowRecoveries() -> [FSEventActivityOverflowRecovery]
     func consumeCoarseActivityOverflowWorktreeIds() -> Set<UUID>
-    func register(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    @discardableResult
+    func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome
     func unregister(worktreeId: UUID)
     func beginActivityShutdown()
     func shutdown()

@@ -66,6 +66,7 @@ struct BridgeWorktreeProductConstructionKeyTests {
             makeBridgeReviewConstructionKey(owner: makeBridgeConstructionOwner(worktree: "worktree-b")),
             makeBridgeReviewConstructionKey(owner: makeBridgeConstructionOwner(root: "root-b")),
             makeBridgeReviewConstructionKey(owner: makeBridgeConstructionOwner(provider: "provider-b")),
+            makeBridgeReviewConstructionKey(attemptAuthorityGeneration: 1),
             makeBridgeReviewConstructionKey(queryKind: .browseTree),
             makeBridgeReviewConstructionKey(comparisonSemantics: .twoDot),
             makeBridgeReviewConstructionKey(canonicalWorkingDirectoryIdentity: "cwd-b"),

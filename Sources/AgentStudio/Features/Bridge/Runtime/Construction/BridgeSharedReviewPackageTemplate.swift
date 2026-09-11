@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 
 struct BridgeSharedReviewContentLocator: Equatable, Sendable {
@@ -156,6 +157,7 @@ struct BridgeSharedReviewPackageTemplate: Sendable {
     let retainedByteCount: Int
     let itemTemplates: [BridgeSharedReviewItemDescriptorTemplate]
     let backing: BridgeSharedReviewContentBacking?
+    let gitRefreshSeed: GitReviewRefreshSeed?
 
     init(
         baseEndpoint: BridgeResolvedReviewEndpointKey,
@@ -166,7 +168,8 @@ struct BridgeSharedReviewPackageTemplate: Sendable {
         summary: BridgeSharedReviewSummary,
         retainedByteCount: Int,
         itemTemplates: [BridgeSharedReviewItemDescriptorTemplate] = [],
-        backing: BridgeSharedReviewContentBacking? = nil
+        backing: BridgeSharedReviewContentBacking? = nil,
+        gitRefreshSeed: GitReviewRefreshSeed? = nil
     ) {
         self.baseEndpoint = baseEndpoint
         self.headEndpoint = headEndpoint
@@ -177,6 +180,7 @@ struct BridgeSharedReviewPackageTemplate: Sendable {
         self.retainedByteCount = retainedByteCount
         self.itemTemplates = itemTemplates
         self.backing = backing
+        self.gitRefreshSeed = gitRefreshSeed
     }
 
     var contentLocatorCount: Int {

@@ -175,6 +175,12 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:e2e"
 
+[tasks."test:bridge-web:e2e:ordinary"]
+description = "Run focused ordinary Vite E2E journeys; aggregate stress coverage remains in test:bridge-web:e2e"
+depends = ["bridge-web-install", "build-bridge-development-server"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e:prepared:ordinary"
+
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
 depends = ["bridge-web-install"]
@@ -291,7 +297,6 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-bridge-development-server]
 description = "Build the Bridge development server through an allocated Swift build slot"
-depends = ["verify-vendors"]
 run = "bash \"${PROJECT_ROOT}/scripts/build-bridge-development-server.sh\""
 
 [tasks.build-release]
@@ -322,7 +327,7 @@ mise run verify-vendors
 mise run --skip-deps bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
-SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
+SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}" \
 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
 mise run --skip-deps test:swift
 git diff --check

@@ -6,6 +6,7 @@ extension BridgeProductContentFrameIdentity {
         self.contentSequence = 0
         self.identity = admission.identity
         self.leaseId = admission.leaseId
+        self.operationCorrelationID = admission.operationCorrelationID
         self.paneSessionId = admission.paneSessionId
         self.wireVersion = admission.wireVersion
         self.workerDerivationEpoch = admission.workerDerivationEpoch
@@ -23,7 +24,7 @@ extension BridgeProductContentAcceptedHeader {
 }
 
 extension BridgeProductContentDataHeader {
-    init(contentSequence: Int, offsetBytes: Int) throws {
+    init(contentSequence: Int, offsetBytes: Int, operationCorrelationID: String? = nil) throws {
         try validateRuntimeContentSequence(contentSequence)
         try BridgeProductContractDecoding.validateNonnegative(
             offsetBytes,
@@ -38,6 +39,7 @@ extension BridgeProductContentDataHeader {
         )
         self.contentSequence = contentSequence
         self.offsetBytes = offsetBytes
+        self.operationCorrelationID = operationCorrelationID
     }
 }
 
@@ -46,7 +48,8 @@ extension BridgeProductContentEndHeader {
         contentSequence: Int,
         endOfSource: Bool,
         observedByteLength: Int,
-        observedSha256: String
+        observedSha256: String,
+        operationCorrelationID: String? = nil
     ) throws {
         try validateRuntimeContentSequence(contentSequence)
         try BridgeProductContractDecoding.validateNonnegative(
@@ -65,6 +68,7 @@ extension BridgeProductContentEndHeader {
         self.endOfSource = endOfSource
         self.observedByteLength = observedByteLength
         self.observedSha256 = observedSha256
+        self.operationCorrelationID = operationCorrelationID
     }
 }
 
@@ -73,7 +77,8 @@ extension BridgeProductContentErrorHeader {
         contentSequence: Int,
         code: BridgeProductRequestErrorCode,
         retryable: Bool,
-        safeMessage: String?
+        safeMessage: String?,
+        operationCorrelationID: String? = nil
     ) throws {
         try validateRuntimeContentSequence(contentSequence)
         if let safeMessage {
@@ -83,14 +88,20 @@ extension BridgeProductContentErrorHeader {
         self.code = code
         self.retryable = retryable
         self.safeMessage = safeMessage
+        self.operationCorrelationID = operationCorrelationID
     }
 }
 
 extension BridgeProductContentResetHeader {
-    init(contentSequence: Int, reason: BridgeProductResetReason) throws {
+    init(
+        contentSequence: Int,
+        reason: BridgeProductResetReason,
+        operationCorrelationID: String? = nil
+    ) throws {
         try validateRuntimeContentSequence(contentSequence)
         self.contentSequence = contentSequence
         self.reason = reason
+        self.operationCorrelationID = operationCorrelationID
     }
 }
 
@@ -99,11 +110,16 @@ extension BridgeProductContentHeader {
         .accepted(.init(admission: admission))
     }
 
-    static func data(contentSequence: Int, offsetBytes: Int) throws -> Self {
+    static func data(
+        contentSequence: Int,
+        offsetBytes: Int,
+        operationCorrelationID: String? = nil
+    ) throws -> Self {
         .data(
             try .init(
                 contentSequence: contentSequence,
-                offsetBytes: offsetBytes
+                offsetBytes: offsetBytes,
+                operationCorrelationID: operationCorrelationID
             )
         )
     }
@@ -112,14 +128,16 @@ extension BridgeProductContentHeader {
         contentSequence: Int,
         endOfSource: Bool,
         observedByteLength: Int,
-        observedSha256: String
+        observedSha256: String,
+        operationCorrelationID: String? = nil
     ) throws -> Self {
         .end(
             try .init(
                 contentSequence: contentSequence,
                 endOfSource: endOfSource,
                 observedByteLength: observedByteLength,
-                observedSha256: observedSha256
+                observedSha256: observedSha256,
+                operationCorrelationID: operationCorrelationID
             )
         )
     }
@@ -128,26 +146,30 @@ extension BridgeProductContentHeader {
         contentSequence: Int,
         code: BridgeProductRequestErrorCode,
         retryable: Bool,
-        safeMessage: String?
+        safeMessage: String?,
+        operationCorrelationID: String? = nil
     ) throws -> Self {
         .error(
             try .init(
                 contentSequence: contentSequence,
                 code: code,
                 retryable: retryable,
-                safeMessage: safeMessage
+                safeMessage: safeMessage,
+                operationCorrelationID: operationCorrelationID
             )
         )
     }
 
     static func reset(
         contentSequence: Int,
-        reason: BridgeProductResetReason
+        reason: BridgeProductResetReason,
+        operationCorrelationID: String? = nil
     ) throws -> Self {
         .reset(
             try .init(
                 contentSequence: contentSequence,
-                reason: reason
+                reason: reason,
+                operationCorrelationID: operationCorrelationID
             )
         )
     }

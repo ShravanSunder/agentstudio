@@ -117,6 +117,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.interaction.attempt_id',
 	'agentstudio.bridge.language_class',
 	'agentstudio.bridge.markdown.fallback_reason',
+	'agentstudio.bridge.operation.id',
 	'agentstudio.bridge.phase',
 	'agentstudio.bridge.panel.operation',
 	'agentstudio.bridge.plane',
@@ -127,6 +128,11 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.queue.depth_bucket',
 	'agentstudio.bridge.result',
 	'agentstudio.bridge.result_reason',
+	'agentstudio.bridge.render_disposition.outcome',
+	'agentstudio.bridge.render_publication.outcome',
+	'agentstudio.bridge.review.refresh.install_trigger',
+	'agentstudio.bridge.review.refresh.presentation_class',
+	'agentstudio.bridge.review.refresh.promotion_reason',
 	'agentstudio.bridge.rpc.method_class',
 	'agentstudio.bridge.selection.origin',
 	'agentstudio.bridge.slice',
@@ -145,6 +151,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worker.lane',
 	'agentstudio.bridge.worker.payload_class',
 	'agentstudio.bridge.worker.review_select_dispatch',
+	'agentstudio.bridge.worker.semantic_class',
 	'agentstudio.bridge.worker.session_state',
 	'agentstudio.bridge.worker.task_kind',
 	'agentstudio.bridge.worker.work_kind',
@@ -234,6 +241,27 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 		'agentstudio.bridge.worker.session_state',
 		new Set(['awaiting_bootstrap', 'bootstrapping', 'disposed', 'ready', 'replacement_requested']),
 	],
+	[
+		'agentstudio.bridge.render_disposition.outcome',
+		new Set(['acked', 'cleared', 'degraded', 'timed_out']),
+	],
+	[
+		'agentstudio.bridge.render_publication.outcome',
+		new Set([
+			'cleared',
+			'painted',
+			'published',
+			'queued',
+			'rejected',
+			'released',
+			'settled',
+			'superseded',
+		]),
+	],
+	[
+		'agentstudio.bridge.worker.semantic_class',
+		new Set(['demand', 'lifecycle_control', 'settlement', 'urgent_action']),
+	],
 	['agentstudio.bridge.scroll.offset', new Set(['nearest', 'none', 'top', 'unknown'])],
 	[
 		'agentstudio.bridge.scroll.reason',
@@ -254,6 +282,11 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.activation.sequence',
+	'agentstudio.bridge.annotation.catalog.entry.count',
+	'agentstudio.bridge.annotation.catalog.revision',
+	'agentstudio.bridge.annotation.catalog.unit.byte_count',
+	'agentstudio.bridge.annotation.catalog.window.count',
+	'agentstudio.bridge.annotation.catalog.window.ordinal',
 	'agentstudio.bridge.anchor_restore.call.count',
 	'agentstudio.bridge.anchor_restore.direct_scroll_top_write.count',
 	'agentstudio.bridge.anchor_restore.synthetic_scroll.count',
@@ -300,10 +333,35 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.presentation.publication_sequence',
 	'agentstudio.bridge.presentation.revision',
+	'agentstudio.bridge.presentation.revision.after',
+	'agentstudio.bridge.presentation.revision.before',
 	'agentstudio.bridge.interaction.sequence',
 	'agentstudio.bridge.review.generation',
+	'agentstudio.bridge.review.refresh.active_bank.count',
+	'agentstudio.bridge.review.refresh.affected_file.count',
+	'agentstudio.bridge.review.refresh.affected_stable_file.count',
+	'agentstudio.bridge.review.refresh.candidate_bank.count',
+	'agentstudio.bridge.review.refresh.changed_line.count',
+	'agentstudio.bridge.review.refresh.imported_commit.count',
+	'agentstudio.bridge.review.refresh.retained_publication.count',
+	'agentstudio.bridge.review.refresh.source_lease.count',
 	'agentstudio.bridge.source.generation',
+	'agentstudio.bridge.source.monotonic_ms',
+	'agentstudio.bridge.stage.attempt',
 	'agentstudio.bridge.review.item_count',
+	'agentstudio.bridge.render_disposition.accepted_count',
+	'agentstudio.bridge.render_disposition.batch_receipt_count',
+	'agentstudio.bridge.render_disposition.duplicate_count',
+	'agentstudio.bridge.render_disposition.in_flight_count',
+	'agentstudio.bridge.render_disposition.oldest_pending_age_ms',
+	'agentstudio.bridge.render_disposition.pending_count',
+	'agentstudio.bridge.render_disposition.pending_high_water_mark',
+	'agentstudio.bridge.render_disposition.produced_count',
+	'agentstudio.bridge.render_disposition.rejected_count',
+	'agentstudio.bridge.render_disposition.retained_count',
+	'agentstudio.bridge.render_publication.current_count',
+	'agentstudio.bridge.render_publication.high_water_mark',
+	'agentstudio.bridge.render_publication.oldest_age_ms',
 	'agentstudio.bridge.scroll.frame_gap.max_ms',
 	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
 	'agentstudio.bridge.scroll.frame_gap.over_33ms.count',
@@ -362,9 +420,52 @@ const bridgeDevTelemetryUnsafeValuePatterns = [
 	/(^|[._-])comms?([._-]|$)/i,
 ] as const satisfies readonly RegExp[];
 
-const bridgeDevExplicitSafeTelemetryNames = new Set(['performance.bridge.web.comm_worker_session']);
+const bridgeDevExplicitSafeTelemetryNames = new Set([
+	'performance.bridge.web.annotation_lifecycle',
+	'performance.bridge.web.comm_worker_session',
+	'performance.bridge.web.operation_lifecycle',
+]);
 const bridgeDevExplicitSafeStringAttributePairs = new Set([
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_begin',
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_commit',
+	'agentstudio.bridge.phase\u0000annotation_catalog_main_window',
+	'agentstudio.bridge.phase\u0000annotation_invalidation_received',
+	'agentstudio.bridge.phase\u0000annotation_paint_started',
+	'agentstudio.bridge.phase\u0000annotation_paint_terminal',
+	'agentstudio.bridge.phase\u0000content_transfer_started',
+	'agentstudio.bridge.phase\u0000content_transfer_terminal',
+	'agentstudio.bridge.phase\u0000descriptor_claim_started',
+	'agentstudio.bridge.phase\u0000descriptor_claim_terminal',
 	'agentstudio.bridge.phase\u0000comm_worker_session_snapshot',
+	'agentstudio.bridge.phase\u0000main_thread_install_terminal',
+	'agentstudio.bridge.phase\u0000main_thread_install_started',
+	'agentstudio.bridge.phase\u0000metadata_delivery_started',
+	'agentstudio.bridge.phase\u0000metadata_delivery_terminal',
+	'agentstudio.bridge.phase\u0000native_annotation_work_started',
+	'agentstudio.bridge.phase\u0000native_annotation_work_terminal',
+	'agentstudio.bridge.phase\u0000projection_content_transfer_terminal',
+	'agentstudio.bridge.phase\u0000projection_convergence_started',
+	'agentstudio.bridge.phase\u0000projection_convergence_terminal',
+	'agentstudio.bridge.phase\u0000projection_query_started',
+	'agentstudio.bridge.phase\u0000projection_query_terminal',
+	'agentstudio.bridge.phase\u0000projection_store_started',
+	'agentstudio.bridge.phase\u0000projection_store_terminal',
+	'agentstudio.bridge.phase\u0000projection_validation_started',
+	'agentstudio.bridge.phase\u0000projection_validation_terminal',
+	'agentstudio.bridge.phase\u0000worker_application_started',
+	'agentstudio.bridge.phase\u0000worker_application_terminal',
+	'agentstudio.bridge.phase\u0000panel_chrome_publish_started',
+	'agentstudio.bridge.phase\u0000panel_chrome_publish_terminal',
+	'agentstudio.bridge.phase\u0000file_content_operation_started',
+	'agentstudio.bridge.phase\u0000file_content_operation_terminal',
+	'agentstudio.bridge.phase\u0000file_descriptor_wait_started',
+	'agentstudio.bridge.phase\u0000file_descriptor_wait_terminal',
+	'agentstudio.bridge.phase\u0000content_operation_started',
+	'agentstudio.bridge.phase\u0000content_operation_terminal',
+	'agentstudio.bridge.phase\u0000render_operation_started',
+	'agentstudio.bridge.phase\u0000render_operation_terminal',
+	'agentstudio.bridge.phase\u0000paint_fulfillment_started',
+	'agentstudio.bridge.phase\u0000paint_fulfillment_terminal',
 ]);
 
 export function bridgeDevTelemetryObservationIsSafe(
@@ -385,8 +486,12 @@ export function bridgeDevTelemetryObservationIsSafe(
 				return false;
 			}
 		}
-		for (const key of Object.keys(sample.numericAttributes)) {
-			if (!bridgeDevNumericAttributeKeys.has(key)) {
+		for (const [key, value] of Object.entries(sample.numericAttributes)) {
+			if (
+				!bridgeDevNumericAttributeKeys.has(key) ||
+				!Number.isFinite(value) ||
+				(key === 'agentstudio.bridge.stage.attempt' && (!Number.isSafeInteger(value) || value < 0))
+			) {
 				return false;
 			}
 		}
@@ -691,6 +796,9 @@ function resourceAttributesForBridgeDevTelemetry(props: {
 function bridgeDevStringAttributeIsSafe(key: string, value: string): boolean {
 	if (!bridgeDevStringAttributeKeys.has(key)) {
 		return false;
+	}
+	if (key === 'agentstudio.bridge.operation.id') {
+		return /^[0-9a-f]{64}$/u.test(value);
 	}
 	const restrictedValues = bridgeDevRestrictedStringAttributeValuesByKey.get(key);
 	if (restrictedValues !== undefined) {

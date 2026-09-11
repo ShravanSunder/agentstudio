@@ -86,7 +86,10 @@ struct PreparedBridgeMountTopologyBoundaryTests {
                     + "                RestoreTrace.log(\"createViewForContent signalledPreparedOwner pane=\\(pane.id)\")\n"
                     + "                return nil\n"
                     + "            }\n"
-                    + "            return mountCurrentNonterminalContent(pane: pane)"
+                    + "            return mountCurrentNonterminalContent(\n"
+                    + "                pane: pane,\n"
+                    + "                bridgeViewerOpenTelemetryAnchor: bridgeViewerOpenTelemetryAnchor\n"
+                    + "            )"
             )
         )
         #expect(admissionSource.contains("PreparedNonterminalMountAdmissionPort"))

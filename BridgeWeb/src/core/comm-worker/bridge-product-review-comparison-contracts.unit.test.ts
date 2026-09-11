@@ -61,6 +61,7 @@ describe('Bridge product review comparison contracts', () => {
 			...commonCommitOrigin,
 			baseOID: 'branch-tip-oid',
 			baseRole: 'selectedTarget',
+			reviewedSubjectBranchName: 'feature/review',
 			symbolicTarget: { ...commonCommitOrigin.symbolicTarget, basis: 'branchTip' },
 		} as const;
 
@@ -75,6 +76,12 @@ describe('Bridge product review comparison contracts', () => {
 				...commonCommitOrigin,
 				baseRole: 'contributionBase',
 				contributionBaseOID: 'legacy-base-oid',
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductReviewComparisonOriginSchema.safeParse({
+				...branchTipOrigin,
+				reviewedSubjectBranchName: '',
 			}).success,
 		).toBe(false);
 	});

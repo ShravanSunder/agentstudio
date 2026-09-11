@@ -205,10 +205,19 @@ struct BridgePaneProductReviewContentSourceTests {
             )
         )
         #expect(
-            fixture.coordinator.recordWorkerApplication(
-                publicationId: committedReplacement.publicationId,
+            fixture.coordinator.admitDisplayInstallation(
+                expectedDisplayedPublicationId: nil,
+                candidatePublicationId: committedReplacement.publicationId,
+                workerInstanceId: "worker-1",
                 productAdmission: fixture.productAdmission.context
-            )
+            ) == .admitted
+        )
+        #expect(
+            fixture.coordinator.recordDisplayedApplication(
+                publicationId: committedReplacement.publicationId,
+                workerInstanceId: "worker-1",
+                productAdmission: fixture.productAdmission.context
+            ) == .advanced
         )
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
@@ -407,6 +416,7 @@ private final class ReviewProductContentFixture {
             ],
             "kind": "content.open",
             "leaseId": "review-content-lease-1",
+            "operationCorrelationId": NSNull(),
             "paneSessionId": "pane-session-1",
             "wireVersion": BridgeProductWireContract.version,
             "workerDerivationEpoch": 1,

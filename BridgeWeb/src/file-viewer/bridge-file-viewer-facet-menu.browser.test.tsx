@@ -30,14 +30,25 @@ describe('BridgeFileViewerFacetMenu Browser Mode', () => {
 			'Tests',
 			'Documentation',
 			'Configuration',
-			'Generated',
-			'Dependencies and build output',
-			'Fixtures',
-			'Other',
+			'Test data',
 		]);
+		for (const row of categoryRows) {
+			expect(row.querySelector('[data-testid$="-option-badge"] svg')).not.toBeNull();
+		}
+		const categoryBadges = categoryRows.map((row) =>
+			requireHTMLElement(row.querySelector('[data-testid$="-option-badge"]')),
+		);
+		const neutralBadge = categoryBadges[0];
+		if (neutralBadge === undefined) throw new Error('All category badge missing');
+		for (const badge of categoryBadges) {
+			expect(getComputedStyle(badge).color).toBe(getComputedStyle(neutralBadge).color);
+			expect(getComputedStyle(badge).backgroundColor).toBe(
+				getComputedStyle(neutralBadge).backgroundColor,
+			);
+		}
 		expect(
 			categoryRows.map((row: HTMLElement): string | null => row.getAttribute('aria-checked')),
-		).toEqual(['false', 'true', 'false', 'false', 'false', 'false', 'false', 'false', 'false']);
+		).toEqual(['false', 'true', 'false', 'false', 'false', 'false']);
 		expect(document.body.textContent).not.toContain('Binary');
 		expect(document.body.textContent).not.toContain('Large');
 		expect(document.body.textContent).not.toContain('Git status');
@@ -45,7 +56,7 @@ describe('BridgeFileViewerFacetMenu Browser Mode', () => {
 });
 
 function findMenuCheckboxItems(groupLabel: string): HTMLElement[] {
-	const group = document.querySelector(`section[aria-label="${groupLabel}"]`);
+	const group = document.querySelector(`[role="group"][aria-label="${groupLabel}"]`);
 	expect(group).not.toBeNull();
 	return [...(group?.querySelectorAll('[role="menuitemcheckbox"]') ?? [])].map(
 		(element: Element): HTMLElement => requireHTMLElement(element),

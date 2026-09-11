@@ -19,13 +19,13 @@ extension AgentStudioGitLocalClient {
     }
 
     func contributionDiff(_: GitContributionDiffRequest) async throws(GitDataPlaneError)
-        -> GitContributionDiffSnapshot
+        -> GitContributionDiffResult
     {
         throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
     }
 
     func directReviewComparison(_: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
-        -> GitDirectReviewComparisonSnapshot
+        -> GitDirectReviewComparisonResult
     {
         throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
     }
@@ -44,6 +44,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let reviewComparisonTargetCapture: GitReviewComparisonTargetCapture?
     private var contributionDiffSnapshot: GitContributionDiffSnapshot?
     private var directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot?
+    private let commitRangeCount: GitCommitRangeCount?
     private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
     private var contentByLocator: [GitContentLocator: GitContentPayload]
@@ -66,11 +67,13 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var reviewComparisonTargetRequests: [GitReviewComparisonTargetCaptureRequest] = []
     private var contributionDiffRequests: [GitContributionDiffRequest] = []
     private var directReviewComparisonRequests: [GitDirectReviewComparisonRequest] = []
+    private var commitRangeCountRequests: [GitCommitRangeCountRequest] = []
 
     init(
         reviewComparisonTargetCapture: GitReviewComparisonTargetCapture? = nil,
         contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot? = nil,
+        commitRangeCount: GitCommitRangeCount? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
         diffFailure: GitDataPlaneError? = nil,
         contentByLocator: [GitContentLocator: GitContentPayload] = [:],
@@ -89,6 +92,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         self.reviewComparisonTargetCapture = reviewComparisonTargetCapture
         self.contributionDiffSnapshot = contributionDiffSnapshot
         self.directReviewComparisonSnapshot = directReviewComparisonSnapshot
+        self.commitRangeCount = commitRangeCount
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
         self.contentByLocator = contentByLocator
@@ -265,24 +269,40 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         return diffSnapshot
     }
 
+    func countCommitRange(_ request: GitCommitRangeCountRequest) async throws(GitDataPlaneError)
+        -> GitCommitRangeCount
+    {
+        commitRangeCountRequests.append(request)
+        guard let commitRangeCount else {
+            throw GitDataPlaneError.unsupported(message: "commit range count not configured")
+        }
+        return commitRangeCount
+    }
+
+    func summarizeDiffImpact(_: GitDiffImpactSummaryRequest) async throws(GitDataPlaneError)
+        -> GitDiffImpactSummary
+    {
+        throw GitDataPlaneError.unsupported(message: "diff impact summary not configured")
+    }
+
     func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
-        -> GitContributionDiffSnapshot
+        -> GitContributionDiffResult
     {
         contributionDiffRequests.append(request)
         guard let contributionDiffSnapshot else {
             throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
         }
-        return contributionDiffSnapshot
+        return .clientFixture(snapshot: contributionDiffSnapshot)
     }
 
     func directReviewComparison(_ request: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
-        -> GitDirectReviewComparisonSnapshot
+        -> GitDirectReviewComparisonResult
     {
         directReviewComparisonRequests.append(request)
         guard let directReviewComparisonSnapshot else {
             throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
         }
-        return directReviewComparisonSnapshot
+        return .clientFixture(snapshot: directReviewComparisonSnapshot)
     }
 
     func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {
@@ -334,6 +354,10 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
 
     func recordedContributionDiffRequests() -> [GitContributionDiffRequest] {
         contributionDiffRequests
+    }
+
+    func recordedCommitRangeCountRequests() -> [GitCommitRangeCountRequest] {
+        commitRangeCountRequests
     }
 
     func replaceDiffSnapshot(_ snapshot: GitDiffSnapshot) {

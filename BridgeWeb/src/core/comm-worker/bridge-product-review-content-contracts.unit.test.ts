@@ -80,6 +80,7 @@ describe('Bridge product Review content contracts', () => {
 			descriptor: reviewContentDescriptor,
 			kind: 'content.open',
 			leaseId: 'review-content-lease-1',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			wireVersion: 2,
 			workerDerivationEpoch: 4,
@@ -103,6 +104,7 @@ describe('Bridge product Review content contracts', () => {
 			descriptor: reviewContentDescriptor,
 			kind: 'content.open',
 			leaseId: 'review-content-lease-1',
+			operationCorrelationId: null,
 			paneSessionId: 'pane-session-1',
 			wireVersion: 2,
 			workerDerivationEpoch: 4,
@@ -125,6 +127,7 @@ describe('Bridge product Review content contracts', () => {
 				kind: 'content.accepted',
 				leaseId: request.leaseId,
 				maximumBytes: request.descriptor.maximumBytes,
+				operationCorrelationId: request.operationCorrelationId,
 				paneSessionId: request.paneSessionId,
 				wireVersion: 2,
 				workerDerivationEpoch: request.workerDerivationEpoch,
@@ -133,7 +136,12 @@ describe('Bridge product Review content contracts', () => {
 			payload: new Uint8Array(),
 		});
 		await validator.accept({
-			header: { contentSequence: 1, kind: 'content.data', offsetBytes: 0 },
+			header: {
+				contentSequence: 1,
+				kind: 'content.data',
+				offsetBytes: 0,
+				operationCorrelationId: request.operationCorrelationId,
+			},
 			payload: Uint8Array.from([97, 98, 99]),
 		});
 		const terminal = await validator.accept({
@@ -143,6 +151,7 @@ describe('Bridge product Review content contracts', () => {
 				kind: 'content.end',
 				observedByteLength: 3,
 				observedSha256: abcSha256,
+				operationCorrelationId: request.operationCorrelationId,
 			},
 			payload: new Uint8Array(),
 		});

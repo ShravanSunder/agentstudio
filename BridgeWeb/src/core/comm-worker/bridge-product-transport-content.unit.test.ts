@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES } from './bridge-product-content-response-admission.js';
+import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	createContentTransportHarness,
 	fileContentDescriptor,
@@ -95,6 +96,56 @@ describe('Bridge product content transport', () => {
 		expect(harness.server.frameAcknowledgements).toHaveLength(1);
 	});
 
+	test('bounds an unanswered metadata acknowledgement and surfaces failed reconciliation', async () => {
+		const harness = createContentTransportHarness(0, undefined, 100);
+		harness.server.resyncFailure = new Error('Controlled metadata reconciliation failure.');
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
+		const firstEvent = subscription.events[Symbol.asyncIterator]().next();
+		let terminalObserved = false;
+		void firstEvent.then(
+			(): void => {
+				terminalObserved = true;
+			},
+			(): void => {
+				terminalObserved = true;
+			},
+		);
+		const firstEventExpectation = expect(firstEvent).rejects.toThrow(
+			'Controlled metadata reconciliation failure.',
+		);
+		harness.server.holdMetadataAcknowledgement();
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		try {
+			vi.useFakeTimers();
+			harness.server.emitMetadata(metadataAccepted(request));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(harness.server.frameAcknowledgements).toHaveLength(1);
+			expect(terminalObserved).toBe(false);
+
+			await vi.advanceTimersByTimeAsync(101);
+
+			await firstEventExpectation;
+			expect(harness.server.metadataReaderCancelCount).toBe(1);
+			expect(
+				harness.server.controlRequests.filter(
+					(controlRequest) => controlRequest.kind === 'workerSession.resync',
+				),
+			).toHaveLength(2);
+			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+				activeSubscriptionCount: 0,
+				acknowledgedFrameCount: 0,
+				failureStage: 'acknowledgement',
+			});
+		} finally {
+			harness.server.releaseHeldContentAcknowledgement();
+			vi.useRealTimers();
+		}
+	});
+
 	test('paces content independently from other content, metadata, and control', async () => {
 		const harness = createContentTransportHarness();
 		harness.server.holdContentAcknowledgement('content-request-1');
@@ -116,7 +167,7 @@ describe('Bridge product content transport', () => {
 			new AbortController().signal,
 		);
 		await expect(second.terminal).resolves.toMatchObject({ kind: 'complete' });
-		harness.transport.subscribe('review.metadata', { interests: [] });
+		harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, { interests: [] });
 		await harness.server.waitForMetadataStream();
 		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest()));
 		await waitForCondition(

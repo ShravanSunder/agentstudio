@@ -31,6 +31,7 @@ func producerRegistryContentRequest(workerDerivationEpoch: Int) throws -> Bridge
           "workerInstanceId": "worker-instance-1",
           "contentRequestId": "content-request-1",
           "leaseId": "lease-1",
+          "operationCorrelationId": null,
           "contentKind": "file.content",
           "descriptor": {
             "contentKind": "file.content",

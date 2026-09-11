@@ -58,7 +58,12 @@ describe('Bridge main render fulfillment coordinator', () => {
 	test('applies one matching non-unmount post-render and paints only after matching connected frame-time readback', () => {
 		// Arrange
 		const harness = createCoordinatorHarness(100);
-		const publication = makeReviewPublication({ itemId: 'review-item-2', publicationSequence: 2 });
+		const operationCorrelationId = 'a'.repeat(64);
+		const publication = makeReviewPublication({
+			itemId: 'review-item-2',
+			operationCorrelationId,
+			publicationSequence: 2,
+		});
 		const publicationItem = publication.job.payload.item;
 		const currentItem: BridgeMainRenderPublicationItem | undefined = publicationItem;
 		const renderedItem: BridgeMainRenderedItemReadback | null = {
@@ -98,6 +103,11 @@ describe('Bridge main render fulfillment coordinator', () => {
 			expectedDisposition(publication, 'queued', 100),
 			expectedDisposition(publication, 'applied', 110),
 		]);
+		expect(
+			harness.dispositions.every(
+				(disposition) => disposition.operationCorrelationId === operationCorrelationId,
+			),
+		).toBe(true);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([1]);
 
 		// Act
@@ -112,7 +122,130 @@ describe('Bridge main render fulfillment coordinator', () => {
 			expectedDisposition(publication, 'applied', 110),
 			expectedDisposition(publication, 'painted', 120),
 		]);
+		expect(harness.dispositions.at(-1)?.operationCorrelationId).toBe(operationCorrelationId);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
+	});
+
+	test('retains exact post-render readback that arrives before queued delivery', () => {
+		// Arrange
+		const harness = createCoordinatorHarness(90);
+		const publication = makeReviewPublication({
+			itemId: 'review-post-render-before-queued',
+			publicationSequence: 3,
+		});
+		const publicationItem = publication.job.payload.item;
+		const readback = connectedReadback(publicationItem);
+		harness.coordinator.acceptPublication(publication);
+		bindPublicationItemAsFinal(harness.coordinator, publication);
+
+		// Act: React may synchronously render the installed item before the courier returns queued.
+		harness.setNowMilliseconds(100);
+		harness.coordinator.observePostRender({
+			...readback,
+			contextItem: publicationItem,
+			itemId: publication.job.itemId,
+			phase: 'mount',
+		});
+
+		// Assert: applied cannot overtake queued.
+		expect(harness.dispositions).toEqual([]);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
+
+		// Act
+		harness.setNowMilliseconds(110);
+		harness.coordinator.markPublicationQueued(publication);
+
+		// Assert: queued consumes the retained exact readback without requiring another Pierre callback.
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 110),
+			expectedDisposition(publication, 'applied', 110),
+		]);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([1]);
+
+		// Act
+		harness.setNowMilliseconds(120);
+		harness.animationFrames.runActiveFrame(1);
+
+		// Assert
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 110),
+			expectedDisposition(publication, 'applied', 110),
+			expectedDisposition(publication, 'painted', 120),
+		]);
+	});
+
+	test('does not apply a retained pre-queued readback that became stale', () => {
+		// Arrange
+		const harness = createCoordinatorHarness(130);
+		const publication = makeReviewPublication({
+			itemId: 'review-stale-post-render-before-queued',
+			publicationSequence: 4,
+		});
+		const publicationItem = publication.job.payload.item;
+		let currentItem: BridgeMainRenderPublicationItem | undefined = publicationItem;
+		const readback = {
+			readCurrentItem: (): BridgeMainRenderPublicationItem | undefined => currentItem,
+			readRenderedItem: (): BridgeMainRenderedItemReadback => ({
+				element: testRenderedElement(true),
+				item: publicationItem,
+				readableContentMatchesItem: true,
+			}),
+		};
+		harness.coordinator.acceptPublication(publication);
+		bindPublicationItemAsFinal(harness.coordinator, publication);
+		harness.coordinator.observePostRender({
+			...readback,
+			contextItem: publicationItem,
+			itemId: publication.job.itemId,
+			phase: 'mount',
+		});
+
+		// Act: currentness changes before courier submission reports queued.
+		currentItem = undefined;
+		harness.setNowMilliseconds(140);
+		harness.coordinator.markPublicationQueued(publication);
+
+		// Assert
+		expect(harness.dispositions).toEqual([expectedDisposition(publication, 'queued', 140)]);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
+	});
+
+	test('accepts exact connected readable reconciliation when Pierre commits no DOM update', () => {
+		// Arrange
+		const harness = createCoordinatorHarness(150);
+		const publication = makeReviewPublication({
+			itemId: 'review-exact-readable-reconciliation',
+			publicationSequence: 5,
+		});
+		const publicationItem = publication.job.payload.item;
+		harness.coordinator.acceptPublication(publication);
+		bindPublicationItemAsFinal(harness.coordinator, publication);
+		harness.coordinator.markPublicationQueued(publication);
+
+		// Act: Pierre may retain content-correct connected DOM without a DOM-committing render callback.
+		harness.setNowMilliseconds(160);
+		harness.coordinator.reconcilePublication({
+			...connectedReadback(publicationItem),
+			itemId: publication.job.itemId,
+		});
+
+		// Assert
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 150),
+			expectedDisposition(publication, 'applied', 160),
+		]);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([1]);
+
+		// Act
+		harness.setNowMilliseconds(170);
+		harness.animationFrames.runActiveFrame(1);
+
+		// Assert
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 150),
+			expectedDisposition(publication, 'applied', 160),
+			expectedDisposition(publication, 'painted', 170),
+		]);
 	});
 
 	test('rejects disconnected, replaced-current, and mismatched-rendered frame readbacks as stale attempts', () => {

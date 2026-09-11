@@ -7,7 +7,7 @@ export function BridgeViewerAppShell(props: {
 }): ReactElement {
 	return (
 		<div
-			className="dark relative h-screen min-h-screen w-full overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)] antialiased"
+			className="relative h-screen min-h-screen w-full overflow-hidden bg-background text-foreground antialiased"
 			data-bridge-app-owner={props.appOwner}
 			data-bridge-viewer-mode={props.mode}
 			data-bridge-viewer-shell-owner="BridgeViewerAppShell"

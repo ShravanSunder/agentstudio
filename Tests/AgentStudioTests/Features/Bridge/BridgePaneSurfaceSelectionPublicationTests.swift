@@ -79,6 +79,84 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         #expect(await pump.cancel())
     }
 
+    @Test("surface selection overflow emits a retryable resync terminal")
+    func surfaceSelectionOverflowEmitsRetryableResyncTerminal() async throws {
+        let queueLimits = try BridgeProductProducerQueueLimits(
+            maximumQueuedFrameCount: 3,
+            maximumQueuedByteCount: BridgeProductWireContract.maximumQueuedStreamBytes,
+            maximumEncodedFrameByteCount:
+                BridgeProductProducerQueueLimits.maximumProductEncodedFrameByteCount,
+            terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve
+        )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            producerQueueLimits: queueLimits
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let coordinator = makeSurfaceSelectionCoordinator(
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        await coordinator.publishPanePresentation(
+            overflowPanePresentation(presentationRevision: 30)
+        )
+        await coordinator.publishPanePresentation(
+            overflowPanePresentation(presentationRevision: 31)
+        )
+
+        let wasPublished = await coordinator.publishPaneSurfaceSelectionRequest(
+            makeSurfaceSelectionRequest(commandId: "selection-overflow"),
+            productAdmission: harness.productAdmission.context,
+            streamAbsenceDisposition: .reject
+        )
+
+        #expect(!wasPublished)
+        let terminal = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let decoder = try BridgeProductMetadataFrameDecoder()
+        let decodedFrames = try decoder.append(terminal.data)
+        guard case .metadataStreamError(let error) = try #require(decodedFrames.first) else {
+            Issue.record("Expected pane surface-selection overflow to emit metadata.streamError")
+            return
+        }
+        #expect(error.code == .resyncRequired)
+        #expect(error.retryable)
+        await coordinator.uninstall(lease: lease)
+        try await harness.closeProducer(lease)
+        let replacementLease = try await harness.admitMetadataFrames(through: 0)
+        let replacementPump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: replacementLease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: replacementLease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        await coordinator.replayPaneSurfaceSelectionRequest()
+        let replayedFrame = try await pullMetadataFrame(from: replacementPump)
+        guard case .paneSurfaceSelectionRequested(let replayedRequest) = replayedFrame else {
+            Issue.record("Expected the exact selection request to replay after queue reset")
+            return
+        }
+        #expect(replayedRequest.navigationCommand.commandId == "selection-overflow")
+        await coordinator.uninstall(lease: replacementLease)
+        #expect(await replacementPump.cancel())
+    }
+
     @Test("an enqueue rejection fails the exact command instead of retaining it for replay")
     func enqueueRejectionFailsCommandWithoutReplay() async throws {
         // Arrange
@@ -153,6 +231,17 @@ private func makeSurfaceSelectionCoordinator(
         fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
         reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
         refreshWorkAdmissionSource: refreshWorkAdmissionSource
+    )
+}
+
+private func overflowPanePresentation(
+    presentationRevision: Int
+) -> BridgePaneProductPresentationSnapshot {
+    BridgePaneProductPresentationSnapshot(
+        nativeActivity: .foreground,
+        presentationRevision: presentationRevision,
+        refreshingLanes: [.review],
+        reviewComparison: nil
     )
 }
 

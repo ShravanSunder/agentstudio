@@ -2,6 +2,7 @@ import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/br
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
 	bridgeReviewComparisonTargetLabel,
+	bridgeReviewComparisonTargetsAreEqual,
 	type BridgeReviewComparisonTarget,
 } from './bridge-review-comparison-target.js';
 
@@ -46,8 +47,13 @@ export function bridgeReviewComparisonPaneState(props: {
 			? 'the selected target'
 			: bridgeReviewComparisonTargetLabel(comparisonPresentation.activeTarget);
 	const displayedTargetLabel = displayedComparisonTargetLabel(props.displayedReviewPackage);
+	const displayedTarget = displayedComparisonTarget(props.displayedReviewPackage);
 	const hasDisplayedComparison =
 		comparisonPresentation.displayedSnapshot.status !== 'none' && displayedTargetLabel !== null;
+	const pendingTargetMatchesDisplayed =
+		comparisonPresentation.activeTarget !== null &&
+		displayedTarget !== null &&
+		bridgeReviewComparisonTargetsAreEqual(comparisonPresentation.activeTarget, displayedTarget);
 	const displayedPackageIsCurrent =
 		bridgeReviewComparisonPackageMatch({
 			displayedReviewPackage: props.displayedReviewPackage,
@@ -58,6 +64,7 @@ export function bridgeReviewComparisonPaneState(props: {
 		case 'selectionRequired':
 			return { kind: 'settled' };
 		case 'pending':
+			if (hasDisplayedComparison && pendingTargetMatchesDisplayed) return { kind: 'settled' };
 			return hasDisplayedComparison && displayedTargetLabel !== null
 				? { displayedTargetLabel, kind: 'loadingPrevious', requestedTargetLabel }
 				: { kind: 'loadingInitial', requestedTargetLabel };
@@ -105,10 +112,15 @@ export function bridgeReviewComparisonPaneIsLoading(
 }
 
 function displayedComparisonTargetLabel(reviewPackage: BridgeReviewPackage | null): string | null {
+	const target = displayedComparisonTarget(reviewPackage);
+	return target === null ? null : bridgeReviewComparisonTargetLabel(target);
+}
+
+function displayedComparisonTarget(
+	reviewPackage: BridgeReviewPackage | null,
+): BridgeReviewComparisonTarget | null {
 	const comparisonOrigin = reviewPackage?.comparisonOrigin;
-	return comparisonOrigin?.kind === 'contribution'
-		? bridgeReviewComparisonTargetLabel(comparisonOrigin.symbolicTarget)
-		: null;
+	return comparisonOrigin?.kind === 'contribution' ? comparisonOrigin.symbolicTarget : null;
 }
 
 export function bridgeReviewComparisonPackageMatch(props: {

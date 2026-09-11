@@ -156,6 +156,40 @@ actor BridgeReviewContentLoaderCache {
         }
     }
 
+    func cachedResultsIfAllResident(
+        handles: [BridgeContentHandle],
+        productAdmission: BridgeProductAdmissionContext
+    ) -> [String: BridgeContentLoadResult]? {
+        guard !isClosed,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        var resultByHandleID: [String: BridgeContentLoadResult] = [:]
+        var keys: [ContentKey] = []
+        resultByHandleID.reserveCapacity(handles.count)
+        keys.reserveCapacity(handles.count)
+        for handle in handles {
+            do {
+                try validateHandleCanLoad(handle)
+                let key = contentKey(for: handle)
+                guard let cachedContent = contentByKey[key] else { return nil }
+                let result = try normalizeValidatedCachedResult(
+                    cachedContent,
+                    requestedHandle: handle
+                )
+                guard resultByHandleID.updateValue(result, forKey: handle.handleId) == nil else {
+                    return nil
+                }
+                keys.append(key)
+            } catch {
+                return nil
+            }
+        }
+        for key in keys {
+            touchCachedContent(for: key)
+        }
+        return resultByHandleID
+    }
+
     /// Synchronously rejects new work, then waits for every started provider call
     /// to return before reporting zero residue.
     func closeAndDrain() async {

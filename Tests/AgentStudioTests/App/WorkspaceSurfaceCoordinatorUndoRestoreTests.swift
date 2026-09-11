@@ -72,7 +72,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let coordinator: WorkspaceSurfaceCoordinator
         let tempDir: URL
         let surfaceManager: UndoRestoreSurfaceManager
-        let datastore: WorkspaceSQLiteDatastore
+        let datastore: WorkspaceSQLiteDatastoreActor
         let backend: WorkspaceSQLiteStoreBackend
     }
 

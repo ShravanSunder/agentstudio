@@ -7,13 +7,18 @@ import {
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
-	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
+	bridgeWorkerReviewCandidateReadyEventSchema,
+	bridgeWorkerReviewCandidateFailedEventSchema,
+	bridgeWorkerReviewCandidateStartedEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmissionEventSchema,
+	bridgeWorkerReviewPublicationInstallAdmitCommandSchema,
+	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
@@ -33,9 +38,17 @@ import {
 	type BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
+	type BridgeWorkerReviewCandidateReadyEvent,
+	type BridgeWorkerReviewCandidateFailedEvent,
+	type BridgeWorkerReviewCandidateStartedEvent,
+	type BridgeWorkerReviewCandidateStartDisposition,
+	type BridgeWorkerReviewPublicationInstallAdmissionEvent,
+	type BridgeWorkerReviewPublicationInstallAdmitCommand,
+	type BridgeWorkerReviewPublicationInstalledCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
+import { bridgeWorkerRenderDispositionCommandSchema } from './bridge-worker-render-disposition-command-contract.js';
 
 export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command'];
 
@@ -117,7 +130,44 @@ export interface EncodeBridgeWorkerReviewProjectionUpdateCommandProps extends En
 }
 
 export interface EncodeBridgeWorkerRenderDispositionCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly receipt: BridgeWorkerRenderDispositionCommand['receipt'];
+	readonly receipts: BridgeWorkerRenderDispositionCommand['receipts'];
+}
+
+export interface EncodeBridgeWorkerReviewPublicationInstallAdmitCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly expectedDisplayedPublicationId: string | null;
+	readonly candidatePublicationId: string;
+}
+
+export interface EncodeBridgeWorkerReviewPublicationInstalledCommandProps
+	extends
+		EncodeBridgeWorkerCommandBaseProps,
+		Pick<
+			BridgeWorkerReviewPublicationInstalledCommand,
+			'packageId' | 'publicationId' | 'reviewGeneration' | 'revision' | 'sourceIdentity'
+		> {}
+
+export interface BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly epoch: number;
+	readonly packageId: string;
+	readonly publicationId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+	readonly sequence: number;
+	readonly sourceIdentity: string;
+}
+
+export interface BuildBridgeWorkerReviewCandidateStartedEventProps extends BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
+}
+
+export interface BuildBridgeWorkerReviewCandidateFailedEventProps extends BuildBridgeWorkerReviewCandidateReadyEventProps {
+	readonly retryable: boolean;
+}
+
+export interface BuildBridgeWorkerReviewPublicationInstallAdmissionEventProps {
+	readonly candidatePublicationId: string;
+	readonly requestId: string;
+	readonly status: BridgeWorkerReviewPublicationInstallAdmissionEvent['status'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -276,7 +326,103 @@ export function encodeBridgeWorkerRenderDispositionCommand(
 ): BridgeWorkerRenderDispositionCommand {
 	return bridgeWorkerRenderDispositionCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'renderDisposition'),
-		receipt: props.receipt,
+		receipts: props.receipts,
+	});
+}
+
+export function encodeBridgeWorkerReviewPublicationInstallAdmitCommand(
+	props: EncodeBridgeWorkerReviewPublicationInstallAdmitCommandProps,
+): BridgeWorkerReviewPublicationInstallAdmitCommand {
+	return bridgeWorkerReviewPublicationInstallAdmitCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewPublicationInstallAdmit'),
+		expectedDisplayedPublicationId: props.expectedDisplayedPublicationId,
+		candidatePublicationId: props.candidatePublicationId,
+	});
+}
+
+export function encodeBridgeWorkerReviewPublicationInstalledCommand(
+	props: EncodeBridgeWorkerReviewPublicationInstalledCommandProps,
+): BridgeWorkerReviewPublicationInstalledCommand {
+	return bridgeWorkerReviewPublicationInstalledCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewPublicationInstalled'),
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sourceIdentity: props.sourceIdentity,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateReadyEvent(
+	props: BuildBridgeWorkerReviewCandidateReadyEventProps,
+): BridgeWorkerReviewCandidateReadyEvent {
+	return bridgeWorkerReviewCandidateReadyEventSchema.parse({
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'reviewCandidateReady',
+		surface: 'review',
+		epoch: props.epoch,
+		sequence: props.sequence,
+		publicationId: props.publicationId,
+		packageId: props.packageId,
+		sourceIdentity: props.sourceIdentity,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateStartedEvent(
+	props: BuildBridgeWorkerReviewCandidateStartedEventProps,
+): BridgeWorkerReviewCandidateStartedEvent {
+	return bridgeWorkerReviewCandidateStartedEventSchema.parse({
+		direction: 'serverWorkerToMain',
+		disposition: props.disposition,
+		epoch: props.epoch,
+		kind: 'reviewCandidateStarted',
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sequence: props.sequence,
+		sourceIdentity: props.sourceIdentity,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	});
+}
+
+export function buildBridgeWorkerReviewCandidateFailedEvent(
+	props: BuildBridgeWorkerReviewCandidateFailedEventProps,
+): BridgeWorkerReviewCandidateFailedEvent {
+	return bridgeWorkerReviewCandidateFailedEventSchema.parse({
+		direction: 'serverWorkerToMain',
+		epoch: props.epoch,
+		kind: 'reviewCandidateFailed',
+		packageId: props.packageId,
+		publicationId: props.publicationId,
+		retryable: props.retryable,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
+		sequence: props.sequence,
+		sourceIdentity: props.sourceIdentity,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	});
+}
+
+export function buildBridgeWorkerReviewPublicationInstallAdmissionEvent(
+	props: BuildBridgeWorkerReviewPublicationInstallAdmissionEventProps,
+): BridgeWorkerReviewPublicationInstallAdmissionEvent {
+	return bridgeWorkerReviewPublicationInstallAdmissionEventSchema.parse({
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'reviewPublicationInstallAdmission',
+		requestId: props.requestId,
+		candidatePublicationId: props.candidatePublicationId,
+		status: props.status,
 	});
 }
 

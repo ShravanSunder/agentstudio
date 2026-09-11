@@ -148,6 +148,30 @@ extension GitWorkingDirectoryProjector {
         return outcome
     }
 
+    package func startAndWaitForRemoteReferenceRecomputation(
+        acceptance: RemoteReferenceAcceptance
+    ) async -> RepositoryFactSourceUpdateOutcome {
+        guard remoteReferenceAcceptanceByRepoId[acceptance.repoId] == acceptance else {
+            return .obsolete
+        }
+        if remoteReferenceRecomputationLeasesByAuthorityRevision[acceptance.authorityRevision] == nil {
+            let representedWorktreeIds = Set(
+                repoIdByWorktreeId.compactMap { worktreeId, repoId in
+                    repoId == acceptance.repoId && registeredContext(for: worktreeId) != nil
+                        ? worktreeId
+                        : nil
+                }
+            )
+            beginRemoteReferenceRecomputation(
+                acceptance: acceptance,
+                representedWorktreeIds: representedWorktreeIds
+            )
+        }
+        return await waitForRemoteReferenceRecomputation(
+            authorityRevision: acceptance.authorityRevision
+        )
+    }
+
     func settleRepositoryRecomputationTarget(
         worktreeId: UUID,
         requiredIntentGeneration: UInt64?,

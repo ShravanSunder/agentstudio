@@ -586,6 +586,7 @@ private func fileContentRequest(
           "workerInstanceId": "\(FrameIdentitySessionHarness.workerInstanceId)",
           "contentRequestId": "content-request-\(identitySuffix)",
           "leaseId": "lease-\(identitySuffix)",
+          "operationCorrelationId": null,
           "contentKind": "file.content",
           "descriptor": {
             "contentKind": "file.content",

@@ -482,8 +482,11 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.goToPane.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
-        #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
-        #expect(source.contains("commandPresentation.contextMenuCommand(.openNewTerminalInTab)"))
+        #expect(source.contains("command: commandPresentation.contextMenuCommand"))
+        #expect(source.contains("[.openWorktreeInPane, .showBridgeReview, .showBridgeFiles].map(item.command)"))
+        #expect(
+            source.contains(
+                "[.openNewTerminalInTab, .openBridgeReviewInNewTab, .openBridgeFilesInNewTab].map(item.command)"))
         #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
         #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
         #expect(!source.contains("contextMenuCommand(.openWorktree)"))
@@ -628,7 +631,7 @@ struct RepoExplorerWorktreeRowTests {
         #expect(chipSource.contains("width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth"))
         #expect(chipSource.contains("spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
         #expect(!metadataLineSource.contains("sidebarTextColumn"))
-        #expect(paneRowSource.contains("AppEntityIcon.pane.swiftUIImage("))
+        #expect(paneRowSource.contains("(isDrawerPane ? AppEntityIcon.drawer : .pane).swiftUIImage("))
         #expect(paneRowSource.contains("size: AppStyles.Shell.Sidebar.rowIdentityIconSize"))
         #expect(worktreeRowSource.contains("AppStyles.Shell.Sidebar.worktreeIconSize"))
         #expect(AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth == AppStyles.Shell.Sidebar.groupIconColumnWidth)

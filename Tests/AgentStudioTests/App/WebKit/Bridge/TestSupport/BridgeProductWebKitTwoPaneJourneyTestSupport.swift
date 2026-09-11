@@ -448,14 +448,28 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         try await requireBlockedComparison(input.paneOneReviewProvider, expectedCount: 1)
         let paneOneForegroundRefreshPassCount =
             input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount
-        let updatingReviewStatus = try await requireStatus(
-            input.paneOne.page,
-            activeMode: "review",
-            expectedText: "Updating review…"
-        )
+        let updatingReviewStatus = try await requireNoUpdatingStatus(input.paneOne.page)
+        guard updatingReviewStatus.activeMode == "review" else {
+            let observedActiveMode = updatingReviewStatus.activeMode ?? "nil"
+            throw JourneyError.conditionFailed(
+                "ordinary Review refresh changed the active surface "
+                    + "(observedActiveMode: \(observedActiveMode))"
+            )
+        }
         guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("File mode did not activate during refresh")
         }
+        try appendTrackedChange(at: input.paneOneRepoURL)
+        let fileChangeset = try makeChangeset(
+            for: input.paneOne,
+            paths: ["tracked.txt"],
+            batchSequence: 704
+        )
+        _ = input.paneOne.worktreeRefreshDriver.recordInvalidation(
+            fileChangeset: fileChangeset,
+            requiresReviewRefresh: false
+        )
+        input.paneOne.worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
         let updatingFileStatus = try await requireStatus(
             input.paneOne.page,
             activeMode: "file",
@@ -716,7 +730,16 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 && inactiveText == nil
         }
         guard found, let observed else {
-            throw JourneyError.conditionFailed("active-surface updating chrome was not isolated")
+            let observedActiveMode = observed?.activeMode ?? "nil"
+            let observedFileStatusText = observed?.fileStatusText ?? "nil"
+            let observedReviewStatusText = observed?.reviewStatusText ?? "nil"
+            throw JourneyError.conditionFailed(
+                "active-surface updating chrome was not isolated "
+                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText), "
+                    + "observedActiveMode: \(observedActiveMode), "
+                    + "fileStatusText: \(observedFileStatusText), "
+                    + "reviewStatusText: \(observedReviewStatusText))"
+            )
         }
         return observed
     }

@@ -38,12 +38,20 @@ function FieldLegend({
 	);
 }
 
-function FieldGroup({ className, ...props }: ComponentProps<'div'>): ReactElement {
+function FieldGroup({
+	className,
+	layout = 'default',
+	...props
+}: ComponentProps<'div'> & { readonly layout?: 'default' | 'settings' }): ReactElement {
 	return (
 		<div
 			data-slot="field-group"
+			data-layout={layout}
 			className={cn(
-				'group/field-group @container/field-group flex w-full flex-col gap-4 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4',
+				'group/field-group @container/field-group w-full',
+				layout === 'settings'
+					? 'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2'
+					: 'flex flex-col gap-4 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4',
 				className,
 			)}
 			{...props}
@@ -54,6 +62,8 @@ function FieldGroup({ className, ...props }: ComponentProps<'div'>): ReactElemen
 const fieldVariants = cva('group/field flex w-full gap-2 data-[invalid=true]:text-destructive', {
 	variants: {
 		orientation: {
+			setting:
+				'col-span-2 grid min-h-7 grid-cols-subgrid items-center justify-items-end gap-x-3 [&>[data-slot=field-label]]:justify-self-start [&>[data-slot=field-label]]:whitespace-nowrap [&>[data-slot=field-label]]:font-normal [&>[data-slot=field-label]]:text-sm [&>[data-slot=field-label]]:leading-4',
 			vertical: 'flex-col *:w-full [&>.sr-only]:w-auto',
 			horizontal:
 				'flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px',
@@ -97,7 +107,7 @@ function FieldLabel({ className, ...props }: ComponentProps<typeof Label>): Reac
 		<Label
 			data-slot="field-label"
 			className={cn(
-				'group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:opacity-50 has-data-checked:bg-primary/5 has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border *:data-[slot=field]:p-2 dark:has-data-checked:bg-primary/10',
+				'group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:text-faint-foreground has-data-checked:bg-primary/15 has-data-checked:text-primary has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border *:data-[slot=field]:p-2 [&>svg]:size-3.5 [&>svg]:shrink-0',
 				'has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col',
 				className,
 			)}
@@ -111,7 +121,7 @@ function FieldTitle({ className, ...props }: ComponentProps<'div'>): ReactElemen
 		<div
 			data-slot="field-label"
 			className={cn(
-				'flex w-fit items-center gap-2 text-xs/relaxed font-medium group-data-[disabled=true]/field:opacity-50',
+				'flex w-fit items-center gap-2 text-xs font-medium group-data-[disabled=true]/field:text-faint-foreground',
 				className,
 			)}
 			{...props}

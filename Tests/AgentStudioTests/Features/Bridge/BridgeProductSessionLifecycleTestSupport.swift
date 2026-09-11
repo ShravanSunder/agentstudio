@@ -9,6 +9,7 @@ struct BridgeProductSessionLifecycleHarness {
     let session: BridgeProductSession
 
     static func opened(
+        producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil
     ) async throws -> Self {
@@ -18,6 +19,7 @@ struct BridgeProductSessionLifecycleHarness {
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes,
+            producerQueueLimits: producerQueueLimits,
             producerObservationPacingRegistrationObserver:
                 producerObservationPacingRegistrationObserver
         )

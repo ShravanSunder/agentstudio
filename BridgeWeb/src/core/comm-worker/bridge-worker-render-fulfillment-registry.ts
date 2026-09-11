@@ -1,3 +1,4 @@
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-clock.js';
 import type { BridgeProductSurface } from './bridge-product-contract-primitives.js';
 import type { BridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
@@ -30,6 +31,7 @@ export interface CreateBridgeWorkerRenderFulfillmentRegistryProps {
 
 export interface BeginBridgeWorkerRenderPublicationProps {
 	readonly job: BridgeWorkerPierreRenderJob;
+	readonly operationCorrelationId?: string | null;
 	readonly publicationSequence: number;
 	readonly workerDerivationEpoch: number;
 }
@@ -67,6 +69,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 	readonly #context: BridgeWorkerRenderFulfillmentRegistryContext;
 	readonly #createIdentifier: (purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose) => string;
 	readonly #fulfillmentByItemId = new Map<string, BridgeWorkerRenderFulfillmentState>();
+	readonly #sourceChurnDispositionByItemId = new Map<string, 'retain' | 'retire'>();
 	readonly #sourceRevalidationItemIds = new Set<string>();
 	readonly #now: () => number;
 	readonly #receiptLeaseDurationMilliseconds: number;
@@ -82,7 +85,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		this.#createIdentifier =
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
-		this.#now = props.now ?? performance.now.bind(performance);
+		this.#now = props.now ?? readBridgeCommWorkerAbsoluteNowMilliseconds;
 		this.#receiptLeaseDurationMilliseconds = props.receiptLeaseDurationMilliseconds;
 		this.#retryBackoffMilliseconds = props.retryBackoffMilliseconds;
 	}
@@ -91,10 +94,12 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		props: BeginBridgeWorkerRenderPublicationProps,
 	): BeginBridgeWorkerRenderPublicationResult {
 		const windowKey = bridgeWorkerRenderWindowKeyForJob(props.job);
+		const operationCorrelationId = props.operationCorrelationId ?? null;
 		let existingState = this.#fulfillmentByItemId.get(props.job.itemId) ?? null;
 		if (
 			existingState !== null &&
 			existingState.identity.windowKey === windowKey &&
+			existingState.operationCorrelationId === operationCorrelationId &&
 			existingState.workerDerivationEpoch === props.workerDerivationEpoch
 		) {
 			if (existingState.stage === 'retry_wait') {
@@ -123,11 +128,13 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		const publicationState =
 			existingState === null ||
 			existingState.identity.windowKey !== windowKey ||
+			existingState.operationCorrelationId !== operationCorrelationId ||
 			existingState.workerDerivationEpoch !== props.workerDerivationEpoch
 				? createBridgeWorkerRenderFulfillment({
 						...this.#context,
 						identity: Object.freeze({ windowKey }),
 						itemId: props.job.itemId,
+						operationCorrelationId,
 						publicationId: this.#createIdentifier('publication'),
 						publicationSequence: props.publicationSequence,
 						submissionId: this.#createIdentifier('submission'),
@@ -181,7 +188,14 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		if (nextState === currentState) {
 			return Object.freeze({ state: currentState, status: 'duplicate' });
 		}
-		this.#fulfillmentByItemId.set(receipt.itemId, nextState);
+		const sourceChurnDisposition = this.#sourceChurnDispositionByItemId.get(receipt.itemId);
+		this.#sourceChurnDispositionByItemId.delete(receipt.itemId);
+		if (sourceChurnDisposition === 'retire') {
+			this.#fulfillmentByItemId.delete(receipt.itemId);
+			this.#sourceRevalidationItemIds.delete(receipt.itemId);
+		} else {
+			this.#fulfillmentByItemId.set(receipt.itemId, nextState);
+		}
 		return Object.freeze({ state: nextState, status: 'accepted' });
 	}
 
@@ -190,7 +204,9 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
 			const activeAttempt = currentState.activeAttempt;
 			if (
+				this.#sourceChurnDispositionByItemId.has(itemId) ||
 				activeAttempt === null ||
+				activeAttempt.highestDisposition !== null ||
 				atMilliseconds < activeAttempt.receiptLeaseExpiresAtMilliseconds
 			) {
 				continue;
@@ -222,6 +238,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		const requeuedItemIds: string[] = [];
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
 			if (currentState.stage === 'painted') {
+				this.#sourceChurnDispositionByItemId.delete(itemId);
 				const desiredState = reduceBridgeWorkerRenderFulfillment(currentState, {
 					kind: 'source.revalidationRequested',
 				});
@@ -230,7 +247,18 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 				requeuedItemIds.push(itemId);
 				continue;
 			}
-			if (currentState.activeAttempt === null) continue;
+			if (
+				currentState.activeAttempt === null ||
+				currentState.activeAttempt.highestDisposition === null
+			) {
+				if (currentState.activeAttempt?.highestDisposition === null) {
+					if (this.#sourceChurnDispositionByItemId.get(itemId) !== 'retire') {
+						this.#sourceChurnDispositionByItemId.set(itemId, 'retain');
+					}
+				}
+				continue;
+			}
+			this.#sourceChurnDispositionByItemId.delete(itemId);
 			this.#sourceRevalidationItemIds.delete(itemId);
 			const retryState = reduceBridgeWorkerRenderFulfillment(currentState, {
 				...activeBridgeWorkerRenderReceiptIdentity(currentState),
@@ -250,13 +278,31 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return Object.freeze(requeuedItemIds);
 	}
 
+	retireRemovedItemsForSourceChurn(itemIds: readonly string[]): void {
+		for (const itemId of itemIds) {
+			const currentState = this.#fulfillmentByItemId.get(itemId);
+			if (currentState?.activeAttempt?.highestDisposition === null) {
+				this.#sourceChurnDispositionByItemId.set(itemId, 'retire');
+				continue;
+			}
+			this.#sourceChurnDispositionByItemId.delete(itemId);
+			this.#sourceRevalidationItemIds.delete(itemId);
+			this.#fulfillmentByItemId.delete(itemId);
+		}
+	}
+
 	nextLifecycleWakeAtMilliseconds(): number | null {
 		let nextWakeAtMilliseconds: number | null = null;
 		for (const currentState of this.#fulfillmentByItemId.values()) {
-			const candidateWakeAtMilliseconds =
-				currentState.stage === 'retry_wait'
+			const candidateWakeAtMilliseconds = this.#sourceChurnDispositionByItemId.has(
+				currentState.itemId,
+			)
+				? null
+				: currentState.stage === 'retry_wait'
 					? currentState.retryAtMilliseconds
-					: currentState.activeAttempt?.receiptLeaseExpiresAtMilliseconds;
+					: currentState.activeAttempt?.highestDisposition === null
+						? currentState.activeAttempt.receiptLeaseExpiresAtMilliseconds
+						: null;
 			if (
 				candidateWakeAtMilliseconds !== null &&
 				candidateWakeAtMilliseconds !== undefined &&
@@ -274,6 +320,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 
 	resetPublications(): void {
 		this.#fulfillmentByItemId.clear();
+		this.#sourceChurnDispositionByItemId.clear();
 		this.#sourceRevalidationItemIds.clear();
 	}
 
@@ -321,6 +368,7 @@ function activeBridgeWorkerRenderReceiptIdentity(
 		return Object.freeze({
 			attemptId: state.activeAttempt.attemptId,
 			itemId: state.itemId,
+			operationCorrelationId: state.operationCorrelationId,
 			paneSessionId: state.paneSessionId,
 			publicationId: state.publicationId,
 			publicationSequence: state.publicationSequence,
@@ -339,6 +387,7 @@ function activeBridgeWorkerRenderReceiptIdentity(
 		return Object.freeze({
 			attemptId: latestClosedAttempt.attemptId,
 			itemId: state.itemId,
+			operationCorrelationId: state.operationCorrelationId,
 			paneSessionId: state.paneSessionId,
 			publicationId: state.publicationId,
 			publicationSequence: state.publicationSequence,

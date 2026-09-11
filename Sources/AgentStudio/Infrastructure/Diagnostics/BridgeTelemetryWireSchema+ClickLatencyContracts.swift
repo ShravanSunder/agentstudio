@@ -60,7 +60,7 @@ extension BridgeTelemetryWireSchema {
 
     static func selectedContentPaintedContractMatches(_ contract: EventContract) -> Bool {
         ["swift", "worker"].contains { transport in
-            contract.matches(
+            let baseMatches = contract.matches(
                 .init(
                     phase: "selected_content_painted",
                     plane: .data,
@@ -70,6 +70,25 @@ extension BridgeTelemetryWireSchema {
                     attributeKeys: .init(
                         additionalStringKeys: ["agentstudio.bridge.viewer"],
                         numericKeys: [
+                            "agentstudio.bridge.selected_content.click_to_paint_ms",
+                            "agentstudio.bridge.selected_content.frame_wait_ms",
+                            "agentstudio.bridge.selected_content.materialize_ms",
+                        ]
+                    )
+                )
+            )
+            if baseMatches { return true }
+            return contract.matches(
+                .init(
+                    phase: "selected_content_painted",
+                    plane: .data,
+                    priority: .hot,
+                    slice: .codeViewItem,
+                    transport: transport,
+                    attributeKeys: .init(
+                        additionalStringKeys: ["agentstudio.bridge.viewer"],
+                        numericKeys: [
+                            "agentstudio.bridge.activation.sequence",
                             "agentstudio.bridge.selected_content.click_to_paint_ms",
                             "agentstudio.bridge.selected_content.frame_wait_ms",
                             "agentstudio.bridge.selected_content.materialize_ms",

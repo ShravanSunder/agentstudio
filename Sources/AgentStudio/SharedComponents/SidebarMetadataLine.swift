@@ -54,7 +54,7 @@ package struct SidebarMetadataLine: View {
             }
 
             Text(text)
-                .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .regular))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(1)

@@ -11,9 +11,9 @@ package enum BridgePaneActivity: String, Codable, Equatable, Sendable {
 
 /// Canonical native facts used to derive one Bridge pane's activity.
 ///
-/// Key-window, native focus, browser visibility, and active viewer mode are
-/// deliberately absent. They may affect scheduling rank or presentation, but
-/// none of them can mint foreground activity.
+/// Application/window foreground state, key-window, native focus, browser
+/// visibility, and active viewer mode are deliberately absent. They may affect
+/// presentation, but none of them can mint or revoke foreground activity.
 package struct BridgePaneActivityFacts: Equatable, Sendable {
     package let residency: SessionResidency
     package let isControllerInstalled: Bool
@@ -22,10 +22,6 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
     package let isInExpandedDrawer: Bool
     package let isMinimized: Bool
     package let isZoomExcluded: Bool
-    package let isOwningWindowVisible: Bool
-    package let isOwningWindowMiniaturized: Bool
-    package let isOwningWindowOccluded: Bool
-    package let isApplicationActive: Bool
     package let isAuthorityClosed: Bool
 
     package init(
@@ -36,10 +32,6 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
         isInExpandedDrawer: Bool,
         isMinimized: Bool,
         isZoomExcluded: Bool,
-        isOwningWindowVisible: Bool,
-        isOwningWindowMiniaturized: Bool,
-        isOwningWindowOccluded: Bool,
-        isApplicationActive: Bool,
         isAuthorityClosed: Bool
     ) {
         self.residency = residency
@@ -49,10 +41,6 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
         self.isInExpandedDrawer = isInExpandedDrawer
         self.isMinimized = isMinimized
         self.isZoomExcluded = isZoomExcluded
-        self.isOwningWindowVisible = isOwningWindowVisible
-        self.isOwningWindowMiniaturized = isOwningWindowMiniaturized
-        self.isOwningWindowOccluded = isOwningWindowOccluded
-        self.isApplicationActive = isApplicationActive
         self.isAuthorityClosed = isAuthorityClosed
     }
 }
@@ -108,10 +96,6 @@ package final class BridgePaneActivityCoordinator {
             && isPaneVisibleInActiveWorkspaceSurface
             && !facts.isMinimized
             && !facts.isZoomExcluded
-            && facts.isOwningWindowVisible
-            && !facts.isOwningWindowMiniaturized
-            && !facts.isOwningWindowOccluded
-            && facts.isApplicationActive
 
         return isForeground ? .foreground : .loadedHidden
     }

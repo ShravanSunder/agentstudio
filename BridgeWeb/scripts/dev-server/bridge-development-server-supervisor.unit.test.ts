@@ -141,6 +141,7 @@ describe('Bridge development server supervisor', () => {
 							throw new Error('previous server refused to stop');
 						}
 					},
+					whenExited: new Promise<void>(() => {}),
 				};
 			},
 			report: (message): void => {
@@ -360,15 +361,170 @@ describe('Bridge development server supervisor', () => {
 		await startPromise;
 		await supervisor.stop();
 	});
+
+	test('rebuilds and relaunches when the ready backend exits unexpectedly', async () => {
+		// A ready backend can exit hours after Vite starts. Leaving the frontend
+		// alive without observing that exit permanently turns every proxy route
+		// into 502 until the developer restarts Vite.
+		const firstServerExit = deferred<void>();
+		let buildCount = 0;
+		let launchCount = 0;
+		let replacementReadyCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {
+				buildCount += 1;
+			},
+			launchServer: async () => {
+				launchCount += 1;
+				return {
+					stop: async (): Promise<void> => {},
+					whenExited: launchCount === 1 ? firstServerExit.promise : new Promise<void>(() => {}),
+				};
+			},
+			notifyReplacementReady: (): void => {
+				replacementReadyCount += 1;
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+		expect(replacementReadyCount).toBe(0);
+
+		// Act
+		firstServerExit.resolve();
+		await flushMicrotasks();
+
+		// Assert
+		expect(buildCount).toBe(2);
+		expect(launchCount).toBe(2);
+		expect(replacementReadyCount).toBe(1);
+		await supervisor.stop();
+	});
+
+	test('does not publish a replacement that becomes ready after shutdown starts', async () => {
+		// A backend launch may finish while stop waits for the serialized build drain.
+		const clock = new ManualSupervisorClock();
+		const replacementLaunch = deferred<ReturnType<typeof ownedServer>>();
+		let launchCount = 0;
+		let replacementReadyCount = 0;
+		let uncommittedServerStopCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				return launchCount === 1 ? ownedServer() : await replacementLaunch.promise;
+			},
+			notifyReplacementReady: (): void => {
+				replacementReadyCount += 1;
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+		supervisor.recordRelevantChange();
+		clock.advanceBy(10_000);
+		await flushMicrotasks();
+
+		// Act
+		const stopPromise = supervisor.stop();
+		replacementLaunch.resolve(
+			ownedServer((): void => {
+				uncommittedServerStopCount += 1;
+			}),
+		);
+		await stopPromise;
+
+		// Assert
+		expect(replacementReadyCount).toBe(0);
+		expect(uncommittedServerStopCount).toBe(1);
+	});
+
+	test('notifies only when the current source generation replacement is ready', async () => {
+		// A newer edit can invalidate a launch while its readiness check is still pending.
+		const clock = new ManualSupervisorClock();
+		const staleReplacementLaunch = deferred<ReturnType<typeof ownedServer>>();
+		let buildCount = 0;
+		let launchCount = 0;
+		let replacementReadyCount = 0;
+		let staleServerStopCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {
+				buildCount += 1;
+			},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				if (launchCount === 1) return ownedServer();
+				if (launchCount === 2) return await staleReplacementLaunch.promise;
+				return ownedServer();
+			},
+			notifyReplacementReady: (): void => {
+				replacementReadyCount += 1;
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+		supervisor.recordRelevantChange();
+		clock.advanceBy(10_000);
+		await flushMicrotasks();
+
+		// Act
+		supervisor.recordRelevantChange();
+		staleReplacementLaunch.resolve(
+			ownedServer((): void => {
+				staleServerStopCount += 1;
+			}),
+		);
+		await flushMicrotasks();
+		const notificationsAfterStaleLaunch = replacementReadyCount;
+		clock.advanceBy(10_000);
+		await flushMicrotasks();
+
+		// Assert
+		expect(notificationsAfterStaleLaunch).toBe(0);
+		expect(staleServerStopCount).toBe(1);
+		expect(buildCount).toBe(3);
+		expect(launchCount).toBe(3);
+		expect(replacementReadyCount).toBe(1);
+		await supervisor.stop();
+	});
+
+	test('does not relaunch when supervisor shutdown causes the backend exit', async () => {
+		const serverExit = deferred<void>();
+		let launchCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			launchServer: async () => {
+				launchCount += 1;
+				return {
+					stop: async (): Promise<void> => {
+						serverExit.resolve();
+						await serverExit.promise;
+					},
+					whenExited: serverExit.promise,
+				};
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+
+		// Act
+		await supervisor.stop();
+		await flushMicrotasks();
+
+		// Assert
+		expect(launchCount).toBe(1);
+	});
 });
 
 function ownedServer(onStop: () => void = (): void => {}): {
 	readonly stop: () => Promise<void>;
+	readonly whenExited: Promise<void>;
 } {
 	return {
 		stop: async (): Promise<void> => {
 			onStop();
 		},
+		whenExited: new Promise<void>(() => {}),
 	};
 }
 

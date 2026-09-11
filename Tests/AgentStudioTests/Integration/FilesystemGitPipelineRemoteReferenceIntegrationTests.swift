@@ -10,6 +10,105 @@ import Testing
 @MainActor
 @Suite("FilesystemGitPipeline remote references", .serialized)
 struct FilesystemGitRemoteReferenceTests {
+    @Test("failed promotion rereads every represented worktree before failed settlement")
+    func failedPromotionAwaitsFreshRepresentedWorktreeStatuses() async throws {
+        let origin = "https://example.com/org/failed-promotion.git"
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-failed-promotion-\(UUIDv7.generate().uuidString)")
+        let worktreeRoots = [
+            fixtureRoot.appending(path: "first", directoryHint: .isDirectory),
+            fixtureRoot.appending(path: "second", directoryHint: .isDirectory),
+        ]
+        try FileManager.default.createDirectory(at: worktreeRoots[0], withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktreeRoots[1], withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let repoId = UUIDv7.generate()
+        let worktreeIds = [UUIDv7.generate(), UUIDv7.generate()]
+        let settlementRace = FailedPromotionSettlementRace()
+        let statusProvider = FailedPromotionGitStatusProvider(
+            expectedRootPaths: Set(worktreeRoots),
+            origin: origin,
+            settlementRace: settlementRace
+        )
+        let remoteProvider = PipelineRemoteReferenceProviderFake()
+        await remoteProvider.configure(origin: origin)
+        await remoteProvider.configurePromotionFailure()
+        let bus = EventBus<RuntimeEnvelope>()
+        let initialSnapshotRecorder = FailedPromotionInitialSnapshotRecorder(
+            expectedWorktreeIds: Set(worktreeIds)
+        )
+        let eventStream = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: #function
+        )
+        let eventConsumerTask = Task {
+            for await envelope in eventStream {
+                await initialSnapshotRecorder.record(envelope)
+            }
+        }
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            registrationDiscoveryProvider: PipelineAcceptingRegistrationDiscoveryProvider(),
+            gitWorkingTreeProvider: statusProvider,
+            remoteReferenceRefreshProvider: remoteProvider,
+            fseventStreamClient: PipelineSilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero
+        )
+        await pipeline.start()
+        await pipeline.setRepositoryFactDemand(
+            RepositoryFactDemandSnapshot(
+                activePaneWorktreeId: worktreeIds[0],
+                sidebarAttendedWorktreeIds: Set(worktreeIds),
+                visibleActiveTabWorktreeIds: Set(worktreeIds),
+                openWorktreeIds: Set(worktreeIds),
+                repositoryIdByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: worktreeIds.map { ($0, repoId) }
+                ),
+                warmRepositoryIds: [],
+                unknownRepositoryIds: [],
+                locallyInactiveRepositoryIds: [],
+                warmAutomaticWorktreeIds: Set(worktreeIds),
+                unknownWorktreeIds: [],
+                backgroundOnlyAutomaticWorktreeIds: [],
+                locallyInactiveWorktreeIds: []
+            )
+        )
+        for (worktreeId, rootPath) in zip(worktreeIds, worktreeRoots) {
+            await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        }
+        await initialSnapshotRecorder.waitForAllInitialSnapshots()
+        await pipeline.applyScopeChange(.registerForgeRepo(repoId: repoId, remote: origin))
+        await statusProvider.beginRefreshObservation()
+
+        let admission = await pipeline.startRepositoryFactUpdate(
+            repoId: repoId,
+            attemptId: UUIDv7.generate()
+        )
+        #expect(admission.acceptedSources == [.remoteReferences])
+        let settlementTask = Task {
+            let outcome = await admission.settlement()[.remoteReferences]
+            await settlementRace.recordSettlement(outcome)
+            return outcome
+        }
+
+        let firstEvent = await settlementRace.waitForFirstEvent()
+        #expect(firstEvent == .allRepresentedStatusReadsStarted)
+        #expect(await settlementRace.settlementOutcome == nil)
+        await statusProvider.releaseRefreshReads()
+
+        #expect(await settlementTask.value == .failed)
+        #expect(await statusProvider.refreshedReadRootPaths == Set(worktreeRoots))
+        #expect(await remoteProvider.promoteCount == 1)
+
+        await pipeline.setRepositoryFactDemand(.empty)
+        await pipeline.shutdown()
+        eventConsumerTask.cancel()
+        await eventConsumerTask.value
+    }
+
     @Test("complete repository demand reaches the registered current-origin remote owner")
     func completeDemandStartsOneRepositoryFetch() async throws {
         let remoteProvider = PipelineRemoteReferenceProviderFake()
@@ -338,11 +437,16 @@ private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProvidi
     private(set) var stageCount = 0
     private(set) var promoteCount = 0
     private(set) var cleanupCount = 0
+    private var promotionShouldFail = false
     private var activePromotionCount = 0
     private(set) var maximumConcurrentPromotionCount = 0
 
     func configure(origin: String) {
         self.origin = origin
+    }
+
+    func configurePromotionFailure() {
+        promotionShouldFail = true
     }
 
     func captureRemoteTrackingSnapshot(
@@ -383,6 +487,9 @@ private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProvidi
         activePromotionCount += 1
         maximumConcurrentPromotionCount = max(maximumConcurrentPromotionCount, activePromotionCount)
         activePromotionCount -= 1
+        if promotionShouldFail {
+            throw PipelineRemoteReferenceProviderError.promotionFailed
+        }
     }
 
     func cleanupStagedFetch(_: GitStagedFetchHandle) async throws {
@@ -422,6 +529,166 @@ private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProvidi
     }
 }
 
+private enum PipelineRemoteReferenceProviderError: Error {
+    case promotionFailed
+}
+
+private enum FailedPromotionFirstEvent: Equatable {
+    case allRepresentedStatusReadsStarted
+    case settlement
+}
+
+private actor FailedPromotionSettlementRace {
+    private var firstEvent: FailedPromotionFirstEvent?
+    private var firstEventWaiters: [CheckedContinuation<FailedPromotionFirstEvent, Never>] = []
+    private(set) var settlementOutcome: RepositoryFactSourceUpdateOutcome?
+
+    func recordAllRepresentedStatusReadsStarted() {
+        recordFirstEvent(.allRepresentedStatusReadsStarted)
+    }
+
+    func recordSettlement(_ outcome: RepositoryFactSourceUpdateOutcome?) {
+        settlementOutcome = outcome
+        recordFirstEvent(.settlement)
+    }
+
+    func waitForFirstEvent() async -> FailedPromotionFirstEvent {
+        if let firstEvent { return firstEvent }
+        return await withCheckedContinuation { continuation in
+            firstEventWaiters.append(continuation)
+        }
+    }
+
+    private func recordFirstEvent(_ event: FailedPromotionFirstEvent) {
+        guard firstEvent == nil else { return }
+        firstEvent = event
+        let waiters = firstEventWaiters
+        firstEventWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume(returning: event)
+        }
+    }
+}
+
+private actor FailedPromotionGitStatusProvider: GitWorkingTreeStatusProvider {
+    private let expectedRootPaths: Set<URL>
+    private let origin: String
+    private let settlementRace: FailedPromotionSettlementRace
+    private var observesRefreshReads = false
+    private var refreshReadsReleased = false
+    private var refreshReadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var refreshReadStartedRootPaths: Set<URL> = []
+    private(set) var refreshedReadRootPaths: Set<URL> = []
+    private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
+
+    init(
+        expectedRootPaths: Set<URL>,
+        origin: String,
+        settlementRace: FailedPromotionSettlementRace
+    ) {
+        self.expectedRootPaths = Set(expectedRootPaths.map(\.standardizedFileURL))
+        self.origin = origin
+        self.settlementRace = settlementRace
+    }
+
+    func beginRefreshObservation() {
+        observesRefreshReads = true
+    }
+
+    func releaseRefreshReads() {
+        refreshReadsReleased = true
+        let waiters = refreshReadWaiters
+        refreshReadWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func statusResult(
+        for rootPath: URL,
+        pathspecs _: [String]?
+    ) async -> GitWorkingTreeStatusResult {
+        .available(await readStatus(for: rootPath))
+    }
+
+    func statusFactsResult(
+        for rootPath: URL,
+        pathspecs _: [String]?
+    ) async -> GitWorkingTreeStatusFactsResult {
+        .available(GitWorkingTreeStatusFacts(status: await readStatus(for: rootPath)))
+    }
+
+    func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
+        guard let detail = lineDetailByRootPath[rootPath.standardizedFileURL] else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(detail)
+    }
+
+    private func readStatus(for rootPath: URL) async -> GitWorkingTreeStatus {
+        let standardizedRootPath = rootPath.standardizedFileURL
+        let isRefreshRead = observesRefreshReads
+        if isRefreshRead {
+            refreshReadStartedRootPaths.insert(standardizedRootPath)
+            if refreshReadStartedRootPaths == expectedRootPaths {
+                await settlementRace.recordAllRepresentedStatusReadsStarted()
+            }
+            if !refreshReadsReleased {
+                await withCheckedContinuation { continuation in
+                    refreshReadWaiters.append(continuation)
+                }
+            }
+        }
+        let status = GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(
+                changed: isRefreshRead ? 2 : 1,
+                staged: 0,
+                untracked: 0,
+                aheadCount: isRefreshRead ? 9 : 1,
+                behindCount: 0,
+                hasUpstream: true
+            ),
+            branch: "main",
+            origin: origin
+        )
+        lineDetailByRootPath[standardizedRootPath] = GitWorkingTreeLineDetail(status: status)
+        if isRefreshRead {
+            refreshedReadRootPaths.insert(standardizedRootPath)
+        }
+        return status
+    }
+}
+
+private actor FailedPromotionInitialSnapshotRecorder {
+    private let expectedWorktreeIds: Set<UUID>
+    private var observedWorktreeIds: Set<UUID> = []
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(expectedWorktreeIds: Set<UUID>) {
+        self.expectedWorktreeIds = expectedWorktreeIds
+    }
+
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .worktree(let worktreeEnvelope) = envelope,
+            case .gitWorkingDirectory(.snapshotChanged(let snapshot)) = worktreeEnvelope.event
+        else { return }
+        observedWorktreeIds.insert(snapshot.worktreeId)
+        guard observedWorktreeIds.isSuperset(of: expectedWorktreeIds) else { return }
+        let pendingWaiters = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+
+    func waitForAllInitialSnapshots() async {
+        guard !observedWorktreeIds.isSuperset(of: expectedWorktreeIds) else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 private struct PipelineAcceptingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
     func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
         .validated(
@@ -444,7 +711,13 @@ private final class PipelineSilentFSEventStreamClient: FSEventStreamClient, @unc
 
     func events() -> AsyncStream<FSEventIngressItem> { stream }
     func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
-    func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
+    func register(
+        worktreeId _: UUID,
+        repoId _: UUID,
+        rootPath _: URL
+    ) -> FSEventStreamRegistrationOutcome {
+        .observing
+    }
     func unregister(worktreeId _: UUID) {}
     func shutdown() { continuation.finish() }
 }

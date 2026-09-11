@@ -237,14 +237,7 @@ async function readExpectedReviewItemIds(props: {
 	readonly worktreeRoot: string;
 }): Promise<readonly string[]> {
 	const [trackedChanges, untrackedPaths] = await Promise.all([
-		gitStdoutAt(props.worktreeRoot, [
-			'diff',
-			'--name-status',
-			'-z',
-			'--find-renames',
-			props.reviewBase,
-			'--',
-		]),
+		gitStdoutAt(props.worktreeRoot, bridgeReviewOracleTrackedDiffArguments(props.reviewBase)),
 		gitStdoutAt(props.worktreeRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
 	]);
 	const changedPaths = parseGitNameStatus(trackedChanges);
@@ -257,7 +250,7 @@ async function readExpectedReviewItemIds(props: {
 	}
 	const orderedItemIds = await Promise.all(
 		changedPaths
-			.toSorted((left, right): number => left.path.localeCompare(right.path))
+			.toSorted((left, right): number => bridgeReviewOraclePathOrder(left.path, right.path))
 			.map(
 				async (changedPath): Promise<string> =>
 					bridgeReviewItemIdOracle({
@@ -276,6 +269,15 @@ async function readExpectedReviewItemIds(props: {
 		throw new Error('Review metadata oracle returned no changed-file item ids.');
 	}
 	return orderedItemIds;
+}
+
+export function bridgeReviewOraclePathOrder(left: string, right: string): number {
+	if (left === right) return 0;
+	return left < right ? -1 : 1;
+}
+
+export function bridgeReviewOracleTrackedDiffArguments(reviewBase: string): readonly string[] {
+	return ['diff', '--name-status', '-z', '--no-renames', reviewBase, '--'];
 }
 
 function parseGitNameStatus(encodedChanges: string): Array<{

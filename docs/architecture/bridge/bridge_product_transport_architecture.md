@@ -56,6 +56,38 @@ This keeps application semantics in the call/content registries while the
 generic transport remains responsible for correlation, admission, sequencing,
 bounds, cancellation, and errors.
 
+## Recent subscription update IDs
+
+`BridgeProductSubscriptionState` owns recent committed update-ID detection for
+the [R64 rolling-window contract](../../specs/bridge-viewer-transport/local-first-comm-worker-architecture.md#r64-swift-product-requests-and-streams-are-framed-capable-and-cancellable).
+Its existing membership set is paired with fixed-capacity circular slots and an
+oldest-slot index, all private value state within each subscription record.
+The default window holds 1,024 IDs; it does not limit subscription lifetime.
+
+| Transition | Recent-ID state | Preserved authority |
+| --- | --- | --- |
+| Valid intermediate batch | unchanged | one staged update and contiguous batch metadata |
+| Rejected request or failed candidate | unchanged | prior committed interest revision/hash and recent IDs |
+| Successful final batch, window not full | append ID to slots and membership | new interest revision/hash and one commit barrier |
+| Successful final batch, window full | remove oldest member, replace its slot, advance circular index, add new member | same commit transaction; no capacity rejection |
+| Exact request replay | unchanged | existing exact-byte response replay, no second mutation |
+| Retained reconciliation | preserve slots, membership, index | existing matching subscription/revision |
+| Reset, cancellation, source retirement or worker revocation | clear/reset history with its owning record | existing lifecycle fences |
+
+The call path remains worker control mux → native session → subscription-state
+candidate → required lifecycle-frame admission → committed state and replay
+response. Only the candidate's successful-history mutation changes. Value
+semantics keep ring rollover from changing the parent when required-frame
+admission fails. There is no timer, persistence, new transport route or recovery
+mechanism. History space is bounded by active subscriptions and window capacity,
+not elapsed session activity. An evicted label loses recent-reuse detection;
+stale request sequences, base revisions/hashes and late barriers remain rejected
+by their existing independent checks.
+
+Proof covers repeated ring wraparound, recent/evicted labels, invalid and staged
+non-eviction, exact replay, candidate rollback, reconciliation and sustained real
+Vite/Swift and packaged traffic beyond the window.
+
 ## Metadata describes what exists and what changed
 
 One metadata stream is installed per pane. Application subscriptions are

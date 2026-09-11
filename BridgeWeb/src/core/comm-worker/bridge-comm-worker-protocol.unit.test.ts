@@ -213,31 +213,34 @@ describe('Bridge comm worker protocol', () => {
 	test('encodes a strict identity-bound render disposition command', () => {
 		const command = encodeBridgeWorkerRenderDispositionCommand({
 			epoch: 5,
-			receipt: reviewQueuedRenderDispositionReceipt(),
+			receipts: [reviewQueuedRenderDispositionReceipt()],
 			requestId: 'request-render-disposition',
 		});
 
 		expect(command).toMatchObject({
 			command: 'renderDisposition',
 			epoch: 5,
-			receipt: {
-				disposition: 'queued',
-				itemId: 'item-1',
-				publicationId: 'publication-review-8',
-				publicationSequence: 8,
-				surface: 'review',
-			},
+			receipts: [
+				{
+					disposition: 'queued',
+					itemId: 'item-1',
+					publicationId: 'publication-review-8',
+					publicationSequence: 8,
+					surface: 'review',
+				},
+			],
 		});
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 	});
 });
 
-function reviewQueuedRenderDispositionReceipt(): BridgeWorkerRenderDispositionCommand['receipt'] {
+function reviewQueuedRenderDispositionReceipt(): BridgeWorkerRenderDispositionCommand['receipts'][number] {
 	return {
 		attemptId: 'attempt-review-8',
 		disposition: 'queued' as const,
 		itemId: 'item-1',
 		kind: 'render.disposition' as const,
+		operationCorrelationId: null,
 		paneSessionId: 'pane-session-1',
 		publicationId: 'publication-review-8',
 		publicationSequence: 8,

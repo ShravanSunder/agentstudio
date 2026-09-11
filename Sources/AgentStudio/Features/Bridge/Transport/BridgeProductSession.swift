@@ -26,23 +26,22 @@ actor BridgeProductSession {
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
-    var producerObservationPacingWaitersByLease: [BridgeProductProducerLease: BridgeProductProducerPacingWaiter] = [:]
+    var producerObservationPacingWaitersByLease:
+        [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
     var pendingControl: BridgeProductSessionPendingControl?
     var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
     var subscriptionState = BridgeProductSubscriptionState()
-    var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [
-        .review: 0,
-        .file: 0,
-    ]
+    var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [:]
 
     init(
         paneSessionId: String,
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil
     ) throws {
@@ -63,7 +62,7 @@ actor BridgeProductSession {
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
-        self.producerRegistry = BridgeProductProducerRegistry()
+        self.producerRegistry = BridgeProductProducerRegistry(limits: producerQueueLimits)
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
         )
@@ -93,6 +92,9 @@ actor BridgeProductSession {
     ) -> BridgeProductProducerRegistration {
         productAdmission.withValidAdmission {
             guard lifecycle == .active else { return .rejected(.inactiveSession) }
+            if let pendingControl, case .workerSessionResync = pendingControl.request {
+                return .rejected(.closing)
+            }
             guard request.paneSessionId == paneSessionId,
                 request.workerInstanceId == workerInstanceId
             else {
@@ -299,6 +301,10 @@ actor BridgeProductSession {
         )
     }
 
+    func subscriptionSnapshots() -> [BridgeProductSubscriptionSnapshot] {
+        subscriptionState.snapshots()
+    }
+
     private var producerCompletion: BridgeProductProducerRegistry.ProducerCompletion {
         { [weak self] lease in
             await self?.producerOperationFinished(lease)
@@ -331,10 +337,7 @@ actor BridgeProductSession {
             if let replay = lastAcceptedMetadataFrameAcknowledgement,
                 replay.acknowledgement == acknowledgement
             {
-                return producerAdmissionMatches(
-                    productAdmission,
-                    for: replay.producerLease
-                )
+                return producerAdmissionMatches(productAdmission, for: replay.producerLease)
             }
             guard
                 let receipt = producerRegistry.inFlightMetadataFrameReceipt(
@@ -546,7 +549,8 @@ actor BridgeProductSession {
                 response: response,
                 subscriptionState: subscriptionState,
                 resyncEpochs: pendingControl.deferredResyncEpochs,
-                currentEpochs: workerDerivationEpochBySurface
+                currentEpochs: workerDerivationEpochBySurface,
+                snapshotRequiredSubscriptionIds: subscriptionsRequiringSnapshot(for: pendingControl.request)
             )
         } catch let stateError as BridgeProductSubscriptionStateError {
             throw BridgeProductSessionError.subscriptionStateRejected(stateError)

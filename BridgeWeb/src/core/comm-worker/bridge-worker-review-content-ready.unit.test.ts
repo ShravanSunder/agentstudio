@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import {
 	bridgeWorkerServerToMainMessageSchema,
@@ -35,6 +36,7 @@ describe('Bridge worker review content ready', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -57,9 +59,7 @@ describe('Bridge worker review content ready', () => {
 		// Act
 		const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
 			preparedJobEvent,
-			publicationSequence: 11,
 			store,
-			workerDerivationEpoch: 7,
 		});
 		const publications = [
 			preparedJobEvent.message,
@@ -101,6 +101,7 @@ describe('Bridge worker review content ready', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -164,6 +165,7 @@ describe('Bridge worker review content ready', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -182,12 +184,23 @@ describe('Bridge worker review content ready', () => {
 		if (preparedJobEvent === null) {
 			throw new Error('Expected review render job event.');
 		}
+		const mismatchedPreparedJobEvent = {
+			...preparedJobEvent,
+			message: {
+				...preparedJobEvent.message,
+				publicationSequence: 12,
+			},
+		};
+		expect(() =>
+			commitBridgeWorkerReviewContentReadyRenderPatch({
+				preparedJobEvent: mismatchedPreparedJobEvent,
+				store,
+			}),
+		).toThrow(/render receipt authority/iu);
 
 		const result = commitBridgeWorkerReviewContentReadyRenderPatch({
 			preparedJobEvent,
-			publicationSequence: 11,
 			store,
-			workerDerivationEpoch: 7,
 		});
 
 		expect(result.touchedKeys).toEqual([
@@ -248,6 +261,7 @@ describe('Bridge worker review content ready', () => {
 				surface: 'review',
 				workerDerivationEpoch: 7,
 			}),
+			reviewPublicationIdentity: makeReviewPublicationIdentity(),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',

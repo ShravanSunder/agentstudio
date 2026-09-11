@@ -1,0 +1,26 @@
+{
+  "largeCatalogRecipe": {
+    "catalogRevision": 9,
+    "entryCount": 9,
+    "expectedWindowCount": 2,
+    "payloadCharacterCount": 24000,
+    "transferId": "catalog-large-9"
+  },
+  "validSequences": [
+    {
+      "name": "empty-catalog",
+      "transfers": [
+        "{\"catalogRevision\":1,\"expectedEntryCount\":0,\"kind\":\"catalog.begin\",\"transferId\":\"catalog-empty-1\"}",
+        "{\"catalogRevision\":1,\"entryCount\":0,\"kind\":\"catalog.commit\",\"transferId\":\"catalog-empty-1\",\"windowCount\":0}"
+      ]
+    },
+    {
+      "name": "two-entry-catalog",
+      "transfers": [
+        "{\"catalogRevision\":2,\"expectedEntryCount\":2,\"kind\":\"catalog.begin\",\"transferId\":\"catalog-two-2\"}",
+        "{\"catalogRevision\":2,\"entries\":[{\"itemId\":\"item-1\",\"payload\":\"alpha\"},{\"itemId\":\"item-2\",\"payload\":\"beta\"}],\"kind\":\"catalog.window\",\"transferId\":\"catalog-two-2\",\"windowOrdinal\":0}",
+        "{\"catalogRevision\":2,\"entryCount\":2,\"kind\":\"catalog.commit\",\"transferId\":\"catalog-two-2\",\"windowCount\":1}"
+      ]
+    }
+  ]
+}

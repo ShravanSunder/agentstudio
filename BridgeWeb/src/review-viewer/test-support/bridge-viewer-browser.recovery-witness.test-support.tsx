@@ -2,6 +2,11 @@ import { act, type ReactElement } from 'react';
 import { render } from 'vitest-browser-react';
 
 import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
+import {
+	buildBridgeWorkerReviewCandidateReadyEvent,
+	buildBridgeWorkerReviewCandidateStartedEvent,
+	buildBridgeWorkerReviewPublicationInstallAdmissionEvent,
+} from '../../core/comm-worker/bridge-comm-worker-protocol.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../../core/comm-worker/bridge-pane-runtime.js';
@@ -9,10 +14,14 @@ import type { BridgeProductNavigationCommand } from '../../core/comm-worker/brid
 import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatchEvent,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
-import { bridgeWorkerReviewSourceContext } from '../../core/comm-worker/bridge-worker-review-display.test-support.js';
+import {
+	bridgeWorkerReviewPublicationIdentity,
+	bridgeWorkerReviewSourceContext,
+} from '../../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
@@ -51,6 +60,10 @@ export interface BridgeReviewRecoveryWitnessFile {
 	readonly itemId: string;
 	readonly lineCount: number;
 	readonly path: string;
+	readonly sourceDescriptorIdsByRole?: {
+		readonly base: string;
+		readonly head: string;
+	};
 	readonly sourceCorrelation?: BridgeWorkerRenderSourceCorrelation;
 }
 
@@ -71,6 +84,7 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly publishDisplay: () => Promise<void>;
 	readonly publishDisplayAppendFrom: (initialItemCount: number) => Promise<void>;
 	readonly publishDisplayAtEpoch: (epoch: number) => Promise<void>;
+	readonly publishExactActiveDisplayAtWorkerEpoch: (epoch: number) => Promise<void>;
 	readonly publishDisplayAtPackageIdentity: (metadataWindowIdentity: string) => Promise<void>;
 	readonly publishDisplayInTwoBatches: (initialItemCount: number) => Promise<void>;
 	readonly publishFileContentForItemId: (itemId: string) => Promise<void>;
@@ -90,6 +104,18 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly expandedTreePaths: () => readonly string[];
 	readonly visibleCodeText: (scrollOwner: HTMLElement) => string;
 	readonly viewportCommandVisibleItemIds: () => readonly (readonly string[])[];
+	readonly workerEventSeam: BridgeReviewRecoveryWitnessWorkerEventSeam;
+}
+
+export interface BridgeReviewRecoveryWitnessWorkerEventSeam {
+	readonly activeReviewPublicationIdentity: () => BridgeWorkerReviewPublicationIdentity;
+	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
+	readonly sentRequests: () => readonly BridgeReviewRecoveryWitnessWorkerRequest[];
+}
+
+export interface BridgeReviewRecoveryWitnessWorkerRequest {
+	readonly command: BridgeWorkerRpcCommandInput;
+	readonly requestId: string;
 }
 
 export interface BridgeReviewRecoveryPaintedItem {
@@ -136,6 +162,7 @@ export async function renderBridgeReviewRecoveryWitness(
 	const renderStore = createBridgeMainRenderSnapshotStore();
 	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
 	const sentCommands: BridgeWorkerRpcCommandInput[] = [];
+	const sentRequests: BridgeReviewRecoveryWitnessWorkerRequest[] = [];
 	const telemetrySamples: BridgeTelemetrySample[] = [];
 	const telemetryRecorder: BridgeTelemetryRecorder = {
 		flush: (): boolean => true,
@@ -146,17 +173,61 @@ export async function renderBridgeReviewRecoveryWitness(
 		},
 	};
 	const publishedContentItemIds = new Set<string>();
-	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
+	const messageListeners = new Set<(message: BridgeWorkerServerToMainMessage) => void>();
+	const publishWorkerMessage = (message: BridgeWorkerServerToMainMessage): void => {
+		for (const listener of messageListeners) listener(message);
+	};
+	let activeReviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null = null;
 	const reviewProjectionRouter = new BridgeReviewProjectionWitnessRouter();
 	let isDisposed = false;
-	const publishRawReviewDisplayEvent = (event: BridgeWorkerReviewDisplayPatchEvent): void => {
-		reviewProjectionRouter.publishRaw(event);
+	const publishRawReviewDisplayEvent = (
+		event: BridgeWorkerReviewDisplayPatchEvent,
+		candidateReady = true,
+	): void => {
+		const identity = event.reviewPublicationIdentity;
+		if (identity !== null && messageListeners.size > 0) {
+			const candidateSequence = event.sequence * 3;
+			publishWorkerMessage(
+				buildBridgeWorkerReviewCandidateStartedEvent({
+					disposition: { kind: 'replacement' },
+					epoch: event.epoch,
+					packageId: identity.packageId,
+					publicationId: identity.publicationId,
+					reviewGeneration: identity.reviewGeneration,
+					revision: identity.revision,
+					sequence: candidateSequence,
+					sourceIdentity: identity.sourceIdentity,
+				}),
+			);
+			reviewProjectionRouter.publishRaw({ ...event, sequence: candidateSequence + 1 });
+		} else {
+			reviewProjectionRouter.publishRaw(event);
+		}
+		if (event.reviewPublicationIdentity !== null) {
+			activeReviewPublicationIdentity = event.reviewPublicationIdentity;
+		}
+		if (!candidateReady || event.reviewPublicationIdentity === null || messageListeners.size === 0)
+			return;
+		const readyIdentity = event.reviewPublicationIdentity;
+		const candidateSequence = event.sequence * 3;
+		publishWorkerMessage(
+			buildBridgeWorkerReviewCandidateReadyEvent({
+				epoch: event.epoch,
+				packageId: readyIdentity.packageId,
+				publicationId: readyIdentity.publicationId,
+				reviewGeneration: readyIdentity.reviewGeneration,
+				revision: readyIdentity.revision,
+				sequence: candidateSequence + 2,
+				sourceIdentity: readyIdentity.sourceIdentity,
+			}),
+		);
 	};
 	const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
 		nowMilliseconds: (): number => 0,
 		sendDisposition: (_receipt): void => {},
 	});
 	const reviewClient: BridgePaneSurfaceClient = {
+		requestWorkerReplacement: (): void => {},
 		lifecycle: lifecycleStore,
 		renderFulfillmentCoordinator,
 		renderStore,
@@ -164,14 +235,34 @@ export async function renderBridgeReviewRecoveryWitness(
 			sentCommands.push(command);
 			if (command.command === 'reviewProjectionUpdate')
 				reviewProjectionRouter.publishQuery(command);
-			return `review-recovery-witness-request-${sentCommands.length}`;
+			const requestId = `review-recovery-witness-request-${sentCommands.length}`;
+			sentRequests.push({ command, requestId });
+			lifecycleStore.startRequest({ command: command.command, requestId, surface: 'review' });
+			if (command.command === 'reviewPublicationInstallAdmit') {
+				queueMicrotask((): void => {
+					publishWorkerMessage(
+						buildBridgeWorkerReviewPublicationInstallAdmissionEvent({
+							candidatePublicationId: command.candidatePublicationId,
+							requestId,
+							status: 'admitted',
+						}),
+					);
+				});
+			} else if (command.command === 'reviewPublicationInstalled') {
+				queueMicrotask((): void => {
+					lifecycleStore.ackRequest({ acknowledgedAtSequence: sentCommands.length, requestId });
+				});
+			}
+			return requestId;
 		},
 		subscribeMessages: (listener): (() => void) => {
-			messageListener = listener;
-			reviewProjectionRouter.setListener(listener);
+			messageListeners.add(listener);
+			reviewProjectionRouter.setListener(publishWorkerMessage);
 			return (): void => {
-				reviewProjectionRouter.clearListener(listener);
-				if (messageListener === listener) messageListener = null;
+				messageListeners.delete(listener);
+				if (messageListeners.size === 0) {
+					reviewProjectionRouter.clearListener(publishWorkerMessage);
+				}
 			};
 		},
 		surface: 'review',
@@ -196,18 +287,19 @@ export async function renderBridgeReviewRecoveryWitness(
 	);
 	const renderResult = await render(renderWitnessRoot(true));
 	const requireMessageListener = (): ((message: BridgeWorkerServerToMainMessage) => void) => {
-		if (messageListener === null) {
+		if (messageListeners.size === 0) {
 			throw new Error(
 				'Review recovery witness production surface did not subscribe to worker messages.',
 			);
 		}
-		return messageListener;
+		return publishWorkerMessage;
 	};
 	const activeHarness: ActiveReviewRecoveryWitnessHarness = {
 		dispose: (): void => {
 			if (isDisposed) return;
 			isDisposed = true;
-			messageListener = null;
+			messageListeners.clear();
+			reviewProjectionRouter.clearListener(publishWorkerMessage);
 			renderFulfillmentCoordinator.dispose();
 			renderStore.dispose();
 			lifecycleStore.dispose();
@@ -240,7 +332,11 @@ export async function renderBridgeReviewRecoveryWitness(
 			await act(async (): Promise<void> => {
 				const publish = requireMessageListener();
 				for (const [fileIndex, file] of files.entries()) {
-					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+					for (const message of completeReviewContentMessages(
+						file,
+						fileIndex + 1,
+						requireActiveReviewPublicationIdentity(activeReviewPublicationIdentity),
+					)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -262,7 +358,11 @@ export async function renderBridgeReviewRecoveryWitness(
 				const publish = requireMessageListener();
 				for (const file of requestedFiles) {
 					const fileIndex = files.indexOf(file);
-					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+					for (const message of completeReviewContentMessages(
+						file,
+						fileIndex + 1,
+						requireActiveReviewPublicationIdentity(activeReviewPublicationIdentity),
+					)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -298,7 +398,11 @@ export async function renderBridgeReviewRecoveryWitness(
 				const publish = requireMessageListener();
 				for (const file of demandedFiles) {
 					const fileIndex = files.indexOf(file);
-					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+					for (const message of completeReviewContentMessages(
+						file,
+						fileIndex + 1,
+						requireActiveReviewPublicationIdentity(activeReviewPublicationIdentity),
+					)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -345,6 +449,21 @@ export async function renderBridgeReviewRecoveryWitness(
 			});
 			await advanceBridgeReviewRecoveryWitnessFrames(4);
 		},
+		publishExactActiveDisplayAtWorkerEpoch: async (epoch: number): Promise<void> => {
+			await act(async (): Promise<void> => {
+				publishRawReviewDisplayEvent(
+					{
+						...reviewDisplayEvent(files),
+						epoch,
+						projectionRevision: epoch,
+						sequence: epoch,
+					},
+					false,
+				);
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
+		},
 		publishDisplayAtPackageIdentity: async (metadataWindowIdentity: string): Promise<void> => {
 			await act(async (): Promise<void> => {
 				publishRawReviewDisplayEvent(
@@ -363,7 +482,7 @@ export async function renderBridgeReviewRecoveryWitness(
 				throw new Error('Two-batch Review display requires a non-empty proper initial prefix.');
 			}
 			await act(async (): Promise<void> => {
-				publishRawReviewDisplayEvent(reviewDisplayEvent(files.slice(0, initialItemCount)));
+				publishRawReviewDisplayEvent(reviewDisplayEvent(files.slice(0, initialItemCount)), false);
 				await import('../shell/review-viewer-shell.js');
 				await Promise.resolve();
 				await new Promise<void>((resolve): void => {
@@ -382,7 +501,11 @@ export async function renderBridgeReviewRecoveryWitness(
 			await act(async (): Promise<void> => {
 				const fileIndex = files.indexOf(file);
 				const publish = requireMessageListener();
-				for (const message of completeReviewFileContentMessages(file, fileIndex + 1)) {
+				for (const message of completeReviewFileContentMessages(
+					file,
+					fileIndex + 1,
+					requireActiveReviewPublicationIdentity(activeReviewPublicationIdentity),
+				)) {
 					publish(message);
 				}
 				publishedContentItemIds.add(file.itemId);
@@ -483,6 +606,12 @@ export async function renderBridgeReviewRecoveryWitness(
 			sentCommands.flatMap((command): readonly (readonly string[])[] =>
 				command.command === 'viewport' ? [[...command.visibleItemIds]] : [],
 			),
+		workerEventSeam: {
+			activeReviewPublicationIdentity: (): BridgeWorkerReviewPublicationIdentity =>
+				requireActiveReviewPublicationIdentity(activeReviewPublicationIdentity),
+			publish: (message): void => requireMessageListener()(message),
+			sentRequests: (): readonly BridgeReviewRecoveryWitnessWorkerRequest[] => sentRequests,
+		},
 	};
 }
 
@@ -607,6 +736,15 @@ function bridgeReviewRecoveryWitnessExpandedTreePaths(container: HTMLElement): r
 	});
 }
 
+function requireActiveReviewPublicationIdentity(
+	identity: BridgeWorkerReviewPublicationIdentity | null,
+): BridgeWorkerReviewPublicationIdentity {
+	if (identity === null) {
+		throw new Error('Review recovery witness content requires an installed publication identity.');
+	}
+	return identity;
+}
+
 function bridgeReviewRecoveryWitnessCodeScrollOwner(container: HTMLElement): HTMLElement | null {
 	const scrollOwner = container.querySelector('.bridge-code-view-scroll-owner');
 	return scrollOwner instanceof HTMLElement ? scrollOwner : null;
@@ -629,6 +767,11 @@ function reviewDisplayEvent(
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch ?? 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			'review-recovery-witness-package',
+			projectionRevision,
+			'review-recovery-witness-source',
+		),
 		patches: [
 			{
 				operation: 'upsert',
@@ -706,6 +849,11 @@ function reviewDisplayAppendEvent(
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentity(
+			'review-recovery-witness-package',
+			2,
+			'review-recovery-witness-source',
+		),
 		patches: [
 			{
 				operation: 'upsert',
@@ -798,7 +946,7 @@ function reviewDisplayItem(
 			deletions: file.lineCount,
 			basePath: file.path,
 			changeKind: file.changeKind ?? 'modified',
-			contentDescriptorIdsByRole: {},
+			contentDescriptorIdsByRole: file.sourceDescriptorIdsByRole ?? {},
 			contentHashesByRole: {},
 			contentRoles: ['base', 'head'],
 			extension: 'swift',

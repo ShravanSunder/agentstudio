@@ -315,12 +315,6 @@ function flushBridgeTreeHoverToRenderBurstState(state: BridgeTreeHoverToRenderBu
 			'agentstudio.bridge.result': state.result,
 		},
 		numericAttributes: {
-			'agentstudio.bridge.hover_to_render.max_ms': maxNumber(state.durationsMilliseconds),
-			'agentstudio.bridge.hover_to_render.p95_ms': percentileNumber(
-				state.durationsMilliseconds,
-				0.95,
-			),
-			'agentstudio.bridge.hover_to_render.sample.count': state.durationsMilliseconds.length,
 			'agentstudio.bridge.visible_item.count': state.visibleItemCount,
 		},
 		booleanAttributes: {
@@ -338,16 +332,4 @@ function bridgeTreeHoverToRenderBurstKey(
 
 function maxNumber(values: readonly number[]): number {
 	return values.length === 0 ? 0 : Math.max(...values);
-}
-
-function percentileNumber(values: readonly number[], percentile: number): number {
-	if (values.length === 0) {
-		return 0;
-	}
-	const sortedValues = values.toSorted((leftValue, rightValue): number => leftValue - rightValue);
-	const index = Math.min(
-		sortedValues.length - 1,
-		Math.max(0, Math.ceil(sortedValues.length * percentile) - 1),
-	);
-	return sortedValues[index] ?? 0;
 }

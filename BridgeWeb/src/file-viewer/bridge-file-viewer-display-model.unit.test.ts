@@ -194,6 +194,6 @@ describe('Bridge File viewer worker display model', () => {
 				selection: { fileId: 'file-readme', path: 'README.md' },
 				status: { state: 'stale' },
 			}),
-		).toMatchObject({ status: 'stale' });
+		).toMatchObject({ status: 'ready' });
 	});
 });

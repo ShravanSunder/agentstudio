@@ -143,6 +143,7 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 					lifecycleStore.dispose();
 					surfaceMessageListeners.clear();
 				},
+				installMainTelemetryRecorder: vi.fn(),
 				installNativeBootstrap: vi.fn(),
 				installTelemetryProducer: vi.fn(),
 				lifecycleStore,
@@ -451,6 +452,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 		).toMatchObject({
 			command: 'activeViewerModeUpdate',
 			update: {
+				activeSource: {
+					generation: 1,
+					protocol: 'worktree-file',
+					streamId: 'position-file-source',
+				},
 				mode: 'file',
 				nativeSelectionRequestId: navigationCommandId,
 			},
@@ -975,7 +981,7 @@ async function publishNativeFileTargetSelectionRequest(props: {
 function activeViewerModeUpdateForNativeRequest(
 	nativeSelectionRequestId: string,
 ): BridgeWorkerRpcCommandInput | undefined {
-	return paneRuntimeObservation.paneCommands.find(
+	return paneRuntimeObservation.paneCommands.findLast(
 		(command): boolean =>
 			command.command === 'activeViewerModeUpdate' &&
 			command.update.nativeSelectionRequestId === nativeSelectionRequestId,

@@ -16,7 +16,7 @@ extension WorkspaceStore {
         tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
         tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
-        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,

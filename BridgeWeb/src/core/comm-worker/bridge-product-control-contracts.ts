@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
+import {
+	bridgeProductReviewAnnotationPublicationIdentitySchema,
+	bridgeProductWorktreeAnnotationOperationSchema,
+} from './bridge-product-call-contracts.js';
+import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
 export const bridgeActiveViewerSourceSchema = z
 	.object({
@@ -36,6 +41,25 @@ const bridgeProductControlMarkFileViewedCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlFileWorktreeAnnotationCommandSchema = z
+	.object({
+		method: z.literal('file.annotations.command'),
+		params: z.object({ operation: bridgeProductWorktreeAnnotationOperationSchema }).strict(),
+	})
+	.strict();
+
+const bridgeProductControlReviewWorktreeAnnotationCommandSchema = z
+	.object({
+		method: z.literal('review.annotations.command'),
+		params: z
+			.object({
+				operation: bridgeProductWorktreeAnnotationOperationSchema,
+				reviewPublicationIdentity: bridgeProductReviewAnnotationPublicationIdentitySchema,
+			})
+			.strict(),
+	})
+	.strict();
+
 const bridgeProductControlActiveViewerModeUpdateCommandSchema = z
 	.object({
 		method: z.literal('bridge.activeViewerMode.update'),
@@ -50,10 +74,36 @@ const bridgeProductControlReviewComparisonUpdateCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlFileRefreshRetryCommandSchema = z
+	.object({
+		method: z.literal('file.refresh.retry'),
+		params: z.object({}).strict(),
+	})
+	.strict();
+
 const bridgeProductControlReviewComparisonTargetsQueryCommandSchema = z
 	.object({
 		method: z.literal('review.comparisonTargets.query'),
 		params: z.object({}).strict(),
+	})
+	.strict();
+
+const bridgeProductControlReviewPublicationInstallAdmitCommandSchema = z
+	.object({
+		method: z.literal('review.publication.install.admit'),
+		params: z
+			.object({
+				candidatePublicationId: bridgeProductReviewPublicationIdSchema,
+				expectedDisplayedPublicationId: bridgeProductReviewPublicationIdSchema.nullable(),
+			})
+			.strict(),
+	})
+	.strict();
+
+const bridgeProductControlReviewPublicationAppliedCommandSchema = z
+	.object({
+		method: z.literal('review.publication.applied'),
+		params: z.object({ publicationId: bridgeProductReviewPublicationIdSchema }).strict(),
 	})
 	.strict();
 
@@ -65,9 +115,14 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 	.strict();
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
+	bridgeProductControlFileRefreshRetryCommandSchema,
+	bridgeProductControlFileWorktreeAnnotationCommandSchema,
+	bridgeProductControlReviewWorktreeAnnotationCommandSchema,
 	bridgeProductControlMarkFileViewedCommandSchema,
 	bridgeProductControlReviewComparisonUpdateCommandSchema,
 	bridgeProductControlReviewComparisonTargetsQueryCommandSchema,
+	bridgeProductControlReviewPublicationInstallAdmitCommandSchema,
+	bridgeProductControlReviewPublicationAppliedCommandSchema,
 	bridgeProductControlActiveViewerModeUpdateCommandSchema,
 	bridgeProductControlIntakeReadyCommandSchema,
 ]);

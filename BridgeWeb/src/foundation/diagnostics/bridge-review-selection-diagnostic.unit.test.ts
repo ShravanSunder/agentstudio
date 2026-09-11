@@ -4,6 +4,7 @@ import {
 	observeBridgePaneCommWorkerSessionDiagnosticSnapshots,
 	readBridgeReviewSelectionDiagnostic,
 	recordBridgePaneCommWorkerSessionDiagnosticSnapshot,
+	recordBridgePaneRuntimeDiagnosticSnapshot,
 	recordBridgeFileModeSendAttempt,
 	recordBridgeFileModeSendSynchronousFailure,
 	recordBridgePageReadyState,
@@ -148,6 +149,88 @@ describe('Bridge Review selection diagnostic', () => {
 		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({ ...snapshot, state: 'bootstrapping' });
 
 		expect(snapshots).toEqual([snapshot]);
+	});
+
+	test('records each readiness timestamp once until the diagnostic lifecycle resets', () => {
+		// Arrange
+		ensureTestWindow();
+		const dateNow = vi.spyOn(Date, 'now');
+		const sessionSnapshot = {
+			latestFileModeDispatchDisposition: null,
+			latestFileSelectDispatchDisposition: null,
+			latestReviewSelectDispatchDisposition: null,
+			nativeBootstrapInstallCount: 0,
+			queuedCommandCount: 0,
+			replacementRequestCount: 0,
+			state: 'bootstrapping',
+		} as const;
+
+		// Act
+		recordBridgePageReadyState('awaiting');
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot(sessionSnapshot);
+		recordBridgePaneRuntimeDiagnosticSnapshot({
+			nativeBootstrapInstallAcceptedCount: 0,
+			nativeBootstrapInstallAttemptCount: 1,
+			nativeBootstrapInstallRejectedCount: 1,
+		});
+
+		// Assert
+		expect(readBridgeReviewSelectionDiagnostic()).not.toMatchObject({
+			commWorkerSessionReadyFirstObservedAtEpochMilliseconds: expect.any(Number),
+			nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds: expect.any(Number),
+			pageReadyFirstObservedAtEpochMilliseconds: expect.any(Number),
+		});
+		expect(dateNow).not.toHaveBeenCalled();
+
+		// Act
+		dateNow.mockReturnValue(101);
+		recordBridgePageReadyState('ready');
+		dateNow.mockReturnValue(202);
+		recordBridgePageReadyState('ready');
+		dateNow.mockReturnValue(303);
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({
+			...sessionSnapshot,
+			state: 'ready',
+		});
+		dateNow.mockReturnValue(404);
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({
+			...sessionSnapshot,
+			state: 'replacement_requested',
+		});
+		dateNow.mockReturnValue(505);
+		recordBridgePaneRuntimeDiagnosticSnapshot({
+			nativeBootstrapInstallAcceptedCount: 1,
+			nativeBootstrapInstallAttemptCount: 2,
+			nativeBootstrapInstallRejectedCount: 1,
+		});
+		dateNow.mockReturnValue(606);
+		recordBridgePaneRuntimeDiagnosticSnapshot({
+			nativeBootstrapInstallAcceptedCount: 2,
+			nativeBootstrapInstallAttemptCount: 3,
+			nativeBootstrapInstallRejectedCount: 1,
+		});
+
+		// Assert
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({
+			commWorkerSessionReadyFirstObservedAtEpochMilliseconds: 303,
+			nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds: 505,
+			pageReadyFirstObservedAtEpochMilliseconds: 101,
+		});
+		expect(dateNow).toHaveBeenCalledTimes(3);
+
+		// Act
+		resetBridgeReviewSelectionDiagnosticForTesting();
+		dateNow.mockReturnValue(707);
+		recordBridgePageReadyState('ready');
+
+		// Assert
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({
+			pageReadyFirstObservedAtEpochMilliseconds: 707,
+		});
+		expect(readBridgeReviewSelectionDiagnostic()).not.toMatchObject({
+			commWorkerSessionReadyFirstObservedAtEpochMilliseconds: expect.any(Number),
+			nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds: expect.any(Number),
+		});
 	});
 });
 

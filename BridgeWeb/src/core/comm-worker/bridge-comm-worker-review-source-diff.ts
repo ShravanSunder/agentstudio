@@ -3,6 +3,7 @@ import type { BridgeCommWorkerRow } from './bridge-comm-worker-store.js';
 import type {
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 
@@ -10,7 +11,17 @@ export interface BridgeCommWorkerReviewRuntimeSource {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity | null;
 	readonly rows: readonly BridgeCommWorkerRow[];
+}
+
+export function requireBridgeCommWorkerReviewRuntimeSourcePublicationIdentity(
+	source: BridgeCommWorkerReviewRuntimeSource,
+): BridgeWorkerReviewPublicationIdentity {
+	if (source.reviewPublicationIdentity === null) {
+		throw new Error('Bridge Review preparation requires exact publication lineage.');
+	}
+	return source.reviewPublicationIdentity;
 }
 
 export function isReviewRuntimeSourceExecutableForItem(

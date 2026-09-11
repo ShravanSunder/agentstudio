@@ -4,6 +4,7 @@ import { demandRankForContentRole } from '../demand/bridge-content-demand-policy
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerReviewPierreRenderJobEvent,
+	type BridgeWorkerReviewPublicationIdentity,
 	type BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 import {
@@ -37,6 +38,7 @@ export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 export interface PrepareBridgeWorkerReviewPierreRenderJobEventProps extends PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly publicationSequence: number;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 	readonly workerDerivationEpoch: number;
 }
 
@@ -57,6 +59,7 @@ type BridgeWorkerFetchedResourceByRole = ReadonlyMap<
 const bridgeWorkerEmptyContentIdentity = 'empty';
 const bridgeWorkerPlainTextLanguage = 'text';
 const bridgeWorkerHydratedRenderVersion = 2;
+const bridgeWorkerReviewDiffLeadingContextLineCount = 3;
 
 export function planBridgeWorkerReviewPierreRenderJob(
 	props: PlanBridgeWorkerReviewPierreRenderJobProps,
@@ -153,6 +156,7 @@ export function createBridgeWorkerReviewPierreRenderJobPlanningSession(
 							'head FileContents',
 						);
 						const fileDiff = parseDiffFromFile(preparedBaseFile, preparedHeadFile);
+						shiftBridgeWorkerReviewDiffLineCoordinates(fileDiff, selectedPlan.window.startLine);
 						if (fileDiff.lang === undefined) fileDiff.lang = selectedPlan.language;
 						fileDiff.cacheKey = selectedPlan.contentCacheKey;
 						payload = {
@@ -236,6 +240,7 @@ export function prepareBridgeWorkerReviewPierreRenderJobEvent(
 		: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 				job,
 				renderReceiptIdentity: props.renderReceiptIdentity,
+				reviewPublicationIdentity: props.reviewPublicationIdentity,
 			});
 }
 
@@ -259,6 +264,7 @@ function assertBridgeWorkerReviewRenderReceiptCorrelation(
 export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 	readonly job: BridgeWorkerPierreRenderJob;
 	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
+	readonly reviewPublicationIdentity: BridgeWorkerReviewPublicationIdentity;
 }): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
 	if (
 		props.renderReceiptIdentity.itemId !== props.job.itemId ||
@@ -275,6 +281,7 @@ export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 			job: props.job,
 			publicationSequence: props.renderReceiptIdentity.publicationSequence,
 			renderReceiptIdentity: props.renderReceiptIdentity,
+			reviewPublicationIdentity: props.reviewPublicationIdentity,
 			surface: 'review',
 			workerDerivationEpoch: props.renderReceiptIdentity.workerDerivationEpoch,
 		},
@@ -359,10 +366,10 @@ function selectBridgeWorkerReviewDiffPlan(
 		(resource): resource is BridgeWorkerFetchedReviewContentResource => resource !== null,
 	);
 	if (presentResources.length === 0) return null;
-	const window = renderWindowForRoles({
+	const window = renderWindowForDiffResources({
+		base: diffSides.base,
 		budget: props.budget,
-		resourcesByRole: props.resourcesByRole,
-		roles: presentResources.map((resource) => resource.role),
+		head: diffSides.head,
 	});
 	const contentCacheKey = `${contentCacheKeyForNullableResource(diffSides.base)}|${contentCacheKeyForNullableResource(diffSides.head)}`;
 	const contentHash = `${contentHashForNullableResource(diffSides.base)}|${contentHashForNullableResource(diffSides.head)}`;
@@ -471,6 +478,12 @@ function createBridgeWorkerCodeViewDiffItem(props: {
 			contentRoles: loadedDiffContentRoles({ base: props.base, head: props.head }),
 			observedLineCount: lineCountForFetchedReviewResources([props.base, props.head]),
 			semantics: props.semantics,
+			sourceDescriptorIdsByRole: {
+				base: props.base?.descriptorId ?? null,
+				diff: null,
+				file: null,
+				head: props.head?.descriptorId ?? null,
+			},
 			window: props.window,
 		}),
 	};
@@ -493,6 +506,7 @@ function createBridgeWorkerCodeViewFileItem(props: {
 			contentRoles: [props.resource.role],
 			observedLineCount: lineCountForFetchedReviewResources([props.resource]),
 			semantics: props.semantics,
+			sourceDescriptorIdsByRole: sourceDescriptorIdsForReviewFileResource(props.resource),
 			window: props.window,
 		}),
 	};
@@ -509,7 +523,8 @@ function createPierreFileContentsForReviewResource(props: {
 		props.resource === null
 			? ''
 			: windowTextForBridgeWorkerCodeView({
-					maxLines: props.window.endLine,
+					endLine: props.window.endLine,
+					startLine: props.window.startLine,
 					text: props.resource.text,
 				});
 	const lang = optionalPierreHighlightLanguage(props.resource?.language ?? props.language);
@@ -526,15 +541,34 @@ function bridgeWorkerCodeViewItemMetadata(props: {
 	readonly contentRoles: readonly BridgeWorkerReviewContentRole[];
 	readonly observedLineCount: number;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
+	readonly sourceDescriptorIdsByRole: NonNullable<
+		BridgeWorkerCodeViewFileItem['bridgeMetadata']['sourceDescriptorIdsByRole']
+	>;
 	readonly window: BridgeWorkerPierreRenderWindow;
 }): BridgeWorkerCodeViewFileItem['bridgeMetadata'] {
 	return {
 		itemId: props.semantics.itemId,
 		displayPath: props.semantics.displayPath,
-		contentState: props.window.endLine < props.window.totalLineCount ? 'windowed' : 'hydrated',
+		contentState:
+			props.window.startLine > 1 || props.window.endLine < props.window.totalLineCount
+				? 'windowed'
+				: 'hydrated',
 		contentRoles: props.contentRoles,
 		cacheKey: props.cacheKey,
 		lineCount: props.observedLineCount,
+		sourceDescriptorIdsByRole: props.sourceDescriptorIdsByRole,
+	};
+}
+
+function sourceDescriptorIdsForReviewFileResource(
+	resource: BridgeWorkerFetchedReviewContentResource,
+): NonNullable<BridgeWorkerCodeViewFileItem['bridgeMetadata']['sourceDescriptorIdsByRole']> {
+	const isBasePresentation = resource.role === 'base' || resource.role === 'diff';
+	return {
+		base: isBasePresentation ? resource.descriptorId : null,
+		diff: null,
+		file: null,
+		head: isBasePresentation ? null : resource.descriptorId,
 	};
 }
 
@@ -568,19 +602,45 @@ function lineCountForFetchedReviewResources(
 }
 
 function windowTextForBridgeWorkerCodeView(props: {
-	readonly maxLines: number;
+	readonly endLine: number;
+	readonly startLine: number;
 	readonly text: string;
 }): string {
-	const maxLines = Math.max(1, Math.floor(props.maxLines));
-	let currentIndex = 0;
-	for (let lineIndex = 0; lineIndex < maxLines; lineIndex += 1) {
-		const newlineIndex = props.text.indexOf('\n', currentIndex);
-		if (newlineIndex === -1) {
-			return props.text;
-		}
-		currentIndex = newlineIndex + 1;
+	const startLine = Math.max(1, Math.floor(props.startLine));
+	const endLine = Math.max(startLine, Math.floor(props.endLine));
+	let startIndex = 0;
+	for (let lineNumber = 1; lineNumber < startLine; lineNumber += 1) {
+		const newlineIndex = props.text.indexOf('\n', startIndex);
+		if (newlineIndex === -1) return '';
+		startIndex = newlineIndex + 1;
 	}
-	return props.text.slice(0, currentIndex);
+	let endIndex = startIndex;
+	for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+		const newlineIndex = props.text.indexOf('\n', endIndex);
+		if (newlineIndex === -1) {
+			return props.text.slice(startIndex);
+		}
+		endIndex = newlineIndex + 1;
+	}
+	return props.text.slice(startIndex, endIndex);
+}
+
+function shiftBridgeWorkerReviewDiffLineCoordinates(
+	fileDiff: ReturnType<typeof parseDiffFromFile>,
+	startLine: number,
+): void {
+	const lineOffset = Math.max(0, startLine - 1);
+	if (lineOffset === 0) return;
+	for (const hunk of fileDiff.hunks) {
+		hunk.additionStart += lineOffset;
+		hunk.deletionStart += lineOffset;
+		if (hunk.hunkSpecs !== undefined) {
+			hunk.hunkSpecs = hunk.hunkSpecs.replace(
+				/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/u,
+				`@@ -${hunk.deletionStart},${hunk.deletionCount} +${hunk.additionStart},${hunk.additionCount} @@`,
+			);
+		}
+	}
 }
 
 function bridgeWorkerStringByteLength(value: string): number {
@@ -665,6 +725,42 @@ function renderWindowForRoles(props: {
 		endLine: Math.min(totalLineCount, props.budget.maxWindowLines),
 		totalLineCount,
 	};
+}
+
+function renderWindowForDiffResources(props: {
+	readonly base: BridgeWorkerFetchedReviewContentResource | null;
+	readonly budget: BridgeWorkerPierreRenderBudget;
+	readonly head: BridgeWorkerFetchedReviewContentResource | null;
+}): BridgeWorkerPierreRenderWindow {
+	const baseText = props.base?.text ?? '';
+	const headText = props.head?.text ?? '';
+	const totalLineCount = Math.max(
+		lineCountForFetchedReviewContent(baseText),
+		lineCountForFetchedReviewContent(headText),
+	);
+	const firstChangedLine = firstDifferingLineNumber(baseText, headText);
+	const leadingContextLineCount = Math.min(
+		bridgeWorkerReviewDiffLeadingContextLineCount,
+		Math.max(0, props.budget.maxWindowLines - 1),
+	);
+	const startLine =
+		firstChangedLine === null ? 1 : Math.max(1, firstChangedLine - leadingContextLineCount);
+	return {
+		startLine,
+		endLine: Math.min(totalLineCount, startLine + props.budget.maxWindowLines - 1),
+		totalLineCount,
+	};
+}
+
+function firstDifferingLineNumber(baseText: string, headText: string): number | null {
+	const sharedCharacterCount = Math.min(baseText.length, headText.length);
+	let lineNumber = 1;
+	for (let characterIndex = 0; characterIndex < sharedCharacterCount; characterIndex += 1) {
+		const baseCharacter = baseText.charCodeAt(characterIndex);
+		if (baseCharacter !== headText.charCodeAt(characterIndex)) return lineNumber;
+		if (baseCharacter === 10) lineNumber += 1;
+	}
+	return baseText.length === headText.length ? null : lineNumber;
 }
 
 function lineCountForFetchedReviewContent(text: string): number {

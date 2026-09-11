@@ -1,14 +1,14 @@
 import { act, useCallback, useRef, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
-import { userEvent } from 'vitest/browser';
+import { cleanup, render, type RenderResult } from 'vitest-browser-react';
 
-// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
-import '../../app/bridge-app.css';
 import {
 	useBridgeReviewSelectionController,
 	type BridgeReviewSelectionSource,
 } from '../../app/bridge-app-review-selection-controller.js';
+
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
+import '../../app/bridge-app.css';
 import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
@@ -19,6 +19,13 @@ import { createBridgeReviewItemRegistry } from '../../foundation/review-package/
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
+import {
+	dispatchReviewViewerShortcut,
+	dispatchReviewViewerMenuKey,
+	navigateReviewViewerMenuTo,
+	highlightedReviewViewerMenuOption,
+	highlightedReviewViewerMenuOptionLabel,
+} from './bridge-review-filter-keyboard.test-support.js';
 import {
 	reviewNavigationCommand,
 	ReviewNavigationControllerProbe,
@@ -316,12 +323,13 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const reviewFacetTrigger = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-menu-control"]'),
 		);
+		await expect.poll(() => reviewFacetOptionContaining('Added')).not.toBeNull();
 		const reviewFacetOption = requireReviewHTMLElement(reviewFacetOptionContaining('Added'));
 		const reviewFacetClear = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-clear"]'),
 		);
-		expect(reviewFacetOption.offsetHeight).toBe(32);
-		expect(reviewFacetClear.offsetHeight).toBe(32);
+		expect(reviewFacetOption.offsetHeight).toBe(28);
+		expect(reviewFacetClear.offsetHeight).toBe(28);
 		expect(
 			Math.abs(
 				reviewFacetPopover.getBoundingClientRect().right -
@@ -825,54 +833,6 @@ function mountedReviewTreePaths(treeHost: HTMLElement | null): readonly string[]
 		.toSorted();
 }
 
-async function dispatchReviewViewerShortcut(
-	modifiers: Readonly<{ altKey?: boolean; shiftKey?: boolean }>,
-): Promise<void> {
-	const hasAlt = modifiers.altKey === true;
-	const hasShift = modifiers.shiftKey === true;
-	if (hasAlt === hasShift) {
-		throw new Error('Review viewer shortcut requires exactly one of Alt or Shift');
-	}
-	const modifier = hasAlt ? 'Alt' : 'Shift';
-
-	await act(async (): Promise<void> => {
-		await userEvent.keyboard(`{Meta>}{${modifier}>}f{/${modifier}}{/Meta}`);
-	});
-}
-
-async function dispatchReviewViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'): Promise<void> {
-	await act(async (): Promise<void> => {
-		await userEvent.keyboard(`{${key}}`);
-	});
-}
-
-async function navigateReviewViewerMenuTo(label: string): Promise<void> {
-	for (let optionIndex = 0; optionIndex < 14; optionIndex += 1) {
-		if (highlightedReviewViewerMenuOptionLabel() === label) {
-			return;
-		}
-		await dispatchReviewViewerMenuKey('ArrowDown');
-	}
-	throw new Error(`Expected Base UI arrow navigation to focus ${label}.`);
-}
-
-function highlightedReviewViewerMenuOption(): HTMLElement {
-	return requireReviewHTMLElement(
-		document.querySelector('[data-testid="bridge-review-facet-option"][data-highlighted]'),
-	);
-}
-
-function highlightedReviewViewerMenuOptionLabel(): string {
-	const highlightedOption = document.querySelector(
-		'[data-testid="bridge-review-facet-option"][data-highlighted]',
-	);
-	return (
-		highlightedOption
-			?.querySelector('[data-testid="bridge-review-facet-option-label"]')
-			?.textContent?.trim() ?? ''
-	);
-}
-
 function expectedExpandedRecoveryTreePaths(): readonly string[] {
 	return ['Sources', 'Sources/RecoveryGroup01', 'Sources/RecoveryGroup02'];
 }
@@ -982,8 +942,8 @@ function makeReadyReviewPresentationState(
 	};
 }
 
-async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnType<typeof render>>> {
-	let rendered: Awaited<ReturnType<typeof render>> | null = null;
+async function renderInsideAct(element: ReactElement): Promise<RenderResult> {
+	let rendered: RenderResult | null = null;
 	await act(async (): Promise<void> => {
 		rendered = await render(element);
 		await Promise.resolve();
@@ -991,9 +951,7 @@ async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnTyp
 	return requireRenderResult(rendered);
 }
 
-function requireRenderResult(
-	rendered: Awaited<ReturnType<typeof render>> | null,
-): Awaited<ReturnType<typeof render>> {
+function requireRenderResult(rendered: RenderResult | null): RenderResult {
 	if (rendered === null) throw new Error('Expected Browser render result.');
 	return rendered;
 }

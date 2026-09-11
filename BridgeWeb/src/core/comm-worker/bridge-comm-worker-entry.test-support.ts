@@ -1,5 +1,8 @@
+import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
+	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
@@ -8,6 +11,16 @@ export interface MakeFetchedReviewContentResourceProps {
 	readonly contentHash: string;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
 	readonly text: string;
+}
+
+export function makeReviewPublicationIdentity(revision = 1): BridgeWorkerReviewPublicationIdentity {
+	return {
+		packageId: `review-package-${revision}`,
+		publicationId: `00000000-0000-7000-8000-${revision.toString().padStart(12, '0')}`,
+		reviewGeneration: revision,
+		revision,
+		sourceIdentity: `review-source-${revision}`,
+	};
 }
 
 export function makeFetchedReviewContentResource(
@@ -32,11 +45,36 @@ export function makeFetchedReviewContentResource(
 	};
 }
 
+export function makeCompletedReviewContentStream(
+	descriptor: BridgeProductReviewContentDescriptor,
+): BridgeProductContentStream<'review.content'> {
+	const bytes = new TextEncoder().encode(
+		descriptor.role === 'base' ? 'base body' : 'head body',
+	).buffer;
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `content-request-${descriptor.role}`,
+		frames: emptyReviewContentFrames(),
+		terminal: Promise.resolve({
+			bytes,
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			endOfSource: true,
+			kind: 'complete',
+			observedByteLength: bytes.byteLength,
+			observedSha256: 'a'.repeat(64),
+		}),
+	};
+}
+
+async function* emptyReviewContentFrames(): AsyncIterable<never> {}
+
 export function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMainMessage {
 	return {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'failed',
@@ -46,7 +84,7 @@ export function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMa
 			...expectedEmptyReviewProjectionResetPatches(),
 		],
 		projectionRevision: 1,
-		sequence: 2,
+		sequence: 1,
 		surface: 'review',
 		transferDescriptors: [],
 		wireVersion: 1,
@@ -66,17 +104,4 @@ export function expectedEmptyReviewProjectionResetPatches(): readonly BridgeWork
 			slice: 'reviewTree',
 		},
 	];
-}
-
-export function expectedReviewPanelChromeReset(): BridgeWorkerServerToMainMessage {
-	return {
-		direction: 'serverWorkerToMain',
-		kind: 'reviewRenderPatch',
-		patches: [{ operation: 'reset', slice: 'panelChrome' }],
-		publicationSequence: 1,
-		surface: 'review',
-		transferDescriptors: [],
-		wireVersion: 1,
-		workerDerivationEpoch: 1,
-	};
 }
