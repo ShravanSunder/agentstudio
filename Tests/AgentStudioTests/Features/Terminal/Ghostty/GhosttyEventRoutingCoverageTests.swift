@@ -1,3 +1,4 @@
+import Foundation
 import GhosttyKit
 import Testing
 
@@ -7,10 +8,29 @@ import Testing
 @MainActor
 struct GhosttyEventRoutingCoverageTests {
     @Test("upstream action vocabulary has no unmapped values")
-    func upstreamActionVocabularyHasNoUnmappedValues() {
-        let upstreamValues = Set(
-            UInt32(GHOSTTY_ACTION_QUIT.rawValue)...UInt32(GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW.rawValue))
-        #expect(Set(GhosttyActionTag.allCases.map(\.rawValue)) == upstreamValues)
+    func upstreamActionVocabularyHasNoUnmappedValues() throws {
+        let header = try String(contentsOfFile: "vendor/ghostty/include/ghostty.h", encoding: .utf8)
+        let enumEnd = try #require(header.range(of: "} ghostty_action_tag_e;"))
+        let enumStart = try #require(header[..<enumEnd.lowerBound].range(of: "typedef enum {", options: .backwards))
+        let entries = header[enumStart.upperBound..<enumEnd.lowerBound]
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        // Fail closed if upstream changes from implicit contiguous C enum values.
+        for entry in entries {
+            #expect(entry.range(of: "^GHOSTTY_ACTION_[A-Z0-9_]+$", options: .regularExpression) != nil)
+        }
+        let upstreamValues = Set(entries.indices.map { UInt32($0) })
+        let localValues = GhosttyActionTag.allCases.map(\.rawValue)
+        #expect(Set(localValues) == upstreamValues)
+        #expect(localValues.count == Set(localValues).count)
+
+        let mapping = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionTag.swift", encoding: .utf8)
+        let constants = try NSRegularExpression(pattern: "GHOSTTY_ACTION_[A-Z0-9_]+")
+        let mappedNames = constants.matches(in: mapping, range: NSRange(mapping.startIndex..., in: mapping))
+            .compactMap { Range($0.range, in: mapping).map { String(mapping[$0]) } }
+        #expect(Set(mappedNames) == Set(entries))
+        #expect(mappedNames.count == entries.count)
     }
 
     @Test(

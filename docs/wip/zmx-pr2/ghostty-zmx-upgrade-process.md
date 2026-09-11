@@ -50,10 +50,10 @@ Open gates:
   terminal IO export, and move-tab-to-new-window. Direct adapter translation
   must return `.unhandled` without trapping. Focused and aggregate tests must
   run on the committed head.
-- **Header vocabulary contract.** The current routing test checks the local
-  enum only. Add a source-level contract that extracts the pinned header's
-  `GHOSTTY_ACTION_*` values and compares names/raw values with the local
-  vocabulary. This is the permanent defense against upstream additions.
+- **Header vocabulary contract.** The routing test now extracts the complete pinned header enum and compares
+  its names and implicit raw-value range with the local vocabulary, including
+  appended actions. Explicit assignments or other enum syntax changes fail
+  closed for review. Verification of this safeguard is recorded in the PR.
 - **Clipboard scope decision.** AgentStudio currently supports text/plain and
   rejects listing/non-text MIME requests. Decide whether Kitty/non-text
   interoperability is in scope for this upgrade; if not, retain the explicit
