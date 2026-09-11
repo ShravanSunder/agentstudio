@@ -26,6 +26,16 @@ The router explicitly classifies app-intercepted window actions separately from
 terminal actions. Unknown tags remain `.unhandled`; payload-shape mismatches are
 reported rather than silently coerced.
 
+## Upstream actions not currently routed
+
+The Ghostty `82232ecde554` header exposes four actions absent from the local
+`GhosttyActionTag` vocabulary: `set_window_title`, `selection_changed`,
+`export_terminal_io`, and `move_tab_to_new_window`. The first two can be emitted
+by a surface; the latter two belong to Ghostty inspector/window UI. AgentStudio
+currently returns `false` for these unknown tags, preserving the pre-existing
+unknown-action behavior. They are compatibility gaps to address in a separate
+runtime-event decision; this beta does not invent host behavior for them.
+
 ## Surface calls
 
 `GhosttySurfaceView` owns surface creation, content scale, pixel size, refresh,
