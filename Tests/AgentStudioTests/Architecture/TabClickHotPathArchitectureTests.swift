@@ -60,6 +60,30 @@ struct TabClickHotPathArchitectureTests {
         #expect(missingVisibleViewCheck.contains("activeTab.allPaneIds"))
         #expect(!missingVisibleViewCheck.contains("graphAtom.paneIDs"))
     }
+
+    @Test("selected-tab reveal geometry excludes fleet frame resolution")
+    func selectedTabRevealGeometryExcludesFleetFrameResolution() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift"
+            ),
+            encoding: .utf8
+        )
+        let selectedTabHelper = try #require(
+            source.tabClickArchitectureSlice(
+                from: "private func reevaluatePreparedTerminalGeometry(",
+                to: "/// SPEC R5 retry"
+            )
+        )
+
+        #expect(selectedTabHelper.contains("acceptedPreparedContentMountGeneration == generation"))
+        #expect(selectedTabHelper.contains("activeTabId == selectedTabID"))
+        #expect(selectedTabHelper.contains("tab(selectedTabID)"))
+        #expect(selectedTabHelper.contains("resolveInitialFrames(for: activeTab"))
+        #expect(!selectedTabHelper.contains("resolveInitialFramesByTabId"))
+        #expect(!selectedTabHelper.contains("tabLayoutAtom.tabs"))
+    }
 }
 
 extension String {

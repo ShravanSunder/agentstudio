@@ -705,6 +705,53 @@ extension WorkspaceSurfaceCoordinator {
         return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
     }
 
+    /// A selected-tab reveal has already recorded its complete visibility
+    /// snapshot synchronously. Schedule only the visible deferred members it
+    /// named; the async owner revalidates every current fact before deriving
+    /// geometry.
+    func schedulePreparedTerminalGeometryReevaluation(
+        forSelectedTabID selectedTabID: UUID,
+        generation: WorkspaceContentMountGeneration,
+        paneIDs: Set<PaneId>
+    ) {
+        guard !paneIDs.isEmpty else { return }
+        Task { [weak self] in
+            await self?.reevaluatePreparedTerminalGeometry(
+                forSelectedTabID: selectedTabID,
+                generation: generation,
+                paneIDs: paneIDs
+            )
+        }
+    }
+
+    private func reevaluatePreparedTerminalGeometry(
+        forSelectedTabID selectedTabID: UUID,
+        generation: WorkspaceContentMountGeneration,
+        paneIDs: Set<PaneId>
+    ) async {
+        guard acceptedPreparedContentMountGeneration == generation else { return }
+        guard store.tabLayoutAtom.activeTabId == selectedTabID,
+            let activeTab = store.tabLayoutAtom.tab(selectedTabID)
+        else { return }
+        let deferredPaneIDs = paneIDs.filter { paneID in
+            viewRegistry.preparedContentMountState(for: paneID, generation: generation)
+                == .deferredGeometry(owner: .terminal)
+        }
+        guard !deferredPaneIDs.isEmpty else { return }
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else { return }
+
+        let selectedTabFrames = resolveInitialFrames(for: activeTab, in: terminalContainerBounds)
+        let resolvedFramesByPaneID = deferredPaneIDs.reduce(into: [PaneId: NSRect]()) { result, paneID in
+            guard let frame = selectedTabFrames[paneID.uuid], !frame.isEmpty else { return }
+            result[paneID] = frame
+        }
+        guard !resolvedFramesByPaneID.isEmpty else { return }
+
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
+    }
+
     /// SPEC R5 retry, and the R1 clause that hidden, minimized, and collapsed
     /// panes hydrate once geometry becomes safe. Reevaluates canonical
     /// geometry for exactly the terminal panes the prepared lane still holds
