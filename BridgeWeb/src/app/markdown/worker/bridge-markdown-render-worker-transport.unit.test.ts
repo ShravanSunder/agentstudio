@@ -261,6 +261,7 @@ function successResponseForRequest(
 		abortKey: request.abortKey,
 		htmlCandidate: '<h1>Heading</h1>',
 		mermaidDiagrams: [],
+		annotationTargets: [],
 		metrics: {
 			durationMilliseconds: 1,
 			inputBytes: 9,

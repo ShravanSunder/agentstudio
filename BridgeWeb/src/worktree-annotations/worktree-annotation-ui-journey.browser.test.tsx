@@ -297,7 +297,7 @@ describe('worktree annotation synthetic end-user journey', () => {
 		});
 		await finishJourneyMotion(shareShelf);
 		await expect
-			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.element(rendered.getByRole('region', { name: 'Annotations' }))
 			.not.toBeInTheDocument();
 		expect(document.activeElement).toBe(shareTrigger.element());
 		await expect.element(rendered.getByText('Copied 2 annotations')).toBeVisible();
@@ -306,7 +306,7 @@ describe('worktree annotation synthetic end-user journey', () => {
 			.toBeVisible();
 
 		await performJourneyAction(() => clickButton(shareTrigger.element()));
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		const reopenedShareShelf = rendered.getByTestId('worktree-annotation-share-shelf').element();
 		if (!(reopenedShareShelf instanceof HTMLElement)) {
 			throw new Error('Expected the reopened Share shelf.');
@@ -314,7 +314,7 @@ describe('worktree annotation synthetic end-user journey', () => {
 		await performJourneyAction(() => userEvent.keyboard('{Escape}'));
 		await finishJourneyMotion(reopenedShareShelf);
 		await expect
-			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.element(rendered.getByRole('region', { name: 'Annotations' }))
 			.not.toBeInTheDocument();
 		expect(document.activeElement).toBe(shareTrigger.element());
 	});

@@ -43,9 +43,16 @@ export function consumeBridgeCodeViewPendingHydrationAnchor(
 	props.pendingPreHydrationSelectionScrollKeyRef.current = null;
 	props.pendingSelectionRevealBehaviorRef.current = null;
 	props.pendingSmoothSelectionScrollKeyRef.current = null;
-	props.completedSelectionScrollKeyRef.current = props.selectionScrollKey;
+	const pendingReveal = props.recentInstantSelectionRevealRef.current;
+	const annotationReveal =
+		pendingReveal?.selectionScrollKey === props.selectionScrollKey
+			? pendingReveal.annotationReveal
+			: undefined;
+	props.completedSelectionScrollKeyRef.current =
+		annotationReveal === undefined ? props.selectionScrollKey : null;
 	props.settledInstantSelectionRevealKeyRef.current = null;
 	props.recentInstantSelectionRevealRef.current = {
+		...(annotationReveal === undefined ? {} : { annotationReveal }),
 		itemId: props.itemId,
 		revealedAtMilliseconds: props.nowMilliseconds,
 		selectionScrollKey: props.selectionScrollKey,

@@ -76,6 +76,17 @@ function sanitizeAnnotationElementAttributes(element: HTMLElement): void {
 		if (safeStyle.length > 0) element.setAttribute('style', safeStyle);
 		return;
 	}
+	if (tagName === 'div') {
+		const codeClasses = [...element.classList].filter(
+			(className): boolean =>
+				className === 'bridge-markdown-code-block' ||
+				className === 'bridge-markdown-code-lines' ||
+				className === 'line',
+		);
+		removeAllAttributes(element);
+		if (codeClasses.length > 0) element.setAttribute('class', codeClasses.join(' '));
+		return;
+	}
 	removeAllAttributes(element);
 }
 

@@ -261,7 +261,7 @@ describe('Bridge Review header peer panels', () => {
 			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
 		);
 		expect(cancelTargetQuery).toHaveBeenCalledTimes(1);
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		expect(
 			document.querySelectorAll('[data-slot="drawer-popup"]:not([data-ending-style])'),
 		).toHaveLength(1);
@@ -338,7 +338,7 @@ describe('Bridge Review header peer panels', () => {
 				),
 			).toHaveLength(1);
 			await performAction(() => rendered.getByTestId('bridge-review-comparison-trigger').click());
-			await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+			await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 			expect(rendered.getByTestId('bridge-review-comparison-content').query()).toBeNull();
 			expect(queryTargets).not.toHaveBeenCalled();
 			expect(cancelTargetQuery).not.toHaveBeenCalled();
@@ -364,12 +364,12 @@ describe('Bridge Review header peer panels', () => {
 		await rendered.rerender(fixture(false));
 		await settlePanels();
 		await expect
-			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.element(rendered.getByRole('button', { name: 'Close Annotations' }))
 			.toBeDisabled();
 		await rendered.rerender(fixture(true));
 		await performAction(() => rendered.getByTestId('bridge-review-comparison-trigger').click());
 		expect(queryTargets).not.toHaveBeenCalled();
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		await performAction(() => surface.settleMostRecentOutput({ kind: 'destination_cancelled' }));
 		await performAction(() => rendered.getByTestId('bridge-review-comparison-trigger').click());
 		expect(queryTargets).toHaveBeenCalledTimes(1);

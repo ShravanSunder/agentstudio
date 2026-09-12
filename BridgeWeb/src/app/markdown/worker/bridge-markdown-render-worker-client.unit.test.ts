@@ -258,7 +258,11 @@ async function successResponseForRequest(
 ): Promise<BridgeMarkdownRenderWorkerResponse> {
 	return await buildBridgeMarkdownRenderWorkerSuccessResponse({
 		request,
-		renderMarkdown: async () => ({ htmlCandidate: html, mermaidDiagrams: [] }),
+		renderMarkdown: async () => ({
+			htmlCandidate: html,
+			mermaidDiagrams: [],
+			annotationTargets: [],
+		}),
 	});
 }
 

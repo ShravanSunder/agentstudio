@@ -462,6 +462,7 @@ function readyPresentation(props: {
 	};
 	return {
 		status: 'ready',
+		refresh: { kind: 'current' },
 		sourcePath: props.intent.sourcePath,
 		identity,
 		renderResult: {
@@ -471,6 +472,7 @@ function readyPresentation(props: {
 			...identity,
 			htmlCandidate: props.htmlCandidate,
 			mermaidDiagrams: [],
+			annotationTargets: [],
 			metrics: {
 				durationMilliseconds: 1,
 				inputBytes: props.intent.markdownText.length,

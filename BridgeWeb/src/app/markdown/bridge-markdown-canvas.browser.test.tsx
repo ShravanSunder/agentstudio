@@ -317,6 +317,7 @@ function readyPresentation(props: {
 	};
 	return {
 		status: 'ready',
+		refresh: { kind: 'current' },
 		sourcePath: 'docs/markdown-proof.md',
 		identity,
 		renderResult: {
@@ -326,6 +327,7 @@ function readyPresentation(props: {
 			...identity,
 			htmlCandidate: props.htmlCandidate,
 			mermaidDiagrams: [...(props.mermaidDiagrams ?? [])],
+			annotationTargets: [],
 			metrics: {
 				durationMilliseconds: 1,
 				inputBytes: 1,

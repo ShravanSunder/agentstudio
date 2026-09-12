@@ -229,7 +229,8 @@ export class WorktreeAnnotationProjectionStore {
 			readStatus:
 				receiptReconciliation === 'contradictory'
 					? { kind: 'unavailable', retryable: true }
-					: installsControlOnly && props.expectedContentSessionIds.length > 0
+					: (installsControlOnly && props.expectedContentSessionIds.length > 0) ||
+						  this.#hasIncompleteSessionContent(props.expectedContentSessionIds)
 						? { kind: 'refreshing' }
 						: { kind: 'ready' },
 			recoveryStatus: snapshot.recoveryStatus,
@@ -308,6 +309,22 @@ export class WorktreeAnnotationProjectionStore {
 	markRefreshing(): void {
 		if (this.#snapshot.readStatus.kind === 'refreshing') return;
 		this.#publish({ ...this.#snapshot, readStatus: { kind: 'refreshing' } });
+	}
+
+	markSessionDemanded(sessionId: string): void {
+		if (this.#hasIncompleteSessionContent([sessionId])) this.markRefreshing();
+	}
+
+	#hasIncompleteSessionContent(sessionIds: readonly string[]): boolean {
+		const catalog = this.#catalogProjection;
+		if (catalog.kind !== 'current') return true;
+		return sessionIds.some((sessionId): boolean => {
+			const session = catalog.catalog.sessionsById.get(sessionId);
+			return (
+				session !== undefined &&
+				(this.#completeContentRevisionBySessionId.get(sessionId) ?? -1) < session.semanticRevision
+			);
+		});
 	}
 
 	markUnavailable(retryable: boolean): void {

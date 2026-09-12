@@ -38,6 +38,11 @@ const worktreeAnnotationEditSurfaceRegistryContext =
 	createContext<WorktreeAnnotationEditSurfaceRegistry | null>(null);
 const worktreeAnnotationViewedControllerContext =
 	createContext<WorktreeAnnotationViewedController | null>(null);
+const worktreeAnnotationSurfaceContext = createContext<'file' | 'review' | null>(null);
+
+export function useWorktreeAnnotationSurface(): 'file' | 'review' | null {
+	return useContext(worktreeAnnotationSurfaceContext);
+}
 
 export interface WorktreeAnnotationSessionCapabilities {
 	readonly canCreateAnnotations: boolean;
@@ -387,20 +392,24 @@ export function WorktreeAnnotationSurfaceProvider(
 	}, [annotationClient, installedPublicationKey]);
 	return (
 		<worktreeAnnotationMarkdownClientContext.Provider value={props.markdownWorkerClient ?? null}>
-			<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
-				<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
-					<WorktreeAnnotationInteractionProvider>
-						<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
-							<WorktreeAnnotationPendingRootComposerEditLeaseReconciler />
-							<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
-								{props.children}
-								<WorktreeAnnotationThreadExpansionReconciler />
-								<WorktreeAnnotationViewedProjectionReconciler />
-							</worktreeAnnotationSessionSelectionContext.Provider>
-						</worktreeAnnotationEditSurfaceRegistryContext.Provider>
-					</WorktreeAnnotationInteractionProvider>
-				</worktreeAnnotationViewedControllerContext.Provider>
-			</worktreeAnnotationSurfaceClientContext.Provider>
+			<worktreeAnnotationSurfaceContext.Provider
+				value={props.surfaceClient.surface === 'fileView' ? 'file' : 'review'}
+			>
+				<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
+					<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
+						<WorktreeAnnotationInteractionProvider>
+							<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
+								<WorktreeAnnotationPendingRootComposerEditLeaseReconciler />
+								<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
+									{props.children}
+									<WorktreeAnnotationThreadExpansionReconciler />
+									<WorktreeAnnotationViewedProjectionReconciler />
+								</worktreeAnnotationSessionSelectionContext.Provider>
+							</worktreeAnnotationEditSurfaceRegistryContext.Provider>
+						</WorktreeAnnotationInteractionProvider>
+					</worktreeAnnotationViewedControllerContext.Provider>
+				</worktreeAnnotationSurfaceClientContext.Provider>
+			</worktreeAnnotationSurfaceContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
 	);
 }

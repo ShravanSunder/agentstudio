@@ -3,6 +3,46 @@ import { describe, expect, test } from 'vitest';
 import { deriveWorktreeAnnotationShareProjection } from './worktree-annotation-share-projection.js';
 
 describe('worktree annotation Share projection', () => {
+	test('keeps a third message at 3 of 10 when Pending hides the other nine', () => {
+		const messages = Array.from({ length: 10 }, (_, index) =>
+			messageFixture(`message-${index + 1}`, { handled: index !== 2 }),
+		);
+		const thread = threadFixture('thread-ten', 'exact', messages);
+		const pending = deriveWorktreeAnnotationShareProjection({
+			scope: 'pending',
+			threads: [thread],
+		});
+		expect(pending.inlineThreads[0]?.messages).toHaveLength(1);
+		expect(pending.inlineThreads[0]?.messages[0]).toMatchObject({
+			messageId: 'message-3',
+			threadPosition: 3,
+			threadMessageCount: 10,
+		});
+		const all = deriveWorktreeAnnotationShareProjection({ scope: 'all', threads: [thread] });
+		expect(all.inlineThreads[0]?.messages[2]).toMatchObject({
+			threadPosition: 3,
+			threadMessageCount: 10,
+		});
+	});
+
+	test('preserves full-thread positions while an earlier message is being edited', () => {
+		const messages = [
+			messageFixture('editing-first', { draft: { body: 'editing' }, handled: false }),
+			messageFixture('handled-second', { handled: true }),
+			messageFixture('pending-third', { handled: false }),
+		];
+		const pending = deriveWorktreeAnnotationShareProjection({
+			scope: 'pending',
+			threads: [threadFixture('thread-editing', 'exact', messages)],
+		});
+		expect(pending.inlineThreads[0]?.messages).toHaveLength(1);
+		expect(pending.inlineThreads[0]?.messages[0]).toMatchObject({
+			messageId: 'pending-third',
+			threadPosition: 3,
+			threadMessageCount: 3,
+		});
+	});
+
 	test('filters pending human messages at message granularity and excludes agent attention', () => {
 		const projection = deriveWorktreeAnnotationShareProjection({
 			scope: 'pending',

@@ -1,9 +1,13 @@
-import { useCallback, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
 import { Drawer } from '@/components/ui/drawer.js';
 
 import { BridgeViewerContextPanel } from '../app/bridge-viewer-context-panel.js';
+import {
+	useWorktreeAnnotationNavigation,
+	type WorktreeAnnotationDestination,
+} from './worktree-annotation-navigation.js';
 import { clearWorktreeAnnotationOutputHandled } from './worktree-annotation-output-handled-clear.js';
 import { WorktreeAnnotationOutputHistoryControl } from './worktree-annotation-output-history-control.js';
 import {
@@ -18,12 +22,14 @@ import {
 } from './worktree-annotation-share-mode.js';
 import { WorktreeAnnotationSharePreview } from './worktree-annotation-share-preview.js';
 import { deriveWorktreeAnnotationShareProjection } from './worktree-annotation-share-projection.js';
+import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-surface-client.js';
 import {
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSurfaceClient,
 	useWorktreeAnnotationViewedController,
+	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
 } from './worktree-annotation-surface-provider.js';
 
 export function WorktreeAnnotationShareHeaderControl(): ReactElement | null {
@@ -54,9 +60,22 @@ export function WorktreeAnnotationSharePanelControl(props: {
 	const interaction = useWorktreeAnnotationInteraction();
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const lastCloseReasonRef = useRef<string | null>(null);
+	const navigation = useWorktreeAnnotationNavigation();
+	const lastClosedNavigationRequest = useRef<number | null>(null);
+	useLayoutEffect((): void => {
+		const requestId = navigation?.request?.requestId;
+		if (requestId === undefined || requestId === lastClosedNavigationRequest.current) return;
+		lastClosedNavigationRequest.current = requestId;
+		lastCloseReasonRef.current = 'annotation-navigation';
+		if (interaction.shareMode.kind !== 'closed') interaction.closeShareMode();
+	}, [interaction, navigation?.request]);
 	const isOpen = interaction.shareMode.kind === 'open';
 	const closeShareMode = useCallback((): void => {
 		lastCloseReasonRef.current = 'imperative-action';
+		interaction.closeShareMode();
+	}, [interaction]);
+	const closeForNavigation = useCallback((): void => {
+		lastCloseReasonRef.current = 'annotation-navigation';
 		interaction.closeShareMode();
 	}, [interaction]);
 	return (
@@ -87,18 +106,22 @@ export function WorktreeAnnotationSharePanelControl(props: {
 		>
 			<WorktreeAnnotationShareTrigger buttonRef={triggerRef} disabled={false} open={isOpen} />
 			<BridgeViewerContextPanel
-				ariaLabel="Share comments"
+				ariaLabel="Annotations"
 				finalFocus={(): false | HTMLElement | null =>
-					props.finalFocus({
-						closeReason: lastCloseReasonRef.current,
-						trigger: triggerRef.current,
-					})
+					lastCloseReasonRef.current === 'annotation-navigation'
+						? false
+						: props.finalFocus({
+								closeReason: lastCloseReasonRef.current,
+								trigger: triggerRef.current,
+							})
 				}
 				height="full"
+				width="wide"
 				inert={!isOpen}
 				testId="worktree-annotation-share-shelf"
 			>
 				<WorktreeAnnotationShareSurfaceContent
+					onNavigationClose={closeForNavigation}
 					outputPendingController={props.outputPendingController}
 					onClose={closeShareMode}
 				/>
@@ -109,6 +132,7 @@ export function WorktreeAnnotationSharePanelControl(props: {
 
 function WorktreeAnnotationShareSurfaceContent(props: {
 	readonly onClose: () => void;
+	readonly onNavigationClose: () => void;
 	readonly outputPendingController: WorktreeAnnotationOutputPendingController;
 }): ReactElement | null {
 	const client = useWorktreeAnnotationSurfaceClient();
@@ -116,7 +140,38 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	const projection = useWorktreeAnnotationProjection();
 	const selection = useWorktreeAnnotationSessionSelection();
 	const viewedController = useWorktreeAnnotationViewedController();
+	const navigation = useWorktreeAnnotationNavigation();
+	const prepareEditors = useWorktreeAnnotationPrepareActiveEditorsForInstallation();
+	const [navigationPending, setNavigationPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const openThread = async (
+		thread: WorktreeAnnotationThreadProjection,
+		destination: WorktreeAnnotationDestination,
+	): Promise<void> => {
+		if (
+			navigation === null ||
+			navigationPending ||
+			props.outputPendingController.isPending ||
+			selection.activeSessionId === null
+		)
+			return;
+		setNavigationPending(true);
+		setError(null);
+		try {
+			if (!(await prepareEditors())) {
+				setError('Finish or cancel the current draft before opening another annotation.');
+				return;
+			}
+			props.onNavigationClose();
+			navigation.open({
+				destination,
+				threadId: thread.context.threadId,
+				sessionId: selection.activeSessionId,
+			});
+		} finally {
+			setNavigationPending(false);
+		}
+	};
 	const displayedScopeRef = useRef<WorktreeAnnotationShareScope>('pending');
 	if (interaction.shareMode.kind === 'open') {
 		displayedScopeRef.current = interaction.shareMode.scope;
@@ -257,6 +312,18 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		>
 			<WorktreeAnnotationSharePreview
 				scope={displayedScope}
+				{...(navigation === null
+					? {}
+					: {
+							activeSurface: navigation.activeSurface,
+							onOpenThread: (
+								thread: WorktreeAnnotationThreadProjection,
+								destination: WorktreeAnnotationDestination,
+							): void => {
+								void openThread(thread, destination);
+							},
+							navigationPending,
+						})}
 				inlineThreads={shared.inlineThreads}
 				otherThreads={shared.otherThreads}
 				readiness={isOutputReady ? 'current' : 'unconfirmed'}

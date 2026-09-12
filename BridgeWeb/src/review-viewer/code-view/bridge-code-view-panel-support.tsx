@@ -30,6 +30,7 @@ import {
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewMetadataReconcileProps } from './bridge-code-view-metadata-apply.js';
+import type { BridgeCodeViewAnnotationReveal } from './bridge-code-view-panel-types.js';
 
 export { createBridgeCodeViewHeaderRenderers } from './bridge-code-view-header-renderers.js';
 
@@ -444,6 +445,7 @@ function bridgeCodeViewLoadingPlaceholderSignature(item: BridgeCodeViewItem): st
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal;
 	readonly itemId: string;
 	readonly revealedAtMilliseconds: number;
 	readonly selectionScrollKey: string;

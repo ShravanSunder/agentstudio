@@ -94,13 +94,7 @@ export function filePierreAnnotationsForThreads(props: {
 	return props.threads.flatMap(
 		(thread): readonly LineAnnotation<WorktreeAnnotationPierreMetadata>[] => {
 			const context = thread.context;
-			if (
-				!threadCanUsePierreSlot(thread, props.sourceDescriptorId ?? null) ||
-				!fileSurfaceCanRenderSourceRole(context.sourceRole) ||
-				context.path !== props.path ||
-				context.startLine === null ||
-				context.endLine === null
-			) {
+			if (!fileAnnotationThreadCanRender({ ...props, thread })) {
 				return [];
 			}
 			return [
@@ -115,6 +109,21 @@ export function filePierreAnnotationsForThreads(props: {
 				},
 			];
 		},
+	);
+}
+
+export function fileAnnotationThreadCanRender(props: {
+	readonly path: string;
+	readonly sourceDescriptorId?: string | null;
+	readonly thread: WorktreeAnnotationInlineThreadProjection;
+}): boolean {
+	const context = props.thread.context;
+	return (
+		threadCanUsePierreSlot(props.thread, props.sourceDescriptorId ?? null) &&
+		fileSurfaceCanRenderSourceRole(context.sourceRole) &&
+		context.path === props.path &&
+		context.startLine !== null &&
+		context.endLine !== null
 	);
 }
 
