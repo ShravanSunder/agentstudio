@@ -13,7 +13,10 @@ enum TabArrangementMutationRules {
             )
         else { return nil }
         var updated = state
-        for index in updated.arrangements.indices {
+        let defaultIndex = defaultArrangementIndex(in: state)
+        let insertionArrangementIndices =
+            activeIndex == defaultIndex ? [activeIndex] : [activeIndex, defaultIndex]
+        for index in insertionArrangementIndices {
             if index == activeIndex {
                 updated.arrangements[index].layout = activeLayout
                 updated.arrangements[index].activePaneId = paneID
@@ -55,7 +58,11 @@ enum TabArrangementMutationRules {
         let sizingMode = insertion.sizingMode
         var updated = state
         var didPlaceDrawerPane = false
-        for arrangementIndex in updated.arrangements.indices {
+        let activeIndex = activeArrangementIndex(in: updated)
+        let defaultIndex = defaultArrangementIndex(in: updated)
+        let insertionArrangementIndices =
+            activeIndex == defaultIndex ? [activeIndex] : [activeIndex, defaultIndex]
+        for arrangementIndex in insertionArrangementIndices {
             guard updated.arrangements[arrangementIndex].layout.contains(parentPaneId) else {
                 continue
             }
@@ -81,13 +88,14 @@ enum TabArrangementMutationRules {
                     )
                 {
                     drawerView.layout = updatedLayout
-                    if arrangementIndex == activeArrangementIndex(in: updated) {
+                    if arrangementIndex == activeIndex {
                         drawerView.activeChildId = drawerPaneId
                     }
                     didPlaceDrawerPane = true
                 }
             }
 
+            drawerView.minimizedPaneIds.remove(drawerPaneId)
             updated.arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
 
