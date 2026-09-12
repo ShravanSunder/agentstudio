@@ -73,3 +73,13 @@ No third normal review is authorized or needed. Ready coverage for U6/U7 carries
 forward with this second result and the unchanged first-round corrections.
 Implementation still requires the explicit creation routing correction; the earlier
 Core green tests do not prove production creation-path preservation.
+
+## Subsequent implementation evidence
+
+Creation routing and existing-placement preservation are implemented and have fresh
+focused proof. Implementation review at `0e17351e1` then disproved the R-A4 native
+reattachment assumption for an already-open drawer changing custom arrangements.
+The earlier ready result must not be used as current authority to finish that path.
+See [implementation review](arrangement-implementation-review.md) and
+[the design gap](drawer-reveal-design-gap.md). Owner reconvergence and permission for
+the targeted third design review are pending; no further code correction is applied.

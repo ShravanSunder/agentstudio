@@ -29,6 +29,16 @@ App sidekick was also pinged. Prior reminder was cancelled; one replacement
 Current arrangement checkpoint is `ad92f6495`; focused Core/App/WebKit checks pass,
 and the aggregate gate is running. No native or PR readiness claimed.
 
+Recovery at 2026-09-12 17:12 UTC: `cua.getApp` stalled for 3973 seconds and returned
+`cgWindowNotFound`. The due 16:09 wake fired during the blocked tool call, but could
+not be handled then. Opus continuity recovery completed in the same session, exit 0,
+`opus-continuity-recovery.jsonl`; receipt explicitly reports zero cached reads.
+Cache warmth was lost. One replacement wake `01a0969c-121e-7ab2-8fd2-3cce993c1b75`
+is due 17:40:25.790Z. Current checkpoint `0e17351e1` has focused 82-test regression
+proof and fresh lint; debug igj3 launched/telemetry verified, PID 67497. Native visual
+proof is still pending. Full aggregate remains blocked on the unrelated vendor
+header test path; owner approval for its prepared correction is pending.
+
 Job graph: read-only sidebar-source lane and arrangement/preview-source lane run
 alongside this read-only sidekick and parent-owned documents. Their inputs are
 current source; none consumes another lane's unverified output. Parent verifies
@@ -42,3 +52,15 @@ all findings before selecting structure. Arrangement design review and parent co
 - Last prompt: 2026-09-12T14:43:30.379174+00:00.
 - Return: compact exact caller/owner adaptation map; parent validates before write grant.
 - Governing plan: `tmp/plan-workflows/2026-09-12-arrangement-visibility-v2.md`.
+
+## Current stop
+
+Implementation is blocked pending owner reconvergence for the drawer reattachment
+assumption, permission for targeted third design review, and the unrelated header
+lookup correction. Native proof also needs an unlocked GUI. See
+`arrangement-implementation-review.md` and `drawer-reveal-design-gap.md`.
+No code writes are active. Existing sessions are retained; latest Opus recovery was
+17:12 UTC, App sidekick acknowledged continuity afterward. Wake
+`01a0969c-121e-7ab2-8fd2-3cce993c1b75` was cancelled at about17:30UTC, with no pending
+fire. Do not restart incomplete implementation from the old ready label: the v2
+plan remains immutable but its R-A4 assumption is now known incomplete.

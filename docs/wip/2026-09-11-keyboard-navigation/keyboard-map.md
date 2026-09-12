@@ -207,7 +207,8 @@ committed reveal rule; preview is a distinct operation.
 
 The [arrangement specification](../../specs/2026-09-12-arrangement-visibility/specification.md)
 now resolves minimized children, Default fallback and target/parent closing.
-Its design review is complete and implementation is in validation. Preview
+Implementation review found a [drawer renderer reattachment gap](drawer-reveal-design-gap.md)
+that needs a design correction before readiness. Preview
 interacting with zoom or another window remains open in the sidebar design.
 
 ## 8. Review questions and evidence

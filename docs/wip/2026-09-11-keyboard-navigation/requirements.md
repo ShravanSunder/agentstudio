@@ -107,4 +107,5 @@ Proof expectation: native keyboard journeys through list/filter/pane focus and
 real terminal/Bridge/drawer destinations, state inspection for arrangement visibility,
 and preview cancellation/commit evidence. Sidebar implementation and native proof
 remain outstanding. The separate U6/U7 arrangement capability has bounded design
-review and focused implementation checks; its full validation remains in progress.
+review and focused implementation checks; [implementation review](arrangement-implementation-review.md)
+found an R-A4 renderer-reattachment gap. Full validation and owner reconvergence remain open.

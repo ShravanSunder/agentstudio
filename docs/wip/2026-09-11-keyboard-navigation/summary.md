@@ -1,135 +1,128 @@
-# Keyboard Navigation Trail
+# Keyboard Navigation Work Trail
 
-Source: [events.jsonl](./events.jsonl). Covers events.jsonl through line 15.
+Source: [events.jsonl](./events.jsonl). **Covers events.jsonl through line 22.**
+This view renders the bounded prefix only; event evidence pointers are recorded
+claims, not independent verification.
 
-## Context
+## Context and design decisions
 
-The session is a documentation-only keyboard-navigation discussion in the
-`agent-studio.navigation-cmds` checkout. The central need recorded in line 1
-is reduced hand strain; bindings remain proposals.
+- **Lines 1–3 — scope and source model:** The work began as a documentation-only
+  keyboard-navigation discussion in this checkout, centered on reduced hand
+  strain. Activity navigation, sidebar visibility/focus/surface, and arrangement
+  reveal were separated because the source showed distinct operations and a
+  visibility mismatch. Requirements were recorded while history versus
+  recent-list traversal, priorities, bindings, arrangement edge cases, and the
+  conflict audit remained open. No implementation or specification readiness was
+  claimed. The record also notes an LFS sandbox error during whole-worktree
+  status inspection; no repair was attempted.
+- **Lines 4–8 — consultation and focus correction:** An annotation-agent request
+  was accepted; an initial discovery address was rejected without mutation, the
+  return address was corrected, and the reply was later received. The reply's
+  bounded source claims were recorded at annotation checkout HEAD
+  `35de69e01505d75e1ee6f52d998af5bb3f5a6678`; broader traversal and native-proof
+  gaps remained open. The owner first defined “last active pane” as the last
+  focused pane (line 5), then line 6 **corrected/reopened that interpretation**:
+  settled-output activity, visit recency, and current focus are separate, and
+  focus alone does not refresh output activity. The navigation contract stayed
+  open.
+- **Lines 7–8 — keyboard map and annotation boundaries:** A visual keyboard map
+  was created, preserving Option-I/K drawer navigation after the owner corrected
+  the proposed modifier. It recorded current bindings and open proposals without
+  finalizing behavior. Annotation search, editing, Escape, editor-return, action
+  matching, and gutter behavior were incorporated with their source-version and
+  verification boundaries; no new behavior was approved.
+- **Lines 9–11 — owner choices and correction:** A bounded three-artifact design
+  cycle accepted all-window activity/visits, Shift-Option families, a stable
+  held-modifier sequence, Current plus Default creation, and Current/Custom/
+  Default reveal with parent-drawer expansion. Line 10 **reopened** the
+  activity-ranking and Bridge-exclusion contracts for a separate sidebar-group
+  investigation while retaining all-window reach, stable sequencing, immediate
+  focus, and arrangement rules. Line 11 then **replaced separate last/next
+  traversal with visual sidebar navigation**: Cmd-S controls visibility and
+  Cmd-Shift-S controls activation, with the workspace remaining visible and an
+  indication shown. P/R/F meanings, filter and type-ahead behavior, row
+  activation, return behavior, and the surface-local hint treatment remained
+  proposals. The source-only activity investigation did not reproduce the live
+  symptom.
+- **Lines 12–15 — scope, interaction, and preview:** The scope tree retained
+  sidebar navigation, direct Terminal pinned-pane Option-Shift-arrow movement,
+  and arrangements; activity/history traversal and the bulky help strip were
+  discarded. Contextual hints were discussed from the supplied video (row
+  timestamps replaced by trailing shortcut pills; top actions gained pills),
+  while the exact reveal trigger remained open. Source validation recorded
+  effective focus, table-selection rejection, the Cmd-Shift-P conflict, and the
+  rejection of icon-implied state, free native-list behavior, repository/pane
+  pin conflation, unsupported usage claims, and unapproved digit addressing.
+  The working design added filter Enter-to-table and first-nine actionable list
+  results (digits remain text while filtering), but mapping details stayed
+  proposed. Review documents were cleaned up, and U15 separated temporary pane
+  preview from committed reveal by Enter; hold/toggle and numeric
+  select-versus-activate remained open. No source changes or full design
+  acceptance were claimed.
 
-## Decisions and checkpoints
+## Arrangement implementation and proof
 
-- **Line 1 — WIP scope:** Keep the requirements and work trail under this
-  keyboard-navigation directory. No implementation was authorized or claimed.
-- **Line 2 — Source distinction:** Treat activity navigation, sidebar
-  visibility/focus/surface, and arrangement reveal as separate operations.
-  The record reports shortcut and arrangement mismatches, with no native proof
-  attempted. It also records an LFS sandbox error during whole-worktree status
-  inspection; no repair was attempted.
-- **Line 3 — Requirements draft:** Record explicit needs, while leaving history
-  navigation versus recent-list traversal as the first owner choice. The
-  requirements document is an initial draft: scope, priorities, exact
-  bindings, arrangement edge cases, and the full shortcut-conflict audit remain
-  open at this checkpoint; line 9 later records traversal and scope choices,
-  which lines 10–11 subsequently reopen and replace for traversal. No
-  specification readiness is claimed.
-- **Line 4 — Consultation:** An annotation-agent message was **accepted** and
-  its **reply was pending at that point**. The record says discovery required
-  escalation, the first send used a rejected recipient-address shape, without
-  mutation, and the accepted request carried a return-address field needing
-  correction. A follow-up corrected that return address. It makes no claim
-  about annotation behavior; line 8 later records the reply as received.
-- **Line 5 — Owner decision:** “Last active pane” was defined as the pane the
-  user last focused. Background activity was excluded from navigation ordering;
-  history versus recent-list traversal remained open at this checkpoint. Line 9
-  later records accepted traversal choices, which lines 10–11 supersede. No
-  implementation was claimed.
-- **Line 6 — Correction to line 5:** The focus-only interpretation was reopened
-  after distinguishing existing terminal activity from visit recency. Source
-  inspection recorded settled-output timestamps, visit recency, and the
-  currently focused flag as separate concepts; mere focus does not refresh
-  output activity. The navigation contract remained open, with no source
-  changes or runtime proof.
-- **Line 7 — Visual discussion artifact:** The owner corrected the drawer
-  modifier to preserve Option-I/K drawer movement and requested a whole-system
-  keyboard map. The new map records current bindings, the correction, distinct
-  activity and visits, sidebar focus/surface/visibility, arrangement rules, and
-  remaining action/finder needs. The Shift-Option proposal remains unselected;
-  no implementation or finalized mapping was claimed.
-- **Line 8 — Annotation evidence:** The annotation reply was received, resolving
-  the earlier pending status. The record says the parent inspected the reply's
-  bounded source claims at annotation checkout HEAD
-  `35de69e01505d75e1ee6f52d998af5bb3f5a6678`, including search
-  bindings/restoration, composer save/Escape, action matching, editor return,
-  and gutter source. The broader traversal and native-proof gaps remain
-  attributed to that agent; the map and requirements were updated, with no new
-  behavior approved.
-- **Line 9 — Design-owner confirmation:** A bounded three-artifact design cycle
-  began after the owner invoked `orchestrator-design`. The owner accepted
-  all-window activity and visits, Shift-Option families, Bridge visits only, a
-  stable held-modifier sequence, creation in Current plus Default, and reveal
-  in Current/Custom/Default with parent-drawer expansion. Chords and sidebar
-  restructuring were deferred. Existing Requirements will be reused, with
-  separate Specification and Program Design homes under `docs/specs/`.
-  The traversal choices from this line were later superseded by line 11;
-  arrangement choices remain retained. No code changes or design readiness were
-  claimed.
-- **Line 10 — Correction and investigation:** Activity-specific traversal was
-  reopened, with sidebar activity groups investigated separately. The earlier
-  activity-ranking and Bridge-exclusion contracts were reopened, while
-  all-window reach, the held stable sequence, immediate focus, and arrangement
-  rules were retained. The investigation was source-only and delegated; no app
-  mutation, code fix, or runtime diagnosis was claimed. Line 11 later replaces
-  this traversal framing.
-- **Line 11 — Sidebar-first correction:** Separate last/next traversal was
-  replaced by visual sidebar navigation. **Selected:** Cmd-S controls sidebar
-  visibility, Cmd-Shift-S controls activation, and the workspace stays visible
-  with a visible indication. **Pending/proposed:** the meanings of P/R and F,
-  the surface-local navigation mode and hint strip, F as a list filter, row
-  activation, and return behavior. The map removed obsolete activity/history
-  traversal diagrams; the activity-group investigation produced source-only
-  findings and did not reproduce the live symptom. No source changes were made.
-- **Line 12 — Scope and visual reference:** The current scope tree keeps
-  sidebar navigation, direct pinned-pane Option-Shift-Up/Down movement from
-  Terminal, and arrangements. Activity/history traversal was discarded, and
-  the bulky help strip was rejected. Contextual-hint discussion instead uses
-  the supplied video reference: trailing shortcut pills replace row timestamps
-  and top actions gain pills. Pinned-pane Option-Shift-arrow movement is
-  selected; the exact reveal trigger remains a proposal. Video temporal
-  analysis was delegated. No implementation was claimed.
-- **Line 13 — Source validation and holistic correction:** Derived focus and
-  table-selection rejection were verified. The design rejects an icon implying
-  a second state, free native-list behavior, repository/pane pin conflation, an
-  unsupported 90-percent usage claim, and unapproved digit-address shortcuts.
-  The exact Cmd-Shift-P conflict was documented. P/R/F are owner-selected, with
-  filtering versus type-ahead recorded as an explicit tradeoff. The proposed
-  complete interaction has no sticky navigation flag. Source remained
-  unchanged; no native proof or independent design acceptance was claimed.
-- **Line 14 — Filter and numbered results:** The working design adds
-  filter-Enter-to-table and first-nine list-result shortcuts. Enter is proposed
-  to retain the query and focus the table without activating; digits activate
-  only the first nine actionable results when the table has focus, while digits
-  remain text in the filter. This is not pinned-only numeric addressing, and
-  mapping details remain proposals. No source edits were made.
-- **Line 15 — Review cleanup and preview:** The current map and Requirements
-  were rewritten as a coherent review pair; duplicate sections and discarded
-  traversal contracts were removed from the active review path, with history
-  preserved outside it. Preview need U15 now separates temporary pane preview
-  from committed reveal by Enter. Hold/toggle and numeric select-versus-
-  activate remain visibly open. A bounded reader check found the current
-  scope/preview distinction clear, and the parent verified document
-  corrections. No implementation or complete three-artifact acceptance was
-  claimed.
+- **Lines 16–18 — design handoff and Core/App slices:** After independent design
+  review and dispel work, arrangement visibility proceeded while sidebar preview
+  questions stayed open. The documented checkpoint was `aacd4171b`, aligned with
+  main merge `96e7dbb`; setup/vendor verification and the baseline focused tests
+  were recorded as passing. The Core slice began after an expected missing-API
+  RED; MainActor set construction and validation concerns were caught before
+  acceptance. Core proof was then recorded as 46 tests / 4 suites green, with
+  targeted formatting, SwiftLint, and diff checks passing, and the App sidekick
+  was granted focus-sequencing work. These entries made no full-feature, native,
+  or PR-readiness claim.
+- **Line 19 — creation-scope correction:** Generic insertion also serves move,
+  undo, and reactivation, so applying the creation rule there exceeded scope.
+  Reveal validation was kept off MainActor. A second program review and dispel
+  completed, and an immutable v2 plan was admitted. The earlier Core 46-test
+  result was explicitly corrected: it did **not** prove production birth routing;
+  fresh proof was required. Core correction and App sequencing continued in
+  disjoint files, while preview/digit choices remained pending.
+- **Line 20 — scoped checkpoint:** Production creation routing, existing identity
+  preservation, and committed focus ordering were reported passing in focused
+  checks at commit `ad92f6495`. Recorded results were App 150 tests / 40 suites,
+  Core 64 / 7 (including SQLite roundtrip), webview creation 15 tests, and the
+  corrected Bridge rerun 8 tests / 2 suites. Hooks passed. The full aggregate was
+  delegated, with native proof and independent implementation review still
+  pending. A rowless-host sidebar focus issue and a Management policy question
+  were queued; no new owner choice was assumed.
+- **Line 21 — aggregate gate and permission boundary:** `mise run test` remained
+  failed with exit 1 on `ad92f6495` because
+  `GhosttyEventRoutingCoverageTests` could not find the upstream vendor header
+  `vendor/ghostty/include/ghostty.h`. Swift lint/architecture, BridgeWeb, and
+  website lanes passed. A test-only lookup patch was prepared, but owner
+  permission was pending under the scope gate; no test or vendor edit was made.
+  A minimal generic-minimization preservation correction was granted to Core,
+  while native proof and independent review remained open.
 
-## Current outcome and gaps
+## Current blocked outcome
 
-Discussion and the bounded three-artifact design cycle continue. No
-implementation, native proof, finalized design, or finalized keyboard mapping
-is recorded in the covered prefix. The recorded evidence pointers were not
-independently verified while rendering this bounded view, and no linked detail
-files were authorized. The consultation message was accepted and its reply was
-later received at line 8. **Selected:** Cmd-S visibility, Cmd-Shift-S
-activation, a visible indication while keeping the workspace visible,
-Option-Shift-Up/Down direct pinned-pane movement from Terminal, the retained
-arrangement choices, P/R/F as owner-selected keys, filter Enter-to-table, and
-the first-nine list-result direction. **Proposed/pending:** the filtering
-versus type-ahead tradeoff, contextual-hint treatment, the exact reveal
-trigger, the preview hold/toggle contract, numeric select-versus-activate, and
-the complete interaction without a sticky navigation flag. Enter-to-table and
-numbered-result mapping details remain proposals, and preview is separate from
-Enter commit. The earlier activity/history traversal and bulky help strip are
-discarded; the activity investigation was source-only and produced no live
-diagnosis. No pinned-only numeric-address shortcut was approved. Native proof
-and design readiness remain open. Later events, including
-requirements/design resolution, are outside this cutoff.
+The current implementation checkpoint is `0e17351e1`. The latest recorded Core
+focused proof is 82 tests / 8 suites green; prior App 150 / 40 and Bridge 8 / 2
+results plus webview creation 15 remain recorded, and fresh lint and isolated
+debug startup/telemetry passed. The full aggregate is still blocked by the
+unrelated upstream header lookup described above.
+
+The independent review accepted a design-assumption failure in R-A4: a selected
+unminimized drawer child can remain renderer-detached when an already-open
+physical drawer causes the toggle/expansion actions to be skipped. The review
+states that selection and AppKit responder focus do not prove renderer exposure;
+the existing reattachment lifecycle action must be reconverged with the owner
+before implementation. See [arrangement implementation review](./arrangement-implementation-review.md)
+and [drawer reveal design gap](./drawer-reveal-design-gap.md). No remediation was
+  applied. R-A1/R-A2 have focused proof; R-A3/R-A5 have policy/integration evidence;
+  R-A4 realization is incomplete; native reachability remains unproven.
+
+Native capture is blocked by a locked macOS GUI. CUA stalled for 3973 seconds;
+the subsequent Opus continuity recovery reported zero cached reads, so cache
+warmth was lost. The retained sessions were not restarted. Owner permission for
+the drawer correction and targeted third design review is queued, as are the
+unrelated header-lookup correction and the sidebar Preview/Digit/Management
+choices. No sidebar source implementation is claimed.
+
+There is no push, pull request publication, merge into main, or release in this
+prefix. The recorded normal main-to-branch merge remains part of the history.
+The permitted session detail is [agent-session.md](./agent-session.md); other
+evidence paths named by the events were not opened while rendering this bounded
+view.
