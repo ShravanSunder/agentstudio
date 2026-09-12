@@ -634,6 +634,7 @@ struct DarwinSharedExactItemObserverTests {
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let streamFactory = RecordingSharedExactItemStreamFactory()
         let client = DarwinFSEventStreamClient(
+            localStreamFactory: { _ in NoopLocalFSEventStreamLifetime() },
             sharedExactItemStreamFactory: streamFactory.makeStream
         )
         defer { client.shutdown() }
@@ -959,6 +960,14 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
             }
         )
     }
+}
+
+private final class NoopLocalFSEventStreamLifetime: DarwinLocalFSEventStreamLifetime, @unchecked Sendable {
+    func flush() -> Bool { true }
+
+    func retire() {}
+
+    func scheduleRetirement() {}
 }
 
 extension GitCleanContinuityAuthorityValidation {
