@@ -375,6 +375,7 @@ final class RepoExplorerProjectionInputCapture {
         retargetRepositoryActivityIdentity: Bool = true
     ) -> RepoExplorerScopedCapture? {
         guard let repositoryIndex = previous.snapshot.repos.firstIndex(where: { $0.id == repositoryID }),
+            !store.repositoryTopologyAtom.isRepoUnavailable(repositoryID),
             let repository = store.repositoryTopologyAtom.repo(repositoryID),
             let stableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repositoryID)
         else { return nil }
@@ -585,11 +586,16 @@ final class RepoExplorerProjectionInputCapture {
     private func sidebarRepos() -> [RepoPresentationItem] {
         store.repositoryTopologyAtom.repositoryIdsInOrder.compactMap { repositoryID in
             guard
+                !store.repositoryTopologyAtom.isRepoUnavailable(repositoryID),
                 let repository = store.repositoryTopologyAtom.repo(repositoryID),
                 let stableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repositoryID)
             else { return nil }
+            var availableRepository = repository
+            availableRepository.worktrees = repository.worktrees.filter {
+                !store.repositoryTopologyAtom.isWorktreeUnavailable($0.id)
+            }
             return RepoPresentationItem(
-                repo: repository,
+                repo: availableRepository,
                 stableKey: stableKey,
                 worktreeStableKeysByID: store.repositoryTopologyAtom.worktreeStableKeysByID
             )

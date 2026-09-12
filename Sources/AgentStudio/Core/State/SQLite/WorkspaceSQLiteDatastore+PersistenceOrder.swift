@@ -1,4 +1,20 @@
 extension WorkspaceSQLiteDatastore {
+    func saveRepositoryTopologySnapshot(
+        _ snapshot: RepositoryTopologySQLiteSnapshot,
+        captureRevision: UInt64,
+        reparenting: [RepositoryWorktreeReparenting] = []
+    ) async throws {
+        try await withWorkspacePersistenceOrder { datastore in
+            if let accepted = datastore.acceptedRepositoryTopologyCaptureRevision,
+                captureRevision < accepted
+            {
+                throw WorkspaceSQLiteDatastoreError.staleRepositoryTopologyCapture
+            }
+            try datastore.resolvedBackend().replaceRepositoryTopologySnapshot(snapshot, reparenting: reparenting)
+            datastore.acceptedRepositoryTopologyCaptureRevision = captureRevision
+        }
+    }
+
     func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
         try await withWorkspacePersistenceOrder { datastore in
             _ = try await datastore.performWorkspaceSnapshotBundleSave(bundle, undoChange: nil)

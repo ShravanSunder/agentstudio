@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TopologyEventPipelineIntegrationTests {
-    private func withTopologyHarness(
+    func withTopologyHarness(
         _ body: @escaping @MainActor (GitTopologyPipelineHarness) async throws -> Void
     ) async rethrows {
         try await withAsyncTestCoreAtoms { _ in
@@ -27,6 +27,46 @@ struct TopologyEventPipelineIntegrationTests {
     private func settleTopologyHarness(_ harness: GitTopologyPipelineHarness) async {
         await Task.yield()
         await waitForBusSubscriberCount(harness.bus, atLeast: 1, minimumTurns: 1000)
+    }
+
+    @Test("first authoritative scan detects a repository removed while the app was closed")
+    func firstScanDetectsRestoredMissingRepository() async throws {
+        try await withTopologyHarness { harness in
+            let watchedFolder = harness.tempDir.appending(path: "restored-watch")
+            let missingPath = watchedFolder.appending(path: "missing-repository")
+            let watchedPath = WatchedPath(path: watchedFolder)
+            let repository = harness.workspaceStore.addRepo(at: missingPath)
+            harness.scanResults.setResults([watchedPath: []])
+
+            _ = await harness.refreshWatchedFolders([watchedPath])
+
+            await assertEventuallyMain("restored absent repository must become unavailable") {
+                harness.workspaceStore.isRepoUnavailable(repository.id)
+            }
+            let retained = try #require(harness.workspaceStore.repos.first { $0.id == repository.id })
+            #expect(retained.repoPath == missingPath)
+        }
+    }
+
+    @Test("first scan restores a retained unavailable repository at its original path")
+    func firstScanRestoresRetainedRepository() async throws {
+        try await withTopologyHarness { harness in
+            let watchedFolder = harness.tempDir.appending(path: "restored-return")
+            let repositoryPath = watchedFolder.appending(path: "repository")
+            let watchedPath = WatchedPath(path: watchedFolder)
+            let repository = harness.workspaceStore.addRepo(at: repositoryPath)
+            harness.workspaceStore.markRepoUnavailable(repository.id)
+            harness.scanResults.setResults([
+                watchedPath: [.init(clonePath: repositoryPath, linkedWorktreePaths: [])]
+            ])
+
+            _ = await harness.refreshWatchedFolders([watchedPath])
+
+            await assertEventuallyMain("same-path return clears retained unavailable state") {
+                !harness.workspaceStore.isRepoUnavailable(repository.id)
+            }
+            #expect(harness.workspaceStore.repos.map(\.id) == [repository.id])
+        }
     }
 
     @Test("authoritative grouped discovery creates one canonical family and syncs roots")
@@ -107,14 +147,7 @@ struct TopologyEventPipelineIntegrationTests {
                 return
             }
 
-            let pane = harness.workspaceStore.createPane(
-                launchDirectory: removedWorktree.path,
-                facets: PaneContextFacets(
-                    repoId: repo.id,
-                    worktreeId: removedWorktree.id,
-                    cwd: removedWorktree.path
-                )
-            )
+            let pane = makeAssociatedPane(harness: harness, repo: repo, worktree: removedWorktree)
             let tab = Tab(paneId: pane.id)
             harness.workspaceStore.appendTab(tab)
 
@@ -139,9 +172,12 @@ struct TopologyEventPipelineIntegrationTests {
             ])
             _ = await harness.refreshWatchedFolders([watchedPath])
 
-            await assertEventuallyMain("removed worktree should leave canonical store") {
-                let currentPaths = Set(harness.workspaceStore.repos.first?.worktrees.map(\.path) ?? [])
-                return currentPaths == Set([clonePath, keepPath])
+            await assertEventuallyMain("missing checkout is retained but excluded from active topology") {
+                let topology = harness.workspaceStore.repositoryTopologyAtom
+                let retainedPaths = Set(topology.repos.first?.worktrees.map(\.path) ?? [])
+                return retainedPaths == Set([clonePath, keepPath, removePath])
+                    && topology.isWorktreeUnavailable(removedWorktree.id)
+                    && topology.validatedAssociation(repoId: repo.id, worktreeId: removedWorktree.id) == nil
             }
 
             await assertEventuallyMain("removed worktree cache should be pruned") {
@@ -187,8 +223,16 @@ struct TopologyEventPipelineIntegrationTests {
                     && durableFacets.worktreeId == readdedWorktree.id
             }
             let readdedWorktree = harness.workspaceStore.repos.first?.worktrees.first(where: { $0.path == removePath })
-            #expect(readdedWorktree?.id != removedWorktree.id)
+            #expect(readdedWorktree?.id == removedWorktree.id)
+            #expect(!harness.workspaceStore.repositoryTopologyAtom.isWorktreeUnavailable(removedWorktree.id))
         }
+    }
+
+    private func makeAssociatedPane(harness: GitTopologyPipelineHarness, repo: Repo, worktree: Worktree) -> Pane {
+        harness.workspaceStore.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
     }
 
     @Test("boot replay notScanned preserves existing family without destructive reconciliation")
@@ -274,6 +318,9 @@ struct TopologyEventPipelineIntegrationTests {
             _ = await harness.refreshWatchedFolders([watchedPath])
 
             let syntheticId = try #require(harness.fseventClient.registeredWorktreeIds.first)
+            await assertEventuallyAsync("initial worktree root must be registered before removal") {
+                await harness.filesystemSnapshot().registeredRoots.values.contains(clonePath)
+            }
 
             harness.scanResults.setResults([watchedPath: []])
             harness.fseventClient.send(
@@ -289,8 +336,8 @@ struct TopologyEventPipelineIntegrationTests {
             ) {
                 let envelopes = await recorder.snapshot()
                 return RuntimeEnvelopeHarness.systemEvents(from: envelopes).contains {
-                    if case .topology(.repoRemoved(let repoPath)) = $0.event {
-                        return repoPath.standardizedFileURL == clonePath.standardizedFileURL
+                    if case .topology(.watchedFolderReconciled(let observation)) = $0.event {
+                        return observation.root == watchedFolder && observation.entries.isEmpty
                     }
                     return false
                 }
@@ -302,6 +349,9 @@ struct TopologyEventPipelineIntegrationTests {
                 }
                 return harness.workspaceStore.isRepoUnavailable(repo.id)
             }
+            await harness.workspaceSurfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            let removedSnapshot = await harness.filesystemSnapshot()
+            #expect(!removedSnapshot.registeredRoots.values.contains(clonePath))
             await recorder.shutdown()
         }
     }
@@ -354,24 +404,11 @@ struct TopologyEventPipelineIntegrationTests {
             _ = await recorder.firstEvent { envelope in
                 guard
                     case .system(let systemEnvelope) = envelope,
-                    case .topology(
-                        .reposDiscovered(let parentPath, let repositories)
-                    ) = systemEnvelope.event,
-                    parentPath.standardizedFileURL == watchedFolder.standardizedFileURL
+                    case .topology(.watchedFolderReconciled(let observation)) = systemEnvelope.event,
+                    observation.root.standardizedFileURL == watchedFolder.standardizedFileURL
                 else { return false }
-
-                return repositories.contains { repository in
-                    guard
-                        repository.repoPath.standardizedFileURL
-                            == clonePath.standardizedFileURL,
-                        case .scanned(let linkedWorktreePaths) = repository.linkedWorktrees
-                    else { return false }
-                    return Set(linkedWorktreePaths.map(\.standardizedFileURL))
-                        == Set([
-                            initialLinked.standardizedFileURL,
-                            addedLinked.standardizedFileURL,
-                        ])
-                }
+                return Set(observation.entries.map { $0.path.standardizedFileURL })
+                    == Set([clonePath, initialLinked, addedLinked].map(\.standardizedFileURL))
             }
 
             await assertEventuallyMain("new linked worktree should appear in canonical store") {
@@ -471,10 +508,14 @@ struct TopologyEventPipelineIntegrationTests {
             ])
             _ = await harness.refreshWatchedFolders([watchedPath])
 
-            await assertEventuallyMain("authoritative empty scan should converge to main-only") {
-                harness.workspaceStore.repos.count == 1
-                    && harness.workspaceStore.repos[0].worktrees.map(\.path) == [clonePath]
+            await assertEventuallyMain("only the main checkout stays available; linked rows remain retained") {
+                let topology = harness.workspaceStore.repositoryTopologyAtom
+                guard topology.repos.count == 1 else { return false }
+                let worktrees = topology.repos[0].worktrees
+                return Set(worktrees.map(\.path)) == Set([clonePath, featurePath, hotfixPath])
+                    && worktrees.filter { !topology.isWorktreeUnavailable($0.id) }.map(\.path) == [clonePath]
             }
         }
     }
+
 }

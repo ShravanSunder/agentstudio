@@ -3,7 +3,8 @@ import Foundation
 struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
     let repos: [CanonicalRepo]
     let worktrees: [CanonicalWorktree]
-    let unavailableRepoIds: Set<UUID>
+    let absenceRecords: RepositoryTopologyAbsenceRecords
+    var unavailableRepoIds: Set<UUID> { absenceRecords.unavailableRepositoryIDs }
     let watchedPaths: [WatchedPath]
     let watchedPathStableKeysByID: [UUID: String]
     let updatedAt: Date
@@ -14,11 +15,15 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
         unavailableRepoIds: Set<UUID> = [],
         watchedPaths: [WatchedPath] = [],
         watchedPathStableKeysByID: [UUID: String]? = nil,
-        updatedAt: Date
+        updatedAt: Date,
+        absenceRecords: RepositoryTopologyAbsenceRecords = .init()
     ) {
         self.repos = repos
         self.worktrees = worktrees
-        self.unavailableRepoIds = unavailableRepoIds
+        self.absenceRecords = absenceRecords.retaining(
+            unavailableRepositoryIDs: unavailableRepoIds,
+            existingWorktreeIDs: Set(worktrees.map(\.id))
+        )
         self.watchedPaths = watchedPaths
         self.watchedPathStableKeysByID =
             watchedPathStableKeysByID

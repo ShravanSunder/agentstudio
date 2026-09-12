@@ -58,13 +58,6 @@ enum WorkspacePersistenceTransformer {
                     retainedKnownCount += 1
                     return pane
                 }
-                if topologySnapshot.isKnownAssociationTemporarilyUnavailable(
-                    repoId: repoID,
-                    worktreeId: worktreeID
-                ) {
-                    retainedKnownCount += 1
-                    return pane
-                }
                 danglingClearedCount += 1
                 changedCount += 1
                 reconciledPane.metadata.updateFacets(PaneContextFacets(cwd: durableFacets.cwd))
@@ -143,7 +136,8 @@ enum WorkspacePersistenceTransformer {
                     }
                 ),
                 watchedPathStableKeysByID: snapshot.watchedPathStableKeysByID
-            )
+            ),
+            absenceRecords: snapshot.absenceRecords
         )
     }
 
@@ -198,7 +192,8 @@ enum WorkspacePersistenceTransformer {
         stableIdentity: RepositoryTopologyStableIdentity,
         unavailableRepositoryIDs: Set<UUID>,
         watchedPaths: [WatchedPath],
-        persistedAt: Date
+        persistedAt: Date,
+        absenceRecords: RepositoryTopologyAbsenceRecords = .init()
     ) async -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
             repos: canonicalRepos(
@@ -212,7 +207,8 @@ enum WorkspacePersistenceTransformer {
             unavailableRepoIds: unavailableRepositoryIDs,
             watchedPaths: watchedPaths,
             watchedPathStableKeysByID: stableIdentity.watchedPathStableKeysByID,
-            updatedAt: persistedAt
+            updatedAt: persistedAt,
+            absenceRecords: absenceRecords
         )
     }
 

@@ -124,7 +124,10 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at
             """,
-        arguments: try paneStatementArguments(workspaceId: workspaceId, pane: pane)
+        arguments: try paneStatementArguments(
+            workspaceId: workspaceId,
+            pane: paneWithValidatedTopologyFacets(database, pane: pane)
+        )
     )
 }
 

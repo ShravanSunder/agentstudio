@@ -4,6 +4,14 @@ import Foundation
 struct WatchedFolderScanRequest: Equatable, Sendable {
     let canonicalRoot: RegisteredRootDescriptor
     let cause: WatchedFolderScanCause
+    let baselineMembershipRevision: UInt64
+
+    init(canonicalRoot: RegisteredRootDescriptor, cause: WatchedFolderScanCause, baselineMembershipRevision: UInt64 = 0)
+    {
+        self.canonicalRoot = canonicalRoot
+        self.cause = cause
+        self.baselineMembershipRevision = baselineMembershipRevision
+    }
 
     var sourceID: FilesystemSourceID { canonicalRoot.sourceID }
 }

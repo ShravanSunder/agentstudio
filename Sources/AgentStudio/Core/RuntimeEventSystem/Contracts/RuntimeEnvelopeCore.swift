@@ -132,6 +132,7 @@ package struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
 }
 
 package enum TopologyEvent: Sendable {
+    case watchedFolderReconciled(WatchedFolderTopologyObservation)
     case repoDiscovered(
         repoPath: URL,
         parentPath: URL,

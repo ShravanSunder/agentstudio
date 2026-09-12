@@ -215,6 +215,12 @@ package enum AppPolicies {
         package static let selectedApplyInitialWindowLineCount: Int = 1500
     }
 
+    package enum RepositoryRetention {
+        package static let durationSeconds: TimeInterval = 30 * 24 * 60 * 60
+        package static let collectionBatchSize: Int = 64
+        package static let reconciliationRetryLimit: Int = 2
+    }
+
     package enum WorkspacePersistence {
         package static let debouncedAutosaveFailureDampingThreshold: Int = 3
         package static let maximumAvailableUndoCloses: Int = 10

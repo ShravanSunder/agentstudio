@@ -394,6 +394,11 @@ extension AppDelegate {
             repoCache: repoCache,
             welcomeAtom: atomStore.core.welcome,
             topologyEffectHandler: workspaceSurfaceCoordinator,
+            topologyPersistence: repositoryTopologyStore,
+            validateSourceObservation: { [weak pipeline] observation in
+                guard let pipeline else { return false }
+                return await pipeline.isCurrentWatchedFolderObservation(observation)
+            },
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
@@ -814,7 +819,9 @@ extension AppDelegate {
 
         if !watchedPaths.isEmpty {
             await coordinator.syncScope(
-                .updateWatchedFolders(watchedPaths: watchedPaths)
+                .updateWatchedFolders(
+                    watchedPaths: watchedPaths, restoringRepositories: repos,
+                    membershipRevision: store.repositoryTopologyAtom.worktreePathIndexGeneration)
             )
         }
     }

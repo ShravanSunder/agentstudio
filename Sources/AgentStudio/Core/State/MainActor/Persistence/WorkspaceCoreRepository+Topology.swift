@@ -5,7 +5,22 @@ extension WorkspaceCoreRepository {
     struct RepositoryTopologyRecord: Equatable, Sendable {
         var watchedPaths: [WatchedPathRecord]
         var repos: [RepoRecord]
-        var unavailableRepoIds: Set<UUID>
+        var absenceRecords: RepositoryTopologyAbsenceRecords
+        var unavailableRepoIds: Set<UUID> { absenceRecords.unavailableRepositoryIDs }
+
+        init(
+            watchedPaths: [WatchedPathRecord],
+            repos: [RepoRecord],
+            unavailableRepoIds: Set<UUID>,
+            absenceRecords: RepositoryTopologyAbsenceRecords = .init()
+        ) {
+            self.watchedPaths = watchedPaths
+            self.repos = repos
+            self.absenceRecords = absenceRecords.retaining(
+                unavailableRepositoryIDs: unavailableRepoIds,
+                existingWorktreeIDs: Set(repos.flatMap(\.worktrees).map(\.id))
+            )
+        }
     }
 
     struct WatchedPathRecord: Equatable, Sendable {
@@ -89,10 +104,13 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    func replaceRepositoryTopology(_ topology: RepositoryTopologyRecord) throws {
+    func replaceRepositoryTopology(
+        _ topology: RepositoryTopologyRecord,
+        reparenting: [RepositoryWorktreeReparenting] = []
+    ) throws {
         try databaseWriter.write { database in
             try validateTopology(topology)
-            try replaceRepositoryTopologyRows(database, topology: topology)
+            try replaceRepositoryTopologyRows(database, topology: topology, reparenting: reparenting)
         }
     }
 
@@ -107,7 +125,14 @@ extension WorkspaceCoreRepository {
             for repoId in repoIds {
                 try requireRepoExists(database, repoId: repoId)
             }
-            try replaceUnavailableRepoRows(database, repoIds: repoIds)
+            let existing = try RepositoryAbsenceStorage.read(database)
+            try RepositoryAbsenceStorage.replace(
+                database,
+                records: existing.retaining(
+                    unavailableRepositoryIDs: repoIds,
+                    existingWorktreeIDs: Set(existing.worktrees.keys)
+                )
+            )
         }
     }
 
@@ -132,11 +157,12 @@ func readRepositoryTopology(
 ) throws -> WorkspaceCoreRepository.RepositoryTopologyRecord {
     let watchedPaths = try fetchWatchedPathRecords(database)
     let repos = try fetchRepoRecords(database)
-    let unavailableRepoIds = try fetchUnavailableRepoIds(database)
+    let absenceRecords = try RepositoryAbsenceStorage.read(database)
     return .init(
         watchedPaths: watchedPaths,
         repos: repos,
-        unavailableRepoIds: unavailableRepoIds
+        unavailableRepoIds: absenceRecords.unavailableRepositoryIDs,
+        absenceRecords: absenceRecords
     )
 }
 
@@ -291,24 +317,6 @@ private func fetchRepoTags(_ database: Database, repoId: UUID) throws -> [String
             """,
         arguments: [repoId.uuidString]
     )
-}
-
-private func fetchUnavailableRepoIds(_ database: Database) throws -> Set<UUID> {
-    let idStrings = try String.fetchAll(
-        database,
-        sql: """
-            SELECT repo_id
-            FROM unavailable_repo
-            ORDER BY repo_id ASC
-            """
-    )
-    return try Set(
-        idStrings.map { idString in
-            guard let id = UUID(uuidString: idString) else {
-                throw WorkspaceCoreRepositoryError.malformedRepoId(idString)
-            }
-            return id
-        })
 }
 
 private func decodeWatchedPathRecord(_ row: Row) throws -> WorkspaceCoreRepository.WatchedPathRecord {

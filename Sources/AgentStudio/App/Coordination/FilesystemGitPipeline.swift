@@ -339,6 +339,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         return summary
     }
 
+    func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) async -> Bool {
+        await filesystemActor.isCurrentWatchedFolderObservation(observation)
+    }
+
     func filesystemLogicalDebtCount() async -> Int {
         await filesystemActor.logicalDebtCount()
     }
@@ -366,8 +370,11 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         case .refreshForgeRepo(let repoId, let correlationId):
             await remoteReferenceRefreshActor.refresh(repoId: repoId)
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-        case .updateWatchedFolders(let watchedPaths):
-            _ = await filesystemActor.refreshWatchedFolders(watchedPaths)
+        case .updateTopologyMembershipRevision(let revision):
+            await filesystemActor.updateTopologyMembershipRevision(revision)
+        case .updateWatchedFolders(let watchedPaths, let repositories, let revision):
+            _ = await filesystemActor.refreshWatchedFolders(
+                watchedPaths, restoring: repositories, membershipRevision: revision)
         }
     }
 }

@@ -425,26 +425,10 @@ final class WorkspaceSurfaceCoordinator {
             Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
             return
         }
-        let currentFacets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
         let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
         let resolvedContext = topologySnapshot.repoAndWorktree(containing: cwd)
-        let currentAssociationIsValid =
-            topologySnapshot.validatedAssociation(
-                repoId: currentFacets?.repoId,
-                worktreeId: currentFacets?.worktreeId
-            ) != nil
-        let currentAssociationIsTemporarilyUnavailable =
-            topologySnapshot.isKnownAssociationTemporarilyUnavailable(
-                repoId: currentFacets?.repoId,
-                worktreeId: currentFacets?.worktreeId
-            )
-        let currentAssociationIsKnownInvalid =
-            currentFacets?.repoId != nil
-            && currentFacets?.worktreeId != nil
-            && !currentAssociationIsValid
-            && !currentAssociationIsTemporarilyUnavailable
         if let cwd {
             performanceTraceRecorder?.recordRepoAndWorktreeLookup(
                 duration: lookupStartedAt.duration(to: lookupClock.now),
@@ -464,12 +448,6 @@ final class WorkspaceSurfaceCoordinator {
                 repoId: resolvedContext.repo.id,
                 worktreeId: resolvedContext.worktree.id
             )
-        } else if cwd != nil,
-            !currentAssociationIsKnownInvalid,
-            topologySnapshot.hasUnavailableWorktree(containing: cwd)
-                || currentAssociationIsTemporarilyUnavailable
-        {
-            associationResolution = .uncertain
         } else {
             associationResolution = .confidentNoMatch
         }

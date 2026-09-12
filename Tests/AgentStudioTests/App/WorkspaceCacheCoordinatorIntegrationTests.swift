@@ -425,11 +425,12 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             path: URL(fileURLWithPath: "/projects"),
             addedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
-        await coordinator.syncScope(.updateWatchedFolders(watchedPaths: [watchedPath]))
+        await coordinator.syncScope(
+            .updateWatchedFolders(watchedPaths: [watchedPath], restoringRepositories: [], membershipRevision: 0))
 
         let changes = await recordedScopeChanges.values
         #expect(changes.count == 1)
-        if case .updateWatchedFolders(let watchedPaths) = changes.first {
+        if case .updateWatchedFolders(let watchedPaths, _, _) = changes.first {
             #expect(watchedPaths == [watchedPath])
         } else {
             Issue.record("Expected updateWatchedFolders scope change")

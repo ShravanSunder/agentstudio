@@ -108,54 +108,103 @@ extension FilesystemActor {
             mayReplaceNegativeSpace: latestCoverage == result.demandCoverage
         )
 
-        let mutation: WatchedFolderInventoryMutation?
+        let observedAt: RepositoryRetentionTime?
+        if case .authoritativeReplacement = reduction {
+            observedAt = try? await RepositoryRetentionTime.current()
+        } else {
+            observedAt = nil
+        }
+        guard watchedFolderScanState.registrationsBySourceID[sourceID]?.registeredRoot == registration.registeredRoot
+        else {
+            return
+        }
+        let coverage: WatchedFolderTopologyCoverage
         switch reduction {
         case .authoritativeReplacement(let replacement):
-            guard
-                case .additiveMerge(let additiveFallback) = WatchedFolderInventoryReducer.reduce(
-                    previousGroups: previousGroups,
-                    scannerResult: result.scannerResult,
-                    mayReplaceNegativeSpace: false
-                )
-            else {
-                preconditionFailure("complete evidence must support additive fallback")
-            }
-            if let envelopes = prepareAuthoritativeWatchedFolderMutation(
-                replacement,
-                sourceID: sourceID,
-                registration: registration,
-                demandCoverage: result.demandCoverage
-            ) {
-                _ = await runtimeBus.post(contentsOf: envelopes)
+            if let observedAt,
+                watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == result.demandCoverage
+            {
+                coverage = .authoritative(observedAt)
+                watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: replacement.repoGroups)
             } else {
-                watchedFolderScanState.inventoryBySourceID[sourceID] =
-                    FilesystemWatchedFolderInventory(repoGroups: additiveFallback.repoGroups)
-                await emitReposDiscovered(
-                    parentPath: registration.watchedPath.path,
-                    repositories: additiveFallback.changedRepositories
-                )
+                coverage = .additive
+                guard
+                    case .additiveMerge(let fallback) = WatchedFolderInventoryReducer.reduce(
+                        previousGroups: previousGroups, scannerResult: result.scannerResult,
+                        mayReplaceNegativeSpace: false
+                    )
+                else { preconditionFailure("complete evidence must support additive fallback") }
+                watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: fallback.repoGroups)
             }
-            mutation = nil
         case .additiveMerge(let replacement):
-            mutation = replacement
-            watchedFolderScanState.inventoryBySourceID[sourceID] =
-                FilesystemWatchedFolderInventory(repoGroups: replacement.repoGroups)
+            coverage = .additive
+            watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: replacement.repoGroups)
         case .preserved:
-            mutation = nil
+            coverage = .additive
+        }
+        let entries = Self.validatedEntries(in: result.scannerResult)
+        watchedFolderScanState.validatedPathsBySourceID[sourceID] = Set(entries.map { $0.path.standardizedFileURL })
+        if case .authoritative = coverage {
+            watchedFolderScanState.authoritativeSourceIDs.insert(sourceID)
+        } else {
+            watchedFolderScanState.authoritativeSourceIDs.remove(sourceID)
         }
         watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] = result.demandCoverage
         watchedFolderScanState.lastAppliedResultIDBySourceID[sourceID] = result.resultID
-
-        if let mutation {
-            await emitReposDiscovered(
-                parentPath: registration.watchedPath.path,
-                repositories: mutation.changedRepositories
-            )
-            await emitRemovedClones(
-                noLongerReferencedByAnyWatchedFolder: mutation.removedClonePaths
-            )
+        var otherPaths = Set<URL>()
+        var incompleteScopes: [URL] = []
+        for (otherID, otherRegistration) in watchedFolderScanState.registrationsBySourceID where otherID != sourceID {
+            if watchedFolderScanState.authoritativeSourceIDs.contains(otherID),
+                let applied = watchedFolderScanState.appliedDemandCoverageBySourceID[otherID],
+                applied == watchedFolderScanState.latestDemandCoverageBySourceID[otherID]
+            {
+                otherPaths.formUnion(watchedFolderScanState.validatedPathsBySourceID[otherID] ?? [])
+            } else {
+                incompleteScopes.append(otherRegistration.watchedPath.path.standardizedFileURL)
+                incompleteScopes.append(
+                    URL(fileURLWithPath: otherRegistration.registeredRoot.aliases.onceResolvedCanonical.path))
+            }
         }
+        nextEnvelopeSequence += 1
+        _ = await runtimeBus.post(
+            .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher), seq: nextEnvelopeSequence, timestamp: envelopeClock.now,
+                    event: .topology(
+                        .watchedFolderReconciled(
+                            WatchedFolderTopologyObservation(
+                                root: registration.watchedPath.path,
+                                registration: registration.registeredRoot.registration,
+                                entries: entries, otherObservedPaths: otherPaths, coverage: coverage,
+                                baselineMembershipRevision: result.request.baselineMembershipRevision,
+                                incompleteOtherScopes: incompleteScopes, demandCoverage: result.demandCoverage,
+                                canonicalRoot: URL(
+                                    fileURLWithPath: registration.registeredRoot.aliases.onceResolvedCanonical.path)
+                            )))
+                )))
         completeManualRefreshIfSatisfied()
+    }
+
+    package func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) -> Bool {
+        let sourceID = observation.registration.sourceID
+        guard let registration = watchedFolderScanState.registrationsBySourceID[sourceID],
+            registration.registeredRoot.registration == observation.registration,
+            registration.watchedPath.path.standardizedFileURL == observation.root.standardizedFileURL,
+            registration.registeredRoot.aliases.onceResolvedCanonical.path == observation.canonicalRoot.path,
+            let coverage = observation.demandCoverage,
+            watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == coverage,
+            watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] == coverage
+        else { return false }
+        return true
+    }
+
+    private static func validatedEntries(in result: RepoScannerResult) -> [RepoScanner.ResolvedGitEntry] {
+        switch result {
+        case .completeAuthoritative(let scan): return scan.verifiedEntries
+        case .partial(let scan): return scan.verifiedEntries
+        case .cancelled(let scan): return scan.verifiedEntries
+        case .failed, .unavailable: return []
+        }
     }
 
     func completeManualRefreshIfSatisfied() {
@@ -178,54 +227,6 @@ extension FilesystemActor {
         else { return }
         watchedFolderScanState.manualRefreshState = .running(id: refreshID, task: refreshTask)
         manualRefresh.continuation.resume(returning: watchedFolderRefreshSummary())
-    }
-
-    private func prepareAuthoritativeWatchedFolderMutation(
-        _ mutation: WatchedFolderInventoryMutation,
-        sourceID: FilesystemSourceID,
-        registration: FilesystemWatchedFolderRegistration,
-        demandCoverage: WatchedFolderScanDemandCoverage
-    ) -> [RuntimeEnvelope]? {
-        guard watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == demandCoverage else {
-            return nil
-        }
-
-        watchedFolderScanState.inventoryBySourceID[sourceID] =
-            FilesystemWatchedFolderInventory(repoGroups: mutation.repoGroups)
-        var envelopes: [RuntimeEnvelope] = []
-        if !mutation.changedRepositories.isEmpty {
-            nextEnvelopeSequence += 1
-            envelopes.append(
-                .system(
-                    SystemEnvelope(
-                        source: .builtin(.filesystemWatcher),
-                        seq: nextEnvelopeSequence,
-                        timestamp: envelopeClock.now,
-                        event: .topology(
-                            .reposDiscovered(
-                                parentPath: registration.watchedPath.path,
-                                repositories: mutation.changedRepositories
-                            )
-                        )
-                    )
-                )
-            )
-        }
-        for repoPath in mutation.removedClonePaths.sorted(by: Self.sortByPath) {
-            guard !isReferencedByAnyWatchedFolder(repoPath) else { continue }
-            nextEnvelopeSequence += 1
-            envelopes.append(
-                .system(
-                    SystemEnvelope(
-                        source: .builtin(.filesystemWatcher),
-                        seq: nextEnvelopeSequence,
-                        timestamp: envelopeClock.now,
-                        event: .topology(.repoRemoved(repoPath: repoPath))
-                    )
-                )
-            )
-        }
-        return envelopes
     }
 
     func watchedFolderRefreshSummary() -> WatchedFolderRefreshSummary {

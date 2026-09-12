@@ -36,6 +36,7 @@ package actor WorkspaceSQLiteDatastore {
     // Accessed by the datastore persistence-order extension; never exposed outside Core.
     var workspaceSaveTail: Task<Void, Error>?
     var workspaceSaveTailGeneration: UInt64 = 0
+    var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
     var failedStructuralWorkspaceIDs = Set<UUID>()
 
@@ -414,10 +415,6 @@ package actor WorkspaceSQLiteDatastore {
         } catch {
             return .unavailable(.init(error))
         }
-    }
-
-    func saveRepositoryTopologySnapshot(_ snapshot: RepositoryTopologySQLiteSnapshot) async throws {
-        try resolvedBackend().replaceRepositoryTopologySnapshot(snapshot)
     }
 
     func selectActiveWorkspace(_ workspaceId: UUID, updatedAt: Date) async throws {

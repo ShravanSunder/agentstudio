@@ -505,7 +505,7 @@ admission framework.
 - `.git` **file** → linked worktree (reads `gitdir:` line to derive parent clone path by stripping `/.git/worktrees/<name>`)
 - `.git` exists but unreadable → treated as clone root (conservative boundary — scanner stops descending)
 
-After classification, linked worktrees are grouped under their parent clone into `RepoScanGroup` entries via `groupClassifiedPaths()`. The existing validation behavior is preserved: `git rev-parse --is-inside-work-tree` and submodule exclusion via `--show-superproject-working-tree`.
+After classification, linked worktrees are grouped under their parent clone into `RepoScanGroup` entries via `groupClassifiedPaths()`. Repository validation and discovery semantics come exclusively from the pinned `agentstudio-git` package and its libgit2-backed discovery client; this app does not invoke Git CLI commands or `wt` directly. Submodule and worktree classification remain the package-owned discovery contract.
 
 Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
 
@@ -707,7 +707,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 ### Branch Change → Forge Refresh (implemented)
 
 ```
-1. User runs `git checkout feat-2` in worktree wt-1
+1. User changes the checked-out branch to `feat-2` in worktree wt-1 using their Git client
 2. FSEvents fires → FilesystemActor detects .git/HEAD change
    → emits .filesChanged (contains .git internal changes)
 3. GitWorkingDirectoryProjector:
@@ -725,12 +725,12 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 
 Note: ForgeActor gets `.branchChanged` directly from the bus fan-out. The coordinator does NOT additionally trigger ForgeActor — this prevents duplicate network refreshes.
 
-### Repo Moved (planned, not yet implemented)
+### Repo Moved (proposed, not implemented)
 
-When a repo directory moves on disk, the plan is:
+When a repo directory moves on disk:
 1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
 2. Coordinator clears stale pane repo/worktree associations, preserves pane residency and tab membership, and prunes cache
-3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
+3. A future Locate/Repair action would associate a selected new path with a retained repository. There is currently no user-facing repository Repair command; the proposed lifecycle is defined separately in the repository lifecycle design.
 
 ### Deferred Launch Restore
 

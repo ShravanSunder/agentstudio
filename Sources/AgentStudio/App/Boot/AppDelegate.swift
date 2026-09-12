@@ -560,6 +560,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return nil
                 }
                 switch topologyEvent {
+                case .watchedFolderReconciled(let observation):
+                    guard observation.root.standardizedFileURL.path == normalizedRoot,
+                        !observation.entries.isEmpty
+                    else { return nil }
+                    return ()
                 case .repoDiscovered(let repoPath, let parentPath, _, _):
                     guard
                         parentPath.standardizedFileURL.path == normalizedRoot

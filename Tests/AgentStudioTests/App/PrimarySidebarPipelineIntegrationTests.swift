@@ -211,7 +211,7 @@ struct PrimarySidebarPipelineIntegrationTests {
                     await forgeActor.removeRepository(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-                case .updateWatchedFolders:
+                case .updateWatchedFolders, .updateTopologyMembershipRevision:
                     break
                 }
             },
@@ -497,7 +497,7 @@ struct PrimarySidebarPipelineIntegrationTests {
                     await forgeActor.removeRepository(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-                case .updateWatchedFolders:
+                case .updateWatchedFolders, .updateTopologyMembershipRevision:
                     break
                 }
             },

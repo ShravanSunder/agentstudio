@@ -663,7 +663,7 @@ extension WorkspaceSurfaceCoordinator {
             guard
                 let repositoryStableKey = store.repositoryTopologyAtom.repositoryStableKey(for: repo.id)
             else { continue }
-            for worktree in repo.worktrees {
+            for worktree in repo.worktrees where !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id) {
                 entries.append(
                     FilesystemProjectionTopologyEntry(
                         repoId: repo.id,

@@ -56,9 +56,12 @@ enum FilesystemWatchedFolderResultDrainState: Sendable {
 struct FilesystemWatchedFolderScanState: Sendable {
     let resultConsumer = WatchedFolderScanResultConsumerToken.make()
     var isShuttingDown = false
+    var baselineMembershipRevision: UInt64 = 0
+    var validatedPathsBySourceID: [FilesystemSourceID: Set<URL>] = [:]
     var registrationsBySourceID: [FilesystemSourceID: FilesystemWatchedFolderRegistration] = [:]
     var sourceIDByLegacyCallbackRoutingID: [UUID: FilesystemSourceID] = [:]
     var inventoryBySourceID: [FilesystemSourceID: FilesystemWatchedFolderInventory] = [:]
+    var authoritativeSourceIDs: Set<FilesystemSourceID> = []
     var latestDemandCoverageBySourceID: [FilesystemSourceID: WatchedFolderScanDemandCoverage] = [:]
     var appliedDemandCoverageBySourceID: [FilesystemSourceID: WatchedFolderScanDemandCoverage] = [:]
     var lastAppliedResultIDBySourceID: [FilesystemSourceID: WatchedFolderScanResultID] = [:]

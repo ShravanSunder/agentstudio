@@ -303,7 +303,7 @@ package actor GitWorkingDirectoryProjector {
                 )
             case .worktreeUnregistered(let worktreeId, let repoId):
                 applyUnregistration(worktreeId: worktreeId, repoId: repoId)
-            case .repoDiscovered, .reposDiscovered, .repoRemoved:
+            case .repoDiscovered, .reposDiscovered, .repoRemoved, .watchedFolderReconciled:
                 return
             }
         case .worktree(let worktreeEnvelope):

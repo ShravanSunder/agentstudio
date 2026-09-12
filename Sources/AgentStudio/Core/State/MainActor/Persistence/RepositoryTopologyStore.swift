@@ -14,6 +14,19 @@ package final class RepositoryTopologyStore {
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingTopology = false
     private(set) var isDirty = false
+    private var saveTail: Task<Void, Error>?
+    private var saveTailGeneration: UInt64 = 0
+    private var pendingReparenting: [PendingReparenting] = []
+
+    private struct PendingReparenting: Sendable {
+        let revision: UInt64
+        let transitions: [RepositoryWorktreeReparenting]
+    }
+
+    package func recordReparenting(_ transitions: [RepositoryWorktreeReparenting], revision: UInt64) {
+        guard !transitions.isEmpty else { return }
+        pendingReparenting.append(.init(revision: revision, transitions: transitions))
+    }
 
     package var isAutosaveObservationActive: Bool {
         isObservingTopology
@@ -78,7 +91,22 @@ package final class RepositoryTopologyStore {
     }
 
     private func persistNow() async throws {
+        let previous = saveTail
+        saveTailGeneration &+= 1
+        let generation = saveTailGeneration
+        let operation = Task { @MainActor [self] in
+            if let previous { _ = try? await previous.value }
+            try await persistCurrentCapture()
+        }
+        saveTail = operation
+        defer { if generation == saveTailGeneration { saveTail = nil } }
+        try await operation.value
+    }
+
+    private func persistCurrentCapture() async throws {
         guard let sqliteDatastore else { return }
+        let captureRevision = atom.lifecycleRevision
+        let pending = pendingReparenting
         let repositories = atom.repos
         let unavailableRepositoryIDs = atom.unavailableRepoIds
         let watchedPaths = atom.watchedPaths
@@ -91,9 +119,38 @@ package final class RepositoryTopologyStore {
             ),
             unavailableRepositoryIDs: unavailableRepositoryIDs,
             watchedPaths: watchedPaths,
-            persistedAt: Date()
+            persistedAt: Date(),
+            absenceRecords: atom.absenceRecords
         )
-        try await sqliteDatastore.saveRepositoryTopologySnapshot(snapshot)
-        isDirty = false
+        let reparenting = await Self.coalesceReparenting(pending, snapshot: snapshot)
+        try await sqliteDatastore.saveRepositoryTopologySnapshot(
+            snapshot, captureRevision: captureRevision, reparenting: reparenting
+        )
+        pendingReparenting.removeAll { $0.revision <= captureRevision }
+        isDirty = atom.lifecycleRevision != captureRevision
     }
+    @concurrent nonisolated private static func coalesceReparenting(
+        _ pending: [PendingReparenting],
+        snapshot: RepositoryTopologySQLiteSnapshot
+    ) async -> [RepositoryWorktreeReparenting] {
+        var transitionsByID: [UUID: RepositoryWorktreeReparenting] = [:]
+        for batch in pending {
+            for transition in batch.transitions {
+                let first = transitionsByID[transition.worktreeID] ?? transition
+                transitionsByID[transition.worktreeID] = .init(
+                    worktreeID: transition.worktreeID,
+                    expectedRepositoryID: first.expectedRepositoryID,
+                    repositoryID: transition.repositoryID
+                )
+            }
+        }
+        return snapshot.worktrees.compactMap { worktree in
+            guard let transition = transitionsByID[worktree.id],
+                transition.repositoryID == worktree.repoId,
+                transition.expectedRepositoryID != transition.repositoryID
+            else { return nil }
+            return transition
+        }
+    }
+
 }

@@ -1671,7 +1671,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 \.sourcePaneId
             ),
             knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: store.repositoryTopologyAtom.availableWorktreeIDs,
             knownPaneIds: store.paneAtom.graphAtom.paneIDs,
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
@@ -2541,7 +2541,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 \.sourcePaneId
             ),
             knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: store.repositoryTopologyAtom.availableWorktreeIDs,
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
             visiblePaneIds: { [arrangementView] tab in

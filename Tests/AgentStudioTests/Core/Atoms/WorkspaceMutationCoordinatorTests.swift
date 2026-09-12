@@ -319,4 +319,38 @@ struct WorkspaceMutationCoordinatorTests {
             ) == drawerViewsBeforeBackground
         )
     }
+    @Test("restoring a captured tab clears unavailable context and preserves its pane and terminal")
+    func restoreTabClearsUnavailableContext() throws {
+        let topology = RepositoryTopologyAtom()
+        let panes = WorkspacePaneAtom()
+        let shells = WorkspaceTabShellAtom()
+        let arrangements = WorkspaceTabArrangementAtom()
+        let coordinator = WorkspaceMutationCoordinator(
+            repositoryTopologyAtom: topology, workspacePaneAtom: panes,
+            workspaceTabShellAtom: shells, workspaceTabArrangementAtom: arrangements
+        )
+        let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/restored-unavailable-pane"))
+        let worktree = try #require(repo.worktrees.first)
+        let pane = makePane(facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path))
+        let tab = Tab(paneId: pane.id)
+        let snapshot = WorkspaceMutationCoordinator.TabCloseSnapshot(tab: tab, panes: [pane], tabIndex: 0)
+        #expect(
+            coordinator.recordRepositoryAbsence(
+                repo.id,
+                at: .init(utc: Date(timeIntervalSince1970: 1_700_000_000), bootID: "fixture", uptimeNanoseconds: 1)
+            ))
+
+        coordinator.restoreFromSnapshot(snapshot)
+
+        let restored = try #require(panes.pane(pane.id))
+        let facets = try #require(panes.graphAtom.paneState(pane.id)?.durableContextFacets)
+        #expect(facets.repoId == nil)
+        #expect(facets.worktreeId == nil)
+        #expect(facets.cwd == worktree.path)
+        #expect(restored.content == pane.content)
+        #expect(restored.residency == pane.residency)
+        #expect(restored.metadata.launchDirectory == pane.metadata.launchDirectory)
+        #expect(arrangements.allPaneIds.contains(pane.id))
+    }
+
 }

@@ -2,6 +2,44 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension FilesystemActor {
+    package func updateTopologyMembershipRevision(_ revision: UInt64) {
+        watchedFolderScanState.baselineMembershipRevision = max(
+            watchedFolderScanState.baselineMembershipRevision, revision)
+    }
+
+    /// Restored topology is previous knowledge, never positive evidence from this scan.
+    package func refreshWatchedFolders(
+        _ watchedPaths: [WatchedPath],
+        restoring repositories: [Repo],
+        membershipRevision: UInt64 = 0
+    ) async -> WatchedFolderRefreshSummary {
+        updateTopologyMembershipRevision(membershipRevision)
+        _ = await reconcileWatchedFolderRegistrations(watchedPaths)
+        for (sourceID, registration) in watchedFolderScanState.registrationsBySourceID
+        where watchedFolderScanState.inventoryBySourceID[sourceID] == nil {
+            let root = registration.watchedPath.path.standardizedFileURL.path
+            func covered(_ path: URL) -> Bool {
+                let candidate = path.standardizedFileURL.path
+                return candidate == root || candidate.hasPrefix(root + "/")
+            }
+            let groups = repositories.compactMap { repository -> RepoScanner.RepoScanGroup? in
+                let linkedPaths = repository.worktrees
+                    .filter { $0.path.standardizedFileURL != repository.repoPath.standardizedFileURL }
+                    .map(\.path)
+                    .filter(covered)
+                guard covered(repository.repoPath) || !linkedPaths.isEmpty else { return nil }
+                return RepoScanner.RepoScanGroup(
+                    clonePath: repository.repoPath.standardizedFileURL,
+                    linkedWorktreePaths: linkedPaths
+                )
+            }
+            watchedFolderScanState.inventoryBySourceID[sourceID] = FilesystemWatchedFolderInventory(
+                repoGroups: groups
+            )
+        }
+        return await refreshWatchedFolders(watchedPaths)
+    }
+
     func updateWatchedFolders(_ watchedPaths: [WatchedPath]) async {
         _ = await refreshWatchedFolders(watchedPaths)
     }
@@ -43,7 +81,8 @@ extension FilesystemActor {
             let request = WatchedFolderScanRequest(
                 canonicalRoot: registration.registeredRoot,
                 cause: newlyRegisteredSourceIDs.contains(registration.registeredRoot.sourceID)
-                    ? .initialAdd : .manual
+                    ? .initialAdd : .manual,
+                baselineMembershipRevision: watchedFolderScanState.baselineMembershipRevision
             )
             switch await watchedFolderScanScheduler.submit(request, intent: .tracked) {
             case .accepted(.tracked(let receipt, _)):
@@ -174,6 +213,8 @@ extension FilesystemActor {
             watchedFolderScanState.latestDemandCoverageBySourceID.removeValue(forKey: sourceID)
             watchedFolderScanState.appliedDemandCoverageBySourceID.removeValue(forKey: sourceID)
             watchedFolderScanState.lastAppliedResultIDBySourceID.removeValue(forKey: sourceID)
+            watchedFolderScanState.authoritativeSourceIDs.remove(sourceID)
+            watchedFolderScanState.validatedPathsBySourceID.removeValue(forKey: sourceID)
         }
 
         for (sourceID, watchedPath) in desiredBySourceID {
@@ -261,7 +302,8 @@ extension FilesystemActor {
         }
         let request = WatchedFolderScanRequest(
             canonicalRoot: registration.registeredRoot,
-            cause: cause
+            cause: cause,
+            baselineMembershipRevision: watchedFolderScanState.baselineMembershipRevision
         )
         switch await watchedFolderScanScheduler.submit(request) {
         case .accepted(let acceptance):
