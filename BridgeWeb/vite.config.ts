@@ -30,8 +30,10 @@ export default defineConfig(async () => {
 	const bridgeProductDevBackendIsSupervised = bridgeProductDevBackendShouldBeSupervised(
 		process.env,
 	);
+	const bridgeWebViteCacheDirectory = resolveBridgeWebViteCacheDirectory(process.env);
 	return {
 		base: './',
+		...(bridgeWebViteCacheDirectory === null ? {} : { cacheDir: bridgeWebViteCacheDirectory }),
 		resolve: {
 			alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
 		},
@@ -80,6 +82,15 @@ export default defineConfig(async () => {
 		},
 	};
 });
+
+export function resolveBridgeWebViteCacheDirectory(
+	env: Readonly<Record<string, string | undefined>>,
+): string | null {
+	const configuredCacheDirectory = env['BRIDGE_WEB_VITE_CACHE_DIR'];
+	return configuredCacheDirectory === undefined || configuredCacheDirectory.length === 0
+		? null
+		: configuredCacheDirectory;
+}
 
 export function bridgeProductDevBackendShouldBeSupervised(
 	env: Readonly<Record<string, string | undefined>>,
@@ -178,7 +189,25 @@ export function bridgeProductDevProxyConfiguration(
 		[BRIDGE_PRODUCT_DEV_HEALTH_ROUTE]: proxy,
 		[BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE]: proxy,
 		[BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT]: proxy,
-		[BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT]: proxy,
+		[BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT]: {
+			...proxy,
+			configure(metadataProxy): void {
+				metadataProxy.on('proxyReq', (upstreamRequest, _request, response): void => {
+					const upstreamSocket = upstreamRequest.socket;
+					const cancelAbandonedResponse = (): void => {
+						if (!response.writableFinished && upstreamSocket?.destroyed === false) {
+							// A FIN permits a response after request half-close. Browser abandonment
+							// must instead cancel the idle Swift response before the proxy's destroy().
+							upstreamSocket.resetAndDestroy();
+						}
+					};
+					response.prependOnceListener('close', cancelAbandonedResponse);
+					upstreamRequest.once('close', (): void => {
+						response.off('close', cancelAbandonedResponse);
+					});
+				});
+			},
+		},
 		[BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT]: proxy,
 	};
 }

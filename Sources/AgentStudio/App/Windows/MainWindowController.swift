@@ -318,8 +318,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toggleSidebar()
     }
 
-    @objc private func showWorktreeSidebarToolbarAction() {
-        AppCommandDispatcher.shared.dispatch(.showReposSidebar)
+    @objc private func toggleSidebarToolbarAction() {
+        AppCommandDispatcher.shared.dispatch(.toggleSidebar)
         Task { @MainActor [weak self] in
             self?.refreshToolbarToggleState()
         }
@@ -362,11 +362,11 @@ extension MainWindowController: NSToolbarDelegate {
         case .worktreeSidebar:
             item = makeNativeToolbarItem(
                 identifier: itemIdentifier,
-                label: "Repositories",
-                command: .showReposSidebar,
-                symbolName: "square.stack.3d.down.right",
+                label: AppCommand.toggleSidebar.definition.label,
+                command: .toggleSidebar,
+                symbolName: SystemSymbol.sidebarLeft.rawValue,
                 isBordered: false,
-                action: #selector(showWorktreeSidebarToolbarAction)
+                action: #selector(toggleSidebarToolbarAction)
             )
         case .sidebarDivider:
             item = makeToolbarDividerItem(identifier: itemIdentifier, label: "Sidebar Divider")
@@ -486,10 +486,10 @@ extension MainWindowController: NSToolbarDelegate {
         let sidebarOpen = !sidebarState.sidebarCollapsed
         setToggleImage(
             identifier: .worktreeSidebar,
-            baseSymbol: "square.stack.3d.down.right",
-            selectedSymbol: "square.stack.3d.down.right.fill",
-            label: "Repositories",
-            isSelected: sidebarOpen && sidebarState.sidebarSurface == .repos
+            baseSymbol: SystemSymbol.sidebarLeft.rawValue,
+            selectedSymbol: SystemSymbol.sidebarLeft.rawValue,
+            label: AppCommand.toggleSidebar.definition.label,
+            isSelected: sidebarOpen
         )
     }
 
@@ -498,7 +498,6 @@ extension MainWindowController: NSToolbarDelegate {
         withObservationTracking {
             let sidebarState = atom(\.workspaceSidebarState)
             _ = sidebarState.sidebarCollapsed
-            _ = sidebarState.sidebarSurface
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.hasShutdown else { return }

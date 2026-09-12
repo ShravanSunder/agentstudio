@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { bridgeMarkdownSourceTargetsSchema } from '../bridge-markdown-source-target.js';
+
 export const bridgeMarkdownRenderWorkerMethodSchema = z.literal('markdown.render');
 
 export const bridgeMarkdownFileSourceIdentitySchema = z.object({
@@ -72,6 +74,7 @@ export const bridgeMarkdownRenderWorkerSuccessResponseSchema =
 		method: bridgeMarkdownRenderWorkerMethodSchema,
 		ok: z.literal(true),
 		htmlCandidate: z.string(),
+		annotationTargets: bridgeMarkdownSourceTargetsSchema,
 		mermaidDiagrams: z.array(bridgeMarkdownMermaidDiagramSchema),
 		metrics: bridgeMarkdownRenderWorkerMetricsSchema,
 	});

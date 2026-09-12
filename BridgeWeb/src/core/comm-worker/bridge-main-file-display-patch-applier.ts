@@ -130,6 +130,20 @@ export class BridgeMainFileDisplayPatchApplier {
 		return this.#fileTreePatchStream;
 	}
 
+	prepareForWorkerReplacement(): BridgeMainFileDisplayState {
+		const pendingTransaction = this.#pendingQueryTransaction;
+		if (pendingTransaction !== null) {
+			pendingTransaction.cancelAcknowledgementTimeout?.();
+			this.#fileTreePatchStream.append({
+				kind: 'queryAbort',
+				transactionId: pendingTransaction.transactionId,
+			});
+			this.#pendingQueryTransaction = null;
+		}
+		this.#state = { ...this.#state, fileDisplayFreshness: null };
+		return this.#state;
+	}
+
 	applyEvent(event: BridgeWorkerFileDisplayPatchEvent): BridgeMainFileDisplayState | null {
 		if (this.#pendingQueryTransaction?.workerCommitReceived === true) {
 			return this.#bufferEventAfterTerminalCommit(event);

@@ -203,6 +203,7 @@ export function planBridgeWorkerFileViewPierreRenderJob(
 					contentRoles: ['file'],
 					cacheKey: contentCacheKey,
 					lineCount: props.metadata.payloadLineCount,
+					sourceDescriptorId: props.resource.descriptorId,
 				},
 			},
 		},

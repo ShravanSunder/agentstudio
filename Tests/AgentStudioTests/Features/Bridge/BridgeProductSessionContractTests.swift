@@ -15,9 +15,9 @@ struct BridgeProductSessionContractTests {
         #expect(
             BridgeProductWireContract.capabilityHeaderName
                 == "X-AgentStudio-Bridge-Product-Capability")
-        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 256 * 1024)
         #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
-        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 256 * 1024 - 42)
     }
 
     @Test("shared product-session corpus decodes and round-trips every v2 union")
@@ -252,6 +252,58 @@ struct BridgeProductSessionContractTests {
                 object: ["method": "review.publication.applied", "result": [:]]
             )
         )
+    }
+
+    @Test("Review publication install admission uses the shared strict call corpus")
+    func reviewPublicationInstallAdmissionUsesSharedStrictCallCorpus() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        for testCase in try fixtureArray(named: "reviewPublicationInstallAdmissionCases", in: corpus) {
+            let request = try #require(testCase["request"] as? [String: Any])
+            let result = try #require(testCase["result"] as? [String: Any])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallRequest.self, from: [request])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallResult.self, from: [result])
+        }
+
+        let candidatePublicationId = "00000000-0000-7000-8000-000000000018"
+        for invalidRequest in [
+            ["candidatePublicationId": candidatePublicationId],
+            [
+                "candidatePublicationId": candidatePublicationId,
+                "expectedDisplayedPublicationId": "00000000-0000-4000-8000-000000000017",
+            ],
+            [
+                "candidatePublicationId": candidatePublicationId,
+                "expectedDisplayedPublicationId": NSNull(),
+                "future": true,
+            ],
+        ] as [[String: Any]] {
+            #expect(
+                decodingFails(
+                    BridgeProductCallRequest.self,
+                    object: [
+                        "method": "review.publication.install.admit",
+                        "request": invalidRequest,
+                    ]
+                )
+            )
+        }
+        for invalidResult in [
+            [:],
+            ["status": "unknown"],
+            ["future": true, "status": "admitted"],
+        ] as [[String: Any]] {
+            #expect(
+                decodingFails(
+                    BridgeProductCallResult.self,
+                    object: [
+                        "method": "review.publication.install.admit",
+                        "result": invalidResult,
+                    ]
+                )
+            )
+        }
     }
 
     @Test("resync carries independent surface epochs and rejects same-surface disagreement")
@@ -824,6 +876,7 @@ extension BridgeProductSessionContractTests {
                 let method = call["method"] as? String
             else { return nil }
             switch method {
+            case "file.refresh.retry": return "file"
             case "review.comparisonTargets.query", "review.markFileViewed": return "review"
             default: return nil
             }

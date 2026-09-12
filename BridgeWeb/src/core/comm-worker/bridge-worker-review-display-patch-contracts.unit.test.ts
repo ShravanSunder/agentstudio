@@ -230,6 +230,13 @@ const REVIEW_DISPLAY_EVENT = {
 	direction: 'serverWorkerToMain',
 	epoch: 1,
 	kind: 'reviewDisplayPatch',
+	reviewPublicationIdentity: {
+		packageId: 'package-1',
+		publicationId: '00000000-0000-7000-8000-000000000001',
+		reviewGeneration: 7,
+		revision: 11,
+		sourceIdentity: 'source-1',
+	},
 	patches: [
 		{
 			operation: 'upsert',
@@ -301,6 +308,7 @@ function makeReviewDisplayFailureEvent(): BridgeWorkerReviewDisplayPatchEvent {
 		direction: 'serverWorkerToMain',
 		epoch: 1,
 		kind: 'reviewDisplayPatch',
+		reviewPublicationIdentity: null,
 		patches: [
 			{
 				operation: 'failed',

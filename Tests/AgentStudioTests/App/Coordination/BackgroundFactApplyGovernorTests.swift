@@ -1,5 +1,5 @@
-import Dispatch
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -153,9 +153,7 @@ struct BackgroundFactApplyGovernorTests {
             timeUnixNano: { 939 }
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
-        let clock = TestPushClock()
-        let preparationFinished = DispatchSemaphore(value: 0)
-        let queueWaitRecorded = DispatchSemaphore(value: 0)
+        let clock = MainActorEntryAdvancingClock()
         var appliedFacts: [String] = []
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
@@ -163,7 +161,7 @@ struct BackgroundFactApplyGovernorTests {
             clock: clock,
             performanceTraceRecorder: recorder,
             prepareApply: { _, fact in
-                preparationFinished.signal()
+                clock.advanceOnNextMainThreadRead(by: .milliseconds(10))
                 return { @MainActor in
                     appliedFacts.append(fact)
                     clock.advance(by: .milliseconds(2))
@@ -172,18 +170,6 @@ struct BackgroundFactApplyGovernorTests {
         )
         governor.start()
         let acknowledgement = governor.enqueue("pending", for: 1)
-        // Detached execution is required so this task can advance the test clock while MainActor is blocked.
-        // swiftlint:disable:next no_task_detached
-        let queueDelayTask = Task.detached {
-            guard waitForGovernorTestSemaphore(preparationFinished) else {
-                return
-            }
-            clock.advance(by: .milliseconds(10))
-            queueWaitRecorded.signal()
-        }
-
-        #expect(waitForGovernorTestSemaphore(queueWaitRecorded))
-        await queueDelayTask.value
         #expect(await acknowledgement.result() == .applied)
         await governor.shutdown()
         try await recorder.drain()
@@ -192,6 +178,7 @@ struct BackgroundFactApplyGovernorTests {
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.queue_wait_ms\":10"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":0"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":2"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":2"))
     }
@@ -248,6 +235,33 @@ struct BackgroundFactApplyGovernorTests {
     }
 }
 
-private func waitForGovernorTestSemaphore(_ semaphore: DispatchSemaphore) -> Bool {
-    semaphore.wait(timeout: .now() + .seconds(5)) == .success
+// Advance at the macOS MainActor entry boundary, not at a racing preparation signal.
+private final class MainActorEntryAdvancingClock: Clock, Sendable {
+    typealias Instant = TestPushClock.Instant
+    typealias Duration = Swift.Duration
+
+    private let clock = TestPushClock()
+    private let pendingAdvance = Mutex<Duration?>(nil)
+
+    var now: Instant {
+        pendingAdvance.withLock { pending in
+            if Thread.isMainThread, let duration = pending {
+                pending = nil
+                clock.advance(by: duration)
+            }
+            return clock.now
+        }
+    }
+
+    var minimumResolution: Duration { clock.minimumResolution }
+
+    func advanceOnNextMainThreadRead(by duration: Duration) {
+        pendingAdvance.withLock { $0 = duration }
+    }
+
+    func advance(by duration: Duration) { clock.advance(by: duration) }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        try await clock.sleep(until: deadline, tolerance: tolerance)
+    }
 }

@@ -545,6 +545,9 @@ extension GitWorkingDirectoryProjector {
                 completion + refreshPolicy.automaticDutyGap(for: duty)
             )
         }
+        // Visibility may have queued a deadline from the previous sample while this read ran.
+        // Completion replaces that estimate with the cadence and duty of the accepted result.
+        automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         scheduleAutomaticRefresh(worktreeId: worktreeId)
     }
 

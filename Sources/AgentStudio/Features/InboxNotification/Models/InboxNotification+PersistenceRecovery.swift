@@ -39,6 +39,8 @@ extension PersistenceRecoveryEvent {
             "Sidebar cache reset"
         case .notificationInbox:
             "Notification inbox reset"
+        case .worktreeAnnotations:
+            "Review annotations need acknowledgement"
         }
     }
 
@@ -56,10 +58,17 @@ extension PersistenceRecoveryEvent {
             "Sidebar cache save failed"
         case .notificationInbox:
             "Notification inbox save failed"
+        case .worktreeAnnotations:
+            "Review annotation save failed"
         }
     }
 
     fileprivate var notificationBody: String {
+        if store == .worktreeAnnotations, recovery == .quarantinedAndReset {
+            let filenameDetails = quarantinedFilename.map { " Quarantined files: \($0)" } ?? ""
+            return
+                "The local database was moved aside after a recovery failure. Review annotations remain unavailable until you acknowledge the recovery.\(filenameDetails)"
+        }
         let action =
             switch recovery {
             case .resetToDefaults:

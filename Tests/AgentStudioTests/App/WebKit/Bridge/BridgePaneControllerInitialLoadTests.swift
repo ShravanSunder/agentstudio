@@ -668,12 +668,79 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedComparisonRequestsCount() == 1)
         }
 
+        @Test("foreground File pane waits for active mode or background intake before Review")
+        func foregroundFilePaneDoesNotEagerlyLoadReview() async throws {
+            // Arrange
+            let worktreeId = UUIDv7.generate()
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                panelKind: .fileViewer,
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: worktreeId,
+                provider: provider,
+                initialPaneActivity: .loadedHidden
+            )
+            defer { controller.teardown() }
+
+            // Act
+            let foregroundTransition = controller.applyBridgePaneActivity(.foreground)
+            await foregroundTransition?.value
+
+            // Assert
+            #expect(controller.activeReviewRefreshTask == nil)
+            #expect(await provider.recordedComparisonRequestsCount() == 0)
+        }
+
+        @Test("active Review mode starts the initial Review package")
+        func activeReviewModeStartsInitialReviewPackage() async throws {
+            // Arrange
+            let worktreeId = UUIDv7.generate()
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: worktreeId,
+                provider: provider
+            )
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+
+            // Act
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "initial-review-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission
+            )
+            let reviewTask = try #require(controller.activeReviewRefreshTask)
+            await reviewTask.value
+
+            // Assert
+            #expect(await provider.recordedComparisonRequestsCount() == 1)
+            #expect(controller.paneState.diff.status == .ready)
+        }
+
         private func makeController(
             panelKind: BridgePanelKind = .diffViewer,
             source: BridgePaneSource?,
             repoId: UUID? = nil,
             worktreeId: UUID?,
             provider: any BridgeReviewSourceProvider,
+            initialPaneActivity: BridgePaneActivity = .foreground,
             initialContributionTargetCommit:
                 (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
         ) -> BridgePaneController {
@@ -687,7 +754,7 @@ extension WebKitSerializedTests {
                     facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId)
                 ),
                 reviewSourceProvider: provider,
-                initialPaneActivity: .foreground,
+                initialPaneActivity: initialPaneActivity,
                 initialContributionTargetCommit: initialContributionTargetCommit
             )
         }

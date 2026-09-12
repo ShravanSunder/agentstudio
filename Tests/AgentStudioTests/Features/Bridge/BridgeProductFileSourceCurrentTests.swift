@@ -121,7 +121,10 @@ struct BridgeProductFileSourceCurrentTests {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
 
         // Act
-        let response = await provider.response(for: request)
+        let response = await provider.response(
+            for: request,
+            productAdmission: productAdmission.context
+        )
         let emissionsAfterQuery = try await fileMetadataSource.publish(
             changeset: FileChangeset(
                 worktreeId: worktree.id,
@@ -161,9 +164,13 @@ struct BridgeProductFileSourceCurrentTests {
             markReviewItemViewed: { _, _ in },
             refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
 
         // Act
-        let response = await provider.response(for: try productFileSourceCurrentControlRequest())
+        let response = await provider.response(
+            for: try productFileSourceCurrentControlRequest(),
+            productAdmission: productAdmission.context
+        )
 
         // Assert
         guard case .callCompleted(let completed) = response,

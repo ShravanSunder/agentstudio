@@ -243,6 +243,11 @@ extension AppDelegate {
             )
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
+        await finishCanonicalStoreBoot(sqliteDatastore: sqliteDatastore)
+    }
+
+    private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        await bootWorktreeAnnotations(sqliteDatastore: sqliteDatastore)
         configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.core.windowLifecycle
@@ -255,6 +260,35 @@ extension AppDelegate {
         RestoreTrace.log(
             "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.graphAtom.paneIDs.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
+    }
+
+    private func bootWorktreeAnnotations(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        worktreeAnnotationStore = WorktreeAnnotationServiceActor(
+            sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
+                workspaceID: store.identityAtom.workspaceId,
+                datastore: sqliteDatastore
+            ),
+            traceRuntime: traceRuntime
+        )
+        worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
+            store: worktreeAnnotationStore,
+            effect: WorktreeAnnotationOutputEffects()
+        )
+        do {
+            _ = try await worktreeAnnotationOutputCoordinator.recoverPreparedAttemptsAsUnknown()
+        } catch {
+            recordPersistenceRecovery(
+                PersistenceRecoveryEvent(
+                    store: .worktreeAnnotations,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
+            )
+            return
+        }
+        if let recoveryEvent = await worktreeAnnotationStore.restoreRecoveryState() {
+            recordPersistenceRecovery(recoveryEvent)
+        }
     }
 
     private func configurePerformanceTelemetry() {
@@ -274,12 +308,15 @@ extension AppDelegate {
         }
     }
 
-    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
-        WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
+        WorkspaceSQLiteDatastoreFactory(
+            traceRuntime: traceRuntime,
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+        ).makeDatastore()
     }
 
     func makeWorkspaceSettingsStore(
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
@@ -337,6 +374,32 @@ extension AppDelegate {
                 )
             )
         seedSlotsForInstalledPanes()
+        let filesystemComposition = makeBootFilesystemComposition(
+            paneRuntimeBus: paneRuntimeBus
+        )
+        let gitStatusPhysicalGate = filesystemComposition.gitStatusPhysicalGate
+        let gitWorkingTreeStatusProvider = filesystemComposition.gitWorkingTreeStatusProvider
+        let pipeline = filesystemComposition.pipeline
+        filesystemSource = pipeline
+        watchedFolderCommands = pipeline
+        repositoryFactUpdateSource = pipeline
+        bootInstallWorkspaceRuntimeOwners(
+            paneRuntimeBus: paneRuntimeBus,
+            pipeline: pipeline,
+            gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+            gitStatusPhysicalGate: gitStatusPhysicalGate,
+            undoRecovery: undoRecovery
+        )
+        bootInstallShellRuntimeOwners(paneRuntimeBus: paneRuntimeBus)
+    }
+
+    private func makeBootFilesystemComposition(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>
+    ) -> (
+        pipeline: FilesystemGitPipeline,
+        gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
+    ) {
         let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let fseventStreamClient = DarwinFSEventStreamClient()
         bootRegisterFilesystemIngressPerformanceReporter(for: fseventStreamClient)
@@ -353,9 +416,16 @@ extension AppDelegate {
             repositoryLocalActivityProjector: repositoryLocalActivityProjector,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        filesystemSource = pipeline
-        watchedFolderCommands = pipeline
-        repositoryFactUpdateSource = pipeline
+        return (pipeline, gitWorkingTreeStatusProvider, gitStatusPhysicalGate)
+    }
+
+    private func bootInstallWorkspaceRuntimeOwners(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        pipeline: FilesystemGitPipeline,
+        gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
+        gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate,
+        undoRecovery: WorkspaceUndoJournalRecovery
+    ) {
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -375,6 +445,8 @@ extension AppDelegate {
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in
@@ -414,6 +486,11 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+    }
+
+    private func bootInstallShellRuntimeOwners(
+        paneRuntimeBus: EventBus<RuntimeEnvelope>
+    ) {
         startWorkspacePaneRecencyObservation()
         bootInstallCommandBar()
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
@@ -439,7 +516,7 @@ extension AppDelegate {
     }
 
     private func makeRepositoryLocalActivityStore(
-        sqliteDatastore: WorkspaceSQLiteDatastore
+        sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) -> RepositoryLocalActivityStore {
         RepositoryLocalActivityStore(
             atom: atomStore.core.repositoryLocalActivity,

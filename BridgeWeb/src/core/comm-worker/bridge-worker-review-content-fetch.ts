@@ -23,6 +23,7 @@ export interface BridgeWorkerReviewContentResourceFetch {
 }
 
 export interface FetchBridgeWorkerReviewContentResourceProps {
+	readonly beforeOpenContent?: () => Promise<void>;
 	readonly descriptor: BridgeWorkerReviewContentRequestDescriptor;
 	readonly openContent: BridgeWorkerReviewContentOpen;
 	readonly registerResponseStartControl?: (
@@ -102,6 +103,7 @@ export type BridgeWorkerReviewContentResourceFetchResult =
 	  };
 
 export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
+	readonly beforeOpenContent?: () => Promise<void>;
 	readonly bodyRegistry?: BridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>;
 	readonly openContent: BridgeWorkerReviewContentOpen | undefined;
 	readonly resolveBodyRegistry?: () =>
@@ -162,6 +164,9 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 			return internalBridgeWorkerReviewContentFetchResult(descriptor);
 		}
 		const resourcePromise = fetchBridgeWorkerReviewContentResource({
+			...(props.beforeOpenContent === undefined
+				? {}
+				: { beforeOpenContent: props.beforeOpenContent }),
 			descriptor,
 			openContent: props.openContent,
 			...(registerResponseStartControl === undefined ? {} : { registerResponseStartControl }),
@@ -248,6 +253,12 @@ export async function fetchBridgeWorkerReviewContentResource(
 	}
 	let contentStream: BridgeProductContentStream<'review.content'>;
 	try {
+		if (props.beforeOpenContent !== undefined) {
+			await props.beforeOpenContent();
+		}
+		if (abortSignal.aborted) {
+			return abortedBridgeWorkerReviewContentFetchResult(descriptor);
+		}
 		contentStream = props.openContent(descriptor, abortSignal);
 	} catch {
 		return internalBridgeWorkerReviewContentFetchResult(descriptor);

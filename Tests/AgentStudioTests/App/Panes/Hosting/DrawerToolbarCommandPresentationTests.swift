@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -5,12 +6,35 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("Drawer toolbar command presentation")
+@Suite("Drawer toolbar command presentation", .serialized)
 struct DrawerToolbarCommandPresentationTests {
+    @Test("drawer command glyphs preserve the established toolbar and menu references")
+    func commandGlyphsMatchExistingControls() {
+        #expect(AppCommand.addDrawerPane.definition.icon == .system(.plus))
+        #expect(AppCommand.toggleDrawer.definition.icon == .system(.rectangleBottomhalfFilled))
+        #expect(AppCommand.openPaneLocationInFinder.definition.icon == LocalActionSpec.revealInFinder.actionSpec.icon)
+        #expect(
+            AppCommand.openPaneLocationInEditorMenu.definition.icon == .system(.chevronLeftForwardslashChevronRight))
+    }
+
+    @Test("unpin targets the toolbar owner even when a drawer child owns location actions")
+    func unpinTargetsToolbarOwner() throws {
+        let owner = UUIDv7.generate()
+        let child = UUIDv7.generate()
+        let resolver = RecordingDrawerToolbarActionResolver()
+        let presentation = DrawerToolbarCommandPresentation.resolve(
+            anchorPaneId: owner, locationTargetPaneId: child, toolbarSurface: .pane,
+            actionResolver: resolver.resolve, isOwnerPinned: true
+        )
+        #expect(presentation.pinPane?.commandSpec.command == .unpinPane)
+        #expect(resolver.requests.first { $0.command == .unpinPane }?.target == owner)
+        #expect(resolver.requests.first { $0.command == .copyCurrentPanePath }?.target == child)
+    }
+
     @Test("anchor and location controls request the exact pane toolbar targets")
     func controlsRequestExactPaneToolbarTargets() {
-        let anchorPaneId = UUID()
-        let locationTargetPaneId = UUID()
+        let anchorPaneId = UUIDv7.generate()
+        let locationTargetPaneId = UUIDv7.generate()
         let resolver = RecordingDrawerToolbarActionResolver()
 
         _ = DrawerToolbarCommandPresentation.resolve(
@@ -30,6 +54,12 @@ struct DrawerToolbarCommandPresentationTests {
                 ),
                 .init(
                     command: .addDrawerPane,
+                    surface: .toolbar(.pane),
+                    target: anchorPaneId,
+                    targetType: .pane
+                ),
+                .init(
+                    command: .pinPane,
                     surface: .toolbar(.pane),
                     target: anchorPaneId,
                     targetType: .pane
@@ -79,8 +109,8 @@ struct DrawerToolbarCommandPresentationTests {
         let resolver = RecordingDrawerToolbarActionResolver()
 
         _ = DrawerToolbarCommandPresentation.resolve(
-            anchorPaneId: UUID(),
-            locationTargetPaneId: UUID(),
+            anchorPaneId: UUIDv7.generate(),
+            locationTargetPaneId: UUIDv7.generate(),
             toolbarSurface: .terminalZoom,
             actionResolver: resolver.resolve
         )
@@ -89,7 +119,7 @@ struct DrawerToolbarCommandPresentationTests {
             resolver.requests.map(\.surface)
                 == Array(
                     repeating: .toolbar(.terminalZoom),
-                    count: 8
+                    count: 9
                 )
         )
     }
@@ -101,8 +131,8 @@ struct DrawerToolbarCommandPresentationTests {
         resolver.disabledCommands = [.toggleDrawer, .copyCurrentPanePath]
 
         let presentation = DrawerToolbarCommandPresentation.resolve(
-            anchorPaneId: UUID(),
-            locationTargetPaneId: UUID(),
+            anchorPaneId: UUIDv7.generate(),
+            locationTargetPaneId: UUIDv7.generate(),
             toolbarSurface: .pane,
             actionResolver: resolver.resolve
         )
@@ -119,8 +149,8 @@ struct DrawerToolbarCommandPresentationTests {
 
     @Test("execution revalidates the exact location pane before targeted dispatch")
     func executionRevalidatesLocationPaneBeforeDispatch() throws {
-        let anchorPaneId = UUID()
-        let locationTargetPaneId = UUID()
+        let anchorPaneId = UUIDv7.generate()
+        let locationTargetPaneId = UUIDv7.generate()
         let dispatcher = RecordingDrawerToolbarDispatcher()
         let finderQuery = DrawerToolbarTargetedQuery(
             command: .openPaneLocationInFinder,

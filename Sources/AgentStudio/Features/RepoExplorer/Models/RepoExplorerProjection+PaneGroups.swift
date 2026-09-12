@@ -22,7 +22,8 @@ extension RepoExplorerProjection {
         destination: RepoExplorerProjectedPaneDestination,
         reposById: [UUID: RepoPresentationItem],
         paneFacts: RepoExplorerPaneRowFacts?,
-        branchFacts: RepoExplorerPaneBranchProjectionFacts
+        branchFacts: RepoExplorerPaneBranchProjectionFacts,
+        showsPaneNumber: Bool
     ) -> RepoExplorerProjectedPaneRow {
         switch destination {
         case .associated(let associatedDestination):
@@ -32,8 +33,9 @@ extension RepoExplorerProjection {
                 destination: associatedDestination,
                 membershipOwner: .tab,
                 rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
-                primaryText: panePrimaryText(destination, terminalTitle: paneFacts?.sidebarTerminalTitle),
-                secondaryLine: paneFacts?.secondaryLine,
+                primaryText: panePrimaryText(
+                    destination, terminalTitle: paneFacts?.sidebarTerminalTitle, showsPaneNumber: showsPaneNumber),
+                secondaryLine: paneFacts?.secondaryLine ?? .terminalOutput(paneFacts?.sidebarTerminalTitle ?? "zsh"),
                 branchContextText: normalizedBranchName(
                     branchFacts.namesByWorktreeId[associatedDestination.worktreeId]
                 ).map { branchName in
@@ -51,8 +53,9 @@ extension RepoExplorerProjection {
                 groupId: groupId,
                 destination: unassociatedDestination,
                 rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
-                primaryText: panePrimaryText(destination, terminalTitle: paneFacts?.sidebarTerminalTitle),
-                secondaryLine: paneFacts?.secondaryLine,
+                primaryText: panePrimaryText(
+                    destination, terminalTitle: paneFacts?.sidebarTerminalTitle, showsPaneNumber: showsPaneNumber),
+                secondaryLine: paneFacts?.secondaryLine ?? .terminalOutput(paneFacts?.sidebarTerminalTitle ?? "zsh"),
                 recencyText: paneFacts?.recencyText ?? "Now",
                 recencyTier: paneFacts?.recencyTier ?? .strongBlue,
                 isActive: paneFacts?.isActive ?? false,

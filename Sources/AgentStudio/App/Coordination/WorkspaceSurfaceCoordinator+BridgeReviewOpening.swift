@@ -6,23 +6,31 @@ import AppKit
 extension WorkspaceSurfaceCoordinator {
     /// Open an independent read-only Bridge review pane in a new tab.
     @discardableResult
-    func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {
+    func openBridgeReviewInNewTab(
+        worktreeId: UUID? = nil,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil
+    ) -> Pane? {
         openBridgePane(
             panelKind: .diffViewer,
             title: "Bridge Review",
             worktreeId: worktreeId,
-            logName: "Bridge review"
+            logName: "Bridge review",
+            viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
         )
     }
 
     /// Open an independent Bridge file-viewer pane in a new tab.
     @discardableResult
-    func openBridgeFilesInNewTab(worktreeId: UUID? = nil) -> Pane? {
+    func openBridgeFilesInNewTab(
+        worktreeId: UUID? = nil,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor? = nil
+    ) -> Pane? {
         openBridgePane(
             panelKind: .fileViewer,
             title: "Files",
             worktreeId: worktreeId,
-            logName: "Bridge file view"
+            logName: "Bridge file view",
+            viewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
         )
     }
 
@@ -99,7 +107,8 @@ extension WorkspaceSurfaceCoordinator {
         panelKind: BridgePanelKind,
         title: String,
         worktreeId: UUID?,
-        logName: String
+        logName: String,
+        viewerOpenTelemetryAnchor: BridgeViewerOpenTelemetryAnchor?
     ) -> Pane? {
         let activePane = store.tabLayoutAtom.activeTabId
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
@@ -127,7 +136,12 @@ extension WorkspaceSurfaceCoordinator {
         }
         viewRegistry.ensureSlot(for: pane.id)
 
-        guard createViewForContent(pane: pane) != nil else {
+        guard
+            createViewForContent(
+                pane: pane,
+                bridgeViewerOpenTelemetryAnchor: viewerOpenTelemetryAnchor
+            ) != nil
+        else {
             Self.logger.error("\(logName) creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
             // Safe immediate deletion: creation failed before the pane entered a rendered layout.

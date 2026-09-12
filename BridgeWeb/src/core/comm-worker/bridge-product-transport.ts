@@ -25,21 +25,34 @@ import {
 	type BridgeProductContentResponseAdmissionLease,
 } from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
-import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
 import {
-	bridgeProductFrameAcknowledgementRejectedStatusSchema,
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	bridgeProductSurfaceSchema,
+	type BridgeProductSurface,
+} from './bridge-product-contract-primitives.js';
+import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
+import {
+	BridgeProductFrameAcknowledgementFailure,
+	sendBridgeProductFrameAcknowledgement,
+} from './bridge-product-frame-acknowledgement.js';
+import type {
+	BridgeProductMetadataApplicationProtocol,
+	BridgeProductMetadataApplicationRegistry,
+	BridgeProductMetadataDataFrame,
+} from './bridge-product-metadata-application-protocol.js';
 import {
 	BridgeProductMetadataStreamDecoder,
 	type BridgeProductMetadataStreamDecoderDiagnostics,
 	type BridgeProductMetadataStreamIdentityField,
 } from './bridge-product-metadata-stream-decoder.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
-import type {
-	BridgeProductControlMux,
-	BridgeProductSessionAuthority,
+import {
+	BridgeProductControlRequestError,
+	type BridgeProductControlMux,
+	type BridgeProductSessionAuthority,
 } from './bridge-product-session-authority.js';
 import {
 	bridgeProductMetadataStreamRequestSchema,
@@ -47,10 +60,10 @@ import {
 	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
 import {
-	bridgeProductSurfaceForSubscriptionKind,
-	type BridgeProductSubscriptionKind,
-	type BridgeProductSubscriptionOptions,
-} from './bridge-product-subscription-contracts.js';
+	BridgeProductSubscriptionFrameFailure,
+	bridgeProductSubscriptionOperationFailureCode,
+	type BridgeProductSubscriptionFrameFailureCode,
+} from './bridge-product-subscription-frame-failure.js';
 import {
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrameSink,
@@ -58,11 +71,9 @@ import {
 import type {
 	BridgeProductCallOptions,
 	BridgeProductContentStream,
-	BridgeProductSubscription,
 	BridgeProductTransport,
 } from './bridge-product-transport-contract.js';
 
-export type BridgeProductSurface = 'file' | 'review';
 export type BridgeProductIdentifierPurpose =
 	| 'content-request'
 	| 'lease'
@@ -78,23 +89,19 @@ type BridgeProductCallArguments = {
 	];
 }[BridgeProductCallKind];
 
-type BridgeProductSubscriptionArguments = {
-	[TSubscriptionKind in BridgeProductSubscriptionKind]: readonly [
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	];
-}[BridgeProductSubscriptionKind];
-
 export interface CreateBridgeProductTransportProps {
 	readonly authority: BridgeProductSessionAuthority;
 	readonly controlMux: Pick<
 		BridgeProductControlMux,
-		'call' | 'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
+		'call' | 'cancelSubscription' | 'openSubscription' | 'resync' | 'updateSubscriptionBatch'
 	>;
 	readonly createIdentifier?: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
-	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
+	readonly initialWorkerDerivationEpochs?: Readonly<Partial<Record<BridgeProductSurface, number>>>;
 	readonly maximumConcurrentContentResponses?: number;
+	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	/** Maximum time an exact frame observation acknowledgement may remain pending. */
+	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
@@ -118,6 +125,12 @@ export type BridgeProductPaneSurfaceSelectionFrame = Extract<
 >;
 
 export interface BridgeProductMetadataStreamHealthDiagnostics {
+	readonly lastSubscriptionTermination: {
+		readonly subscriptionId: string;
+		readonly outcome: 'terminal' | 'failed';
+		readonly reason: BridgeProductMetadataRouteFailureCode | null;
+	} | null;
+	readonly routeFailureSubscriptionId: string | null;
 	readonly acknowledgedFrameCount: number;
 	readonly activeSubscriptionCount: number;
 	readonly committedFrameCount: number;
@@ -156,6 +169,7 @@ export type BridgeProductMetadataStreamFailureStage =
 export type BridgeProductMetadataStreamLifecycleState = 'failed' | 'idle' | 'opening' | 'reading';
 
 export type BridgeProductMetadataRouteFailureCode =
+	| BridgeProductSubscriptionFrameFailureCode
 	| 'metadata_stream_error'
 	| 'subscription_frame_rejected'
 	| 'unknown_subscription';
@@ -171,10 +185,18 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #contentResponseAdmission: BridgeProductContentResponseAdmission;
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
-	readonly #epochs: Record<BridgeProductSurface, number>;
+	readonly #epochs = new Map<BridgeProductSurface, number>();
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
+	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	readonly #frameAcknowledgementTimeoutMilliseconds: number;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
+	#physicalMetadataReady: BridgeProductDeferred<void> | null = null;
+	#metadataRecoveryInFlight = false;
+	#lastRoutedStreamSequence: number | null = null;
+	#metadataRecoveryAttemptedSinceProgress = false;
 	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
+		lastSubscriptionTermination: null,
+		routeFailureSubscriptionId: null,
 		acknowledgedFrameCount: 0,
 		activeSubscriptionCount: 0,
 		committedFrameCount: 0,
@@ -212,21 +234,29 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
 		this.#executeProductRequest = props.executeProductRequest;
+		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
+		this.#frameAcknowledgementTimeoutMilliseconds =
+			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
+		if (
+			!Number.isSafeInteger(this.#frameAcknowledgementTimeoutMilliseconds) ||
+			this.#frameAcknowledgementTimeoutMilliseconds <= 0
+		) {
+			throw new Error('Bridge frame acknowledgement timeout must be a positive safe integer.');
+		}
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
-		this.#epochs = {
-			file: props.initialWorkerDerivationEpochs?.file ?? 0,
-			review: props.initialWorkerDerivationEpochs?.review ?? 0,
-		};
-		assertBridgeProductEpoch(this.#epochs.file);
-		assertBridgeProductEpoch(this.#epochs.review);
+		for (const [rawSurface, epoch] of Object.entries(props.initialWorkerDerivationEpochs ?? {})) {
+			const surface = bridgeProductSurfaceSchema.parse(rawSurface);
+			assertBridgeProductEpoch(epoch);
+			this.#epochs.set(surface, epoch);
+		}
 	}
 
 	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number {
-		const nextEpoch = this.#epochs[surface] + 1;
+		const nextEpoch = this.workerDerivationEpoch(surface) + 1;
 		assertBridgeProductEpoch(nextEpoch);
-		this.#epochs[surface] = nextEpoch;
+		this.#epochs.set(surface, nextEpoch);
 		return nextEpoch;
 	}
 
@@ -248,7 +278,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
-		return this.#epochs[surface];
+		return this.#epochs.get(surface) ?? 0;
 	}
 
 	async call<TCallArguments extends BridgeProductCallArguments>(
@@ -267,10 +297,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	openContent<TContentKind extends BridgeProductContentKind>(
 		descriptor: BridgeProductContentDescriptor<TContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId?: string | null,
 	): BridgeProductContentStream<TContentKind>;
 	openContent(
 		descriptor: BridgeProductContentDescriptor<BridgeProductContentKind>,
 		abortSignal: AbortSignal,
+		operationCorrelationId: string | null = null,
 	): BridgeProductContentStream<BridgeProductContentKind> {
 		const parsedDescriptor = bridgeProductContentDescriptorSchema.parse(descriptor);
 		const contentRequestId = this.#createIdentifier('content-request');
@@ -280,42 +312,121 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			descriptor: parsedDescriptor,
 			kind: 'content.open',
 			leaseId: this.#createIdentifier('lease'),
+			operationCorrelationId,
 			paneSessionId: this.#authority.bootstrap.paneSessionId,
 			wireVersion: this.#authority.bootstrap.wireVersion,
 			workerDerivationEpoch: this.workerDerivationEpoch(
-				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind),
+				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind, parsedDescriptor),
 			),
 			workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 		});
 		return this.#openValidatedContent(request, abortSignal);
 	}
 
-	subscribe<TSubscriptionArguments extends BridgeProductSubscriptionArguments>(
-		...arguments_: TSubscriptionArguments
-	): BridgeProductSubscription<TSubscriptionArguments[0]> {
-		const [subscriptionKind, options] = arguments_;
-		const state = this.#createSubscriptionState(subscriptionKind, options);
+	subscribe<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): {
+		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
+		readonly subscriptionId: string;
+		readonly subscriptionKind: TKind;
+		cancel(): Promise<void>;
+		update(options: TUpdateOptions): Promise<void>;
+	} {
+		this.#metadataApplicationRegistry.requireProtocol(protocol);
+		const state = this.#createSubscriptionState(protocol, options);
 		this.#subscriptions.set(state.subscriptionId, state);
 		state.start();
 		return state.publicSubscription;
 	}
 
-	#createSubscriptionState<TSubscriptionKind extends BridgeProductSubscriptionKind>(
-		subscriptionKind: TSubscriptionKind,
-		options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
-	): BridgeProductSubscriptionState<TSubscriptionKind> {
-		const surface = bridgeProductSurfaceForSubscriptionKind(subscriptionKind);
-		return new BridgeProductSubscriptionState({
+	#createSubscriptionState<
+		TKind extends string,
+		TOptions,
+		TUpdateOptions,
+		TOpen extends { readonly subscriptionKind: TKind },
+		TInterestState extends { readonly subscriptionKind: TKind },
+		TInterestDelta extends { readonly subscriptionKind: TKind },
+		TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
+	>(
+		protocol: BridgeProductMetadataApplicationProtocol<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>,
+		options: TOptions,
+	): BridgeProductSubscriptionState<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	> {
+		return new BridgeProductSubscriptionState<
+			TKind,
+			TOptions,
+			TUpdateOptions,
+			TOpen,
+			TInterestState,
+			TInterestDelta,
+			TData
+		>({
 			controlMux: this.#controlMux,
 			createIdentifier: this.#createIdentifier,
 			ensureMetadataStream: (): Promise<void> => this.#ensureMetadataStream(),
 			initialOptions: options,
-			onTerminal: (subscriptionId): void => {
+			onTerminal: (subscriptionId, error): void => {
+				if (
+					error !== undefined &&
+					this.#metadataStreamHealthDiagnostics.lifecycleState === 'reading' &&
+					this.#metadataStreamHealthDiagnostics.routeFailureCode === null
+				) {
+					this.#metadataStreamHealthDiagnostics = {
+						...this.#metadataStreamHealthDiagnostics,
+						routeFailureCode:
+							error instanceof BridgeProductControlRequestError
+								? `subscription_control_${error.code}`
+								: bridgeProductSubscriptionOperationFailureCode(error),
+					};
+				}
 				this.#subscriptions.delete(subscriptionId);
+				if (this.#metadataStreamHealthDiagnostics.lifecycleState === 'reading') {
+					this.#metadataStreamHealthDiagnostics = {
+						...this.#metadataStreamHealthDiagnostics,
+						lastSubscriptionTermination: {
+							subscriptionId,
+							outcome: error === undefined ? 'terminal' : 'failed',
+							reason: this.#metadataStreamHealthDiagnostics.routeFailureCode,
+						},
+					};
+				}
 			},
+			protocol,
+			readWorkerDerivationEpochAtAdmission: (): number =>
+				this.workerDerivationEpoch(protocol.surface),
 			subscriptionId: this.#createIdentifier('subscription'),
-			subscriptionKind,
-			workerDerivationEpoch: this.workerDerivationEpoch(surface),
 		});
 	}
 
@@ -323,25 +434,95 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		if (this.#metadataReady !== null) {
 			return this.#metadataReady.promise;
 		}
+		return this.#openMetadataStream(null);
+	}
+
+	#openMetadataStream(resumeFromStreamSequence: number | null): Promise<void> {
 		const request = bridgeProductMetadataStreamRequestSchema.parse({
 			kind: 'metadataStream.open',
 			metadataStreamId: this.#createIdentifier('metadata-stream'),
 			paneSessionId: this.#authority.bootstrap.paneSessionId,
-			resumeFromStreamSequence: null,
+			resumeFromStreamSequence,
 			wireVersion: this.#authority.bootstrap.wireVersion,
 			workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 		});
 		const ready = createBridgeProductDeferred<void>();
-		this.#metadataReady = ready;
+		this.#physicalMetadataReady = ready;
+		if (this.#metadataReady === null) this.#metadataReady = ready;
 		const readTask = this.#readMetadataStream(request);
 		void readTask.catch((error: unknown): void => {
-			if (this.#metadataReady === ready) {
+			if (this.#physicalMetadataReady !== ready) return;
+			this.#physicalMetadataReady = null;
+			if (!this.#metadataRecoveryInFlight) {
 				this.#metadataReady = null;
 			}
 			ready.reject(error);
+			if (
+				!this.#metadataRecoveryInFlight &&
+				this.#lastRoutedStreamSequence !== null &&
+				(this.#metadataStreamHealthDiagnostics.failureStage === 'read' ||
+					this.#metadataStreamHealthDiagnostics.failureStage === 'unexpectedEof' ||
+					(this.#metadataStreamHealthDiagnostics.failureStage === 'finish' &&
+						this.#metadataStreamHealthDiagnostics.failureCode === 'truncated_frame') ||
+					(this.#metadataStreamHealthDiagnostics.failureStage === 'acknowledgement' &&
+						error instanceof BridgeProductFrameAcknowledgementFailure &&
+						(error.failureCode === 'request_failed' ||
+							error.failureCode === 'request_timeout' ||
+							// A disconnect can retire the producer before its last observation arrives.
+							// Reconcile established streams; never treat the rejected receipt as accepted.
+							(error.failureCode === 'rejected_status' &&
+								error.status === 409 &&
+								this.#lastRoutedStreamSequence > 0)))) &&
+				this.#subscriptions.size > 0 &&
+				!this.#metadataRecoveryAttemptedSinceProgress
+			) {
+				void this.#recoverMetadataStream().catch((recoveryError: unknown): void => {
+					this.#poisonMetadataSession(recoveryError);
+				});
+				return;
+			}
 			this.#poisonMetadataSession(error);
 		});
 		return ready.promise;
+	}
+
+	async #recoverMetadataStream(): Promise<void> {
+		const lastRoutedStreamSequence = this.#lastRoutedStreamSequence;
+		if (lastRoutedStreamSequence === null) {
+			throw new Error('Metadata reconciliation requires a received stream cursor.');
+		}
+		this.#metadataRecoveryInFlight = true;
+		const recoveryReady = createBridgeProductDeferred<void>();
+		void recoveryReady.promise.catch((): void => {});
+		this.#metadataRecoveryAttemptedSinceProgress = true;
+		this.#metadataReady = recoveryReady;
+		const subscriptions = [...this.#subscriptions.values()];
+		for (const subscription of subscriptions) subscription.beginRecovery();
+		try {
+			const response = await this.#controlMux.resync({
+				readActiveSubscriptions: () =>
+					[...this.#subscriptions.values()].flatMap((subscription) => {
+						const claim = subscription.reconciliationClaim();
+						return claim === null ? [] : [claim];
+					}),
+				readLastAcceptedStreamSequence: () => lastRoutedStreamSequence,
+			});
+			await Promise.all(
+				response.reconciliation.map(async (outcome): Promise<void> => {
+					const subscription = this.#subscriptions.get(outcome.subscriptionId);
+					if (subscription !== undefined) await subscription.applyReconciliation(outcome);
+				}),
+			);
+			await this.#openMetadataStream(response.metadataStreamSequenceBarrier);
+			await Promise.all(subscriptions.map((subscription) => subscription.finishRecovery()));
+			recoveryReady.resolve();
+		} catch (error) {
+			recoveryReady.reject(error);
+			if (this.#metadataReady === recoveryReady) this.#metadataReady = null;
+			throw error;
+		} finally {
+			this.#metadataRecoveryInFlight = false;
+		}
 	}
 
 	async #readMetadataStream(request: BridgeProductMetadataStreamRequest): Promise<void> {
@@ -349,7 +530,6 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			...this.#metadataStreamHealthDiagnostics,
 			failureStage: null,
 			lifecycleState: 'opening',
-			routeFailureCode: null,
 		};
 		try {
 			await this.#authority.open;
@@ -435,14 +615,36 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 						this.#routeMetadataFrame(frame);
 					} catch (error) {
 						const routeFailure = bridgeProductMetadataRouteFailure(error);
+						if (
+							'subscriptionId' in frame &&
+							this.#metadataStreamHealthDiagnostics.routeFailureSubscriptionId === null
+						) {
+							this.#metadataStreamHealthDiagnostics = {
+								...this.#metadataStreamHealthDiagnostics,
+								routeFailureSubscriptionId: frame.subscriptionId,
+							};
+						}
 						this.#recordMetadataStreamFailure('route', routeFailure.routeFailureCode);
 						throw routeFailure;
 					}
 					this.#metadataStreamHealthDiagnostics = {
 						...this.#metadataStreamHealthDiagnostics,
 						lastRoutedFrameKind: frame.kind,
+						routeFailureSubscriptionId:
+							frame.kind === 'subscription.data'
+								? null
+								: this.#metadataStreamHealthDiagnostics.routeFailureSubscriptionId,
+						routeFailureCode:
+							frame.kind === 'subscription.data'
+								? null
+								: this.#metadataStreamHealthDiagnostics.routeFailureCode,
 						routedFrameCount: this.#metadataStreamHealthDiagnostics.routedFrameCount + 1,
 					};
+					this.#lastRoutedStreamSequence = frame.streamSequence;
+					// Opening and pane-control replay do not establish subscription progress.
+					if ('subscriptionId' in frame) {
+						this.#metadataRecoveryAttemptedSinceProgress = false;
+					}
 					try {
 						// eslint-disable-next-line no-await-in-loop -- Native pacing advances only after this exact routed frame is accepted.
 						await this.#acknowledgeMetadataFrame(frame);
@@ -498,24 +700,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	async #sendFrameAcknowledgement(
 		request: BridgeProductFrameAcknowledgementRequest,
 	): Promise<void> {
-		let response: Response;
-		try {
-			response = await this.#executeProductRequest('command', {
-				body: encodeBridgeProductRequestBody(request),
-				headers: {
-					'Content-Type': 'application/json',
-					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
-				},
-				method: 'POST',
-			});
-		} catch {
-			throw new BridgeProductFrameAcknowledgementFailure(
-				'request_failed',
-				null,
-				'Bridge product frame acknowledgement request failed.',
-			);
-		}
-		assertBridgeProductFrameAcknowledgementAccepted(response.status);
+		await sendBridgeProductFrameAcknowledgement({
+			capabilityHeader: this.#authority.capabilityHeader,
+			executeProductRequest: this.#executeProductRequest,
+			request,
+			timeoutMilliseconds: this.#frameAcknowledgementTimeoutMilliseconds,
+		});
 	}
 
 	#recordMetadataStreamFailure(
@@ -527,7 +717,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			failureStage,
 			lifecycleState: 'failed',
 			readPending: false,
-			routeFailureCode,
+			routeFailureCode: this.#metadataStreamHealthDiagnostics.routeFailureCode ?? routeFailureCode,
 		};
 	}
 
@@ -554,7 +744,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	#routeMetadataFrame(frame: BridgeProductMetadataFrame): void {
 		switch (frame.kind) {
 			case 'metadataStream.accepted':
-				this.#metadataReady?.resolve();
+				this.#physicalMetadataReady?.resolve();
 				return;
 			case 'pane.presentation':
 				this.#panePresentationFrameSink(frame);
@@ -586,7 +776,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					subscription.acceptFrame(frame);
 				} catch (error) {
 					throw new BridgeProductMetadataRouteFailure(
-						'subscription_frame_rejected',
+						error instanceof BridgeProductSubscriptionFrameFailure
+							? error.routeFailureCode
+							: 'subscription_frame_rejected',
 						error instanceof Error
 							? error.message
 							: 'Bridge product subscription rejected a metadata frame.',
@@ -638,10 +830,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}): Promise<void> {
 		let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 		let responseAdmissionLease: BridgeProductContentResponseAdmissionLease | null = null;
-		const abortReader = (): void => {
+		const abortResponse = (): void => {
 			void reader?.cancel(props.abortSignal.reason).catch((): void => {});
+			responseAdmissionLease?.release();
 		};
-		props.abortSignal.addEventListener('abort', abortReader, { once: true });
+		props.abortSignal.addEventListener('abort', abortResponse, { once: true });
 		try {
 			props.abortSignal.throwIfAborted();
 			await this.#authority.open;
@@ -660,6 +853,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				method: 'POST',
 				signal: props.abortSignal,
 			});
+			props.abortSignal.throwIfAborted();
 			if (!response.ok || response.body === null) {
 				throw new Error(`Bridge product content stream failed with status ${response.status}.`);
 			}
@@ -690,7 +884,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.frames.fail(error, true);
 			props.terminal.reject(error);
 		} finally {
-			props.abortSignal.removeEventListener('abort', abortReader);
+			props.abortSignal.removeEventListener('abort', abortResponse);
 			reader?.releaseLock();
 			responseAdmissionLease?.release();
 		}
@@ -730,44 +924,6 @@ function encodeBridgeProductRequestBody(request: object): ArrayBuffer {
 		throw new Error('Bridge product request exceeds its body ceiling.');
 	}
 	return Uint8Array.from(body).buffer;
-}
-
-function assertBridgeProductFrameAcknowledgementAccepted(status: number): asserts status is 204 {
-	if (status === 204) return;
-	const rejectedStatus = bridgeProductFrameAcknowledgementRejectedStatusSchema.safeParse(status);
-	if (rejectedStatus.success) {
-		throw new BridgeProductFrameAcknowledgementFailure(
-			'rejected_status',
-			rejectedStatus.data,
-			`Bridge product frame acknowledgement was rejected with status ${rejectedStatus.data}.`,
-		);
-	}
-	throw new BridgeProductFrameAcknowledgementFailure(
-		'unsupported_status',
-		status,
-		`Bridge product frame acknowledgement returned unsupported status ${status}.`,
-	);
-}
-
-type BridgeProductFrameAcknowledgementFailureCode =
-	| 'rejected_status'
-	| 'request_failed'
-	| 'unsupported_status';
-
-class BridgeProductFrameAcknowledgementFailure extends Error {
-	readonly failureCode: BridgeProductFrameAcknowledgementFailureCode;
-	readonly status: number | null;
-
-	constructor(
-		failureCode: BridgeProductFrameAcknowledgementFailureCode,
-		status: number | null,
-		message: string,
-	) {
-		super(message);
-		this.name = 'BridgeProductFrameAcknowledgementFailure';
-		this.failureCode = failureCode;
-		this.status = status;
-	}
 }
 
 function assertBridgeProductEpoch(epoch: number): void {

@@ -33,7 +33,7 @@ package struct SidebarEntityToggle<Value: Hashable>: View {
                 entityIcon(value).swiftUIImage(
                     loader: octiconLoader,
                     size: AppStyles.General.Icon.compact,
-                    foregroundOverride: value == selection ? AppStyles.General.Accent.primaryColor : nil
+                    foregroundOverride: value == selection ? AppStyles.General.Accent.selectedControlForeground : nil
                 )
             },
             onSelect: onSelect

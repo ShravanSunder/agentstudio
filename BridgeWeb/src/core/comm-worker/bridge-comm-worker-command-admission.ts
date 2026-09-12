@@ -7,18 +7,28 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 
-export type BridgeCommWorkerIntentEpochDomain = 'fileView' | 'pane' | 'review';
+export type BridgeCommWorkerIntentEpochDomain =
+	| 'fileAnnotation'
+	| 'fileView'
+	| 'pane'
+	| 'review'
+	| 'reviewAnnotation';
 
 export function bridgeCommWorkerIntentEpochDomain(
 	message: BridgeWorkerMainToServerMessage,
 ): BridgeCommWorkerIntentEpochDomain {
 	switch (message.command) {
+		case 'annotationCommand':
+		case 'annotationOutputInspect':
+		case 'annotationProjectionRetry':
+			return message.surface === 'fileView' ? 'fileAnnotation' : 'reviewAnnotation';
 		case 'hover':
 		case 'select':
 		case 'viewport':
 			return message.surface;
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
+		case 'fileRefreshRetry':
 			return 'fileView';
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
@@ -28,15 +38,23 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
+		case 'reviewPublicationInstallAdmit':
+		case 'reviewPublicationInstalled':
 			return 'review';
 		case 'renderDisposition':
-			return message.receipt.surface === 'file' ? 'fileView' : 'review';
+			return message.receipts[0]?.surface === 'file' ? 'fileView' : 'review';
 		case 'activeViewerModeUpdate':
 		case 'mode':
 			return 'pane';
 		default:
 			return assertNeverBridgeWorkerCommand(message);
 	}
+}
+
+export function bridgeCommWorkerCommandUsesIntentEpochAdmission(
+	message: BridgeWorkerMainToServerMessage,
+): boolean {
+	return message.command !== 'renderDisposition';
 }
 
 interface RejectStaleOrReplayedBridgeWorkerCommandProps {

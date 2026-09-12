@@ -250,7 +250,7 @@ struct EntityRecencyStoreTests {
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-entity-recency-recovery-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = WorkspaceSQLiteDatastoreActor(
             configuration: .init(
                 coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
                 localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
@@ -288,7 +288,7 @@ struct EntityRecencyStoreTests {
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-entity-recency-store-recovery-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = WorkspaceSQLiteDatastoreActor(
             configuration: .init(
                 coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
                 localDatabaseURL: rootDirectory.appending(path: "local.sqlite")

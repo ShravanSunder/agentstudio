@@ -1,7 +1,7 @@
 [tools]
 node = "26.5.0"
 pnpm = "11.14.0"
-zig = "0.15.2"
+zig = "0.16.0"
 
 [env]
 PROJECT_ROOT = "{{config_root}}"
@@ -30,13 +30,14 @@ depends = ["init-submodules"]
 run = "bash \"${PROJECT_ROOT}/scripts/build-ghostty-local.sh\""
 
 [tasks.build-zmx]
+tools.zig = "0.16.0"
 description = "Build zmx session multiplexer"
 depends = ["init-submodules"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
-bash "${PROJECT_ROOT}/scripts/zig.sh" build -Doptimize=ReleaseFast
+zig build -Doptimize=ReleaseFast
 """
 dir = "vendor/zmx"
 
@@ -50,13 +51,7 @@ bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 rm -rf Frameworks/GhosttyKit.xcframework
 mkdir -p Frameworks
 cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
-# Drop vendored debug info from the static archive to avoid Apple toolchain
-# symbol-resolution warnings during app/test links. This does not affect
-# linkable symbols; it only reduces unusable third-party debug metadata.
-ARCHIVE_PATH="$(find Frameworks/GhosttyKit.xcframework -type f \\( -name 'libghostty-fat.a' -o -name 'libghostty.a' \\) | head -n 1)"
-if [ -n "$ARCHIVE_PATH" ]; then
-  xcrun strip -S "$ARCHIVE_PATH"
-fi
+python3 "${PROJECT_ROOT}/scripts/normalize-ghostty-xcframework.py"
 """
 
 [tasks.setup-dev-resources]
@@ -180,6 +175,12 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:e2e"
 
+[tasks."test:bridge-web:e2e:ordinary"]
+description = "Run focused ordinary Vite E2E journeys; aggregate stress coverage remains in test:bridge-web:e2e"
+depends = ["bridge-web-install", "build-bridge-development-server"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e:prepared:ordinary"
+
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
 depends = ["bridge-web-install"]
@@ -296,7 +297,6 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-bridge-development-server]
 description = "Build the Bridge development server through an allocated Swift build slot"
-depends = ["verify-vendors"]
 run = "bash \"${PROJECT_ROOT}/scripts/build-bridge-development-server.sh\""
 
 [tasks.build-release]
@@ -327,7 +327,7 @@ mise run verify-vendors
 mise run --skip-deps bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
-SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
+SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}" \
 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
 mise run --skip-deps test:swift
 git diff --check

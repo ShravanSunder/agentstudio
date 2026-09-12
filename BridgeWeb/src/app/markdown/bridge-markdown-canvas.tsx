@@ -3,6 +3,7 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type ReactElement,
@@ -12,17 +13,50 @@ import { createPortal } from 'react-dom';
 
 import { Button } from '@/components/ui/button.js';
 
+import type {
+	BridgeMainRenderFulfillmentCoordinator,
+	BridgeMainRenderPublicationItem,
+} from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import type { BridgeFileViewerSelectedCodeViewItem } from '../../file-viewer/bridge-file-viewer-code-view-items.js';
+import {
+	useWorktreeAnnotationActiveEditTokens,
+	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
+	useWorktreeAnnotationProjection,
+} from '../../worktree-annotations/worktree-annotation-surface-provider.js';
+import { BridgeMarkdownAnnotationLayer } from './bridge-markdown-annotation-layer.js';
+import {
+	type BridgeMarkdownRenderBinding,
+	type BridgeMarkdownRenderedArticle,
+	createBridgeMarkdownRenderReadback,
+	bridgeMarkdownBindingMatchesCurrentSource,
+} from './bridge-markdown-render-readback.js';
 import {
 	bridgeMermaidPolicy,
 	bridgeMermaidSourceAdmission,
 	sanitizeBridgeMermaidSvg,
 	type BridgeMermaidRenderer,
 } from './bridge-mermaid-renderer.js';
-import type { BridgeMarkdownPresentationState } from './use-bridge-markdown-presentation.js';
+import type {
+	BridgeMarkdownPresentationState,
+	BridgeMarkdownRenderIntent,
+} from './use-bridge-markdown-presentation.js';
+
+export interface BridgeMarkdownRenderFulfillment {
+	readonly coordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'observePostRender' | 'reconcilePublication'
+	>;
+	readonly intent: BridgeMarkdownRenderIntent;
+	readonly selectedItem: BridgeMainRenderPublicationItem;
+}
 
 export interface BridgeMarkdownCanvasProps {
+	readonly annotationSource?:
+		| { readonly item: BridgeFileViewerSelectedCodeViewItem | null }
+		| undefined;
 	readonly isActive: boolean;
 	readonly presentationState: BridgeMarkdownPresentationState;
+	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 	readonly retry: () => void;
 	readonly mermaidRenderer?: BridgeMermaidRenderer;
 }
@@ -49,19 +83,118 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 
 	return (
 		<BridgeMarkdownReadyDocument
+			retry={props.retry}
+			annotationSource={props.annotationSource}
 			isActive={props.isActive}
 			mermaidRenderer={props.mermaidRenderer}
 			presentation={props.presentationState}
+			{...(props.renderFulfillment === undefined
+				? {}
+				: { renderFulfillment: props.renderFulfillment })}
 		/>
 	);
 }
 
 const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(props: {
+	readonly retry: () => void;
+	readonly annotationSource?:
+		| { readonly item: BridgeFileViewerSelectedCodeViewItem | null }
+		| undefined;
 	readonly isActive: boolean;
 	readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 	readonly presentation: Extract<BridgeMarkdownPresentationState, { readonly status: 'ready' }>;
+	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 }): ReactElement {
-	const articleRef = useRef<HTMLElement>(null);
+	const [presentation, setPresentation] = useState(props.presentation);
+	const [installationFailure, setInstallationFailure] = useState(false);
+	const [installationAttempt, setInstallationAttempt] = useState(0);
+	const editTokens = useWorktreeAnnotationActiveEditTokens();
+	const editTokensRef = useRef(editTokens);
+	editTokensRef.current = editTokens;
+	const annotationProjection = useWorktreeAnnotationProjection();
+	const prepareEditors = useWorktreeAnnotationPrepareActiveEditorsForInstallation();
+	const displayedSourceRef = useRef<BridgeFileViewerSelectedCodeViewItem | null>(null);
+	const candidateRef = useRef(props.presentation);
+	candidateRef.current = props.presentation;
+	const keepsConfirmedSource =
+		displayedSourceRef.current !== null &&
+		props.annotationSource?.item !== null &&
+		props.annotationSource?.item?.bridgeMetadata.sourceDescriptorId !==
+			displayedSourceRef.current.bridgeMetadata.sourceDescriptorId &&
+		annotationProjection.commandConfirmedThreads.some(
+			(thread): boolean =>
+				thread.context.sourceIdentity ===
+				displayedSourceRef.current?.bridgeMetadata.sourceDescriptorId,
+		);
+	useEffect((): (() => void) | undefined => {
+		if (presentation.identity.requestId === props.presentation.identity.requestId) return undefined;
+		if (presentation.sourcePath !== props.presentation.sourcePath) {
+			setPresentation(props.presentation);
+			return undefined;
+		}
+		let current = true;
+		const candidate = props.presentation;
+		void prepareEditors().then(
+			(prepared): void => {
+				if (!current || candidateRef.current !== candidate) return;
+				if (!prepared) {
+					setInstallationFailure(true);
+					return;
+				}
+				if (editTokensRef.current.size > 0 || keepsConfirmedSource) return;
+				setInstallationFailure(false);
+				setPresentation(candidate);
+			},
+			(): void => {
+				if (current) setInstallationFailure(true);
+			},
+		);
+		return (): void => {
+			current = false;
+		};
+	}, [
+		editTokens,
+		installationAttempt,
+		keepsConfirmedSource,
+		prepareEditors,
+		presentation,
+		props.presentation,
+	]);
+	const articleRef = useRef<BridgeMarkdownRenderedArticle>(null);
+	const renderBindingRef = useRef<BridgeMarkdownRenderBinding | null>(null);
+	renderBindingRef.current =
+		props.renderFulfillment === undefined
+			? null
+			: {
+					isActive: props.isActive,
+					intent: props.renderFulfillment.intent,
+					presentation,
+					selectedItem: props.renderFulfillment.selectedItem,
+				};
+	const canAnnotate =
+		props.presentation.refresh.kind === 'current' &&
+		renderBindingRef.current !== null &&
+		bridgeMarkdownBindingMatchesCurrentSource(renderBindingRef.current);
+	if (canAnnotate && props.annotationSource !== undefined)
+		displayedSourceRef.current = props.annotationSource.item;
+	if (displayedSourceRef.current?.bridgeMetadata.displayPath !== presentation.sourcePath)
+		displayedSourceRef.current = null;
+	useLayoutEffect((): void => {
+		const renderFulfillment = props.renderFulfillment;
+		if (renderFulfillment === undefined) return;
+		const expectedBinding = renderBindingRef.current;
+		if (expectedBinding === null) return;
+		renderFulfillment.coordinator.observePostRender({
+			...createBridgeMarkdownRenderReadback({
+				expectedBinding,
+				readArticle: (): BridgeMarkdownRenderedArticle | null => articleRef.current,
+				readBinding: (): BridgeMarkdownRenderBinding | null => renderBindingRef.current,
+			}),
+			contextItem: renderFulfillment.selectedItem,
+			itemId: renderFulfillment.selectedItem.id,
+			phase: 'update',
+		});
+	});
 	const [diagramRetryRevision, setDiagramRetryRevision] = useState(0);
 	const [diagramFailureTargets, setDiagramFailureTargets] = useState<
 		readonly BridgeMermaidFailureTarget[]
@@ -93,17 +226,52 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 					),
 					failureTarget,
 				]),
-			renderResult: props.presentation.renderResult,
-			sourcePath: props.presentation.sourcePath,
+			renderResult: presentation.renderResult,
+			sourcePath: presentation.sourcePath,
 		});
 		return (): void => {
 			acceptsDiagramResults = false;
 		};
-	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, props.presentation]);
+	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, presentation]);
 
 	return (
 		<div className="bridge-scrollbar h-full min-h-0 overflow-auto bg-background">
-			<BridgeMarkdownArticle articleRef={articleRef} presentation={props.presentation} />
+			{props.presentation.refresh.kind === 'failed' ? (
+				<div role="status" className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+					Markdown refresh failed. Showing the previous document.
+					<Button variant="outline" size="sm" onClick={props.retry}>
+						Retry
+					</Button>
+				</div>
+			) : null}
+			{installationFailure ? (
+				<div role="status" className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+					Your editor is retained. Finish editing or retry the refresh.
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={(): void => setInstallationAttempt((attempt): number => attempt + 1)}
+					>
+						Retry
+					</Button>
+				</div>
+			) : null}
+			<div className="bridge-markdown-document-frame">
+				<BridgeMarkdownArticle
+					articleRef={articleRef}
+					presentation={presentation}
+					annotated={props.annotationSource !== undefined}
+				/>
+				{props.annotationSource === undefined ? null : (
+					<BridgeMarkdownAnnotationLayer
+						key={`${presentation.identity.sourceIdentity.fileId}:${presentation.sourcePath}`}
+						articleRef={articleRef}
+						targets={presentation.renderResult.annotationTargets}
+						displayedSource={displayedSourceRef.current}
+						canAnnotate={canAnnotate}
+					/>
+				)}
+			</div>
 			{diagramFailureTargets
 				.filter(
 					(failureTarget): boolean =>
@@ -122,6 +290,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 });
 
 const BridgeMarkdownArticle = memo(function BridgeMarkdownArticle(props: {
+	readonly annotated: boolean;
 	readonly articleRef: RefObject<HTMLElement | null>;
 	readonly presentation: Extract<BridgeMarkdownPresentationState, { readonly status: 'ready' }>;
 }): ReactElement {
@@ -129,8 +298,18 @@ const BridgeMarkdownArticle = memo(function BridgeMarkdownArticle(props: {
 		<article
 			ref={props.articleRef}
 			aria-label={`Markdown document ${props.presentation.sourcePath}`}
-			className="bridge-markdown-document mx-auto min-h-full w-full max-w-[920px] px-10 py-8 text-sm leading-6 text-foreground"
+			className="bridge-markdown-document mx-auto min-h-full w-full px-10 py-8 text-sm leading-6 text-foreground"
+			data-bridge-markdown-annotated={props.annotated}
 			data-bridge-markdown-source-path={props.presentation.sourcePath}
+			data-bridge-markdown-content-cache-key={props.presentation.identity.contentCacheKey}
+			data-bridge-markdown-content-hash={props.presentation.identity.contentHash}
+			data-bridge-markdown-file-id={props.presentation.identity.sourceIdentity.fileId}
+			data-bridge-markdown-file-version={props.presentation.identity.sourceIdentity.fileVersion}
+			data-bridge-markdown-request-id={props.presentation.identity.requestId}
+			data-bridge-markdown-source-generation={
+				props.presentation.identity.sourceIdentity.sourceGeneration
+			}
+			data-bridge-markdown-source-id={props.presentation.identity.sourceIdentity.sourceId}
 			data-testid="bridge-markdown-canvas"
 			dangerouslySetInnerHTML={{
 				__html: sanitizeBridgeMarkdownDocumentHtml(props.presentation.renderResult.htmlCandidate),
@@ -227,7 +406,15 @@ function markMermaidPlaceholderFailed(placeholder: HTMLElement): void {
 export function sanitizeBridgeMarkdownDocumentHtml(htmlCandidate: string): string {
 	const sanitizedHtml = DOMPurify.sanitize(htmlCandidate, {
 		USE_PROFILES: { html: true },
-		ALLOWED_ATTR: ['class', 'style', 'data-bridge-mermaid-id'],
+		ALLOWED_ATTR: [
+			'class',
+			'style',
+			'data-bridge-mermaid-id',
+			'data-bridge-markdown-target',
+			'data-bridge-markdown-task',
+			'role',
+			'aria-label',
+		],
 		FORBID_TAGS: [
 			'script',
 			'style',
@@ -263,7 +450,13 @@ export function sanitizeBridgeMarkdownDocumentHtml(htmlCandidate: string): strin
 			if (
 				attribute.name !== 'class' &&
 				attribute.name !== 'style' &&
-				attribute.name !== 'data-bridge-mermaid-id'
+				attribute.name !== 'data-bridge-mermaid-id' &&
+				attribute.name !== 'data-bridge-markdown-target' &&
+				attribute.name !== 'data-bridge-markdown-task' &&
+				!(
+					element.classList.contains('bridge-markdown-task-check') &&
+					(attribute.name === 'role' || attribute.name === 'aria-label')
+				)
 			) {
 				element.removeAttribute(attribute.name);
 			}

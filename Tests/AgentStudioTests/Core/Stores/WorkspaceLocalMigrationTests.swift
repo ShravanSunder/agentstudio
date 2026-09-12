@@ -45,6 +45,14 @@ struct WorkspaceLocalMigrationTests {
             "cache_metadata",
             "cache_repo_enrichment",
             "cache_worktree_enrichment",
+            "annotation_session",
+            "annotation_thread",
+            "annotation_message",
+            "annotation_message_draft",
+            "annotation_output_attempt",
+            "annotation_output_attempt_message",
+            "annotation_output_event",
+            "local_recovery_provenance",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -73,6 +81,11 @@ struct WorkspaceLocalMigrationTests {
                     "004_remove_persisted_pull_request_counts",
                     "005_move_repo_grouping_to_window_sidebar_memory",
                     "006_add_repository_local_activity_facts",
+                    "006_create_worktree_annotation_schema",
+                    "007_add_worktree_annotation_message_handled",
+                    "008_add_worktree_annotation_message_viewed_revision",
+                    "009_add_worktree_annotation_reviewed_subject_evidence",
+                    "010_remove_worktree_annotation_workspace_provenance",
                     "007_add_per_screen_sidebar_organization",
                 ]
         )

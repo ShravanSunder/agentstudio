@@ -27,6 +27,7 @@ describe('Bridge markdown render worker RPC', () => {
 			request,
 			renderMarkdown: async (markdownText: string) => ({
 				htmlCandidate: `<h1>${markdownText.slice(2)}</h1>`,
+				annotationTargets: [],
 				mermaidDiagrams: [],
 			}),
 			now: (() => {
@@ -111,7 +112,11 @@ describe('Bridge markdown render worker RPC', () => {
 			request,
 			renderMarkdown: async () => {
 				currentTime += 55;
-				return { htmlCandidate: '<h1>Bridge plan</h1>', mermaidDiagrams: [] };
+				return {
+					htmlCandidate: '<h1>Bridge plan</h1>',
+					mermaidDiagrams: [],
+					annotationTargets: [],
+				};
 			},
 			now: (): number => currentTime,
 		});
@@ -149,7 +154,9 @@ describe('Bridge markdown render worker RPC', () => {
 
 		const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({ request });
 
-		expect(response.htmlCandidate).toContain('<h1>Bridge plan</h1>');
+		expect(response.htmlCandidate).toContain(
+			'<h1 data-bridge-markdown-target="block-1">Bridge plan</h1>',
+		);
 		expect(response.htmlCandidate).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
 		expect(response.htmlCandidate).not.toContain('<script>');
 		expect(response.htmlCandidate).not.toContain('<a href=');

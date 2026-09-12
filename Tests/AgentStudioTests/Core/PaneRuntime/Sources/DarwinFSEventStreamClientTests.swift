@@ -742,7 +742,9 @@ struct DarwinFSEventStreamClientTests {
 
         #expect(ingressBuffer.consumeOverflowRecoveries().isEmpty)
     }
+}
 
+extension DarwinFSEventStreamClientTests {
     @Test("conforms to FSEventStreamClient protocol")
     func conformsToProtocol() {
         let client: any FSEventStreamClient = DarwinFSEventStreamClient()
@@ -757,8 +759,11 @@ struct DarwinFSEventStreamClientTests {
         let repoId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/darwin-fsevents-\(UUID().uuidString)")
 
-        client.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
-        client.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        let firstOutcome = client.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        let secondOutcome = client.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+
+        #expect(firstOutcome == .observing)
+        #expect(secondOutcome == .observing)
         client.unregister(worktreeId: worktreeId)
         client.unregister(worktreeId: worktreeId)
 
@@ -874,11 +879,12 @@ struct DarwinFSEventStreamClientTests {
         client.shutdown()
         client.shutdown()
 
-        client.register(
+        let outcome = client.register(
             worktreeId: UUID(),
             repoId: UUID(),
             rootPath: URL(fileURLWithPath: "/tmp/darwin-fsevents-post-shutdown-\(UUID().uuidString)")
         )
+        #expect(outcome == .unavailable(.clientShutdown))
         client.unregister(worktreeId: UUID())
     }
 

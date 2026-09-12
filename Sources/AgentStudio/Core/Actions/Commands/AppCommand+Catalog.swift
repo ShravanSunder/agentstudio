@@ -341,7 +341,9 @@ extension AppCommand {
                 label: "Pane Zoom",
                 icon: .system(.squareArrowTriangle4Outward),
                 helpText: "Zoom the active pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl]),
+                surfacePolicy: .exposed([
+                    .contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl,
+                ]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Pane",
@@ -526,7 +528,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .addDrawerPane,
                 label: "Add Drawer Pane",
-                icon: .system(.rectangleBottomhalfInsetFilled),
+                icon: LocalActionSpec.addDrawerPane.actionSpec.icon,
                 helpText: "Add a drawer pane to the active pane",
                 surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl]),
                 targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
@@ -539,7 +541,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .toggleDrawer,
                 label: "Toggle Drawer",
-                icon: .system(.rectangleExpandVertical),
+                icon: .system(.rectangleBottomhalfFilled),
                 helpText: "Expand or collapse the active pane drawer",
                 surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
@@ -611,7 +613,8 @@ extension AppCommand {
                 label: "Open Worktree in Pane",
                 icon: .system(.rectangleSplit2x1),
                 helpText: "Open a worktree in a split pane",
-                surfacePolicy: .exposed([.commandBar, .contextMenu])
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targetTypes: [.worktree, .pane]
             )
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
@@ -631,9 +634,9 @@ extension AppCommand {
                 command: self,
                 shortcut: .openPaneLocationInFinder,
                 label: "Open Pane Location in Finder",
-                icon: .system(.finder),
+                icon: LocalActionSpec.revealInFinder.actionSpec.icon,
                 helpText: "Open the selected pane location in Finder",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                surfacePolicy: .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -644,9 +647,9 @@ extension AppCommand {
                 command: self,
                 shortcut: .openPaneLocationInEditorMenu,
                 label: "Open In Menu",
-                icon: .system(.chevronUpChevronDown),
+                icon: .system(.chevronLeftForwardslashChevronRight),
                 helpText: "Open the editor chooser for the selected pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                surfacePolicy: .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -659,7 +662,7 @@ extension AppCommand {
                 label: "Edit Pane Note",
                 icon: .system(.pencil),
                 helpText: "Set a note for the current pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                surfacePolicy: .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -672,7 +675,7 @@ extension AppCommand {
                 label: "Copy Current Pane Path",
                 icon: LocalActionSpec.copyPath.actionSpec.icon,
                 helpText: "Copy the current pane path",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                surfacePolicy: .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -702,7 +705,7 @@ extension AppCommand {
                 label: "Toggle Sidebar",
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the sidebar",
-                surfacePolicy: .exposed([.commandBar]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
                 targeting: .contextual
             )
         case .showInboxNotifications: return showInboxNotificationsDefinition()
@@ -861,7 +864,8 @@ extension AppCommand {
                 label: "Open Terminal in New Tab",
                 icon: .system(.terminalFill),
                 helpText: "Open a worktree in a fresh terminal tab",
-                surfacePolicy: .exposed([.commandBar, .contextMenu])
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targetTypes: [.worktree, .pane]
             )
         }
     }

@@ -122,8 +122,12 @@ actor BridgeChangeIndex {
                 )
             )
         else {
+            let resolvedRevision =
+                package.hasSameReviewTruth(as: currentPackage)
+                ? (fallbackRevision ?? currentRevision)
+                : currentRevision + 1
             return BridgeChangeIndexPreparedLoad(
-                package: package.withRevision(fallbackRevision ?? currentRevision),
+                package: package.withRevision(resolvedRevision),
                 delta: nil
             )
         }
@@ -169,6 +173,23 @@ actor BridgeChangeIndex {
 }
 
 extension BridgeReviewPackage {
+    func hasSameReviewTruth(as other: BridgeReviewPackage) -> Bool {
+        packageId == other.packageId
+            && schemaVersion == other.schemaVersion
+            && reviewGeneration == other.reviewGeneration
+            && query == other.query
+            && baseEndpoint == other.baseEndpoint
+            && headEndpoint == other.headEndpoint
+            && orderedItemIds == other.orderedItemIds
+            && itemsById == other.itemsById
+            && groups == other.groups
+            && summary == other.summary
+            && filterState == other.filterState
+            && changesetCluster == other.changesetCluster
+            && comparisonOrigin == other.comparisonOrigin
+            && reviewedSubjectLabel == other.reviewedSubjectLabel
+    }
+
     func withRevision(_ revision: Int) -> BridgeReviewPackage {
         BridgeReviewPackage(
             packageId: packageId,

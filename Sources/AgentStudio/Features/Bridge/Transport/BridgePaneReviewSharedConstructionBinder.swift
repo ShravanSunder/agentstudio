@@ -80,7 +80,10 @@ struct BridgePaneReviewSharedConstructionBinder: Sendable {
         let resolvedRequest: BridgeReviewPipelineRequest
         while true {
             let context = try await coordinator.freshnessContext(for: worktree)
-            let freshnessKey = gitFreshnessKey(for: context)
+            let freshnessKey = gitFreshnessKey(
+                for: context,
+                attemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration
+            )
             let candidateRequest = try await pipeline.resolveSharedConstructionRequest(
                 request,
                 freshnessKey: freshnessKey
@@ -142,11 +145,12 @@ struct BridgePaneReviewSharedConstructionBinder: Sendable {
     }
 
     private func gitFreshnessKey(
-        for context: BridgeWorktreeProductConstructionFreshnessContext
+        for context: BridgeWorktreeProductConstructionFreshnessContext,
+        attemptAuthorityGeneration: UInt64
     ) -> BridgeGitReadFreshnessKey {
         BridgeGitReadFreshnessKey(
             token:
-                "review-construction:\(context.worktree.worktreeIdentity):epoch:\(context.epoch.rawValue)"
+                "review-construction:\(context.worktree.worktreeIdentity):epoch:\(context.epoch.rawValue):attempt:\(attemptAuthorityGeneration)"
         )
     }
 
@@ -164,6 +168,7 @@ struct BridgePaneReviewSharedConstructionBinder: Sendable {
                 stableRootIdentity: StableKey.fromPath(repositoryPath),
                 providerIdentity: "agentstudio-git-review-v1"
             ),
+            attemptAuthorityGeneration: request.reviewAttemptAuthorityGeneration,
             queryKind: try mappedEnum(request.query.queryKind),
             comparisonSemantics: try mappedEnum(request.query.comparisonSemantics),
             canonicalWorkingDirectoryIdentity: StableKey.fromPath(repositoryPath),

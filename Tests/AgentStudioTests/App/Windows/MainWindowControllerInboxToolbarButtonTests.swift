@@ -171,6 +171,31 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
+    @Test(
+        "titlebar sidebar control preserves Repos or Panes while toggling visibility",
+        arguments: [SidebarSurface.repos, .panes])
+    func titlebarSidebarControlPreservesSurface(surface: SidebarSurface) async throws {
+        try await withMainWindowControllerHarness { harness in
+            let state = harness.atoms.core.workspaceSidebarState
+            state.setSidebarSurface(surface)
+            let splitController = try #require(harness.window.contentViewController as? MainSplitViewController)
+            splitController.expandSidebar()
+            await assertEventuallyMain("sidebar starts expanded") { !state.sidebarCollapsed }
+            let item = try #require(
+                harness.window.toolbar?.items.first {
+                    $0.itemIdentifier.rawValue == "worktreeSidebar"
+                })
+            #expect(item.action == NSSelectorFromString("toggleSidebarToolbarAction"))
+            #expect(item.label == AppCommand.toggleSidebar.definition.label)
+            harness.controller.toggleSidebar()
+            #expect(state.sidebarCollapsed)
+            #expect(state.sidebarSurface == surface)
+            harness.controller.toggleSidebar()
+            await assertEventuallyMain("sidebar reopens without selecting another surface") { !state.sidebarCollapsed }
+            #expect(state.sidebarSurface == surface)
+        }
+    }
+
     @Test("top chrome sidebar buttons use command specs and dispatch through shared commands")
     func topChromeSidebarButtonsUseCommandSpecsAndDispatchThroughSharedCommands() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")

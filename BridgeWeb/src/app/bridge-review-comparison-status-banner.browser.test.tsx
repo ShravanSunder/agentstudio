@@ -7,7 +7,7 @@ import './bridge-app.css';
 import { BridgeReviewComparisonStatusBanner } from './bridge-review-comparison-status-banner.js';
 
 describe('BridgeReviewComparisonStatusBanner', () => {
-	test('announces an indeterminate pending comparison without presenting retry', async () => {
+	test('announces pending comparison accessibly without presenting a visible layout row', async () => {
 		const rendered = await render(
 			<BridgeReviewComparisonStatusBanner
 				onRetry={vi.fn()}
@@ -22,17 +22,14 @@ describe('BridgeReviewComparisonStatusBanner', () => {
 		await expect
 			.element(rendered.getByRole('status'))
 			.toHaveTextContent('Loading comparison with feature/new-target');
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-loading-spinner'))
-			.toBeVisible();
+		expect(rendered.getByTestId('bridge-review-comparison-loading-spinner').query()).toBeNull();
 		expect(rendered.getByRole('progressbar').query()).toBeNull();
-		const statusRegion = rendered.getByTestId('bridge-review-comparison-status-region').element();
-		expect(statusRegion.dataset['motionState']).toBe('entering');
-		expect(getComputedStyle(statusRegion).animationDuration).toBe('0.12s');
+		expect(rendered.getByTestId('bridge-review-comparison-status-region').query()).toBeNull();
+		expect(getComputedStyle(rendered.getByRole('status').element()).position).toBe('absolute');
 		expect(rendered.getByRole('button', { name: 'Retry' }).query()).toBeNull();
 	});
 
-	test('animates the loading region out before removing the settled comparison status', async () => {
+	test('removes the accessible loading status when the comparison settles', async () => {
 		const rendered = await render(
 			<BridgeReviewComparisonStatusBanner
 				onRetry={vi.fn()}
@@ -48,20 +45,8 @@ describe('BridgeReviewComparisonStatusBanner', () => {
 			<BridgeReviewComparisonStatusBanner onRetry={vi.fn()} state={{ kind: 'settled' }} />,
 		);
 
-		const statusRegion = rendered.getByTestId('bridge-review-comparison-status-region');
-		await expect.element(statusRegion).toBeVisible();
-		expect(statusRegion.element().dataset['motionState']).toBe('exiting');
-		expect(getComputedStyle(statusRegion.element()).animationDuration).toBe('0.12s');
-
-		await act(async (): Promise<void> => {
-			statusRegion.element().dispatchEvent(new AnimationEvent('animationend', { bubbles: true }));
-		});
-		expect(
-			rendered.getByTestId('bridge-review-comparison-status-region').element().dataset[
-				'motionState'
-			],
-		).toBe('settled');
-		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
+		expect(rendered.getByRole('status').query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-comparison-status-region').query()).toBeNull();
 	});
 
 	test('keeps failure and retry inside the comparison pane banner', async () => {

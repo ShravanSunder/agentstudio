@@ -125,12 +125,21 @@ export interface ReviewWorkerQueueWaitProof {
 }
 
 export interface WorktreeStartupLoadTimingProof {
+	readonly pageLoadToHandshakeWorker: WorktreeInteractionDurationSummary;
+	readonly pageLoadToPageApplication: WorktreeInteractionDurationSummary;
 	readonly pageLoadToContentReady: WorktreeInteractionDurationSummary;
+	readonly pageLoadToContentRequestStarted: WorktreeInteractionDurationSummary;
+	readonly pageLoadToContentResponseStarted: WorktreeInteractionDurationSummary;
 	readonly pageLoadToFirstVisibleContentWindow: WorktreeInteractionDurationSummary;
+	readonly pageLoadToMetadata: WorktreeInteractionDurationSummary;
 	readonly pageLoadToSelectedPath: WorktreeInteractionDurationSummary;
+	readonly pageLoadToShellMounted: WorktreeInteractionDurationSummary;
+	readonly pageLoadToSourceAccepted: WorktreeInteractionDurationSummary;
 }
 
 export interface ReviewStartupLoadTimingProof {
+	readonly pageLoadToHandshakeWorker: WorktreeInteractionDurationSummary;
+	readonly pageLoadToPageApplication: WorktreeInteractionDurationSummary;
 	readonly pageLoadToMetadata: WorktreeInteractionDurationSummary;
 	readonly pageLoadToSelectedContentReady: WorktreeInteractionDurationSummary;
 }
@@ -391,12 +400,16 @@ export function worktreeStartupLoadTimingSatisfied(
 ): boolean {
 	return (
 		proof.startupLoadTiming !== undefined &&
-		interactionDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToSelectedPath, 1) &&
-		interactionDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToContentReady, 1) &&
-		interactionDurationSummarySatisfied(
-			proof.startupLoadTiming.pageLoadToFirstVisibleContentWindow,
-			1,
-		)
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToPageApplication) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToHandshakeWorker) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToShellMounted) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToSourceAccepted) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToMetadata) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToSelectedPath) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToContentRequestStarted) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToContentResponseStarted) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToContentReady) &&
+		startupDurationSummarySatisfied(proof.startupLoadTiming.pageLoadToFirstVisibleContentWindow)
 	);
 }
 
@@ -405,12 +418,23 @@ export function reviewStartupLoadTimingSatisfied(
 ): boolean {
 	return (
 		proof.reviewStartupLoadTiming !== undefined &&
-		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToMetadata, 1) &&
-		interactionDurationSummarySatisfied(
-			proof.reviewStartupLoadTiming.pageLoadToSelectedContentReady,
-			1,
-		) &&
-		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToMetadata, 1)
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToPageApplication) &&
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToHandshakeWorker) &&
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToMetadata) &&
+		startupDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToSelectedContentReady)
+	);
+}
+
+const maximumStartupFirstUsableMilliseconds = 1_000;
+
+function startupDurationSummarySatisfied(
+	summary: WorktreeInteractionDurationSummary | undefined,
+): boolean {
+	return (
+		interactionDurationSummarySatisfied(summary, 1) &&
+		summary?.maxMs !== null &&
+		summary?.maxMs !== undefined &&
+		summary.maxMs < maximumStartupFirstUsableMilliseconds
 	);
 }
 

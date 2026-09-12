@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { BridgeCommWorkerReviewQueryProjection } from '../core/comm-worker/bridge-comm-worker-review-query-projection.js';
 import type {
 	BridgeMainReviewCatalogChange,
 	BridgeMainReviewCatalogSnapshot,
@@ -11,6 +12,33 @@ import { bridgeReviewPresentationSnapshotForDisplay } from './bridge-app-review-
 import type { BridgeReviewDirectDisplayStore } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge Review presentation adapter', () => {
+	test.each([
+		{ roles: [], expectedKind: 'diff' },
+		{ roles: ['file'], expectedKind: 'file' },
+		{ roles: ['base', 'head'], expectedKind: 'diff' },
+	] as const)(
+		'classifies pending and hydrated roles consistently with the worker: $expectedKind',
+		({ roles, expectedKind }) => {
+			const item = reviewDisplayItem('kind-item', 'Sources/Kind.swift');
+			const result = bridgeReviewPresentationSnapshotForDisplay({
+				catalogSnapshot: catalogSnapshot({ itemCount: 1, revision: 1, treeRowCount: 1 }),
+				displayStore: displayStore({
+					items: [{ ...item, metadata: { ...item.metadata, contentRoles: roles } }],
+					rawTreeRows: [
+						{
+							depth: 0,
+							isDirectory: false,
+							itemId: 'kind-item',
+							path: 'Sources/Kind.swift',
+							rowId: 'kind-row',
+						},
+					],
+				}),
+				reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, revision: 1, treeRowCount: 1 }),
+			});
+			expect(result?.reviewPackage.itemsById['kind-item']?.itemKind).toBe(expectedKind);
+		},
+	);
 	test('projects a ready worker display into a correlated recovered-shell snapshot', () => {
 		// Arrange
 		const displayItem = reviewDisplayItem('item-source', 'Sources/App/Feature.swift');
@@ -194,6 +222,83 @@ describe('Bridge Review presentation adapter', () => {
 		expect(presentationSnapshot?.reviewPackage.orderedItemIds).toEqual([]);
 		expect(presentationSnapshot?.reviewTreeRows).toEqual([]);
 		expect(presentationSnapshot?.projection.orderedPaths).toEqual([]);
+	});
+
+	test.each([
+		{ itemCount: 1, treeRowCount: 0 },
+		{ itemCount: 0, treeRowCount: 1 },
+	])('does not mistake missing projected catalog entries for an empty result: %j', (counts) => {
+		const snapshot = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: catalogSnapshot({ ...counts, revision: 1 }),
+			displayStore: displayStore({ items: [], rawTreeRows: [] }),
+			reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 }),
+		});
+		expect(snapshot).toBeNull();
+	});
+
+	test('admits a ready empty filtered projection without losing the comparison package', () => {
+		const projection = new BridgeCommWorkerReviewQueryProjection();
+		const source = readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 });
+		projection.applyDisplayPatches([
+			{ operation: 'upsert', payload: source, slice: 'reviewSource' },
+			{
+				operation: 'batch',
+				payload: {
+					items: [reviewDisplayItem('item-source', 'Sources/Feature.swift')],
+					operations: [],
+					reset: true,
+					startIndex: 0,
+				},
+				slice: 'reviewItem',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					reset: true,
+					windows: [
+						{
+							startIndex: 0,
+							rows: [
+								{
+									depth: 0,
+									isDirectory: false,
+									itemId: 'item-source',
+									path: 'Sources/Feature.swift',
+									rowId: 'row-source',
+								},
+							],
+						},
+					],
+				},
+				slice: 'reviewTree',
+			},
+		]);
+		const patches = projection.updateQuery({
+			categoryFilter: 'all',
+			gitStatusFilter: 'renamed',
+			showBinary: false,
+			showLarge: false,
+		});
+		const filteredSource = patches.find((patch) => patch.slice === 'reviewSource');
+		const filteredItems = patches.find((patch) => patch.slice === 'reviewItem');
+		const filteredTree = patches.find((patch) => patch.slice === 'reviewTree');
+		expect(filteredItems).toMatchObject({
+			operation: 'batch',
+			payload: { items: [], reset: true },
+		});
+		expect(filteredTree).toMatchObject({
+			operation: 'batch',
+			payload: { windows: [{ rows: [] }], reset: true },
+		});
+		if (filteredSource?.operation !== 'upsert')
+			throw new Error('Expected projected source metadata.');
+		const snapshot = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: catalogSnapshot({ itemCount: 0, revision: 1, treeRowCount: 0 }),
+			displayStore: displayStore({ items: [], rawTreeRows: [] }),
+			reviewSourceSlice: filteredSource.payload,
+		});
+		expect(snapshot?.reviewPackage.packageId).toBe(source.packageId);
+		expect(snapshot?.projection.orderedItemIds).toEqual([]);
 	});
 
 	test('rotates presentation identity across worker epochs without changing native Review generation', () => {

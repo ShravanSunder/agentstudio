@@ -9,6 +9,7 @@ import {
 	bridgeProductOpaqueReferenceSchema,
 	bridgeProductPositiveSequenceSchema,
 	bridgeProductSafeMessageSchema,
+	bridgeProductSha256Schema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewComparisonOriginSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
@@ -218,6 +219,7 @@ export const bridgeProductReviewExtentFactSchema = z
 
 const bridgeProductReviewMetadataIdentityShape = {
 	generation: bridgeProductNonnegativeSequenceSchema,
+	operationCorrelationId: bridgeProductSha256Schema.nullable(),
 	packageId: bridgeProductIdentifierSchema,
 	publicationId: bridgeProductReviewPublicationIdSchema,
 	revision: bridgeProductNonnegativeSequenceSchema,
@@ -227,6 +229,32 @@ const bridgeProductReviewMetadataIdentityShape = {
 const bridgeProductReviewPublicationCommitShape = {
 	presentationRevision: bridgeProductPositiveSequenceSchema.optional(),
 	reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),
+} as const;
+
+export const bridgeProductReviewPreDeliveryPresentationClassSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('ordinary') }).strict(),
+	z
+		.object({
+			kind: z.literal('promoted'),
+			reason: z.enum(['commits', 'files', 'lines', 'unknown']),
+		})
+		.strict(),
+]);
+
+const bridgeProductReviewRefreshImpactShape = {
+	addedLineCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	affectedFileCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	affectedStableFileIdentities: z
+		.array(bridgeProductIdentifierSchema)
+		.refine(
+			(identities) => new Set(identities).size === identities.length,
+			'Review refresh affected stable file identities must be unique.',
+		)
+		.readonly()
+		.optional(),
+	deletedLineCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	newlyImportedCommitCount: bridgeProductNonnegativeSequenceSchema.nullable().optional(),
+	preDeliveryPresentationClass: bridgeProductReviewPreDeliveryPresentationClassSchema.optional(),
 } as const;
 
 export const bridgeProductReviewSourceAcceptedEventSchema = z
@@ -375,6 +403,7 @@ export const bridgeProductReviewMetadataDeltaEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewPublicationCommitShape,
+		...bridgeProductReviewRefreshImpactShape,
 		contentSources: z
 			.array(bridgeProductReviewContentSourceDescriptorSchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT)
@@ -404,6 +433,7 @@ export const bridgeProductReviewMetadataDeltaEventSchema = z
 				path: ['reviewComparison'],
 			});
 		}
+		validateReviewRefreshImpact(event, context, 'required');
 	});
 
 export const bridgeProductReviewMetadataInvalidatedEventSchema = z
@@ -420,12 +450,16 @@ export const bridgeProductReviewMetadataInvalidatedEventSchema = z
 export const bridgeProductReviewMetadataResetEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
+		...bridgeProductReviewRefreshImpactShape,
 		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.reset'),
 		reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
 		reviewedSubjectLabel: bridgeProductSafeMessageSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((event, context): void => {
+		validateReviewRefreshImpact(event, context, 'optional');
+	});
 
 export const bridgeProductReviewMetadataEventSchema = z
 	.discriminatedUnion('eventKind', [
@@ -480,6 +514,91 @@ function validateReviewPublicationCommit(
 		message: 'Review publication comparison must appear exactly on the final display barrier.',
 		path: ['reviewComparison'],
 	});
+}
+
+function validateReviewRefreshImpact(
+	event: {
+		readonly addedLineCount?: number | null | undefined;
+		readonly affectedFileCount?: number | null | undefined;
+		readonly affectedStableFileIdentities?: readonly string[] | undefined;
+		readonly deletedLineCount?: number | null | undefined;
+		readonly itemWindow?: { readonly finalWindow: boolean } | undefined;
+		readonly newlyImportedCommitCount?: number | null | undefined;
+		readonly preDeliveryPresentationClass?:
+			| { readonly kind: 'ordinary' }
+			| {
+					readonly kind: 'promoted';
+					readonly reason: 'commits' | 'files' | 'lines' | 'unknown';
+			  }
+			| undefined;
+		readonly treeWindow?: { readonly finalWindow: boolean } | undefined;
+	},
+	context: z.RefinementCtx,
+	requirement: 'optional' | 'required',
+): void {
+	const fields = [
+		event.preDeliveryPresentationClass,
+		event.newlyImportedCommitCount,
+		event.affectedFileCount,
+		event.addedLineCount,
+		event.deletedLineCount,
+		event.affectedStableFileIdentities,
+	];
+	const presentCount = fields.filter((field) => field !== undefined).length;
+	if (presentCount !== 0 && presentCount !== fields.length) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh impact fields must be carried as one atomic group.',
+			path: ['preDeliveryPresentationClass'],
+		});
+		return;
+	}
+	if (requirement === 'required' && presentCount !== fields.length) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh impact is required on the leading same-source event.',
+			path: ['preDeliveryPresentationClass'],
+		});
+		return;
+	}
+	if (presentCount === 0) return;
+	const counts = [
+		event.newlyImportedCommitCount,
+		event.affectedFileCount,
+		event.addedLineCount,
+		event.deletedLineCount,
+	];
+	const allCountsUnknown = counts.every((count) => count === null);
+	const allCountsExact = counts.every((count) => typeof count === 'number');
+	if (!allCountsUnknown && !allCountsExact) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Review refresh counts must be entirely exact or entirely unknown.',
+			path: ['newlyImportedCommitCount'],
+		});
+	}
+	if (
+		allCountsUnknown &&
+		(event.preDeliveryPresentationClass?.kind !== 'promoted' ||
+			event.preDeliveryPresentationClass.reason !== 'unknown')
+	) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Unknown Review refresh counts require promoted unknown presentation.',
+			path: ['preDeliveryPresentationClass'],
+		});
+	}
+	if (
+		allCountsUnknown &&
+		event.affectedStableFileIdentities !== undefined &&
+		event.affectedStableFileIdentities.length !== 0
+	) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Unknown Review refresh affectedness must be represented symbolically.',
+			path: ['affectedStableFileIdentities'],
+		});
+	}
 }
 
 function validateOrderedReviewWindow(props: {

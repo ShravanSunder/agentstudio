@@ -7,6 +7,36 @@ import Testing
 
 @Suite("Sidebar toolbar control visual state")
 struct SidebarToolbarControlVisualStateTests {
+    @Test("outgoing label fade overlaps shared resizing")
+    func labelTimingMatchesApprovedSequence() {
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeOutDuration == 0.04)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDelay == 0.02)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.selectionResizeDuration == AppStyles.General.Animation.fast)
+        #expect(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDuration == 0.04)
+        #expect(abs(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDelay - 0.10) < Double.ulpOfOne)
+    }
+
+    @Test(
+        "outgoing and incoming label widths exchange together at intermediate progress",
+        arguments: [CGFloat(0), 0.25, 0.5, 0.75, 1])
+    @MainActor
+    func labelWidthsExchangeTogether(progress: CGFloat) {
+        func mountedWidth(fraction: CGFloat) -> CGFloat {
+            let host = NSHostingView(
+                rootView: SidebarToolbarLabelLayout(revealFraction: fraction) {
+                    Color.clear.frame(width: 80, height: 20)
+                })
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.width
+        }
+        let outgoing = mountedWidth(fraction: 1 - progress)
+        let incoming = mountedWidth(fraction: progress)
+        #expect(abs(outgoing - 80 * (1 - progress)) < 0.5)
+        #expect(abs(incoming - 80 * progress) < 0.5)
+        #expect(abs(outgoing + incoming - 80) < 0.5)
+    }
+
     @Test("selected segment expands to show its label")
     @MainActor
     func selectedSegmentExpandsToShowItsLabel() {
@@ -16,8 +46,8 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(allPanesWidth > repoWidth)
     }
 
-    @Test("selected segment uses accent foreground and accent-tinted fill without borders")
-    func selectedSegmentUsesBorderlessAccentPresentation() throws {
+    @Test("selected segment uses accent paint inside one quiet noninteractive group border")
+    func selectedSegmentUsesAccentWithinQuietGroupBorder() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
             encoding: .utf8
@@ -30,21 +60,30 @@ struct SidebarToolbarControlVisualStateTests {
         // only for the unselected/hover/pressed states.
         #expect(source.contains("ChromeToolbarControlPalette.fillColor"))
         #expect(source.contains("visualState.fillOpacity"))
-        #expect(!source.contains(".stroke("))
+        #expect(source.components(separatedBy: ".stroke(").count == 2)
+        #expect(source.contains(".stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)"))
+        #expect(source.contains(".allowsHitTesting(false)"))
         #expect(!source.contains("ChromeToolbarControlPalette.strokeColor"))
     }
 
-    @Test("selected label reveal follows the segment geometry transition")
-    func selectedLabelRevealFollowsSegmentGeometryTransition() throws {
+    @Test("selected label fades separately from shared segment resizing and stays clipped")
+    func selectedLabelSharesClippedSegmentTransition() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("selectedLabelInsertionTransition"))
-        #expect(source.contains("selectedLabelRemovalTransition"))
-        #expect(source.contains("labelRevealDelay"))
-        #expect(source.contains(".combined(with: .opacity)"))
+        #expect(!source.contains("if model.showsLabel(for: segment.value)"))
+        #expect(source.contains("SidebarToolbarLabelLayout("))
+        #expect(!source.contains(".transition("))
+        #expect(source.contains(".clipped()"))
+        #expect(source.contains("value: model.selection"))
+        #expect(source.contains("labelFadeOutDuration"))
+        #expect(source.contains("labelFadeInDuration"))
+        #expect(source.contains("labelFadeInDelay"))
+        #expect(source.contains("selectionResizeDelay"))
+        #expect(source.contains("selectionResizeDuration"))
+        #expect(!source.contains("AnyTransition.offset"))
     }
 
     @Test("organization popovers render command-catalog tooltips")

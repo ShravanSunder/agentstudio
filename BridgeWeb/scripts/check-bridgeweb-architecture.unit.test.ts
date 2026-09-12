@@ -545,6 +545,10 @@ describe('BridgeWeb architecture checker', () => {
 					const port = { postMessage: (_message: unknown): void => undefined };
 					port.postMessage({ kind: 'runtime' });
 				`,
+				'src/core/comm-worker/bridge-comm-worker-task-boundary.ts': `
+					const port = { postMessage: (_message: unknown): void => undefined };
+					port.postMessage({ kind: 'task-boundary' });
+				`,
 				'src/core/comm-worker/bridge-product-session-contracts.ts': `
 					const port = { postMessage: (_message: unknown): void => undefined };
 					port.postMessage({ kind: 'product-session' });

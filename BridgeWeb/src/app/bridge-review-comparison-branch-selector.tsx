@@ -10,9 +10,12 @@ import {
 	ComboboxEmpty,
 	ComboboxInput,
 	ComboboxItem,
+	ComboboxItemDescription,
 	ComboboxList,
+	ComboboxViewport,
 } from '../components/ui/combobox.js';
 import { Field, FieldTitle } from '../components/ui/field.js';
+import { ItemContent, ItemLabel, ItemMetadata } from '../components/ui/item-content.js';
 import { Skeleton } from '../components/ui/skeleton.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import type {
@@ -23,6 +26,7 @@ import type {
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewComparisonUpdateCommand,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeDesignRowMetrics } from '../design-tokens/bridge-design-row-metrics.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonIcon } from './bridge-review-comparison-icon.js';
 
@@ -57,12 +61,12 @@ export function BridgeReviewComparisonBranchSelector(props: {
 		targetCatalog?.branches.length ?? 0,
 	);
 	return (
-		<div className="col-span-2 grid grid-cols-subgrid gap-y-2">
+		<div className="col-span-2 grid min-h-0 grid-cols-subgrid grid-rows-[auto_minmax(0,1fr)] gap-y-2">
 			<Field
 				className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 				orientation="horizontal"
 			>
-				<FieldTitle className="text-muted-foreground">
+				<FieldTitle>
 					<BridgeReviewComparisonIcon kind="branch-basis" />
 					<span>Using</span>
 				</FieldTitle>
@@ -113,7 +117,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				value={selectedBranch}
 			>
 				<div
-					className="col-span-2 overflow-hidden rounded-md border border-input bg-input/20 transition-colors focus-within:border-ring"
+					className="col-span-2 flex min-h-0 flex-col gap-2"
 					data-testid="bridge-review-comparison-branch-selector"
 				>
 					{props.targetQueryState.status === 'failed' ? (
@@ -125,7 +129,6 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						<>
 							<ComboboxInput
 								aria-label="Search branches"
-								className="rounded-none border-x-0 border-t-0 border-b border-border bg-transparent"
 								placeholder="Search branches…"
 								ref={props.searchInputRef}
 								showTrigger={false}
@@ -142,7 +145,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 							)}
 							{targetCatalog === null ? null : (
 								<p
-									className="border-t border-border px-2 py-2 text-xs/relaxed text-muted-foreground"
+									className="px-2 py-2 text-xs/relaxed text-muted-foreground"
 									data-testid="bridge-review-comparison-catalog-explanation"
 								>
 									Showing branches from the last 30 days.
@@ -169,7 +172,7 @@ function BranchOptionsFailure(props: {
 	readonly onRetry: () => void;
 }): ReactElement {
 	return (
-		<Alert className="flex flex-col items-center gap-2 rounded-none border-0 bg-transparent px-3 py-4 text-muted-foreground">
+		<Alert layout="inline">
 			<div className="flex items-center gap-1.5">
 				<TriangleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
 				<span>{props.message}</span>
@@ -209,7 +212,7 @@ function VirtualizedBranchOptions(props: {
 	const virtualizer = useVirtualizer({
 		count: filteredBranches.length,
 		getScrollElement: (): HTMLDivElement | null => scrollElementRef.current,
-		estimateSize: (): number => 44,
+		estimateSize: (): number => bridgeDesignRowMetrics.descriptive,
 		overscan: 8,
 	});
 	const virtualRows = virtualizer.getVirtualItems();
@@ -224,11 +227,7 @@ function VirtualizedBranchOptions(props: {
 		if (highlightedIndex >= 0) virtualizer.scrollToIndex(highlightedIndex, { align: 'auto' });
 	}, [filteredBranches, props.highlightedBranch, virtualizer]);
 	return (
-		<div
-			className="max-h-56 overflow-y-auto"
-			data-testid="bridge-review-comparison-branch-scroll"
-			ref={scrollElementRef}
-		>
+		<ComboboxViewport data-testid="bridge-review-comparison-branch-scroll" ref={scrollElementRef}>
 			<ComboboxList
 				className="relative m-0 max-h-none overflow-visible py-1"
 				style={{ height: `${virtualizer.getTotalSize()}px` }}
@@ -244,39 +243,42 @@ function VirtualizedBranchOptions(props: {
 							data-index={virtualRow.index}
 							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
 							index={virtualRow.index}
+							presentation="descriptive"
 							key={branchTargetKey(branch)}
 							ref={virtualizer.measureElement}
 							style={{ transform: `translateY(${virtualRow.start}px)` }}
 							value={branch}
 						>
-							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-								<span className="truncate text-foreground">{branchTargetLabel(branch)}</span>
-								<span className="flex min-w-0 items-baseline gap-1.5 text-xs/relaxed text-muted-foreground">
+							<ItemContent>
+								<ItemLabel>{branchTargetLabel(branch)}</ItemLabel>
+								<ComboboxItemDescription>
 									{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
-										<span className="font-medium">Default</span>
+										<ItemMetadata emphasis="strong">Default</ItemMetadata>
 									) : null}
 									{branchTargetsEqual(branch, props.targetCatalog?.currentTarget ?? null) ? (
-										<span className="font-medium">Current</span>
+										<ItemMetadata emphasis="strong">Current</ItemMetadata>
 									) : null}
-									<span>{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}</span>
+									<ItemMetadata>
+										{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}
+									</ItemMetadata>
 									<span aria-hidden="true">·</span>
 									<BranchRevision value={branch.oid} />
-								</span>
-							</span>
+								</ComboboxItemDescription>
+							</ItemContent>
 						</ComboboxItem>
 					);
 				})}
 			</ComboboxList>
-		</div>
+		</ComboboxViewport>
 	);
 }
 
 function BranchRevision(props: { readonly value: string }): ReactElement {
 	return (
-		<code className="font-mono text-muted-foreground" title={props.value}>
+		<ItemMetadata font="mono" title={props.value}>
 			<span aria-hidden="true">{props.value.slice(0, 12)}</span>
 			<span className="sr-only">{props.value}</span>
-		</code>
+		</ItemMetadata>
 	);
 }
 

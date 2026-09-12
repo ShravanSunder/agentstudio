@@ -124,10 +124,12 @@
         "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
         "sourceGeneration": 7,
         "cursor": "review-cursor-startup-1",
+        "operationCorrelationId": null,
         "data": {
           "subscriptionKind": "review.metadata",
           "event": {
             "eventKind": "review.sourceAccepted",
+            "operationCorrelationId": null,
             "sourceIdentity": "review-source-startup-1",
             "packageId": "review-package-startup-1",
             "publicationId": "11111111-1111-7111-8111-111111111111",
@@ -216,6 +218,7 @@
         "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
         "sourceGeneration": 11,
         "cursor": "file-cursor-startup-1",
+        "operationCorrelationId": null,
         "data": {
           "subscriptionKind": "file.metadata",
           "event": {
@@ -316,6 +319,7 @@
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
+        "operationCorrelationId": null,
         "contentKind": "file.content",
         "descriptor": {
           "contentKind": "file.content",
@@ -353,6 +357,7 @@
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
+        "operationCorrelationId": null,
         "contentSequence": 0,
         "declaredByteLength": 3,
         "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
@@ -385,7 +390,8 @@
       "value": {
         "kind": "content.data",
         "contentSequence": 1,
-        "offsetBytes": 0
+        "offsetBytes": 0,
+        "operationCorrelationId": null
       }
     },
     {
@@ -396,7 +402,8 @@
         "contentSequence": 2,
         "endOfSource": true,
         "observedByteLength": 3,
-        "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "operationCorrelationId": null
       }
     },
     {

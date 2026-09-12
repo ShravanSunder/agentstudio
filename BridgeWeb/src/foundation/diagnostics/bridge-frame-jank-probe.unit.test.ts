@@ -89,6 +89,40 @@ describe('Bridge frame jank probe', () => {
 		stopProbe();
 	});
 
+	test('resets the RAF baseline across document suspension', () => {
+		// Arrange
+		ensureTestWindow();
+		resetBridgeFrameJankProbeForTesting();
+		const frameController = createFakeAnimationFrameController();
+		const visibilityTarget = createFakeVisibilityTarget();
+		const samples: unknown[] = [];
+		const stopProbe = startBridgeFrameJankProbe({
+			cancelAnimationFrame: frameController.cancelAnimationFrame,
+			nominalFrameDurationMilliseconds: 16,
+			onJankSample: (sample): void => {
+				samples.push(sample);
+			},
+			requestAnimationFrame: frameController.requestAnimationFrame,
+			visibilityTarget,
+		});
+		frameController.fireNext(0);
+		frameController.fireNext(16);
+
+		// Act
+		visibilityTarget.setVisibility('hidden');
+		visibilityTarget.setVisibility('visible');
+		frameController.fireNext(516);
+		frameController.fireNext(532);
+
+		// Assert
+		expect(samples).toEqual([]);
+		expect(readRequiredBridgeFrameJankProbe().dropped_frame).toEqual({
+			count: 0,
+			worst_gap_ms: 0,
+		});
+		stopProbe();
+	});
+
 	test('disconnects the observer and cancels the animation frame on cleanup', () => {
 		ensureTestWindow();
 		resetBridgeFrameJankProbeForTesting();
@@ -237,6 +271,37 @@ interface FakeAnimationFrameController {
 	readonly cancelAnimationFrame: (frameId: number) => void;
 	readonly fireNext: (timestampMilliseconds: number) => void;
 	readonly requestAnimationFrame: (callback: FrameRequestCallback) => number;
+}
+
+interface FakeVisibilityTarget {
+	readonly addEventListener: Document['addEventListener'];
+	readonly removeEventListener: Document['removeEventListener'];
+	readonly setVisibility: (visibilityState: DocumentVisibilityState) => void;
+	readonly visibilityState: DocumentVisibilityState;
+}
+
+function createFakeVisibilityTarget(): FakeVisibilityTarget {
+	const listeners = new Set<EventListenerOrEventListenerObject>();
+	let currentVisibilityState: DocumentVisibilityState = 'visible';
+	return {
+		addEventListener: ((_type: string, listener: EventListenerOrEventListenerObject): void => {
+			listeners.add(listener);
+		}) as Document['addEventListener'],
+		removeEventListener: ((_type: string, listener: EventListenerOrEventListenerObject): void => {
+			listeners.delete(listener);
+		}) as Document['removeEventListener'],
+		setVisibility: (visibilityState): void => {
+			currentVisibilityState = visibilityState;
+			const event = new Event('visibilitychange');
+			for (const listener of listeners) {
+				if (typeof listener === 'function') listener(event);
+				else listener.handleEvent(event);
+			}
+		},
+		get visibilityState(): DocumentVisibilityState {
+			return currentVisibilityState;
+		},
+	};
 }
 
 function createFakeAnimationFrameController(): FakeAnimationFrameController {

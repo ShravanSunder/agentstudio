@@ -1,4 +1,4 @@
-import type { CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
+import type { CodeViewOptions, CodeViewScrollBehavior, SelectedLineRange } from '@pierre/diffs';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
@@ -6,6 +6,7 @@ import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
 import type { BridgeCodeViewRenderFulfillmentCoordinator } from './bridge-code-view-render-fulfillment.js';
 
@@ -17,6 +18,7 @@ export interface SelectedContentPaintTelemetryStart {
 }
 
 export interface BridgeCodeViewPanelProps {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal | null;
 	readonly codeViewOptions?: Readonly<CodeViewOptions<undefined>>;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -33,9 +35,20 @@ export interface BridgeCodeViewPanelProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onAnnotationRevealComplete?: (requestId: number) => void;
 	readonly onOpenFile?: (path: string) => void;
+	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+}
+
+export interface BridgeCodeViewAnnotationReveal {
+	readonly itemId: string;
+	readonly range: SelectedLineRange;
+	readonly requestId: number;
+	readonly threadId: string;
 }
 
 export interface BridgeCodeViewControlHandle {
@@ -58,10 +71,18 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 	readonly remainingFrameBudget: number;
 }
 
+export interface BridgeCodeViewExactManifestPolicyReceipt {
+	readonly initialItems: readonly BridgeCodeViewItem[];
+	readonly mountVersion: number;
+	readonly policyVersion: string;
+	readonly sourceKey: string;
+}
+
 export const codeViewMaterializationRetryFrameBudget = 30;
 export const codeViewSelectionScrollRetryFrameBudget = 30;
 export const codeViewVisibleMetadataScrollThrottleMilliseconds = 120;
 export const codeViewVisibleHydrationScrollIdleMilliseconds = 120;
+export const bridgeCodeViewExactManifestPolicyVersion = 'complete-authoritative-manifest-v1';
 export const bridgeCodeViewInstantRevealPolicy = {
 	externalScrollAbortThresholdPixels: 240,
 	hydrationRearmViewportOffsetTolerancePixels: 4,

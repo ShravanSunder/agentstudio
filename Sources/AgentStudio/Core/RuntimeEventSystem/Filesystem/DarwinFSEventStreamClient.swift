@@ -136,33 +136,21 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         sharedLocalObserverRegistry.snapshot()
     }
 
-    package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
+    package func register(
+        worktreeId: UUID,
+        repoId _: UUID,
+        rootPath: URL
+    ) -> FSEventStreamRegistrationOutcome {
         let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(rootPath)
 
-        var registrationToTearDown: StreamRegistration?
-        lifecycleLock.lock()
-        if hasShutdown {
-            lifecycleLock.unlock()
-            return
+        let initialRegistrationState = lifecycleLock.withLock {
+            (hasShutdown: hasShutdown, registration: streamByWorktreeId[worktreeId])
         }
-        if let existing = streamByWorktreeId[worktreeId] {
-            if existing.rootPath == canonicalRootPath {
-                lifecycleLock.unlock()
-                return
-            }
-            streamByWorktreeId.removeValue(forKey: worktreeId)
-            latestEventIDByParticipant.removeValue(forKey: existing.participant)
-            registrationToTearDown = existing
+        if initialRegistrationState.hasShutdown {
+            return .unavailable(.clientShutdown)
         }
-        lifecycleLock.unlock()
-
-        if let registrationToTearDown {
-            continuityLedger.unregister(registrationId: worktreeId)
-            sharedExactItemObserverRegistry.unbind(
-                worktreeId: worktreeId,
-                bindingGeneration: registrationToTearDown.lifecycleGeneration
-            )
-            Self.teardown(registrationToTearDown)
+        if initialRegistrationState.registration?.rootPath == canonicalRootPath {
+            return .observing
         }
 
         guard
@@ -175,7 +163,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
                 watchedPaths: [canonicalRootPath.path]
             )
         else {
-            return
+            return .unavailable(.streamCreationFailed)
         }
 
         var displacedRegistration: StreamRegistration?
@@ -194,12 +182,23 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
         guard didInstall else {
             Self.teardown(registration)
-            return
+            return lifecycleLock.withLock({ hasShutdown })
+                ? .unavailable(.clientShutdown)
+                : .observing
         }
         if let displacedRegistration {
+            lifecycleLock.withLock {
+                latestEventIDByParticipant.removeValue(forKey: displacedRegistration.participant)
+            }
+            continuityLedger.unregister(registrationId: worktreeId)
+            sharedExactItemObserverRegistry.unbind(
+                worktreeId: worktreeId,
+                bindingGeneration: displacedRegistration.lifecycleGeneration
+            )
             Self.teardown(displacedRegistration)
         }
         registration.eventActivationGate.activate()
+        return .observing
     }
 
     package func unregister(worktreeId: UUID) {

@@ -4,6 +4,19 @@ import Foundation
 
 @testable import AgentStudioCore
 
+func makeFailedPromotionReconciliationTestActor(
+    _ fixture: RemoteReferenceRefreshFixture
+) -> RemoteReferenceRefreshActor {
+    RemoteReferenceRefreshActor(
+        provider: fixture.provider,
+        onAuthorityUpdate: { await fixture.acceptanceRecorder.record($0) },
+        onPromotedRecomputation: {
+            await fixture.acceptanceRecorder.recordRecomputation($0)
+            return .completed
+        }
+    )
+}
+
 final class RemoteReferencePerformanceRecorderSpy:
     RemoteReferencePerformanceRecording, @unchecked Sendable
 {
@@ -129,6 +142,8 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
     private var stageContinuation: CheckedContinuation<Void, Never>?
     private var promotionContinuation: CheckedContinuation<Void, Never>?
     private var promotionWasRevoked = false
+    private var suspendNextCleanup = false
+    private var cleanupContinuation: CheckedContinuation<Void, Never>?
     private(set) var captureCount = 0
     private(set) var stageCount = 0
     private(set) var promoteCount = 0
@@ -235,6 +250,10 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
         let readyWaiters = cleanupCountWaiters.filter { $0.count <= cleanupCount }
         cleanupCountWaiters.removeAll { $0.count <= cleanupCount }
         for waiter in readyWaiters { waiter.continuation.resume() }
+        if suspendNextCleanup {
+            suspendNextCleanup = false
+            await withCheckedContinuation { cleanupContinuation = $0 }
+        }
         if cleanupFailuresRemaining > 0 {
             cleanupFailuresRemaining -= 1
             throw FakeError.cleanupFailed
@@ -246,6 +265,15 @@ actor RemoteReferenceRefreshProviderFake: RemoteReferenceRefreshProviding {
         retainedStagingIds _: Set<UUID>
     ) async {
         cleanupAbandonedCount += 1
+    }
+
+    func holdNextCleanup() {
+        suspendNextCleanup = true
+    }
+
+    func releaseCleanup() {
+        cleanupContinuation?.resume()
+        cleanupContinuation = nil
     }
 
     func waitUntilStageStarted() async {

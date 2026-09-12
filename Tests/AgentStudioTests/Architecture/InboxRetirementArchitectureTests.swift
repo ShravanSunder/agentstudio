@@ -67,7 +67,7 @@ struct InboxRetirementArchitectureTests {
             "Sources/AgentStudio/App/Coordination/WorkspaceSettingsStore.swift"
         )
         let datastore = try sourceFile(
-            "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift"
+            "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift"
         )
 
         #expect(!settingsStore.contains("InboxNotificationPrefsAtom"))

@@ -70,7 +70,7 @@ struct WorkspacePaneDiscardFocusTests {
 private final class DrawerDiscardFocusProbe {
     var onSave: (() -> Void)?
 
-    func observe(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func observe(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         guard case .saveWorkspaceSnapshot = event else { return }
         let action = onSave
         onSave = nil

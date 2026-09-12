@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
@@ -25,14 +25,8 @@ import {
 	openReviewContentFromDescriptorMap,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { drainBridgeWorkerVisibleDemandRuntimeUntil } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
-import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type {
-	BridgeProductSubscriptionEvent,
-	BridgeProductSubscriptionUpdateOptions,
-} from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type { BridgeProductSubscriptionUpdateOptions } from './bridge-product-subscription-contracts.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol', () => {
@@ -264,76 +258,22 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('updates Review metadata interests through the worker-owned product subscription', async () => {
+	test('commits the newest worker-owned Review role before native open and ignores caller roles', async () => {
+		// Arrange
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const updates: BridgeProductSubscriptionUpdateOptions<'review.metadata'>[] = [];
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const updateCompletion = createDeferredVoid();
-		const reviewProductTransport = createReviewMetadataInterestProductTransport(
-			async (options): Promise<void> => {
+		const openedDescriptorIds: string[] = [];
+		const firstInterestCommit = createDeferredVoid();
+		const secondInterestCommit = createDeferredVoid();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource({
+			updateReviewMetadata: async (options): Promise<void> => {
 				updates.push(options);
-				await updateCompletion.promise;
-			},
-		);
-
-		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 50,
-			},
-			productTransport: reviewProductTransport.productTransport,
-			sendProductControl: async (): Promise<void> => {
-				throw new Error('metadata interests must not use generic product control');
+				if (updates.length === 1) await firstInterestCommit.promise;
+				else if (updates.length === 2) await secondInterestCommit.promise;
 			},
 		});
-
-		dispatch.message(
-			encodeBridgeWorkerMetadataInterestUpdateCommand({
-				requestId: 'request-metadata-interest',
-				epoch: 3,
-				request: {
-					protocol: 'review',
-					itemIds: ['item-1'],
-					lane: 'foreground',
-				},
-			}),
-		);
-		await flushBridgeWorkerRuntimeContinuations();
-
-		expect(updates).toEqual([
-			{
-				interests: [{ itemIds: ['item-1'], lane: 'foreground' }],
-			},
-		]);
-		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
-			expect.objectContaining({
-				kind: 'health',
-				requestId: 'request-metadata-interest',
-				status: 'ready',
-			}),
-		);
-		updateCompletion.resolve();
-		await flushBridgeWorkerRuntimeContinuations();
-
-		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
-			expect.objectContaining({
-				kind: 'health',
-				requestId: 'request-metadata-interest',
-				status: 'ready',
-			}),
-		);
-		reviewProductTransport.close();
-	});
-
-	test('reports degraded health when the Review metadata subscription update fails', async () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const reviewProductTransport = createReviewMetadataInterestProductTransport(
-			async (): Promise<void> => {
-				throw new Error('subscription down');
-			},
-		);
-
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -341,102 +281,94 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			productTransport: reviewProductTransport.productTransport,
+			createSequence: createBridgeWorkerSequenceCounter(301),
+			openReviewContent: (descriptor, signal) => {
+				openedDescriptorIds.push(descriptor.descriptorId);
+				return openReviewContentFromDescriptorMap(descriptor, signal);
+			},
+			productTransport: reviewProductSource.productTransport,
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
 		});
-
-		dispatch.message(
-			encodeBridgeWorkerMetadataInterestUpdateCommand({
-				requestId: 'request-metadata-interest',
-				epoch: 3,
-				request: {
-					protocol: 'review',
-					itemIds: ['item-1'],
-					lane: 'foreground',
-				},
-			}),
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'worker-owned-interest');
+		reviewProductSource.publishSource(
+			{
+				contentItems: [makeWorkerReviewContentMetadata()],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'interest base' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'interest head' }),
+				],
+				renderSemantics: [makeRenderSemantics()],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			},
+			4,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(updates).toEqual([{ interests: [{ itemIds: ['item-1'], lane: 'idle' }] }]);
 
-		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
-			expect.objectContaining({
-				kind: 'health',
-				requestId: 'request-metadata-interest',
-				status: 'degraded',
-				message: 'Bridge comm worker failed to update Review metadata interests.',
+		// Act: promote before the first snapshot commits, then start content work.
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 5,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-promote-before-native-open',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
 			}),
 		);
-		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+		dispatch.message(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				epoch: 5,
+				request: {
+					itemIds: ['forged-caller-item'],
+					lane: 'idle',
+					protocol: 'review',
+				},
+				requestId: 'request-await-worker-interest',
+			}),
+		);
+		clockMs += 1;
+		const renderCompletion = drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(({ message }) => message.kind === 'reviewPierreRenderJob'),
+			scheduledDrains,
+			startIndex: 1,
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert: neither the native open nor command acknowledgement can overtake the newest role.
+		expect(openedDescriptorIds).toEqual([]);
+		expect(postedMessages.map(({ message }) => message)).not.toContainEqual(
+			expect.objectContaining({ requestId: 'request-await-worker-interest', status: 'ready' }),
+		);
+		firstInterestCommit.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(updates).toEqual([
+			{ interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
+			{ interests: [{ itemIds: ['item-1'], lane: 'visible' }] },
+		]);
+		expect(openedDescriptorIds).toEqual([]);
+		secondInterestCommit.resolve();
+		await renderCompletion;
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(openedDescriptorIds).toHaveLength(2);
+		expect(
+			updates.flatMap(({ interests }) => interests.flatMap(({ itemIds }) => itemIds)),
+		).not.toContain('forged-caller-item');
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({
 				kind: 'health',
-				requestId: 'request-metadata-interest',
+				requestId: 'request-await-worker-interest',
 				status: 'ready',
 			}),
 		);
-		reviewProductTransport.close();
-	});
-
-	test('reports degraded health when the Review metadata subscription update never settles', async () => {
-		vi.useFakeTimers();
-		try {
-			const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-			const reviewProductTransport = createReviewMetadataInterestProductTransport(
-				async (): Promise<void> => new Promise((): void => {}),
-			);
-
-			registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
-				bridgeDemandRank: { lane: 'selected', priority: 0 },
-				budget: {
-					className: 'interactive',
-					maxBytes: 512 * 1024,
-					maxWindowLines: 50,
-				},
-				productControlTimeoutMilliseconds: 25,
-				productTransport: reviewProductTransport.productTransport,
-			});
-
-			dispatch.message(
-				encodeBridgeWorkerMetadataInterestUpdateCommand({
-					requestId: 'request-metadata-interest',
-					epoch: 3,
-					request: {
-						protocol: 'review',
-						itemIds: ['item-1'],
-						lane: 'foreground',
-					},
-				}),
-			);
-			await flushBridgeWorkerRuntimeContinuations();
-
-			expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
-				expect.objectContaining({
-					kind: 'health',
-					requestId: 'request-metadata-interest',
-					status: 'degraded',
-				}),
-			);
-
-			await vi.advanceTimersByTimeAsync(25);
-			await flushBridgeWorkerRuntimeContinuations();
-
-			expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
-				expect.objectContaining({
-					kind: 'health',
-					requestId: 'request-metadata-interest',
-					status: 'degraded',
-					message: 'Bridge comm worker failed to update Review metadata interests.',
-				}),
-			);
-			expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
-				expect.objectContaining({
-					kind: 'health',
-					requestId: 'request-metadata-interest',
-					status: 'ready',
-				}),
-			);
-			reviewProductTransport.close();
-		} finally {
-			vi.useRealTimers();
-		}
+		reviewProductSource.close();
 	});
 
 	test('sends activeViewerModeUpdate through worker-owned product control', async () => {
@@ -645,7 +577,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 103,
+			publicationSequence: 105,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -725,7 +657,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
+			'reviewCandidateReady',
 		]);
 		expect(scheduledDrains).toHaveLength(1);
 		clockMs += 1;
@@ -738,16 +672,18 @@ describe('Bridge comm worker runtime protocol', () => {
 
 		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
 		expect(secondDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:204',
+			'review-content-ready:item-1:review-ledger:item-1:206',
 		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
+			'reviewCandidateReady',
 			'reviewPierreRenderJob',
 			'reviewRenderPatch',
 		]);
-		expect(postedMessages[3]?.message).toMatchObject({
+		expect(postedMessages[5]?.message).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
@@ -755,9 +691,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				budgetClass: 'visible',
 			},
 		});
-		expect(postedMessages[4]?.message).toMatchObject({
+		expect(postedMessages[6]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 204,
+			publicationSequence: 206,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -914,52 +850,6 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(fetchCallsByItemId.get('item-2')).toBe(2);
 	});
 });
-
-function createReviewMetadataInterestProductTransport(
-	update: (options: BridgeProductSubscriptionUpdateOptions<'review.metadata'>) => Promise<void>,
-): { readonly close: () => void; readonly productTransport: BridgeProductTransportSession } {
-	const events = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
-	>(1);
-	let reviewWorkerDerivationEpoch = 0;
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
-		cancel: async (): Promise<void> => {},
-		events,
-		subscriptionId: 'review-metadata-interest-test-subscription',
-		subscriptionKind: 'review.metadata',
-		update,
-	};
-	return {
-		close: (): void => {
-			events.close(true);
-		},
-		productTransport: {
-			bumpWorkerDerivationEpoch: (surface): number => {
-				if (surface === 'review') reviewWorkerDerivationEpoch += 1;
-				return surface === 'review' ? reviewWorkerDerivationEpoch : 0;
-			},
-			call: async (...arguments_): Promise<never> => {
-				const [method] = arguments_;
-				if (method === 'file.source.current') {
-					return { reason: 'review-only-test', status: 'unavailable' } as never;
-				}
-				return undefined as never;
-			},
-			openContent: (): never => {
-				throw new Error('Review metadata interest test does not open content.');
-			},
-			subscribe: (...arguments_): never => {
-				const [subscriptionKind] = arguments_;
-				if (subscriptionKind !== 'review.metadata') {
-					throw new Error(`Unexpected subscription ${subscriptionKind}.`);
-				}
-				return reviewSubscription as never;
-			},
-			workerDerivationEpoch: (surface): number =>
-				surface === 'review' ? reviewWorkerDerivationEpoch : 0,
-		},
-	};
-}
 
 function createDeferredVoid(): { readonly promise: Promise<void>; readonly resolve: () => void } {
 	let resolvePromise: (() => void) | null = null;

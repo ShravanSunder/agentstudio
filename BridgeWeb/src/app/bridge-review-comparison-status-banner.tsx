@@ -1,4 +1,4 @@
-import { LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react';
+import { TriangleAlertIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { AnimationEvent, ReactElement } from 'react';
 
@@ -7,24 +7,29 @@ import { Button } from '../components/ui/button.js';
 import type { BridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
 import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
-type VisibleComparisonPaneState = Exclude<
+type VisibleComparisonPaneState = Extract<
 	BridgeReviewComparisonPaneState,
-	{ readonly kind: 'settled' }
+	{ readonly kind: 'failedInitial' | 'failedPrevious' }
 >;
 
 export function BridgeReviewComparisonStatusBanner(props: {
 	readonly onRetry: (target: BridgeReviewComparisonTarget) => void;
 	readonly state: BridgeReviewComparisonPaneState;
-}): ReactElement {
-	const currentVisibleState = props.state.kind === 'settled' ? null : props.state;
+}): ReactElement | null {
+	const currentVisibleState =
+		props.state.kind === 'failedInitial' || props.state.kind === 'failedPrevious'
+			? props.state
+			: null;
 	const [retainedVisibleState, setRetainedVisibleState] =
 		useState<VisibleComparisonPaneState | null>(currentVisibleState);
 
 	useEffect((): void => {
 		if (currentVisibleState !== null) {
 			setRetainedVisibleState(currentVisibleState);
+		} else if (props.state.kind !== 'settled') {
+			setRetainedVisibleState(null);
 		}
-	}, [currentVisibleState]);
+	}, [currentVisibleState, props.state.kind]);
 
 	const presentedState = currentVisibleState ?? retainedVisibleState;
 	const motionState =
@@ -36,6 +41,22 @@ export function BridgeReviewComparisonStatusBanner(props: {
 		}
 		setRetainedVisibleState(null);
 	};
+	if (props.state.kind === 'loadingInitial' || props.state.kind === 'loadingPrevious') {
+		return (
+			<span
+				aria-atomic="true"
+				aria-live="polite"
+				className="sr-only"
+				data-testid="bridge-review-comparison-loading-status"
+				role="status"
+			>
+				Loading comparison with {props.state.requestedTargetLabel}…
+			</span>
+		);
+	}
+	if (presentedState === null) {
+		return null;
+	}
 
 	return (
 		<div
@@ -60,23 +81,6 @@ function renderComparisonStatus(
 	}
 
 	switch (state.kind) {
-		case 'loadingInitial':
-		case 'loadingPrevious':
-			return (
-				<Alert
-					aria-live="polite"
-					className="rounded-none border-x-0 border-t-0"
-					data-testid="bridge-review-comparison-status-banner"
-					role="status"
-				>
-					<LoaderCircleIcon
-						aria-hidden="true"
-						className="animate-spin motion-reduce:animate-none"
-						data-testid="bridge-review-comparison-loading-spinner"
-					/>
-					<AlertTitle>Loading comparison with {state.requestedTargetLabel}…</AlertTitle>
-				</Alert>
-			);
 		case 'failedPrevious':
 			return (
 				<ComparisonFailureAlert
@@ -106,7 +110,7 @@ function ComparisonFailureAlert(props: {
 	const retryTarget = props.retryTarget;
 	return (
 		<Alert
-			className="rounded-none border-x-0 border-t-0"
+			layout="banner"
 			data-testid="bridge-review-comparison-status-banner"
 			variant="destructive"
 		>

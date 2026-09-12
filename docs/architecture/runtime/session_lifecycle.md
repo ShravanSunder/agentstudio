@@ -306,7 +306,7 @@ entry before validation and does not rely on matching creation metadata or globa
 sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
-    participant DB as WorkspaceSQLiteDatastore
+    participant DB as WorkspaceSQLiteDatastoreActor
     participant Coord as WorkspaceSurfaceCoordinator
 
     AD->>Store: restore()
@@ -359,7 +359,7 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
 
 ## Persistence
 
-State is persisted through `WorkspaceSQLiteDatastore` into authoritative
+State is persisted through `WorkspaceSQLiteDatastoreActor` into authoritative
 `core.sqlite` plus one non-authoritative app-root `local.sqlite`. Boot prepares
 both databases before hydration and retains one writable owner for each
 available database. Core preparation failure stops boot. Classified corruption

@@ -187,6 +187,7 @@ extension WebKitSerializedTests {
                 ],
                 "kind": "content.open",
                 "leaseId": "lease-\(handle.role.rawValue)",
+                "operationCorrelationId": NSNull(),
                 "paneSessionId": "pane-session-1",
                 "wireVersion": BridgeProductWireContract.version,
                 "workerDerivationEpoch": 1,

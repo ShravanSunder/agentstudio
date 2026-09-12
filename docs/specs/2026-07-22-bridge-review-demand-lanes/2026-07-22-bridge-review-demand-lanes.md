@@ -353,6 +353,66 @@ Do not modify Pierre.
 
 ## Physical response boundary
 
+Before a newly admitted logical Review opportunity opens native content, the
+communication worker MUST project the ledger's complete current-intent,
+current-generation active membership into the existing Review metadata
+subscription interests. This is one atomic replacement derived from the
+worker-owned role truth, not a second demand reducer:
+
+```text
+worker highest-role reducer
+  → one ledger reconciliation, including release/reject/refill
+  → current-intent active entries, at most twelve
+  → existing Review subscription interest update
+  → scheduler-owned latest-commit promise
+  → existing content open only after the newest promise settles
+  → native content-demand authority classifies the same roles
+```
+
+The role mapping uses the existing subscription lanes:
+
+```text
+selected     → foreground
+visible      → visible
+nearby       → nearby
+speculative  → speculative
+background   → idle
+```
+
+React MUST NOT derive or publish a second interest snapshot. Every ledger path
+that changes active membership—including initial reconciliation, internal
+release, rejection, retry, publication settlement, and refill—publishes its
+final complete current-intent snapshot through the existing product controller
+and subscription update. Lifecycle-retained old-generation published records
+remain in the ledger only for exact receipt and position settlement; they MUST
+NOT enter a replacement subscription's interests. An equal snapshot performs
+no transport update.
+
+The scheduler retains only the newest existing subscription-update promise for
+the current Review subscription authority. A content request that has not yet
+reached native repeatedly observes and awaits that promise until the promise it
+settled is still newest. A pre-native promotion, demotion, release, rejection,
+or refill therefore advances the barrier before the request can open. Once a
+request reaches native, later role changes update later admission truth but do
+not abort, restart, or duplicate that response.
+
+If the subscription update fails, the barrier for that authority is terminal:
+waiting opens fail without bypassing demand policy as `unspecified`, queued
+updates cannot continue on the retired subscription, and the existing Review
+subscription cancel/reopen lifecycle creates a new authority with empty
+interests. The scheduler then recomputes a fresh current-intent snapshot. Old
+published records continue exact receipt settlement under their retained
+identity but never become new-authority demand.
+
+The existing `metadataInterestUpdate` command remains a supported request to
+publish and await this worker-owned snapshot. Its caller-supplied lane and item
+membership MUST NOT mutate production interest state.
+
+This adds no protocol, route, port, queue, scheduler, cache, store, atom,
+coordinator, timeout, or compatibility path. Vite retains its explicit HTTP
+carrier limit of four physical content responses; packaged/custom-scheme
+transport retains twelve.
+
 The pane product transport permits twelve open content responses.
 
 This is an Agent Studio policy, not a WebKit rule. Apple/WebKit exposes no
@@ -398,7 +458,8 @@ pure Review reducer
         │
         ▼
 existing Review scheduling owner
-  owns one ledger, 12/3/9 admission, traversal, retry readiness
+  owns one ledger, 12/3/9 admission, traversal, retry readiness,
+       and projection of active roles into existing subscription interests
         │
         ├── existing body registry
         └── existing Review fetch/preparation path
@@ -408,7 +469,8 @@ existing render fulfillment and Pierre adapter
 
 shared product transport
   owns twelve physical responses, framing, capability, cancellation
-  does not own Review membership
+  consumes committed Review interests for native admission
+  does not own or derive Review membership
 ```
 
 ## Proof requirements
@@ -421,6 +483,7 @@ shared product transport
 | no role-change abort | held-fetch promotion/demotion integration |
 | browser-side reuse | one native response identity for an active preparation, including continued first-delivery bytes after promotion; zero second-response bytes; zero native opens for a fresh resident hit; zero duplicate publications/Pierre tasks for an exact in-progress or painted fulfillment; exactly one legitimate reopen after freshness change or eviction |
 | background | full-order traversal with add/remove/reorder/retry/eviction |
+| native role admission | every ledger mutation/refill publishes one complete current-intent active-role snapshot; pre-native opens loop until the newest authority-scoped commit settles; stale published records are excluded; equal snapshots suppress updates; rejected updates retire/reopen the existing subscription without an unspecified open |
 | hidden behavior | held native response survives foreground exit; a pre-fetch physical waiter produces zero hidden native opens and resumes from the same logical record; resident completion defers render; resume performs zero refetches for resident content and one publication |
 | typed outcomes | complete terminal table without generic error collapse |
 | Pierre rank | real file and diff task ordering plus queued same-key promotion without duplication |

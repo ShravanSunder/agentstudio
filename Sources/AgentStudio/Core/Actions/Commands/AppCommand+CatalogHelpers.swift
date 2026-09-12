@@ -105,7 +105,8 @@ extension AppCommand {
         label: String,
         icon: CommandIcon,
         helpText: String,
-        surfacePolicy: AppCommandSurfacePolicy
+        surfacePolicy: AppCommandSurfacePolicy,
+        targetTypes: Set<SearchItemType> = [.worktree]
     ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
@@ -113,7 +114,7 @@ extension AppCommand {
             icon: icon,
             helpText: helpText,
             surfacePolicy: surfacePolicy,
-            targeting: .targeted([.worktree]),
+            targeting: .targeted(targetTypes),
             commandBarGroupName: "Repo",
             commandBarGroupPriority: CommandBarGroupPriority.repo
         )
@@ -250,7 +251,9 @@ extension AppCommand {
             label: label,
             icon: .system(icon),
             helpText: helpText,
-            surfacePolicy: .exposed([.contextMenu, .inlineControl]),
+            surfacePolicy: .exposed(
+                targetType == .pane
+                    ? [.contextMenu, .toolbar(.pane), .toolbar(.terminalZoom)] : [.contextMenu, .inlineControl]),
             targeting: .targeted([targetType]),
             commandBarGroupName: "Sidebar",
             commandBarGroupPriority: CommandBarGroupPriority.sidebar

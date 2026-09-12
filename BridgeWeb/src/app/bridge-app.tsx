@@ -16,10 +16,7 @@ import {
 	type BridgeActiveViewerSource,
 } from '../core/comm-worker/bridge-product-control-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
-import type {
-	BridgeWorkerHealthEvent,
-	BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { createBridgePaneTelemetryWorkerFactory } from '../core/telemetry-worker/bridge-pane-telemetry-worker-factory.js';
 import {
 	createBridgePaneTelemetryWorkerSession,
@@ -45,6 +42,7 @@ import {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeViewerActivationRequestedTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
+import { WorktreeAnnotationNavigationProvider } from '../worktree-annotations/worktree-annotation-navigation.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
@@ -64,13 +62,22 @@ import {
 	disposeBridgeMarkdownRuntimeHost,
 	type BridgeMarkdownRuntimeHost,
 } from './markdown/bridge-markdown-runtime-host.js';
+import { useBridgeAnnotationNavigation } from './use-bridge-annotation-navigation.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 import {
 	bridgeViewerActivationPrewarm,
 	type BridgeViewerActivationPrewarmState,
 } from './bridge-viewer-activation-prewarm.js';
+import {
+	activeViewerModeRetryAttemptAvailable,
+	bridgeActiveViewerSourcesEqual,
+	createBridgeActiveViewerModeSessionId,
+	resolveBridgeWorkerActiveViewerModeRequestResolvers,
+	resolvePendingBridgeWorkerActiveViewerModeRequests,
+} from './bridge-viewer-active-mode-signal.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
+import { useBridgeViewerContextFocusHandoff } from './bridge-viewer-context-focus-handoff.js';
 import { useBridgeCommWorkerSessionTelemetry } from './use-bridge-comm-worker-session-telemetry.js';
 
 export interface BridgeAppProps {
@@ -194,6 +201,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		new Map(),
 	);
 	const activeViewerModeSettledResultsRef = useRef<Map<string, boolean>>(new Map());
+	const requestContextSwitcherFocusHandoff = useBridgeViewerContextFocusHandoff(activeViewerMode);
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
 		bridgeReadyCallbacksRef.current.add(callback);
 		if (isBridgeReadyGateOpenRef.current) {
@@ -203,11 +211,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			bridgeReadyCallbacksRef.current.delete(callback);
 		};
 	}, []);
-	useBridgeCommWorkerSessionTelemetry(telemetryRecorder);
-	const activateViewerMode = useCallback(
+	useBridgeCommWorkerSessionTelemetry(telemetryRecorder, paneRuntimeHost.runtime);
+	const beginViewerActivation = useCallback(
 		(
 			viewerMode: BridgeViewerMode,
 			cause: BridgeViewerActivation['cause'] = 'context_switcher',
+			currentState: BridgeAppNavigationAdmissionState,
 		): BridgeViewerActivation | null => {
 			setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
 				if (currentMountedViewerModes.has(viewerMode)) {
@@ -215,7 +224,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				}
 				return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
 			});
-			const currentState = navigationAdmissionStateRef.current;
 			if (currentState.activeSurface === viewerMode) return null;
 			viewerActivationSequenceRef.current += 1;
 			const activation = {
@@ -234,12 +242,31 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				viewer: viewerMode,
 			});
 			setViewerActivation(activation);
+			return activation;
+		},
+		[telemetryRecorder],
+	);
+	const activateViewerMode = useCallback(
+		(
+			viewerMode: BridgeViewerMode,
+			cause: BridgeViewerActivation['cause'] = 'context_switcher',
+		): BridgeViewerActivation | null => {
+			const currentState = navigationAdmissionStateRef.current;
+			const activation = beginViewerActivation(viewerMode, cause, currentState);
+			if (activation === null) return null;
 			const nextState = { ...currentState, activeSurface: viewerMode };
 			navigationAdmissionStateRef.current = nextState;
 			setNavigationAdmissionState(nextState);
 			return activation;
 		},
-		[telemetryRecorder],
+		[beginViewerActivation],
+	);
+	const activateViewerModeFromContextSwitcher = useCallback(
+		(viewerMode: BridgeViewerMode): void => {
+			requestContextSwitcherFocusHandoff(viewerMode);
+			activateViewerMode(viewerMode, 'context_switcher');
+		},
+		[activateViewerMode, requestContextSwitcherFocusHandoff],
 	);
 	const openReviewFileInFileViewer = useCallback(
 		(path: string): void => {
@@ -255,18 +282,28 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		},
 		[activateViewerMode],
 	);
+	const activateAnnotationDestination = useCallback(
+		(destination: BridgeViewerMode): boolean =>
+			activateViewerMode(destination, 'context_switcher') !== null,
+		[activateViewerMode],
+	);
+	const annotationNavigation = useBridgeAnnotationNavigation({
+		activeSurface: activeViewerMode,
+		activateDestination: activateAnnotationDestination,
+	});
 	const applyNativeSurfaceSelectionRequest = useCallback(
 		(request: BridgeNativeSurfaceSelectionRequest): void => {
 			const currentState = navigationAdmissionStateRef.current;
 			const nextState = applyBridgeAppNavigationCommand(currentState, request.navigationCommand);
 			if (nextState === currentState) return;
+			beginViewerActivation(nextState.activeSurface, 'native_request', currentState);
 			nativeSurfaceSelectionArrivalRevisionRef.current += 1;
 			const arrivalRevision = nativeSurfaceSelectionArrivalRevisionRef.current;
 			pendingNativeSurfaceSelectionRef.current = { arrivalRevision, request };
 			navigationAdmissionStateRef.current = nextState;
 			setNavigationAdmissionState(nextState);
 		},
-		[],
+		[beginViewerActivation],
 	);
 	useEffect((): (() => void) => {
 		recordBridgePageReadyState('awaiting');
@@ -566,7 +603,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			pendingNativeSurfaceSelection !== null &&
 			pendingNativeSurfaceSelection.request.navigationCommand.surface === currentActiveViewerMode
 		) {
-			const nativeSignalKey = `native:${pendingNativeSurfaceSelection.arrivalRevision}:${pendingNativeSurfaceSelection.request.navigationCommand.commandId}`;
+			const nativeSignalKey = `native:${pendingNativeSurfaceSelection.arrivalRevision}:${pendingNativeSurfaceSelection.request.navigationCommand.commandId}:${activeSource?.streamId ?? 'pending-source'}:${activeSource?.generation ?? -1}`;
 			if (lastSentActiveViewerModeSignalKeyRef.current === nativeSignalKey) {
 				return;
 			}
@@ -770,18 +807,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	]);
 	useEffect((): void => {
 		if (incomingViewerMode === undefined) return;
-		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
-			if (currentMountedViewerModes.has(incomingViewerMode)) {
-				return currentMountedViewerModes;
-			}
-			return new Set<BridgeViewerMode>([...currentMountedViewerModes, incomingViewerMode]);
-		});
-		const currentState = navigationAdmissionStateRef.current;
-		if (currentState.activeSurface === incomingViewerMode) return;
-		const nextState = { ...currentState, activeSurface: incomingViewerMode };
-		navigationAdmissionStateRef.current = nextState;
-		setNavigationAdmissionState(nextState);
-	}, [incomingViewerMode]);
+		activateViewerMode(incomingViewerMode, 'native_request');
+	}, [activateViewerMode, incomingViewerMode]);
 	useEffect((): void => {
 		bridgeViewerActivationPrewarm({
 			activeViewerMode,
@@ -798,91 +825,100 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
-			{mountedViewerModes.has('file') ? (
-				<div
-					aria-hidden={activeViewerMode !== 'file'}
-					className={
-						activeViewerMode === 'file'
-							? 'absolute inset-0 h-full min-h-0'
-							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
-					}
-					data-bridge-viewer-mode-active={activeViewerMode === 'file' ? 'true' : 'false'}
-					data-bridge-viewer-mode-host="file"
-					data-testid="bridge-viewer-mode-host-file"
-					inert={activeViewerMode !== 'file' || undefined}
-				>
-					<BridgeFileViewerMode
-						{...props}
-						fileViewerProps={{
-							...props.fileViewerProps,
-							...(viewerActivation?.viewer === 'file'
+			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
+				{mountedViewerModes.has('file') ? (
+					<div
+						aria-hidden={activeViewerMode !== 'file'}
+						className={
+							activeViewerMode === 'file'
+								? 'absolute inset-0 h-full min-h-0'
+								: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+						}
+						data-bridge-viewer-mode-active={activeViewerMode === 'file' ? 'true' : 'false'}
+						data-bridge-viewer-mode-host="file"
+						data-testid="bridge-viewer-mode-host-file"
+						inert={activeViewerMode !== 'file' || undefined}
+					>
+						<BridgeFileViewerMode
+							{...props}
+							fileViewerProps={{
+								...props.fileViewerProps,
+								...(viewerActivation?.viewer === 'file'
+									? {
+											activationCause: viewerActivation.cause,
+											activationSequence: viewerActivation.sequence,
+											activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
+										}
+									: {}),
+								...(openFileFromReviewCommand === null
+									? {}
+									: { openPathCommand: openFileFromReviewCommand }),
+							}}
+							fileViewClient={paneRuntimeHost.fileViewClient}
+							isNavigationCommandStillEligible={isNavigationCommandStillEligible}
+							isActive={activeViewerMode === 'file'}
+							markdownWorkerClient={markdownRuntimeHost.runtime.workerClient}
+							mermaidRenderer={markdownRuntimeHost.runtime.mermaidRenderer}
+							controlTarget={target}
+							onActiveSourceChange={reportFileActiveSource}
+							onNavigationSourceChange={reportFileNavigationSource}
+							requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
+							telemetryRecorder={telemetryRecorder}
+							viewerContextSwitcher={
+								<BridgeViewerContextSwitcher
+									mode={activeViewerMode}
+									onModeChange={activateViewerModeFromContextSwitcher}
+								/>
+							}
+							{...(rememberedFileNavigationCommand === undefined
+								? {}
+								: { navigationCommand: rememberedFileNavigationCommand })}
+						/>
+					</div>
+				) : null}
+				{mountedViewerModes.has('review') ? (
+					<div
+						aria-hidden={activeViewerMode !== 'review'}
+						className={
+							activeViewerMode === 'review'
+								? 'absolute inset-0 h-full min-h-0'
+								: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+						}
+						data-bridge-viewer-mode-active={activeViewerMode === 'review' ? 'true' : 'false'}
+						data-bridge-viewer-mode-host="review"
+						data-testid="bridge-viewer-mode-host-review"
+						inert={activeViewerMode !== 'review' || undefined}
+					>
+						<BridgeReviewViewerMode
+							{...props}
+							{...(viewerActivation?.viewer === 'review'
 								? {
 										activationCause: viewerActivation.cause,
 										activationSequence: viewerActivation.sequence,
 										activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
 									}
-								: {}),
-							...(openFileFromReviewCommand === null
+								: {})}
+							isActive={activeViewerMode === 'review'}
+							isNavigationCommandStillEligible={isNavigationCommandStillEligible}
+							target={target}
+							onActiveSourceChange={reportReviewActiveSource}
+							onNavigationSourceChange={reportReviewNavigationSource}
+							onOpenFile={openReviewFileInFileViewer}
+							reviewClient={paneRuntimeHost.reviewClient}
+							telemetryRecorderRef={telemetryRecorderRef}
+							viewerContextSwitcher={
+								<BridgeViewerContextSwitcher
+									mode={activeViewerMode}
+									onModeChange={activateViewerModeFromContextSwitcher}
+								/>
+							}
+							{...(rememberedReviewNavigationCommand === undefined
 								? {}
-								: { openPathCommand: openFileFromReviewCommand }),
-						}}
-						fileViewClient={paneRuntimeHost.fileViewClient}
-						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
-						isActive={activeViewerMode === 'file'}
-						markdownWorkerClient={markdownRuntimeHost.runtime.workerClient}
-						mermaidRenderer={markdownRuntimeHost.runtime.mermaidRenderer}
-						controlTarget={target}
-						onActiveSourceChange={reportFileActiveSource}
-						onNavigationSourceChange={reportFileNavigationSource}
-						requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
-						telemetryRecorder={telemetryRecorder}
-						viewerContextSwitcher={
-							<BridgeViewerContextSwitcher
-								mode={activeViewerMode}
-								onModeChange={activateViewerMode}
-							/>
-						}
-						{...(rememberedFileNavigationCommand === undefined
-							? {}
-							: { navigationCommand: rememberedFileNavigationCommand })}
-					/>
-				</div>
-			) : null}
-			{mountedViewerModes.has('review') ? (
-				<div
-					aria-hidden={activeViewerMode !== 'review'}
-					className={
-						activeViewerMode === 'review'
-							? 'absolute inset-0 h-full min-h-0'
-							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
-					}
-					data-bridge-viewer-mode-active={activeViewerMode === 'review' ? 'true' : 'false'}
-					data-bridge-viewer-mode-host="review"
-					data-testid="bridge-viewer-mode-host-review"
-					inert={activeViewerMode !== 'review' || undefined}
-				>
-					<BridgeReviewViewerMode
-						{...props}
-						isActive={activeViewerMode === 'review'}
-						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
-						target={target}
-						onActiveSourceChange={reportReviewActiveSource}
-						onNavigationSourceChange={reportReviewNavigationSource}
-						onOpenFile={openReviewFileInFileViewer}
-						reviewClient={paneRuntimeHost.reviewClient}
-						telemetryRecorderRef={telemetryRecorderRef}
-						viewerContextSwitcher={
-							<BridgeViewerContextSwitcher
-								mode={activeViewerMode}
-								onModeChange={activateViewerMode}
-							/>
-						}
-						{...(rememberedReviewNavigationCommand === undefined
-							? {}
-							: { navigationCommand: rememberedReviewNavigationCommand })}
-					/>
-				</div>
-			) : null}
+								: { navigationCommand: rememberedReviewNavigationCommand })}
+						/>
+					</div>
+				) : null}
+			</WorktreeAnnotationNavigationProvider>
 		</BridgeViewerAppShell>
 	);
 }
@@ -912,17 +948,6 @@ function createDefaultBridgePaneRuntime(): BridgePaneRuntime {
 	return createBridgePaneRuntime();
 }
 
-function bridgeActiveViewerSourcesEqual(
-	left: BridgeActiveViewerSource | null,
-	right: BridgeActiveViewerSource | null,
-): boolean {
-	return (
-		left?.protocol === right?.protocol &&
-		left?.streamId === right?.streamId &&
-		left?.generation === right?.generation
-	);
-}
-
 function bridgeAppNavigationCommandIsAdmitted(
 	state: BridgeAppNavigationAdmissionState,
 	command: BridgeProductNavigationCommand,
@@ -940,59 +965,4 @@ function bridgeAppNavigationCommandIsAdmitted(
 		admittedTarget?.commandId === command.commandId &&
 		admittedTarget.bindingRevision === command.bindingRevision
 	);
-}
-
-function createBridgeActiveViewerModeSessionId(): string {
-	return `active-viewer-${crypto.randomUUID()}`;
-}
-
-function activeViewerModeRetryAttemptAvailable(props: {
-	readonly retryAttemptsBySignalKey: Map<string, number>;
-	readonly signalKey: string;
-}): boolean {
-	const currentAttemptCount = props.retryAttemptsBySignalKey.get(props.signalKey) ?? 0;
-	if (currentAttemptCount >= 3) {
-		return false;
-	}
-	props.retryAttemptsBySignalKey.set(props.signalKey, currentAttemptCount + 1);
-	return true;
-}
-
-function resolveBridgeWorkerActiveViewerModeRequestResolvers(props: {
-	readonly messages: readonly BridgeWorkerServerToMainMessage[];
-	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
-	readonly settledResultsByRequestId: Map<string, boolean>;
-}): void {
-	for (const message of props.messages) {
-		if (message.kind !== 'health' || message.requestId === undefined) {
-			continue;
-		}
-		const resolve = props.resolversByRequestId.get(message.requestId);
-		if (resolve === undefined) {
-			props.settledResultsByRequestId.set(
-				message.requestId,
-				bridgeWorkerActiveViewerModeHealthDidSend(message),
-			);
-			continue;
-		}
-		props.resolversByRequestId.delete(message.requestId);
-		resolve(bridgeWorkerActiveViewerModeHealthDidSend(message));
-	}
-}
-
-function bridgeWorkerActiveViewerModeHealthDidSend(message: BridgeWorkerHealthEvent): boolean {
-	if (message.status === 'ready') {
-		return true;
-	}
-	return message.deliveryStatus === 'unknownAfterDispatch';
-}
-
-function resolvePendingBridgeWorkerActiveViewerModeRequests(props: {
-	readonly didSend: boolean;
-	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
-}): void {
-	for (const resolve of props.resolversByRequestId.values()) {
-		resolve(props.didSend);
-	}
-	props.resolversByRequestId.clear();
 }

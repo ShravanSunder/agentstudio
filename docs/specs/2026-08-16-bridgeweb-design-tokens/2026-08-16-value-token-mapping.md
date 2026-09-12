@@ -1,5 +1,11 @@
 # BridgeWeb S1 Value-to-Token Mapping
 
+Historical S1 snapshot only. This appendix is not the current migration or compatibility
+contract. Its count-bounded allowances, slice ordering, and claimed root Pierre bindings
+are superseded by the current [Specification](./2026-08-16-bridgeweb-design-tokens.md) and
+[Program Design](./2026-08-16-program-design.md). Retain it only to interpret the original
+foundation change; do not execute its instructions.
+
 This appendix is the lookup contract for the S1 foundation cutover. It inventories the
 current `BridgeWeb/src` tree at `929f74773d0d550af361a263ad36d13f6289bdf2` and applies
 Program Design sections 4.1, 4.2, 4.2.1, 4.4, 6, and 10. S1 changes one rendered value:

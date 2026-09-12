@@ -165,6 +165,9 @@ aggregate_serial_non_webkit_suite_filters() {
       'Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift' \
       'GitWorkingDirectoryProjectorTests'
     printf '%s:%s\n' \
+      'Tests/AgentStudioBridgeDevelopmentServerTests/BridgeDevelopmentSeededWorktreeObservationTests.swift' \
+      'BridgeDevelopmentSeededWorktreeObservationTests'
+    printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift' \
       'AgentStudioAppIPCServiceTests'
     printf '%s:%s\n' \

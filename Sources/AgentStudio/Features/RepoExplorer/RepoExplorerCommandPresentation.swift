@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 package enum RepoExplorerCommandPresentationArguments: Hashable, Sendable {
@@ -126,6 +127,7 @@ struct RepoExplorerTableInteractions {
     let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
     let onToggleGroup: (String) -> Void
     let onFocusPane: (UUID) -> Void
+    var onOpenPaneInEditor: (UUID, EditorTargetId) -> Void = { _, _ in }
 }
 
 package struct RepoExplorerPresentedCommand {
@@ -273,6 +275,9 @@ package struct RepoExplorerWorktreeCommandPresentation {
 
     static func contextMenuLabel(for command: AppCommand) -> String? {
         switch command {
+        case .openPaneLocationInFinder: return LocalActionSpec.revealInFinder.actionSpec.label
+        case .copyCurrentPanePath: return LocalActionSpec.copyPath.actionSpec.label
+        case .openPaneLocationInEditorMenu: return LocalActionSpec.openInEditorMenu.actionSpec.label
         case .openNewTerminalInTab, .openWorktreeInPane:
             return "Terminal"
         case .openBridgeReviewInNewTab, .showBridgeReview:
@@ -302,32 +307,36 @@ package struct RepoExplorerWorktreeCommandPresentation {
 package struct RepoExplorerPaneCommandPresentation {
     package static func requests(
         paneId: UUID,
-        isPinned: Bool
+        isPinned: Bool,
+        worktreeId: UUID? = nil
     ) -> Set<RepoExplorerCommandPresentationRequest> {
-        let command: AppCommand = isPinned ? .unpinPane : .pinPane
-        return Set(
-            [AppCommandSurface.contextMenu, .inlineControl].map { surface in
+        let commands: [AppCommand] = [
+            isPinned ? .unpinPane : .pinPane, .zoomPane, .editPaneNote,
+            .openNewTerminalInTab, .openWorktreeInPane,
+            .openPaneLocationInFinder, .copyCurrentPanePath,
+        ]
+        var requests = Set(
+            commands.map { command in
                 RepoExplorerCommandPresentationRequest(
-                    command: command,
-                    surface: surface,
-                    target: paneId,
-                    targetType: .pane,
-                    arguments: .noArguments
+                    command: command, surface: .contextMenu,
+                    target: paneId, targetType: .pane, arguments: .noArguments
                 )
+            })
+        if let worktreeId {
+            for command: AppCommand in [
+                .showBridgeReview, .showBridgeFiles,
+                .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            ] {
+                requests.insert(
+                    RepoExplorerCommandPresentationRequest(
+                        command: command, surface: .contextMenu,
+                        target: worktreeId, targetType: .worktree, arguments: .noArguments
+                    ))
             }
-        )
+        }
+        return requests
     }
 
-    package static func resolve(
-        paneId: UUID,
-        isPinned: Bool,
-        surface: AppCommandSurface = .inlineControl,
-        snapshot: RepoExplorerCommandPresentationSnapshot
-    ) -> RepoExplorerPresentedCommand? {
-        let request = requests(paneId: paneId, isPinned: isPinned).first { $0.surface == surface }
-        guard let request else { return nil }
-        return RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
-    }
 }
 
 package struct RepoExplorerToolbarCommandPresentation {

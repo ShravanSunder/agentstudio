@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeReviewPublicationIdentity } from './bridge-comm-worker-entry.test-support.js';
 import { selectedReviewPreparationIdentity } from './bridge-comm-worker-review-preparation.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
@@ -23,6 +24,7 @@ describe('selected Review preparation identity', () => {
 				),
 			],
 			renderSemantics: clonedSource.renderSemantics.toReversed(),
+			reviewPublicationIdentity: clonedSource.reviewPublicationIdentity,
 			rows: clonedSource.rows.toReversed(),
 		};
 
@@ -33,6 +35,16 @@ describe('selected Review preparation identity', () => {
 		const source = makeReviewRuntimeSource();
 
 		expect(identityFor(source, 8)).not.toBe(identityFor(source, 7));
+	});
+
+	test('changes when publication lineage advances with otherwise equal item content', () => {
+		const source = makeReviewRuntimeSource();
+		const successor: BridgeCommWorkerReviewRuntimeSource = {
+			...source,
+			reviewPublicationIdentity: makeReviewPublicationIdentity(2),
+		};
+
+		expect(identityFor(successor)).not.toBe(identityFor(source));
 	});
 
 	test('changes when selected item content metadata changes', () => {
@@ -101,6 +113,7 @@ describe('selected Review preparation identity', () => {
 					? { ...semantics, displayPath: 'Sources/Other/retouched.swift' }
 					: semantics,
 			),
+			reviewPublicationIdentity: source.reviewPublicationIdentity,
 			rows: source.rows.map((row) =>
 				row.id === 'item-2' ? { ...row, parentId: 'different-directory' } : row,
 			),
@@ -135,6 +148,7 @@ function makeReviewRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
 			makeRenderSemantics({ itemId: 'item-1' }),
 			makeRenderSemantics({ itemId: 'item-2' }),
 		],
+		reviewPublicationIdentity: makeReviewPublicationIdentity(),
 		rows: [
 			{ id: 'item-1', index: 0, parentId: null },
 			{ id: 'item-2', index: 1, parentId: null },
@@ -160,6 +174,8 @@ function cloneReviewRuntimeSource(
 			...semantics,
 			contentLineCountsByRole: { ...semantics.contentLineCountsByRole },
 		})),
+		reviewPublicationIdentity:
+			source.reviewPublicationIdentity === null ? null : { ...source.reviewPublicationIdentity },
 		rows: source.rows.map((row) => ({ ...row })),
 	};
 }

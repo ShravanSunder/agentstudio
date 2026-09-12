@@ -109,12 +109,7 @@ function BridgeViewerResizableRailActiveLayout(
 			>
 				{props.content}
 			</ResizablePanel>
-			<ResizableHandle
-				aria-label="Resize file tree sidebar"
-				className="group bg-[var(--bridge-border-subtle)]"
-				id={props.handleTestId}
-				withHandle
-			/>
+			<ResizableHandle aria-label="Resize file tree sidebar" id={props.handleTestId} withHandle />
 			<ResizablePanel
 				className="h-full min-h-0 min-w-[240px]"
 				defaultSize={`${defaultRailSize}%`}

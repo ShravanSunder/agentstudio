@@ -337,27 +337,14 @@ enum RepoExplorerProjection {
     }
 
     static func panePrimaryText(
-        _ destination: RepoExplorerPaneDestination,
-        terminalTitle: String?
-    ) -> String {
-        panePrimaryText(paneIndexInTab: destination.paneIndexInTab, terminalTitle: terminalTitle)
-    }
-
-    static func panePrimaryText(
         _ destination: RepoExplorerProjectedPaneDestination,
-        terminalTitle: String?
+        terminalTitle: String?,
+        showsPaneNumber: Bool
     ) -> String {
-        panePrimaryText(paneIndexInTab: destination.paneIndexInTab, terminalTitle: terminalTitle)
-    }
-
-    private static func panePrimaryText(
-        paneIndexInTab: Int,
-        terminalTitle: String?
-    ) -> String {
-        let paneText = "Pane \(paneIndexInTab + 1)"
         let normalizedTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTitle = normalizedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "zsh"
-        return "\(paneText) · \(effectiveTitle)"
+        let fallback = normalizedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "zsh"
+        let identity = destination.worktreeLabel ?? fallback
+        return showsPaneNumber ? "\(identity) · Pane \(destination.paneIndexInTab + 1)" : identity
     }
 
     static func normalizedBranchName(_ branchName: String?) -> String? {

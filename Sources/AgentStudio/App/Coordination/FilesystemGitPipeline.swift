@@ -123,7 +123,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             },
             onPromotedRecomputation: { acceptance in
                 await remoteReferenceAuthoritySink.waitForRecomputation(
-                    authorityRevision: acceptance.authorityRevision
+                    acceptance: acceptance
                 )
             }
         )
@@ -143,9 +143,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         self.gitWorkingDirectoryProjector = gitWorkingDirectoryProjector
         remoteReferenceAuthoritySink.install { update in
             await gitWorkingDirectoryProjector.applyRemoteReferenceAuthorityUpdate(update)
-        } waitForRecomputation: { authorityRevision in
-            await gitWorkingDirectoryProjector.waitForRemoteReferenceRecomputation(
-                authorityRevision: authorityRevision
+        } waitForRecomputation: { acceptance in
+            await gitWorkingDirectoryProjector.startAndWaitForRemoteReferenceRecomputation(
+                acceptance: acceptance
             )
         }
         self.registrationValidator = GitWorktreeRegistrationValidator(
@@ -381,7 +381,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
 private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
     typealias Handler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
-    typealias RecomputationHandler = @Sendable (UInt64) async -> RepositoryFactSourceUpdateOutcome
+    typealias RecomputationHandler =
+        @Sendable (RemoteReferenceAcceptance) async ->
+        RepositoryFactSourceUpdateOutcome
 
     private let lock = NSLock()
     private var handler: Handler?
@@ -402,10 +404,12 @@ private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
         await handler?(update)
     }
 
-    func waitForRecomputation(authorityRevision: UInt64) async -> RepositoryFactSourceUpdateOutcome {
+    func waitForRecomputation(
+        acceptance: RemoteReferenceAcceptance
+    ) async -> RepositoryFactSourceUpdateOutcome {
         let handler = lock.withLock { recomputationHandler }
         guard let handler else { return .obsolete }
-        return await handler(authorityRevision)
+        return await handler(acceptance)
     }
 }
 

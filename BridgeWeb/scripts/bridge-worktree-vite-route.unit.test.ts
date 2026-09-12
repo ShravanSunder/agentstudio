@@ -13,6 +13,7 @@ import {
 	bridgeProductDevProxyConfiguration,
 	bridgeProductDevBackendShouldBeSupervised,
 	resolveBridgeProductDevBackendOrigin,
+	resolveBridgeWebViteCacheDirectory,
 } from '../vite.config.js';
 import { bridgeDevelopmentServerHealthResponseIsReady } from './dev-server/bridge-development-server-process.js';
 
@@ -86,5 +87,15 @@ describe('BridgeWeb Vite product proxy', () => {
 				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://127.0.0.1:43872',
 			}),
 		).toBe(false);
+	});
+
+	test('uses an explicit owned Vite cache without changing the ordinary development default', () => {
+		expect(resolveBridgeWebViteCacheDirectory({})).toBeNull();
+		expect(resolveBridgeWebViteCacheDirectory({ BRIDGE_WEB_VITE_CACHE_DIR: '' })).toBeNull();
+		expect(
+			resolveBridgeWebViteCacheDirectory({
+				BRIDGE_WEB_VITE_CACHE_DIR: '/tmp/bridge-owned-data/vite-cache',
+			}),
+		).toBe('/tmp/bridge-owned-data/vite-cache');
 	});
 });

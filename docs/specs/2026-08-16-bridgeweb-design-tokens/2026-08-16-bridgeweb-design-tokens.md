@@ -1,307 +1,326 @@
-# Specification: BridgeWeb Design-Token Harmonization
+# Specification: BridgeWeb Style-System Harmonization
 
 Requirements: [2026-08-16-requirements.md](./2026-08-16-requirements.md)
-(U1–U10 and the owner-confirmed goal boundary govern this contract).
+(U1–U10 and its confirmed goal boundary govern this contract).
 
-## The problem and outcome in one view
+## Intended observable change
 
-```
-TODAY                                    TARGET
-─────────────────────────────────        ─────────────────────────────────
-shadcn roles ─┐  both active,            primitives (defined ONCE)
---bridge-*  ──┤  same hexes,               gray ramp · accent hues ·
-raw hex     ──┤  colliding names,          alpha washes · scales
-bespoke CSS ──┘  no authority                      │
-                                          semantic roles (shadcn conv.,
-agents guess → random UI                  extended; only vocabulary)
-tree theme ≠ chrome palette                        │
-                                        ┌──────────┴──────────┐
-                                     --diffs-*           inline-comment
-                                     (Pierre)            context
-                                        │
-                                   PR gate blocks raw hex, --bridge-*,
-                                   off-system geometry
+```text
+CURRENT                                  REQUIRED
+------------------------------------     ------------------------------------
+same action changes by surface            same semantics render consistently
+disabled outlines wash away               disabled remains legible
+web density differs from Swift/Pierre     one compact product rhythm
+in-tree appearance differs by portal      one unconditional dark appearance
+product blue and syntax blue drift        distinct, stable color meanings
 ```
 
-## Context: consumers of the styling system
+Users must experience BridgeWeb, Pierre, and native Swift chrome as one compact dark
+application. Implementers must be able to choose a semantic control variant and size without
+copying paint, typography, geometry, focus, or disabled recipes into a feature.
 
-```
-                    ┌──────────────────────────────┐
-  Implementing ───► │                              │ ◄─── Owner
-  agents (Sol)      │   BridgeWeb styling system   │      (draft-PR
-  write against     │        (opaque here)         │      screenshot
-  roles/utilities   │                              │      review)
-                    └──┬────────┬────────┬─────────┘
-                       │        │        │
-              --diffs-* vars  TS theme  rendered UI
-                       │      objects      │
-                       ▼        ▼          ▼
-                    Pierre   Pierre     End user
-                    diffs    trees      (file + review views,
-                                        comments, future modes)
+## Observable contexts
 
-  Native Swift app: shares palette identity by hand-harmonization
-  (accent #89B4FA, scales); no runtime coupling. NOT a consumer of
-  the web tokens.
+```text
+Implementing agents ── control contract ──► ╭──────────────────────────╮
+Native Agent Studio ── identity/density ──► │ BridgeWeb style system   │
+Pierre ─────────────── CSS/theme contract ─► │        (opaque)           │
+                                            ╰────────────┬─────────────╯
+                                                         │ rendered UI
+                                                         ▼
+                                              End user and owner/reviewer
+
+Outside this boundary: annotation behavior, transport, persistence,
+Pierre internals, and Share-drawer vertical-placement decisions.
 ```
+
+| Consumer | Surface it relies on | Required boundary |
+|---|---|---|
+| End user | File, Review, annotations, menus, popovers, tooltips, drawers | coherent dark appearance and compact interaction states |
+| Implementing agent | owned shadcn primitives and semantic tokens | variant/size selection produces the complete control treatment |
+| Native Agent Studio | embedded BridgeWeb presentation | shared product identity and density, without runtime token coupling |
+| Pierre diffs and trees | effective CSS hooks and registered theme inputs | compatible rendering, canonical Bridge-owned values, explicit font/canvas contracts |
+| Owner/reviewer | running visual proof and gate output | intentional deltas are visible; accidental drift fails |
+
+The system is opaque in this contract. Internal modules, checker organization, migration
+sequence, and wrapper retention belong to Program Design.
 
 ## Normative requirements
 
-Statements use MUST for pass/fail obligations. "Primitive homes" means
-the designated definition sites for color values (established by Program
-Design; the obligation here is that they are enumerated and few).
+### R1 — One semantic vocabulary (U1)
 
-### R1 — Single semantic vocabulary (U1)
+BridgeWeb MUST expose exactly one shadcn-conventional semantic styling vocabulary. Product
+extensions MUST name meanings absent from the standard roles rather than duplicate existing
+roles. A style meaning reachable only through a raw value, transitional alias, wrapper recipe,
+or feature-local paint rule fails this requirement.
 
-The styling system MUST define exactly one semantic color vocabulary,
-following shadcn conventions (role name + paired `-foreground`,
-registered so each role has a working Tailwind utility). Extended roles
-(at minimum: canvas, surface, surface-raised, header, selection states,
-added/deleted/warning status) MUST follow the same convention.
-**Fail**: a color meaning reachable only through a second vocabulary or
-a raw value.
+### R2 — Canonical color identities (U1, U4, U8)
 
-### R2 — Colors defined once, in primitives (U1, U8)
+Every Bridge-owned color MUST resolve from one canonical primitive palette. Semantic roles MUST
+resolve from primitives; product and Pierre contexts MUST resolve from roles or primitives.
+Raw color literals MUST NOT appear outside the enumerated primitive homes and test fixtures.
 
-Every color value in BridgeWeb MUST resolve from a primitives layer
-(neutral gray ramp, accent hues, alpha washes) defined once. Semantic
-roles MUST reference primitives; contexts MUST reference roles or
-primitives. A raw color literal MUST NOT appear outside the enumerated
-primitive homes (test fixtures exempt).
-Pinned identity values (owner-confirmed): canvas/background neutral
-`#282C34`; primary accent `#89B4FA`. Other neutral hexes are tunable at
-owner review without spec change.
+The following identities are fixed:
 
-### R3 — `--bridge-*` retired by hard cutover (U1)
+- app and code canvas: Ghostty grey `#282C34`;
+- product primary: `#409CFF`;
+- Pierre syntax blue: `#89B4FA`;
+- existing neutral, status, syntax, and ANSI values remain the approved palette unless a
+  later owner decision explicitly changes them.
 
-When migration completes, `BridgeWeb/src` MUST contain zero references
-to `--bridge-*` custom properties, and the definitions MUST be deleted.
-Non-color system tokens currently in that namespace (motion, shadows,
-scrollbar metrics) MUST be re-homed as properly named tokens in the
-canonical system, not dropped.
-**Fail**: any surviving reference or definition (mechanically checkable
-by search).
+Product-primary surfaces MUST NOT use syntax blue, and syntax rendering MUST NOT be recolored
+to product primary.
 
-### R4 — Visual invariant for existing chrome (U2, U7)
+### R3 — Transitional vocabulary reaches zero (U1, U6)
 
-For every migration change to an existing surface (file viewer, review
-viewer, shared chrome): before/after screenshots of the same app state
-MUST show no visible difference except deltas individually enumerated in
-that PR's description. If an unenumerated difference is visible, the
-change is defective — the mapping must be corrected, not the delta list
-grown after the fact.
-Known planned deltas (enumerate in the owning PR): tree-sidebar neutrals
-moving from Catppuccin to the #294 grays (R6); near-scale values
-snapping to scale stops (e.g. stroke .18 → .20).
+After cutover, production BridgeWeb source MUST contain no `--bridge-*` definition or
+reference. Non-color system meanings currently carried by that prefix, including motion,
+shadows, and scrollbar behavior, MUST remain available under canonical semantic or system
+names. A compatibility alias that keeps the second vocabulary alive is a failure.
 
-### R5 — Compact scales harmonized to AppStyles (U5)
+### R4 — Existing appearance changes only by an authorized delta (U2, U7)
 
-The token system MUST define typography, spacing, radius, state-fill,
-stroke, and motion scales whose values mirror `AppStyles.General`
-(type 9/11/12/13/14/16/24 px; fills .04/.06/.08/.10/.12/.15; strokes
-.10/.15/.20/.25; radius 4/6/8/14; spacing 4/6/8; motion 120/200 ms).
-Owned components in `components/ui/` MUST render at the compact scale
-by default — an agent using a primitive with no size props gets a
-control correct for this app's density.
-**Fail**: a default-rendered owned control visibly larger than the
-existing compact chrome, or a scale value with no AppStyles
-correspondence and no recorded reason.
+Equivalent before/after running states for existing File and Review surfaces MUST remain
+visually unchanged except for these authorized normalization deltas:
 
-### R6 — TS theme objects derive from the palette (U8)
+- the compact scale in R5;
+- the product/syntax identity correction in R2;
+- explicit, legible disabled presentation in R7;
+- consistent control state and floating-frame presentation in R6–R8;
+- unconditional portal parity in R12; and
+- explicit Pierre canvas/font integration in R13.
 
-The Pierre trees theme and the Shiki/code-view theme registration MUST
-source their color values from the canonical palette (same definition
-chain as R2 — no independent hex copies). The file tree MUST render with
-the #294 chrome neutrals (this is a named R4 delta, not an exception).
-Syntax token colors (the Catppuccin accent set) remain part of the
-canonical palette; their rendered appearance in code does not change.
+Any other visible difference MUST be identified and authorized before it is accepted. A test
+passing does not convert an unlisted difference into an allowed delta.
+Where R5–R8 pin a value or state recipe, those requirements govern. Otherwise the current
+shell-contained rendering is the reference appearance and body-portaled instances converge
+to it. Base resets MUST NOT override an owned primitive's chosen typography or geometry.
 
-### R7 — `--diffs-*` contract preserved (U1, U2)
+### R5 — One compact density scale (U5)
 
-Every `--diffs-*` variable name consumed by Pierre today MUST remain
-defined, with values derived from roles/primitives. The rendered code
-canvas (syntax colors, diff colors, gutter, selection) MUST be visually
-unchanged (R4 applies).
+The style system MUST provide these effective values:
 
-### R8 — Inline-comment styling context (U3)
+| Concern | Required values |
+|---|---|
+| type | 9/12, 11/14, 12/16, 13/18, 14/20, 16/22, 24/30 px font/line-height pairs |
+| control heights | 20, 24, 28, 32 px for `xs`, `sm`, default, and `lg` |
+| radius | 4, 6, 8, 14 px |
+| spacing | 4, 6, 8 px |
+| state fills | .04, .06, .08, .10, .12, .15 |
+| strokes | .10, .15, .20, .25 |
+| motion | 120 and 200 ms |
 
-The system MUST provide a named styling context for inline comments,
-derived from semantic roles, covering at minimum: comment surface on the
-code canvas, active-range-linked state, metadata/muted text at
-code-compatible contrast, transparent composer treatment, focus that
-does not compete with Pierre's range selection, and destructive
-feedback via the product destructive role. The improvised
-`--bridge-annotation-*` tokens MUST be replaced by this context
-(R3 cutover applies).
-The comment lane consumes these tokens; comment product behavior is out
-of scope here.
+The 24 px toolbar control MUST use a 12 px icon. Menu and popover action rows MUST be 28 px
+high with 11 px labels. An empty annotation editor MUST have a 48 px minimum height. Pierre
+code and tree text MUST render at 12 px. Relative size variants MUST remain coherent, and a
+named exception MUST state its distinct semantic need.
 
-### R9 — Control geometry owned by `components/ui` (U1, U5)
+### R6 — Owned primitives are the complete control-style authority (U1, U5)
 
-Interactive-control geometry (heights, control padding, control font
-size, control radius) MUST come from owned components or tokens.
-Route-local bespoke control styling — including the current
-`.bridge-worktree-file-*` toolbar/search/button classes — MUST be
-migrated to owned primitives (R4 visual invariant applies).
-Compositional layout (grids, panes, scroll regions) remains free.
+An owned shadcn primitive MUST define the control's height, padding, typography, icon scale,
+radius, border, foreground, fill, hover, active/open, selected, focus-visible, disabled, and
+invalid presentation for each supported variant and size.
 
-### R10 — Native accent pinned (U4)
+Feature code and shared viewer adapters MAY select a variant and size, arrange controls, add
+accessible/state attributes, and provide test identity. They MUST NOT replace or augment the
+primitive's paint, typography, geometry, or interaction-state recipe. Controls with equivalent
+semantics MUST render equivalently across File, Review, and annotation surfaces.
 
-With any macOS System Settings accent color, native accent-colored
-surfaces MUST render the product blue `#89B4FA`. Direct
-`Color.accentColor` / `.controlAccentColor` reads in app code MUST be
-replaced by the AppStyles-owned role so the pin is total.
-**Fail**: any app surface following the system accent (verify with a
-non-blue system accent).
+### R7 — Semantic state contracts are singular (U1, U5)
 
-### R11 — Enforcement at the PR gate (U6)
+The owned primitive catalog MUST provide one coherent recipe for each applicable state:
 
-The standard PR gate (`mise run test`) MUST fail, with file/line
-identification, when a change introduces: (a) a raw color literal
-outside primitive homes, (b) a `--bridge-*` reference, (c) new
-route-local interactive-control geometry outside owned components.
-The gate MUST pass on the fully migrated tree (no permanent baseline of
-exceptions; temporary allowlists during migration must burn down to
-empty).
+- neutral ghost/outline rest: muted foreground; transparent ghost border or control-strength outline;
+- neutral ghost/outline hover and active/open: neutral accent fill with standard foreground;
+- selected toggle: 15% product-primary tint with product-primary foreground;
+- focus-visible: ring-colored border plus a 2 px ring at 30% ring color;
+- disabled: explicit neutral text, icon, border, and fill values; and
+- invalid: destructive border plus a 2 px ring at 20% destructive color.
 
-### R12 — Vocabulary and its rules are documented where agents work (U1, U6, U10)
+Whole-control opacity MUST NOT define disabled presentation. A disabled outlined control MUST
+retain a readable control-strength boundary rather than attenuating a hairline twice. Product
+primary has only solid, 15% tint, and text usages; no additional opacity rung may be invented.
+Primary, tint, destructive, link, and status variants retain their distinct action hierarchy;
+the neutral-control recipe MUST NOT erase their semantic identity. Disabled paint overrides
+hover, open, and selected paint. Focus indication belongs to the focusable control or its
+owned compound field; keyboard menu items use the owned row highlight.
 
-Each role, context, and scale MUST carry a one-line meaning at its
-definition site. The rules MUST exist in three reinforcing homes:
+### R8 — Floating surfaces share one visual family (U1, U2)
 
-- **In-code guidance**: `AppStyles.swift` and `bridge-app.css` MUST
-  each open with a contract comment stating: it is the source of truth
-  for its platform, the two are correlated by convention (pointer to
-  the correlation map), the layer rules, and how to add a token
-  correctly.
-- **Agent instructions**: the AGENTS.md scope covering BridgeWeb MUST
-  state the layer rules (primitives → roles → contexts), how to choose
-  a role, what the gate rejects, and how to add a shadcn component
-  under the single-appearance rule (R13).
-- **Architecture document**: a permanent `docs/architecture/` document
-  MUST own the full explanation, including the tri-system correlation
-  map (AppStyles ↔ web tokens ↔ Pierre `--diffs-*`/TS themes): what
-  corresponds to what and which correlations are exact versus
-  approximate.
+Menus, comboboxes, popovers, tooltips, drawers/context panels, and toasts MUST share the
+canonical popover surface `#323641`, floating border `#58585C`, and one primitive-owned
+radius, typography, and elevation family:
 
-A capable agent MUST be able to select the correct token for a new
-surface without reading this spec.
+- menu and combobox frames use the 8 px radius, shared popover elevation, and 11 px labels in
+  28 px action rows;
+- popovers use the 8 px radius, shared popover elevation, 12 px body text, and 14 px titles;
+- tooltips use the 8 px radius, shared popover elevation, and 11 px labels;
+- toasts use the 8 px radius, shared popover elevation, 11 px titles, and 9 px descriptions;
+  and
+- drawers/context panels use the 14 px radius and MAY use a named directional variant of the
+  shared elevation when their side-attached geometry requires it.
 
-### R13 — Dark-only, enforced on both sides (U9)
+The shared popover elevation is two black-alpha shadows: `0 10px 24px -8px` at 45% and
+`0 3px 8px -2px` at 35%. The permitted side-drawer variant preserves the current directional
+geometry: `-10px 8px 24px -8px` at 45% and `-3px 2px 8px -2px` at 35%. Feature
+code MUST NOT create another frame recipe or substitute a newly invented shared appearance.
 
-With macOS set to light appearance: native app chrome MUST render dark
-(app-level appearance pin), and BridgeWeb MUST render identically to
-macOS dark appearance. The web styling system MUST NOT carry a
-reachable light-mode branch: owned components carry exactly one
-styling branch (no `dark:` variant dual path), and the gate MUST
-reject reintroduced appearance-conditional styling in `src/`.
-Named exception: terminal surfaces may set per-surface appearance to
-match terminal content background (existing
-`TerminalSurfaceScrollView` behavior is preserved).
-**Fail**: any chrome surface that changes with the macOS appearance
-toggle.
+This requirement does not choose the half-height Share drawer's vertical placement or inset.
 
-## Observable contracts
+### R9 — Annotation context derives from the canonical system (U3)
 
-### Token definition surface
+The style system MUST expose a named annotation context covering surface, foreground, muted
+text, border, divider, hover, range-linked active state, composer background, status, and
+destructive feedback. Each value MUST derive from canonical semantic roles. The active-thread
+surface preserves its current effective warning-role hue at 14% over transparency; it does
+not claim to read a value defined only inside Pierre's shadow root. Renderer-owned selection
+remains unchanged. Annotation controls remain governed by R6 and R7.
 
-Consumers: all BridgeWeb code, Pierre (via `--diffs-*`), TS theme
-objects. Owner: this spec; changes to role *names* or *meanings* require
-owner sign-off; changes to neutral *values* are owner-reviewed via draft
-PR (R2). Invariants: one definition per color meaning; roles never
-reference other roles' resolved hexes, only primitives. Undefined /
-free: file organization, number of CSS/TS files, generation mechanics —
-Program Design decides.
+Drafting, saving, replying, resolving, placement, transport, and selection behavior are not
+defined by this specification.
 
-### `components/ui` surface
+### R10 — Native and web product identity remain pinned (U4)
 
-Consumers: feature code and agents. Postcondition: default render is
-compact-correct (R5); size variants preserve relative scale. Compat:
-existing call sites keep working or are migrated in the same change —
-no dual APIs (hard-cutover rule).
+With macOS configured to any accent color, native product-accent surfaces and equivalent web
+product-accent surfaces MUST remain `#409CFF`. A non-blue system accent MUST NOT alter product
+identity. This requirement does not change syntax colors or terminal-content appearance.
 
-### Enforcement gate
+### R11 — Mechanical drift prevention (U6)
 
-Consumers: agents and CI. Output on violation: failing check naming
-file, line, and violated rule. Partial success: none — any violation
-fails. Timeout/absence of the checker is a gate failure, not a silent
-pass.
+The standard pull-request gate MUST fail closed and identify each offending file, location,
+and rule when production source introduces:
 
-### Native accent
+1. a raw color outside an enumerated primitive home;
+2. a new transitional `--bridge-*` definition or reference;
+3. feature-local control geometry, typography, paint, or state recipes;
+4. a mismatch between canonical color values and a required static theme consumer; or
+5. an appearance-conditional branch in the dark-only BridgeWeb source.
 
-Consumer: end user. Contract: R10. Compat: no API change; purely visual.
+During migration, an exception MUST identify the specific admitted occurrence. Count-only
+allowances are forbidden: swapping or relocating a violation while preserving a total MUST
+still fail. Exceptions MUST shrink to zero and MUST NOT remain after cutover. If enforcement
+cannot run, the gate MUST fail rather than silently pass.
 
-## Failure expectations
+### R12 — Dark-only appearance is unconditional and portal-safe (U9)
 
-- If the gate's checker cannot run, the PR gate MUST fail loudly
-  (no fail-open).
-- If a migration mapping is ambiguous (an old value plausibly maps to
-  two tokens), execution MUST stop and return the ambiguity to the
-  design owner — Sol does not choose (STOP-AND-RECORD).
-- If Pierre's rendering changes visibly after a `--diffs-*` value
-  re-derivation, that slice is defective regardless of test greenness.
+Native Swift chrome, BridgeWeb, and Pierre MUST present one dark appearance regardless of the
+macOS appearance setting. An owned web primitive MUST render the same intended state when it
+is an ordinary shell descendant and when it or its descendants are portaled outside the shell
+ancestry, including default body portals.
+
+Production BridgeWeb styling MUST NOT depend on a `.dark` ancestor, a `dark:` utility branch,
+or `prefers-color-scheme`. A portal container choice MUST NOT change colors, focus, disabled
+paint, or any other state recipe. Terminal content may retain its separately governed
+per-surface appearance behavior.
+
+### R13 — Pierre contracts remain compatible and explicit (U2, U8)
+
+The compatibility baseline is `@pierre/diffs` 1.2.10 and `@pierre/trees`
+1.0.0-beta.4. Compatibility applies to inputs consumed by those versions, not to a prefix
+or a declaration count. Existing code-header addition/deletion/modified colors, foreground,
+line-number foreground, annotation selection treatment, and scrollbar-gutter behavior MUST
+remain available through their effective renderer hooks. Renderer-owned selection and syntax
+behavior MUST remain intact.
+
+The current 34-name root CSS block is application-defined and unused by production BridgeWeb
+and installed Pierre. It MUST NOT be retained as a fictitious public compatibility contract
+or used as proof that syntax, focus, or canvas colors are connected.
+
+The Bridge-supplied tree contract preserves the dark theme identity and its `fg`, `bg`,
+`editor.background`, `editor.foreground`, and reachable `gitDecoration.*` inputs, plus these
+style overrides: background, foreground, muted foreground/background, search
+foreground/background, border, selected foreground/background, selected-focused border,
+focus ring, level gap, inline padding, and renamed-git color. Shadowed fallback theme fields
+are not compatibility obligations.
+
+Each Bridge-owned effective value MUST derive from the canonical system without a transitional alias. The
+Pierre code and tree canvases MUST resolve to `#282C34`; code and tree font sizes MUST resolve
+to 12 px; syntax colors MUST preserve their approved Catppuccin values through the registered
+Shiki theme. Font settings MUST reach Pierre's rendering boundaries; an outer DOM selector
+that cannot cross a shadow root is not evidence of compliance.
+
+Tree chrome values shadowed by Bridge overrides MUST NOT be treated as visible palette
+authority. Reachable theme values, including git-decoration colors, MUST derive from the
+canonical palette. Existing tree hover and selection appearance must remain unchanged unless
+separately authorized.
+
+### R14 — Rules are available at the point of use (U10)
+
+Scoped agent instructions, permanent architecture documentation, and the native/web style
+authorities MUST state the primitive-to-role-to-context direction, product/syntax identity,
+dark-only contract, compact scale, primitive ownership rule, Pierre boundary, curated
+exceptions, and gate behavior. A capable implementer MUST be able to select and use an owned
+primitive without reading this historical specification.
+
+## Observable failure and compatibility behavior
+
+- If a gate rule cannot evaluate its scope, the gate fails with the responsible rule rather
+  than accepting unknown compliance.
+- If a legacy value has more than one plausible semantic destination, the migration does not
+  silently choose one; the ambiguity returns for a design decision.
+- If an in-tree and body-portaled instance of the same primitive differ, R12 fails even if
+  only one instance is visible in a normal journey.
+- If a selected variant is inappropriate for the action hierarchy, the consumer must select
+  the correct existing semantic variant; it must not repair that choice with local classes.
+- A hard cutover may require simultaneous call-site changes. No dual styling API is promised.
+- Pierre package internals and public variable names remain compatible; undocumented package
+  internals are not made part of the product contract.
+- A partial migration may carry only specifically identified existing exceptions. It may not
+  admit any new occurrence or lose the effective dark appearance of an already-migrated
+  surface.
 
 ## Cross-cutting obligations
 
-- **Accessibility**: text contrast MUST NOT regress versus the current
-  rendering for body, secondary, and muted text on their standard
-  surfaces. Existing `prefers-reduced-motion` handling MUST be
-  preserved. (No new contrast targets are introduced — parity, not
-  WCAG re-certification.)
-- **Compatibility**: tokens MUST render identically in the Vite dev
-  server and the packaged WKWebView build (the packaged BridgeWeb build
-  is already part of the PR gate; screenshots for R4 may come from the
-  dev loop, final verification per repo rules on the real app).
-- **Performance, privacy, security, data lifecycle**: not applicable —
-  static styling only; no data, no network, no persistence changes.
+- **Accessibility:** ordinary, muted, disabled, focus, selected, and invalid states must remain
+  distinguishable on their supported surfaces. Text contrast must not regress from the
+  approved current state. Reduced-motion behavior remains available.
+- **Compatibility:** semantic results must match in the Vite development surface and packaged
+  WKWebView/Swift host. Body-portaled and shell-contained variants are both required cases.
+- **Privacy, security, data lifecycle:** no new data, network, authorization, or persistence
+  behavior is introduced.
 
 ## Proof obligations
 
-| Obligation | Evidence class |
-|-----------|----------------|
-| R1 roles + utilities exist | automated build/unit (utility classes compile and resolve) |
-| R2/R3 no raw hex, no `--bridge-*` | automated scan (same checker as R11), zero findings on migrated tree |
-| R4 visual invariant | owner live review of the running surfaces (dev loop and/or debug app) per PR; unenumerated delta the owner spots = fail. (Owner decision 2026-08-16: aesthetic invariants are judged by look; automated screenshot pairs were dropped after both baseline-capture paths proved broken at the base commit.) |
-| R5 compact defaults | visual evidence of default-rendered owned components beside existing chrome |
-| R6 tree matches chrome | screenshot (this is a named delta PR) |
-| R7 Pierre unchanged | owner live review of a running diff view incl. a syntax-heavy file; unenumerated delta the owner spots = fail. (Owner decision 2026-08-16: aesthetic invariants are judged by look; automated screenshot pairs were dropped after both baseline-capture paths proved broken at the base commit.) |
-| R8 comment context | this program proves: context tokens exist and derive from roles (automated scan). The comment lane owes the render-with-them proof in its own PR — not a gate of this program |
-| R9 no bespoke geometry | automated scan + absence of `.bridge-worktree-file-*` control classes |
-| R10 accent pinned | manual/visual: non-blue macOS accent, app surfaces stay `#89B4FA` |
-| R11 gate blocks violations | red-first: a deliberate violation fails the gate with file/line, then is removed |
-| R12 docs | inspection: contract comments present in both source-of-truth files; AGENTS.md rules present; architecture doc with correlation map exists |
-| R13 dark-only | manual/visual: toggle macOS appearance, chrome unchanged; automated scan: zero `dark:` variants in src |
+| ID | Requirement | Evidence that distinguishes pass from fail |
+|---|---|---|
+| V1 | R1–R3 | automated source and resolved-style evidence shows one vocabulary, canonical derivation, and zero aliases after cutover |
+| V2 | R4 | matched visual evidence for equivalent running File and Review states, with every visible delta pre-enumerated |
+| V3 | R5 | automated geometry/typography assertions plus visual comparison of controls, menus, editor, code, and tree at the specified scale |
+| V4 | R6–R7 | automated variant/state behavior plus computed-style and visual evidence for rest, hover, active/open, selected, the exact 2 px/30% focus treatment, explicit disabled paint, and the exact 2 px/20% invalid treatment |
+| V5 | R8 | computed-style and visual evidence that menu, combobox, popover, tooltip, drawer/context panel, and toast use the specified surface, border, radius, typography, and shared or permitted directional elevation |
+| V6 | R9 | automated derivation inspection plus running annotation-surface evidence; annotation behavior remains proved by its own program |
+| V7 | R10 | runtime visual evidence with a non-blue macOS accent shows native and web product identity remains `#409CFF` |
+| V8 | R11 | red-first evidence for each violation class, including a same-count substitution that still fails; green evidence after removal |
+| V9 | R12 | runtime/computed-style evidence under light and dark macOS settings and for both shell-contained and body-portaled surfaces shows identical dark presentation |
+| V10 | R13 | automated inspection of effective versioned diffs/tree hooks and registered theme inputs, including detection of unused claimed bindings, plus visual evidence for code/tree canvas, 12 px text, syntax, tree hover/selection, and git-decoration colors |
+| V11 | R14 | documentation inspection from each editing entry point verifies complete, non-conflicting guidance |
 
-Existing BridgeWeb unit/browser/E2E suites MUST stay green throughout
-(regression floor; they are not proof of the visual invariant).
-Clarification: four existing test files assert the literal text of
-`bridge-app.css`; re-pointing those assertions at the primitives block
-with every threshold preserved (in particular the two contrast-ratio
-gates) is required migration work, not gate weakening. Deleting or
-loosening any threshold remains forbidden.
+Existing BridgeWeb unit, browser, integration, Vite, packaged-build, and native-host suites
+remain the regression floor. They do not substitute for running visual evidence where a
+requirement is perceptual.
 
 ## Requirement coverage
 
-| U | Requirement(s) | Contract | Proof |
-|---|----------------|----------|-------|
-| U1 | R1 R2 R3 R9 R12 | token surface, components/ui | build, scan, docs inspection |
-| U2 | R4 R7 | token surface | owner live review of the running surfaces; screenshot pairs dropped by owner decision 2026-08-16 |
-| U3 | R8 | token surface | scan + comment-lane render |
-| U4 | R10 | native accent | manual/visual |
-| U5 | R5 R9 | components/ui | visual + scan |
-| U6 | R11 R12 | enforcement gate | red-first gate proof |
-| U7 | R4 (delta enumeration), draft-PR delivery | — | owner review flow |
-| U8 | R6 | token surface | screenshot (named delta) |
-| U9 | R13 | native accent + token surface | appearance-toggle visual + scan |
-| U10 | R12 | token surface docs | inspection |
+| Need | Problem | Outcome | Requirement | Contract | Proof |
+|---|---|---|---|---|---|
+| U1 | competing styling authorities | one vocabulary and primitive authority | R1 R2 R3 R6 R7 R8 | token and owned-control surfaces | V1 V4 V5 |
+| U2 | approved surfaces drift during cleanup | only authorized visual deltas | R4 R8 R13 | running File/Review/Pierre surfaces | V2 V5 V10 |
+| U3 | annotations invent canvas-local styles | canonical annotation context | R9 | annotation styling surface | V6 |
+| U4 | product and syntax blue were conflated | stable product identity and syntax | R2 R10 | native/web accent and Pierre syntax | V1 V7 V10 |
+| U5 | web density diverges from Swift | one compact scale and state grammar | R5 R6 R7 | owned controls and Pierre text | V3 V4 |
+| U6 | drift can enter unnoticed | fail-closed occurrence-specific enforcement | R3 R11 | pull-request gate | V1 V8 |
+| U7 | automation cannot judge visual coherence | running owner-visible proof | R4 | visual review surface | V2 |
+| U8 | Pierre has independent or implicit values | compatible canonical Pierre presentation | R2 R13 | `--diffs-*`, themes, code/tree UI | V1 V10 |
+| U9 | dark styling changes by ancestry or OS | unconditional dark portal parity | R12 | Swift/Bridge/Pierre appearance | V9 |
+| U10 | rules are absent at edit sites | durable point-of-use guidance | R14 | docs and authority headers | V11 |
 
-## Negative space (what implementers must not build)
+## Negative space
 
-- No second vocabulary, alias layer, or compatibility shim keeping
-  `--bridge-*` alive "for transition" beyond the migration PRs.
-- No light theme scaffolding.
-- No Swift↔web codegen/sync tooling.
-- No new palette hues beyond the formalized set.
-- No Pierre patches or forks; no app-side scroll/selection helpers.
-- No comment-system product behavior.
-- No permanent violation allowlists in the gate.
+- No second semantic vocabulary, feature-local control skin, or post-cutover alias layer.
+- No light-theme scaffolding or macOS-following product appearance.
+- No Swift-to-web generation or runtime token synchronization.
+- No new palette family or syntax recoloring.
+- No Pierre fork, patch, renderer replacement, or new app-side scroll/selection behavior.
+- No annotation product, persistence, transport, or data-model behavior.
+- No permanent or count-only gate allowance.
+- No Share-drawer vertical-placement or inset decision in this specification.

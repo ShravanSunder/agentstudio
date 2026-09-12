@@ -112,80 +112,215 @@ struct BridgeProductFileMetadataInterestStateGroup: Codable, Equatable, Sendable
     }
 }
 
-enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
-    case fileMetadata(interests: [BridgeProductFileMetadataInterestStateGroup], pathScope: [String])
-    case reviewMetadata(interests: [BridgeProductReviewMetadataInterestStateGroup])
+struct BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey { case subscriptionKind }
 
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case interests
-        case pathScope
-        case subscriptionKind
+    let subscriptionKind: BridgeProductSubscriptionKind
+    let applicationState: BridgeProductMetadataApplicationValue
+
+    init(
+        subscriptionKind: BridgeProductSubscriptionKind,
+        applicationState: BridgeProductMetadataApplicationValue
+    ) {
+        self.subscriptionKind = subscriptionKind
+        self.applicationState = applicationState
+    }
+
+    var fileMetadataState: BridgeProductFileMetadataInterestState? {
+        guard subscriptionKind == .fileMetadata else { return nil }
+        return try? JSONDecoder().decode(
+            BridgeProductFileMetadataInterestState.self,
+            from: applicationState.encodedValue
+        )
+    }
+
+    var reviewMetadataState: BridgeProductReviewMetadataInterestState? {
+        guard subscriptionKind == .reviewMetadata else { return nil }
+        return try? JSONDecoder().decode(
+            BridgeProductReviewMetadataInterestState.self,
+            from: applicationState.encodedValue
+        )
     }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedState: Self
-        switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
-        case .fileMetadata:
-            try BridgeProductContractDecoding.rejectUnknownKeys(
-                from: decoder,
-                allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-                contract: "file metadata interest state"
+        let rawValue = try BridgeProductJSONValue(from: decoder)
+        guard case .object(var members) = rawValue,
+            case .string(let rawKind)? = members.removeValue(forKey: CodingKeys.subscriptionKind.rawValue),
+            let kind = BridgeProductSubscriptionKind(rawValue: rawKind)
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Bridge product interest state requires a valid subscriptionKind",
+                codingPath: decoder.codingPath
             )
-            let interests = try container.decode(
-                [BridgeProductFileMetadataInterestStateGroup].self,
-                forKey: .interests
-            )
-            let pathScope = try container.decode([String].self, forKey: .pathScope)
-            decodedState = .fileMetadata(interests: interests, pathScope: pathScope)
-        case .reviewMetadata:
-            try BridgeProductContractDecoding.rejectUnknownKeys(
-                from: decoder,
-                allowedKeys: Set([CodingKeys.interests.rawValue, CodingKeys.subscriptionKind.rawValue]),
-                contract: "review metadata interest state"
-            )
-            let interests = try container.decode(
-                [BridgeProductReviewMetadataInterestStateGroup].self,
-                forKey: .interests
-            )
-            decodedState = .reviewMetadata(interests: interests)
         }
-        try decodedState.validateForCanonicalEncoding(codingPath: decoder.codingPath)
-        self = decodedState
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: kind)
+        let encodedState = try JSONEncoder.bridgeProductSorted.encode(BridgeProductJSONValue.object(members))
+        let decodedState = try registration.decodeInterestState(from: encodedState)
+        _ = try registration.canonicalInterestBytes(from: decodedState)
+        subscriptionKind = kind
+        applicationState = decodedState
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .fileMetadata(let interests, let pathScope):
-            try container.encode(interests, forKey: .interests)
-            try container.encode(pathScope, forKey: .pathScope)
-            try container.encode(BridgeProductSubscriptionKind.fileMetadata, forKey: .subscriptionKind)
-        case .reviewMetadata(let interests):
-            try container.encode(interests, forKey: .interests)
-            try container.encode(BridgeProductSubscriptionKind.reviewMetadata, forKey: .subscriptionKind)
+        guard
+            case .object(var members) = try JSONDecoder().decode(
+                BridgeProductJSONValue.self,
+                from: applicationState.encodedValue
+            )
+        else {
+            throw BridgeProductMetadataApplicationRegistryError.typeErasureMismatch
         }
+        members[CodingKeys.subscriptionKind.rawValue] = .string(subscriptionKind.rawValue)
+        try BridgeProductJSONValue.object(members).encode(to: encoder)
     }
 
     func encodedData() throws -> Data {
-        let canonicalByteCount = try validateForCanonicalEncoding()
+        let registration = try BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
+        return try registration.canonicalInterestBytes(from: applicationState)
+    }
+
+    func sha256Hex() throws -> String {
+        SHA256.hash(data: try encodedData()).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func canonicalEncodingPreflight() -> BridgeProductInterestStateEncodingPreflight {
+        let registration = try! BridgeProductMetadataApplicationRegistry.product.registration(for: subscriptionKind)
+        return try! registration.canonicalInterestPreflight(applicationState)
+    }
+
+    @discardableResult
+    func validateForCanonicalEncoding(codingPath _: [any CodingKey] = []) throws -> Int {
+        try encodedData().count
+    }
+
+    static let fileAnnotations = try! registered(
+        kind: .fileAnnotations,
+        state: BridgeProductAnnotationInterestState()
+    )
+
+    static func fileMetadata(
+        interests: [BridgeProductFileMetadataInterestStateGroup],
+        pathScope: [String]
+    ) -> Self {
+        try! registered(
+            kind: .fileMetadata,
+            state: BridgeProductFileMetadataInterestState(interests: interests, pathScope: pathScope)
+        )
+    }
+
+    static let reviewAnnotations = try! registered(
+        kind: .reviewAnnotations,
+        state: BridgeProductAnnotationInterestState()
+    )
+
+    static func reviewMetadata(interests: [BridgeProductReviewMetadataInterestStateGroup]) -> Self {
+        try! registered(
+            kind: .reviewMetadata,
+            state: BridgeProductReviewMetadataInterestState(interests: interests)
+        )
+    }
+
+    private static func registered<TState: Encodable>(
+        kind: BridgeProductSubscriptionKind,
+        state: TState
+    ) throws -> Self {
+        Self(
+            subscriptionKind: kind,
+            applicationState: BridgeProductMetadataApplicationValue(
+                applicationKind: kind,
+                encodedValue: try JSONEncoder.bridgeProductSorted.encode(state)
+            )
+        )
+    }
+}
+
+enum BridgeProductInterestStateCanonicalCodec {
+    static func fileMetadataBody(
+        interests: [BridgeProductFileMetadataInterestStateGroup],
+        pathScope: [String]
+    ) throws -> Data {
+        try validateFileStateCounts(interests: interests, pathScope: pathScope, codingPath: [])
+        try validateFileStateMembers(interests: interests, pathScope: pathScope, codingPath: [])
+        let preflight = fileMetadataPreflight(interests: interests, pathScope: pathScope)
+        let canonicalByteCount = try acceptedByteCount(preflight, codingPath: [])
+        return try encodeBody(
+            canonicalByteCount: canonicalByteCount - 2,
+            flattenedInterests: interests.flatMap { interest in
+                interest.paths.map { (Data($0.utf8), laneTag(for: interest.lane)) }
+            },
+            pathScope: pathScope
+        )
+    }
+
+    static func reviewMetadataBody(
+        interests: [BridgeProductReviewMetadataInterestStateGroup]
+    ) throws -> Data {
+        try validateReviewStateCounts(interests: interests, codingPath: [])
+        try validateReviewStateMembers(interests: interests, codingPath: [])
+        let preflight = reviewMetadataPreflight(interests: interests)
+        let canonicalByteCount = try acceptedByteCount(preflight, codingPath: [])
+        return try encodeBody(
+            canonicalByteCount: canonicalByteCount - 2,
+            flattenedInterests: interests.flatMap { interest in
+                interest.itemIds.map { (Data($0.utf8), laneTag(for: interest.lane)) }
+            },
+            pathScope: nil
+        )
+    }
+
+    static func fileMetadataPreflight(
+        interests: [BridgeProductFileMetadataInterestStateGroup],
+        pathScope: [String]
+    ) -> BridgeProductInterestStateEncodingPreflight {
+        preflight(initialByteCount: 10, interestValues: interests.flatMap(\.paths), pathScope: pathScope)
+    }
+
+    static func reviewMetadataPreflight(
+        interests: [BridgeProductReviewMetadataInterestStateGroup]
+    ) -> BridgeProductInterestStateEncodingPreflight {
+        preflight(initialByteCount: 6, interestValues: interests.flatMap(\.itemIds), pathScope: [])
+    }
+
+    private static func preflight(
+        initialByteCount: Int,
+        interestValues: [String],
+        pathScope: [String]
+    ) -> BridgeProductInterestStateEncodingPreflight {
+        var canonicalByteCount = initialByteCount
+        var visitedTextValueCount = 0
+        for (value, overhead) in interestValues.map({ ($0, 5) }) + pathScope.map({ ($0, 4) }) {
+            canonicalByteCount += overhead + value.utf8.count
+            visitedTextValueCount += 1
+            if canonicalByteCount > BridgeProductWireContract.maximumSubscriptionInterestStateBytes {
+                return .exceedsMaximum(
+                    canonicalByteCountLowerBound: canonicalByteCount,
+                    maximumCanonicalByteCount: BridgeProductWireContract.maximumSubscriptionInterestStateBytes,
+                    visitedTextValueCount: visitedTextValueCount
+                )
+            }
+        }
+        return .accepted(
+            canonicalByteCount: canonicalByteCount,
+            visitedTextValueCount: visitedTextValueCount
+        )
+    }
+
+    private static func encodeBody(
+        canonicalByteCount: Int,
+        flattenedInterests: [(Data, UInt8)],
+        pathScope: [String]?
+    ) throws -> Data {
         var encoded = Data(capacity: canonicalByteCount)
-        encoded.append(1)
-        encoded.append(subscriptionKindTag)
-        let encodedInterests = flattenedInterests.sorted { left, right in
-            left.keyBytes.lexicographicallyPrecedes(right.keyBytes)
+        let sortedInterests = flattenedInterests.sorted { $0.0.lexicographicallyPrecedes($1.0) }
+        try encoded.appendUInt32BigEndian(sortedInterests.count)
+        for (keyBytes, laneTag) in sortedInterests {
+            try encoded.appendLengthPrefixed(keyBytes)
+            encoded.append(laneTag)
         }
-        try encoded.appendUInt32BigEndian(encodedInterests.count)
-        for interest in encodedInterests {
-            try encoded.appendLengthPrefixed(interest.keyBytes)
-            encoded.append(interest.laneTag)
-        }
-        if case .fileMetadata(_, let pathScope) = self {
-            let encodedPathScope = pathScope.map { Data($0.utf8) }.sorted(by: { left, right in
-                left.lexicographicallyPrecedes(right)
-            })
-            try encoded.appendUInt32BigEndian(encodedPathScope.count)
-            for pathBytes in encodedPathScope {
+        if let pathScope {
+            let sortedScope = pathScope.map { Data($0.utf8) }.sorted { $0.lexicographicallyPrecedes($1) }
+            try encoded.appendUInt32BigEndian(sortedScope.count)
+            for pathBytes in sortedScope {
                 try encoded.appendLengthPrefixed(pathBytes)
             }
         }
@@ -198,121 +333,17 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
         return encoded
     }
 
-    func sha256Hex() throws -> String {
-        SHA256.hash(data: try encodedData()).map { String(format: "%02x", $0) }.joined()
-    }
-
-    func canonicalEncodingPreflight() -> BridgeProductInterestStateEncodingPreflight {
-        var canonicalByteCount: Int
-        switch self {
-        case .fileMetadata:
-            canonicalByteCount = 10
-        case .reviewMetadata:
-            canonicalByteCount = 6
-        }
-        var visitedTextValueCount = 0
-
-        func addingTextValue(
-            _ value: String,
-            perValueOverheadByteCount: Int
-        ) -> BridgeProductInterestStateEncodingPreflight? {
-            canonicalByteCount += perValueOverheadByteCount + value.utf8.count
-            visitedTextValueCount += 1
-            guard canonicalByteCount <= BridgeProductWireContract.maximumSubscriptionInterestStateBytes else {
-                return .exceedsMaximum(
-                    canonicalByteCountLowerBound: canonicalByteCount,
-                    maximumCanonicalByteCount: BridgeProductWireContract.maximumSubscriptionInterestStateBytes,
-                    visitedTextValueCount: visitedTextValueCount
-                )
-            }
-            return nil
-        }
-
-        switch self {
-        case .fileMetadata(let interests, let pathScope):
-            for interest in interests {
-                for path in interest.paths {
-                    if let exceeded = addingTextValue(path, perValueOverheadByteCount: 5) {
-                        return exceeded
-                    }
-                }
-            }
-            for path in pathScope {
-                if let exceeded = addingTextValue(path, perValueOverheadByteCount: 4) {
-                    return exceeded
-                }
-            }
-        case .reviewMetadata(let interests):
-            for interest in interests {
-                for itemId in interest.itemIds {
-                    if let exceeded = addingTextValue(itemId, perValueOverheadByteCount: 5) {
-                        return exceeded
-                    }
-                }
-            }
-        }
-
-        return .accepted(
-            canonicalByteCount: canonicalByteCount,
-            visitedTextValueCount: visitedTextValueCount
-        )
-    }
-
-    @discardableResult
-    func validateForCanonicalEncoding(codingPath: [any CodingKey] = []) throws -> Int {
-        switch self {
-        case .fileMetadata(let interests, let pathScope):
-            try Self.validateFileStateCounts(
-                interests: interests,
-                pathScope: pathScope,
-                codingPath: codingPath
-            )
-        case .reviewMetadata(let interests):
-            try Self.validateReviewStateCounts(interests: interests, codingPath: codingPath)
-        }
-
-        let canonicalByteCount: Int
-        switch canonicalEncodingPreflight() {
-        case .accepted(let acceptedByteCount, _):
-            canonicalByteCount = acceptedByteCount
-        case .exceedsMaximum:
+    private static func acceptedByteCount(
+        _ preflight: BridgeProductInterestStateEncodingPreflight,
+        codingPath: [any CodingKey]
+    ) throws -> Int {
+        guard case .accepted(let byteCount, _) = preflight else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product canonical interest state exceeds its byte ceiling",
                 codingPath: codingPath
             )
         }
-
-        switch self {
-        case .fileMetadata(let interests, let pathScope):
-            try Self.validateFileStateMembers(
-                interests: interests,
-                pathScope: pathScope,
-                codingPath: codingPath
-            )
-        case .reviewMetadata(let interests):
-            try Self.validateReviewStateMembers(interests: interests, codingPath: codingPath)
-        }
-        return canonicalByteCount
-    }
-
-    private var flattenedInterests: [(keyBytes: Data, laneTag: UInt8)] {
-        switch self {
-        case .fileMetadata(let interests, _):
-            interests.flatMap { interest in
-                interest.paths.map { (Data($0.utf8), Self.laneTag(for: interest.lane)) }
-            }
-        case .reviewMetadata(let interests):
-            interests.flatMap { interest in
-                interest.itemIds.map { (Data($0.utf8), Self.laneTag(for: interest.lane)) }
-            }
-        }
-    }
-
-    private var subscriptionKindTag: UInt8 {
-        switch self {
-        case .fileMetadata: 2
-        case .reviewMetadata: 1
-        }
+        return byteCount
     }
 
     private static func laneTag(for lane: BridgeProductDemandLane) -> UInt8 {

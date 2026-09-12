@@ -37,6 +37,31 @@ describe('bridgeReviewComparisonPaneState', () => {
 		).toEqual({ kind: 'loadingInitial', requestedTargetLabel: 'feature/new-target' });
 	});
 
+	test('keeps a retained Review settled while its exact comparison target refreshes', () => {
+		const retainedPackage = comparisonPackage('package-retained', 'feature/new-target');
+
+		expect(
+			bridgeReviewComparisonPaneState({
+				comparisonPresentation: comparisonPresentation({
+					attempt: { reviewGeneration: 2, status: 'pending' },
+					displayedSnapshot: snapshotForPackage(retainedPackage, 'stale'),
+				}),
+				displayedReviewPackage: retainedPackage,
+			}),
+		).toEqual({ kind: 'settled' });
+
+		expect(
+			bridgeReviewComparisonPaneState({
+				comparisonPresentation: comparisonPresentation({
+					activeTarget: { basis: 'branchTip', kind: 'ref', name: 'feature/new-target' },
+					attempt: { reviewGeneration: 2, status: 'pending' },
+					displayedSnapshot: snapshotForPackage(retainedPackage, 'stale'),
+				}),
+				displayedReviewPackage: retainedPackage,
+			}),
+		).toMatchObject({ kind: 'loadingPrevious' });
+	});
+
 	test('carries retry authority and previous-target identity through failures', () => {
 		const previousPackage = comparisonPackage('package-previous', 'origin/main');
 		const activeTarget = comparisonTarget();

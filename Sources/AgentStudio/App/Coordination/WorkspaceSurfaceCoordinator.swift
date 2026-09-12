@@ -73,6 +73,8 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let gitWorkingTreeStatusProvider: any GitWorkingTreeStatusProvider
     let gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let filesystemSource: any WorkspaceFilesystemSourceManaging
@@ -133,7 +135,6 @@ final class WorkspaceSurfaceCoordinator {
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
     var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
-    var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
     var pullRequestDemandOwningWindowId: UUID?
     var pullRequestDemandObservationGeneration: UInt64 = 0
@@ -174,7 +175,9 @@ final class WorkspaceSurfaceCoordinator {
         runtime: SessionRuntime,
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
-        bridgePaneAttendance: BridgePaneAttendanceAtom
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil
     ) {
         self.init(
             store: store,
@@ -186,7 +189,9 @@ final class WorkspaceSurfaceCoordinator {
             runtimeCommandClock: ContinuousClock(),
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
-            bridgePaneAttendance: bridgePaneAttendance
+            bridgePaneAttendance: bridgePaneAttendance,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator
         )
     }
 
@@ -210,6 +215,8 @@ final class WorkspaceSurfaceCoordinator {
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         bridgePaneAttendance: BridgePaneAttendanceAtom,
+        worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil,
@@ -264,6 +271,8 @@ final class WorkspaceSurfaceCoordinator {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.bridgeGitReadScheduler = bridgeGitReadScheduler
         self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
+        self.worktreeAnnotationStore = worktreeAnnotationStore
+        self.worktreeAnnotationOutputCoordinator = worktreeAnnotationOutputCoordinator
         self.gitWorkingTreeStatusProvider = resolvedGitWorkingTreeStatusProvider
         self.gitStatusPhysicalGate = resolvedGitStatusPhysicalGate
         self.filesystemSource = resolvedFilesystemSource

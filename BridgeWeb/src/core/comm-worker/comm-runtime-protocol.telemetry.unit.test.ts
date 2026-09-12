@@ -7,22 +7,30 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	makeReviewMetadataDataFrame,
+	type ReviewMetadataSubscription,
+} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import {
+	activateBridgeCommWorkerFileViewerModeAndFlush,
 	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
+	createIdleWorktreeAnnotationSubscription,
 	createDeferredReviewContentStream,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 	makeContentRequestDescriptor,
+	type FileMetadataDataFrame,
+	type FileMetadataSubscription,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
+
+type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 const currentFileSourceConfiguration = {
 	cwdScope: null,
@@ -36,9 +44,7 @@ const currentFileSourceConfiguration = {
 describe('Bridge comm worker runtime protocol telemetry', () => {
 	test('records unavailable as the sole terminal outcome of initial File source discovery', async () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(8);
 		const { dispatch } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -63,7 +69,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'unavailable-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -85,9 +91,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 	test('maps available File source discovery to the accepted success result', async () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(8);
 		const { dispatch } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -112,7 +116,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'available-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -124,9 +128,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 	test('records a failed terminal outcome when File source discovery throws', async () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(8);
 		const { dispatch } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -150,7 +152,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'failed-telemetry');
 
 		const discoverySamples = telemetrySamples.filter(
 			(sample) =>
@@ -218,9 +220,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 	test('does not report a stale selected drop when an in-flight preparation is demoted', async () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
-			BridgeProductSubscriptionEvent<'review.metadata'>
-		>(8);
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(8);
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 		const baseDescriptor = makeContentRequestDescriptor({
@@ -256,7 +256,9 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'stale-selected-telemetry');
 		await flushBridgeWorkerRuntimeContinuations();
-		reviewMetadataEvents.push(telemetryReviewSnapshotEvent([baseDescriptor, headDescriptor]));
+		reviewMetadataEvents.push(
+			makeReviewMetadataDataFrame(telemetryReviewSnapshotEvent([baseDescriptor, headDescriptor])),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
@@ -302,24 +304,20 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 function makeTelemetryReviewProductTransport(props: {
 	readonly deferredStreamsByDescriptorId: Map<string, DeferredReviewContentStream>;
-	readonly fileSourceDiscovery?: BridgeProductTransportSession['call'];
-	readonly reviewMetadataEvents: BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'review.metadata'>
-	>;
+	readonly fileSourceDiscovery?: () => Promise<unknown>;
+	readonly reviewMetadataEvents: BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>;
 }): BridgeProductTransportSession {
 	let fileWorkerDerivationEpoch = 0;
 	let reviewWorkerDerivationEpoch = 0;
-	const fileMetadataEvents = new BridgeProductBoundedAsyncQueue<
-		BridgeProductSubscriptionEvent<'file.metadata'>
-	>(8);
-	const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
+	const fileMetadataEvents = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(8);
+	const fileSubscription: FileMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: fileMetadataEvents,
 		subscriptionId: 'telemetry-file-subscription',
 		subscriptionKind: 'file.metadata',
 		update: async (): Promise<void> => {},
 	};
-	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+	const reviewSubscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
 		events: props.reviewMetadataEvents,
 		subscriptionId: 'telemetry-review-subscription',
@@ -332,11 +330,19 @@ function makeTelemetryReviewProductTransport(props: {
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;
 			return surface === 'review' ? reviewWorkerDerivationEpoch : fileWorkerDerivationEpoch;
 		},
-		call:
-			props.fileSourceDiscovery ??
-			(async (): Promise<never> => {
-				throw new Error('Unexpected product call in Review telemetry test.');
-			}),
+		call: async (...arguments_): Promise<never> => {
+			const [method] = arguments_;
+			if (
+				method === 'file.activeViewerMode.update' ||
+				method === 'review.activeViewerMode.update'
+			) {
+				return null as never;
+			}
+			if (method === 'file.source.current' && props.fileSourceDiscovery !== undefined) {
+				return (await props.fileSourceDiscovery()) as never;
+			}
+			throw new Error(`Unexpected product call in Review telemetry test: ${method}.`);
+		},
 		openContent: (descriptor) => {
 			if (descriptor.contentKind !== 'review.content') {
 				throw new Error(`Unexpected product content kind ${descriptor.contentKind}.`);
@@ -350,8 +356,11 @@ function makeTelemetryReviewProductTransport(props: {
 			sink: (frame: BridgeProductPanePresentationFrame) => void,
 		): void => {
 			sink({
+				fileRefreshFailure: null,
 				presentationRevision: 1,
 				kind: 'pane.presentation',
+
+				operationCorrelationId: null,
 				metadataStreamId: 'telemetry-review-metadata-stream',
 				nativeActivity: 'foreground',
 				paneSessionId: 'telemetry-review-pane-session',
@@ -363,7 +372,11 @@ function makeTelemetryReviewProductTransport(props: {
 			});
 		},
 		subscribe: (...arguments_): never => {
-			const [subscriptionKind] = arguments_;
+			const [{ kind: subscriptionKind }] = arguments_;
+			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The generic fixture closes over the requested annotation subscription kind.
+				return createIdleWorktreeAnnotationSubscription(arguments_[0]) as never;
+			}
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The closed subscription-kind branch selects the matching typed test subscription.
 			return (
 				subscriptionKind === 'file.metadata' ? fileSubscription : reviewSubscription
@@ -376,7 +389,7 @@ function makeTelemetryReviewProductTransport(props: {
 
 function telemetryReviewSnapshotEvent(
 	descriptors: readonly BridgeWorkerReviewContentRequestDescriptor[],
-): BridgeProductSubscriptionEvent<'review.metadata'> {
+): Parameters<typeof makeReviewMetadataDataFrame>[0] {
 	const descriptorByRole = new Map(descriptors.map((descriptor) => [descriptor.role, descriptor]));
 	const baseDescriptor = requireReviewDescriptor(descriptorByRole.get('base'));
 	const headDescriptor = requireReviewDescriptor(descriptorByRole.get('head'));
@@ -408,6 +421,7 @@ function telemetryReviewSnapshotEvent(
 			wholeByteLength: descriptor.wholeByteLength,
 		})),
 		eventKind: 'review.snapshot',
+		operationCorrelationId: null,
 		extentFacts: [
 			{ contentRole: 'base', itemId: 'item-1', lineCount: 1 },
 			{ contentRole: 'head', itemId: 'item-1', lineCount: 1 },

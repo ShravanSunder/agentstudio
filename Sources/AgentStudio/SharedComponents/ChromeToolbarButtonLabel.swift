@@ -142,7 +142,7 @@ package struct ChromeToolbarCapsuleBackground: View {
 package enum ChromeToolbarControlPalette {
     package static func foregroundColor(isSelected: Bool, isHovered: Bool) -> Color {
         if isSelected {
-            return AppStyles.General.Accent.primaryColor
+            return AppStyles.General.Accent.selectedControlForeground
         }
         if isHovered {
             return AppStyles.Shell.Chrome.ToolbarButton.hoverIconForegroundColor

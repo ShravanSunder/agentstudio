@@ -38,6 +38,7 @@ describe('Bridge main Review display atomicity', () => {
 			direction: 'serverWorkerToMain',
 			epoch: 2,
 			kind: 'reviewDisplayPatch',
+			reviewPublicationIdentity: null,
 			patches: [
 				{
 					operation: 'upsert',

@@ -80,6 +80,11 @@ describe('Bridge dev telemetry sink', () => {
 			failedBatchCount: 0,
 			lastError: null,
 			marker: 'vite-dev-proof-1',
+			operationLifecycle: {
+				completedOperationIds: [],
+				malformed: [],
+				missingTerminals: [],
+			},
 			recentSamples: [makeTelemetrySample()],
 			serviceVersion: 'vite-dev',
 			worktreeHash: 'wt-hash',
@@ -233,6 +238,11 @@ describe('Bridge dev telemetry sink', () => {
 			failedBatchCount: 1,
 			lastError: 'unsafe_attributes',
 			marker: 'vite-dev-proof-1',
+			operationLifecycle: {
+				completedOperationIds: [],
+				malformed: [],
+				missingTerminals: [],
+			},
 			recentSamples: [],
 			serviceVersion: 'vite-dev',
 			worktreeHash: 'wt-hash',

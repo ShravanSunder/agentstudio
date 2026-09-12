@@ -1,3 +1,4 @@
+import { BinaryIcon, FileWarningIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
@@ -11,6 +12,7 @@ import {
 	BridgeViewerFacetToggleRow,
 	type BridgeViewerFacetMenuOption,
 } from '../../app/bridge-viewer-filter-menu.js';
+import { DropdownMenuGroup } from '../../components/ui/dropdown-menu.js';
 import type { BridgeFileChangeKind } from '../../foundation/review-package/bridge-review-package.js';
 
 type BridgeReviewFilterCandidate = Extract<
@@ -37,10 +39,10 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 
 	return (
 		<BridgeViewerFacetMenu
+			columns
 			clearDisabled={!hasActiveFacet}
 			clearLabel="Clear filters"
 			clearTestId="bridge-review-facet-clear"
-			contentClassName="w-[min(520px,calc(100vw-32px))]"
 			contentTestId="bridge-review-facet-popover"
 			description="Refine the file set without changing the review mode"
 			hasActiveFilter={hasActiveFacet}
@@ -102,19 +104,17 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 					options={bridgeViewerFileCategoryOptions}
 					testId="bridge-review-facet-group"
 				/>
-				<section
+				<DropdownMenuGroup
 					aria-label="Visibility"
 					className="sm:col-span-2"
 					data-testid="bridge-review-facet-visibility-group"
 				>
-					<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
-						Visibility
-					</p>
-					<div className="grid gap-0.5 sm:grid-cols-2">
+					<div className="grid gap-0.5">
 						<BridgeViewerFacetToggleRow
 							checked={props.showBinary}
 							description="Include binary files"
-							label="Binary"
+							label="Include binary files"
+							icon={<BinaryIcon aria-hidden="true" />}
 							onCheckedChange={(showBinary) =>
 								props.onFilterChange({
 									categoryFilter: props.categoryFilter,
@@ -128,8 +128,9 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 						/>
 						<BridgeViewerFacetToggleRow
 							checked={props.showLarge}
-							description="Include large files"
-							label="Large"
+							description="Include files of 1 MB or larger"
+							label="Include large files"
+							icon={<FileWarningIcon aria-hidden="true" />}
 							onCheckedChange={(showLarge) =>
 								props.onFilterChange({
 									categoryFilter: props.categoryFilter,
@@ -142,7 +143,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 							testId="bridge-review-facet-show-large"
 						/>
 					</div>
-				</section>
+				</DropdownMenuGroup>
 			</div>
 		</BridgeViewerFacetMenu>
 	);

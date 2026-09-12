@@ -44,7 +44,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -87,7 +87,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         let outcome = try await deliverReviewPackage(
             package,
@@ -129,6 +129,32 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
     }
 
+    @Test("admitted Review publication carries its scrubbed operation correlation on every event")
+    func admittedReviewPublicationCarriesOperationCorrelation() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let package = makeReviewPackage(itemCount: 2)
+        let operationCorrelationID = String(repeating: "d", count: 64)
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try reviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event.event)
+        }
+
+        _ = try await deliverReviewPackage(
+            package,
+            operationCorrelationID: operationCorrelationID,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        let events = await collector.events
+        #expect(!events.isEmpty)
+        #expect(events.allSatisfy { $0.operationCorrelationID == operationCorrelationID })
+    }
+
     @Test("diff statistics do not publish unverified full-content extent facts")
     func omitsUnverifiedExtentFacts() async throws {
         // Arrange
@@ -153,7 +179,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
 
         // Act
@@ -186,7 +212,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: initialSubscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -199,7 +225,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         #expect(await collector.events.isEmpty)
 
@@ -212,6 +238,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         _ = try await deliverReviewPackage(
             changedPackage,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -255,7 +282,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription,
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             publicationA,
@@ -269,6 +296,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         _ = try await deliverReviewPackage(
             publicationB,
             publicationId: publicationBId,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -279,11 +307,12 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription,
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             publicationB,
             publicationId: publicationBId,
+            classifiedRefreshImpact: .initial,
             through: source,
             productAdmission: productAdmission.context
         )
@@ -306,7 +335,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -352,7 +381,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -361,23 +390,41 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         await collector.removeAll()
 
-        let replacementPackage = replacingReviewPackage(
+        let generationAdvancedPackage = replacingReviewSource(
             initialPackage,
-            revision: initialPackage.revision + 1,
+            packageId: initialPackage.packageId,
+            queryId: initialPackage.query.queryId,
+            generation: initialPackage.reviewGeneration.rawValue + 1
+        )
+        let replacementPackage = replacingReviewPackage(
+            generationAdvancedPackage,
+            revision: generationAdvancedPackage.revision + 1,
             itemsById: [:]
+        )
+        let impact = BridgeReviewRefreshImpact.exact(
+            newlyImportedCommitCount: 10,
+            affectedFileCount: 1,
+            addedLineCount: 4,
+            deletedLineCount: 3,
+            affectedStableFileIdentities: ["review-item-00000"]
         )
         _ = try await deliverReviewPackage(
             replacementPackage,
+            classifiedRefreshImpact: impact,
             through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
 
         #expect(events.count == 3)
-        guard case .reset = events[0], case .sourceAccepted = events[1], case .snapshot = events[2] else {
+        guard case .reset(let reset) = events[0],
+            case .sourceAccepted = events[1],
+            case .snapshot = events[2]
+        else {
             Issue.record("Expected reset, sourceAccepted, and empty snapshot for an unsafe delta")
             return
         }
+        #expect(reset.refreshImpact == impact)
         #expect(!events.contains { if case .delta = $0 { true } else { false } })
     }
 
@@ -393,8 +440,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            let enqueueResult = try await collector.append(event)
-            if case .sourceAccepted = event {
+            let enqueueResult = try await collector.append(event.event)
+            if case .sourceAccepted = event.event {
                 await source.cancel(subscriptionId: subscription.subscriptionId)
             }
             return enqueueResult
@@ -421,7 +468,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         let eventsBeforePublication = await collector.events
         let reviewPackage = makeReviewPackage(itemCount: 4)
@@ -463,7 +510,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
 
         // Act
@@ -502,13 +549,13 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await supersededCollector.append(event)
+            return try await supersededCollector.append(event.event)
         }
         try await source.open(
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await currentCollector.append(event)
+            return try await currentCollector.append(event.event)
         }
 
         // Act
@@ -537,15 +584,21 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await sink.receive(event)
+            return try await sink.receive(event.event)
         }
         let reviewPackage = makeReviewPackage(itemCount: 4)
+        let reservation = try await source.reserve(
+            package: reviewPackage,
+            publicationId: reviewMetadataTestPublicationId,
+            productAdmission: productAdmission.context
+        )
+        let publication = reviewMetadataCommittedPublication(reviewPackage)
 
         // Act
         do {
-            _ = try await deliverReviewPackage(
-                reviewPackage,
-                through: source,
+            _ = try await source.deliver(
+                publication: publication,
+                reservation: reservation,
                 productAdmission: productAdmission.context
             )
             Issue.record("Expected the injected second-frame sink failure")
@@ -553,9 +606,9 @@ struct BridgePaneProductReviewMetadataSourceTests {
             #expect(error as? ReviewMetadataInjectedSinkError == .secondFrame)
         }
         let successfulEventCountAfterFailure = await sink.successfulEvents.count
-        _ = try await deliverReviewPackage(
-            reviewPackage,
-            through: source,
+        _ = try await source.deliver(
+            publication: publication,
+            reservation: reservation,
             productAdmission: productAdmission.context
         )
         let retryEvents = await sink.successfulEvents.dropFirst(successfulEventCountAfterFailure)
@@ -580,7 +633,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -594,7 +647,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         let replacementPackage = replacingReviewSource(
             initialPackage,
@@ -641,7 +694,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await collector.append(event)
+            return try await collector.append(event.event)
         }
         let eventsBeforeDelivery = await collector.events
         _ = try await source.deliver(
@@ -674,7 +727,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            return try await sink.receive(event)
+            return try await sink.receive(event.event)
         }
         _ = try await deliverReviewPackage(
             initialPackage,
@@ -743,7 +796,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: try reviewSubscription(),
             productAdmission: productAdmission.context
         ) { event, _ in
-            try await collector.append(event)
+            try await collector.append(event.event)
         }
         let validPackage = makeReviewPackage(itemCount: 4)
         let invalidPackage = replacingReviewSource(
@@ -775,7 +828,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription,
             productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
-            try await sink.receive(event, productAdmission: emittedProductAdmission)
+            try await sink.receive(event.event, productAdmission: emittedProductAdmission)
         }
         let reviewPackage = makeReviewPackage(itemCount: 4)
 
@@ -904,83 +957,4 @@ private actor ReviewMetadataAdmissionFencedSink {
         suspensionRelease?.resume()
         suspensionRelease = nil
     }
-}
-
-private actor ReviewMetadataEventCollector {
-    private(set) var events: [BridgeProductReviewMetadataEvent] = []
-    private var nextSequence = 0
-
-    func append(_ event: BridgeProductReviewMetadataEvent) throws -> BridgeProductProducerEnqueueResult {
-        nextSequence += 1
-        events.append(event)
-        return try reviewMetadataEnqueueResult(event, sequence: nextSequence)
-    }
-
-    func removeAll() {
-        events.removeAll()
-    }
-}
-
-private func reviewSubscription(interestRevision: Int = 0) throws -> BridgeProductSubscriptionSnapshot {
-    let interestState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-    return BridgeProductSubscriptionSnapshot(
-        subscription: .reviewMetadata,
-        subscriptionId: "review-subscription-1",
-        subscriptionKind: .reviewMetadata,
-        workerDerivationEpoch: 1,
-        interestRevision: interestRevision,
-        interestSha256: try interestState.sha256Hex(),
-        interestState: interestState,
-        hasStagedUpdate: false
-    )
-}
-
-private func replacingReviewItem(
-    in package: BridgeReviewPackage,
-    itemId: String,
-    fileClass: BridgeFileClass,
-    revision: Int
-) -> BridgeReviewPackage {
-    var itemsById = package.itemsById
-    let previous = itemsById[itemId]!
-    itemsById[itemId] = makeBridgeReviewItemDescriptor(
-        itemId: itemId,
-        path: previous.headPath ?? previous.basePath ?? itemId,
-        fileClass: fileClass,
-        contentRoles: previous.contentRoles
-    )
-    return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
-}
-
-private func reviewItemWithDiffStatistics(
-    _ item: BridgeReviewItemDescriptor,
-    additions: Int,
-    deletions: Int
-) -> BridgeReviewItemDescriptor {
-    BridgeReviewItemDescriptor(
-        itemId: item.itemId,
-        itemKind: item.itemKind,
-        itemVersion: item.itemVersion,
-        basePath: item.basePath,
-        headPath: item.headPath,
-        changeKind: item.changeKind,
-        fileClass: item.fileClass,
-        language: item.language,
-        extension: item.extension,
-        sizeBytes: item.sizeBytes,
-        baseContentHash: item.baseContentHash,
-        headContentHash: item.headContentHash,
-        contentHashAlgorithm: item.contentHashAlgorithm,
-        additions: additions,
-        deletions: deletions,
-        isHiddenByDefault: item.isHiddenByDefault,
-        hiddenReason: item.hiddenReason,
-        reviewPriority: item.reviewPriority,
-        contentRoles: item.contentRoles,
-        cacheKey: item.cacheKey,
-        provenance: item.provenance,
-        annotationSummary: item.annotationSummary,
-        reviewState: item.reviewState,
-        collapsed: item.collapsed
-    )
 }

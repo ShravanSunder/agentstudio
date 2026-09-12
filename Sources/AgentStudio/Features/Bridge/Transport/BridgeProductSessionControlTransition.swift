@@ -90,7 +90,8 @@ enum BridgeProductSessionControlTransitionBuilder {
         response: BridgeProductControlResponse,
         subscriptionState: BridgeProductSubscriptionState,
         resyncEpochs: [BridgeProductSurface: Int],
-        currentEpochs: [BridgeProductSurface: Int]
+        currentEpochs: [BridgeProductSurface: Int],
+        snapshotRequiredSubscriptionIds: [String] = []
     ) throws -> BridgeProductSessionControlTransition {
         try validateResponseShape(request: request, response: response)
         if case .requestError = response {
@@ -171,7 +172,8 @@ enum BridgeProductSessionControlTransitionBuilder {
                 candidateSubscriptions.reset(surface: surface)
             }
             let resyncResult = try candidateSubscriptions.reconcile(
-                activeSubscriptions: resyncRequest.activeSubscriptions
+                activeSubscriptions: resyncRequest.activeSubscriptions,
+                snapshotRequiredSubscriptionIds: snapshotRequiredSubscriptionIds
             )
             guard resyncResponse.reconciliation == resyncResult.reconciliation else {
                 throw BridgeProductSessionError.mismatchedControlResponse

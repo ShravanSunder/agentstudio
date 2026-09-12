@@ -306,7 +306,7 @@ Identity lineage is split into semantic, UI, worker, and native planes:
 | --- | --- | --- | --- | --- |
 | `paneProductAdmissionEpoch` | Swift pane synchronous gate | every native product request before work and after each suspension | pane close increments and permanently closes admission | native lifecycle tests and zero-residue trace only |
 | active/pending Review publication | Swift Review publication coordinator | package, descriptor authority, pane presentation, and metadata commit as one transaction | success retires active A after B commits; failure discards B; close revokes both | bounded identity/status facts; never a transport-owned package snapshot |
-| pane activity (`foreground | loadedHidden | dormant | closed`) | per-pane `BridgePaneActivityCoordinator` from native workspace, pane residency/controller, tab/arrangement/drawer, window, and app facts | Swift pane admission and Git scheduler | native fact transition only; worker/browser cannot mint it | surface-scoped updating chrome and native transition proof |
+| pane activity (`foreground | loadedHidden | dormant | closed`) | per-pane `BridgePaneActivityCoordinator` from native workspace, pane residency/controller, and tab/arrangement/drawer facts | Swift pane admission and Git scheduler | native pane-structure transition only; worker/browser and app/window foreground state cannot mint or revoke it | surface-scoped updating chrome and native transition proof |
 | `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale handles/admitted work | comm worker subscriptions, server seam, native proof |
 | `semanticDocumentRevision` | comm worker from algorithm-tagged content digests and document kind/ordered roles | worker and Pierre item/publication validation | changes only when semantic source content changes | display cache, complete-item residency, proof oracles |
 | `uiIntentRevision` | FE, monotonic per surface | comm worker accepts/supersedes intent and echoes the accepted value | surface remount/page session reset | FE render copies and worker intent receipts only |
@@ -1239,11 +1239,11 @@ Required trust rules:
   payload/envelope/identity/cursor/descriptor/length is in headers or URL.
   Native authenticates before body access, decode, lease, or provider work;
 - every product request is one complete typed POST body. Worker rejects encoded bodies over
-  128 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
+  256 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
   `httpBodyStream` bytes, before decode/mutation and never trusts/requires
   synthesized `Content-Length`;
-- every correlated command response package and logical metadata JSON frame is
-  likewise capped by the same 128 KiB control-package constant before decode.
+- every correlated command response package is capped at 256 KiB before decode;
+  logical metadata JSON frames retain their separate 128 KiB ceiling.
   Binary content is a distinct streamed payload with the separate frame and
   data limits in R64;
 - WebKit may materialize that small body before the scheme handler sees it, so
@@ -1576,9 +1576,9 @@ The comm worker alone uses three fixed product routes:
 | `POST agentstudio://rpc/stream` | one pane metadata-stream open/resume body | one continuous length-prefixed typed metadata response |
 | `POST agentstudio://rpc/content` | one demanded descriptor/item/role body | one independently cancellable typed binary content response |
 
-Every route follows R59's actual-body 128 KiB admission. Correlated command
-response packages and logical metadata JSON frames have the same 128 KiB
-pre-decode ceiling. Binary content response frames use their distinct bounds
+Every route follows R59's actual-body 256 KiB admission. Correlated command
+response packages share that 256 KiB pre-decode ceiling; logical metadata JSON
+frames remain bounded at 128 KiB. Binary content response frames use their distinct bounds
 below. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
 `workerInstanceId`, and its 256-bit opaque capability. Bootstrap transfers the capability's 32 bytes into the worker and detaches main; only the capability is a privileged header. Replacement revokes old subscriptions/content/leases.
 No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This hard-cut wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
@@ -1594,7 +1594,7 @@ including lane changes; removes delete membership.
 
 Interest hashes use one canonical binary form: `u8 version=1 | u8 kind (review=1, file=2) | u32be interestCount`, then exact-UTF-8-byte-sorted records of
 `u32be keyByteLength | key bytes | u8 lane` (`foreground=1`, `active=2`, `visible=3`, `nearby=4`, `speculative=5`, `idle=6`). File state appends
-`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 128 KiB; the complete encoded control package's 128 KiB limit remains authoritative. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
+`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 128 KiB; the complete encoded control package's 256 KiB limit remains authoritative. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
 
 `workerDerivationEpoch` exists only on a surface-scoped request or push frame. Closed call/subscription/content kinds map exhaustively to Review or File; ordinary variants MUST NOT repeat `surface`.
 It is required on `product.call`, each subscription open/update/cancel, each active `workerSession.resync` subscription entry, and each content open. Pane/session open, metadata-stream open, and the top-level resync envelope carry none. Swift checks independent Review/File floors only for NEW admission. Active resync entries deriving to one surface MUST share one epoch; Review and File may differ, but a same-surface conflict atomically rejects the whole resync before floor or subscription mutation.
@@ -1602,8 +1602,13 @@ Body-bearing correlated responses are `workerSession.accepted`, `call.completed`
 Frame-observation success is instead HTTP `204` with an empty body. The worker transport maps the validated request plus status into a closed typed local outcome; no `stream.frameObservedAccepted` wire package exists. Rejection uses the closed bounded status mapping and likewise carries no product payload.
 These correlated control responses do not repeat `workerDerivationEpoch`: the single pending request supplies any surface and admitted epoch. At most one update id is staged per subscription; another is rejected with
 `sequence_conflict` while the worker coalesces newer desired state. Batches start at zero, are contiguous, repeat identical update metadata, and globally
-preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/bytes and returns the cached response; changed bytes or reuse of a committed
-update id through a new request is fatal. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
+preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/bytes and returns the cached response; changed bytes remain rejected.
+The [rolling-history needs RU-U1–RU-U3](../2026-09-06-bridge-rolling-update-history/requirements.md) govern recent-ID retention.
+Each subscription rejects reuse of an update ID among its most recent 1,024 successfully committed updates. This is a rolling count window, not a
+lifetime update limit: a successful new commit evicts the oldest retained ID when the window is full. Staged or rejected batches and exact request
+replays do not advance the window. An evicted ID may label a new update only when all current subscription, epoch, request-sequence, revision/hash,
+and batch checks pass; eviction never makes an old request current. Reconciliation reset clears recent-ID history with the reset interest state;
+retained reconciliation preserves it. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
 and its recomputed hash equals the target. `BridgeProductControlMux` permits one unacknowledged admission for ordinary control work. Frame-observed acknowledgements use independent bounded per-stream gates and MUST NOT head-of-line block interactive commands, the metadata stream, or another content stream.
 
 `resync.accepted` is the sole reconciliation authority. Its `reconciliation`
@@ -1656,23 +1661,29 @@ must establish the complete length before streaming. Binary response framing is:
 
 ```text
 u32be frameBodyLength | u8 frameTag | u32be contentSequence | tag-specific body
-accepted/end/error/reset: strict typed UTF-8 JSON | data: u32be offsetBytes | raw bytes
+accepted/end/error/reset: strict typed UTF-8 JSON
+data: u32be offsetBytes | correlationEnvelope[33] | raw bytes
 ```
 
 `frameBodyLength` counts every byte after its own four-byte prefix. Tags remain `0x01 content.accepted`, `0x02 content.data`, `0x03 content.end`, `0x04 content.error`, and `0x05 content.reset`; there is no separate header-length prefix.
 `content.accepted` is sequence zero. Its strict JSON body carries full request/lease/pane/worker-instance/content identity plus the admitted `workerDerivationEpoch`, declared and maximum length, and expected digest, binding this non-multiplexed response stream to one request and producer continuation.
-Every later sequence is positive and contiguous. `content.data` carries `u32be offsetBytes` followed by raw bytes; raw length is derived from `frameBodyLength`, never repeated in JSON, and is capped at 128 KiB. Data may not precede acceptance.
+Every later sequence is positive and contiguous. `content.data` carries `u32be offsetBytes`, the 33-byte operation-correlation envelope (presence byte plus 32 digest bytes), then raw bytes. Raw length is derived from `frameBodyLength`, never repeated in JSON. The raw payload budget is 262,102 bytes: the 256 KiB frame-body envelope minus tag (1), sequence (4), offset (4), and correlation envelope (33). Data may not precede acceptance.
 `content.end`, `content.error`, and `content.reset` are terminal and carry only small strict JSON terminal fields; stream context comes from acceptance. End reports observed total and SHA-256, verifies authoritative expectation, and lets the worker derive semantic identity before cache admission.
 Every content frame body has the universal hostile-input ceiling of 256 KiB;
 every content JSON control body has a separate 16 KiB ceiling. Complete source
 bodies of any admitted length stream as the necessary number of contiguous
-128 KiB-or-smaller data frames; a partial final data frame is valid.
+262,102-byte-or-smaller data payloads; a partial final data frame is valid.
+These are shared application resource budgets, not WebKit platform maxima.
+They must accommodate the complete valid application records carried by each
+route, including encoding expansion and envelope overhead, without adding a
+second content-rejection policy. Queue byte/count bounds and acknowledgement
+backpressure remain independent of the maximum size of one frame.
 WebKit may split or coalesce bytes arbitrarily. Prefix/stage caps precede allocation/decode, and both decoders use fixed-capacity reference-owned accumulators rather than repeated copy-on-write append.
 Each native producer owns exactly one `URLSchemeTask` response continuation. Cross-stream writes, wrong producer identity, pre-accepted data, gaps, duplicates, offset mismatch, overflow, invalid digest, or post-terminal bytes poison that response, discard staged bytes, and perform no product-state mutation.
 Native queues retain frame/byte caps, terminal reserve, and a safety ceiling of 16 content-producer lifecycle residues per product session, counted as active content producers plus pending content lifecycle acknowledgements. Abort closes only that response; native stops and unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. Cancellation, revoke, disposal, and replacement join one single-flight retirement owner for each lease's exact lifecycle nonce; a failed acknowledgement retains the residue and every retry reuses that exact nonce. The worker settles only after local fetch abort plus the lifecycle frame and successful acknowledgement of the same zero-residue barrier.
-Shared raw TS/Swift vectors cover exact 128 KiB control request, correlated
-command response, and metadata JSON bodies with +1 rejection; exact 128 KiB
-content data and +1 rejection; complete multi-frame source segmentation,
+Shared raw TS/Swift vectors cover exact 256 KiB control request and correlated
+command response, 128 KiB metadata JSON bodies, and 262,102-byte content data
+payloads, each with +1 rejection; complete multi-frame source segmentation,
 including a 2 MiB fixture without treating it as a cap; 1-byte/4 KiB arbitrary
 fragmentation; cross-stream/terminal hostility; strict JSON/interest semantics;
 and checksum/cancel/resume/restart. The reconciliation corpus proves positional
@@ -1828,12 +1839,12 @@ Candidate B is invisible to pane presentation and worker render slices until its
 
 ### R68. Native pane activity controls work without erasing retained product state.
 
-`BridgePaneActivityCoordinator` is the sole mint. Browser visibility and `activeViewerMode` are inputs to neither activity nor native work admission.
+`BridgePaneActivityCoordinator` is the sole mint. Browser visibility, `activeViewerMode`, application activation, and owning-window visibility, minimization, or occlusion are inputs to neither activity nor native work admission. A Bridge pane in the foreground Agent Studio tab remains alive and converging whether the application or its window is foreground or background.
 
 | Activity | Concrete native facts | Package/presentation and admitted work |
 | --- | --- | --- |
-| `foreground` | active residency; controller installed; pane visible in the active tab/arrangement or expanded drawer; not minimized or zoom-excluded; owning window visible, unminiaturized, and unoccluded; app active | retain both surface positions; admit interactive demand plus one latest refresh; key/focus affects rank, not state |
-| `loadedHidden` | controller installed and admission open, but any foreground visibility/activity fact is false, including inactive tab/arrangement/drawer, minimized/zoom-excluded pane, hidden/miniaturized/occluded window, inactive app, or backgrounded residency | retain bounded package/cache and both positions; admit no body/prefetch/refresh; collapse invalidations to one dirty fact |
+| `foreground` | active residency; controller installed; pane visible in the active tab/arrangement or expanded drawer; not pane-minimized or zoom-excluded; application and owning-window foreground state are irrelevant | retain both surface positions; admit interactive demand plus one latest refresh; key/focus and application/window foreground state affect neither state nor admission |
+| `loadedHidden` | controller installed and admission open, but a pane-structure activity fact is false: inactive tab/arrangement/drawer, pane-minimized/zoom-excluded, or backgrounded residency | retain bounded package/cache and both positions; admit no body/prefetch/refresh; collapse invalidations to one dirty fact |
 | `dormant` | pane record can be activated, but no Bridge controller, gate, worker, package, or presentation store has been created in this app lifetime | no work and no position owner; first activation creates authority and starts File/Review at canonical defaults |
 | `closed` | close/teardown has begun or pane authority was explicitly revoked | reject synchronously; cancel/drain existing work; undo/reopen creates fresh authority |
 

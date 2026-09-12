@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { join } from 'node:path';
 
 import { BRIDGE_PRODUCT_DEV_HEALTH_ROUTE } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
+import { reserveLoopbackPort as reserveBridgeDevelopmentServerPort } from './reserve-loopback-port.js';
+
+export { reserveBridgeDevelopmentServerPort };
 
 const startupTimeoutMilliseconds = 120_000;
 const shutdownTimeoutMilliseconds = 10_000;
@@ -16,6 +18,7 @@ export interface OwnedBridgeDevelopmentServer {
 	readonly stderrTail: () => string;
 	readonly stop: () => Promise<OwnedBridgeDevelopmentServerCleanup>;
 	readonly stdoutTail: () => string;
+	readonly whenExited: Promise<void>;
 }
 
 export interface OwnedBridgeDevelopmentServerCleanup {
@@ -130,6 +133,7 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 		stop: async (): Promise<OwnedBridgeDevelopmentServerCleanup> =>
 			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
 		stdoutTail: (): string => stdoutTail,
+		whenExited: lifecycleOutcome.then((): void => {}),
 	};
 }
 
@@ -338,23 +342,6 @@ export async function runAllOwnedCleanupOperations(props: {
 		);
 	}
 	if (props.primaryError !== undefined) throw props.primaryError;
-}
-
-export async function reserveBridgeDevelopmentServerPort(): Promise<number> {
-	const server = createServer();
-	await new Promise<void>((resolve, reject): void => {
-		server.once('error', reject);
-		server.listen(0, '127.0.0.1', (): void => resolve());
-	});
-	const address = server.address();
-	if (address === null || typeof address === 'string') {
-		server.close();
-		throw new Error('Failed to reserve a loopback Swift development backend port.');
-	}
-	await new Promise<void>((resolve, reject): void => {
-		server.close((error): void => (error === undefined ? resolve() : reject(error)));
-	});
-	return address.port;
 }
 
 async function settledValue<TValue>(promise: Promise<TValue>): Promise<TValue | null> {

@@ -54,8 +54,7 @@ struct BridgeProductProducerState {
     var terminalFrameConsumed = false
     var frameWaiterToken: UUID?
     var inFlightFrameReceipt: BridgeProductProducerFrameReceipt?
-    var producerObservationPacingExpectedSequence: Int?
-    var producerObservationPacingWaiterToken: UUID?
+    var producerObservationPacingSequenceByWaiterToken: [UUID: Int] = [:]
     var producerObservedSequenceHighWater: Int?
 }
 
@@ -74,7 +73,7 @@ struct BridgeProductProducerFrameWaiterResolution {
 enum BridgeProductProducerObservationPacingPreparation {
     case observed
     case rejected
-    case wait(supersededWaiterToken: UUID?)
+    case wait
 }
 
 extension BridgeProductProducerRegistry {
@@ -227,40 +226,29 @@ extension BridgeProductProducerRegistry {
         guard state.queuedFrames.contains(where: { $0.sequence == sequence }) else {
             return .rejected
         }
-        let supersededWaiterToken: UUID?
-        if let expectedSequence = state.producerObservationPacingExpectedSequence,
-            let existingWaiterToken = state.producerObservationPacingWaiterToken
-        {
-            guard sequence > expectedSequence else { return .rejected }
-            supersededWaiterToken = existingWaiterToken
-        } else {
-            guard state.producerObservationPacingWaiterToken == nil,
-                state.producerObservationPacingExpectedSequence == nil
-            else { return .rejected }
-            supersededWaiterToken = nil
+        guard state.producerObservationPacingSequenceByWaiterToken[waiterToken] == nil else {
+            return .rejected
         }
-        state.producerObservationPacingExpectedSequence = sequence
-        state.producerObservationPacingWaiterToken = waiterToken
+        state.producerObservationPacingSequenceByWaiterToken[waiterToken] = sequence
         producersByLeaseId[lease.id] = state
-        return .wait(supersededWaiterToken: supersededWaiterToken)
+        return .wait
     }
 
     mutating func takeProducerObservationPacingResolution(
         for receipt: BridgeProductProducerFrameReceipt
-    ) -> UUID? {
+    ) -> [UUID] {
         let lease = receipt.producerLease
         guard var state = producersByLeaseId[lease.id],
-            let expectedSequence = state.producerObservationPacingExpectedSequence,
-            expectedSequence <= receipt.sequence,
-            state.producerObservedSequenceHighWater.map({ $0 >= expectedSequence }) == true,
-            let waiterToken = state.producerObservationPacingWaiterToken
-        else {
-            return nil
+            let observedSequenceHighWater = state.producerObservedSequenceHighWater
+        else { return [] }
+        let waiterTokens = state.producerObservationPacingSequenceByWaiterToken.compactMap { entry in
+            entry.value <= observedSequenceHighWater ? entry.key : nil
         }
-        state.producerObservationPacingExpectedSequence = nil
-        state.producerObservationPacingWaiterToken = nil
+        for waiterToken in waiterTokens {
+            state.producerObservationPacingSequenceByWaiterToken.removeValue(forKey: waiterToken)
+        }
         producersByLeaseId[lease.id] = state
-        return waiterToken
+        return waiterTokens
     }
 
     mutating func cancelProducerObservationPacing(
@@ -268,26 +256,23 @@ extension BridgeProductProducerRegistry {
         waiterToken: UUID
     ) -> Bool {
         guard var state = producersByLeaseId[lease.id],
-            state.producerObservationPacingWaiterToken == waiterToken
+            state.producerObservationPacingSequenceByWaiterToken.removeValue(forKey: waiterToken) != nil
         else {
             return false
         }
-        state.producerObservationPacingExpectedSequence = nil
-        state.producerObservationPacingWaiterToken = nil
         producersByLeaseId[lease.id] = state
         return true
     }
 
     mutating func abandonProducerObservationPacing(
         for lease: BridgeProductProducerLease
-    ) -> UUID? {
-        guard var state = producersByLeaseId[lease.id] else { return nil }
-        let waiterToken = state.producerObservationPacingWaiterToken
-        state.producerObservationPacingExpectedSequence = nil
-        state.producerObservationPacingWaiterToken = nil
+    ) -> [UUID] {
+        guard var state = producersByLeaseId[lease.id] else { return [] }
+        let waiterTokens = Array(state.producerObservationPacingSequenceByWaiterToken.keys)
+        state.producerObservationPacingSequenceByWaiterToken.removeAll(keepingCapacity: false)
         state.producerObservedSequenceHighWater = nil
         producersByLeaseId[lease.id] = state
-        return waiterToken
+        return waiterTokens
     }
 
     mutating func abandonFrameDelivery(

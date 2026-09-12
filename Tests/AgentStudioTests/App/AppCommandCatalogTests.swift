@@ -59,7 +59,7 @@ final class AppCommandCatalogTests {
         let def = AppCommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def.targeting == .targeted([.worktree]))
+        #expect(def.targeting == .targeted([.worktree, .pane]))
     }
 
     @MainActor
@@ -141,6 +141,7 @@ final class AppCommandCatalogTests {
         #expect(
             def.surfacePolicy
                 == .exposed([
+                    .contextMenu,
                     .commandBar,
                     .toolbar(.pane),
                     .toolbar(.terminalZoom),

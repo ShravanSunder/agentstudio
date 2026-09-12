@@ -323,6 +323,7 @@ func makeBridgeFileConstructionKey(
 
 func makeBridgeReviewConstructionKey(
     owner: BridgeWorktreeProductOwnerKey = makeBridgeConstructionOwner(),
+    attemptAuthorityGeneration: UInt64 = 0,
     queryKind: BridgeReviewQueryKindKey = .compare,
     comparisonSemantics: BridgeReviewComparisonSemanticsKey = .threeDot,
     canonicalWorkingDirectoryIdentity: String = "cwd-a",
@@ -346,6 +347,7 @@ func makeBridgeReviewConstructionKey(
     .review(
         BridgeReviewConstructionKey(
             owner: owner,
+            attemptAuthorityGeneration: attemptAuthorityGeneration,
             queryKind: queryKind,
             comparisonSemantics: comparisonSemantics,
             canonicalWorkingDirectoryIdentity: canonicalWorkingDirectoryIdentity,

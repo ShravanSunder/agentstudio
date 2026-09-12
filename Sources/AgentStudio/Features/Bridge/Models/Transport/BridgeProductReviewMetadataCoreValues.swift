@@ -37,6 +37,7 @@ enum BridgeProductReviewPublicationIdContract {
 struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case generation
+        case operationCorrelationId
         case packageId
         case publicationId
         case revision
@@ -46,6 +47,7 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
     static let codingKeyNames = Set(CodingKeys.allCases.map(\.rawValue))
 
     let generation: Int
+    let operationCorrelationID: String?
     let packageId: String
     let publicationId: UUID
     let revision: Int
@@ -56,13 +58,15 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
         packageId: String,
         publicationId: UUID,
         revision: Int,
-        sourceIdentity: String
+        sourceIdentity: String,
+        operationCorrelationID: String? = nil
     ) throws {
         self.generation = generation
         self.packageId = packageId
         self.publicationId = publicationId
         self.revision = revision
         self.sourceIdentity = sourceIdentity
+        self.operationCorrelationID = operationCorrelationID
         _ = try BridgeProductReviewPublicationIdContract.decode(
             publicationId.uuidString.lowercased(),
             codingPath: []
@@ -71,11 +75,20 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: [])
         try BridgeProductContractDecoding.validateNonnegative(revision, name: "revision", codingPath: [])
         try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: [])
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(operationCorrelationID, codingPath: [])
+        }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.generation = try container.decode(Int.self, forKey: .generation)
+        self.operationCorrelationID = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .operationCorrelationId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.packageId = try container.decode(String.self, forKey: .packageId)
         let publicationIdValue = try container.decode(String.self, forKey: .publicationId)
         self.publicationId = try BridgeProductReviewPublicationIdContract.decode(
@@ -96,11 +109,18 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: decoder.codingPath)
+        if let operationCorrelationID {
+            try BridgeProductContractDecoding.validateSHA256(
+                operationCorrelationID,
+                codingPath: decoder.codingPath
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(generation, forKey: .generation)
+        try container.encode(operationCorrelationID, forKey: .operationCorrelationId)
         try container.encode(packageId, forKey: .packageId)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(publicationId),

@@ -113,7 +113,8 @@ extension BridgeProductContentFrameCodecTests {
     @Test("complete File content exceeds the legacy prefix through seventeen data frames")
     func completeFileContentExceedsLegacyPrefixThroughSeventeenDataFrames() throws {
         // Arrange
-        let dataFrameByteCount = BridgeProductWireContract.maximumContentDataPayloadBytes
+        // Keep this fixed seventeen-frame fragmentation vector independent of the maximum.
+        let dataFrameByteCount = 128 * 1024
         let legacyPrefixByteCount = BridgeProductWireContract.maximumContentBytes
         let finalDataFrameByteCount = 65
         var sourceData = Data(repeating: 0x61, count: legacyPrefixByteCount)
@@ -202,7 +203,7 @@ extension BridgeProductContentFrameCodecTests {
         #expect(decodedFrames.count == 19)
         #expect(readUInt32BigEndian(encodedFrames[17], offset: 5) == 17)
         #expect(readUInt32BigEndian(encodedFrames[17], offset: 9) == legacyPrefixByteCount)
-        #expect(encodedFrames[17].count == 4 + 1 + 4 + 4 + finalDataFrameByteCount)
+        #expect(encodedFrames[17].count == 4 + 1 + 4 + 4 + 33 + finalDataFrameByteCount)
         #expect(
             terminal
                 == .complete(
@@ -260,6 +261,7 @@ extension BridgeProductContentFrameCodecTests {
             ]) { _, newValue in newValue },
             "kind": "content.open",
             "leaseId": "review-lease-1",
+            "operationCorrelationId": NSNull(),
             "paneSessionId": "pane-session-1",
             "wireVersion": 2,
             "workerDerivationEpoch": 2,
@@ -274,6 +276,7 @@ extension BridgeProductContentFrameCodecTests {
             "kind": "content.accepted",
             "leaseId": "review-lease-1",
             "maximumBytes": 3,
+            "operationCorrelationId": NSNull(),
             "paneSessionId": "pane-session-1",
             "wireVersion": 2,
             "workerDerivationEpoch": 2,

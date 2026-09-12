@@ -117,6 +117,7 @@ export interface BridgeFrameJankTelemetrySampleProps {
 }
 
 export interface BridgeViewerFirstInteractionReadyTelemetrySampleProps {
+	readonly activationSequence?: number;
 	readonly durationMilliseconds: number;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
@@ -170,6 +171,7 @@ export interface BridgeCodeViewItemMaterializeTelemetrySampleProps {
 }
 
 export interface BridgeSelectedContentPaintedTelemetrySampleProps {
+	readonly activationSequence?: number;
 	readonly clickToPaintMilliseconds: number;
 	readonly frameWaitMilliseconds: number;
 	readonly materializeMilliseconds: number;
@@ -580,6 +582,9 @@ export function recordBridgeViewerFirstInteractionReadyTelemetrySample(
 				'agentstudio.bridge.viewer.ttfi_variant': props.variant,
 			},
 			numericAttributes: {
+				...(props.activationSequence === undefined
+					? {}
+					: { 'agentstudio.bridge.activation.sequence': props.activationSequence }),
 				'agentstudio.bridge.visible_item.count': props.visibleItemCount,
 			},
 			booleanAttributes: {},
@@ -760,6 +765,9 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 				'agentstudio.bridge.viewer': props.viewer,
 			},
 			numericAttributes: {
+				...(props.activationSequence === undefined
+					? {}
+					: { 'agentstudio.bridge.activation.sequence': props.activationSequence }),
 				'agentstudio.bridge.selected_content.click_to_paint_ms': clickToPaintMilliseconds,
 				'agentstudio.bridge.selected_content.frame_wait_ms': Math.max(
 					0,

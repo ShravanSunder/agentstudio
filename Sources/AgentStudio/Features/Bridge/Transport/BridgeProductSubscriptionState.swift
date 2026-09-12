@@ -2,7 +2,6 @@ import Foundation
 
 enum BridgeProductSubscriptionStateError: Error, Equatable {
     case barrierIntentCapacityExceeded
-    case committedUpdateIdCapacityExceeded
     case duplicateSubscriptionId
     case unknownSubscriptionId
     case subscriptionCapacityExceeded
@@ -75,7 +74,7 @@ struct BridgeProductSubscriptionResyncResult: Equatable, Sendable {
 
 struct BridgeProductSubscriptionState: Sendable {
     private typealias ExactUTF8Identity = BridgeProductSubscriptionExactUTF8Identity
-    private typealias DeltaMemberIdentity = BridgeProductSubscriptionDeltaMemberIdentity
+    private typealias DeltaMemberIdentity = Data
 
     private struct StagedUpdateMetadata: Equatable, Sendable {
         let updateId: String
@@ -119,7 +118,7 @@ struct BridgeProductSubscriptionState: Sendable {
         var interestSha256: String
         var interestState: BridgeProductSubscriptionInterestState
         var stagedUpdate: StagedUpdate?
-        var committedUpdateIds: Set<ExactUTF8Identity>
+        var committedUpdateIds: BridgeProductCommittedUpdateHistory
     }
 
     private struct ActiveSubscriptionReconciliation {
@@ -166,7 +165,7 @@ struct BridgeProductSubscriptionState: Sendable {
             throw BridgeProductSubscriptionStateError.subscriptionCapacityExceeded
         }
 
-        let interestState = Self.emptyInterestState(for: request.subscription.subscriptionKind)
+        let interestState = try request.subscription.initialInterestState()
         let interestSha256 = try interestState.sha256Hex()
         let record = SubscriptionRecord(
             subscription: request.subscription,
@@ -177,7 +176,7 @@ struct BridgeProductSubscriptionState: Sendable {
             interestSha256: interestSha256,
             interestState: interestState,
             stagedUpdate: nil,
-            committedUpdateIds: []
+            committedUpdateIds: .init(capacity: maximumCommittedUpdateIdCount)
         )
         recordsBySubscriptionId[subscriptionIdentity] = record
         return BridgeProductSubscriptionOpenReceipt(
@@ -265,9 +264,6 @@ struct BridgeProductSubscriptionState: Sendable {
         guard stagedUpdate.itemCount == request.totalDeltaItemCount else {
             throw BridgeProductSubscriptionStateError.deltaItemCountMismatch
         }
-        guard record.committedUpdateIds.count < maximumCommittedUpdateIdCount else {
-            throw BridgeProductSubscriptionStateError.committedUpdateIdCapacityExceeded
-        }
         guard barrierIntents.count < maximumPendingBarrierIntentCount else {
             throw BridgeProductSubscriptionStateError.barrierIntentCapacityExceeded
         }
@@ -316,6 +312,12 @@ struct BridgeProductSubscriptionState: Sendable {
         )
     }
 
+    func snapshots() -> [BridgeProductSubscriptionSnapshot] {
+        recordsBySubscriptionId.values
+            .sorted { Data($0.subscriptionId.utf8).lexicographicallyPrecedes(Data($1.subscriptionId.utf8)) }
+            .map(Self.snapshot)
+    }
+
     mutating func cancel(
         _ request: BridgeProductSubscriptionCancelRequest
     ) throws -> BridgeProductSubscriptionSnapshot {
@@ -346,8 +348,10 @@ struct BridgeProductSubscriptionState: Sendable {
     }
 
     mutating func reconcile(
-        activeSubscriptions: [BridgeProductActiveSubscription]
+        activeSubscriptions: [BridgeProductActiveSubscription],
+        snapshotRequiredSubscriptionIds: [String] = []
     ) throws -> BridgeProductSubscriptionResyncResult {
+        let snapshotRequiredIdentities = Set(snapshotRequiredSubscriptionIds.map(ExactUTF8Identity.init))
         let activeIdentities = activeSubscriptions.map {
             ExactUTF8Identity($0.subscriptionId)
         }
@@ -378,7 +382,8 @@ struct BridgeProductSubscriptionState: Sendable {
             let identity = ExactUTF8Identity(activeSubscription.subscriptionId)
             let step = try Self.reconcile(
                 activeSubscription: activeSubscription,
-                record: recordsBySubscriptionId[identity]
+                record: recordsBySubscriptionId[identity],
+                snapshotRequired: snapshotRequiredIdentities.contains(identity)
             )
             candidateRecords[identity] = step.candidateRecord
             reconciliation.append(step.outcome)
@@ -410,7 +415,8 @@ struct BridgeProductSubscriptionState: Sendable {
 
     private static func reconcile(
         activeSubscription: BridgeProductActiveSubscription,
-        record: SubscriptionRecord?
+        record: SubscriptionRecord?,
+        snapshotRequired: Bool
     ) throws -> ActiveSubscriptionReconciliation {
         guard let record else {
             return ActiveSubscriptionReconciliation(
@@ -443,6 +449,20 @@ struct BridgeProductSubscriptionState: Sendable {
             )
         }
 
+        if snapshotRequired {
+            return ActiveSubscriptionReconciliation(
+                candidateRecord: nil,
+                outcome: .reopenRequired(
+                    try .init(
+                        subscriptionId: record.subscriptionId,
+                        subscriptionKind: record.subscriptionKind,
+                        requiredWorkerDerivationEpoch: record.workerDerivationEpoch,
+                        reason: .snapshotRequired
+                    )),
+                resetIntent: nil
+            )
+        }
+
         var candidateRecord = record
         candidateRecord.stagedUpdate = nil
         if record.interestRevision == activeSubscription.interestRevision,
@@ -469,12 +489,12 @@ struct BridgeProductSubscriptionState: Sendable {
         guard greatestInterestRevision < BridgeProductWireContract.maximumSafeInteger else {
             throw BridgeProductSubscriptionStateError.interestRevisionExhausted
         }
-        let emptyInterestState = Self.emptyInterestState(for: record.subscriptionKind)
+        let emptyInterestState = try record.subscription.initialInterestState()
         let emptyInterestSHA256 = try emptyInterestState.sha256Hex()
         candidateRecord.interestRevision = greatestInterestRevision + 1
         candidateRecord.interestSha256 = emptyInterestSHA256
         candidateRecord.interestState = emptyInterestState
-        candidateRecord.committedUpdateIds.removeAll(keepingCapacity: false)
+        candidateRecord.committedUpdateIds.removeAll()
         return ActiveSubscriptionReconciliation(
             candidateRecord: candidateRecord,
             outcome: .reset(
@@ -515,17 +535,6 @@ struct BridgeProductSubscriptionState: Sendable {
     mutating func revokeWorker() {
         recordsBySubscriptionId.removeAll(keepingCapacity: false)
         barrierIntents.removeAll(keepingCapacity: false)
-    }
-
-    static func emptyInterestState(
-        for subscriptionKind: BridgeProductSubscriptionKind
-    ) -> BridgeProductSubscriptionInterestState {
-        switch subscriptionKind {
-        case .fileMetadata:
-            .fileMetadata(interests: [], pathScope: [])
-        case .reviewMetadata:
-            .reviewMetadata(interests: [])
-        }
     }
 
     private static func snapshot(

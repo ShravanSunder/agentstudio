@@ -463,7 +463,7 @@ private struct WorkspaceSQLiteSaveCoordinatorFixture {
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let coreRepository: WorkspaceCoreRepository
     let preparedApplicationLocalRepository: WorkspaceLocalRepository
-    let datastore: WorkspaceSQLiteDatastore
+    let datastore: WorkspaceSQLiteDatastoreActor
     let coordinator: WorkspaceSQLiteSaveCoordinator
     let probe: WorkspaceSQLiteSaveCoordinatorProbe
 }
@@ -590,9 +590,9 @@ private func makeUnownedPane(title: String, residency: SessionResidency) -> Pane
 }
 
 private actor WorkspaceSQLiteSaveCoordinatorProbe {
-    private(set) var events: [WorkspaceSQLiteDatastore.ProbeEvent] = []
+    private(set) var events: [WorkspaceSQLiteDatastoreActor.ProbeEvent] = []
 
-    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+    func record(_ event: WorkspaceSQLiteDatastoreActor.ProbeEvent) {
         events.append(event)
     }
 }

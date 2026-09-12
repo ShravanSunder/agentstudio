@@ -22,6 +22,24 @@ package struct BridgeProductAdmissionContext: Sendable {
     func wasMinted(by expectedGate: BridgeProductAdmissionGate) -> Bool {
         gate === expectedGate
     }
+
+    func diagnosticRelation(to other: Self) -> BridgeProductAdmissionDiagnosticRelation {
+        BridgeProductAdmissionDiagnosticRelation(
+            matches: matches(other),
+            sameEpoch: token.epoch == other.token.epoch,
+            sameGate: gate === other.gate,
+            selfIsValid: withValidAdmission { true } == true,
+            otherIsValid: other.withValidAdmission { true } == true
+        )
+    }
+}
+
+struct BridgeProductAdmissionDiagnosticRelation: Equatable, Sendable {
+    let matches: Bool
+    let sameEpoch: Bool
+    let sameGate: Bool
+    let selfIsValid: Bool
+    let otherIsValid: Bool
 }
 
 /// Synchronously linearizes pane admission with terminal pane teardown.
