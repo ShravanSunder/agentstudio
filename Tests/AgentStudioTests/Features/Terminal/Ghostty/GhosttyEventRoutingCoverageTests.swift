@@ -9,7 +9,12 @@ import Testing
 struct GhosttyEventRoutingCoverageTests {
     @Test("upstream action vocabulary has no unmapped values")
     func upstreamActionVocabularyHasNoUnmappedValues() throws {
-        let header = try String(contentsOfFile: "vendor/ghostty/include/ghostty.h", encoding: .utf8)
+        // Shared worktrees consume the primary framework without hydrating local vendor sources.
+        let frameworkURL = URL(fileURLWithPath: "Frameworks/GhosttyKit.xcframework", isDirectory: true)
+            .resolvingSymlinksInPath()
+        let producerRoot = frameworkURL.deletingLastPathComponent().deletingLastPathComponent()
+        let headerURL = producerRoot.appending(path: "vendor/ghostty/include/ghostty.h")
+        let header = try String(contentsOf: headerURL, encoding: .utf8)
         let enumEnd = try #require(header.range(of: "} ghostty_action_tag_e;"))
         let enumStart = try #require(header[..<enumEnd.lowerBound].range(of: "typedef enum {", options: .backwards))
         let entries = header[enumStart.upperBound..<enumEnd.lowerBound]
